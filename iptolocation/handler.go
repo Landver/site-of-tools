@@ -1,6 +1,7 @@
 package iptolocation
 
 import (
+	"net"
 	"net/http"
 	"strings"
 
@@ -18,23 +19,33 @@ type Looker interface {
 
 // Register wires the ip.corpberry.com routes onto e.
 //
-//	GET /        landing page with the lookup form (?ip= prefills / runs a lookup)
+//	GET /        the visitor's own IP by default (or ?ip= to look one up)
 //	GET /:ip     look up a specific IP (pretty URL for browsers and `curl`)
 func Register(e *echo.Echo, svc Looker) {
 	e.GET("/", func(c *echo.Context) error {
-		if ip := strings.TrimSpace(c.QueryParam("ip")); ip != "" {
-			return lookup(c, svc, ip)
+		ip := strings.TrimSpace(c.QueryParam("ip"))
+		self := false
+		if ip == "" {
+			// Default to the caller's own IP when it's a routable public address
+			// (skips 127.0.0.1 in dev, private ranges, etc.).
+			if own := c.RealIP(); routable(own) {
+				ip, self = own, true
+			}
 		}
-		return c.Render(http.StatusOK, "ip/index", map[string]any{"Title": "IP → Location"})
+		if ip == "" {
+			return c.Render(http.StatusOK, "ip/index", map[string]any{"Title": "IP → Location", "Query": ""})
+		}
+		return show(c, svc, ip, self)
 	})
 
 	e.GET("/:ip", func(c *echo.Context) error {
-		return lookup(c, svc, strings.TrimSpace(c.Param("ip")))
+		return show(c, svc, strings.TrimSpace(c.Param("ip")), false)
 	})
 }
 
-// lookup performs the lookup and responds in the caller's preferred format.
-func lookup(c *echo.Context, svc Looker, ip string) error {
+// show looks up ip and responds in the caller's preferred format. self marks the
+// result as the visitor's own IP (for a small label in the HTML view).
+func show(c *echo.Context, svc Looker, ip string, self bool) error {
 	res, err := svc.Lookup(ip)
 
 	// API / CLI: raw JSON (result or error).
@@ -46,7 +57,7 @@ func lookup(c *echo.Context, svc Looker, ip string) error {
 	}
 
 	// Browser / htmx: a view model rendered as a full page or a fragment.
-	vm := map[string]any{"Title": "IP → Location", "Query": ip, "Result": res}
+	vm := map[string]any{"Title": "IP → Location", "Query": ip, "Result": res, "Self": self}
 	code := http.StatusOK
 	if err != nil {
 		vm["Result"] = nil
@@ -64,4 +75,12 @@ func statusFor(err error) int {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest
+}
+
+// routable reports whether ipStr is a public address worth geolocating — not
+// loopback / private / link-local / unspecified.
+func routable(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
 }

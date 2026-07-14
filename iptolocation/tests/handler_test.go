@@ -97,3 +97,20 @@ func TestHandlerErrorStatus(t *testing.T) {
 		t.Errorf("ErrUnavailable → code %d, want 503", rec.Code)
 	}
 }
+
+func TestHandlerDefaultsToVisitorIP(t *testing.T) {
+	// Bare "/" with no ?ip looks up the caller's own (routable) IP.
+	app := newTestApp(fakeLooker{res: &iptolocation.Result{IP: "203.0.113.7", CountryCode: "US"}})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+	req.RemoteAddr = "203.0.113.7:5555" // TEST-NET-3 — a routable address
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"country_code":"US"`) {
+		t.Errorf("bare / should look up the visitor's own IP, got:\n%s", rec.Body.String())
+	}
+}

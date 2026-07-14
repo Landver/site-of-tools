@@ -6,6 +6,7 @@
 {{else if .Result}}
   {{with .Result}}
   <div class="rounded-lg border border-neutral-800 bg-neutral-900/50 p-5">
+    {{if $.Self}}<div class="mb-2 font-mono text-xs uppercase tracking-widest text-brand">your address</div>{{end}}
     <div class="mb-3 font-mono text-lg text-white">{{.IP}}</div>
     <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
       <dt class="text-neutral-500">Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
