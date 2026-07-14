@@ -1,0 +1,17 @@
+#!/bin/sh
+# Test gate enforced on `git push`.
+# Enable once per clone with:  make hooks   (or: git config core.hooksPath .githooks)
+set -e
+
+if ! command -v go >/dev/null 2>&1; then
+	echo "pre-push: 'go' not found on PATH — install Go, then retry the push." >&2
+	exit 1
+fi
+
+echo "pre-push › go vet ./..."
+go vet ./...
+
+echo "pre-push › go test ./..."
+go test ./...
+
+echo "pre-push › OK"

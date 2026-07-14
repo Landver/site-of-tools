@@ -1,0 +1,39 @@
+{{define "ip/index"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body class="bg-neutral-950 text-neutral-200 min-h-screen flex flex-col antialiased">
+  {{template "partials/header" .}}
+
+  <main class="max-w-2xl mx-auto w-full px-6 py-12 flex-1">
+    <h1 class="text-2xl font-semibold text-white">IP → Location</h1>
+    <p class="mt-2 text-sm text-neutral-400">
+      Geolocation and network (ASN) for any IP address.
+      Tip: <code class="text-neutral-300">curl {{if .Host}}{{.Host}}{{else}}ip.corpberry.com{{end}}/8.8.8.8</code> returns JSON.
+    </p>
+
+    <!-- htmx submits to "/" with ?ip=… ; Alpine only disables the button when empty -->
+    <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
+          x-data="{ q: '{{if .Query}}{{.Query}}{{end}}' }"
+          class="mt-6 flex gap-2">
+      <input name="ip" x-model="q" autofocus autocomplete="off" spellcheck="false"
+             placeholder="8.8.8.8 or 2001:4860:4860::8888"
+             class="flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm
+                    text-white placeholder-neutral-600 focus:border-brand focus:outline-none">
+      <button type="submit" :disabled="!q.trim()"
+              class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white
+                     hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
+        Look up
+      </button>
+      <span class="htmx-indicator self-center text-sm text-neutral-500">…</span>
+    </form>
+
+    <div id="result" class="mt-6">
+      {{template "ip/result" .}}
+    </div>
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

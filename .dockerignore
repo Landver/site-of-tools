@@ -1,0 +1,10 @@
+# Keep the build context small. CRUCIAL: never send the multi-GB DB assets.
+.git
+.gitignore
+tmp
+bin
+iptolocation/assets
+.env
+shared/tailwindcss
+docs
+*.md

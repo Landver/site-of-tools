@@ -1,0 +1,23 @@
+services:
+  site-of-tools:
+    build: .
+    container_name: site-of-tools
+    restart: unless-stopped
+    # Published to host loopback only; nginx reaches it via the docker bridge
+    # gateway (172.17.0.1:8080). Not exposed to the public internet.
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file: .env
+    environment:
+      APP_ENV: prod
+      LISTEN_ADDR: ":8080"
+      BASE_DOMAIN: corpberry.com
+      # Paths inside the container, matching the read-only assets mount below.
+      IP2LOCATION_DB11_V4: /assets/ipv4/IP2LOCATION-LITE-DB11.BIN
+      IP2LOCATION_DB11_V6: /assets/ipv6/IP2LOCATION-LITE-DB11.IPV6.BIN
+      IP2LOCATION_ASN_V4: /assets/asn/IP2LOCATION-LITE-ASN.BIN
+      IP2LOCATION_ASN_V6: /assets/asn/IP2LOCATION-LITE-ASN.IPV6.BIN
+    volumes:
+      # The large .BIN databases live on the host, mounted read-only —
+      # never baked into the image.
+      - ./iptolocation/assets:/assets:ro

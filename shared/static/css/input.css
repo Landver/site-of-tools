@@ -1,0 +1,14 @@
+/* Tailwind v4 — CSS-first config, no tailwind.config.js.
+   Built by the standalone binary: `make css` (or --watch). */
+@import "tailwindcss";
+
+/* Scan every project's Go html/template files for class names.
+   Paths are relative to THIS file (shared/static/css/). */
+@source "../../templates/**/*.html";
+@source "../../../site/templates/**/*.html";
+@source "../../../iptolocation/templates/**/*.html";
+
+@theme {
+  /* corpberry magenta — enables text-brand / bg-brand / border-brand utilities */
+  --color-brand: #b83266;
+}

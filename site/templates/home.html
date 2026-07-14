@@ -1,0 +1,35 @@
+{{define "site/home"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body class="bg-neutral-950 text-neutral-200 min-h-screen flex flex-col antialiased">
+  {{template "partials/header" .}}
+
+  <main class="max-w-2xl mx-auto w-full px-6 py-12 flex-1">
+    <section class="mb-12">
+      <h1 class="text-3xl font-semibold text-white">Hi, I'm Stas.</h1>
+      <p class="mt-3 text-neutral-400 leading-relaxed">
+        Backend, DevOps, and AI integration. This is my playground: small tools
+        and experiments, each on its own subdomain. Expect things to appear,
+        change, and occasionally break.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-sm uppercase tracking-wide text-neutral-500 mb-4">Tools</h2>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {{range .Tools}}
+        <a href="{{.URL}}"
+           class="block rounded-lg border border-neutral-800 p-4 transition hover:border-brand hover:bg-neutral-900">
+          <div class="font-medium text-white">{{.Name}}</div>
+          <div class="mt-1 text-sm text-neutral-400">{{.Desc}}</div>
+        </a>
+        {{end}}
+      </div>
+    </section>
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
