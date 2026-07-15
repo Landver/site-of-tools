@@ -20,8 +20,8 @@ type tool struct {
 func Register(e *echo.Echo, cfg platform.Config) {
 	tools := []tool{
 		{
-			Name: "IP → Location",
-			Desc: "Geolocation and network (ASN) for any IP address.",
+			Name: "IP Toolkit",
+			Desc: "Geolocation, network (ASN), and proxy/VPN detection for any IP, plus a live IPv6 connectivity check.",
 			URL:  cfg.URL("ip"),
 		},
 	}

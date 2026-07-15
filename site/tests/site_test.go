@@ -52,7 +52,7 @@ func TestHomeJSON(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("content-type = %q, want application/json", ct)
 	}
-	if !strings.Contains(rec.Body.String(), "IP → Location") {
+	if !strings.Contains(rec.Body.String(), "IP Toolkit") {
 		t.Errorf("json should list the tool, got:\n%s", rec.Body.String())
 	}
 }
