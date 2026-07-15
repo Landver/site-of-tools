@@ -1,8 +1,36 @@
 {{define "partials/header"}}
 <header class="border-b border-neutral-800">
-  <div class="max-w-2xl mx-auto w-full px-6 py-4 flex items-center gap-2">
-    <span class="inline-block h-3 w-3 rounded-full bg-brand"></span>
-    <a href="/" class="text-sm font-medium text-neutral-300 hover:text-white">corpberry.com</a>
+  <div class="max-w-2xl mx-auto w-full px-6 py-4 flex items-center gap-4">
+    <!-- Logo always links to the apex (corpberry.com), even from a tool subdomain. -->
+    <a href="{{apexURL}}" class="flex items-center gap-2 text-sm font-medium text-neutral-300 hover:text-white">
+      <span class="inline-block h-3 w-3 rounded-full bg-brand"></span>
+      corpberry.com
+    </a>
+
+    <nav class="ml-auto flex items-center gap-6 text-sm">
+      <!-- Tools: a dropdown of the tool catalog (single source: site.Tools). -->
+      <div class="relative" x-data="{ open: false }"
+           @click.outside="open = false" @keydown.escape.window="open = false">
+        <button type="button" @click="open = !open"
+                class="flex items-center gap-1 text-neutral-300 hover:text-white">
+          Tools
+          <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'"
+               viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.5"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div x-show="open" x-cloak x-transition.opacity
+             class="absolute right-0 z-10 mt-2 w-56 rounded-lg border border-neutral-800 bg-neutral-900 p-1 shadow-lg">
+          {{range navTools}}
+          <a href="{{.URL}}"
+             class="block rounded-md px-3 py-2 text-neutral-300 hover:bg-neutral-800 hover:text-white">{{.Name}}</a>
+          {{else}}
+          <span class="block px-3 py-2 text-neutral-500">No tools yet</span>
+          {{end}}
+        </div>
+      </div>
+    </nav>
   </div>
 </header>
 {{end}}

@@ -9,6 +9,24 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// Tool is one entry in the site's tool catalog: rendered in the apex tools index
+// and the header's Tools dropdown. It lives here (the base package everyone
+// imports) so the renderer and each feature can share one type; the actual
+// catalog is a single func, site.Tools.
+type Tool struct {
+	Name string
+	Desc string
+	URL  string
+}
+
+// navBaseFuncs are safe fallbacks for the template funcs the shared header calls,
+// so any renderer parses even when built with nil funcs (e.g. in tests). main.go
+// overrides these with config-aware versions.
+var navBaseFuncs = template.FuncMap{
+	"apexURL":  func() string { return "/" },
+	"navTools": func() []Tool { return nil },
+}
+
 // TemplateSource describes one package's templates: its embedded FS (which
 // always contains a "templates" dir) and the disk dir to read in dev.
 type TemplateSource struct {
@@ -24,11 +42,15 @@ func (s TemplateSource) fsys(dev bool) fs.FS { return SubFS(s.Embed, "templates"
 type Renderer struct {
 	sources []TemplateSource
 	dev     bool
+	funcs   template.FuncMap
 	tmpl    *template.Template
 }
 
-func NewRenderer(dev bool, sources ...TemplateSource) *Renderer {
-	r := &Renderer{sources: sources, dev: dev}
+// NewRenderer builds the renderer. funcs are template functions available to
+// every template (e.g. the shared header's apexURL/navTools). Pass nil for none:
+// the shared nav funcs then fall back to safe defaults (see navBaseFuncs).
+func NewRenderer(dev bool, funcs template.FuncMap, sources ...TemplateSource) *Renderer {
+	r := &Renderer{sources: sources, dev: dev, funcs: funcs}
 	if !dev {
 		r.tmpl = r.parse()
 	}
@@ -36,7 +58,8 @@ func NewRenderer(dev bool, sources ...TemplateSource) *Renderer {
 }
 
 func (r *Renderer) parse() *template.Template {
-	t := template.New("")
+	// Base nav funcs first, then caller overrides (Funcs is additive; nil is a no-op).
+	t := template.New("").Funcs(navBaseFuncs).Funcs(r.funcs)
 	for _, s := range r.sources {
 		t = parseAll(t, s.fsys(r.dev))
 	}

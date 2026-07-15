@@ -27,7 +27,7 @@ func (f fakeLooker) Lookup(string) (*iptolocation.Result, error) { return f.res,
 // newTestApp builds a bare echo with the real (embedded) templates and the given
 // Looker. Embedded FS is used so it works regardless of the test's cwd.
 func newTestApp(svc iptolocation.Looker) *echo.Echo {
-	r := platform.NewRenderer(false,
+	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptolocation.Templates, DevDir: "iptolocation/templates"},
 	)

@@ -15,7 +15,7 @@ import (
 )
 
 func newTestApp() *echo.Echo {
-	r := platform.NewRenderer(false,
+	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
 	)

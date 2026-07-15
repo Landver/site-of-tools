@@ -4,7 +4,9 @@
 package platform
 
 import (
+	"context"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -23,7 +25,7 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool) *echo.Echo {
 	e.IPExtractor = cfIPExtractor()
 
 	e.Use(middleware.Recover())
-	e.Use(middleware.RequestLogger())
+	e.Use(requestLogger())
 	e.Use(middleware.Gzip())
 
 	if dev {
@@ -75,4 +77,41 @@ func cfIPExtractor() echo.IPExtractor {
 		host, _, _ := net.SplitHostPort(req.RemoteAddr)
 		return host
 	}
+}
+
+// requestLogger is the built-in v5 RequestLogger trimmed to the fields we care
+// about: it drops user_agent and request_id and puts status before uri. slog
+// still prepends time/level/msg. One attribute list serves both the success and
+// error cases (error appends its own field).
+func requestLogger() echo.MiddlewareFunc {
+	return middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogLatency:       true,
+		LogRemoteIP:      true,
+		LogHost:          true,
+		LogMethod:        true,
+		LogURI:           true,
+		LogStatus:        true,
+		LogContentLength: true,
+		LogResponseSize:  true,
+		HandleError:      true, // forward errors to the global handler for the right status
+		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
+			level, msg := slog.LevelInfo, "REQUEST"
+			attrs := []slog.Attr{
+				slog.String("method", v.Method),
+				slog.Int("status", v.Status),
+				slog.String("uri", v.URI),
+				slog.Duration("latency", v.Latency),
+				slog.String("host", v.Host),
+				slog.String("bytes_in", v.ContentLength),
+				slog.Int64("bytes_out", v.ResponseSize),
+				slog.String("remote_ip", v.RemoteIP),
+			}
+			if v.Error != nil {
+				level, msg = slog.LevelError, "REQUEST_ERROR"
+				attrs = append(attrs, slog.String("error", v.Error.Error()))
+			}
+			c.Logger().LogAttrs(context.Background(), level, msg, attrs...)
+			return nil
+		},
+	})
 }

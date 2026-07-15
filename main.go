@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"html/template"
 	"log"
 	"maps"
 	"slices"
@@ -20,8 +21,16 @@ import (
 func main() {
 	cfg := platform.Load()
 
+	// Template funcs available to every template: the shared header uses these for
+	// the logo link (always the apex) and the Tools dropdown. Tools come from one
+	// catalog (site.Tools), so the nav and the apex index render the same list.
+	navFuncs := template.FuncMap{
+		"apexURL":  func() string { return cfg.URL("") },
+		"navTools": func() []platform.Tool { return site.Tools(cfg) },
+	}
+
 	// One template set assembled from shared partials + each project's templates.
-	renderer := platform.NewRenderer(cfg.IsDev(),
+	renderer := platform.NewRenderer(cfg.IsDev(), navFuncs,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
 		platform.TemplateSource{Embed: iptolocation.Templates, DevDir: "iptolocation/templates"},
