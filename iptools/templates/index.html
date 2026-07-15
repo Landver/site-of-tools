@@ -31,12 +31,10 @@
       <div class="mt-3 space-y-3 text-muted">
         <p>Every view also speaks JSON — browsers get the page, everything else gets JSON.</p>
         <div class="space-y-2 font-mono text-xs">
-          <p><span class="text-faint"># your IP + geolocation + connection (JSON)</span><br>
+          <p><span class="text-faint"># your IP + geolocation (JSON)</span><br>
              <span class="text-strong">curl https://ip.corpberry.com</span></p>
           <p><span class="text-faint"># look up any IP — geolocation + proxy/VPN (JSON)</span><br>
              <span class="text-strong">curl 'https://ip.corpberry.com/?ip=8.8.8.8'</span></p>
-          <p><span class="text-faint"># subnet / CIDR calculator (JSON)</span><br>
-             <span class="text-strong">curl 'https://ip.corpberry.com/cidr?cidr=10.0.0.0/8'</span></p>
         </div>
       </div>
     </details>
@@ -64,31 +62,20 @@
         </p>
       </div>
 
-      <!-- Your request: server-rendered from the current request (handler.conn()).
-           Honest about what's knowable here — TLS cipher/version and HTTP version
-           terminate upstream, so they're omitted; Cookie/Authorization are never
-           read. Guarded so a render without .Conn simply drops the card. -->
+      <!-- Your request: server-rendered request metadata (handler conn()). TLS and
+           HTTP version terminate upstream so they're omitted; Cookie/Authorization
+           are never read. Guarded so a render without .Conn drops the card. -->
       {{with .Conn}}
       <div class="card">
         <div class="eyebrow mb-3">your request</div>
         <dl class="spec">
           <dt class="text-faint">Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
-          <dt class="text-faint">Hostname</dt>     <dd class="font-mono break-all text-strong">{{with .Hostname}}{{.}}{{else}}—{{end}}</dd>
           <dt class="text-faint">Detected via</dt> <dd>{{.Via}}</dd>
           <dt class="text-faint">Connection</dt>   <dd>{{.Scheme}}</dd>
           <dt class="text-faint">Language</dt>     <dd>{{with .Language}}{{.}}{{else}}—{{end}}</dd>
           <dt class="text-faint">Host</dt>         <dd class="break-all">{{.Host}}</dd>
           <dt class="text-faint">Browser</dt>      <dd class="font-mono break-all text-strong">{{.Browser}}</dd>
         </dl>
-        <details class="mt-4">
-          <summary class="cursor-pointer text-sm text-faint hover:text-muted">How your IP was detected</summary>
-          <dl class="mt-3 spec grid-cols-[10rem_1fr]">
-            <dt class="text-faint">CF-Connecting-IP</dt>  <dd class="font-mono break-all">{{with .CFConnectingIP}}{{.}}{{else}}—{{end}}</dd>
-            <dt class="text-faint">X-Forwarded-For</dt>   <dd class="font-mono break-all">{{with .ForwardedFor}}{{.}}{{else}}—{{end}}</dd>
-            <dt class="text-faint">X-Real-IP</dt>         <dd class="font-mono break-all">{{with .RealIP}}{{.}}{{else}}—{{end}}{{if .Proxied}} <span class="text-faint">(Cloudflare edge)</span>{{end}}</dd>
-            <dt class="text-faint">X-Forwarded-Proto</dt> <dd class="font-mono break-all">{{with .ForwardedProto}}{{.}}{{else}}—{{end}}</dd>
-          </dl>
-        </details>
       </div>
       {{end}}
     </div>

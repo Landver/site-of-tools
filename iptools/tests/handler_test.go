@@ -26,19 +26,14 @@ func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.er
 
 // newTestApp builds a bare echo with the real (embedded) templates and the given
 // Looker. Embedded FS is used so it works regardless of the test's cwd.
-func newTestApp(svc iptools.Looker, opts ...iptools.Option) *echo.Echo {
+func newTestApp(svc iptools.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r
-	// Default to a canned reverse-DNS resolver so the connection inspector never
-	// does a live PTR lookup in tests (hermetic + fast); callers can override.
-	if len(opts) == 0 {
-		opts = []iptools.Option{iptools.WithReverseDNS(func(string) string { return "host.example.test" })}
-	}
-	iptools.Register(e, svc, opts...)
+	iptools.Register(e, svc)
 	return e
 }
 
@@ -141,30 +136,10 @@ func TestConnectionInspectorCard(t *testing.T) {
 	app.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	for _, want := range []string{"your request", "198.51.100.7", "host.example.test", "Cloudflare", "How your IP was detected", "(Cloudflare edge)"} {
+	for _, want := range []string{"your request", "198.51.100.7", "Cloudflare"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("connection inspector missing %q in:\n%s", want, body)
 		}
-	}
-}
-
-func TestConnectionInspectorNoPTRAndDirect(t *testing.T) {
-	// No PTR → the Hostname row still renders (as —); a direct (non-Cloudflare)
-	// request → X-Real-IP is not labelled a Cloudflare edge.
-	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}},
-		iptools.WithReverseDNS(func(string) string { return "" }))
-	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)
-	req.Header.Set("Accept", "text/html")
-	req.Header.Set("X-Forwarded-For", "198.51.100.7") // direct: no CF-Connecting-IP
-	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, req)
-
-	body := rec.Body.String()
-	if !strings.Contains(body, "Hostname") {
-		t.Errorf("Hostname row must always render (— when no PTR):\n%s", body)
-	}
-	if strings.Contains(body, "Cloudflare edge") {
-		t.Errorf("X-Real-IP must not be labelled a Cloudflare edge for a direct request:\n%s", body)
 	}
 }
 
@@ -180,45 +155,6 @@ func TestConnectionInspectorHidesSecrets(t *testing.T) {
 
 	if strings.Contains(rec.Body.String(), "SUPERSECRETVALUE") {
 		t.Errorf("inspector leaked a Cookie/Authorization value:\n%s", rec.Body.String())
-	}
-}
-
-func TestSelfJSONHasConnection(t *testing.T) {
-	// Bare "/" self view: JSON gains a connection block (parity with the card).
-	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "203.0.113.7", CountryCode: "US"}})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
-	req.RemoteAddr = "203.0.113.7:5555" // routable → self view
-	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, req)
-
-	var got struct {
-		IP         string `json:"ip"`
-		Connection struct {
-			IP          string `json:"ip"`
-			ReverseDNS  string `json:"reverse_dns"`
-			DetectedVia string `json:"detected_via"`
-			Language    string `json:"language"`
-		} `json:"connection"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode %q: %v", rec.Body.String(), err)
-	}
-	if got.IP != "203.0.113.7" {
-		t.Errorf("top-level ip = %q, want 203.0.113.7", got.IP)
-	}
-	c := got.Connection
-	if c.IP != "203.0.113.7" || c.ReverseDNS != "host.example.test" || c.DetectedVia != "direct" || c.Language != "en-GB" {
-		t.Errorf("connection block wrong: %+v\nbody: %s", c, rec.Body.String())
-	}
-}
-
-func TestLookupJSONStaysPureGeo(t *testing.T) {
-	// Explicit ?ip= lookups must NOT carry a connection block.
-	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"})
-	if strings.Contains(rec.Body.String(), "connection") {
-		t.Errorf("/{ip} JSON must stay pure geo (no connection block): %s", rec.Body.String())
 	}
 }
 

@@ -18,21 +18,9 @@ type Looker interface {
 	Lookup(ip string) (*Result, error)
 }
 
-// handler holds the transport-layer dependencies for the ip.corpberry.com routes:
-// the IP resolver and a best-effort reverse-DNS function. reverse is injectable so
-// the black-box tests stay hermetic (no real DNS on test addresses).
+// handler holds the transport-layer dependencies for the ip.corpberry.com routes.
 type handler struct {
-	svc     Looker
-	reverse func(ip string) string
-}
-
-// Option customises the handler wiring.
-type Option func(*handler)
-
-// WithReverseDNS overrides the reverse-DNS resolver (default: ReverseDNS). Tests
-// pass a canned function so the connection inspector never does a live lookup.
-func WithReverseDNS(fn func(ip string) string) Option {
-	return func(h *handler) { h.reverse = fn }
+	svc Looker
 }
 
 // Register wires the ip.corpberry.com routes onto e. Lookups are query-param only
@@ -40,11 +28,8 @@ func WithReverseDNS(fn func(ip string) string) Option {
 //
 //	GET /        an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
 //	GET /cidr    subnet / CIDR calculator (?cidr=…)
-func Register(e *echo.Echo, svc Looker, opts ...Option) {
-	h := &handler{svc: svc, reverse: ReverseDNS}
-	for _, o := range opts {
-		o(h)
-	}
+func Register(e *echo.Echo, svc Looker) {
+	h := &handler{svc: svc}
 	e.GET("/", h.index)
 	e.GET("/cidr", h.cidr)
 }
@@ -63,7 +48,7 @@ func (h *handler) index(c *echo.Context) error {
 	}
 	if ip == "" {
 		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": h.conn(c),
+			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": conn(c),
 		})
 	}
 	return h.show(c, ip, self)
@@ -101,14 +86,10 @@ func (h *handler) cidr(c *echo.Context) error {
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.svc.Lookup(ip)
 
-	// API / CLI: raw JSON. The bare-"/" self view adds a connection block (parity
-	// with the "your request" card); explicit /{ip} lookups stay pure geo.
+	// API / CLI: raw JSON — the geolocation result, or an error.
 	if platform.WantsJSON(c) {
 		if err != nil {
 			return c.JSON(statusFor(err), map[string]string{"ip": ip, "error": err.Error()})
-		}
-		if self {
-			return c.JSON(http.StatusOK, selfView{Result: res, Connection: h.conn(c)})
 		}
 		return c.JSON(http.StatusOK, res)
 	}
@@ -127,55 +108,30 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
 	}
-	// Full page only: attach the connection inspector (does a bounded PTR, so we
-	// skip it for the htmx fragment and the JSON/text paths above).
-	vm["Conn"] = h.conn(c)
+	vm["Conn"] = conn(c) // full page only — the "your request" card
 	return c.Render(code, "ip/index", vm)
 }
 
 // ConnInfo is the "your request" inspector's view of the current request — pure
-// transport metadata built from headers the edge sets, no domain lookup. TLS
-// cipher/version and the visitor's HTTP version are intentionally absent: they
-// terminate at Cloudflare/nginx and aren't knowable here. Cookie and
+// transport metadata, no domain lookup. TLS and the visitor's HTTP version are
+// absent: they terminate at Cloudflare/nginx and aren't knowable here. Cookie and
 // Authorization are deliberately never read.
 type ConnInfo struct {
-	IP       string `json:"ip"`                    // resolved client IP (c.RealIP())
-	Hostname string `json:"reverse_dns,omitempty"` // best-effort reverse DNS ("" if none)
-	Via      string `json:"detected_via"`          // Cloudflare / X-Forwarded-For / direct
-	Scheme   string `json:"scheme"`                // http or https (from X-Forwarded-Proto)
-	Host     string `json:"host"`                  // Host header the visitor hit
-	Browser  string `json:"user_agent"`            // User-Agent
-	Language string `json:"language,omitempty"`    // first Accept-Language token
-
-	// Curated forwarding headers for the "how your IP was detected" disclosure —
-	// template-only, deliberately kept out of the JSON.
-	CFConnectingIP string `json:"-"`
-	ForwardedFor   string `json:"-"`
-	RealIP         string `json:"-"` // nginx's immediate peer (a Cloudflare edge only when proxied)
-	ForwardedProto string `json:"-"`
-	// Proxied: request arrived via Cloudflare (CF-Connecting-IP set). Drives the
-	// X-Real-IP "(Cloudflare edge)" label; when false the host is DNS-only.
-	Proxied bool `json:"-"`
-}
-
-// selfView is the JSON for the bare "/" self lookup: the geolocation Result plus a
-// connection block describing the current request. Other IP lookups return a bare
-// *Result — the connection is about the caller, not the looked-up address.
-type selfView struct {
-	*Result
-	Connection ConnInfo `json:"connection"`
+	IP       string // resolved client IP (c.RealIP())
+	Via      string // how the IP was derived: Cloudflare / X-Forwarded-For / direct
+	Scheme   string // http or https (from X-Forwarded-Proto, else the local conn)
+	Host     string // Host header the visitor hit
+	Browser  string // User-Agent
+	Language string // first Accept-Language token
 }
 
 // conn builds the connection inspector's data from the current request.
-func (h *handler) conn(c *echo.Context) ConnInfo {
+func conn(c *echo.Context) ConnInfo {
 	r := c.Request()
-	ip := c.RealIP()
 
-	// Describe how the IP was derived, mirroring cfIPExtractor's precedence.
-	proxied := r.Header.Get("CF-Connecting-IP") != ""
 	via := "direct"
 	switch {
-	case proxied:
+	case r.Header.Get("CF-Connecting-IP") != "":
 		via = "Cloudflare"
 	case r.Header.Get("X-Forwarded-For") != "":
 		via = "X-Forwarded-For"
@@ -197,18 +153,12 @@ func (h *handler) conn(c *echo.Context) ConnInfo {
 	}
 
 	return ConnInfo{
-		IP:             ip,
-		Hostname:       h.reverse(ip),
-		Via:            via,
-		Scheme:         scheme,
-		Host:           r.Host,
-		Browser:        r.UserAgent(),
-		Language:       strings.TrimSpace(lang),
-		CFConnectingIP: r.Header.Get("CF-Connecting-IP"),
-		ForwardedFor:   r.Header.Get("X-Forwarded-For"),
-		RealIP:         r.Header.Get("X-Real-IP"),
-		ForwardedProto: r.Header.Get("X-Forwarded-Proto"),
-		Proxied:        proxied,
+		IP:       c.RealIP(),
+		Via:      via,
+		Scheme:   scheme,
+		Host:     r.Host,
+		Browser:  r.UserAgent(),
+		Language: strings.TrimSpace(lang),
 	}
 }
 

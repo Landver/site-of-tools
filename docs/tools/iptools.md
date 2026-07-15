@@ -10,8 +10,8 @@ today (a sub-nav switches between them):
 Layout:
 
 - **Code + everything:** `iptools/` — self-contained: `geoip.go` (geo/proxy domain),
-  `cidr.go` (subnet domain), `rdns.go` (reverse DNS), `handler.go` (transport),
-  `templates/`, `tests/`, `assets/`, `download-assets.sh`.
+  `cidr.go` (subnet domain), `handler.go` (transport), `templates/`, `tests/`,
+  `assets/`, `download-assets.sh`.
 - **Data:** `iptools/assets/` (the `.BIN` databases; gitignored, bind-mounted).
 - **DB download:** `iptools/download-assets.sh` (run via `make assets`).
 - **Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
@@ -102,8 +102,7 @@ is no `/:ip` pretty route.
 | `GET /` (browser) | Full page: your own IP looked up (if routable), the **connection inspector**, and a client-side IPv6 check — else the empty form |
 | `GET /?ip=…` (browser) | Full page with the looked-up result |
 | `GET /?ip=…` (htmx) | HTML **fragment**, the result card only (`hx-target="#result"`) |
-| `GET /` (JSON) | Your IP's geolocation **plus a `connection` block** (parity with the inspector card) |
-| `GET /?ip=…` (JSON) | Pure geolocation — no `connection` block (it describes *you*, not the looked-up IP) |
+| `GET /` or `GET /?ip=…` (JSON) | Geolocation + ASN + proxy for that IP |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
 
 So this just works:
@@ -121,12 +120,11 @@ The IP-lookup form uses `hx-get="/"` (→ `GET /?ip=…`, `hx-target="#result"`)
 partial swap; the subnet calculator is a plain GET form — a calculator is stateless
 input → output, so a full render is enough (no htmx, per CLAUDE.md rule 4).
 
-**Connection inspector** (the "your request" card and the JSON `connection` block):
-server-computed request facts — the resolved IP and how it was derived
-(Cloudflare / X-Forwarded-For / direct), scheme, host, User-Agent, language, and a
-best-effort reverse-DNS hostname. TLS and HTTP version are omitted (they terminate
-upstream); `Cookie`/`Authorization` are never read. `ip.corpberry.com` is DNS-only
-in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
+**Connection inspector** (the "your request" card): server-computed request facts —
+the resolved IP and how it was derived (Cloudflare / X-Forwarded-For / direct),
+scheme, host, User-Agent, and language. TLS and HTTP version are omitted (they
+terminate upstream); `Cookie`/`Authorization` are never read. `ip.corpberry.com` is
+DNS-only in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
 
 **IPv6 check** is the one genuinely client-side piece: only the browser can prove a
 working IPv6 path (by fetching an IPv6-only host), so it isn't in the JSON — by
@@ -165,5 +163,5 @@ carries the same acknowledgment wording, so one credit covers both.
 - Map view of lat/lon; bulk lookup; ASN → prefix listing; range → minimal CIDRs.
 - When Mongo lands: retain/replay lookups.
 
-*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector + reverse
-DNS, and the subnet/CIDR calculator.)*
+*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector, and the
+subnet/CIDR calculator.)*
