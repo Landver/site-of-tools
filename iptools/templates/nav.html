@@ -1,8 +1,15 @@
-{{/* Sub-navigation for the IP Tools suite. .Active is "lookup" or "cidr". Links
-     are relative, so they stay on ip.corpberry.com. */}}
+{{/* Sub-navigation for the IP Tools suite, styled as a segmented control so it
+     reads clearly as a view switcher (not body text). .Active is "lookup" or
+     "cidr". Links are relative, so they stay on ip.corpberry.com. */}}
 {{define "ip/nav"}}
-<nav class="mb-8 flex gap-5 text-sm">
-  <a href="/" class="{{if eq .Active "lookup"}}font-medium text-brand{{else}}text-muted hover:text-strong{{end}}">IP lookup</a>
-  <a href="/cidr" class="{{if eq .Active "cidr"}}font-medium text-brand{{else}}text-muted hover:text-strong{{end}}">Subnet calculator</a>
-</nav>
+<div class="mb-8 inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <a href="/"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "lookup"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    IP lookup
+  </a>
+  <a href="/cidr"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "cidr"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    Subnet calculator
+  </a>
+</div>
 {{end}}
