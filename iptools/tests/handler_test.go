@@ -183,24 +183,6 @@ func TestConnectionInspectorHidesSecrets(t *testing.T) {
 	}
 }
 
-func TestPlainTextReturnsCallerIP(t *testing.T) {
-	// `curl -H 'Accept: text/plain' ip.corpberry.com` → the caller's own IP as one
-	// line (the whoami shortcut); no lookup, so ?ip= is ignored for text/plain.
-	app := newTestApp(fakeLooker{})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Accept", "text/plain")
-	req.RemoteAddr = "203.0.113.9:4444"
-	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, req)
-
-	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
-		t.Errorf("content-type = %q, want text/plain", ct)
-	}
-	if got := rec.Body.String(); got != "203.0.113.9\n" {
-		t.Errorf("text body = %q, want %q", got, "203.0.113.9\n")
-	}
-}
-
 func TestSelfJSONHasConnection(t *testing.T) {
 	// Bare "/" self view: JSON gains a connection block (parity with the card).
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "203.0.113.7", CountryCode: "US"}})

@@ -115,15 +115,6 @@ func prefersHTML(c *echo.Context) bool {
 // WantsJSON is the negation of prefersHTML, so plain `curl` gets JSON for free.
 func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 
-// WantsText reports whether the caller explicitly asked for plain text: an Accept
-// header naming text/plain but not text/html. Browsers always send text/html and
-// plain `curl` sends */*, so neither trips this — a text response is strictly
-// opt-in and leaves the JSON-by-default behaviour untouched.
-func WantsText(c *echo.Context) bool {
-	accept := c.Request().Header.Get("Accept")
-	return strings.Contains(accept, "text/plain") && !strings.Contains(accept, "text/html")
-}
-
 // Respond renders one domain result in the representation the caller wants:
 // JSON (API/CLI), an HTML fragment (htmx), or a full HTML page (browser). Pass
 // the same template name for page and fragment when a feature has no fragment.

@@ -104,7 +104,6 @@ is no `/:ip` pretty route.
 | `GET /?ip=…` (htmx) | HTML **fragment**, the result card only (`hx-target="#result"`) |
 | `GET /` (JSON) | Your IP's geolocation **plus a `connection` block** (parity with the inspector card) |
 | `GET /?ip=…` (JSON) | Pure geolocation — no `connection` block (it describes *you*, not the looked-up IP) |
-| `GET /` (`Accept: text/plain`) | Just your IP, one line (`curl ifconfig.me`-style) |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
 
 So this just works:
@@ -167,4 +166,4 @@ carries the same acknowledgment wording, so one credit covers both.
 - When Mongo lands: retain/replay lookups.
 
 *(Done since v1: proxy/VPN detection, IPv6 check, connection inspector + reverse
-DNS, `text/plain` output, and the subnet/CIDR calculator.)*
+DNS, and the subnet/CIDR calculator.)*

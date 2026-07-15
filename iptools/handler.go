@@ -52,11 +52,6 @@ func Register(e *echo.Echo, svc Looker, opts ...Option) {
 // index serves the visitor's own IP by default, or ?ip= to look one up. A bare hit
 // with no resolvable IP renders the empty lookup page.
 func (h *handler) index(c *echo.Context) error {
-	// CLI opt-in: `curl -H 'Accept: text/plain' ip.corpberry.com` → just the caller's IP.
-	if platform.WantsText(c) {
-		return c.String(http.StatusOK, c.RealIP()+"\n")
-	}
-
 	ip := strings.TrimSpace(c.QueryParam("ip"))
 	self := false
 	if ip == "" {
