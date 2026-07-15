@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download the IP2Location LITE databases into ip-to-location/assets/.
+# Download the IP2Location LITE databases into iptolocation/assets/.
 # Requires IP2LOCATION_DOWNLOAD_TOKEN in .env. Files that already exist are
 # skipped. Downloads are ZIPs containing a .BIN.
 #

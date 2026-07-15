@@ -2,6 +2,9 @@
 iptolocation/assets/
 .env
 
+# Claude Code worktree state (not part of the project)
+.claude/worktrees/
+
 # build artifacts
 # (comments MUST be on their own line — gitignore has no inline comments)
 tmp/

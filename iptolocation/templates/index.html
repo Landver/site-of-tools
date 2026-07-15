@@ -9,12 +9,12 @@
     <h1 class="text-2xl font-semibold text-white">IP → Location</h1>
     <p class="mt-2 text-sm text-neutral-400">
       Geolocation and network (ASN) for any IP address.
-      Tip: <code class="text-neutral-300">curl {{if .Host}}{{.Host}}{{else}}ip.corpberry.com{{end}}/8.8.8.8</code> returns JSON.
+      Tip: <code class="text-neutral-300">curl ip.corpberry.com/8.8.8.8</code> returns JSON.
     </p>
 
     <!-- htmx submits to "/" with ?ip=… ; Alpine only disables the button when empty -->
     <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
-          x-data="{ q: '{{if .Query}}{{.Query}}{{end}}' }"
+          x-data="{ q: '{{.Query}}' }"
           class="mt-6 flex gap-2">
       <input name="ip" x-model="q" autofocus autocomplete="off" spellcheck="false"
              placeholder="8.8.8.8 or 2001:4860:4860::8888"

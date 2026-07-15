@@ -85,15 +85,16 @@ usage type, threat, provider, fraud score, ISP, domain, last-seen — nested und
 
 ## UX & endpoints (v1)
 
-**v1 scope:** a box to type **any IP** and look it up. (Auto-detecting the
-visitor's *own* IP is an easy follow-up — the `CF-Connecting-IP` plumbing already
-exists — but not in v1. After v1, revisit the UI for a larger set of `ip.` tools.)
+**v1 scope:** a box to type **any IP** and look it up, plus auto-detecting the
+visitor's *own* IP on a bare `GET /` (via the `CF-Connecting-IP` plumbing; the
+result card labels it "your address"). After v1, revisit the UI for a larger set
+of `ip.` tools.
 
 Same logic serves browser, htmx, and CLI via content negotiation ([ARCHITECTURE.md §4](../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
 
 | Request | Route | Response |
 |---------|-------|----------|
-| Browser navigation | `GET /` | Full page: the lookup form |
+| Browser navigation | `GET /` | Full page: the visitor's own IP (if routable), else the empty lookup form |
 | htmx form submit (`HX-Request: true`) | `GET /?ip=…` | HTML **fragment** (result card only) |
 | Browser direct hit / bookmark | `GET /{ip}` | Full page with the result |
 | CLI / API | `GET /{ip}` (or `/?ip=…`), plain `curl` or `Accept: application/json` | JSON |
@@ -131,7 +132,6 @@ footer (site-wide, so already covered for future tools):
 
 ## Later (this subdomain)
 
-- Visitor's own IP auto-detected on load.
 - Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
 - Map view of lat/lon; bulk lookup; reverse DNS; ASN → prefix listing.
 - When Mongo lands: retain/replay lookups.
