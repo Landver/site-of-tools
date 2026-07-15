@@ -158,7 +158,7 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 
 Result: `curl https://ip.corpberry.com/8.8.8.8` returns JSON automatically (curl
 sends `Accept: */*`, no `text/html`); a browser at the same URL gets the page.
-See [tools/ip-tools.md](tools/ip-tools.md).
+See [tools/iptools.md](tools/iptools.md).
 
 > When a real, documented, versioned **public JSON API** is wanted later, add
 > **Huma** (`humaecho` adapter) on `/api/v1` of the relevant sub-app. It reuses
@@ -269,7 +269,7 @@ site-of-tools/
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile
 ├── go.mod · go.sum
 ├── README.md · CLAUDE.md
-└── docs/{ARCHITECTURE.md, DEPLOYMENT.md, tools/ip-tools.md}
+└── docs/{ARCHITECTURE.md, DEPLOYMENT.md, tools/iptools.md}
 ```
 
 Why each folder exists: `platform/` must be importable (can't be `main`);

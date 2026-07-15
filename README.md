@@ -66,7 +66,7 @@ nginx blocks live in [deploy/nginx/](deploy/nginx/); full steps in
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design: host routing, request
   layering, content negotiation, embedding, config, testing, how to add a tool
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Cloudflare → nginx → Docker, ports, IP trust
-- [docs/tools/ip-tools.md](docs/tools/ip-tools.md) — the first tool
+- [docs/tools/iptools.md](docs/tools/iptools.md) — the first tool
 - [CLAUDE.md](CLAUDE.md) — conventions for anyone (incl. AI) developing here
 
 ## Layout
