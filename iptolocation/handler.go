@@ -1,6 +1,7 @@
 package iptolocation
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -71,7 +72,7 @@ func show(c *echo.Context, svc Looker, ip string, self bool) error {
 }
 
 func statusFor(err error) int {
-	if err == ErrUnavailable {
+	if errors.Is(err, ErrUnavailable) {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest

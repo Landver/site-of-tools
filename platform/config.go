@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"cmp"
 	"os"
 	"strings"
 )
@@ -71,10 +72,7 @@ func portOf(addr string) string {
 }
 
 func getenv(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
+	return cmp.Or(os.Getenv(k), def)
 }
 
 // loadDotEnv reads KEY=VALUE lines from ./.env without overriding vars already
@@ -84,7 +82,7 @@ func loadDotEnv() {
 	if err != nil {
 		return
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.Lines(string(data)) {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
