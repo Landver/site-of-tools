@@ -2,14 +2,14 @@
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
-<body class="bg-neutral-950 text-neutral-200 min-h-screen flex flex-col antialiased">
+<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
   {{template "partials/header" .}}
 
   <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
-    <h1 class="text-2xl font-semibold text-white">IP Toolkit</h1>
-    <p class="mt-2 text-sm text-neutral-400">
+    <h1 class="text-2xl font-semibold text-strong">IP Toolkit</h1>
+    <p class="mt-2 text-sm text-muted">
       A small suite of IP tools: geolocation, network (ASN), and proxy/VPN detection for any address.
-      Tip: <code class="text-neutral-300">curl ip.corpberry.com/8.8.8.8</code> returns JSON.
+      Tip: <code class="text-body">curl ip.corpberry.com/8.8.8.8</code> returns JSON.
     </p>
 
     <!-- htmx submits to "/" with ?ip=… ; Alpine only disables the button when empty -->
@@ -18,14 +18,14 @@
           class="mt-6 flex gap-2">
       <input name="ip" x-model="q" autofocus autocomplete="off" spellcheck="false"
              placeholder="8.8.8.8 or 2001:4860:4860::8888"
-             class="flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm
-                    text-white placeholder-neutral-600 focus:border-brand focus:outline-none">
+             class="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm
+                    text-strong placeholder-faint focus:border-brand focus:outline-none">
       <button type="submit" :disabled="!q.trim()"
               class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white
                      hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
         Look up
       </button>
-      <span class="htmx-indicator self-center text-sm text-neutral-500">…</span>
+      <span class="htmx-indicator self-center text-sm text-faint">…</span>
     </form>
 
     <div id="result" class="mt-6">
@@ -39,15 +39,15 @@
       <!-- Your IPv6: detected client-side (only the browser can prove it has
            working IPv6), then detailed from our own lookup. Component below. -->
       <div x-data="ipv6probe"
-           class="grow basis-80 min-w-0 rounded-lg border border-neutral-800 bg-neutral-900/50 p-5">
+           class="grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5">
         <div class="mb-3 font-mono text-xs uppercase tracking-widest text-brand">your ipv6</div>
-        <p x-show="state === 'loading'" class="text-sm text-neutral-500">Checking your connection…</p>
+        <p x-show="state === 'loading'" class="text-sm text-faint">Checking your connection…</p>
         <dl x-show="state === 'ok'" x-cloak class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt class="text-neutral-500">Address</dt>  <dd class="font-mono break-all text-white" x-text="ip"></dd>
-          <dt class="text-neutral-500">Network</dt>  <dd x-text="net || '—'"></dd>
-          <dt class="text-neutral-500">Location</dt> <dd x-text="loc || '—'"></dd>
+          <dt class="text-faint">Address</dt>  <dd class="font-mono break-all text-strong" x-text="ip"></dd>
+          <dt class="text-faint">Network</dt>  <dd x-text="net || '—'"></dd>
+          <dt class="text-faint">Location</dt> <dd x-text="loc || '—'"></dd>
         </dl>
-        <p x-show="state === 'none'" x-cloak class="text-sm text-neutral-400">
+        <p x-show="state === 'none'" x-cloak class="text-sm text-muted">
           No IPv6 detected. Your network appears to be IPv4-only.
         </p>
       </div>

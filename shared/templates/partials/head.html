@@ -4,6 +4,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Title}}</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='%23b83266'/%3E%3C/svg%3E">
+  <!-- Set the theme before first paint (saved choice, else the OS preference) to
+       avoid a flash; also expose toggleTheme() for the header button. -->
+  <script>
+    (function () {
+      var el = document.documentElement;
+      var saved = localStorage.getItem("theme");
+      el.setAttribute("data-theme", saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+      window.toggleTheme = function () {
+        var next = el.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        localStorage.setItem("theme", next);
+        el.setAttribute("data-theme", next);
+      };
+    })();
+  </script>
   <link rel="stylesheet" href="/static/css/styles.css">
   <style>[x-cloak]{display:none!important}</style>
   <!-- htmx first (no defer), Alpine last (MUST defer). Both vendored. -->

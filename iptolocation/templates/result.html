@@ -1,36 +1,36 @@
 {{define "ip/result"}}
 {{if .Error}}
-  <div class="rounded-md border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+  <div class="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
     {{.Error}}
   </div>
 {{else if .Result}}
   {{with .Result}}
   <div class="flex flex-wrap gap-4 items-start">
-  <div class="grow basis-80 min-w-0 rounded-lg border border-neutral-800 bg-neutral-900/50 p-5">
+  <div class="grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5">
     <div class="mb-3 font-mono text-xs uppercase tracking-widest text-brand">{{if $.Self}}your location{{else}}location{{end}}</div>
     <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
-      <dt class="text-neutral-500">Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
-      <dt class="text-neutral-500">Region</dt>    <dd>{{.Region}}</dd>
-      <dt class="text-neutral-500">City</dt>      <dd>{{.City}}</dd>
-      <dt class="text-neutral-500">ZIP</dt>       <dd>{{.Zip}}</dd>
-      <dt class="text-neutral-500">Timezone</dt>  <dd>{{.Timezone}}</dd>
-      <dt class="text-neutral-500">Coords</dt>    <dd>{{.Latitude}}, {{.Longitude}}</dd>
-      <dt class="text-neutral-500">ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
+      <dt class="text-faint">Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
+      <dt class="text-faint">Region</dt>    <dd>{{.Region}}</dd>
+      <dt class="text-faint">City</dt>      <dd>{{.City}}</dd>
+      <dt class="text-faint">ZIP</dt>       <dd>{{.Zip}}</dd>
+      <dt class="text-faint">Timezone</dt>  <dd>{{.Timezone}}</dd>
+      <dt class="text-faint">Coords</dt>    <dd>{{.Latitude}}, {{.Longitude}}</dd>
+      <dt class="text-faint">ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
     </dl>
   </div>
   {{with .Proxy}}
-  <div class="grow basis-80 min-w-0 rounded-lg border border-neutral-800 bg-neutral-900/50 p-5">
+  <div class="grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5">
     <div class="mb-3 font-mono text-xs uppercase tracking-widest text-brand">proxy / network</div>
     <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
-      <dt class="text-neutral-500">Proxy</dt>
-      <dd>{{if .IsProxy}}<span class="text-red-400">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-emerald-400">No</span> <span class="text-neutral-500">— not in any known proxy or VPN list</span>{{end}}</dd>
-      {{if .UsageType}}<dt class="text-neutral-500">Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
-      {{if .ISP}}<dt class="text-neutral-500">ISP</dt>       <dd>{{.ISP}}</dd>{{end}}
-      {{if .Domain}}<dt class="text-neutral-500">Domain</dt>    <dd>{{.Domain}}</dd>{{end}}
-      {{if .Provider}}<dt class="text-neutral-500">Provider</dt>  <dd>{{.Provider}}</dd>{{end}}
-      {{if .Threat}}<dt class="text-neutral-500">Threat</dt>    <dd class="text-red-400">{{.Threat}}</dd>{{end}}
-      {{if .FraudScore}}<dt class="text-neutral-500">Fraud</dt>     <dd>{{.FraudScore}}/99</dd>{{end}}
-      {{if .LastSeen}}<dt class="text-neutral-500">Last seen</dt> <dd>{{.LastSeen}} days ago</dd>{{end}}
+      <dt class="text-faint">Proxy</dt>
+      <dd>{{if .IsProxy}}<span class="text-danger">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not in any known proxy or VPN list</span>{{end}}</dd>
+      {{if .UsageType}}<dt class="text-faint">Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
+      {{if .ISP}}<dt class="text-faint">ISP</dt>       <dd>{{.ISP}}</dd>{{end}}
+      {{if .Domain}}<dt class="text-faint">Domain</dt>    <dd>{{.Domain}}</dd>{{end}}
+      {{if .Provider}}<dt class="text-faint">Provider</dt>  <dd>{{.Provider}}</dd>{{end}}
+      {{if .Threat}}<dt class="text-faint">Threat</dt>    <dd class="text-danger">{{.Threat}}</dd>{{end}}
+      {{if .FraudScore}}<dt class="text-faint">Fraud</dt>     <dd>{{.FraudScore}}/99</dd>{{end}}
+      {{if .LastSeen}}<dt class="text-faint">Last seen</dt> <dd>{{.LastSeen}} days ago</dd>{{end}}
     </dl>
   </div>
   {{end}}
