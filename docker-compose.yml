@@ -3,22 +3,22 @@ services:
     build: .
     container_name: site-of-tools
     restart: unless-stopped
-    # Published to host loopback only; nginx reaches it via the docker bridge
-    # gateway (172.17.0.1:8080). Not exposed to the public internet.
+    # Published on the docker bridge gateway (172.17.0.1) so the nginx
+    # reverse-proxy container — which sits on a separate bridge — reaches the app
+    # at 172.17.0.1:8080. Bound to that IP only, not 0.0.0.0, so the app is not
+    # exposed on the public interface.
     ports:
-      - "127.0.0.1:8080:8080"
-    env_file: .env
-    environment:
-      APP_ENV: prod
-      LISTEN_ADDR: ":8080"
-      BASE_DOMAIN: corpberry.com
-      # Paths inside the container, matching the read-only assets mount below.
-      IP2LOCATION_DB11_V4: /assets/ipv4/IP2LOCATION-LITE-DB11.BIN
-      IP2LOCATION_DB11_V6: /assets/ipv6/IP2LOCATION-LITE-DB11.IPV6.BIN
-      IP2LOCATION_ASN_V4: /assets/asn/IP2LOCATION-LITE-ASN.BIN
-      IP2LOCATION_ASN_V6: /assets/asn/IP2LOCATION-LITE-ASN.IPV6.BIN
-      IP2PROXY_PX12: /assets/ip2proxy/IP2PROXY-LITE-PX12.BIN
+      - "172.17.0.1:8080:8080"
+    # All configuration lives in the env files — nothing is restated here:
+    #   .env       base values (also used by `make dev` / `make run`)
+    #   .env.prod  production overrides (APP_ENV, BASE_DOMAIN)
+    # Read in order; later files win.
+    env_file:
+      - .env
+      - .env.prod
     volumes:
-      # The large .BIN databases live on the host, mounted read-only —
-      # never baked into the image.
-      - ./iptolocation/assets:/assets:ro
+      # DB .BINs stay on the host, mounted read-only at the same repo-relative
+      # path the app uses in dev. The binary runs with cwd=/, so the relative
+      # IP2LOCATION_* / IP2PROXY_* paths from .env resolve here unchanged — no
+      # separate container paths to keep in sync.
+      - ./iptolocation/assets:/iptolocation/assets:ro

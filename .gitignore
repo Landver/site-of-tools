@@ -1,6 +1,8 @@
 # data & secrets
 iptolocation/assets/
 .env
+# per-host prod overrides (layered by docker-compose); create from .env.example
+.env.prod
 
 # Claude Code worktree state (not part of the project)
 .claude/worktrees/
