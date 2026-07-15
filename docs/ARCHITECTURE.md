@@ -156,8 +156,8 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 }
 ```
 
-Result: `curl https://ip.corpberry.com/8.8.8.8` returns JSON automatically (curl
-sends `Accept: */*`, no `text/html`); a browser at the same URL gets the page.
+Result: `curl 'https://ip.corpberry.com/?ip=8.8.8.8'` returns JSON automatically
+(curl sends `Accept: */*`, no `text/html`); a browser at the same URL gets the page.
 See [tools/iptools.md](tools/iptools.md).
 
 > When a real, documented, versioned **public JSON API** is wanted later, add

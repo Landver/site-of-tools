@@ -18,16 +18,12 @@
     <form method="get" action="/cidr" class="mt-6 flex gap-2">
       <input name="cidr" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
              placeholder="192.168.1.0/24 or 2001:db8::/32"
-             class="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm
-                    text-strong placeholder-faint focus:border-brand focus:outline-none">
-      <button type="submit"
-              class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-        Calculate
-      </button>
+             class="field">
+      <button type="submit" class="btn-primary">Calculate</button>
     </form>
 
     {{if .Error}}
-      <div class="mt-6 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+      <div class="alert-error mt-6">
         {{.Error}}
       </div>
     {{else if .Subnet}}
@@ -35,7 +31,7 @@
       <div class="mt-6 flex flex-wrap gap-4 items-start">
         <div class="card">
           <div class="eyebrow mb-3">{{.Family}} · /{{.Prefix}}</div>
-          <dl class="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <dl class="spec grid-cols-[8rem_1fr]">
             <dt class="text-faint">Network</dt>      <dd class="font-mono break-all text-strong">{{.CIDR}}</dd>
             <dt class="text-faint">Network addr</dt> <dd class="font-mono break-all">{{.Network}}</dd>
             {{if .Broadcast}}<dt class="text-faint">Broadcast</dt> <dd class="font-mono break-all">{{.Broadcast}}</dd>{{end}}

@@ -54,7 +54,7 @@ func do(app *echo.Echo, target string, hdr map[string]string) *httptest.Response
 
 func TestHandlerJSONRoundTrip(t *testing.T) {
 	want := &iptools.Result{IP: "8.8.8.8", CountryCode: "US", Country: "United States", ASN: "15169", ASName: "Google LLC"}
-	rec := do(newTestApp(fakeLooker{res: want}), "/8.8.8.8", map[string]string{"Accept": "application/json"})
+	rec := do(newTestApp(fakeLooker{res: want}), "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"})
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -72,14 +72,14 @@ func TestHandlerJSONRoundTrip(t *testing.T) {
 }
 
 func TestHandlerPlainCurlGetsJSON(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "1.1.1.1"}}), "/1.1.1.1", map[string]string{"Accept": "*/*"})
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "1.1.1.1"}}), "/?ip=1.1.1.1", map[string]string{"Accept": "*/*"})
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("plain curl content-type = %q, want application/json", ct)
 	}
 }
 
 func TestHandlerBrowserGetsFullPage(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/html"})
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	if !strings.Contains(rec.Body.String(), "<html") {
 		t.Errorf("browser response should be a full page, got:\n%s", rec.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestHandlerHTMXGetsFragment(t *testing.T) {
 }
 
 func TestHandlerErrorStatus(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/1.2.3.4", map[string]string{"Accept": "application/json"})
+	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4", map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("ErrUnavailable → code %d, want 503", rec.Code)
 	}
@@ -124,7 +124,7 @@ func TestFullPageShowsIP2LocationCredit(t *testing.T) {
 	// IP2Location LITE's license requires its exact acknowledgment on any page that
 	// uses the data. The full IP-tool page must carry it (the apex must not — see
 	// the site package's TestHomeOmitsIP2LocationCredit).
-	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/html"})
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "uses the IP2Location LITE database") || !strings.Contains(body, "lite.ip2location.com") {
 		t.Errorf("full IP-tool page must carry the IP2Location LITE credit, got:\n%s", body)
@@ -133,7 +133,7 @@ func TestFullPageShowsIP2LocationCredit(t *testing.T) {
 
 func TestConnectionInspectorCard(t *testing.T) {
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
-	req := httptest.NewRequest(http.MethodGet, "/198.51.100.7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("X-Forwarded-For", "198.51.100.7") // drives the default RealIP
 	req.Header.Set("CF-Connecting-IP", "198.51.100.7")
@@ -153,7 +153,7 @@ func TestConnectionInspectorNoPTRAndDirect(t *testing.T) {
 	// request → X-Real-IP is not labelled a Cloudflare edge.
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}},
 		iptools.WithReverseDNS(func(string) string { return "" }))
-	req := httptest.NewRequest(http.MethodGet, "/198.51.100.7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("X-Forwarded-For", "198.51.100.7") // direct: no CF-Connecting-IP
 	rec := httptest.NewRecorder()
@@ -171,7 +171,7 @@ func TestConnectionInspectorNoPTRAndDirect(t *testing.T) {
 func TestConnectionInspectorHidesSecrets(t *testing.T) {
 	// The inspector must never reflect Cookie / Authorization back into the page.
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
-	req := httptest.NewRequest(http.MethodGet, "/198.51.100.7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("Cookie", "session=SUPERSECRETVALUE")
 	req.Header.Set("Authorization", "Bearer SUPERSECRETVALUE")
@@ -183,22 +183,9 @@ func TestConnectionInspectorHidesSecrets(t *testing.T) {
 	}
 }
 
-func TestPlainTextReturnsBareIP(t *testing.T) {
-	// Explicit Accept: text/plain → just the IP, not JSON or HTML.
-	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/plain"})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, want 200", rec.Code)
-	}
-	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
-		t.Errorf("content-type = %q, want text/plain", ct)
-	}
-	if got := rec.Body.String(); got != "8.8.8.8\n" {
-		t.Errorf("body = %q, want %q", got, "8.8.8.8\n")
-	}
-}
-
-func TestPlainTextBareRootReturnsCallerIP(t *testing.T) {
-	// `curl -H 'Accept: text/plain' ip.corpberry.com` → the caller's own IP, no lookup.
+func TestPlainTextReturnsCallerIP(t *testing.T) {
+	// `curl -H 'Accept: text/plain' ip.corpberry.com` → the caller's own IP as one
+	// line (the whoami shortcut); no lookup, so ?ip= is ignored for text/plain.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/plain")
@@ -206,8 +193,11 @@ func TestPlainTextBareRootReturnsCallerIP(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, req)
 
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+		t.Errorf("content-type = %q, want text/plain", ct)
+	}
 	if got := rec.Body.String(); got != "203.0.113.9\n" {
-		t.Errorf("bare / text body = %q, want %q", got, "203.0.113.9\n")
+		t.Errorf("text body = %q, want %q", got, "203.0.113.9\n")
 	}
 }
 
@@ -243,8 +233,8 @@ func TestSelfJSONHasConnection(t *testing.T) {
 }
 
 func TestLookupJSONStaysPureGeo(t *testing.T) {
-	// Explicit /{ip} lookups must NOT carry a connection block.
-	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "application/json"})
+	// Explicit ?ip= lookups must NOT carry a connection block.
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"})
 	if strings.Contains(rec.Body.String(), "connection") {
 		t.Errorf("/{ip} JSON must stay pure geo (no connection block): %s", rec.Body.String())
 	}
@@ -282,13 +272,13 @@ func TestHandlerShowsProxySection(t *testing.T) {
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", UsageType: "VPN", ISP: "Acme VPN"},
 	}
 	// HTML renders a proxy section.
-	rec := do(newTestApp(fakeLooker{res: res}), "/1.2.3.4", map[string]string{"Accept": "text/html"})
+	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=1.2.3.4", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "proxy / network") || !strings.Contains(body, "VPN") {
 		t.Errorf("expected a proxy section with VPN, got:\n%s", body)
 	}
 	// JSON includes the nested proxy object.
-	recj := do(newTestApp(fakeLooker{res: res}), "/1.2.3.4", map[string]string{"Accept": "application/json"})
+	recj := do(newTestApp(fakeLooker{res: res}), "/?ip=1.2.3.4", map[string]string{"Accept": "application/json"})
 	if !strings.Contains(recj.Body.String(), `"is_proxy":true`) {
 		t.Errorf("json missing proxy object: %s", recj.Body.String())
 	}

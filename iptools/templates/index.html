@@ -19,12 +19,8 @@
           class="mt-6 flex gap-2">
       <input name="ip" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
              placeholder="8.8.8.8 or 2001:4860:4860::8888 (empty = your own IP)"
-             class="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm
-                    text-strong placeholder-faint focus:border-brand focus:outline-none">
-      <button type="submit"
-              class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90">
-        Look up
-      </button>
+             class="field">
+      <button type="submit" class="btn-primary">Look up</button>
       <span class="htmx-indicator self-center text-sm text-faint">…</span>
     </form>
 
@@ -38,7 +34,7 @@
           <p><span class="text-faint"># your IP + geolocation + connection (JSON)</span><br>
              <span class="text-strong">curl https://ip.corpberry.com</span></p>
           <p><span class="text-faint"># look up any IP — geolocation + proxy/VPN (JSON)</span><br>
-             <span class="text-strong">curl https://ip.corpberry.com/8.8.8.8</span></p>
+             <span class="text-strong">curl 'https://ip.corpberry.com/?ip=8.8.8.8'</span></p>
           <p><span class="text-faint"># just your IP, plain text</span><br>
              <span class="text-strong">curl -H 'Accept: text/plain' https://ip.corpberry.com</span></p>
           <p><span class="text-faint"># subnet / CIDR calculator (JSON)</span><br>
@@ -60,7 +56,7 @@
       <div x-data="ipv6probe" class="card">
         <div class="eyebrow mb-3">your ipv6</div>
         <p x-show="state === 'loading'" class="text-sm text-faint">Checking your connection…</p>
-        <dl x-show="state === 'ok'" x-cloak class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dl x-show="state === 'ok'" x-cloak class="spec">
           <dt class="text-faint">Address</dt>  <dd class="font-mono break-all text-strong" x-text="ip"></dd>
           <dt class="text-faint">Network</dt>  <dd x-text="net || '—'"></dd>
           <dt class="text-faint">Location</dt> <dd x-text="loc || '—'"></dd>
@@ -77,7 +73,7 @@
       {{with .Conn}}
       <div class="card">
         <div class="eyebrow mb-3">your request</div>
-        <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dl class="spec">
           <dt class="text-faint">Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
           <dt class="text-faint">Hostname</dt>     <dd class="font-mono break-all text-strong">{{with .Hostname}}{{.}}{{else}}—{{end}}</dd>
           <dt class="text-faint">Detected via</dt> <dd>{{.Via}}</dd>
@@ -88,7 +84,7 @@
         </dl>
         <details class="mt-4">
           <summary class="cursor-pointer text-sm text-faint hover:text-muted">How your IP was detected</summary>
-          <dl class="mt-3 grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <dl class="mt-3 spec grid-cols-[10rem_1fr]">
             <dt class="text-faint">CF-Connecting-IP</dt>  <dd class="font-mono break-all">{{with .CFConnectingIP}}{{.}}{{else}}—{{end}}</dd>
             <dt class="text-faint">X-Forwarded-For</dt>   <dd class="font-mono break-all">{{with .ForwardedFor}}{{.}}{{else}}—{{end}}</dd>
             <dt class="text-faint">X-Real-IP</dt>         <dd class="font-mono break-all">{{with .RealIP}}{{.}}{{else}}—{{end}}{{if .Proxied}} <span class="text-faint">(Cloudflare edge)</span>{{end}}</dd>
@@ -118,9 +114,9 @@
             const probe = await fetch('https://api6.ipify.org?format=json', { signal: AbortSignal.timeout(4000) })
             if (!probe.ok) throw new Error('probe failed')
             this.ip = (await probe.json()).ip
-            // No encodeURIComponent: Echo does not percent-decode path params, and
-            // colons are legal in an absolute path. The address is re-validated server-side.
-            const res = await fetch('/' + this.ip, { headers: { Accept: 'application/json' } })
+            // Same content-negotiated endpoint the form uses (?ip=); the address is
+            // re-validated server-side. Encoded because the colons go in a query value.
+            const res = await fetch('/?ip=' + encodeURIComponent(this.ip), { headers: { Accept: 'application/json' } })
             if (res.ok) {
               const d = await res.json()
               this.net = [d.asn, d.as_name].filter(Boolean).join(' — ')

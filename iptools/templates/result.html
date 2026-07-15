@@ -1,6 +1,6 @@
 {{define "ip/result"}}
 {{if .Error}}
-  <div class="w-full rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+  <div class="alert-error w-full">
     {{.Error}}
   </div>
 {{else if .Result}}
@@ -9,7 +9,7 @@
   {{with .Result}}
   <div class="card">
     <div class="eyebrow mb-3">{{if $.Self}}your location{{else}}location{{end}}</div>
-    <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
+    <dl class="spec">
       <dt class="text-faint">Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
       <dt class="text-faint">Region</dt>    <dd>{{.Region}}</dd>
       <dt class="text-faint">City</dt>      <dd>{{.City}}</dd>
@@ -22,7 +22,7 @@
   {{with .Proxy}}
   <div class="card">
     <div class="eyebrow mb-3">proxy / network</div>
-    <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
+    <dl class="spec">
       <dt class="text-faint">Proxy</dt>
       <dd>{{if .IsProxy}}<span class="text-danger">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not in any known proxy or VPN list</span>{{end}}</dd>
       {{if .UsageType}}<dt class="text-faint">Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}

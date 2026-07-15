@@ -35,18 +35,18 @@ func WithReverseDNS(fn func(ip string) string) Option {
 	return func(h *handler) { h.reverse = fn }
 }
 
-// Register wires the ip.corpberry.com routes onto e.
+// Register wires the ip.corpberry.com routes onto e. Lookups are query-param only
+// (?ip=…), consistent with /cidr?cidr=… — there is no /:ip pretty route.
 //
-//	GET /        the visitor's own IP by default (or ?ip= to look one up)
-//	GET /:ip     look up a specific IP (pretty URL for browsers and `curl`)
+//	GET /        an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
+//	GET /cidr    subnet / CIDR calculator (?cidr=…)
 func Register(e *echo.Echo, svc Looker, opts ...Option) {
 	h := &handler{svc: svc, reverse: ReverseDNS}
 	for _, o := range opts {
 		o(h)
 	}
 	e.GET("/", h.index)
-	e.GET("/cidr", h.cidr) // static route: matched before the /:ip param route
-	e.GET("/:ip", h.lookup)
+	e.GET("/cidr", h.cidr)
 }
 
 // index serves the visitor's own IP by default, or ?ip= to look one up. A bare hit
@@ -72,11 +72,6 @@ func (h *handler) index(c *echo.Context) error {
 		})
 	}
 	return h.show(c, ip, self)
-}
-
-// lookup serves GET /:ip.
-func (h *handler) lookup(c *echo.Context) error {
-	return h.show(c, strings.TrimSpace(c.Param("ip")), false)
 }
 
 // cidr serves the subnet / CIDR calculator (GET /cidr, ?cidr=…). Pure math, no
@@ -110,15 +105,6 @@ func (h *handler) cidr(c *echo.Context) error {
 // result as the visitor's own IP (for a small label in the HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.svc.Lookup(ip)
-
-	// CLI opt-in (before JSON so an explicit Accept: text/plain wins over the
-	// */* → JSON default): the bare IP as text.
-	if platform.WantsText(c) {
-		if err != nil {
-			return c.String(statusFor(err), err.Error()+"\n")
-		}
-		return c.String(http.StatusOK, res.IP+"\n")
-	}
 
 	// API / CLI: raw JSON. The bare-"/" self view adds a connection block (parity
 	// with the "your request" card); explicit /{ip} lookups stay pure geo.

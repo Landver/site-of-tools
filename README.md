@@ -40,7 +40,7 @@ routes to 127.0.0.1 automatically, so subdomain routing works locally).
 
 CLI/JSON side:
 ```bash
-curl http://ip.localhost:8080/8.8.8.8
+curl 'http://ip.localhost:8080/?ip=8.8.8.8'
 ```
 
 ## Tests

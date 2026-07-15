@@ -94,19 +94,22 @@ usage type, threat, provider, fraud score, ISP, domain, last-seen — nested und
 Every view is content-negotiated ([ARCHITECTURE.md §4](../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
 browsers and htmx get HTML, everyone else gets JSON.
 
+Lookups are **query-param only** (`?ip=…`), consistent with `/cidr?cidr=…` — there
+is no `/:ip` pretty route.
+
 | Request | Response |
 |---------|----------|
 | `GET /` (browser) | Full page: your own IP looked up (if routable), the **connection inspector**, and a client-side IPv6 check — else the empty form |
+| `GET /?ip=…` (browser) | Full page with the looked-up result |
 | `GET /?ip=…` (htmx) | HTML **fragment**, the result card only (`hx-target="#result"`) |
-| `GET /{ip}` (browser) | Full page with the looked-up result |
 | `GET /` (JSON) | Your IP's geolocation **plus a `connection` block** (parity with the inspector card) |
-| `GET /{ip}` (JSON) | Pure geolocation — no `connection` block (it describes *you*, not the looked-up IP) |
+| `GET /?ip=…` (JSON) | Pure geolocation — no `connection` block (it describes *you*, not the looked-up IP) |
 | `GET /` (`Accept: text/plain`) | Just your IP, one line (`curl ifconfig.me`-style) |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
 
 So this just works:
 ```
-$ curl https://ip.corpberry.com/8.8.8.8
+$ curl 'https://ip.corpberry.com/?ip=8.8.8.8'
 {"ip":"8.8.8.8","country":"United States of America","city":"Mountain View",
  "asn":"15169","as_name":"Google LLC", ...}
 
