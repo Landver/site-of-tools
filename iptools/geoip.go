@@ -1,6 +1,6 @@
-// Package iptolocation is the ip.corpberry.com tool: IP -> geolocation + ASN,
+// Package iptools is the ip.corpberry.com tool: IP -> geolocation + ASN,
 // plus optional proxy/VPN detection. geoip.go is the domain layer — pure Go, no HTTP.
-package iptolocation
+package iptools
 
 import (
 	"errors"

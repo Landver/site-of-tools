@@ -47,12 +47,21 @@ func TestHomeHTML(t *testing.T) {
 	}
 }
 
+func TestHomeOmitsIP2LocationCredit(t *testing.T) {
+	// The apex uses none of the IP2Location data, so the license credit must not
+	// appear here — it is scoped to the IP tool via the .Attribution flag.
+	body := get(newTestApp(), "text/html").Body.String()
+	if strings.Contains(body, "lite.ip2location.com") || strings.Contains(body, "IP2Location LITE database") {
+		t.Errorf("apex must not show the IP2Location credit (it uses no such data), got:\n%s", body)
+	}
+}
+
 func TestHomeJSON(t *testing.T) {
 	rec := get(newTestApp(), "application/json")
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("content-type = %q, want application/json", ct)
 	}
-	if !strings.Contains(rec.Body.String(), "IP Toolkit") {
+	if !strings.Contains(rec.Body.String(), "IP Tools") {
 		t.Errorf("json should list the tool, got:\n%s", rec.Body.String())
 	}
 }

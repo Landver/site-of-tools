@@ -5,7 +5,7 @@ small tools and experiments. One Go server powers the apex site and every simple
 tool; each tool that grows big enough gets its own subdomain.
 
 - **corpberry.com** — portfolio + index of tools
-- **ip.corpberry.com** — IP → location/ASN lookup (first tool)
+- **ip.corpberry.com** — IP tools: geolocation, network (ASN), and proxy/VPN lookups (first tool)
 
 ## Stack
 
@@ -66,7 +66,7 @@ nginx blocks live in [deploy/nginx/](deploy/nginx/); full steps in
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design: host routing, request
   layering, content negotiation, embedding, config, testing, how to add a tool
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Cloudflare → nginx → Docker, ports, IP trust
-- [docs/tools/ip-to-location.md](docs/tools/ip-to-location.md) — the first tool
+- [docs/tools/ip-tools.md](docs/tools/ip-tools.md) — the first tool
 - [CLAUDE.md](CLAUDE.md) — conventions for anyone (incl. AI) developing here
 
 ## Layout
@@ -76,12 +76,14 @@ main.go            entrypoint (single binary)
 platform/          shared engine: config · app factory · renderer + negotiation
 shared/            shared front-end: base partials + htmx/alpine/tailwind css
 site/              apex project (corpberry.com)
-iptolocation/      the IP tool: code · templates · assets (.BIN) · download script
+iptools/           the IP tools: code · templates · assets (.BIN) · download script
 deploy/nginx/      reverse-proxy server blocks
 docs/              architecture & deployment
 ```
 
 ## Attribution
 
-This site includes IP2Location LITE data available from
-[https://lite.ip2location.com](https://lite.ip2location.com).
+The IP tools (`ip.corpberry.com`) use the IP2Location LITE database for
+[IP geolocation](https://lite.ip2location.com). This is the exact acknowledgment
+IP2Location's LITE license requires, shown on the tool's own pages — the only
+ones that use the data (the apex does not, so it omits the credit).

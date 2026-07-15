@@ -95,7 +95,7 @@ func NewApp(r *Renderer, staticFS fs.FS) *echo.Echo {
 
 // main.go — build each sub-app, then a Host→app map.
 apex  := platform.NewApp(renderer, staticFS); site.Register(apex, cfg)
-ipApp := platform.NewApp(renderer, staticFS); iptolocation.Register(ipApp, geo)
+ipApp := platform.NewApp(renderer, staticFS); iptools.Register(ipApp, geo)
 
 handler := echo.NewVirtualHostHandler(map[string]*echo.Echo{
     cfg.VHost(""):   apex,   // "corpberry.com"      (dev: "localhost:8080")
@@ -158,7 +158,7 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 
 Result: `curl https://ip.corpberry.com/8.8.8.8` returns JSON automatically (curl
 sends `Accept: */*`, no `text/html`); a browser at the same URL gets the page.
-See [tools/ip-to-location.md](tools/ip-to-location.md).
+See [tools/ip-tools.md](tools/ip-tools.md).
 
 > When a real, documented, versioned **public JSON API** is wanted later, add
 > **Huma** (`humaecho` adapter) on `/api/v1` of the relevant sub-app. It reuses
@@ -180,7 +180,7 @@ dirs from disk via `os.DirFS` **and re-parses per request**, so edits show on
 refresh with no rebuild.
 
 ```go
-// shared/embed.go  (site/ and iptolocation/ embed their own templates likewise)
+// shared/embed.go  (site/ and iptools/ embed their own templates likewise)
 //go:embed templates
 var Templates embed.FS
 //go:embed all:static
@@ -198,7 +198,7 @@ Gotchas: `//go:embed` must sit directly above the `var`; patterns can't use `..`
 @import "tailwindcss";
 @source "../../templates/**/*.html";               /* shared */
 @source "../../../site/templates/**/*.html";
-@source "../../../iptolocation/templates/**/*.html";
+@source "../../../iptools/templates/**/*.html";
 @theme { --color-brand: #b83266; }
 ```
 Built to `shared/static/css/styles.css` (`--minify` prod, `--watch` dev).
@@ -232,9 +232,9 @@ Keep htmx-owned and Alpine-owned regions distinct.
 | `APP_ENV` | `dev` (disk FS + template reparse) or `prod` (embedded) | `dev` |
 | `LISTEN_ADDR` | bind address inside the process | `:8080` |
 | `BASE_DOMAIN` | builds vhost keys; `localhost` in dev | `corpberry.com` |
-| `IP2LOCATION_DB11_V4` / `_V6` | paths to DB11 BINs | `iptolocation/assets/ipv4/...BIN` |
-| `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `iptolocation/assets/asn/...BIN` |
-| `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `iptolocation/assets/ip2proxy/...BIN` |
+| `IP2LOCATION_DB11_V4` / `_V6` | paths to DB11 BINs | `iptools/assets/ipv4/...BIN` |
+| `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `iptools/assets/asn/...BIN` |
+| `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `iptools/assets/ip2proxy/...BIN` |
 | `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not the app) | — |
 
 ---
@@ -256,7 +256,7 @@ site-of-tools/
 ├── site/                     # apex corpberry.com project
 │   ├── site.go · embed.go
 │   └── templates/home.html
-├── iptolocation/             # the IP tool — SELF-CONTAINED
+├── iptools/             # the IP tool — SELF-CONTAINED
 │   ├── geoip.go              #   domain (pure Go, no HTTP)
 │   ├── handler.go            #   transport (Register + Looker interface)
 │   ├── embed.go
@@ -269,11 +269,11 @@ site-of-tools/
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile
 ├── go.mod · go.sum
 ├── README.md · CLAUDE.md
-└── docs/{ARCHITECTURE.md, DEPLOYMENT.md, tools/ip-to-location.md}
+└── docs/{ARCHITECTURE.md, DEPLOYMENT.md, tools/ip-tools.md}
 ```
 
 Why each folder exists: `platform/` must be importable (can't be `main`);
-`shared/`, `site/`, `iptolocation/` must each be a package to embed the templates
+`shared/`, `site/`, `iptools/` must each be a package to embed the templates
 that sit beside their code. `main.go` is at the root because the composition root
 is the one thing nothing imports. Nothing is a single-file folder for its own sake.
 
@@ -302,7 +302,7 @@ is the one thing nothing imports. Nothing is a single-file folder for its own sa
 - stdlib `testing`; run `go test ./... -race` (`make test`). Domain logic is
   table-driven; HTTP handlers are driven through `net/http/httptest` +
   `app.ServeHTTP`; struct comparisons use `go-cmp`.
-- Handlers depend on **small interfaces** (e.g. `iptolocation.Looker`) so tests
+- Handlers depend on **small interfaces** (e.g. `iptools.Looker`) so tests
   inject fakes and never need the real databases.
 - Tests that *do* need the BINs are **integration tests that skip** when the files
   aren't present, so CI and fresh clones stay green (the BINs are gitignored).

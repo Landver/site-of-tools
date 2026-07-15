@@ -83,7 +83,7 @@ RUN case "$TARGETARCH" in amd64) TW=x64;; arm64) TW=arm64;; esac; \
     curl -fsSL -o /usr/local/bin/tailwindcss \
       "https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.2/tailwindcss-linux-$TW" \
     && chmod +x /usr/local/bin/tailwindcss
-COPY shared ./shared && COPY site ./site && COPY iptolocation ./iptolocation
+COPY shared ./shared && COPY site ./site && COPY iptools ./iptools
 RUN tailwindcss -i shared/static/css/input.css -o shared/static/css/styles.css --minify
 
 # 2) Go: fully static build; embeds the project incl. the built styles.css
@@ -105,7 +105,7 @@ assets **read-only** (they're too large to bake into the image):
 ```yaml
 ports:    ["127.0.0.1:8080:8080"]
 env_file: .env
-volumes:  ["./iptolocation/assets:/assets:ro"]   # IP2LOCATION_* env → /assets/...
+volumes:  ["./iptools/assets:/assets:ro"]   # IP2LOCATION_* env → /assets/...
 ```
 
 ---
@@ -116,8 +116,8 @@ The IP2Location LITE BINs are large (DB11 92M+216M, ASN 156M+262M, plus the
 1.7 GB IP2Proxy PX12 — all read via `ReadAt`, so they cost ~no RAM). Gitignored;
 never in git or the image.
 
-- On the host they live in `iptolocation/assets/` and are bind-mounted read-only.
-- `make assets` (→ `iptolocation/download-assets.sh`) (re)downloads them using
+- On the host they live in `iptools/assets/` and are bind-mounted read-only.
+- `make assets` (→ `iptools/download-assets.sh`) (re)downloads them using
   `IP2LOCATION_DOWNLOAD_TOKEN` from `.env`.
 
 ---

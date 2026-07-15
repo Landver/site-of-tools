@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download the IP2Location LITE databases into iptolocation/assets/.
+# Download the IP2Location LITE databases into iptools/assets/.
 # Requires IP2LOCATION_DOWNLOAD_TOKEN in .env. Files that already exist are
 # skipped. Downloads are ZIPs containing a .BIN.
 #
@@ -15,10 +15,10 @@ BASE="https://www.ip2location.com/download/?token=${IP2LOCATION_DOWNLOAD_TOKEN}"
 
 # dest_path|product_code|bin_name_inside_zip
 targets=(
-  "iptolocation/assets/ipv4|DB11LITEBIN|IP2LOCATION-LITE-DB11.BIN"
-  "iptolocation/assets/ipv6|DB11LITEBINIPV6|IP2LOCATION-LITE-DB11.IPV6.BIN"
-  "iptolocation/assets/asn|DBASNLITE|IP2LOCATION-LITE-ASN.BIN"
-  "iptolocation/assets/asn|DBASNLITEIPV6|IP2LOCATION-LITE-ASN.IPV6.BIN"
+  "iptools/assets/ipv4|DB11LITEBIN|IP2LOCATION-LITE-DB11.BIN"
+  "iptools/assets/ipv6|DB11LITEBINIPV6|IP2LOCATION-LITE-DB11.IPV6.BIN"
+  "iptools/assets/asn|DBASNLITE|IP2LOCATION-LITE-ASN.BIN"
+  "iptools/assets/asn|DBASNLITEIPV6|IP2LOCATION-LITE-ASN.IPV6.BIN"
 )
 
 for t in "${targets[@]}"; do

@@ -1,4 +1,4 @@
-package iptolocation
+package iptools
 
 import (
 	"errors"
@@ -34,7 +34,7 @@ func Register(e *echo.Echo, svc Looker) {
 			}
 		}
 		if ip == "" {
-			return c.Render(http.StatusOK, "ip/index", map[string]any{"Title": "IP Toolkit", "Query": ""})
+			return c.Render(http.StatusOK, "ip/index", map[string]any{"Title": "IP Tools", "Query": "", "Attribution": true})
 		}
 		return show(c, svc, ip, self)
 	})
@@ -58,7 +58,10 @@ func show(c *echo.Context, svc Looker, ip string, self bool) error {
 	}
 
 	// Browser / htmx: a view model rendered as a full page or a fragment.
-	vm := map[string]any{"Title": "IP Toolkit", "Query": ip, "Result": res, "Self": self}
+	// Attribution: IP2Location LITE's license requires the credit on any page that
+	// uses the databases (see shared/templates/partials/footer.html). It's scoped
+	// to this tool via the VM flag, so the apex — which uses no such data — omits it.
+	vm := map[string]any{"Title": "IP Tools", "Query": ip, "Result": res, "Self": self, "Attribution": true}
 	code := http.StatusOK
 	if err != nil {
 		vm["Result"] = nil

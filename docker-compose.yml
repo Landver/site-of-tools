@@ -21,4 +21,4 @@ services:
       # path the app uses in dev. The binary runs with cwd=/, so the relative
       # IP2LOCATION_* / IP2PROXY_* paths from .env resolve here unchanged — no
       # separate container paths to keep in sync.
-      - ./iptolocation/assets:/iptolocation/assets:ro
+      - ./iptools/assets:/iptools/assets:ro

@@ -1,13 +1,13 @@
-# Tool: IP → Location (`ip.corpberry.com`)
+# Tool: IP Tools (`ip.corpberry.com`)
 
 The first tool. Look up geolocation + network (ASN) info for any IP address.
 Lives on its own subdomain because it will grow into a small suite of IP-related
 tools, not just this one lookup.
 
-- **Code + everything:** `iptolocation/` — self-contained (`geoip.go` domain,
+- **Code + everything:** `iptools/` — self-contained (`geoip.go` domain,
   `handler.go` transport, `templates/`, `tests/`, `assets/`, `download-assets.sh`).
-- **Data:** `iptolocation/assets/` (the `.BIN` databases; gitignored, bind-mounted).
-- **DB download:** `iptolocation/download-assets.sh` (run via `make assets`).
+- **Data:** `iptools/assets/` (the `.BIN` databases; gitignored, bind-mounted).
+- **DB download:** `iptools/download-assets.sh` (run via `make assets`).
 - **Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
 
 ---
@@ -47,7 +47,7 @@ IP2Proxy is a **separate** package, `ip2proxy-go/v4`. Key facts (verified):
   failed proxy lookup returns `nil` and simply omits the section.
 
 ```go
-// iptolocation/geoip.go — pure domain, no HTTP.
+// iptools/geoip.go — pure domain, no HTTP.
 type Service struct{ db4, db6, asn4, asn6 *ip2location.DB; proxy *ip2proxy.DB }
 
 func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) { /* px12 optional */ }
@@ -122,11 +122,18 @@ deliberate call; it's a public endpoint, so revisit rate limiting then). The
 
 ## Attribution (required)
 
-IP2Location LITE's license **requires a visible credit**. It's in the shared
-footer (site-wide, so already covered for future tools):
+IP2Location LITE's license **requires a specific, visible credit** on *"all
+sites, advertising materials, and documentation mentioning features or the use
+of this database"*. The exact acknowledgment it mandates is:
 
-> This site includes IP2Location LITE data available from
-> [https://lite.ip2location.com](https://lite.ip2location.com).
+> [site or product name] uses the IP2Location LITE database for
+> [IP geolocation](https://lite.ip2location.com).
+
+We render that verbatim in the shared footer, but **gated on a `.Attribution`
+view-model flag** set only by this tool's handler — so it shows on the IP tool
+pages (which use the databases) and is omitted on the apex, which does not use
+or mention the data and therefore falls outside the clause. IP2Proxy LITE
+carries the same acknowledgment wording, so one credit covers both.
 
 ---
 

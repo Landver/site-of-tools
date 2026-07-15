@@ -10,30 +10,30 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/iptolocation"
+	"github.com/Landver/site-of-tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
 )
 
-// fakeLooker implements iptolocation.Looker so the handler is tested without the
+// fakeLooker implements iptools.Looker so the handler is tested without the
 // real databases.
 type fakeLooker struct {
-	res *iptolocation.Result
+	res *iptools.Result
 	err error
 }
 
-func (f fakeLooker) Lookup(string) (*iptolocation.Result, error) { return f.res, f.err }
+func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
 
 // newTestApp builds a bare echo with the real (embedded) templates and the given
 // Looker. Embedded FS is used so it works regardless of the test's cwd.
-func newTestApp(svc iptolocation.Looker) *echo.Echo {
+func newTestApp(svc iptools.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: iptolocation.Templates, DevDir: "iptolocation/templates"},
+		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptolocation.Register(e, svc)
+	iptools.Register(e, svc)
 	return e
 }
 
@@ -48,7 +48,7 @@ func do(app *echo.Echo, target string, hdr map[string]string) *httptest.Response
 }
 
 func TestHandlerJSONRoundTrip(t *testing.T) {
-	want := &iptolocation.Result{IP: "8.8.8.8", CountryCode: "US", Country: "United States", ASN: "15169", ASName: "Google LLC"}
+	want := &iptools.Result{IP: "8.8.8.8", CountryCode: "US", Country: "United States", ASN: "15169", ASName: "Google LLC"}
 	rec := do(newTestApp(fakeLooker{res: want}), "/8.8.8.8", map[string]string{"Accept": "application/json"})
 
 	if rec.Code != http.StatusOK {
@@ -57,7 +57,7 @@ func TestHandlerJSONRoundTrip(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("content-type = %q, want application/json", ct)
 	}
-	var got iptolocation.Result
+	var got iptools.Result
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -67,21 +67,21 @@ func TestHandlerJSONRoundTrip(t *testing.T) {
 }
 
 func TestHandlerPlainCurlGetsJSON(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{res: &iptolocation.Result{IP: "1.1.1.1"}}), "/1.1.1.1", map[string]string{"Accept": "*/*"})
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "1.1.1.1"}}), "/1.1.1.1", map[string]string{"Accept": "*/*"})
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("plain curl content-type = %q, want application/json", ct)
 	}
 }
 
 func TestHandlerBrowserGetsFullPage(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{res: &iptolocation.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/html"})
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/html"})
 	if !strings.Contains(rec.Body.String(), "<html") {
 		t.Errorf("browser response should be a full page, got:\n%s", rec.Body.String())
 	}
 }
 
 func TestHandlerHTMXGetsFragment(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{res: &iptolocation.Result{IP: "8.8.8.8", City: "Mountain View"}}), "/?ip=8.8.8.8", map[string]string{"HX-Request": "true"})
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8", City: "Mountain View"}}), "/?ip=8.8.8.8", map[string]string{"HX-Request": "true"})
 	body := rec.Body.String()
 	if strings.Contains(body, "<html") {
 		t.Errorf("htmx response should be a fragment, not a full page:\n%s", body)
@@ -92,7 +92,7 @@ func TestHandlerHTMXGetsFragment(t *testing.T) {
 }
 
 func TestHandlerErrorStatus(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{err: iptolocation.ErrUnavailable}), "/1.2.3.4", map[string]string{"Accept": "application/json"})
+	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/1.2.3.4", map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("ErrUnavailable → code %d, want 503", rec.Code)
 	}
@@ -100,7 +100,7 @@ func TestHandlerErrorStatus(t *testing.T) {
 
 func TestHandlerDefaultsToVisitorIP(t *testing.T) {
 	// Bare "/" with no ?ip looks up the caller's own (routable) IP.
-	app := newTestApp(fakeLooker{res: &iptolocation.Result{IP: "203.0.113.7", CountryCode: "US"}})
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "203.0.113.7", CountryCode: "US"}})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "application/json")
 	req.RemoteAddr = "203.0.113.7:5555" // TEST-NET-3 — a routable address
@@ -115,10 +115,21 @@ func TestHandlerDefaultsToVisitorIP(t *testing.T) {
 	}
 }
 
+func TestFullPageShowsIP2LocationCredit(t *testing.T) {
+	// IP2Location LITE's license requires its exact acknowledgment on any page that
+	// uses the data. The full IP-tool page must carry it (the apex must not — see
+	// the site package's TestHomeOmitsIP2LocationCredit).
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	if !strings.Contains(body, "uses the IP2Location LITE database") || !strings.Contains(body, "lite.ip2location.com") {
+		t.Errorf("full IP-tool page must carry the IP2Location LITE credit, got:\n%s", body)
+	}
+}
+
 func TestHandlerShowsProxySection(t *testing.T) {
-	res := &iptolocation.Result{
+	res := &iptools.Result{
 		IP: "1.2.3.4", CountryCode: "US",
-		Proxy: &iptolocation.Proxy{IsProxy: true, ProxyType: "VPN", UsageType: "VPN", ISP: "Acme VPN"},
+		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", UsageType: "VPN", ISP: "Acme VPN"},
 	}
 	// HTML renders a proxy section.
 	rec := do(newTestApp(fakeLooker{res: res}), "/1.2.3.4", map[string]string{"Accept": "text/html"})

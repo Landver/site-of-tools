@@ -58,7 +58,7 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 - `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`.
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); its
   own package so it can `go:embed` those files.
-- `site/`, `iptolocation/` — self-contained projects: code + `templates/` (+ tool
+- `site/`, `iptools/` — self-contained projects: code + `templates/` (+ tool
   `assets/`), each its own package for the same embed reason.
 - Tests go in `<pkg>/tests/` (black-box). A white-box test that needs unexported
   symbols is the exception and sits beside the code as `*_test.go`.

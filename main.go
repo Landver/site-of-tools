@@ -12,7 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/iptolocation"
+	"github.com/Landver/site-of-tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/site"
@@ -33,7 +33,7 @@ func main() {
 	renderer := platform.NewRenderer(cfg.IsDev(), navFuncs,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
-		platform.TemplateSource{Embed: iptolocation.Templates, DevDir: "iptolocation/templates"},
+		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
 	)
 	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
 
@@ -42,12 +42,12 @@ func main() {
 	site.Register(apex, cfg)
 
 	// ip.corpberry.com — missing databases are non-fatal; the tool reports it.
-	geo, err := iptolocation.OpenService(cfg.DB11V4, cfg.DB11V6, cfg.ASNV4, cfg.ASNV6, cfg.PX12)
+	geo, err := iptools.OpenService(cfg.DB11V4, cfg.DB11V6, cfg.ASNV4, cfg.ASNV6, cfg.PX12)
 	if err != nil {
-		log.Printf("ip-to-location: databases not loaded (%v); the tool will show a friendly message", err)
+		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev())
-	iptolocation.Register(ipApp, geo)
+	iptools.Register(ipApp, geo)
 
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):   apex,

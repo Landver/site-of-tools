@@ -45,7 +45,7 @@ hooks:
 	@echo "git hooks enabled: .githooks (pre-push runs go vet + go test)"
 
 assets:
-	@bash iptolocation/download-assets.sh
+	@bash iptools/download-assets.sh
 
 css: $(TAILWIND)
 	$(TAILWIND) -i $(INPUT_CSS) -o $(OUTPUT_CSS) --minify

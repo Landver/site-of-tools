@@ -1,4 +1,4 @@
-package iptolocation
+package iptools
 
 import "embed"
 
