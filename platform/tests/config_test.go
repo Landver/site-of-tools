@@ -18,9 +18,9 @@ func TestVHost(t *testing.T) {
 		sub  string
 		want string
 	}{
-		{"dev apex", dev, "", "localhost:8080"},   // includes the port (v5 host match)
+		{"dev apex", dev, "", "localhost:8080"}, // includes the port (v5 host match)
 		{"dev sub", dev, "ip", "ip.localhost:8080"},
-		{"prod apex", prod, "", "corpberry.com"},  // bare host in prod
+		{"prod apex", prod, "", "corpberry.com"}, // bare host in prod
 		{"prod sub", prod, "ip", "ip.corpberry.com"},
 	}
 	for _, tt := range tests {

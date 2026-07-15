@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 
 	ip2location "github.com/ip2location/ip2location-go/v9"
 	ip2proxy "github.com/ip2location/ip2proxy-go/v4"
@@ -59,10 +60,8 @@ var ErrUnavailable = errors.New("geolocation databases are not loaded")
 // non-empty it also opens the IP2Proxy database. Missing geo paths are not fatal
 // to the caller — it returns (nil, ErrUnavailable) so the server can still start.
 func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
-	for _, p := range []string{db11v4, db11v6, asnv4, asnv6} {
-		if p == "" {
-			return nil, ErrUnavailable
-		}
+	if slices.Contains([]string{db11v4, db11v6, asnv4, asnv6}, "") {
+		return nil, ErrUnavailable
 	}
 	db4, err := ip2location.OpenDB(db11v4)
 	if err != nil {

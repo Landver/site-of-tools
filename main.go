@@ -6,6 +6,8 @@ package main
 import (
 	"context"
 	"log"
+	"maps"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -42,19 +44,11 @@ func main() {
 		cfg.VHost(""):   apex,
 		cfg.VHost("ip"): ipApp,
 	}
-	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, hostKeys(hosts))
+	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 
 	handler := echo.NewVirtualHostHandler(hosts)
 	sc := echo.StartConfig{Address: cfg.ListenAddr}
 	if err := sc.Start(context.Background(), handler); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func hostKeys(m map[string]*echo.Echo) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
