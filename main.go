@@ -27,7 +27,7 @@ func main() {
 	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
 
 	// apex: corpberry.com
-	apex := platform.NewApp(renderer, staticFS)
+	apex := platform.NewApp(renderer, staticFS, cfg.IsDev())
 	site.Register(apex, cfg)
 
 	// ip.corpberry.com — missing databases are non-fatal; the tool reports it.
@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Printf("ip-to-location: databases not loaded (%v); the tool will show a friendly message", err)
 	}
-	ipApp := platform.NewApp(renderer, staticFS)
+	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev())
 	iptolocation.Register(ipApp, geo)
 
 	hosts := map[string]*echo.Echo{

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -15,7 +16,7 @@ import (
 
 // NewApp builds a fresh *echo.Echo with the shared setup every subdomain uses:
 // renderer, middleware, Cloudflare-aware IP extraction, and static serving.
-func NewApp(r *Renderer, staticFS fs.FS) *echo.Echo {
+func NewApp(r *Renderer, staticFS fs.FS, dev bool) *echo.Echo {
 	e := echo.New()
 	e.Renderer = r
 	// Feeds c.RealIP(), so RequestLogger records the real client IP, not nginx's.
@@ -24,6 +25,19 @@ func NewApp(r *Renderer, staticFS fs.FS) *echo.Echo {
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Gzip())
+
+	if dev {
+		// Don't cache static assets in dev, so CSS/JS edits show on refresh
+		// (no stale-stylesheet surprises).
+		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c *echo.Context) error {
+				if strings.HasPrefix(c.Request().URL.Path, "/static/") {
+					c.Response().Header().Set("Cache-Control", "no-store")
+				}
+				return next(c)
+			}
+		})
+	}
 
 	e.StaticFS("/static", staticFS)
 	return e

@@ -53,7 +53,7 @@ css: $(TAILWIND)
 css-watch: $(TAILWIND)
 	$(TAILWIND) -i $(INPUT_CSS) -o $(OUTPUT_CSS) --watch
 
-dev:
+dev: css
 	APP_ENV=dev $(GOBIN)/air
 
 run:
