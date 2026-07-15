@@ -28,19 +28,18 @@
       <span class="htmx-indicator self-center text-sm text-faint">…</span>
     </form>
 
-    <div id="result" class="mt-6">
-      {{template "ip/result" .}}
-    </div>
-
-    <!-- "Your connection" cards use the same adaptive flex-wrap grid as the
-         lookup cards (grow basis-80), so future standalone subtools flow
-         side-by-side and wrap when narrow instead of stacking full-width. -->
+    <!-- Every result card — the looked-up IP (location + proxy) and your IPv6 —
+         shares ONE flex-wrap flow, so they pack dynamically by available width
+         instead of fixed rows. #result is display:contents, so the cards it holds
+         flow as siblings of the IPv6 card while htmx still swaps only #result. -->
     <div class="mt-6 flex flex-wrap gap-4 items-start">
+      <div id="result" class="contents">
+        {{template "ip/result" .}}
+      </div>
       <!-- Your IPv6: detected client-side (only the browser can prove it has
            working IPv6), then detailed from our own lookup. Component below. -->
-      <div x-data="ipv6probe"
-           class="grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5">
-        <div class="mb-3 font-mono text-xs uppercase tracking-widest text-brand">your ipv6</div>
+      <div x-data="ipv6probe" class="card">
+        <div class="eyebrow mb-3">your ipv6</div>
         <p x-show="state === 'loading'" class="text-sm text-faint">Checking your connection…</p>
         <dl x-show="state === 'ok'" x-cloak class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
           <dt class="text-faint">Address</dt>  <dd class="font-mono break-all text-strong" x-text="ip"></dd>

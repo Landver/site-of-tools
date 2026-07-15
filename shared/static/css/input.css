@@ -45,3 +45,16 @@
   --color-danger:  #f87171;
   --color-ok:      #34d399;
 }
+
+/* Reusable info card (looked-up IP + your IPv6). One definition keeps the
+   repeated styling DRY; basis-80 is a comfortable min width so cards wrap to the
+   next line rather than cramming, and grow fills the row. */
+@layer components {
+  .card {
+    @apply grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5;
+  }
+  /* Small brand-magenta uppercase label above section headings and card titles. */
+  .eyebrow {
+    @apply font-mono text-xs uppercase tracking-widest text-brand;
+  }
+}
