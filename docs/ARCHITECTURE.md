@@ -27,6 +27,7 @@ CSS is built by a single prebuilt binary.
 | CSS              | Tailwind **standalone CLI** (no npm)               | v4.3.x            |
 | Live reload      | air — `github.com/air-verse/air`                   | v1.65.x           |
 | GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
+| Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
 | Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
 | Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
 
@@ -233,6 +234,7 @@ Keep htmx-owned and Alpine-owned regions distinct.
 | `BASE_DOMAIN` | builds vhost keys; `localhost` in dev | `corpberry.com` |
 | `IP2LOCATION_DB11_V4` / `_V6` | paths to DB11 BINs | `iptolocation/assets/ipv4/...BIN` |
 | `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `iptolocation/assets/asn/...BIN` |
+| `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `iptolocation/assets/ip2proxy/...BIN` |
 | `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not the app) | — |
 
 ---
@@ -314,5 +316,4 @@ is the one thing nothing imports. Nothing is a single-file folder for its own sa
 - **Persistence / MongoDB** — v1 is fully stateless. Mongo is planned; when it
   lands, put a storage layer *below* the domain services.
 - **Huma / OpenAPI** — later, only if a formal public API is wanted (§4).
-- **IP2Proxy dataset** (the 1.7 GB PX12 BIN) — deferred; its own memory/ops call.
 - **CI/CD** — manual deploy for now (git pull + compose up). Dev and prod share this host.

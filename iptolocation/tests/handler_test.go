@@ -114,3 +114,21 @@ func TestHandlerDefaultsToVisitorIP(t *testing.T) {
 		t.Errorf("bare / should look up the visitor's own IP, got:\n%s", rec.Body.String())
 	}
 }
+
+func TestHandlerShowsProxySection(t *testing.T) {
+	res := &iptolocation.Result{
+		IP: "1.2.3.4", CountryCode: "US",
+		Proxy: &iptolocation.Proxy{IsProxy: true, ProxyType: "VPN", UsageType: "VPN", ISP: "Acme VPN"},
+	}
+	// HTML renders a proxy section.
+	rec := do(newTestApp(fakeLooker{res: res}), "/1.2.3.4", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	if !strings.Contains(body, "proxy / network") || !strings.Contains(body, "VPN") {
+		t.Errorf("expected a proxy section with VPN, got:\n%s", body)
+	}
+	// JSON includes the nested proxy object.
+	recj := do(newTestApp(fakeLooker{res: res}), "/1.2.3.4", map[string]string{"Accept": "application/json"})
+	if !strings.Contains(recj.Body.String(), `"is_proxy":true`) {
+		t.Errorf("json missing proxy object: %s", recj.Body.String())
+	}
+}

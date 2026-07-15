@@ -1,5 +1,5 @@
-// Package iptolocation is the ip.corpberry.com tool: IP -> geolocation + ASN.
-// geoip.go is the domain layer — pure Go, no HTTP, no config coupling.
+// Package iptolocation is the ip.corpberry.com tool: IP -> geolocation + ASN,
+// plus optional proxy/VPN detection. geoip.go is the domain layer — pure Go, no HTTP.
 package iptolocation
 
 import (
@@ -8,6 +8,7 @@ import (
 	"net"
 
 	ip2location "github.com/ip2location/ip2location-go/v9"
+	ip2proxy "github.com/ip2location/ip2proxy-go/v4"
 )
 
 // Result is the plain struct the transport layer renders as HTML or JSON.
@@ -23,24 +24,41 @@ type Result struct {
 	Longitude   float32 `json:"lon"`
 	ASN         string  `json:"asn"`
 	ASName      string  `json:"as_name"`
+	Proxy       *Proxy  `json:"proxy,omitempty"`
 }
 
-// Service wraps the IP2Location readers. Handles are opened once at startup and
-// shared across request goroutines (Get_all uses positional reads and is
-// goroutine-safe). The v6 BINs also answer v4, but we keep both to route by
-// address family.
+// Proxy is the IP2Proxy view (VPN / proxy / threat). Populated only when the
+// PX12 database is loaded and the lookup succeeds.
+type Proxy struct {
+	IsProxy    bool   `json:"is_proxy"`
+	ProxyType  string `json:"proxy_type,omitempty"`
+	UsageType  string `json:"usage_type,omitempty"`
+	Threat     string `json:"threat,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	FraudScore string `json:"fraud_score,omitempty"`
+	ISP        string `json:"isp,omitempty"`
+	Domain     string `json:"domain,omitempty"`
+	LastSeen   string `json:"last_seen,omitempty"`
+}
+
+// Service wraps the IP2Location + IP2Proxy readers. Handles are opened once at
+// startup and shared across request goroutines (all reads are positional
+// ReadAt — goroutine-safe, no full load into RAM). The v6 geo BINs also answer
+// v4, but we keep both to route by address family; the single PX12 BIN answers
+// both families.
 type Service struct {
 	db4, db6   *ip2location.DB
 	asn4, asn6 *ip2location.DB
+	proxy      *ip2proxy.DB // optional; nil disables the proxy section
 }
 
-// ErrUnavailable is returned when the databases were not loaded at startup.
+// ErrUnavailable is returned when the geolocation databases were not loaded.
 var ErrUnavailable = errors.New("geolocation databases are not loaded")
 
-// OpenService opens the DB11 (v4+v6) and ASN (v4+v6) handles from the given
-// file paths. An empty path or open failure is not fatal to the caller: it
-// returns (nil, ErrUnavailable / err) so the server can still start.
-func OpenService(db11v4, db11v6, asnv4, asnv6 string) (*Service, error) {
+// OpenService opens DB11 (v4+v6) and ASN (v4+v6). px12 is optional: when
+// non-empty it also opens the IP2Proxy database. Missing geo paths are not fatal
+// to the caller — it returns (nil, ErrUnavailable) so the server can still start.
+func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 	for _, p := range []string{db11v4, db11v6, asnv4, asnv6} {
 		if p == "" {
 			return nil, ErrUnavailable
@@ -62,11 +80,19 @@ func OpenService(db11v4, db11v6, asnv4, asnv6 string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{db4: db4, db6: db6, asn4: asn4, asn6: asn6}, nil
+	s := &Service{db4: db4, db6: db6, asn4: asn4, asn6: asn6}
+	if px12 != "" {
+		p, err := ip2proxy.OpenDB(px12)
+		if err != nil {
+			return nil, fmt.Errorf("open ip2proxy: %w", err)
+		}
+		s.proxy = p
+	}
+	return s, nil
 }
 
-// Lookup resolves geolocation (DB11) + ASN for an IP string. A nil receiver
-// (databases never loaded) yields ErrUnavailable.
+// Lookup resolves geolocation (DB11) + ASN, and proxy info (PX12, if loaded),
+// for an IP string. A nil receiver yields ErrUnavailable.
 func (s *Service) Lookup(ipStr string) (*Result, error) {
 	if s == nil {
 		return nil, ErrUnavailable
@@ -102,5 +128,37 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		Longitude:   geo.Longitude,
 		ASN:         as.Asn,
 		ASName:      as.As,
+		Proxy:       s.lookupProxy(ipStr),
 	}, nil
+}
+
+// lookupProxy is best-effort: nil if the proxy DB is off or the lookup errors
+// (e.g. an address family the BIN doesn't cover), so it never breaks the geo result.
+func (s *Service) lookupProxy(ipStr string) *Proxy {
+	if s.proxy == nil {
+		return nil
+	}
+	r, err := s.proxy.GetAll(ipStr)
+	if err != nil {
+		return nil
+	}
+	return &Proxy{
+		IsProxy:    r.IsProxy > 0, // 0 = no, 1 = proxy, 2 = proxy (data center)
+		ProxyType:  clean(r.ProxyType),
+		UsageType:  clean(r.UsageType),
+		Threat:     clean(r.Threat),
+		Provider:   clean(r.Provider),
+		FraudScore: clean(r.FraudScore),
+		ISP:        clean(r.Isp),
+		Domain:     clean(r.Domain),
+		LastSeen:   clean(r.LastSeen),
+	}
+}
+
+// clean blanks IP2Proxy's "-" placeholder for cleaner output.
+func clean(s string) string {
+	if s == "-" {
+		return ""
+	}
+	return s
 }

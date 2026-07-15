@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/ip2location/ip2location-go/v9 v9.8.0
+	github.com/ip2location/ip2proxy-go/v4 v4.2.0
 	github.com/labstack/echo/v5 v5.3.0
 )
 

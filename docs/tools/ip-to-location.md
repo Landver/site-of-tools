@@ -20,18 +20,20 @@ IP2Location **LITE** (free tier). Present on disk today:
 |---------|-------|------|--------|
 | DB11 geolocation | `ipv4/…DB11.BIN`, `ipv6/…DB11.IPV6.BIN` | 92M / 216M | ✅ |
 | ASN | `asn/…LITE-ASN.BIN`, `…LITE-ASN.IPV6.BIN` | 156M / 262M | ✅ |
-| IP2Proxy PX12 | `ip2proxy/…PX12.BIN` (+ CSV) | **1.7 GB** | ❌ deferred |
+| IP2Proxy PX12 | `ip2proxy/…PX12.BIN` (+ CSV) | **1.7 GB** | ✅ |
 
-IP2Proxy (proxy/VPN/threat detection) is deferred — 1.7 GB is a memory/ops
-decision of its own. When added, it's a separate reader and likely its own
-sub-feature under this subdomain.
+IP2Proxy (proxy/VPN/threat detection) is read by a **separate** module,
+`github.com/ip2location/ip2proxy-go/v4` (v3 panics on a PX12 database — needs
+≥v4). It's **optional**: set `IP2PROXY_PX12` to enable the proxy section, leave
+it empty to disable. Like the geo BINs it reads via `ReadAt`, so the 1.7 GB file
+costs ~no RAM (~9 MB RSS observed), not a full in-memory load.
 
 ---
 
 ## `geoip` domain service
 
-One Go package (`github.com/ip2location/ip2location-go/v9`) reads **both** DB11
-and ASN BINs — there is no separate ASN module. Key facts (verified):
+`ip2location-go/v9` reads **both** DB11 and ASN BINs (no separate ASN module);
+IP2Proxy is a **separate** package, `ip2proxy-go/v4`. Key facts (verified):
 
 - **Open once at startup, share the handle.** A `*DB` is goroutine-safe (reads go
   through positional `ReadAt`, no shared offset, no globals). Never open per
@@ -39,13 +41,16 @@ and ASN BINs — there is no separate ASN module. Key facts (verified):
 - **No mmap, no full load into RAM.** `OpenDB` reads on demand via `ReadAt`; a
   200 MB+ BIN costs ~no Go heap (served from OS page cache).
 - **IPv4 vs IPv6:** the v4 BIN answers v4 only; the v6 BIN answers **both**. We
-  open all four handles and route by address family.
+  open all four geo handles and route by address family.
+- **Proxy is optional + best-effort.** When `IP2PROXY_PX12` is set, `OpenService`
+  also opens the single PX12 BIN (answers v4 + v6, same `ReadAt`, ~9 MB RSS); a
+  failed proxy lookup returns `nil` and simply omits the section.
 
 ```go
 // iptolocation/geoip.go — pure domain, no HTTP.
-type Service struct{ db4, db6, asn4, asn6 *ip2location.DB }
+type Service struct{ db4, db6, asn4, asn6 *ip2location.DB; proxy *ip2proxy.DB }
 
-func OpenService(db11v4, db11v6, asnv4, asnv6 string) (*Service, error) { /* OpenDB × 4 */ }
+func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) { /* px12 optional */ }
 
 func (s *Service) Lookup(ipStr string) (*Result, error) {
     if s == nil { return nil, ErrUnavailable }          // DBs never loaded
@@ -71,8 +76,10 @@ needed. LITE data can return placeholder `"-"` for some fields; guard on display
 
 ## Fields exposed
 
-Country (code + name), region, city, ZIP, timezone, latitude, longitude, ASN,
-AS name. (`Latitude`/`Longitude` are `float32`; `ASN` is a string.)
+**Geolocation:** country (code + name), region, city, ZIP, timezone, latitude,
+longitude, ASN, AS name. **Proxy (when PX12 loaded):** is-proxy, proxy type,
+usage type, threat, provider, fraud score, ISP, domain, last-seen — nested under
+`proxy` in JSON, shown as a separate "proxy / network" card in HTML.
 
 ---
 
@@ -125,6 +132,6 @@ footer (site-wide, so already covered for future tools):
 ## Later (this subdomain)
 
 - Visitor's own IP auto-detected on load.
-- IP2Proxy PX12: proxy/VPN/threat flags (mind the 1.7 GB footprint).
+- Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
 - Map view of lat/lon; bulk lookup; reverse DNS; ASN → prefix listing.
 - When Mongo lands: retain/replay lookups.

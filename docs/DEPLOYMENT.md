@@ -112,8 +112,9 @@ volumes:  ["./iptolocation/assets:/assets:ro"]   # IP2LOCATION_* env → /assets
 
 ## 6. The DB assets
 
-The IP2Location LITE BINs are large (DB11 92M+216M, ASN 156M+262M; the 1.7 GB
-IP2Proxy is **not** used in v1). Gitignored; never in git or the image.
+The IP2Location LITE BINs are large (DB11 92M+216M, ASN 156M+262M, plus the
+1.7 GB IP2Proxy PX12 — all read via `ReadAt`, so they cost ~no RAM). Gitignored;
+never in git or the image.
 
 - On the host they live in `iptolocation/assets/` and are bind-mounted read-only.
 - `make assets` (→ `iptolocation/download-assets.sh`) (re)downloads them using

@@ -17,6 +17,7 @@ services:
       IP2LOCATION_DB11_V6: /assets/ipv6/IP2LOCATION-LITE-DB11.IPV6.BIN
       IP2LOCATION_ASN_V4: /assets/asn/IP2LOCATION-LITE-ASN.BIN
       IP2LOCATION_ASN_V6: /assets/asn/IP2LOCATION-LITE-ASN.IPV6.BIN
+      IP2PROXY_PX12: /assets/ip2proxy/IP2PROXY-LITE-PX12.BIN
     volumes:
       # The large .BIN databases live on the host, mounted read-only —
       # never baked into the image.

@@ -18,6 +18,22 @@
       <dt class="text-neutral-500">ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
     </dl>
   </div>
+  {{with .Proxy}}
+  <div class="mt-3 rounded-lg border border-neutral-800 bg-neutral-900/50 p-5">
+    <div class="mb-3 font-mono text-xs uppercase tracking-widest text-brand">proxy / network</div>
+    <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
+      <dt class="text-neutral-500">Proxy</dt>
+      <dd>{{if .IsProxy}}<span class="text-red-400">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-emerald-400">No</span>{{end}}</dd>
+      {{if .UsageType}}<dt class="text-neutral-500">Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
+      {{if .ISP}}<dt class="text-neutral-500">ISP</dt>       <dd>{{.ISP}}</dd>{{end}}
+      {{if .Domain}}<dt class="text-neutral-500">Domain</dt>    <dd>{{.Domain}}</dd>{{end}}
+      {{if .Provider}}<dt class="text-neutral-500">Provider</dt>  <dd>{{.Provider}}</dd>{{end}}
+      {{if .Threat}}<dt class="text-neutral-500">Threat</dt>    <dd class="text-red-400">{{.Threat}}</dd>{{end}}
+      {{if .FraudScore}}<dt class="text-neutral-500">Fraud</dt>     <dd>{{.FraudScore}}/99</dd>{{end}}
+      {{if .LastSeen}}<dt class="text-neutral-500">Last seen</dt> <dd>{{.LastSeen}} days ago</dd>{{end}}
+    </dl>
+  </div>
+  {{end}}
   {{end}}
 {{end}}
 {{end}}

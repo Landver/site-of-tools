@@ -35,7 +35,8 @@ frontend stack. Favor the simple, idiomatic path and explain Go-specific choices
 
 Go 1.26.x · Echo **v5** (`github.com/labstack/echo/v5`) · htmx 2.0.x · Alpine
 3.15.x · Tailwind standalone v4.3.x · air `github.com/air-verse/air` v1.65.x ·
-`github.com/ip2location/ip2location-go/v9` v9.8.x · `github.com/google/go-cmp`
+`github.com/ip2location/ip2location-go/v9` v9.8.x · `github.com/ip2location/ip2proxy-go/v4`
+v4.2.x · `github.com/google/go-cmp`
 v0.7.x · base `gcr.io/distroless/static-debian12:nonroot`.
 
 ## Echo v5, not v4 (important)
@@ -88,4 +89,4 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 
 - Don't reach for a JS SPA framework here — that's for separate subdomain projects.
 - Don't add Huma/OpenAPI unless a formal public API is explicitly wanted (later bolt-on).
-- Don't enable the IP2Proxy (1.7 GB) dataset without a deliberate memory/ops pass.
+- Don't downgrade `ip2proxy-go` below `/v4` — v3 panics opening the PX12 database.

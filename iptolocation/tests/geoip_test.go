@@ -62,7 +62,8 @@ func TestLookupIntegration(t *testing.T) {
 		}
 	}
 
-	svc, err := iptolocation.OpenService(paths[0], paths[1], paths[2], paths[3])
+	px12 := resolveDB(os.Getenv("IP2PROXY_PX12")) // optional
+	svc, err := iptolocation.OpenService(paths[0], paths[1], paths[2], paths[3], px12)
 	if err != nil {
 		t.Fatalf("OpenService: %v", err)
 	}
@@ -75,5 +76,8 @@ func TestLookupIntegration(t *testing.T) {
 	}
 	if got.ASN != "15169" {
 		t.Errorf("8.8.8.8 ASN = %q, want 15169", got.ASN)
+	}
+	if px12 != "" && got.Proxy == nil {
+		t.Error("expected proxy data when the PX12 database is loaded")
 	}
 }

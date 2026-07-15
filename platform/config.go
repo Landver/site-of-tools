@@ -17,6 +17,9 @@ type Config struct {
 	DB11V6 string
 	ASNV4  string
 	ASNV6  string
+
+	// IP2Proxy PX12 (proxy/VPN/threat). Optional — empty disables the proxy section.
+	PX12 string
 }
 
 // Load reads config from the environment (after loading .env if present).
@@ -30,6 +33,7 @@ func Load() Config {
 		DB11V6:     os.Getenv("IP2LOCATION_DB11_V6"),
 		ASNV4:      os.Getenv("IP2LOCATION_ASN_V4"),
 		ASNV6:      os.Getenv("IP2LOCATION_ASN_V6"),
+		PX12:       os.Getenv("IP2PROXY_PX12"),
 	}
 }
 

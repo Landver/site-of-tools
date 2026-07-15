@@ -31,7 +31,7 @@ func main() {
 	site.Register(apex, cfg)
 
 	// ip.corpberry.com — missing databases are non-fatal; the tool reports it.
-	geo, err := iptolocation.OpenService(cfg.DB11V4, cfg.DB11V6, cfg.ASNV4, cfg.ASNV6)
+	geo, err := iptolocation.OpenService(cfg.DB11V4, cfg.DB11V6, cfg.ASNV4, cfg.ASNV6, cfg.PX12)
 	if err != nil {
 		log.Printf("ip-to-location: databases not loaded (%v); the tool will show a friendly message", err)
 	}
