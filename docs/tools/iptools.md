@@ -1,11 +1,17 @@
 # Tool: IP Tools (`ip.corpberry.com`)
 
-The first tool. Look up geolocation + network (ASN) info for any IP address.
-Lives on its own subdomain because it will grow into a small suite of IP-related
-tools, not just this one lookup.
+A small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Two pages
+today (a sub-nav switches between them):
 
-- **Code + everything:** `iptools/` — self-contained (`geoip.go` domain,
-  `handler.go` transport, `templates/`, `tests/`, `assets/`, `download-assets.sh`).
+- **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; on a bare visit it
+  also inspects *your* connection (see [Endpoints](#endpoints)).
+- **Subnet calculator** (`/cidr`) — pure CIDR math, no databases.
+
+Layout:
+
+- **Code + everything:** `iptools/` — self-contained: `geoip.go` (geo/proxy domain),
+  `cidr.go` (subnet domain), `rdns.go` (reverse DNS), `handler.go` (transport),
+  `templates/`, `tests/`, `assets/`, `download-assets.sh`.
 - **Data:** `iptools/assets/` (the `.BIN` databases; gitignored, bind-mounted).
 - **DB download:** `iptools/download-assets.sh` (run via `make assets`).
 - **Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
@@ -83,32 +89,46 @@ usage type, threat, provider, fraud score, ISP, domain, last-seen — nested und
 
 ---
 
-## UX & endpoints (v1)
+## Endpoints
 
-**v1 scope:** a box to type **any IP** and look it up, plus auto-detecting the
-visitor's *own* IP on a bare `GET /` (via the `CF-Connecting-IP` plumbing; the
-result card labels it "your address"). After v1, revisit the UI for a larger set
-of `ip.` tools.
+Every view is content-negotiated ([ARCHITECTURE.md §4](../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
+browsers and htmx get HTML, everyone else gets JSON.
 
-Same logic serves browser, htmx, and CLI via content negotiation ([ARCHITECTURE.md §4](../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
-
-| Request | Route | Response |
-|---------|-------|----------|
-| Browser navigation | `GET /` | Full page: the visitor's own IP (if routable), else the empty lookup form |
-| htmx form submit (`HX-Request: true`) | `GET /?ip=…` | HTML **fragment** (result card only) |
-| Browser direct hit / bookmark | `GET /{ip}` | Full page with the result |
-| CLI / API | `GET /{ip}` (or `/?ip=…`), plain `curl` or `Accept: application/json` | JSON |
+| Request | Response |
+|---------|----------|
+| `GET /` (browser) | Full page: your own IP looked up (if routable), the **connection inspector**, and a client-side IPv6 check — else the empty form |
+| `GET /?ip=…` (htmx) | HTML **fragment**, the result card only (`hx-target="#result"`) |
+| `GET /{ip}` (browser) | Full page with the looked-up result |
+| `GET /` (JSON) | Your IP's geolocation **plus a `connection` block** (parity with the inspector card) |
+| `GET /{ip}` (JSON) | Pure geolocation — no `connection` block (it describes *you*, not the looked-up IP) |
+| `GET /` (`Accept: text/plain`) | Just your IP, one line (`curl ifconfig.me`-style) |
+| `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
 
 So this just works:
 ```
 $ curl https://ip.corpberry.com/8.8.8.8
-{"ip":"8.8.8.8","country_code":"US","country":"United States of America",
- "region":"California","city":"Mountain View","zip":"94035","timezone":"-07:00",
- "lat":37.38605,"lon":-122.08385,"asn":"15169","as_name":"Google LLC"}
+{"ip":"8.8.8.8","country":"United States of America","city":"Mountain View",
+ "asn":"15169","as_name":"Google LLC", ...}
+
+$ curl 'https://ip.corpberry.com/cidr?cidr=192.168.1.0/24'
+{"cidr":"192.168.1.0/24","family":"IPv4","network":"192.168.1.0",
+ "broadcast":"192.168.1.255","netmask":"255.255.255.0","usable_hosts":"254", ...}
 ```
-The form does `hx-get="/"` with an `ip` field (→ `GET /?ip=…`) and
-`hx-target="#result"`, swapping the result card without a full reload. Keep the
-htmx-owned result region separate from any Alpine state.
+
+The IP-lookup form uses `hx-get="/"` (→ `GET /?ip=…`, `hx-target="#result"`) for a
+partial swap; the subnet calculator is a plain GET form — a calculator is stateless
+input → output, so a full render is enough (no htmx, per CLAUDE.md rule 4).
+
+**Connection inspector** (the "your request" card and the JSON `connection` block):
+server-computed request facts — the resolved IP and how it was derived
+(Cloudflare / X-Forwarded-For / direct), scheme, host, User-Agent, language, and a
+best-effort reverse-DNS hostname. TLS and HTTP version are omitted (they terminate
+upstream); `Cookie`/`Authorization` are never read. `ip.corpberry.com` is DNS-only
+in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
+
+**IPv6 check** is the one genuinely client-side piece: only the browser can prove a
+working IPv6 path (by fetching an IPv6-only host), so it isn't in the JSON — by
+nature, not omission.
 
 ---
 
@@ -140,5 +160,8 @@ carries the same acknowledgment wording, so one credit covers both.
 ## Later (this subdomain)
 
 - Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
-- Map view of lat/lon; bulk lookup; reverse DNS; ASN → prefix listing.
+- Map view of lat/lon; bulk lookup; ASN → prefix listing; range → minimal CIDRs.
 - When Mongo lands: retain/replay lookups.
+
+*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector + reverse
+DNS, `text/plain` output, and the subnet/CIDR calculator.)*

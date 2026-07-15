@@ -17,7 +17,7 @@ func Tools(cfg platform.Config) []platform.Tool {
 	return []platform.Tool{
 		{
 			Name: "IP Tools",
-			Desc: "Geolocation, network (ASN), and proxy/VPN detection for any IP, plus a live IPv6 connectivity check.",
+			Desc: "Look up geolocation, ASN, and proxy/VPN for any IP; inspect your own connection (live IPv6 check included); and calculate subnets with the CIDR tool.",
 			URL:  cfg.URL("ip"),
 		},
 	}

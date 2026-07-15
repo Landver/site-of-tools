@@ -1,0 +1,8 @@
+{{/* Sub-navigation for the IP Tools suite. .Active is "lookup" or "cidr". Links
+     are relative, so they stay on ip.corpberry.com. */}}
+{{define "ip/nav"}}
+<nav class="mb-8 flex gap-5 text-sm">
+  <a href="/" class="{{if eq .Active "lookup"}}font-medium text-brand{{else}}text-muted hover:text-strong{{end}}">IP lookup</a>
+  <a href="/cidr" class="{{if eq .Active "cidr"}}font-medium text-brand{{else}}text-muted hover:text-strong{{end}}">Subnet calculator</a>
+</nav>
+{{end}}

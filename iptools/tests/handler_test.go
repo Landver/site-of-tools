@@ -211,6 +211,71 @@ func TestPlainTextBareRootReturnsCallerIP(t *testing.T) {
 	}
 }
 
+func TestSelfJSONHasConnection(t *testing.T) {
+	// Bare "/" self view: JSON gains a connection block (parity with the card).
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "203.0.113.7", CountryCode: "US"}})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	req.RemoteAddr = "203.0.113.7:5555" // routable → self view
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	var got struct {
+		IP         string `json:"ip"`
+		Connection struct {
+			IP          string `json:"ip"`
+			ReverseDNS  string `json:"reverse_dns"`
+			DetectedVia string `json:"detected_via"`
+			Language    string `json:"language"`
+		} `json:"connection"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	if got.IP != "203.0.113.7" {
+		t.Errorf("top-level ip = %q, want 203.0.113.7", got.IP)
+	}
+	c := got.Connection
+	if c.IP != "203.0.113.7" || c.ReverseDNS != "host.example.test" || c.DetectedVia != "direct" || c.Language != "en-GB" {
+		t.Errorf("connection block wrong: %+v\nbody: %s", c, rec.Body.String())
+	}
+}
+
+func TestLookupJSONStaysPureGeo(t *testing.T) {
+	// Explicit /{ip} lookups must NOT carry a connection block.
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "application/json"})
+	if strings.Contains(rec.Body.String(), "connection") {
+		t.Errorf("/{ip} JSON must stay pure geo (no connection block): %s", rec.Body.String())
+	}
+}
+
+func TestCIDRCalculatorJSON(t *testing.T) {
+	rec := do(newTestApp(fakeLooker{}), "/cidr?cidr=192.168.1.0/24", map[string]string{"Accept": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"network":"192.168.1.0"`, `"broadcast":"192.168.1.255"`, `"netmask":"255.255.255.0"`, `"usable_hosts":"254"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("cidr JSON missing %s in:\n%s", want, body)
+		}
+	}
+}
+
+func TestCIDRCalculatorPage(t *testing.T) {
+	// HTML page renders the form + the suite sub-nav.
+	rec := do(newTestApp(fakeLooker{}), "/cidr", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	if !strings.Contains(body, "Subnet calculator") || !strings.Contains(body, "IP lookup") {
+		t.Errorf("cidr page missing heading/sub-nav:\n%s", body)
+	}
+	// Bad input → 400.
+	if bad := do(newTestApp(fakeLooker{}), "/cidr?cidr=nope", map[string]string{"Accept": "text/html"}); bad.Code != http.StatusBadRequest {
+		t.Errorf("bad CIDR code = %d, want 400", bad.Code)
+	}
+}
+
 func TestHandlerShowsProxySection(t *testing.T) {
 	res := &iptools.Result{
 		IP: "1.2.3.4", CountryCode: "US",

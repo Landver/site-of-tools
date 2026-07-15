@@ -45,6 +45,7 @@ func Register(e *echo.Echo, svc Looker, opts ...Option) {
 		o(h)
 	}
 	e.GET("/", h.index)
+	e.GET("/cidr", h.cidr) // static route: matched before the /:ip param route
 	e.GET("/:ip", h.lookup)
 }
 
@@ -67,7 +68,7 @@ func (h *handler) index(c *echo.Context) error {
 	}
 	if ip == "" {
 		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Query": "", "Attribution": true, "Conn": h.conn(c),
+			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": h.conn(c),
 		})
 	}
 	return h.show(c, ip, self)
@@ -76,6 +77,33 @@ func (h *handler) index(c *echo.Context) error {
 // lookup serves GET /:ip.
 func (h *handler) lookup(c *echo.Context) error {
 	return h.show(c, strings.TrimSpace(c.Param("ip")), false)
+}
+
+// cidr serves the subnet / CIDR calculator (GET /cidr, ?cidr=…). Pure math, no
+// databases — so this page carries no IP2Location attribution.
+func (h *handler) cidr(c *echo.Context) error {
+	input := strings.TrimSpace(c.QueryParam("cidr"))
+	if input == "" {
+		if platform.WantsJSON(c) {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "provide a CIDR, e.g. /cidr?cidr=192.168.1.0/24"})
+		}
+		return c.Render(http.StatusOK, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Active": "cidr", "Query": ""})
+	}
+	sub, err := ParseSubnet(input)
+	if platform.WantsJSON(c) {
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"cidr": input, "error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, sub)
+	}
+	vm := map[string]any{"Title": "Subnet calculator", "Active": "cidr", "Query": input, "Subnet": sub}
+	code := http.StatusOK
+	if err != nil {
+		vm["Subnet"] = nil
+		vm["Error"] = err.Error()
+		code = http.StatusBadRequest
+	}
+	return c.Render(code, "ip/cidr", vm)
 }
 
 // show looks up ip and responds in the caller's preferred format. self marks the
@@ -92,10 +120,14 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		return c.String(http.StatusOK, res.IP+"\n")
 	}
 
-	// API / CLI: raw JSON (result or error).
+	// API / CLI: raw JSON. The bare-"/" self view adds a connection block (parity
+	// with the "your request" card); explicit /{ip} lookups stay pure geo.
 	if platform.WantsJSON(c) {
 		if err != nil {
 			return c.JSON(statusFor(err), map[string]string{"ip": ip, "error": err.Error()})
+		}
+		if self {
+			return c.JSON(http.StatusOK, selfView{Result: res, Connection: h.conn(c)})
 		}
 		return c.JSON(http.StatusOK, res)
 	}
@@ -104,7 +136,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// Attribution: IP2Location LITE's license requires the credit on any page that
 	// uses the databases (see shared/templates/partials/footer.html). It's scoped
 	// to this tool via the VM flag, so the apex — which uses no such data — omits it.
-	vm := map[string]any{"Title": "IP Tools", "Query": ip, "Result": res, "Self": self, "Attribution": true}
+	vm := map[string]any{"Title": "IP Tools", "Active": "lookup", "Query": ip, "Result": res, "Self": self, "Attribution": true}
 	code := http.StatusOK
 	if err != nil {
 		vm["Result"] = nil
@@ -126,24 +158,31 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 // terminate at Cloudflare/nginx and aren't knowable here. Cookie and
 // Authorization are deliberately never read.
 type ConnInfo struct {
-	IP       string // resolved client IP (c.RealIP())
-	Hostname string // best-effort reverse DNS of IP ("" if none)
-	Via      string // how the IP was derived: Cloudflare / X-Forwarded-For / direct
-	Scheme   string // http or https (from X-Forwarded-Proto, else the local conn)
-	Host     string // Host header the visitor hit
-	Browser  string // User-Agent
-	Language string // first Accept-Language token
+	IP       string `json:"ip"`                    // resolved client IP (c.RealIP())
+	Hostname string `json:"reverse_dns,omitempty"` // best-effort reverse DNS ("" if none)
+	Via      string `json:"detected_via"`          // Cloudflare / X-Forwarded-For / direct
+	Scheme   string `json:"scheme"`                // http or https (from X-Forwarded-Proto)
+	Host     string `json:"host"`                  // Host header the visitor hit
+	Browser  string `json:"user_agent"`            // User-Agent
+	Language string `json:"language,omitempty"`    // first Accept-Language token
 
-	// Curated forwarding headers for the "how your IP was detected" disclosure.
-	CFConnectingIP string
-	ForwardedFor   string
-	RealIP         string // nginx's immediate peer (a Cloudflare edge only when proxied)
-	ForwardedProto string
+	// Curated forwarding headers for the "how your IP was detected" disclosure —
+	// template-only, deliberately kept out of the JSON.
+	CFConnectingIP string `json:"-"`
+	ForwardedFor   string `json:"-"`
+	RealIP         string `json:"-"` // nginx's immediate peer (a Cloudflare edge only when proxied)
+	ForwardedProto string `json:"-"`
+	// Proxied: request arrived via Cloudflare (CF-Connecting-IP set). Drives the
+	// X-Real-IP "(Cloudflare edge)" label; when false the host is DNS-only.
+	Proxied bool `json:"-"`
+}
 
-	// Proxied is true when the request arrived via Cloudflare (CF-Connecting-IP is
-	// set). When false the host is DNS-only, so RealIP is the direct peer — not an
-	// edge — and the template annotates X-Real-IP accordingly.
-	Proxied bool
+// selfView is the JSON for the bare "/" self lookup: the geolocation Result plus a
+// connection block describing the current request. Other IP lookups return a bare
+// *Result — the connection is about the caller, not the looked-up address.
+type selfView struct {
+	*Result
+	Connection ConnInfo `json:"connection"`
 }
 
 // conn builds the connection inspector's data from the current request.

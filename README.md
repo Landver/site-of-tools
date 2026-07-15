@@ -5,7 +5,7 @@ small tools and experiments. One Go server powers the apex site and every simple
 tool; each tool that grows big enough gets its own subdomain.
 
 - **corpberry.com** — portfolio + index of tools
-- **ip.corpberry.com** — IP tools: geolocation, network (ASN), and proxy/VPN lookups (first tool)
+- **ip.corpberry.com** — IP tools: geolocation/ASN/proxy lookups, a connection inspector, and a subnet/CIDR calculator
 
 ## Stack
 

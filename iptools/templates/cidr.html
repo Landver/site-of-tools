@@ -1,0 +1,65 @@
+{{define "ip/cidr"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
+  {{template "partials/header" .}}
+
+  <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
+    {{template "ip/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Subnet calculator</h1>
+    <p class="mt-2 text-sm text-muted">
+      Enter an IPv4 or IPv6 network in CIDR notation to see its address range, mask, and host count.
+      A bare address is treated as a single host (/32 or /128).
+    </p>
+
+    <!-- Plain GET form: a calculator is stateless input → output, so a full-page
+         render is enough (no htmx needed — see CLAUDE.md rule 4). -->
+    <form method="get" action="/cidr" class="mt-6 flex gap-2">
+      <input name="cidr" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             placeholder="192.168.1.0/24 or 2001:db8::/32"
+             class="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm
+                    text-strong placeholder-faint focus:border-brand focus:outline-none">
+      <button type="submit"
+              class="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+        Calculate
+      </button>
+    </form>
+
+    {{if .Error}}
+      <div class="mt-6 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+        {{.Error}}
+      </div>
+    {{else if .Subnet}}
+      {{with .Subnet}}
+      <div class="mt-6 flex flex-wrap gap-4 items-start">
+        <div class="card">
+          <div class="eyebrow mb-3">{{.Family}} · /{{.Prefix}}</div>
+          <dl class="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm">
+            <dt class="text-faint">Network</dt>      <dd class="font-mono break-all text-strong">{{.CIDR}}</dd>
+            <dt class="text-faint">Network addr</dt> <dd class="font-mono break-all">{{.Network}}</dd>
+            {{if .Broadcast}}<dt class="text-faint">Broadcast</dt> <dd class="font-mono break-all">{{.Broadcast}}</dd>{{end}}
+            {{if .Netmask}}<dt class="text-faint">Netmask</dt>   <dd class="font-mono">{{.Netmask}}</dd>{{end}}
+            {{if .Wildcard}}<dt class="text-faint">Wildcard</dt>  <dd class="font-mono">{{.Wildcard}}</dd>{{end}}
+            <dt class="text-faint">Host range</dt>   <dd class="font-mono break-all">{{.FirstHost}} – {{.LastHost}}</dd>
+            <dt class="text-faint">Usable hosts</dt> <dd class="font-mono">{{.Usable}}</dd>
+            <dt class="text-faint">Total addrs</dt>  <dd class="font-mono">{{.Total}}</dd>
+          </dl>
+        </div>
+      </div>
+      {{end}}
+    {{end}}
+
+    <details class="mt-6 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">From the terminal</summary>
+      <div class="mt-3 space-y-1 font-mono text-xs">
+        <p><span class="text-faint"># JSON</span><br>
+           <span class="text-strong">curl 'https://ip.corpberry.com/cidr?cidr=192.168.1.0/24'</span></p>
+      </div>
+    </details>
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
