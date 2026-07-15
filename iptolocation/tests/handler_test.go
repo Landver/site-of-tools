@@ -81,13 +81,13 @@ func TestHandlerBrowserGetsFullPage(t *testing.T) {
 }
 
 func TestHandlerHTMXGetsFragment(t *testing.T) {
-	rec := do(newTestApp(fakeLooker{res: &iptolocation.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"HX-Request": "true"})
+	rec := do(newTestApp(fakeLooker{res: &iptolocation.Result{IP: "8.8.8.8", City: "Mountain View"}}), "/?ip=8.8.8.8", map[string]string{"HX-Request": "true"})
 	body := rec.Body.String()
 	if strings.Contains(body, "<html") {
 		t.Errorf("htmx response should be a fragment, not a full page:\n%s", body)
 	}
-	if !strings.Contains(body, "8.8.8.8") {
-		t.Errorf("fragment missing the IP:\n%s", body)
+	if !strings.Contains(body, "Mountain View") {
+		t.Errorf("fragment missing the result data:\n%s", body)
 	}
 }
 
