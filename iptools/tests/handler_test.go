@@ -26,14 +26,19 @@ func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.er
 
 // newTestApp builds a bare echo with the real (embedded) templates and the given
 // Looker. Embedded FS is used so it works regardless of the test's cwd.
-func newTestApp(svc iptools.Looker) *echo.Echo {
+func newTestApp(svc iptools.Looker, opts ...iptools.Option) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc)
+	// Default to a canned reverse-DNS resolver so the connection inspector never
+	// does a live PTR lookup in tests (hermetic + fast); callers can override.
+	if len(opts) == 0 {
+		opts = []iptools.Option{iptools.WithReverseDNS(func(string) string { return "host.example.test" })}
+	}
+	iptools.Register(e, svc, opts...)
 	return e
 }
 
@@ -123,6 +128,86 @@ func TestFullPageShowsIP2LocationCredit(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "uses the IP2Location LITE database") || !strings.Contains(body, "lite.ip2location.com") {
 		t.Errorf("full IP-tool page must carry the IP2Location LITE credit, got:\n%s", body)
+	}
+}
+
+func TestConnectionInspectorCard(t *testing.T) {
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
+	req := httptest.NewRequest(http.MethodGet, "/198.51.100.7", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("X-Forwarded-For", "198.51.100.7") // drives the default RealIP
+	req.Header.Set("CF-Connecting-IP", "198.51.100.7")
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	for _, want := range []string{"your request", "198.51.100.7", "host.example.test", "Cloudflare", "How your IP was detected", "(Cloudflare edge)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("connection inspector missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestConnectionInspectorNoPTRAndDirect(t *testing.T) {
+	// No PTR → the Hostname row still renders (as —); a direct (non-Cloudflare)
+	// request → X-Real-IP is not labelled a Cloudflare edge.
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}},
+		iptools.WithReverseDNS(func(string) string { return "" }))
+	req := httptest.NewRequest(http.MethodGet, "/198.51.100.7", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("X-Forwarded-For", "198.51.100.7") // direct: no CF-Connecting-IP
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Hostname") {
+		t.Errorf("Hostname row must always render (— when no PTR):\n%s", body)
+	}
+	if strings.Contains(body, "Cloudflare edge") {
+		t.Errorf("X-Real-IP must not be labelled a Cloudflare edge for a direct request:\n%s", body)
+	}
+}
+
+func TestConnectionInspectorHidesSecrets(t *testing.T) {
+	// The inspector must never reflect Cookie / Authorization back into the page.
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
+	req := httptest.NewRequest(http.MethodGet, "/198.51.100.7", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Cookie", "session=SUPERSECRETVALUE")
+	req.Header.Set("Authorization", "Bearer SUPERSECRETVALUE")
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if strings.Contains(rec.Body.String(), "SUPERSECRETVALUE") {
+		t.Errorf("inspector leaked a Cookie/Authorization value:\n%s", rec.Body.String())
+	}
+}
+
+func TestPlainTextReturnsBareIP(t *testing.T) {
+	// Explicit Accept: text/plain → just the IP, not JSON or HTML.
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/8.8.8.8", map[string]string{"Accept": "text/plain"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+		t.Errorf("content-type = %q, want text/plain", ct)
+	}
+	if got := rec.Body.String(); got != "8.8.8.8\n" {
+		t.Errorf("body = %q, want %q", got, "8.8.8.8\n")
+	}
+}
+
+func TestPlainTextBareRootReturnsCallerIP(t *testing.T) {
+	// `curl -H 'Accept: text/plain' ip.corpberry.com` → the caller's own IP, no lookup.
+	app := newTestApp(fakeLooker{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "text/plain")
+	req.RemoteAddr = "203.0.113.9:4444"
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if got := rec.Body.String(); got != "203.0.113.9\n" {
+		t.Errorf("bare / text body = %q, want %q", got, "203.0.113.9\n")
 	}
 }
 
