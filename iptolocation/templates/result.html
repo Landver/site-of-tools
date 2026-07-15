@@ -23,7 +23,7 @@
     <div class="mb-3 font-mono text-xs uppercase tracking-widest text-brand">proxy / network</div>
     <dl class="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm">
       <dt class="text-neutral-500">Proxy</dt>
-      <dd>{{if .IsProxy}}<span class="text-red-400">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-emerald-400">No</span>{{end}}</dd>
+      <dd>{{if .IsProxy}}<span class="text-red-400">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-emerald-400">No</span> <span class="text-neutral-500">— not in any known proxy or VPN list</span>{{end}}</dd>
       {{if .UsageType}}<dt class="text-neutral-500">Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
       {{if .ISP}}<dt class="text-neutral-500">ISP</dt>       <dd>{{.ISP}}</dd>{{end}}
       {{if .Domain}}<dt class="text-neutral-500">Domain</dt>    <dd>{{.Domain}}</dd>{{end}}
