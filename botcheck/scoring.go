@@ -187,6 +187,38 @@ var rules = []rule{
 		id: "cdp_main_only", label: "CDP automation detected in main thread only", tier: TierConsistency, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
 	},
+	{
+		id: "vendor_mismatch", label: "Chromium User-Agent but navigator.vendor ≠ \"Google Inc.\"", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			ua := clientUA(s)
+			if strings.Contains(ua, "Chrome") && s.Vendor != "" && s.Vendor != "Google Inc." {
+				return true, "vendor=" + s.Vendor
+			}
+			return false, ""
+		},
+	},
+	{
+		id: "app_version_mismatch", label: "navigator.appVersion inconsistent with User-Agent", tier: TierConsistency, weight: 15, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			// Every mainstream browser reports appVersion as the UA minus "Mozilla/".
+			if s.NavMainUA == "" || s.AppVersion == "" || !strings.HasPrefix(s.NavMainUA, "Mozilla/") {
+				return false, ""
+			}
+			return s.AppVersion != strings.TrimPrefix(s.NavMainUA, "Mozilla/"), ""
+		},
+	},
+	{
+		id: "language_primary_mismatch", label: "navigator.language ≠ navigator.languages[0]", tier: TierConsistency, weight: 15, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.NavLanguage == "" || len(s.Languages) == 0 || s.Languages[0] == "" {
+				return false, ""
+			}
+			if strings.EqualFold(s.NavLanguage, s.Languages[0]) {
+				return false, ""
+			}
+			return true, fmt.Sprintf("language %s vs languages[0] %s", s.NavLanguage, s.Languages[0])
+		},
+	},
 
 	// ── Soft heuristics (only bite as a cluster of ≥3) ─────────────────────────
 	{
@@ -225,6 +257,34 @@ var rules = []rule{
 			}
 			if s.DeviceMemory < 0 || s.DeviceMemory > 128 {
 				return true, fmt.Sprintf("memory=%.0f", s.DeviceMemory)
+			}
+			return false, ""
+		},
+	},
+	{
+		id: "screen_avail_impossible", label: "Available screen area larger than the physical screen", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			return (s.AvailW > 0 && s.ScreenW > 0 && s.AvailW > s.ScreenW) ||
+				(s.AvailH > 0 && s.ScreenH > 0 && s.AvailH > s.ScreenH), ""
+		},
+	},
+	{
+		id: "low_color_depth", label: "Unusually low screen colour depth", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.ColorDepth > 0 && s.ColorDepth < 16 {
+				return true, fmt.Sprintf("colorDepth=%d", s.ColorDepth)
+			}
+			return false, ""
+		},
+	},
+	{
+		// Real browsers send Sec-Fetch-* on every navigation and fetch; a scripted
+		// client wearing a browser User-Agent usually omits them. Soft, because a
+		// proxy could in theory strip them.
+		id: "sec_fetch_missing", label: "Browser User-Agent but no Sec-Fetch-* headers", tier: TierSoft, weight: 8,
+		eval: func(s Signals) (bool, string) {
+			if s.SecFetchMode == "" && looksLikeBrowser(s.HTTPUserAgent) {
+				return true, "no Sec-Fetch-Mode"
 			}
 			return false, ""
 		},

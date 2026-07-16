@@ -51,11 +51,13 @@ band: `≥80 human`, `≥50 suspicious`, else `bot`. Rules are tiered:
   `Sec-CH-UA-Platform` ≠ `userAgentData.platform`; UA OS ≠ platform; embedded
   runtime (Electron/CEF); browser TZ ≠ IP TZ; datacenter/Tor IP; proxy/VPN IP;
   impossible permission state; `navigator.languages` ≠ `Accept-Language`; CDP
-  main-thread only.
+  main-thread only; `navigator.vendor` ≠ `"Google Inc."` on a Chromium UA;
+  `navigator.appVersion` ≠ UA; `navigator.language` ≠ `languages[0]`.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
-  window geometry, missing `window.chrome`, implausible hardware. Soft signals
-  **only bite as a cluster of ≥3** (one 25-point deduction), so a single quirk
-  never false-positives a real human.
+  window geometry, missing `window.chrome`, implausible hardware, available
+  screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`.
+  Soft signals **only bite as a cluster of ≥3** (one 25-point deduction), so a
+  single quirk never false-positives a real human.
 
 Every rule appears in the response `checks` list as flagged / clean /
 `not collected` (a client rule on a server-only request is skipped, never counted

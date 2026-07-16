@@ -5,6 +5,7 @@ package tests
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -25,16 +26,22 @@ func cleanChrome() botcheck.Signals {
 		NavIframeUA:      chromeMacUA,
 		HTTPUserAgent:    chromeMacUA,
 		Languages:        []string{"en-US", "en"},
+		NavLanguage:      "en-US",
+		Vendor:           "Google Inc.",
+		AppVersion:       strings.TrimPrefix(chromeMacUA, "Mozilla/"),
 		AcceptLanguage:   "en-US,en;q=0.9",
 		WebGLRenderer:    "ANGLE (Apple, Apple M1, OpenGL 4.1)",
 		Plugins:          3,
 		ScreenW:          1920, ScreenH: 1080,
-		OuterW: 1680, InnerW: 1400,
+		AvailW: 1920, AvailH: 1040,
+		ColorDepth: 30,
+		OuterW:     1680, InnerW: 1400,
 		HardwareCores: 8, DeviceMemory: 8,
 		BrowserTZ:       "America/New_York",
 		IPTimezone:      "America/New_York",
 		IPCountry:       "US",
 		SecCHUAPlatform: `"macOS"`,
+		SecFetchMode:    "cors",
 		UAData:          botcheck.UAData{Platform: "macOS", PlatformVersion: "14.5.0"},
 	}
 }
@@ -130,6 +137,7 @@ func TestTwoSoftSignalsStayHuman(t *testing.T) {
 	s := cleanChrome()
 	s.Plugins = 0                   // empty_plugins (soft)
 	s.ScreenW, s.ScreenH = 800, 600 // default_geometry (soft)
+	s.AvailW, s.AvailH = 800, 600   // keep avail ≤ screen (else screen_avail_impossible adds a 3rd)
 
 	r := botcheck.Evaluate(s)
 	if !check(t, r, "empty_plugins").Triggered || !check(t, r, "default_geometry").Triggered {
@@ -144,10 +152,11 @@ func TestThreeSoftSignalsPromoteToSuspicious(t *testing.T) {
 	s := cleanChrome()
 	s.Plugins = 0                   // empty_plugins
 	s.ScreenW, s.ScreenH = 800, 600 // default_geometry
+	s.AvailW, s.AvailH = 800, 600   // avoid an incidental 4th soft (avail ≤ screen)
 	s.Languages = nil               // empty_languages (also clears lang cross-check)
 
 	r := botcheck.Evaluate(s)
-	// 3 soft ⇒ single 25 deduction ⇒ 75 ⇒ suspicious.
+	// ≥3 soft ⇒ single 25 deduction ⇒ 75 ⇒ suspicious.
 	if r.Score != 75 || r.Verdict != "suspicious" {
 		t.Errorf("three soft signals: score=%d verdict=%q, want 75/suspicious (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
 	}
@@ -194,6 +203,43 @@ func TestElectronUAIsSuspiciousNotHardBot(t *testing.T) {
 	}
 	if r.Score != 75 || r.Verdict != "suspicious" {
 		t.Errorf("Electron UA: score=%d verdict=%q, want 75/suspicious", r.Score, r.Verdict)
+	}
+}
+
+func TestVendorMismatchFlags(t *testing.T) {
+	s := cleanChrome()
+	s.Vendor = "Apple Computer, Inc." // a Chrome UA must report "Google Inc."
+	r := botcheck.Evaluate(s)
+	if !check(t, r, "vendor_mismatch").Triggered {
+		t.Errorf("vendor_mismatch should fire for a Chrome UA with a non-Google vendor")
+	}
+	if r.Score != 80 { // one 20-weight consistency hit
+		t.Errorf("vendor mismatch: score=%d, want 80 (fired: %v)", r.Score, triggeredIDs(r))
+	}
+}
+
+func TestAppVersionAndLanguageMismatchFlag(t *testing.T) {
+	s := cleanChrome()
+	s.AppVersion = "not-the-user-agent"
+	s.NavLanguage = "fr-FR" // languages[0] is en-US
+	r := botcheck.Evaluate(s)
+	if !check(t, r, "app_version_mismatch").Triggered {
+		t.Errorf("app_version_mismatch should fire when appVersion ≠ UA sans Mozilla/")
+	}
+	if !check(t, r, "language_primary_mismatch").Triggered {
+		t.Errorf("language_primary_mismatch should fire when language ≠ languages[0]")
+	}
+}
+
+func TestSecFetchMissingFlagsScriptedBrowserUA(t *testing.T) {
+	// A browser User-Agent with no Sec-Fetch-* header (a scripted client wearing a
+	// browser UA). Clean browsers send the header, so cleanChrome must NOT fire.
+	scripted := botcheck.Evaluate(botcheck.Signals{HTTPUserAgent: chromeMacUA}) // SecFetchMode empty
+	if !check(t, scripted, "sec_fetch_missing").Triggered {
+		t.Errorf("sec_fetch_missing should fire for a browser UA lacking Sec-Fetch-*")
+	}
+	if check(t, botcheck.Evaluate(cleanChrome()), "sec_fetch_missing").Triggered {
+		t.Errorf("sec_fetch_missing must NOT fire for a browser that sent Sec-Fetch-Mode")
 	}
 }
 
