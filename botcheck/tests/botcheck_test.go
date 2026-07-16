@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -14,6 +15,10 @@ import (
 )
 
 const chromeMacUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
+// testNow is a fixed winter instant so timezone-offset checks are deterministic
+// (America/New_York is -05:00 in January).
+var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 
 // cleanChrome is a realistic, fully-consistent human browser on a residential IP.
 func cleanChrome() botcheck.Signals {
@@ -38,11 +43,12 @@ func cleanChrome() botcheck.Signals {
 		OuterW:     1680, InnerW: 1400,
 		HardwareCores: 8, DeviceMemory: 8,
 		BrowserTZ:       "America/New_York",
-		IPTimezone:      "America/New_York",
+		IPTimezone:      "-05:00", // IP2Location returns a UTC offset, not an IANA name
 		IPCountry:       "US",
 		SecCHUAPlatform: `"macOS"`,
 		SecFetchMode:    "cors",
 		UAData:          botcheck.UAData{Platform: "macOS", PlatformVersion: "14.5.0"},
+		Now:             testNow,
 	}
 }
 
@@ -240,6 +246,24 @@ func TestSecFetchMissingFlagsScriptedBrowserUA(t *testing.T) {
 	}
 	if check(t, botcheck.Evaluate(cleanChrome()), "sec_fetch_missing").Triggered {
 		t.Errorf("sec_fetch_missing must NOT fire for a browser that sent Sec-Fetch-Mode")
+	}
+}
+
+func TestTimezoneOffsetComparedNotStringMatched(t *testing.T) {
+	// IP2Location returns a UTC offset; the browser an IANA name. A same-offset
+	// pair must NOT fire (this was a real prod false positive: Europe/Moscow is
+	// +03:00, so "Europe/Moscow" vs "+03:00" is a match, not a mismatch).
+	same := cleanChrome()
+	same.BrowserTZ, same.IPTimezone = "Europe/Moscow", "+03:00"
+	if check(t, botcheck.Evaluate(same), "tz_mismatch").Triggered {
+		t.Errorf("tz_mismatch must not fire when the IANA zone's offset equals the IP offset")
+	}
+
+	// A genuine offset disagreement still fires.
+	diff := cleanChrome()
+	diff.BrowserTZ, diff.IPTimezone = "America/Los_Angeles", "+03:00" // -08:00 vs +03:00
+	if !check(t, botcheck.Evaluate(diff), "tz_mismatch").Triggered {
+		t.Errorf("tz_mismatch should fire when the browser and IP offsets truly differ")
 	}
 }
 

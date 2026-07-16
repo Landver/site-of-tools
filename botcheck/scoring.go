@@ -130,7 +130,21 @@ var rules = []rule{
 	{
 		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, weight: 25,
 		eval: func(s Signals) (bool, string) {
-			if s.BrowserTZ == "" || s.IPTimezone == "" || strings.EqualFold(s.BrowserTZ, s.IPTimezone) {
+			if s.BrowserTZ == "" || s.IPTimezone == "" {
+				return false, ""
+			}
+			// IP2Location gives a UTC offset ("+03:00"); the browser gives an IANA
+			// name ("Europe/Moscow"). Compare offset-to-offset — a plain string
+			// compare would fire for every real visitor (formats never match).
+			if offsetFormat(s.IPTimezone) {
+				bo, ok := ianaOffset(s.BrowserTZ, s.Now)
+				if !ok || bo == s.IPTimezone {
+					return false, "" // unknown/unstampable zone ⇒ can't verify, don't fire
+				}
+				return true, fmt.Sprintf("browser %s (%s) vs IP %s", s.BrowserTZ, bo, s.IPTimezone)
+			}
+			// Both look like IANA names (other IP DB formats) — name compare.
+			if strings.EqualFold(s.BrowserTZ, s.IPTimezone) {
 				return false, ""
 			}
 			return true, fmt.Sprintf("browser %s vs IP %s", s.BrowserTZ, s.IPTimezone)
