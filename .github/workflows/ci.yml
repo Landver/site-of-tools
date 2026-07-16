@@ -1,0 +1,72 @@
+name: CI/CD
+
+# CI runs on every push to master and on PRs targeting master.
+# CD (deploy to the prod host over SSH) runs only after a green build on a real
+# master push (or a manual "Run workflow"), never on a PR.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+# Least privilege: the jobs only read the repo. Deploy reaches prod over SSH, not
+# via the GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Track the version pinned in go.mod (Go 1.26.x); setup-go caches
+          # modules and build output by default.
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      # Same gate as the pre-push hook. DB-dependent tests skip when the BINs are
+      # absent (they are never committed), so this is green without any assets.
+      - name: go test (race)
+        run: go test ./... -race
+
+  deploy:
+    name: Deploy to prod
+    needs: test
+    # Deploy on a master push or a manual run — but never on a PR.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    # Never let two deploys touch the host at once; don't cancel one mid-rebuild.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH (git pull + docker compose up --build)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o IdentitiesOnly=yes \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "cd /srv/my_projects/site-of-tools && git fetch --prune origin && git checkout master && git merge --ff-only origin/master && docker compose up -d --build"
