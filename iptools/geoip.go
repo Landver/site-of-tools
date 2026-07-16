@@ -115,18 +115,21 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		return nil, err
 	}
 
+	// clean() blanks IP2Location's "-" placeholder (reserved/private ranges and
+	// records with no city/zip come back as "-"), matching how lookupProxy already
+	// treats the proxy fields — so "-" never leaks into the JSON or HTML.
 	return &Result{
 		IP:          ipStr,
-		CountryCode: geo.Country_short,
-		Country:     geo.Country_long,
-		Region:      geo.Region,
-		City:        geo.City,
-		Zip:         geo.Zipcode,
-		Timezone:    geo.Timezone,
+		CountryCode: clean(geo.Country_short),
+		Country:     clean(geo.Country_long),
+		Region:      clean(geo.Region),
+		City:        clean(geo.City),
+		Zip:         clean(geo.Zipcode),
+		Timezone:    clean(geo.Timezone),
 		Latitude:    geo.Latitude,
 		Longitude:   geo.Longitude,
-		ASN:         as.Asn,
-		ASName:      as.As,
+		ASN:         clean(as.Asn),
+		ASName:      clean(as.As),
 		Proxy:       s.lookupProxy(ipStr),
 	}, nil
 }
@@ -154,7 +157,9 @@ func (s *Service) lookupProxy(ipStr string) *Proxy {
 	}
 }
 
-// clean blanks IP2Proxy's "-" placeholder for cleaner output.
+// clean blanks IP2Location/IP2Proxy's "-" placeholder for cleaner output. Both
+// databases use "-" to mean "no value"; this maps it to "" so callers and
+// templates render an empty field rather than a literal dash.
 func clean(s string) string {
 	if s == "-" {
 		return ""

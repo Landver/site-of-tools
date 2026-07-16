@@ -2,7 +2,6 @@ package botcheck
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -45,12 +44,14 @@ func (h *handler) index(c *echo.Context) error {
 		h.addServerSignals(c, &sig)
 		return c.JSON(http.StatusOK, Evaluate(sig))
 	}
-	// High-entropy client hints only arrive if the server opts in; ask for them so
-	// the follow-up POST /check carries the server-observed side of the platform
-	// cross-check (a spoofing client keeps the header and the JS value out of sync).
-	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Platform-Version, Sec-CH-UA-Arch")
+	// Opt in to Sec-CH-UA-Platform so the follow-up POST /check reliably carries the
+	// header side of the platform cross-check (a spoofing client keeps the header and
+	// the JS userAgentData.platform out of sync). It's a low-entropy hint Chromium
+	// already sends by default on secure origins; the explicit opt-in just makes the
+	// dependency clear. We request only what the scorer reads — nothing more.
+	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
-		"Title": "Bot check", "Conn": conn(c),
+		"Title": "Bot check", "Conn": platform.Conn(c),
 	})
 }
 
@@ -100,7 +101,7 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	}
 	// "-" is IP2Location's unknown placeholder (e.g. localhost); treat it as no
 	// signal so the timezone cross-check doesn't fire against it.
-	sig.IPCountry, sig.IPTimezone = cleanPlaceholder(res.CountryCode), cleanPlaceholder(res.Timezone)
+	sig.IPTimezone = cleanPlaceholder(res.Timezone)
 	if p := res.Proxy; p != nil && p.IsProxy {
 		sig.IsProxy = true
 		switch p.ProxyType {
@@ -114,49 +115,13 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	}
 }
 
-// ConnInfo is the "your request" inspector's view — pure transport metadata, no
-// domain lookup. Cookie and Authorization are deliberately never read (mirrors
-// the IP tool's inspector).
-type ConnInfo struct {
-	IP       string
-	Via      string
-	Scheme   string
-	Host     string
-	Browser  string
-	Language string
-}
-
-// conn builds the connection inspector's data from the current request.
-func conn(c *echo.Context) ConnInfo {
-	r := c.Request()
-
-	via := "direct"
-	switch {
-	case r.Header.Get("CF-Connecting-IP") != "":
-		via = "Cloudflare"
-	case r.Header.Get("X-Forwarded-For") != "":
-		via = "X-Forwarded-For"
+// cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to an
+// empty string, so an unknown IP timezone/country is treated as "no signal"
+// rather than a real value the cross-checks could spuriously trip on. It lives
+// here with its sole caller (addServerSignals) — the domain scorer never uses it.
+func cleanPlaceholder(s string) string {
+	if s == "-" {
+		return ""
 	}
-
-	scheme := r.Header.Get("X-Forwarded-Proto")
-	if scheme == "" {
-		scheme = "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
-	}
-
-	lang := r.Header.Get("Accept-Language")
-	if i := strings.IndexAny(lang, ",;"); i >= 0 {
-		lang = lang[:i]
-	}
-
-	return ConnInfo{
-		IP:       c.RealIP(),
-		Via:      via,
-		Scheme:   scheme,
-		Host:     r.Host,
-		Browser:  r.UserAgent(),
-		Language: strings.TrimSpace(lang),
-	}
+	return s
 }

@@ -1,0 +1,18 @@
+{{/* Shared "your request" connection-inspector body: the eyebrow + the six-row
+     spec list over a platform.ConnInfo (the dot). Every tool's page renders it
+     inside its own .card wrapper, so page-specific spacing stays at the call site
+     and the rows/labels live in exactly one place. Guard with {{with .Conn}} at
+     the call site so a render without .Conn drops the card entirely. TLS and the
+     visitor's HTTP version terminate upstream so they're omitted; Cookie and
+     Authorization are never read. */}}
+{{define "partials/conn"}}
+<div class="eyebrow mb-3">your request</div>
+<dl class="spec">
+  <dt class="text-faint">Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
+  <dt class="text-faint">Detected via</dt> <dd>{{.Via}}</dd>
+  <dt class="text-faint">Connection</dt>   <dd>{{.Scheme}}</dd>
+  <dt class="text-faint">Language</dt>     <dd>{{with .Language}}{{.}}{{else}}—{{end}}</dd>
+  <dt class="text-faint">Host</dt>         <dd class="break-all">{{.Host}}</dd>
+  <dt class="text-faint">Browser</dt>      <dd class="font-mono break-all text-strong">{{.Browser}}</dd>
+</dl>
+{{end}}

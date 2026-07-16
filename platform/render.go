@@ -30,8 +30,15 @@ var navBaseFuncs = template.FuncMap{
 	"navTools": func() []Tool { return nil },
 	// Unversioned fallback so templates that call {{asset ...}} parse and render
 	// with nil funcs (tests). main.go overrides this with the content-hash version.
-	"asset": func(p string) string { return "/static/" + strings.TrimPrefix(p, "/") },
+	"asset": StaticURL,
 }
+
+// StaticURL maps a static asset path (relative to the static root, e.g.
+// "js/botcheck.js") to its public URL under /static, tolerating an optional
+// leading slash. It is the single place the "/static/" prefix is applied — shared
+// by the nil-funcs fallback above, the dev asset helper in main, and
+// AssetVersioner's fallback — so dev and prod can never diverge on the prefix.
+func StaticURL(p string) string { return "/static/" + strings.TrimPrefix(p, "/") }
 
 // AssetVersioner returns a template helper mapping a static asset path (relative to
 // the static root, e.g. "js/botcheck.js") to its public URL with a content-hash
@@ -49,7 +56,7 @@ func AssetVersioner(static fs.FS) func(string) string {
 		if u, ok := cache[p]; ok {
 			return u
 		}
-		u := "/static/" + p
+		u := StaticURL(p)
 		if b, err := fs.ReadFile(static, p); err == nil {
 			sum := sha256.Sum256(b)
 			u += "?v=" + hex.EncodeToString(sum[:4])

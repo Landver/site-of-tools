@@ -49,21 +49,11 @@
       </div>
     </div>
 
-    <!-- Your request: server-rendered request metadata (handler conn()). TLS and the
-         visitor's HTTP version terminate at Cloudflare/nginx so they're omitted;
-         Cookie/Authorization are never read. Guarded so a render without .Conn drops it. -->
+    <!-- Your request: server-rendered request metadata (platform.Conn). Shared
+         inspector body lives in partials/conn; the wrapper stays here for spacing.
+         Guarded so a render without .Conn drops it. -->
     {{with .Conn}}
-    <div class="card mt-6">
-      <div class="eyebrow mb-3">your request</div>
-      <dl class="spec">
-        <dt class="text-faint">Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
-        <dt class="text-faint">Detected via</dt> <dd>{{.Via}}</dd>
-        <dt class="text-faint">Connection</dt>   <dd>{{.Scheme}}</dd>
-        <dt class="text-faint">Language</dt>     <dd>{{with .Language}}{{.}}{{else}}—{{end}}</dd>
-        <dt class="text-faint">Host</dt>         <dd class="break-all">{{.Host}}</dd>
-        <dt class="text-faint">Browser</dt>      <dd class="font-mono break-all text-strong">{{.Browser}}</dd>
-      </dl>
-    </div>
+    <div class="card mt-6">{{template "partials/conn" .}}</div>
     {{end}}
   </main>
 

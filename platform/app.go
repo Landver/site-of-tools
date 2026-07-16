@@ -59,9 +59,13 @@ func SubFS(embedded fs.FS, sub, devDir string, dev bool) fs.FS {
 }
 
 // cfIPExtractor prefers Cloudflare's CF-Connecting-IP, then a trusted
-// X-Forwarded-For chain, then the socket address. Only nginx (loopback/private)
-// is trusted to set these; in dev there is no proxy, so it falls through to
-// RemoteAddr.
+// X-Forwarded-For chain, then the socket address. CF-Connecting-IP is trusted
+// unconditionally: ingress trust is enforced at the network layer (the app is
+// published only behind nginx, which sits behind Cloudflare — see DEPLOYMENT.md
+// §4), so no in-process peer check is needed and a direct client can't reach it
+// to forge the header. The X-Forwarded-For chain, by contrast, is peer-verified
+// here via TrustLoopback/TrustPrivateNet. In dev there is no proxy, so both fall
+// through to RemoteAddr.
 func cfIPExtractor() echo.IPExtractor {
 	xff := echo.ExtractIPFromXFFHeader(
 		echo.TrustLoopback(true),

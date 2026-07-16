@@ -152,15 +152,13 @@
 
   const uaData = async () => {
     const d = navigator.userAgentData;
-    const hi = await safe(
-      () => d?.getHighEntropyValues?.(["platform", "platformVersion", "architecture"]),
-      null,
-    );
-    return {
-      platform: hi?.platform ?? d?.platform ?? "",
-      platform_version: hi?.platformVersion ?? "",
-      architecture: hi?.architecture ?? "",
-    };
+    // getHighEntropyValues can REJECT (e.g. NotAllowedError in a sandbox), and
+    // safe() only catches synchronous throws — so the `.catch` is what stops a
+    // rejection from propagating up through the Promise.all in collect() and
+    // aborting the whole fingerprint. Only navigator.userAgentData.platform is
+    // consumed server-side, so that's all we ask for.
+    const hi = await safe(() => d?.getHighEntropyValues?.(["platform"])?.catch(() => null), null);
+    return { platform: hi?.platform ?? d?.platform ?? "" };
   };
 
   const permState = () => safe(

@@ -15,7 +15,9 @@
 
 {{define "botcheck/result"}}
 {{if eq .Verdict "error"}}
-  <div class="alert-error w-full">{{with index .Checks 0}}{{.Label}}{{else}}Could not score this request.{{end}}</div>
+  {{/* The only producer of verdict "error" (handler.check) always sets exactly one
+       Check carrying the message, so index 0 is guaranteed — no empty-slice guard. */}}
+  <div class="alert-error w-full">{{(index .Checks 0).Label}}</div>
 {{else}}
 <div class="w-full">
   {{/* Score summary. Colour follows the verdict band: human = ok/green,

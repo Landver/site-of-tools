@@ -128,7 +128,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, weight: 25,
+		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.BrowserTZ == "" || s.IPTimezone == "" {
 				return false, ""

@@ -18,6 +18,7 @@
     <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
           class="mt-6 flex gap-2">
       <input name="ip" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="IP address to look up"
              placeholder="8.8.8.8 or 2001:4860:4860::8888 (empty = your own IP)"
              class="field">
       <button type="submit" class="btn-primary">Look up</button>
@@ -62,21 +63,11 @@
         </p>
       </div>
 
-      <!-- Your request: server-rendered request metadata (handler conn()). TLS and
-           HTTP version terminate upstream so they're omitted; Cookie/Authorization
-           are never read. Guarded so a render without .Conn drops the card. -->
+      <!-- Your request: server-rendered request metadata (platform.Conn). Shared
+           inspector body lives in partials/conn; the wrapper stays here for spacing.
+           Guarded so a render without .Conn drops the card. -->
       {{with .Conn}}
-      <div class="card">
-        <div class="eyebrow mb-3">your request</div>
-        <dl class="spec">
-          <dt class="text-faint">Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
-          <dt class="text-faint">Detected via</dt> <dd>{{.Via}}</dd>
-          <dt class="text-faint">Connection</dt>   <dd>{{.Scheme}}</dd>
-          <dt class="text-faint">Language</dt>     <dd>{{with .Language}}{{.}}{{else}}—{{end}}</dd>
-          <dt class="text-faint">Host</dt>         <dd class="break-all">{{.Host}}</dd>
-          <dt class="text-faint">Browser</dt>      <dd class="font-mono break-all text-strong">{{.Browser}}</dd>
-        </dl>
-      </div>
+      <div class="card">{{template "partials/conn" .}}</div>
       {{end}}
     </div>
   </main>

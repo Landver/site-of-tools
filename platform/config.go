@@ -1,7 +1,9 @@
 package platform
 
 import (
+	"bufio"
 	"cmp"
+	"io"
 	"os"
 	"strings"
 )
@@ -75,15 +77,28 @@ func getenv(k, def string) string {
 	return cmp.Or(os.Getenv(k), def)
 }
 
-// loadDotEnv reads KEY=VALUE lines from ./.env without overriding vars already
-// set in the real environment. No dependency; dev convenience only.
+// loadDotEnv reads KEY=VALUE lines from ./.env and applies them to the process
+// environment, never overriding a var already set. No dependency; dev convenience
+// only. The parse and merge steps are split out (parseDotEnv/mergeEnv) so both are
+// unit-testable without touching a real .env file or the ambient environment.
 func loadDotEnv() {
-	data, err := os.ReadFile(".env")
+	f, err := os.Open(".env")
 	if err != nil {
 		return
 	}
-	for line := range strings.Lines(string(data)) {
-		line = strings.TrimSpace(line)
+	defer f.Close()
+	mergeEnv(parseDotEnv(f))
+}
+
+// parseDotEnv parses KEY=VALUE lines from r into a map. Blank lines, "#" comments,
+// and lines without "=" are skipped; the key and value are whitespace-trimmed (a
+// value may itself contain "="). Pure — no environment access — so it is directly
+// unit-testable.
+func parseDotEnv(r io.Reader) map[string]string {
+	out := map[string]string{}
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -91,7 +106,16 @@ func loadDotEnv() {
 		if !ok {
 			continue
 		}
-		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	return out
+}
+
+// mergeEnv sets each pair in the process environment, skipping any key already
+// present so the real environment always wins over .env (and .env.prod layered on
+// top in prod). Split from loadDotEnv so the no-override rule can be tested.
+func mergeEnv(pairs map[string]string) {
+	for k, v := range pairs {
 		if _, exists := os.LookupEnv(k); !exists {
 			os.Setenv(k, v)
 		}

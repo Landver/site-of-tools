@@ -29,8 +29,9 @@ func main() {
 
 	// In prod, version static URLs by content hash ({{asset "js/botcheck.js"}} ->
 	// /static/js/botcheck.js?v=<hash>) so a deploy busts the CDN/browser cache for
-	// exactly the changed files. In dev, static is served no-store, so keep URLs clean.
-	asset := func(p string) string { return "/static/" + p }
+	// exactly the changed files. In dev, static is served no-store, so keep URLs
+	// clean — platform.StaticURL is the shared prefix logic both paths use.
+	asset := platform.StaticURL
 	if !cfg.IsDev() {
 		asset = platform.AssetVersioner(staticFS)
 	}

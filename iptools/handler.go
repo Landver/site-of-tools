@@ -48,7 +48,7 @@ func (h *handler) index(c *echo.Context) error {
 	}
 	if ip == "" {
 		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": conn(c),
+			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": platform.Conn(c),
 		})
 	}
 	return h.show(c, ip, self)
@@ -108,58 +108,8 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
 	}
-	vm["Conn"] = conn(c) // full page only — the "your request" card
+	vm["Conn"] = platform.Conn(c) // full page only — the "your request" card
 	return c.Render(code, "ip/index", vm)
-}
-
-// ConnInfo is the "your request" inspector's view of the current request — pure
-// transport metadata, no domain lookup. TLS and the visitor's HTTP version are
-// absent: they terminate at Cloudflare/nginx and aren't knowable here. Cookie and
-// Authorization are deliberately never read.
-type ConnInfo struct {
-	IP       string // resolved client IP (c.RealIP())
-	Via      string // how the IP was derived: Cloudflare / X-Forwarded-For / direct
-	Scheme   string // http or https (from X-Forwarded-Proto, else the local conn)
-	Host     string // Host header the visitor hit
-	Browser  string // User-Agent
-	Language string // first Accept-Language token
-}
-
-// conn builds the connection inspector's data from the current request.
-func conn(c *echo.Context) ConnInfo {
-	r := c.Request()
-
-	via := "direct"
-	switch {
-	case r.Header.Get("CF-Connecting-IP") != "":
-		via = "Cloudflare"
-	case r.Header.Get("X-Forwarded-For") != "":
-		via = "X-Forwarded-For"
-	}
-
-	// Browser-facing scheme: X-Forwarded-Proto is the reliable signal (TLS
-	// terminates upstream); fall back to the local connection in dev.
-	scheme := r.Header.Get("X-Forwarded-Proto")
-	if scheme == "" {
-		scheme = "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
-	}
-
-	lang := r.Header.Get("Accept-Language")
-	if i := strings.IndexAny(lang, ",;"); i >= 0 {
-		lang = lang[:i]
-	}
-
-	return ConnInfo{
-		IP:       c.RealIP(),
-		Via:      via,
-		Scheme:   scheme,
-		Host:     r.Host,
-		Browser:  r.UserAgent(),
-		Language: strings.TrimSpace(lang),
-	}
 }
 
 func statusFor(err error) int {
