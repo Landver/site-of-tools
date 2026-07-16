@@ -60,10 +60,17 @@ type Signals struct {
 	DeviceMemory     float64  `json:"deviceMemory"`
 	BrowserTZ        string   `json:"browserTZ"`
 	UAData           UAData   `json:"uaData"`
+	NavLanguage      string   `json:"language"`   // navigator.language (should equal Languages[0])
+	Vendor           string   `json:"vendor"`     // navigator.vendor
+	AppVersion       string   `json:"appVersion"` // navigator.appVersion
+	AvailW           int      `json:"availW"`     // screen.availWidth
+	AvailH           int      `json:"availH"`     // screen.availHeight
+	ColorDepth       int      `json:"colorDepth"` // screen.colorDepth
 
 	// ── server-observed (filled by the handler; never read off the wire) ─────
 	HTTPUserAgent   string `json:"-"`
 	SecCHUAPlatform string `json:"-"`
+	SecFetchMode    string `json:"-"` // Sec-Fetch-Mode header (real browsers always send it)
 	AcceptLanguage  string `json:"-"`
 	IPCountry       string `json:"-"`
 	IPTimezone      string `json:"-"`
@@ -248,6 +255,30 @@ func botUAToken(ua string) string {
 }
 
 func embeddedRuntimeToken(ua string) string { return firstToken(ua, embeddedRuntimeTokens) }
+
+// looksLikeBrowser reports whether a User-Agent claims to be a mainstream
+// interactive browser — the precondition for "a real browser would have sent
+// header X" checks. It excludes UAs already caught as bots/HTTP clients.
+func looksLikeBrowser(ua string) bool {
+	if ua == "" || !strings.HasPrefix(ua, "Mozilla/") || botUAToken(ua) != "" {
+		return false
+	}
+	for _, m := range []string{"Chrome", "Firefox", "Safari", "Edg", "OPR"} {
+		if strings.Contains(ua, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientUA returns the browser's own reported User-Agent (navigator.userAgent),
+// falling back to the HTTP header when the client half wasn't collected.
+func clientUA(s Signals) string {
+	if s.NavMainUA != "" {
+		return s.NavMainUA
+	}
+	return s.HTTPUserAgent
+}
 
 // firstToken returns the first token that appears (case-insensitively) in ua.
 func firstToken(ua string, tokens []string) string {

@@ -142,6 +142,12 @@
       deviceMemory: safe(() => navigator.deviceMemory ?? 0, 0),
       browserTZ: safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "", ""),
       uaData: ua,
+      language: safe(() => navigator.language ?? "", ""),
+      vendor: safe(() => navigator.vendor ?? "", ""),
+      appVersion: safe(() => navigator.appVersion ?? "", ""),
+      availW: safe(() => screen.availWidth ?? 0, 0),
+      availH: safe(() => screen.availHeight ?? 0, 0),
+      colorDepth: safe(() => screen.colorDepth ?? 0, 0),
     };
   };
 
