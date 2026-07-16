@@ -7,6 +7,7 @@
 @source "../../templates/**/*.html";
 @source "../../../site/templates/**/*.html";
 @source "../../../iptools/templates/**/*.html";
+@source "../../../botcheck/templates/**/*.html";
 
 /* Dark mode is driven by a data-theme attribute (set before paint by the head
    script), not the OS media query directly, so the manual toggle can override
@@ -29,7 +30,8 @@
   --color-muted:   #52525b; /* secondary text, links    */
   --color-faint:   #71717a; /* labels, footer, hints    */
   --color-danger:  #dc2626; /* proxy / threat / error   */
-  --color-ok:      #059669; /* not-a-proxy              */
+  --color-ok:      #059669; /* not-a-proxy / looks human */
+  --color-warn:    #d97706; /* suspicious (bot-check band) */
 }
 
 /* DARK theme — override the same tokens. Utilities compile to var(--color-*),
@@ -44,6 +46,7 @@
   --color-faint:   #737373;
   --color-danger:  #f87171;
   --color-ok:      #34d399;
+  --color-warn:    #fbbf24;
 }
 
 /* Reusable info card (looked-up IP + your IPv6). One definition keeps the
