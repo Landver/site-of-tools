@@ -162,6 +162,11 @@ func TestTwoSoftSignalsStayHuman(t *testing.T) {
 	if r.Score != 100 || r.Verdict != "human" {
 		t.Errorf("two soft signals: score=%d verdict=%q, want 100/human (combo rule)", r.Score, r.Verdict)
 	}
+	// The display helpers must agree: 2 soft ⇒ flagged but no cluster penalty, so
+	// the UI shows them as "flagged" with no per-row or cluster deduction.
+	if r.SoftFired() != 2 || r.SoftClusterActive() {
+		t.Errorf("2 soft: SoftFired=%d clusterActive=%v, want 2 / false", r.SoftFired(), r.SoftClusterActive())
+	}
 }
 
 func TestThreeSoftSignalsPromoteToSuspicious(t *testing.T) {
@@ -175,6 +180,14 @@ func TestThreeSoftSignalsPromoteToSuspicious(t *testing.T) {
 	// ≥3 soft ⇒ single 25 deduction ⇒ 75 ⇒ suspicious.
 	if r.Score != 75 || r.Verdict != "suspicious" {
 		t.Errorf("three soft signals: score=%d verdict=%q, want 75/suspicious (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
+	}
+	// The cluster is active now, so the UI shows one deduction line. Its penalty is
+	// the only thing that moved the score here, so it must equal 100 - score.
+	if r.SoftFired() != 3 || !r.SoftClusterActive() {
+		t.Errorf("3 soft: SoftFired=%d clusterActive=%v, want 3 / true", r.SoftFired(), r.SoftClusterActive())
+	}
+	if got := r.SoftClusterPenalty(); got != 100-r.Score {
+		t.Errorf("SoftClusterPenalty=%d, want %d (100-score)", got, 100-r.Score)
 	}
 }
 
