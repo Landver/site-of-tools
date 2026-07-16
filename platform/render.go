@@ -1,10 +1,13 @@
 package platform
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"html/template"
 	"io"
 	"io/fs"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 )
@@ -25,6 +28,35 @@ type Tool struct {
 var navBaseFuncs = template.FuncMap{
 	"apexURL":  func() string { return "/" },
 	"navTools": func() []Tool { return nil },
+	// Unversioned fallback so templates that call {{asset ...}} parse and render
+	// with nil funcs (tests). main.go overrides this with the content-hash version.
+	"asset": func(p string) string { return "/static/" + strings.TrimPrefix(p, "/") },
+}
+
+// AssetVersioner returns a template helper mapping a static asset path (relative to
+// the static root, e.g. "js/botcheck.js") to its public URL with a content-hash
+// cache-buster, e.g. "/static/js/botcheck.js?v=1a2b3c4d". The hash changes only when
+// the file's bytes change, so a deploy invalidates the CDN/browser cache for exactly
+// the assets that changed — no waiting out a stale max-age, no manual purge. Results
+// are memoised; a read error falls back to the unversioned URL.
+func AssetVersioner(static fs.FS) func(string) string {
+	var mu sync.Mutex
+	cache := map[string]string{}
+	return func(p string) string {
+		p = strings.TrimPrefix(p, "/")
+		mu.Lock()
+		defer mu.Unlock()
+		if u, ok := cache[p]; ok {
+			return u
+		}
+		u := "/static/" + p
+		if b, err := fs.ReadFile(static, p); err == nil {
+			sum := sha256.Sum256(b)
+			u += "?v=" + hex.EncodeToString(sum[:4])
+		}
+		cache[p] = u
+		return u
+	}
 }
 
 // TemplateSource describes one package's templates: its embedded FS (which
