@@ -25,9 +25,20 @@ func main() {
 	// Template funcs available to every template: the shared header uses these for
 	// the logo link (always the apex) and the Tools dropdown. Tools come from one
 	// catalog (site.Tools), so the nav and the apex index render the same list.
+	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
+
+	// In prod, version static URLs by content hash ({{asset "js/botcheck.js"}} ->
+	// /static/js/botcheck.js?v=<hash>) so a deploy busts the CDN/browser cache for
+	// exactly the changed files. In dev, static is served no-store, so keep URLs clean.
+	asset := func(p string) string { return "/static/" + p }
+	if !cfg.IsDev() {
+		asset = platform.AssetVersioner(staticFS)
+	}
+
 	navFuncs := template.FuncMap{
 		"apexURL":  func() string { return cfg.URL("") },
 		"navTools": func() []platform.Tool { return site.Tools(cfg) },
+		"asset":    asset,
 	}
 
 	// One template set assembled from shared partials + each project's templates.
@@ -37,7 +48,6 @@ func main() {
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "botcheck/templates"},
 	)
-	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
 
 	// apex: corpberry.com
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev())
