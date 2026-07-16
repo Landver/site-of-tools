@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,6 +89,23 @@ func TestHandlerHTMXGetsFragment(t *testing.T) {
 	}
 	if !strings.Contains(body, "Mountain View") {
 		t.Errorf("fragment missing the result data:\n%s", body)
+	}
+}
+
+func TestHandlerBadIPRendersErrorFragment(t *testing.T) {
+	// A malformed IP makes the domain Lookup fail with a validation error (not
+	// ErrUnavailable). The htmx path must return 400 *and* the error-alert
+	// fragment, so the box shows "not a valid IP" instead of silently keeping the
+	// previous result. (The client swaps this 400 in via htmx:beforeSwap — see
+	// ip/index.html; htmx would otherwise drop a 4xx response.)
+	app := newTestApp(fakeLooker{err: errors.New(`"104.253.63." is not a valid IP address`)})
+	rec := do(app, "/?ip=104.253.63.", map[string]string{"HX-Request": "true"})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bad IP code = %d, want 400", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "alert-error") || !strings.Contains(body, "not a valid IP address") {
+		t.Errorf("bad IP should render the error alert fragment, got:\n%s", body)
 	}
 }
 

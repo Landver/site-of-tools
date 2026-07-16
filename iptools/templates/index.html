@@ -84,6 +84,16 @@
   {{template "partials/footer" .}}
 
   <script>
+    // A bad IP comes back as HTTP 400 with an error fragment (same alert the CIDR
+    // page shows). htmx won't swap 4xx by default, so without this the box would
+    // silently keep the previous result; tell it to render our validation error.
+    document.body.addEventListener('htmx:beforeSwap', (e) => {
+      if (e.detail.xhr.status === 400) {
+        e.detail.shouldSwap = true
+        e.detail.isError = false
+      }
+    })
+
     // IPv6 support probe (Alpine, hybrid). Step 1: hit an IPv6-only echo — it
     // resolves only if this browser has working IPv6. Step 2: pull the address
     // details from our own content-negotiated JSON endpoint, so nothing but the
