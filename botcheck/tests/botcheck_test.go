@@ -49,6 +49,16 @@ func cleanChrome() botcheck.Signals {
 		SecFetchMode:    "cors",
 		UAData:          botcheck.UAData{Platform: "macOS", PlatformVersion: "14.5.0"},
 		Now:             testNow,
+		// Layer-2, all internally consistent (so a clean browser scores 100).
+		TZOffset:        300, // America/New_York in January (UTC-5)
+		CanvasSupported: true,
+		CanvasStable:    true,
+		CanvasBlank:     false,
+		Brands:          []string{"Chromium", "Google Chrome", "Not.A/Brand"},
+		SecCHUA:         `"Chromium";v="125", "Google Chrome";v="125", "Not.A/Brand";v="24"`,
+		CodecH264:       true,
+		CodecAAC:        true,
+		FontCount:       8,
 	}
 }
 
@@ -107,7 +117,7 @@ func TestStealthSpoofScoresBot(t *testing.T) {
 	// three consistency signals that should not co-occur.
 	s := cleanChrome()
 	s.HTTPUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-	s.BrowserTZ = "Europe/Moscow" // vs IP America/New_York
+	s.BrowserTZ, s.TZOffset = "Europe/Moscow", -180 // self-consistent Moscow, but ≠ the IP
 	s.IsDatacenter, s.IsProxy = true, true
 
 	r := botcheck.Evaluate(s)
@@ -254,16 +264,48 @@ func TestTimezoneOffsetComparedNotStringMatched(t *testing.T) {
 	// pair must NOT fire (this was a real prod false positive: Europe/Moscow is
 	// +03:00, so "Europe/Moscow" vs "+03:00" is a match, not a mismatch).
 	same := cleanChrome()
-	same.BrowserTZ, same.IPTimezone = "Europe/Moscow", "+03:00"
+	same.BrowserTZ, same.TZOffset, same.IPTimezone = "Europe/Moscow", -180, "+03:00"
 	if check(t, botcheck.Evaluate(same), "tz_mismatch").Triggered {
 		t.Errorf("tz_mismatch must not fire when the IANA zone's offset equals the IP offset")
 	}
 
 	// A genuine offset disagreement still fires.
 	diff := cleanChrome()
-	diff.BrowserTZ, diff.IPTimezone = "America/Los_Angeles", "+03:00" // -08:00 vs +03:00
+	diff.BrowserTZ, diff.TZOffset, diff.IPTimezone = "America/Los_Angeles", 480, "+03:00" // -08:00 vs +03:00
 	if !check(t, botcheck.Evaluate(diff), "tz_mismatch").Triggered {
 		t.Errorf("tz_mismatch should fire when the browser and IP offsets truly differ")
+	}
+}
+
+func TestLayer2Signals(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*botcheck.Signals)
+		id     string
+	}{
+		{"tz self-inconsistent", func(s *botcheck.Signals) { s.TZOffset = 0 }, "tz_self_inconsistent"}, // NY zone but offset 0
+		{"canvas randomised", func(s *botcheck.Signals) { s.CanvasStable = false }, "canvas_unstable"},
+		{"canvas blank", func(s *botcheck.Signals) { s.CanvasBlank = true }, "canvas_blank"},
+		{"CH brands differ", func(s *botcheck.Signals) { s.Brands = []string{"Microsoft Edge", "Not.A/Brand"} }, "ch_brands_mismatch"},
+		{"no proprietary codecs", func(s *botcheck.Signals) { s.CodecH264, s.CodecAAC = false, false }, "missing_proprietary_codecs"},
+		{"no fonts", func(s *botcheck.Signals) { s.FontCount = 0 }, "no_fonts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			if !check(t, botcheck.Evaluate(s), tc.id).Triggered {
+				t.Errorf("%s should fire", tc.id)
+			}
+		})
+	}
+}
+
+func TestCleanBrowserPassesLayer2(t *testing.T) {
+	// The clean fixture (all Layer-2 fields internally consistent) stays 100/human.
+	r := botcheck.Evaluate(cleanChrome())
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Fatalf("clean browser with Layer-2 signals: score=%d verdict=%q, want 100/human (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
 	}
 }
 
@@ -271,8 +313,8 @@ func TestUnknownIPTimezoneDoesNotTripCrossCheck(t *testing.T) {
 	// A cleaned/empty IP timezone (localhost, unknown IP) must not make the tz
 	// cross-check fire against a real browser timezone.
 	s := cleanChrome()
-	s.BrowserTZ = "Europe/Moscow"
-	s.IPTimezone = "" // handler maps IP2Location's "-" to ""
+	s.BrowserTZ, s.TZOffset = "Europe/Moscow", -180 // self-consistent Moscow
+	s.IPTimezone = ""                               // handler maps IP2Location's "-" to ""
 
 	r := botcheck.Evaluate(s)
 	if check(t, r, "tz_mismatch").Triggered {

@@ -37,15 +37,24 @@ population shows. New signals should prefer that shape over standalone tells.
 
 ## Layer 2 — Medium (more collection / tuning; still no new infra or deps)
 
-- **Timezone offset self-consistency** — `Intl….timeZone` (IANA) vs `getTimezoneOffset()`. Go resolves the zone with `time.LoadLocation` (embed `time/tzdata` for portability) and compares. Needs the request time threaded into `Evaluate` for DST, so it stays a pure function. IP-independent, high value. (Borderline simple/medium.)
-- **Canvas / WebGL / Audio fingerprint hashing** — stable hash + a second draw: a hash that *changes* between draws ⇒ randomised (anti-fingerprint tool / stealth); an all-zero/blank hash ⇒ blocked or headless.
-- **Font enumeration** — measure text widths across font stacks; headless/VM environments expose an unusually small or telltale font set.
-- **Client-Hints brand cross-check** — parse the `Sec-CH-UA` header brand list and compare to JS `userAgentData.brands`; check the GREASE `"Not A;Brand"` entry is well-formed.
+**Implemented:**
+
+| Signal | Tier | Idea |
+|---|---|---|
+| `tz_self_inconsistent` | consistency | `Intl….timeZone` (IANA) vs `getTimezoneOffset()` — Go resolves the zone with `time.LoadLocation` (embeds `time/tzdata`) at the request time (threaded in as `Signals.Now`, keeping `Evaluate` pure). IP-independent. |
+| `canvas_unstable` | consistency | Two identical canvas draws hashing differently ⇒ noise-injecting anti-fingerprint tool. |
+| `canvas_blank` | soft | The drawn canvas has no non-transparent pixels ⇒ blocked / headless. |
+| `ch_brands_mismatch` | consistency | Parse the `Sec-CH-UA` header brand list and compare to JS `userAgentData.brands` (GREASE decoy ignored). |
+| `missing_proprietary_codecs` | soft | Browser UA but neither H.264 nor AAC (`canPlayType`) ⇒ stripped / headless build. |
+| `no_fonts` | soft | Zero probe fonts detectable via the `measureText` width technique ⇒ neutralised font surface / font-less VM. |
+
+**Remaining medium candidates (not yet built):**
+
 - **Browser version plausibility** — parse the Chrome major from the UA vs `userAgentData.fullVersionList`; flag impossible or very stale versions.
-- **Media codec matrix** — `canPlayType`/`MediaSource.isTypeSupported` results vs the claimed browser.
+- **Fuller media-codec / font-diversity matrices** — beyond the current H.264/AAC pair and the zero-fonts floor, score against expected per-browser codec sets and typical font-count ranges (needs careful thresholds to avoid mobile false positives).
 - **JS engine tells** — `Error` stack format, `Function.prototype.toString` quirks, `Math`/number formatting differences (V8 vs SpiderMonkey vs JSC) vs the claimed browser.
-- **WebRTC** — collect ICE candidates: local-IP leak, presence of an mDNS `.local` candidate, and `srflx` public IP vs the server-observed IP.
-- **Request velocity** — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Note: introduces process state, so it bends the current stateless rule; better once the planned MongoDB lands, sitting below the domain service.
+- **WebRTC** — collect ICE candidates: local-IP leak, presence of an mDNS `.local` candidate, and `srflx` public IP vs the server-observed IP. (Async/flaky — deferred deliberately.)
+- **Request velocity** — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, so it bends the current stateless rule; better once the planned MongoDB lands, sitting below the domain service.
 
 ## Layer 3 — Hard (new infrastructure, dependencies, ML, or the DB)
 

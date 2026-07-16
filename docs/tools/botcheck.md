@@ -49,19 +49,23 @@ band: `≥80 human`, `≥50 suspicious`, else `bot`. Rules are tiered:
   in both main thread + Worker.
 - **Consistency** (≈15–35): JS UA ≠ HTTP UA; Worker/iframe UA ≠ main UA;
   `Sec-CH-UA-Platform` ≠ `userAgentData.platform`; UA OS ≠ platform; embedded
-  runtime (Electron/CEF); browser TZ ≠ IP TZ; datacenter/Tor IP; proxy/VPN IP;
-  impossible permission state; `navigator.languages` ≠ `Accept-Language`; CDP
-  main-thread only; `navigator.vendor` ≠ `"Google Inc."` on a Chromium UA;
-  `navigator.appVersion` ≠ UA; `navigator.language` ≠ `languages[0]`.
+  runtime (Electron/CEF); browser TZ offset ≠ IP TZ offset; datacenter/Tor IP;
+  proxy/VPN IP; impossible permission state; `navigator.languages` ≠
+  `Accept-Language`; CDP main-thread only; `navigator.vendor` ≠ `"Google Inc."`
+  on a Chromium UA; `navigator.appVersion` ≠ UA; `navigator.language` ≠
+  `languages[0]`; IANA zone ≠ `getTimezoneOffset()` (self-consistency); canvas
+  randomised between draws; `Sec-CH-UA` header brands ≠ `userAgentData.brands`.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
-  screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`.
-  Soft signals **only bite as a cluster of ≥3** (one 25-point deduction), so a
-  single quirk never false-positives a real human.
+  screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`,
+  canvas renders blank, no H.264/AAC codecs, no detectable fonts. Soft signals
+  **only bite as a cluster of ≥3** (one 25-point deduction), so a single quirk
+  never false-positives a real human.
 
 Every rule appears in the response `checks` list as flagged / clean /
 `not collected` (a client rule on a server-only request is skipped, never counted
-as a pass) — the breakdown is the point.
+as a pass) — the breakdown is the point. In the HTML view the checks are grouped
+by tier (automation tells / consistency cross-checks / environment heuristics).
 
 ## Known gaps (documented, not bugs)
 

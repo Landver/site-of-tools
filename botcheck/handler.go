@@ -87,6 +87,7 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	sig.Now = time.Now()
 	sig.HTTPUserAgent = r.UserAgent()
 	sig.SecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
+	sig.SecCHUA = r.Header.Get("Sec-CH-UA")
 	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")
 	sig.AcceptLanguage = r.Header.Get("Accept-Language")
 
