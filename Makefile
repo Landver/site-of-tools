@@ -6,8 +6,11 @@ endif
 
 TAILWIND_VERSION := v4.3.2
 TAILWIND := ./shared/tailwindcss
-# Map `uname -m` to Tailwind's release asset arch names (x64 / arm64).
+# Map `uname -s` / `uname -m` to Tailwind's release asset names.
+# OS: Darwin -> macos, everything else -> linux (prod host). Arch: x64 / arm64.
+UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
+TW_OS   := $(if $(filter Darwin,$(UNAME_S)),macos,linux)
 TW_ARCH := $(if $(filter aarch64 arm64,$(UNAME_M)),arm64,x64)
 GOBIN := $(shell go env GOPATH 2>/dev/null)/bin
 
@@ -34,7 +37,7 @@ deps:
 	go mod tidy
 
 $(TAILWIND):
-	curl -fsSL -o $(TAILWIND) https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-linux-$(TW_ARCH)
+	curl -fsSL -o $(TAILWIND) https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-$(TW_OS)-$(TW_ARCH)
 	chmod +x $(TAILWIND)
 
 tools: $(TAILWIND) hooks
