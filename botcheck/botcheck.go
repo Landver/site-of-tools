@@ -412,6 +412,28 @@ func (r Report) Group(tier string) []Check {
 	return out
 }
 
+// SoftFired reports how many soft-tier signals triggered. Soft signals never dock
+// points individually — they only cost the score once softComboThreshold of them
+// fire together (see Evaluate) — so the template shows each as "flagged" rather
+// than a per-row deduction and, when the cluster is active, adds a single line for
+// the real penalty. Keeps the displayed numbers matching what actually moved the score.
+func (r Report) SoftFired() int {
+	n := 0
+	for _, c := range r.Checks {
+		if c.Tier == TierSoft && c.Triggered {
+			n++
+		}
+	}
+	return n
+}
+
+// SoftClusterActive reports whether enough soft signals fired to apply the cluster
+// penalty — the only case where soft signals move the score.
+func (r Report) SoftClusterActive() bool { return r.SoftFired() >= softComboThreshold }
+
+// SoftClusterPenalty is the score cost of an active soft cluster.
+func (r Report) SoftClusterPenalty() int { return softComboWeight }
+
 // primaryLang extracts the base language subtag from a languages list or an
 // Accept-Language header (e.g. "en-US,ru;q=0.9" → "en"). "" if none.
 func primaryLang(s string) string {

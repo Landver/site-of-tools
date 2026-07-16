@@ -179,6 +179,22 @@ func TestPlaceholderTimezoneCleanedThroughHandler(t *testing.T) {
 	}
 }
 
+func TestCheckSoftSignalsRenderAsFlagged(t *testing.T) {
+	// Soft signals never dock points on their own, so each renders as "flagged"
+	// (no misleading per-row "−8"), and the single cluster deduction line shows
+	// only once enough of them fire. This body trips several soft signals but no
+	// hard/consistency ones, so the fragment must carry both.
+	body := `{"navMainUA":"` + chromeMacUA + `","plugins":0,"screenW":800,"screenH":600,"availW":800,"availH":600}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "text/html", "User-Agent": chromeMacUA})
+	frag := rec.Body.String()
+	if !strings.Contains(frag, "flagged") {
+		t.Errorf("a flagged soft signal should render as \"flagged\":\n%s", frag)
+	}
+	if !strings.Contains(frag, "weak signals counted together") {
+		t.Errorf("3+ soft signals should show the single cluster line:\n%s", frag)
+	}
+}
+
 func TestCheckDatacenterPlusHeadlessIsBot(t *testing.T) {
 	// End-to-end: a headless fingerprint from a datacenter IP → bot, in JSON.
 	looker := fakeLooker{res: &iptools.Result{Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "DCH"}}}
