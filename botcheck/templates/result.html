@@ -17,7 +17,7 @@
 {{if eq .Verdict "error"}}
   <div class="alert-error w-full">{{with index .Checks 0}}{{.Label}}{{else}}Could not score this request.{{end}}</div>
 {{else}}
-<div class="w-full flex flex-col gap-4">
+<div class="w-full">
   {{/* Score summary. Colour follows the verdict band: human = ok/green,
        suspicious = warn/amber, bot = danger/red. Classes are literal (Tailwind
        only sees literal strings), so each band is spelled out. */}}
@@ -41,24 +41,29 @@
 
   {{/* The transparent breakdown, grouped by tier (via Report.Group). Each group
        is a labelled card; every signal shows flagged / clean / not-collected.
-       The shared row markup lives in "botcheck/check". */}}
-  <div class="card">
-    <div class="eyebrow mb-3">automation &amp; headless tells</div>
-    <ul class="flex flex-col divide-y divide-line text-sm">
-      {{range .Group "hard"}}{{template "botcheck/check" .}}{{end}}
-    </ul>
-  </div>
-  <div class="card">
-    <div class="eyebrow mb-3">consistency cross-checks</div>
-    <ul class="flex flex-col divide-y divide-line text-sm">
-      {{range .Group "consistency"}}{{template "botcheck/check" .}}{{end}}
-    </ul>
-  </div>
-  <div class="card">
-    <div class="eyebrow mb-3">environment heuristics</div>
-    <ul class="flex flex-col divide-y divide-line text-sm">
-      {{range .Group "soft"}}{{template "botcheck/check" .}}{{end}}
-    </ul>
+       The cards flow in a two-column grid (one column on narrow screens), the
+       same side-by-side layout as the IP tool's result cards. items-start keeps
+       a short group from stretching to a taller neighbour's height. The shared
+       row markup lives in "botcheck/check". */}}
+  <div class="grid gap-4 items-start sm:grid-cols-2 mt-4">
+    <div class="card">
+      <div class="eyebrow mb-3">automation &amp; headless tells</div>
+      <ul class="flex flex-col divide-y divide-line text-sm">
+        {{range .Group "hard"}}{{template "botcheck/check" .}}{{end}}
+      </ul>
+    </div>
+    <div class="card">
+      <div class="eyebrow mb-3">consistency cross-checks</div>
+      <ul class="flex flex-col divide-y divide-line text-sm">
+        {{range .Group "consistency"}}{{template "botcheck/check" .}}{{end}}
+      </ul>
+    </div>
+    <div class="card">
+      <div class="eyebrow mb-3">environment heuristics</div>
+      <ul class="flex flex-col divide-y divide-line text-sm">
+        {{range .Group "soft"}}{{template "botcheck/check" .}}{{end}}
+      </ul>
+    </div>
   </div>
 </div>
 {{end}}
