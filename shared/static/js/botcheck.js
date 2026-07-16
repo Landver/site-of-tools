@@ -110,8 +110,15 @@
     const ctx = document.createElement("canvas").getContext("2d");
     if (!ctx) return -1;
     const w = (font) => { ctx.font = "72px " + font; return ctx.measureText("mmmmmmmmmmlli").width; };
-    const baseW = Object.fromEntries(bases.map((b) => [b, w(b)]));
-    return probes.filter((p) => bases.some((b) => w(`'${p}',${b}`) !== baseW[b])).length;
+    const count = () => {
+      const baseW = Object.fromEntries(bases.map((b) => [b, w(b)]));
+      return probes.filter((p) => bases.some((b) => w(`'${p}',${b}`) !== baseW[b])).length;
+    };
+    // The first canvas text measurement after navigation can hit a cold font cache
+    // and return the generic width for every probe — a spurious "no fonts". Warm the
+    // cache with a throwaway pass, then take the real measurement.
+    count();
+    return count();
   }, -1);
 
   const iframeUA = () => safe(() => {
@@ -218,9 +225,23 @@
   };
 
   window.runBotCheck = runBotCheck;
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", runBotCheck);
+
+  // Auto-run once the page is warmed up. Probes that touch the font cache and media
+  // pipeline can read "cold" at DOMContentLoaded — a spurious "no fonts / no codecs"
+  // — and a proxy extension that slows the load makes that far more likely. Wait for
+  // the load event and document.fonts.ready so those reads are stable, with a
+  // timeout fallback so a stalled resource never leaves the page on "analyzing".
+  let autoStarted = false;
+  const autoRun = () => {
+    if (autoStarted) return;
+    autoStarted = true;
+    const fontsReady = (document.fonts && document.fonts.ready) || Promise.resolve();
+    fontsReady.catch(() => {}).then(() => runBotCheck());
+  };
+  if (document.readyState === "complete") {
+    autoRun();
   } else {
-    runBotCheck();
+    window.addEventListener("load", autoRun);
+    setTimeout(autoRun, 4000);
   }
 })();
