@@ -1,0 +1,51 @@
+{{define "botcheck/result"}}
+{{if eq .Verdict "error"}}
+  <div class="alert-error w-full">{{with index .Checks 0}}{{.Label}}{{else}}Could not score this request.{{end}}</div>
+{{else}}
+<div class="w-full flex flex-col gap-4">
+  {{/* Score summary. Colour follows the verdict band: human = ok/green,
+       suspicious = warn/amber, bot = danger/red. Classes are literal (Tailwind
+       only sees literal strings), so each band is spelled out. */}}
+  <div class="card">
+    <div class="eyebrow mb-3">verdict</div>
+    <div class="flex items-baseline gap-3">
+      <span class="text-4xl font-semibold
+        {{if eq .Verdict "human"}}text-ok{{else if eq .Verdict "suspicious"}}text-warn{{else}}text-danger{{end}}">
+        {{.Score}}<span class="text-xl text-faint">/100</span>
+      </span>
+      <span class="text-lg font-medium
+        {{if eq .Verdict "human"}}text-ok{{else if eq .Verdict "suspicious"}}text-warn{{else}}text-danger{{end}}">
+        {{if eq .Verdict "human"}}Looks human{{else if eq .Verdict "suspicious"}}Suspicious{{else}}Looks like a bot{{end}}
+      </span>
+    </div>
+    <p class="mt-2 text-sm text-muted">
+      Authenticity score: 100 means the browser looks fully human, 0 fully automated.
+      Each flagged signal below subtracts from 100.
+    </p>
+  </div>
+
+  {{/* The transparent breakdown: every signal, flagged / clean / not-collected.
+       This is what makes the score trustworthy and debuggable. */}}
+  <div class="card">
+    <div class="eyebrow mb-3">signals</div>
+    <ul class="flex flex-col divide-y divide-line text-sm">
+      {{range .Checks}}
+      <li class="flex items-start gap-3 py-2">
+        <span class="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full
+          {{if .Skipped}}bg-faint{{else if .Triggered}}bg-danger{{else}}bg-ok{{end}}"></span>
+        <span class="flex-1 min-w-0">
+          <span class="{{if .Triggered}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
+          {{if .Detail}}<span class="text-faint"> — {{.Detail}}</span>{{end}}
+          <span class="ml-1 font-mono text-xs text-faint">[{{.Tier}}]</span>
+        </span>
+        <span class="shrink-0 text-xs font-mono
+          {{if .Skipped}}text-faint{{else if .Triggered}}text-danger{{else}}text-ok{{end}}">
+          {{if .Skipped}}not collected{{else if .Triggered}}−{{.Weight}}{{else}}ok{{end}}
+        </span>
+      </li>
+      {{end}}
+    </ul>
+  </div>
+</div>
+{{end}}
+{{end}}

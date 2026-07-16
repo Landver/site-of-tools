@@ -20,6 +20,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			Desc: "Look up geolocation, ASN, and proxy/VPN for any IP; inspect your own connection (live IPv6 check included); and calculate subnets with the CIDR tool.",
 			URL:  cfg.URL("ip"),
 		},
+		{
+			Name: "Bot check",
+			Desc: "Score how much your browser looks like a human vs. an automated bot: client fingerprint signals cross-checked against your connection's headers and IP reputation, with a transparent per-signal breakdown.",
+			URL:  cfg.URL("botcheck"),
+		},
 	}
 }
 

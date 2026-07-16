@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/Landver/site-of-tools/botcheck"
 	"github.com/Landver/site-of-tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
@@ -34,6 +35,7 @@ func main() {
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "botcheck/templates"},
 	)
 	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
 
@@ -49,9 +51,15 @@ func main() {
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev())
 	iptools.Register(ipApp, geo)
 
+	// botcheck.corpberry.com — reuses the same IP service for its server-side
+	// reputation signals (nil geo degrades gracefully, exactly like the IP tool).
+	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev())
+	botcheck.Register(botApp, geo)
+
 	hosts := map[string]*echo.Echo{
-		cfg.VHost(""):   apex,
-		cfg.VHost("ip"): ipApp,
+		cfg.VHost(""):         apex,
+		cfg.VHost("ip"):       ipApp,
+		cfg.VHost("botcheck"): botApp,
 	}
 	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 
