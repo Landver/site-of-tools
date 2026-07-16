@@ -3,6 +3,7 @@ package botcheck
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -83,6 +84,7 @@ func (h *handler) check(c *echo.Context) error {
 // scorer treats that as "no server IP signal"), exactly as the IP tool degrades.
 func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	r := c.Request()
+	sig.Now = time.Now()
 	sig.HTTPUserAgent = r.UserAgent()
 	sig.SecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
 	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")

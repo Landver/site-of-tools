@@ -15,7 +15,16 @@
 // *shows* (headers, IP) vs. what a second JS context reports (Worker/iframe).
 package botcheck
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	// Embed the IANA timezone database so time.LoadLocation works regardless of
+	// the (distroless) runtime image — needed for the browser-TZ vs IP-TZ offset
+	// comparison below.
+	_ "time/tzdata"
+)
 
 // UAData is the subset of navigator.userAgentData.getHighEntropyValues() the
 // collector reports. It exists so Go can cross-check the JS-reported platform
@@ -78,6 +87,11 @@ type Signals struct {
 	IsProxy         bool   `json:"-"`
 	IsVPN           bool   `json:"-"`
 	IsTor           bool   `json:"-"`
+
+	// Now is the request time, stamped by the handler. It's an input (not a call
+	// to the clock) so Evaluate stays pure and testable; used to resolve the
+	// browser timezone's current UTC offset (DST-aware).
+	Now time.Time `json:"-"`
 }
 
 // Tier classifies a check by how damning it is; it also drives the soft-signal
@@ -299,6 +313,31 @@ func cleanPlaceholder(s string) string {
 		return ""
 	}
 	return s
+}
+
+// offsetFormat reports whether s is a UTC offset like "+03:00" / "-08:00" — the
+// shape IP2Location returns for a timezone (as opposed to an IANA name).
+func offsetFormat(s string) bool {
+	return len(s) > 0 && (s[0] == '+' || s[0] == '-')
+}
+
+// ianaOffset resolves an IANA timezone name (e.g. "Europe/Moscow") to its UTC
+// offset at time at, formatted like IP2Location's "+03:00". DST-aware via at.
+// Returns false if the zone can't be loaded or at is the zero time (can't tell).
+func ianaOffset(zone string, at time.Time) (string, bool) {
+	if at.IsZero() {
+		return "", false
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return "", false
+	}
+	_, secs := at.In(loc).Zone() // seconds east of UTC
+	sign := "+"
+	if secs < 0 {
+		sign, secs = "-", -secs
+	}
+	return fmt.Sprintf("%s%02d:%02d", sign, secs/3600, (secs%3600)/60), true
 }
 
 // primaryLang extracts the base language subtag from a languages list or an
