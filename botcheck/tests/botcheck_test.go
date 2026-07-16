@@ -44,10 +44,9 @@ func cleanChrome() botcheck.Signals {
 		HardwareCores: 8, DeviceMemory: 8,
 		BrowserTZ:       "America/New_York",
 		IPTimezone:      "-05:00", // IP2Location returns a UTC offset, not an IANA name
-		IPCountry:       "US",
 		SecCHUAPlatform: `"macOS"`,
 		SecFetchMode:    "cors",
-		UAData:          botcheck.UAData{Platform: "macOS", PlatformVersion: "14.5.0"},
+		UAData:          botcheck.UAData{Platform: "macOS"},
 		Now:             testNow,
 		// Layer-2, all internally consistent (so a clean browser scores 100).
 		TZOffset:        300, // America/New_York in January (UTC-5)
@@ -201,6 +200,11 @@ func TestServerOnlySkipsClientChecks(t *testing.T) {
 	}
 	if check(t, r, "webdriver").Triggered {
 		t.Errorf("a skipped client check must not read as triggered")
+	}
+	// tz_mismatch depends on the client-only BrowserTZ, so it must skip (not read as a
+	// passing check) on a server-only request — same contract as tz_self_inconsistent.
+	if !check(t, r, "tz_mismatch").Skipped {
+		t.Errorf("tz_mismatch should be Skipped on a server-only request (needs client BrowserTZ)")
 	}
 	bot := check(t, r, "bot_user_agent")
 	if bot.Skipped || !bot.Triggered {

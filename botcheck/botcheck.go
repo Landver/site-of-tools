@@ -26,13 +26,11 @@ import (
 	_ "time/tzdata"
 )
 
-// UAData is the subset of navigator.userAgentData.getHighEntropyValues() the
-// collector reports. It exists so Go can cross-check the JS-reported platform
-// against the Sec-CH-UA* request headers and the legacy User-Agent string.
+// UAData is the subset of navigator.userAgentData the collector reports. It exists
+// so Go can cross-check the JS-reported platform against the Sec-CH-UA-Platform
+// request header and the legacy User-Agent string.
 type UAData struct {
-	Platform        string `json:"platform"`
-	PlatformVersion string `json:"platform_version"`
-	Architecture    string `json:"architecture"`
+	Platform string `json:"platform"`
 }
 
 // Signals is everything the scorer needs: client-collected values (bound
@@ -92,7 +90,6 @@ type Signals struct {
 	SecCHUA         string `json:"-"` // full Sec-CH-UA header (brand list)
 	SecFetchMode    string `json:"-"` // Sec-Fetch-Mode header (real browsers always send it)
 	AcceptLanguage  string `json:"-"`
-	IPCountry       string `json:"-"`
 	IPTimezone      string `json:"-"`
 	IsDatacenter    bool   `json:"-"`
 	IsProxy         bool   `json:"-"`
@@ -154,7 +151,7 @@ const (
 // and only bite as a cluster.
 func Evaluate(s Signals) Report {
 	checks := make([]Check, 0, len(rules))
-	deduction, softTriggered := 0, 0
+	deduction := 0
 
 	for _, r := range rules {
 		skipped := r.needsClient && !s.ClientCollected
@@ -166,22 +163,25 @@ func Evaluate(s Signals) Report {
 			ID: r.id, Label: r.label, Tier: r.tier, Weight: r.weight,
 			Triggered: triggered, Skipped: skipped, Detail: detail,
 		})
-		if !triggered {
-			continue
-		}
-		if r.tier == TierSoft {
-			softTriggered++
-		} else {
+		// Hard/consistency rules dock their weight immediately; soft rules never
+		// bite individually — they cost one softComboWeight only as a cluster,
+		// applied once below.
+		if triggered && r.tier != TierSoft {
 			deduction += r.weight
 		}
 	}
 
-	if softTriggered >= softComboThreshold {
+	// SoftClusterActive (SoftFired ≥ softComboThreshold) is the single source of
+	// truth for the soft-cluster rule, shared by scoring here and the display helpers.
+	report := Report{Checks: checks}
+	if report.SoftClusterActive() {
 		deduction += softComboWeight
 	}
 
 	score := max(0, 100-deduction)
-	return Report{Score: score, Verdict: verdictFor(score), Checks: checks}
+	report.Score = score
+	report.Verdict = verdictFor(score)
+	return report
 }
 
 func verdictFor(score int) string {
@@ -314,16 +314,6 @@ func firstToken(ua string, tokens []string) string {
 		}
 	}
 	return ""
-}
-
-// cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to an
-// empty string, so an unknown IP timezone/country is treated as "no signal"
-// rather than a real value the cross-checks could spuriously trip on.
-func cleanPlaceholder(s string) string {
-	if s == "-" {
-		return ""
-	}
-	return s
 }
 
 // offsetFormat reports whether s is a UTC offset like "+03:00" / "-08:00" — the

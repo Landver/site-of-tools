@@ -1,7 +1,9 @@
 # Deployment — corpberry.com
 
 Dev and prod run on the **same host**. Prod is Docker; dev is a local Go
-toolchain with live reload. No CI yet — deploy is `git pull` + `docker compose`.
+toolchain with live reload. CI/CD is GitHub Actions (`.github/workflows/ci.yml`):
+every push/PR to `master` runs `go vet` + `go build` + `go test -race`, and a green
+push to `master` auto-deploys to the prod host over SSH (§8).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the app design; this doc is the
 host/edge/container plumbing.
@@ -24,10 +26,11 @@ makes the client-IP trust model (§4) safe.
 - The Go process listens on **:8080** inside its container (`LISTEN_ADDR=:8080`,
   i.e. `0.0.0.0:8080`). **Bind `0.0.0.0` inside the container, not `127.0.0.1`** —
   a container-loopback bind is unreachable from nginx.
-- Docker publishes it to the **host loopback**: `127.0.0.1:8080:8080`. Off the
-  public internet, still reachable from nginx.
-- nginx (its own container) reaches the host via the docker bridge gateway
-  `172.17.0.1`, so `proxy_pass http://172.17.0.1:8080;`.
+- Docker publishes it on the **docker bridge gateway**: `172.17.0.1:8080:8080`
+  (see docker-compose.yml). Bound to that IP only — off the public interface, but
+  reachable from the nginx container, which sits on the bridge.
+- So nginx (its own container) reaches the app at that gateway:
+  `proxy_pass http://172.17.0.1:8080;`.
 
 ---
 
@@ -62,50 +65,54 @@ features may use it.
 - The app's `IPExtractor` prefers **`CF-Connecting-IP`**, then `X-Forwarded-For`
   (trusted hops), then `RemoteAddr`.
 - Those headers are **spoofable by anyone who can reach the app directly**. Two
-  things prevent that: (1) the app is published only to host loopback (§2), so
-  nginx is the sole front door; (2) Cloudflare is the only thing upstream, so
-  nginx sets `CF-Connecting-IP` from Cloudflare and a client can't inject it.
+  things prevent that: (1) the app is published only on the docker bridge gateway
+  (§2), not the public interface, so nginx is the sole front door; (2) Cloudflare
+  is the only thing upstream, so nginx sets `CF-Connecting-IP` from Cloudflare and
+  a client can't inject it.
 
 ---
 
 ## 5. Docker
 
-**Dockerfile** — three stages: build CSS (Tailwind standalone, arch-aware),
-build the Go binary (embeds templates + built CSS + vendored JS), ship on
-distroless-static. Full file at [`../Dockerfile`](../Dockerfile); shape:
+**Dockerfile** — two stages: a `golang:1.26` build stage that fetches the
+arch-correct Tailwind standalone binary, builds the stylesheet, and compiles the
+fully static Go binary (embedding templates + built CSS + vendored JS); then a
+distroless-static runtime stage. Full file at [`../Dockerfile`](../Dockerfile); shape:
 
 ```dockerfile
-# 1) CSS: Tailwind standalone binary, no Node/npm. TARGETARCH → x64/arm64.
-FROM debian:12-slim AS css
-ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+# 1) Build: Tailwind CSS (standalone, no Node) + fully static Go binary.
+FROM golang:1.26 AS build
+ARG TARGETARCH                 # docker's amd64/arm64 → Tailwind's x64/arm64
+WORKDIR /src
+# The golang image already ships curl + ca-certs, so no separate debian CSS stage.
 RUN case "$TARGETARCH" in amd64) TW=x64;; arm64) TW=arm64;; esac; \
     curl -fsSL -o /usr/local/bin/tailwindcss \
       "https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.2/tailwindcss-linux-$TW" \
     && chmod +x /usr/local/bin/tailwindcss
-COPY shared ./shared && COPY site ./site && COPY iptools ./iptools
-RUN tailwindcss -i shared/static/css/input.css -o shared/static/css/styles.css --minify
-
-# 2) Go: fully static build; embeds the project incl. the built styles.css
-FROM golang:1.26 AS build
-COPY go.mod go.sum ./ && RUN go mod download
+COPY go.mod go.sum ./          # cache deps before copying the tree
+RUN go mod download
 COPY . .
-COPY --from=css /src/shared/static/css/styles.css shared/static/css/styles.css
+RUN tailwindcss -i shared/static/css/input.css -o shared/static/css/styles.css --minify
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app .
 
-# 3) Runtime: distroless-static (CA certs + tzdata + nonroot, ~2 MB)
+# 2) Runtime: distroless-static (CA certs + tzdata + nonroot, ~2 MB).
 FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /
 COPY --from=build /app /app
+ENV APP_ENV=prod
+ENTRYPOINT ["/app"]
 ```
 `CGO_ENABLED=0` is mandatory for distroless-static; `ip2location-go/v9` is pure
 Go, so it's fine. Run `make deps` (writes `go.sum`) before building.
 
-**docker-compose.yml** — publish to loopback, env from `.env`, bind-mount the DB
-assets **read-only** (they're too large to bake into the image):
+**docker-compose.yml** — publish on the docker bridge gateway (reachable by the
+nginx container, §2), env from `.env` + `.env.prod` (later wins), bind-mount the DB
+assets **read-only** at the same repo-relative path the app uses. The binary runs
+with cwd `/`, so the relative `IP2LOCATION_*` paths resolve to the mount unchanged:
 ```yaml
-ports:    ["127.0.0.1:8080:8080"]
-env_file: .env
-volumes:  ["./iptools/assets:/assets:ro"]   # IP2LOCATION_* env → /assets/...
+ports:    ["172.17.0.1:8080:8080"]
+env_file: [.env, .env.prod]
+volumes:  ["./iptools/assets:/iptools/assets:ro"]   # IP2LOCATION_* env → /iptools/assets/...
 ```
 
 ---
@@ -152,10 +159,19 @@ Tests: `make test` (`go test ./... -race`). The pre-push hook runs `go vet` +
 
 ## 8. Deploy
 
+Deploys are automated. `.github/workflows/ci.yml` runs `go vet` + `go build` +
+`go test -race` on every push and PR to **`master`**; a green push to `master` (or
+a manual **Run workflow**) then runs the `deploy` job, which SSHes to the prod host
+and fast-forwards + rebuilds:
 ```bash
-git pull
+git fetch --prune origin && git checkout master && git merge --ff-only origin/master
 docker compose up -d --build
-docker compose logs -f site-of-tools
 ```
-Repo note: the default branch should be **`main`** (the working copy is on
-`master`). Push the initial code to `main` so the branch and PR target line up.
+So merging to `master` ships to prod. The entire pipeline is keyed on `master` (the
+CI triggers, the deploy ref guard, and the SSH checkout/merge), so `master` is the
+project's standing default branch — don't rename it without updating all three.
+
+Break-glass (manual deploy on the host, e.g. if Actions is down):
+```bash
+git pull && docker compose up -d --build && docker compose logs -f site-of-tools
+```

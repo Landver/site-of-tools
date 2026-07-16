@@ -65,7 +65,10 @@ run:
 test:
 	go test ./... -race
 
-build:
+# Depends on css: the binary embeds shared/static (all:static), and styles.css is
+# gitignored/generated — without this a fresh-clone `make build` embeds a missing
+# or stale stylesheet (a 404 in prod). The Docker build already builds CSS first.
+build: css
 	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/server .
 
 docker:

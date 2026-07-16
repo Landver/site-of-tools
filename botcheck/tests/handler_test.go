@@ -179,6 +179,30 @@ func TestPlaceholderTimezoneCleanedThroughHandler(t *testing.T) {
 	}
 }
 
+func TestCheckTimezoneMismatchFiresThroughHandler(t *testing.T) {
+	// Positive end-to-end counterpart to TestPlaceholderTimezoneCleaned: proves the
+	// handler actually wires res.Timezone -> sig.IPTimezone AND stamps sig.Now (a
+	// zero Now would make ianaOffset return ok=false and silently suppress the check).
+	// America/Los_Angeles is UTC-8/-7 year-round, never +03:00, so this is DST- and
+	// wall-clock-independent despite addServerSignals using a live time.Now().
+	looker := fakeLooker{res: &iptools.Result{Timezone: "+03:00"}}
+	body := `{"browserTZ":"America/Los_Angeles"}`
+	rec := post(newTestApp(looker), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var tz botcheck.Check
+	for _, c := range rep.Checks {
+		if c.ID == "tz_mismatch" {
+			tz = c
+		}
+	}
+	if !tz.Triggered {
+		t.Errorf("tz_mismatch should fire when browser TZ offset ≠ IP TZ offset:\n%s", rec.Body.String())
+	}
+}
+
 func TestCheckSoftSignalsRenderAsFlagged(t *testing.T) {
 	// Soft signals never dock points on their own, so each renders as "flagged"
 	// (no misleading per-row "−8"), and the single cluster deduction line shows

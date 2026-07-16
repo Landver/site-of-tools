@@ -17,6 +17,7 @@
          render is enough (no htmx needed — see CLAUDE.md rule 4). -->
     <form method="get" action="/cidr" class="mt-6 flex gap-2">
       <input name="cidr" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="Network in CIDR notation"
              placeholder="192.168.1.0/24 or 2001:db8::/32"
              class="field">
       <button type="submit" class="btn-primary">Calculate</button>

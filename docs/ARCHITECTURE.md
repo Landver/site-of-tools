@@ -316,4 +316,6 @@ is the one thing nothing imports. Nothing is a single-file folder for its own sa
 - **Persistence / MongoDB** — v1 is fully stateless. Mongo is planned; when it
   lands, put a storage layer *below* the domain services.
 - **Huma / OpenAPI** — later, only if a formal public API is wanted (§4).
-- **CI/CD** — manual deploy for now (git pull + compose up). Dev and prod share this host.
+- **CI/CD** — now implemented (was deferred): GitHub Actions (`.github/workflows/ci.yml`)
+  runs vet + build + test on every push/PR to `master` and auto-deploys to the prod
+  host over SSH on a green `master` push. Dev and prod share this host. See DEPLOYMENT.md §8.

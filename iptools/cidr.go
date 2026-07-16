@@ -77,11 +77,16 @@ func ParseSubnet(s string) (*Subnet, error) {
 	return sub, nil
 }
 
+// v4HostMask returns the trailing host-bit mask for an IPv4 prefix length: the low
+// (32-bits) bits set. Go zeroes a shift by the full width, so /32 correctly yields
+// 0. Shared by lastAddr and v4Masks so the /32 edge case lives in one place.
+func v4HostMask(bits int) uint32 { return uint32(0xffffffff) >> uint(bits) }
+
 // lastAddr returns the highest address in the prefix (all host bits set to 1).
 func lastAddr(pfx netip.Prefix) netip.Addr {
 	if pfx.Addr().Is4() {
 		v := pfx.Addr().As4()
-		host := uint32(0xffffffff) >> uint(pfx.Bits()) // host-bit mask (0 for /32)
+		host := v4HostMask(pfx.Bits())
 		binary.BigEndian.PutUint32(v[:], binary.BigEndian.Uint32(v[:])|host)
 		return netip.AddrFrom4(v)
 	}
@@ -100,7 +105,7 @@ func lastAddr(pfx netip.Prefix) netip.Addr {
 
 // v4Masks returns the dotted netmask and wildcard mask for an IPv4 prefix length.
 func v4Masks(bits int) (netmask, wildcard string) {
-	host := uint32(0xffffffff) >> uint(bits) // host bits set (0 for /32)
+	host := v4HostMask(bits)
 	var nm, wc [4]byte
 	binary.BigEndian.PutUint32(nm[:], ^host)
 	binary.BigEndian.PutUint32(wc[:], host)
