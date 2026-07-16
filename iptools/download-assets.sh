@@ -17,8 +17,11 @@ BASE="https://www.ip2location.com/download/?token=${IP2LOCATION_DOWNLOAD_TOKEN}"
 targets=(
   "iptools/assets/ipv4|DB11LITEBIN|IP2LOCATION-LITE-DB11.BIN"
   "iptools/assets/ipv6|DB11LITEBINIPV6|IP2LOCATION-LITE-DB11.IPV6.BIN"
-  "iptools/assets/asn|DBASNLITE|IP2LOCATION-LITE-ASN.BIN"
-  "iptools/assets/asn|DBASNLITEIPV6|IP2LOCATION-LITE-ASN.IPV6.BIN"
+  "iptools/assets/asn|DBASNLITEBIN|IP2LOCATION-LITE-ASN.BIN"
+  "iptools/assets/asn|DBASNLITEBINIPV6|IP2LOCATION-LITE-ASN.IPV6.BIN"
+  # IP2Proxy PX12 (proxy/VPN/threat). Large (~1.6 GB BIN); unzip -j grabs only
+  # the .BIN, ignoring the .IPV6.CIDR.CSV the app doesn't use.
+  "iptools/assets/ip2proxy|PX12LITEBIN|IP2PROXY-LITE-PX12.BIN"
 )
 
 for t in "${targets[@]}"; do
