@@ -39,29 +39,32 @@
     </p>
   </div>
 
-  {{/* The transparent breakdown, grouped by tier (via Report.Group). Each group
-       is a labelled card; every signal shows flagged / clean / not-collected.
-       The cards flow in a two-column grid (one column on narrow screens), the
-       same side-by-side layout as the IP tool's result cards. items-start keeps
-       a short group from stretching to a taller neighbour's height. The shared
-       row markup lives in "botcheck/check". */}}
+  {{/* The transparent breakdown, grouped by tier (via Report.Group). Two columns
+       on wider screens, one on narrow. Consistency has by far the most signals, so
+       it takes a column to itself while the two shorter groups (automation,
+       environment) stack in the other column — that keeps the two columns roughly
+       the same height instead of leaving a tall empty gap under the short group.
+       The left column is a nested grid (not flex) so .card's basis-80 doesn't turn
+       into a min-height. The shared row markup lives in "botcheck/check". */}}
   <div class="grid gap-4 items-start sm:grid-cols-2 mt-4">
-    <div class="card">
-      <div class="eyebrow mb-3">automation &amp; headless tells</div>
-      <ul class="flex flex-col divide-y divide-line text-sm">
-        {{range .Group "hard"}}{{template "botcheck/check" .}}{{end}}
-      </ul>
+    <div class="grid gap-4">
+      <div class="card">
+        <div class="eyebrow mb-3">automation &amp; headless tells</div>
+        <ul class="flex flex-col divide-y divide-line text-sm">
+          {{range .Group "hard"}}{{template "botcheck/check" .}}{{end}}
+        </ul>
+      </div>
+      <div class="card">
+        <div class="eyebrow mb-3">environment heuristics</div>
+        <ul class="flex flex-col divide-y divide-line text-sm">
+          {{range .Group "soft"}}{{template "botcheck/check" .}}{{end}}
+        </ul>
+      </div>
     </div>
     <div class="card">
       <div class="eyebrow mb-3">consistency cross-checks</div>
       <ul class="flex flex-col divide-y divide-line text-sm">
         {{range .Group "consistency"}}{{template "botcheck/check" .}}{{end}}
-      </ul>
-    </div>
-    <div class="card">
-      <div class="eyebrow mb-3">environment heuristics</div>
-      <ul class="flex flex-col divide-y divide-line text-sm">
-        {{range .Group "soft"}}{{template "botcheck/check" .}}{{end}}
       </ul>
     </div>
   </div>
