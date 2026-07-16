@@ -202,6 +202,42 @@ var rules = []rule{
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
 	},
 	{
+		// Self-consistency (no IP needed): the browser's own IANA timezone must
+		// agree with its own Date().getTimezoneOffset(). Spoofers commonly change
+		// one and forget the other.
+		id: "tz_self_inconsistent", label: "Timezone name disagrees with getTimezoneOffset()", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			secs, ok := zoneOffsetSeconds(s.BrowserTZ, s.Now)
+			if s.BrowserTZ == "" || !ok {
+				return false, ""
+			}
+			expected := -secs / 60 // getTimezoneOffset is minutes west of UTC
+			if expected == s.TZOffset {
+				return false, ""
+			}
+			return true, fmt.Sprintf("%s implies %d min but reported %d", s.BrowserTZ, expected, s.TZOffset)
+		},
+	},
+	{
+		// Randomised canvas output (two identical draws hashing differently) is a
+		// noise-injecting anti-fingerprint / stealth tool.
+		id: "canvas_unstable", label: "Canvas output is randomised between draws", tier: TierConsistency, weight: 15, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.CanvasSupported && !s.CanvasStable, "" },
+	},
+	{
+		// Parse the Sec-CH-UA header brand list (server) and compare to the JS
+		// userAgentData.brands (client); a spoofed User-Agent that forgets to keep
+		// the two in sync is caught here. GREASE decoy brand is ignored.
+		id: "ch_brands_mismatch", label: "Sec-CH-UA header brands ≠ userAgentData.brands", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			hdr, js := realBrandSet(chBrandNames(s.SecCHUA)), realBrandSet(s.Brands)
+			if len(hdr) == 0 || len(js) == 0 || sameStringSet(hdr, js) {
+				return false, "" // can't compare (stripped / non-Chromium) or they match
+			}
+			return true, "header and JS brand lists differ"
+		},
+	},
+	{
 		id: "vendor_mismatch", label: "Chromium User-Agent but navigator.vendor ≠ \"Google Inc.\"", tier: TierConsistency, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			ua := clientUA(s)
@@ -302,5 +338,24 @@ var rules = []rule{
 			}
 			return false, ""
 		},
+	},
+	{
+		// A canvas that renders nothing (all transparent) is blocked or headless.
+		id: "canvas_blank", label: "Canvas renders blank (blocked / headless)", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.CanvasSupported && s.CanvasBlank, "" },
+	},
+	{
+		// Stock desktop Chrome/Edge/Safari ship H.264 + AAC; a stripped/Chromium
+		// headless build often supports neither.
+		id: "missing_proprietary_codecs", label: "Browser lacks H.264 and AAC (stripped/headless build)", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			return looksLikeBrowser(clientUA(s)) && !s.CodecH264 && !s.CodecAAC, ""
+		},
+	},
+	{
+		// No detectable fonts at all points to a neutralised font-enumeration
+		// surface or a font-less headless/VM environment.
+		id: "no_fonts", label: "No system fonts detectable", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.FontCount == 0, "" },
 	},
 }

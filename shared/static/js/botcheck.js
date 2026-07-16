@@ -70,6 +70,50 @@
     return ext ? (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "") : "";
   }, "");
 
+  // canvasProbe draws the same content twice: identical hashes ⇒ stable; a blank
+  // (all-transparent) result ⇒ blocked/headless. Randomised output (unequal
+  // hashes) is a noise-injecting anti-fingerprint tool.
+  const canvasProbe = () => safe(() => {
+    const c = document.createElement("canvas");
+    c.width = 60; c.height = 20;
+    const ctx = c.getContext("2d");
+    if (!ctx) return { canvasSupported: false, canvasStable: true, canvasBlank: false };
+    const draw = () => {
+      ctx.clearRect(0, 0, 60, 20);
+      ctx.textBaseline = "top";
+      ctx.font = "14px 'Arial'";
+      ctx.fillStyle = "#069";
+      ctx.fillText("Bot✓ 1a", 2, 2);
+      ctx.fillStyle = "rgba(102,204,0,0.5)";
+      ctx.fillRect(4, 4, 30, 10);
+      return c.toDataURL();
+    };
+    const h1 = draw();
+    const h2 = draw();
+    let blank = true;
+    const data = ctx.getImageData(0, 0, 60, 20).data;
+    for (let i = 3; i < data.length; i += 4) { if (data[i] !== 0) { blank = false; break; } }
+    return { canvasSupported: true, canvasStable: h1 === h2, canvasBlank: blank };
+  }, { canvasSupported: false, canvasStable: true, canvasBlank: false });
+
+  const codecs = () => safe(() => ({
+    codecH264: !!document.createElement("video").canPlayType('video/mp4; codecs="avc1.42E01E"'),
+    codecAAC: !!document.createElement("audio").canPlayType('audio/mp4; codecs="mp4a.40.2"'),
+  }), { codecH264: true, codecAAC: true }); // default true ⇒ a probe failure never flags
+
+  // detectFonts counts how many probe fonts render at a different width than the
+  // generic baselines (the classic measureText technique). -1 ⇒ couldn't measure.
+  const detectFonts = () => safe(() => {
+    const bases = ["monospace", "sans-serif", "serif"];
+    const probes = ["Arial", "Courier New", "Times New Roman", "Georgia", "Verdana",
+      "Helvetica", "Comic Sans MS", "Trebuchet MS", "Impact", "Menlo", "Tahoma", "Segoe UI"];
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return -1;
+    const w = (font) => { ctx.font = "72px " + font; return ctx.measureText("mmmmmmmmmmlli").width; };
+    const baseW = Object.fromEntries(bases.map((b) => [b, w(b)]));
+    return probes.filter((p) => bases.some((b) => w(`'${p}',${b}`) !== baseW[b])).length;
+  }, -1);
+
   const iframeUA = () => safe(() => {
     const f = document.createElement("iframe");
     f.style.display = "none";
@@ -148,6 +192,11 @@
       availW: safe(() => screen.availWidth ?? 0, 0),
       availH: safe(() => screen.availHeight ?? 0, 0),
       colorDepth: safe(() => screen.colorDepth ?? 0, 0),
+      tzOffset: safe(() => new Date().getTimezoneOffset(), 0),
+      brands: safe(() => (navigator.userAgentData?.brands || []).map((b) => b.brand), []),
+      fontCount: detectFonts(),
+      ...canvasProbe(),
+      ...codecs(),
     };
   };
 

@@ -76,9 +76,20 @@ type Signals struct {
 	AvailH           int      `json:"availH"`     // screen.availHeight
 	ColorDepth       int      `json:"colorDepth"` // screen.colorDepth
 
+	// ── Layer-2 (medium) client signals ──────────────────────────────────────
+	TZOffset        int      `json:"tzOffset"`        // Date().getTimezoneOffset() minutes (west of UTC)
+	CanvasSupported bool     `json:"canvasSupported"` // a 2D canvas context is available
+	CanvasStable    bool     `json:"canvasStable"`    // two identical draws hash the same (else: randomised)
+	CanvasBlank     bool     `json:"canvasBlank"`     // the drawn canvas has no non-transparent pixels
+	Brands          []string `json:"brands"`          // navigator.userAgentData.brands names
+	CodecH264       bool     `json:"codecH264"`       // <video> can play H.264
+	CodecAAC        bool     `json:"codecAAC"`        // <audio> can play AAC
+	FontCount       int      `json:"fontCount"`       // probe fonts detected (-1 = couldn't measure)
+
 	// ── server-observed (filled by the handler; never read off the wire) ─────
 	HTTPUserAgent   string `json:"-"`
 	SecCHUAPlatform string `json:"-"`
+	SecCHUA         string `json:"-"` // full Sec-CH-UA header (brand list)
 	SecFetchMode    string `json:"-"` // Sec-Fetch-Mode header (real browsers always send it)
 	AcceptLanguage  string `json:"-"`
 	IPCountry       string `json:"-"`
@@ -321,23 +332,84 @@ func offsetFormat(s string) bool {
 	return len(s) > 0 && (s[0] == '+' || s[0] == '-')
 }
 
-// ianaOffset resolves an IANA timezone name (e.g. "Europe/Moscow") to its UTC
-// offset at time at, formatted like IP2Location's "+03:00". DST-aware via at.
-// Returns false if the zone can't be loaded or at is the zero time (can't tell).
-func ianaOffset(zone string, at time.Time) (string, bool) {
+// zoneOffsetSeconds resolves an IANA timezone name (e.g. "Europe/Moscow") to its
+// UTC offset in seconds east of UTC at time at (DST-aware). Returns false if the
+// zone can't be loaded or at is the zero time (can't tell).
+func zoneOffsetSeconds(zone string, at time.Time) (int, bool) {
 	if at.IsZero() {
-		return "", false
+		return 0, false
 	}
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
+		return 0, false
+	}
+	_, secs := at.In(loc).Zone()
+	return secs, true
+}
+
+// ianaOffset formats a zone's current offset like IP2Location's "+03:00".
+func ianaOffset(zone string, at time.Time) (string, bool) {
+	secs, ok := zoneOffsetSeconds(zone, at)
+	if !ok {
 		return "", false
 	}
-	_, secs := at.In(loc).Zone() // seconds east of UTC
 	sign := "+"
 	if secs < 0 {
 		sign, secs = "-", -secs
 	}
 	return fmt.Sprintf("%s%02d:%02d", sign, secs/3600, (secs%3600)/60), true
+}
+
+// chBrandNames extracts the brand names from a Sec-CH-UA structured header like
+// `"Chromium";v="125", "Google Chrome";v="125", "Not.A/Brand";v="24"` — the
+// first quoted token in each comma-separated entry.
+func chBrandNames(header string) []string {
+	var out []string
+	for _, part := range strings.Split(header, ",") {
+		if i := strings.IndexByte(part, '"'); i >= 0 {
+			if j := strings.IndexByte(part[i+1:], '"'); j >= 0 {
+				out = append(out, part[i+1:][:j])
+			}
+		}
+	}
+	return out
+}
+
+// realBrandSet lowercases brand names and drops the GREASE entry (the decoy brand
+// always contains "Brand", e.g. "Not.A/Brand"), leaving only genuine brands.
+func realBrandSet(names []string) map[string]bool {
+	set := map[string]bool{}
+	for _, n := range names {
+		if strings.Contains(strings.ToLower(n), "brand") {
+			continue
+		}
+		set[strings.ToLower(strings.TrimSpace(n))] = true
+	}
+	return set
+}
+
+func sameStringSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// Group returns the checks in one tier, in rule order — used by the template to
+// render the breakdown in labelled groups.
+func (r Report) Group(tier string) []Check {
+	out := make([]Check, 0, len(r.Checks))
+	for _, c := range r.Checks {
+		if c.Tier == tier {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // primaryLang extracts the base language subtag from a languages list or an

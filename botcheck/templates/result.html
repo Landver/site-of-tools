@@ -1,3 +1,18 @@
+{{define "botcheck/check"}}
+<li class="flex items-start gap-3 py-2">
+  <span class="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full
+    {{if .Skipped}}bg-faint{{else if .Triggered}}bg-danger{{else}}bg-ok{{end}}"></span>
+  <span class="flex-1 min-w-0">
+    <span class="{{if .Triggered}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
+    {{if .Detail}}<span class="text-faint"> — {{.Detail}}</span>{{end}}
+  </span>
+  <span class="shrink-0 text-xs font-mono
+    {{if .Skipped}}text-faint{{else if .Triggered}}text-danger{{else}}text-ok{{end}}">
+    {{if .Skipped}}not collected{{else if .Triggered}}−{{.Weight}}{{else}}ok{{end}}
+  </span>
+</li>
+{{end}}
+
 {{define "botcheck/result"}}
 {{if eq .Verdict "error"}}
   <div class="alert-error w-full">{{with index .Checks 0}}{{.Label}}{{else}}Could not score this request.{{end}}</div>
@@ -20,30 +35,29 @@
     </div>
     <p class="mt-2 text-sm text-muted">
       Authenticity score: 100 means the browser looks fully human, 0 fully automated.
-      Each flagged signal below subtracts from 100.
+      Each flagged signal below subtracts from 100. Signals are grouped by kind.
     </p>
   </div>
 
-  {{/* The transparent breakdown: every signal, flagged / clean / not-collected.
-       This is what makes the score trustworthy and debuggable. */}}
+  {{/* The transparent breakdown, grouped by tier (via Report.Group). Each group
+       is a labelled card; every signal shows flagged / clean / not-collected.
+       The shared row markup lives in "botcheck/check". */}}
   <div class="card">
-    <div class="eyebrow mb-3">signals</div>
+    <div class="eyebrow mb-3">automation &amp; headless tells</div>
     <ul class="flex flex-col divide-y divide-line text-sm">
-      {{range .Checks}}
-      <li class="flex items-start gap-3 py-2">
-        <span class="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full
-          {{if .Skipped}}bg-faint{{else if .Triggered}}bg-danger{{else}}bg-ok{{end}}"></span>
-        <span class="flex-1 min-w-0">
-          <span class="{{if .Triggered}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
-          {{if .Detail}}<span class="text-faint"> — {{.Detail}}</span>{{end}}
-          <span class="ml-1 font-mono text-xs text-faint">[{{.Tier}}]</span>
-        </span>
-        <span class="shrink-0 text-xs font-mono
-          {{if .Skipped}}text-faint{{else if .Triggered}}text-danger{{else}}text-ok{{end}}">
-          {{if .Skipped}}not collected{{else if .Triggered}}−{{.Weight}}{{else}}ok{{end}}
-        </span>
-      </li>
-      {{end}}
+      {{range .Group "hard"}}{{template "botcheck/check" .}}{{end}}
+    </ul>
+  </div>
+  <div class="card">
+    <div class="eyebrow mb-3">consistency cross-checks</div>
+    <ul class="flex flex-col divide-y divide-line text-sm">
+      {{range .Group "consistency"}}{{template "botcheck/check" .}}{{end}}
+    </ul>
+  </div>
+  <div class="card">
+    <div class="eyebrow mb-3">environment heuristics</div>
+    <ul class="flex flex-col divide-y divide-line text-sm">
+      {{range .Group "soft"}}{{template "botcheck/check" .}}{{end}}
     </ul>
   </div>
 </div>
