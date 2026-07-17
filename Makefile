@@ -42,7 +42,8 @@ $(TAILWIND):
 	chmod +x $(TAILWIND)
 
 tools: $(TAILWIND) hooks
-	go install github.com/air-verse/air@latest
+	# Pinned per CLAUDE.md (air v1.65.x) — @latest would drift.
+	go install github.com/air-verse/air@v1.65.3
 
 hooks:
 	git config core.hooksPath .githooks

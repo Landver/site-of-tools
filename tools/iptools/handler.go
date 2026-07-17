@@ -39,7 +39,9 @@ func Register(e *echo.Echo, svc Looker, hist *History) {
 }
 
 // index serves the visitor's own IP by default, or ?ip= to look one up. A bare hit
-// with no resolvable IP renders the empty lookup page.
+// with no resolvable IP renders the empty lookup page to a browser, the (empty)
+// result fragment to htmx — never a full page into the #result slot — and a 400
+// to a JSON caller (the same contract /cidr follows).
 func (h *handler) index(c *echo.Context) error {
 	ip := strings.TrimSpace(c.QueryParam("ip"))
 	self := false
@@ -51,6 +53,12 @@ func (h *handler) index(c *echo.Context) error {
 		}
 	}
 	if ip == "" {
+		switch {
+		case platform.WantsJSON(c):
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no routable IP to look up; pass ?ip=, e.g. /?ip=8.8.8.8"})
+		case platform.IsHTMX(c):
+			return c.Render(http.StatusOK, "ip/result", map[string]any{})
+		}
 		return c.Render(http.StatusOK, "ip/index", map[string]any{
 			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": platform.Conn(c),
 		})
@@ -75,12 +83,13 @@ func (h *handler) cidr(c *echo.Context) error {
 		}
 		return c.JSON(http.StatusOK, sub)
 	}
-	vm := map[string]any{"Title": "Subnet calculator", "Active": "cidr", "Query": input, "Subnet": sub}
+	vm := map[string]any{"Title": "Subnet calculator", "Active": "cidr", "Query": input}
 	code := http.StatusOK
 	if err != nil {
-		vm["Subnet"] = nil
 		vm["Error"] = err.Error()
 		code = http.StatusBadRequest
+	} else {
+		vm["Subnet"] = sub
 	}
 	return c.Render(code, "ip/cidr", vm)
 }
@@ -117,18 +126,19 @@ func (h *handler) history(c *echo.Context) error {
 // result as the visitor's own IP (for a small label in the HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.svc.Lookup(ip)
+	wantsJSON := platform.WantsJSON(c)
 
 	// Record real, user-initiated web lookups for the /history view: successful,
 	// not the visitor's own auto-looked-up IP (self), and from the browser UI
 	// rather than a JSON caller — which also excludes the page's own IPv6 self-probe
 	// (it requests JSON) and CLI calls. Record is fire-and-forget and nil-safe, so
 	// it adds no latency and no-ops when Mongo is off.
-	if err == nil && !self && !platform.WantsJSON(c) {
+	if err == nil && !self && !wantsJSON {
 		h.hist.Record(res)
 	}
 
 	// API / CLI: raw JSON — the geolocation result, or an error.
-	if platform.WantsJSON(c) {
+	if wantsJSON {
 		if err != nil {
 			return c.JSON(statusFor(err), map[string]string{"ip": ip, "error": err.Error()})
 		}
@@ -139,12 +149,13 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// Attribution: IP2Location LITE's license requires the credit on any page that
 	// uses the databases (see shared/templates/partials/footer.html). It's scoped
 	// to this tool via the VM flag, so the apex — which uses no such data — omits it.
-	vm := map[string]any{"Title": "IP Tools", "Active": "lookup", "Query": ip, "Result": res, "Self": self, "Attribution": true}
+	vm := map[string]any{"Title": "IP Tools", "Active": "lookup", "Query": ip, "Self": self, "Attribution": true}
 	code := http.StatusOK
 	if err != nil {
-		vm["Result"] = nil
 		vm["Error"] = err.Error()
 		code = statusFor(err)
+	} else {
+		vm["Result"] = res
 	}
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)

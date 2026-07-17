@@ -168,8 +168,8 @@ func TestHistoryLiveViaHandler(t *testing.T) {
 	e.Renderer = r
 	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: "198.51.100.23", Country: "United States", ASN: "64500"}}, hist)
 
-	do(e, "/?ip=198.51.100.23", map[string]string{"Accept": "text/html"})       // recorded
-	do(e, "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"})      // NOT recorded (JSON)
+	do(e, "/?ip=198.51.100.23", map[string]string{"Accept": "text/html"})  // recorded
+	do(e, "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"}) // NOT recorded (JSON)
 
 	got := waitForRecent(t, ctx, hist)
 	if len(got) != 1 || got[0].IP != "198.51.100.23" {

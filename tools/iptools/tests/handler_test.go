@@ -11,9 +11,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 // fakeLooker implements iptools.Looker so the handler is tested without the
@@ -130,6 +130,66 @@ func TestHandlerDefaultsToVisitorIP(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"country_code":"US"`) {
 		t.Errorf("bare / should look up the visitor's own IP, got:\n%s", rec.Body.String())
+	}
+}
+
+func TestHandlerJSONWithoutResolvableIPGetsError(t *testing.T) {
+	// A JSON caller with no ?ip and a non-routable own address (loopback, as in
+	// dev) has nothing to look up: it must get a JSON error, not the HTML page —
+	// the same content-negotiation contract /cidr already follows.
+	app := newTestApp(fakeLooker{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+	req.RemoteAddr = "127.0.0.1:5555" // loopback is not routable
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("code = %d, want 400", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("content-type = %q, want application/json", ct)
+	}
+	if !strings.Contains(rec.Body.String(), `"error"`) {
+		t.Errorf("body should carry an \"error\" key, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandlerBrowserWithoutResolvableIPGetsPage(t *testing.T) {
+	// Same situation as above but from a browser: the empty lookup page (with the
+	// form and the connection inspector) is the right response — only JSON callers
+	// get the 400.
+	app := newTestApp(fakeLooker{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "text/html")
+	req.RemoteAddr = "127.0.0.1:5555"
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<html") {
+		t.Errorf("browser with no resolvable IP should get the lookup page, got:\n%s", rec.Body.String())
+	}
+}
+
+func TestHandlerHTMXWithoutResolvableIPGetsFragment(t *testing.T) {
+	// An htmx submit with an empty box from a non-routable own IP (dev on
+	// loopback) must get the (empty) result fragment — swapping a full page into
+	// #result would nest a whole document inside it.
+	app := newTestApp(fakeLooker{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("HX-Request", "true")
+	req.RemoteAddr = "127.0.0.1:5555"
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "<html") {
+		t.Errorf("htmx with no resolvable IP should get the fragment, not a full page:\n%s", rec.Body.String())
 	}
 }
 

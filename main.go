@@ -13,11 +13,11 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/tools/botcheck"
-	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/site"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 func main() {

@@ -63,23 +63,30 @@ func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 	if slices.Contains([]string{db11v4, db11v6, asnv4, asnv6}, "") {
 		return nil, ErrUnavailable
 	}
-	db4, err := ip2location.OpenDB(db11v4)
-	if err != nil {
+	s := &Service{}
+	// A failure partway through the open sequence must close the handles already
+	// opened: the caller discards the service and runs on with the tool disabled,
+	// so a leaked handle would stay open for the process's lifetime.
+	ok := false
+	defer func() {
+		if !ok {
+			s.closeAll()
+		}
+	}()
+
+	var err error
+	if s.db4, err = ip2location.OpenDB(db11v4); err != nil {
 		return nil, err
 	}
-	db6, err := ip2location.OpenDB(db11v6)
-	if err != nil {
+	if s.db6, err = ip2location.OpenDB(db11v6); err != nil {
 		return nil, err
 	}
-	asn4, err := ip2location.OpenDB(asnv4)
-	if err != nil {
+	if s.asn4, err = ip2location.OpenDB(asnv4); err != nil {
 		return nil, err
 	}
-	asn6, err := ip2location.OpenDB(asnv6)
-	if err != nil {
+	if s.asn6, err = ip2location.OpenDB(asnv6); err != nil {
 		return nil, err
 	}
-	s := &Service{db4: db4, db6: db6, asn4: asn4, asn6: asn6}
 	if px12 != "" {
 		p, err := ip2proxy.OpenDB(px12)
 		if err != nil {
@@ -87,7 +94,22 @@ func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 		}
 		s.proxy = p
 	}
+	ok = true
 	return s, nil
+}
+
+// closeAll releases every open database handle. It exists for OpenService's
+// failure path (see the defer there); a successfully opened Service keeps its
+// handles for the process's lifetime, exactly like the shared Mongo client.
+func (s *Service) closeAll() {
+	for _, db := range []*ip2location.DB{s.db4, s.db6, s.asn4, s.asn6} {
+		if db != nil {
+			db.Close()
+		}
+	}
+	if s.proxy != nil {
+		_ = s.proxy.Close()
+	}
 }
 
 // Lookup resolves geolocation (DB11) + ASN, and proxy info (PX12, if loaded),

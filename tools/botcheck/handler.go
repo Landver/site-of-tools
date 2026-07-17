@@ -6,8 +6,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 // Looker is the handler's dependency on IP intelligence: anything that resolves
