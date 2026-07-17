@@ -21,7 +21,7 @@ services:
       # path the app uses in dev. The binary runs with cwd=/, so the relative
       # IP2LOCATION_* / IP2PROXY_* paths from .env resolve here unchanged — no
       # separate container paths to keep in sync.
-      - ./iptools/assets:/iptools/assets:ro
+      - ./tools/iptools/assets:/tools/iptools/assets:ro
     # MongoDB needs NO volume: it's a network dependency reached over the wire via
     # MONGODB_URI (from .env, above), not a mounted file like the BINs. The
     # container just needs outbound network to mongodb.corpberry.com. See

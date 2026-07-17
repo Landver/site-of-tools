@@ -10,19 +10,19 @@ a transparent per-signal breakdown.
 **The thesis:** client signals are all spoofable, so the detection power lives in
 the server cross-checking what the browser *claims* against what the connection
 *actually shows*. The tool reuses the entire server-observed IP layer from
-[`iptools`](iptools/README.md) (IP2Proxy PX12 + IP2Location) for free, so it is
+[`iptools`](../iptools/README.md) (IP2Proxy PX12 + IP2Location) for free, so it is
 essentially "a JS collector + a deterministic server scorer."
 
-This doc is the tool's **design + reference**. Its two companions in
-[botornot/](botornot/) are [RESEARCH.md](botornot/RESEARCH.md) — how the major
-public bot-detection services work, and how our own test browser scored against
-all of them — and [ROADMAP.md](botornot/ROADMAP.md) — the competitor-gap audit
-plus the backlog of what to build next and why.
+This doc is the tool's **design + reference**. Its two companions in this folder
+are [RESEARCH.md](RESEARCH.md) — how the major public bot-detection services work,
+and how our own test browser scored against all of them — and
+[ROADMAP.md](ROADMAP.md) — the competitor-gap audit plus the backlog of what to
+build next and why. The raw per-service writeups live in [reports/](reports/).
 
 > **Naming:** the tool is **Bot check** (display name) / `botcheck` (the Go
 > package, routes, and the `botcheck.corpberry.com` subdomain). "Bot-or-not"
-> refers only to the competitor research in [botornot/](botornot/), never to this
-> tool.
+> refers only to the competitor research ([RESEARCH.md](RESEARCH.md) +
+> [reports/](reports/)), never to this tool.
 
 ## Scope & non-goals
 
@@ -35,7 +35,7 @@ or JSON (API/CLI) by content negotiation.
 **Non-goals:** this is a self-test/inspection tool, **not an inline WAF**. It does
 not block requests, set a verdict cookie, or protect other endpoints — it returns
 a score for *the person looking at the page*. (An "enforcement mode" other tools
-could call is a possible later bolt-on — see [ROADMAP.md](botornot/ROADMAP.md).)
+could call is a possible later bolt-on — see [ROADMAP.md](ROADMAP.md).)
 
 ## Package layout (`botcheck/`, mirrors `iptools/`)
 
@@ -60,7 +60,7 @@ facts, *map* the `*iptools.Result` into `Signals` fields, call `Evaluate`, then
 `platform.Respond`. Reusing `iptools.Looker` means the handler test injects a fake
 IP service (no 1.7 GB PX12 BIN in CI), and a nil service degrades gracefully
 exactly as it does for the IP tool. This is a straight application of
-[ARCHITECTURE.md §4](../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this).
+[ARCHITECTURE.md §4](../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this).
 
 ## Request flow
 
@@ -126,7 +126,7 @@ We deliberately **cannot** read HTTP header order/casing, TLS JA3/JA4, HTTP/2
 frame fingerprints, or the TCP/IP SYN fingerprint — nginx terminates TLS,
 normalizes headers, and downgrades to HTTP/1.1 before Go sees the request, and
 `crypto/tls` never hands the raw ClientHello to a handler. This is a documented
-gap (see [ROADMAP.md](botornot/ROADMAP.md)), not a bug.
+gap (see [ROADMAP.md](ROADMAP.md)), not a bug.
 
 ### Client-side (vendored collector gathers, POSTs as JSON — spoofable, used in cross-checks)
 
@@ -262,6 +262,6 @@ yet** and stays a pure, deterministic, in-request scorer. The DB-backed models
 (crowd/rarity, request velocity, returning-visitor history) can build on that
 client when we add them, sitting below the domain scorer per rule #5. The full
 list of deferred items — with severity, effort, and the cheap approximation we do
-instead — lives in [ROADMAP.md](botornot/ROADMAP.md). The tool is a
+instead — lives in [ROADMAP.md](ROADMAP.md). The tool is a
 **self-test/inspection page, not an inline WAF** — it scores the current visitor
 and blocks nothing.

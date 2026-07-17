@@ -12,8 +12,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/botcheck"
-	"github.com/Landver/site-of-tools/iptools"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/site"
@@ -46,8 +46,8 @@ func main() {
 	renderer := platform.NewRenderer(cfg.IsDev(), navFuncs,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
-		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
-		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "botcheck/templates"},
+		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 	)
 
 	// apex: corpberry.com

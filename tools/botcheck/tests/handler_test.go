@@ -9,8 +9,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/botcheck"
-	"github.com/Landver/site-of-tools/iptools"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
 )
@@ -29,7 +29,7 @@ func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.er
 func newTestApp(svc botcheck.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "botcheck/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r

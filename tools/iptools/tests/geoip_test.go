@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Landver/site-of-tools/iptools"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 func TestLookupNilService(t *testing.T) {

@@ -9,8 +9,8 @@ today, switched by a sub-nav:
 
 This is the tool's design + reference doc. The tool is a straight application of
 the layered request pattern in
-[ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
-and it's the sibling that [`botcheck`](../botcheck.md) borrows its server-side IP
+[ARCHITECTURE.md §4](../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
+and it's the sibling that [`botcheck`](../botcheck/README.md) borrows its server-side IP
 layer from.
 
 ## Package layout (`iptools/`, self-contained)
@@ -94,7 +94,7 @@ usage type, threat, provider, fraud score, ISP, domain, last-seen — nested und
 ## Endpoints
 
 Every view is content-negotiated
-([ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
+([ARCHITECTURE.md §4](../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
 browsers and htmx get HTML, everyone else gets JSON. Lookups are **query-param
 only** (`?ip=…`), consistent with `/cidr?cidr=…` — there is no `/:ip` pretty route.
 

@@ -6,8 +6,8 @@
    Paths are relative to THIS file (shared/static/css/). */
 @source "../../templates/**/*.html";
 @source "../../../site/templates/**/*.html";
-@source "../../../iptools/templates/**/*.html";
-@source "../../../botcheck/templates/**/*.html";
+@source "../../../tools/iptools/templates/**/*.html";
+@source "../../../tools/botcheck/templates/**/*.html";
 
 /* Dark mode is driven by a data-theme attribute (set before paint by the head
    script), not the OS media query directly, so the manual toggle can override

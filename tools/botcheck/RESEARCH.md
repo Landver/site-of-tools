@@ -130,7 +130,7 @@ caught only by the services that specifically cross-check contexts and layers
 ## What we built from this
 
 This research fed a shipped tool, **Bot check** (`botcheck.corpberry.com`). Its
-design + reference doc is [`../botcheck.md`](../botcheck.md): which signals it
+design + reference doc is [`../botcheck.md`](README.md): which signals it
 collects client-side, which it derives server-side (IP/ASN reputation via
 `iptools`, header/Client-Hints cross-checks), how the pure domain scorer layers
 below the handler, and which open-source collectors it borrows (BotD, CreepJS

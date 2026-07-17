@@ -11,7 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/iptools"
+	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
 )
@@ -30,7 +30,7 @@ func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.er
 func newTestApp(svc iptools.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: iptools.Templates, DevDir: "iptools/templates"},
+		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r

@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app .
 # ---- 2) Runtime: distroless-static (CA certs + tzdata + nonroot, ~2 MB) ----
 FROM gcr.io/distroless/static-debian12:nonroot
 # Pin cwd to / (the base image defaults to /home/nonroot). The DB .BINs are
-# bind-mounted at /iptools/assets, so the repo-relative IP2LOCATION_* paths
+# bind-mounted at /tools/iptools/assets, so the repo-relative IP2LOCATION_* paths
 # from .env resolve here exactly as they do in dev (run from the repo root).
 WORKDIR /
 COPY --from=build /app /app

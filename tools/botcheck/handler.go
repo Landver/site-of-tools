@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/Landver/site-of-tools/iptools"
+	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/platform"
 )
 

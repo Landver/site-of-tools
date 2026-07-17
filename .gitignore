@@ -1,5 +1,5 @@
 # data & secrets
-iptools/assets/
+tools/iptools/assets/
 .env
 # per-host prod overrides (layered by docker-compose); create from .env.example
 .env.prod

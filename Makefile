@@ -49,7 +49,7 @@ hooks:
 	@echo "git hooks enabled: .githooks (pre-push runs go vet + go test)"
 
 assets:
-	@bash iptools/download-assets.sh
+	@bash tools/iptools/download-assets.sh
 
 # One-off: materialize the site-of-tools database on the shared Mongo server.
 # Mongo creates databases lazily, so this makes it exist up front. Reads

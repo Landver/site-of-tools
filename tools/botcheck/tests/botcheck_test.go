@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/Landver/site-of-tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/botcheck"
 )
 
 const chromeMacUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"

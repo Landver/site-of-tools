@@ -159,7 +159,7 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 
 Result: `curl 'https://ip.corpberry.com/?ip=8.8.8.8'` returns JSON automatically
 (curl sends `Accept: */*`, no `text/html`); a browser at the same URL gets the page.
-See [tools/iptools/](tools/iptools/README.md).
+See [tools/iptools/](../tools/iptools/README.md).
 
 > When a real, documented, versioned **public JSON API** is wanted later, add
 > **Huma** (`humaecho` adapter) on `/api/v1` of the relevant sub-app. It reuses
@@ -181,7 +181,7 @@ dirs from disk via `os.DirFS` **and re-parses per request**, so edits show on
 refresh with no rebuild.
 
 ```go
-// shared/embed.go  (site/ and iptools/ embed their own templates likewise)
+// shared/embed.go  (site/ and tools/<tool>/ embed their own templates likewise)
 //go:embed templates
 var Templates embed.FS
 //go:embed all:static
@@ -199,7 +199,7 @@ Gotchas: `//go:embed` must sit directly above the `var`; patterns can't use `..`
 @import "tailwindcss";
 @source "../../templates/**/*.html";               /* shared */
 @source "../../../site/templates/**/*.html";
-@source "../../../iptools/templates/**/*.html";
+@source "../../../tools/iptools/templates/**/*.html";
 @theme { --color-brand: #b83266; }
 ```
 Built to `shared/static/css/styles.css` (`--minify` prod, `--watch` dev).
@@ -233,9 +233,9 @@ Keep htmx-owned and Alpine-owned regions distinct.
 | `APP_ENV` | `dev` (disk FS + template reparse) or `prod` (embedded) | `dev` |
 | `LISTEN_ADDR` | bind address inside the process | `:8080` |
 | `BASE_DOMAIN` | builds vhost keys; `localhost` in dev | `corpberry.com` |
-| `IP2LOCATION_DB11_V4` / `_V6` | paths to DB11 BINs | `iptools/assets/ipv4/...BIN` |
-| `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `iptools/assets/asn/...BIN` |
-| `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `iptools/assets/ip2proxy/...BIN` |
+| `IP2LOCATION_DB11_V4` / `_V6` | paths to DB11 BINs | `tools/iptools/assets/ipv4/...BIN` |
+| `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `tools/iptools/assets/asn/...BIN` |
+| `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `tools/iptools/assets/ip2proxy/...BIN` |
 | `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not the app) | — |
 | `MONGODB_URI` | MongoDB connection string (credentials + auth db). Optional — empty disables Mongo | `mongodb://user:pass@mongodb.corpberry.com/admin` |
 | `MONGODB_DATABASE` | app database name; defaults to `site-of-tools` | `site-of-tools` |
@@ -268,26 +268,37 @@ site-of-tools/
 ├── site/                     # apex corpberry.com project
 │   ├── site.go · embed.go
 │   └── templates/home.html
-├── iptools/             # the IP tool — SELF-CONTAINED
-│   ├── geoip.go              #   domain (pure Go, no HTTP)
-│   ├── handler.go            #   transport (Register + Looker interface)
-│   ├── embed.go
-│   ├── tests/                #   black-box tests (its own package)
-│   ├── download-assets.sh    #   fetch this tool's databases
-│   ├── templates/            #   index.html · result.html
-│   └── assets/               #   the .BIN databases (gitignored, bind-mounted)
+├── tools/                    # self-contained tool subdomains — code AND docs co-located
+│   ├── iptools/              #   ip.corpberry.com — SELF-CONTAINED
+│   │   ├── geoip.go          #     geo/proxy domain (pure Go, no HTTP)
+│   │   ├── cidr.go           #     subnet-calculator domain
+│   │   ├── handler.go        #     transport (Register + Looker interface)
+│   │   ├── embed.go · tests/ #     embed + black-box tests (its own package)
+│   │   ├── download-assets.sh#     fetch this tool's databases
+│   │   ├── templates/        #     index · result · cidr · nav
+│   │   ├── assets/           #     the .BIN databases (gitignored, bind-mounted)
+│   │   └── README.md         #     this tool's design + reference doc
+│   └── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
+│       ├── botcheck.go · scoring.go · handler.go · embed.go · tests/
+│       ├── templates/        #     index · result
+│       ├── README.md         #     design + reference
+│       ├── RESEARCH.md       #     how the 12 competitor services work
+│       ├── ROADMAP.md        #     what to build next & why
+│       └── reports/          #     per-service research writeups
 ├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
 ├── .githooks/pre-push        # test gate (enable: make hooks)
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile
-├── go.mod · go.sum
+├── go.mod · go.sum · mongoinit.go
 ├── README.md · CLAUDE.md
-└── docs/{ARCHITECTURE.md, DEPLOYMENT.md, tools/{iptools/, botcheck.md, botornot/}}
+└── docs/{ARCHITECTURE.md, DEPLOYMENT.md}
 ```
 
 Why each folder exists: `platform/` must be importable (can't be `main`);
-`shared/`, `site/`, `iptools/` must each be a package to embed the templates
-that sit beside their code. `main.go` is at the root because the composition root
-is the one thing nothing imports. Nothing is a single-file folder for its own sake.
+`shared/`, `site/`, and each `tools/<tool>/` must each be a package to embed the
+templates that sit beside their code. `tools/` groups the tool subdomains (each
+its own Go package, e.g. `tools/iptools`, `tools/botcheck`); the apex `site/`
+stays at the root. `main.go` is at the root because the composition root is the
+one thing nothing imports. Nothing is a single-file folder for its own sake.
 
 ---
 

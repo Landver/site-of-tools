@@ -4,14 +4,14 @@ The single "what's next" doc for `botcheck`. It has two parts:
 
 1. **The competitor-gap audit** (the bulk of this doc): every capability, signal,
    technique, and reporting feature that one or more of the twelve researched
-   services provide and our own [`botcheck`](../botcheck.md) tool does **not** (or
+   services provide and our own [`botcheck`](README.md) tool does **not** (or
    does more weakly) — each rated by value-to-us, effort, and status.
 2. **The internal backlog** ([jump](#internal-backlog-by-effort-non-competitor-driven)):
    effort-layered features we want regardless of any competitor, including the ones
    the newly-available MongoDB unlocks.
 
 For how the tool works today and why it's designed the way it is, see
-[`../botcheck.md`](../botcheck.md) (design + reference); for how the competitor
+[`../botcheck.md`](README.md) (design + reference); for how the competitor
 services work and how our test browser scored against them, see
 [`RESEARCH.md`](RESEARCH.md).
 
@@ -24,7 +24,7 @@ the client-vs-server cross-checks + the ≥3-soft-signal combo rule, and polish
 Layer-1 and Layer-2 signal sets in the
 [internal backlog](#internal-backlog-by-effort-non-competitor-driven) below are
 implemented; their "remaining candidates" and all of Layer 3 are not. This doc is
-the forward view — the current design lives in [`../botcheck.md`](../botcheck.md).
+the forward view — the current design lives in [`../botcheck.md`](README.md).
 
 ## What this is built from
 
@@ -33,10 +33,10 @@ the forward view — the current design lives in [`../botcheck.md`](../botcheck.
   `iphey`, `whoer`, `amiunique`, `coveryourtracks`, `datadome`) — see the
   [RESEARCH.md](RESEARCH.md) for the cross-service summary.
 - Our **shipped** implementation, read as ground truth (not the design doc):
-  [`botcheck/scoring.go`](../../../botcheck/scoring.go) (the 35 detection rules),
-  [`botcheck/botcheck.go`](../../../botcheck/botcheck.go) (the `Signals` struct +
-  scorer), [`botcheck/handler.go`](../../../botcheck/handler.go) (server signals),
-  and [`shared/static/js/botcheck.js`](../../../shared/static/js/botcheck.js) (the
+  [`botcheck/scoring.go`](scoring.go) (the 35 detection rules),
+  [`botcheck/botcheck.go`](botcheck.go) (the `Signals` struct +
+  scorer), [`botcheck/handler.go`](handler.go) (server signals),
+  and [`shared/static/js/botcheck.js`](../../shared/static/js/botcheck.js) (the
   vendored collector).
 
 Each competitor capability was compared against that code, and **every claimed gap

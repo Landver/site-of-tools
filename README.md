@@ -67,8 +67,8 @@ nginx blocks live in [deploy/nginx/](deploy/nginx/); full steps in
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design: host routing, request
   layering, content negotiation, embedding, config, testing, how to add a tool
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Cloudflare → nginx → Docker, ports, IP trust
-- [docs/tools/iptools/](docs/tools/iptools/README.md) — the IP tools
-- [docs/tools/botcheck.md](docs/tools/botcheck.md) — the Bot check tool (+ [botornot/](docs/tools/botornot/) research & roadmap)
+- [tools/iptools/](tools/iptools/README.md) — the IP tools
+- [tools/botcheck/](tools/botcheck/README.md) — the Bot check tool (+ RESEARCH.md, ROADMAP.md, reports/)
 - [CLAUDE.md](CLAUDE.md) — conventions for anyone (incl. AI) developing here
 
 ## Layout
@@ -78,7 +78,9 @@ main.go            entrypoint (single binary)
 platform/          shared engine: config · app factory · renderer + negotiation · mongo client
 shared/            shared front-end: base partials + htmx/alpine/tailwind css
 site/              apex project (corpberry.com)
-iptools/           the IP tools: code · templates · assets (.BIN) · download script
+tools/             self-contained tool subdomains (code + docs co-located):
+                     iptools/   IP tools: code · templates · assets (.BIN) · README
+                     botcheck/  Bot check: code · templates · README · RESEARCH · ROADMAP · reports
 deploy/nginx/      reverse-proxy server blocks
 docs/              architecture & deployment
 ```

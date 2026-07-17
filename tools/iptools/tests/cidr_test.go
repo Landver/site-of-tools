@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/Landver/site-of-tools/iptools"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 func TestParseSubnetIPv4(t *testing.T) {

@@ -9,7 +9,7 @@
 // and calls Evaluate. Keeping this package free of echo/iptools is what lets its
 // tests construct Signals directly, with no databases and no HTTP.
 //
-// The one load-bearing idea (see docs/tools/botornot/): every client signal is
+// The one load-bearing idea (see RESEARCH.md / ROADMAP.md): every client signal is
 // spoofable, so the strongest checks are the cross-layer/cross-context
 // consistency ones — what the browser *claims* (JS) vs. what the connection
 // *shows* (headers, IP) vs. what a second JS context reports (Worker/iframe).

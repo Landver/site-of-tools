@@ -112,7 +112,7 @@ with cwd `/`, so the relative `IP2LOCATION_*` paths resolve to the mount unchang
 ```yaml
 ports:    ["172.17.0.1:8080:8080"]
 env_file: [.env, .env.prod]
-volumes:  ["./iptools/assets:/iptools/assets:ro"]   # IP2LOCATION_* env → /iptools/assets/...
+volumes:  ["./tools/iptools/assets:/tools/iptools/assets:ro"]   # IP2LOCATION_* env → /tools/iptools/assets/...
 ```
 
 ---
@@ -123,8 +123,8 @@ The IP2Location LITE BINs are large (DB11 92M+216M, ASN 156M+262M, plus the
 1.7 GB IP2Proxy PX12 — all read via `ReadAt`, so they cost ~no RAM). Gitignored;
 never in git or the image.
 
-- On the host they live in `iptools/assets/` and are bind-mounted read-only.
-- `make assets` (→ `iptools/download-assets.sh`) (re)downloads them using
+- On the host they live in `tools/iptools/assets/` and are bind-mounted read-only.
+- `make assets` (→ `tools/iptools/download-assets.sh`) (re)downloads them using
   `IP2LOCATION_DOWNLOAD_TOKEN` from `.env`.
 
 ---
