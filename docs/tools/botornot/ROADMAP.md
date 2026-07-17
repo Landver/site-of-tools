@@ -1,20 +1,37 @@
-# Competitor gaps — what the public bot-detection services do that `botcheck` doesn't
+# Bot check — roadmap: what to build next & why
 
-A comprehensive, processable gap list: every capability, signal, technique, and
-reporting feature that one or more of the twelve researched services provide and
-our own [`botcheck`](../botcheck.md) tool does **not** (or does more weakly).
+The single "what's next" doc for `botcheck`. It has two parts:
 
-It is the counterpart to [`building-our-own.md`](building-our-own.md) (the design)
-and [`next-features.md`](next-features.md) (the backlog): those describe what we
-chose to build; this describes what the field has that we left on the table, and
-why.
+1. **The competitor-gap audit** (the bulk of this doc): every capability, signal,
+   technique, and reporting feature that one or more of the twelve researched
+   services provide and our own [`botcheck`](../botcheck.md) tool does **not** (or
+   does more weakly) — each rated by value-to-us, effort, and status.
+2. **The internal backlog** ([jump](#internal-backlog-by-effort-non-competitor-driven)):
+   effort-layered features we want regardless of any competitor, including the ones
+   the newly-available MongoDB unlocks.
+
+For how the tool works today and why it's designed the way it is, see
+[`../botcheck.md`](../botcheck.md) (design + reference); for how the competitor
+services work and how our test browser scored against them, see
+[`RESEARCH.md`](RESEARCH.md).
+
+## Build status (what's shipped)
+
+botcheck is **built and live**. It shipped in phases: routing + content
+negotiation, the server-only scorer reusing `iptools`, the vendored JS collector,
+the client-vs-server cross-checks + the ≥3-soft-signal combo rule, and polish
+(`Accept-CH` opt-in, the "your request" card, IP2Location attribution). The
+Layer-1 and Layer-2 signal sets in the
+[internal backlog](#internal-backlog-by-effort-non-competitor-driven) below are
+implemented; their "remaining candidates" and all of Layer 3 are not. This doc is
+the forward view — the current design lives in [`../botcheck.md`](../botcheck.md).
 
 ## What this is built from
 
 - The twelve firsthand service reports in this folder (`deviceandbrowserinfo`,
   `incolumitas`, `sannysoft`, `creepjs`, `fingerprint`, `browserscan`, `pixelscan`,
   `iphey`, `whoer`, `amiunique`, `coveryourtracks`, `datadome`) — see the
-  [README](README.md) for the cross-service summary.
+  [RESEARCH.md](RESEARCH.md) for the cross-service summary.
 - Our **shipped** implementation, read as ground truth (not the design doc):
   [`botcheck/scoring.go`](../../../botcheck/scoring.go) (the 35 detection rules),
   [`botcheck/botcheck.go`](../../../botcheck/botcheck.go) (the `Signals` struct +
@@ -117,7 +134,7 @@ self-test tool — do these first. IDs link into the full tables below.
 | # | Quick win | Effort | Why it's cheap here |
 |---|---|---|---|
 | G01 | Expand userAgentData high-entropy hints + platformVersion coherence | trivial | We request platform ONLY. Request platformVersion + uaFullVersion + fullVersionList too and add a rule comparing UA-embedded OS version vs userAgentData.platformVersion. This is the exact Electron/spoof catch we cite in our design, made stronger for near-zero cost. |
-| G02 | navigator.productSub / oscpu / buildID / pdfViewerEnabled | trivial | Drop-in client fields + consistency rules; productSub and pdfViewerEnabled are already flagged as candidates in next-features.md Layer-1. |
+| G02 | navigator.productSub / oscpu / buildID / pdfViewerEnabled | trivial | Drop-in client fields + consistency rules; productSub and pdfViewerEnabled are already flagged as candidates in the internal backlog (Layer 1). |
 | G53 | Explicit on-page scope disclosure (what the verdict does/doesn't use) | trivial | One-paragraph trust win: say plainly we use client fingerprint + headers + IP reputation, no behavior/ML, and that VPN/privacy users may score suspicious by design. |
 | G04 | Deep native-function tamper / lie detection | low | We only run the '[native code]' toString check on 4 methods. Extend it: (1) descriptor/own-property sanity on the same natives, (2) verify call/new throw correct TypeErrors, (3) add the Proxy-via-error-stack probe to catch stealth-plugin Function.toString proxies. Pure client JS, deterministic, fits our scorer — this is the single highest-leverage cheap upgrade. |
 | G03 | Broaden cross-context (worker/iframe/SW) comparison beyond UA | low | We already spawn worker + iframe and compare UA. Cheaply extend the same collectors to also diff languages, hardwareConcurrency, platform, and (if collected) GPU renderer across those contexts, and add a Service Worker context. Each mismatch is a strong consistency tell we're currently leaving on the table. |
@@ -138,7 +155,7 @@ what they do and the recommended move for our stack.
 | # | Capability they provide | Who has it | Sev · Effort · Status | What they do that we don't → recommended move |
 |---|---|---|---|---|
 | G01 | Expand userAgentData high-entropy hints + platformVersion coherence | CreepJS, iphey.com, Fingerprint.com | medium · trivial · Partial | Pull the full getHighEntropyValues set (architecture, bitness, model, platformVersion, uaFullVersion, fullVersionList) and cross-check against the UA. CreepJS caught a UA claiming macOS 10_15_7 while userAgentData reported macOS 26.5.1 — the frozen-Electron/spoof tell. → **We request platform ONLY. Request platformVersion + uaFullVersion + fullVersionList too and add a rule comparing UA-embedded OS version vs userAgentData.platformVersion. This is the exact Electron/spoof catch we cite in our design, made stronger for near-zero cost.** |
-| G02 | navigator.productSub / oscpu / buildID / pdfViewerEnabled | iphey.com, AmIUnique.org, CreepJS | medium · trivial · **Not built** | productSub is a classic engine tell (Chromium is always '20030107', Gecko '20100101'); oscpu/buildID/pdfViewerEnabled add OS/engine consistency and a headless tell (pdfViewerEnabled often false headless). → **Drop-in client fields + consistency rules; productSub and pdfViewerEnabled are already flagged as candidates in next-features.md Layer-1.** |
+| G02 | navigator.productSub / oscpu / buildID / pdfViewerEnabled | iphey.com, AmIUnique.org, CreepJS | medium · trivial · **Not built** | productSub is a classic engine tell (Chromium is always '20030107', Gecko '20100101'); oscpu/buildID/pdfViewerEnabled add OS/engine consistency and a headless tell (pdfViewerEnabled often false headless). → **Drop-in client fields + consistency rules; productSub and pdfViewerEnabled are already flagged as candidates in the internal backlog (Layer 1).** |
 | G03 | Broaden cross-context (worker/iframe/SW) comparison beyond UA | deviceandbrowserinfo.com, bot.incolumitas, CreepJS | medium · low · Partial | Recompute and diff more than the UA across contexts — languages, hardwareConcurrency, platform, and even WebGL renderer/fonts — between main thread, Web Worker, Service Worker, and iframe. Caught Bright Data returning Linux in a worker while the top UA claimed Windows. → **We already spawn worker + iframe and compare UA. Cheaply extend the same collectors to also diff languages, hardwareConcurrency, platform, and (if collected) GPU renderer across those contexts, and add a Service Worker context. Each mismatch is a strong consistency tell we're currently leaving on the table.** |
 | G04 | Deep native-function tamper / lie detection | CreepJS, deviceandbrowserinfo.com, bot.incolumitas, BrowserScan.net, Pixelscan, Fingerprint.com | medium · low · Partial | Go well beyond a toString '[native code]' check: CreepJS's queryLies checks each API for illegal own-properties/descriptors (prototype/arguments/caller), traps whether call/new/apply/class-extends throw the correct TypeError, and detects the Function.prototype.toString Proxy that puppeteer-extra-stealth installs via error-stack frame inspection. bot.incolumitas targets stealth-plugin artefacts directly (puppeteerExtraStealthUsed, overrideTest). → **We only run the '[native code]' toString check on 4 methods. Extend it: (1) descriptor/own-property sanity on the same natives, (2) verify call/new throw correct TypeErrors, (3) add the Proxy-via-error-stack probe to catch stealth-plugin Function.toString proxies. Pure client JS, deterministic, fits our scorer — this is the single highest-leverage cheap upgrade.** |
 | G05 | Feature-detect true engine and compare to claimed UA _(we do a narrower version)_ | iphey.com, CreepJS | medium · low · Partial | Feature-detect the actual rendering engine/version (Chromium via webkitResolveLocalFileSystemURL + BatteryManager + vendor; Gecko via buildID + onmozfullscreenchange; WebKit via ApplePayError) and cross-check against the claimed UA — catches spoofed UAs and anti-detect browsers a string parse misses. → **We compare UA vs userAgentData.platform but never feature-detect the real engine. Add a small engine-probe module and one rule (feature-detected engine family vs UA-claimed browser). Cheap, deterministic, and robust against UA spoofing.** |
@@ -159,7 +176,7 @@ what they do and the recommended move for our stack.
 | G20 | Privacy/anti-detect tool resistance detection | CreepJS | low · low · **Not built** | Detect Tor Browser, Firefox RFP, Brave, ungoogled-chromium, and extensions (uBlock/NoScript/CanvasBlocker/Chameleon/ScriptSafe) and measure how well the mask holds. → **Niche (serves the anti-detect audience, not bot detection). Skip, or add a small informational readout later. Not a scoring signal for us.** |
 | G21 | Storage/quota, Network Information, MediaCapabilities/EME, GPC, full Permissions enumeration | iphey.com, CreepJS, AmIUnique.org, incolumitas | low · low · **Not built** | Probe localStorage/indexedDB presence + quota, Network Information (rtt/downlink/effectiveType — incolumitas' connectionRTT), MediaCapabilities/EME-DRM, Global Privacy Control, and enumerate all Permissions states. → **Cheap additional entropy/consistency surfaces; connectionRTT vs IP geo is a genuinely new cross-check.** |
 | G22 | chrome.runtime integrity + late-injection index checks | CreepJS | low · low · Partial | hasBadChromeRuntime instantiates chrome.runtime.sendMessage/connect and inspects for missing prototype / wrong error constructor to unmask a faked chrome object; hasHighChromeIndex flags 'chrome' appearing among the last ~50 window keys (stealth patches inject it late). → **We only check window.chrome presence. Add the runtime-integrity probe and the window-key-index check — both catch the common stealth trick of bolting on a fake window.chrome. Small, deterministic additions.** |
-| G23 | JS-engine fingerprint (Math results, window/HTMLElement key sets, error-stack) | CreepJS | low · medium · **Not built** | Fingerprint the JS engine/version from Math function results, Error-stack engine signatures, and window/HTMLElement key enumeration; flag out-of-range feature versions. → **Strong engine-vs-claimed-UA cross-check (V8/JSC/SpiderMonkey), but needs careful per-engine reference tables — already noted in next-features.md Layer-2.** |
+| G23 | JS-engine fingerprint (Math results, window/HTMLElement key sets, error-stack) | CreepJS | low · medium · **Not built** | Fingerprint the JS engine/version from Math function results, Error-stack engine signatures, and window/HTMLElement key enumeration; flag out-of-range feature versions. → **Strong engine-vs-claimed-UA cross-check (V8/JSC/SpiderMonkey), but needs careful per-engine reference tables — already noted in the internal backlog (Layer 2).** |
 | G24 | Virtual-machine / emulator detection | Fingerprint.com | low · medium · **Not built** | Flag VM signatures and Android emulators (partly server-correlated) and treat a VM as bot=bad. → **Browser-observable VM tells overlap heavily with our software-renderer (swiftshader/llvmpipe) check, which we already have. Little incremental value client-only; skip dedicated VM detection.** |
 | G25 | Mobile SDK native signals (root/jailbreak, Frida, emulator, OS attestation) | Fingerprint.com, DataDome | low · high-infra · **Not built** | Native mobile SDKs collect Frida instrumentation, root/jailbreak, emulator/simulator, cloned-app, MITM, tampered-request, and platform attestation (Play Integrity/SafetyNet, App Attest/DeviceCheck) — a signal class with no browser equivalent. → **Not applicable — botcheck is a web page with no mobile app/SDK. Note as an out-of-scope capability class, not a gap to close.** |
 
@@ -194,7 +211,7 @@ what they do and the recommended move for our stack.
 | G40 | Crowd-blending / fingerprint rarity / uniqueness entropy | CreepJS, Fingerprint.com, iphey.com, AmIUnique.org, EFF Cover Your Tracks, deviceandbrowserinfo.com, Pixelscan | low · ml-or-db · Deferred (documented) | Score a fingerprint against a visitor population: rarity/'one in X', Shannon-entropy bits per attribute, crowd-blending score with letter grades, or outlier detection against a real-people fingerprint DB — a rare/impossible fingerprint reads as fake. → **Deferred while botcheck stays stateless in practice. Requires a population corpus + storage; **MongoDB is now available** for the storage half, so accumulating a corpus and adding a minimal rarity table is the first crowd feature worth prototyping — but it's not a self-test priority.** |
 | G41 | Fingerprint-reuse detection across requests | bot.incolumitas | low · ml-or-db · **Not built** | Flag identical canvas/WebGL fingerprints repeated across many requests to unmask scraping-farm infrastructure (caught ScrapingBee returning a constant fingerprint). → **Requires cross-request state, which botcheck's stateless design avoids today (MongoDB is now available to back it). Defer with the broader crowd/DB work; not meaningful for a single-shot self-test anyway.** |
 | G42 | Fuzzy / locality-sensitive fingerprint hash + surfaced FP ID | CreepJS, incolumitas, Fingerprint.com | low · ml-or-db · **Not built** | Compute both an exact fingerprint ID and a separate fuzzy/LSH hash so near-identical fingerprints cluster even when one attribute changes; surface the ID to the user. → **Lands alongside rarity scoring now that MongoDB is available; not meaningful until botcheck actually persists fingerprints.** |
-| G43 | Request velocity per device / IP over time windows | Fingerprint.com, DataDome | low · ml-or-db · **Not built** | Count distinct IPs / linked IDs per device (and requests per IP) over rolling windows to flag bursts and linkage. → **Needs cross-request state — bends the stateless rule; sits below the domain service, backed by MongoDB (now available, not yet used by botcheck) (next-features.md Layer-2).** |
+| G43 | Request velocity per device / IP over time windows | Fingerprint.com, DataDome | low · ml-or-db · **Not built** | Count distinct IPs / linked IDs per device (and requests per IP) over rolling windows to flag bursts and linkage. → **Needs cross-request state — bends the stateless rule; sits below the domain service, backed by MongoDB (now available, not yet used by botcheck) — see the internal backlog, Layer 2.** |
 | G44 | Residential-proxy detection (distinct from datacenter/VPN) | Fingerprint.com, DataDome, Pixelscan | low · ml-or-db · Partial | Detect residential proxies (graded confidence), the hard case aimed at agentic/AI fraud, separate from datacenter/VPN classification. → **PX12 may already tag some residential proxies; verify which proxy types the bundled BIN classifies and surface them. True residential-proxy detection at competitor quality needs a specialized feed we won't maintain — accept partial coverage.** |
 
 ### Persistent identity & history
@@ -271,4 +288,77 @@ any false gap (it rejected none), and a completeness critic that surfaced 13
 capabilities the first pass missed (folded in above). Severity/effort/status
 reflect our stack's constraints as of this writing; re-check the code before acting
 on any single row, since the collector and rule set evolve.
+
+---
+
+## Internal backlog by effort (non-competitor-driven)
+
+The gap list above is framed against competitors. This is the complementary view:
+everything we want to add **regardless of any competitor**, ordered by complexity
+against our stack (one Go binary, a vendored JS collector, no npm, MongoDB now
+available but not yet used by botcheck, and nginx/Cloudflare terminating TLS in
+front, so the raw connection isn't visible to Go). Every client signal is
+spoofable, so new signals should prefer the **cross-check** shape — browser claim
+vs. a second context / the connection / the population — over standalone tells.
+Where an item also appears in the competitor audit above, its `G##` is noted.
+
+### Layer 1 — Simple (no new deps or infra; pure-Go rules over collected fields)
+
+**Shipped:**
+
+| Signal | Tier | Idea |
+|---|---|---|
+| `vendor_mismatch` | consistency | Chromium UA but `navigator.vendor` ≠ `"Google Inc."` |
+| `app_version_mismatch` | consistency | `navigator.appVersion` ≠ UA without the `Mozilla/` prefix |
+| `language_primary_mismatch` | consistency | `navigator.language` ≠ `navigator.languages[0]` |
+| `screen_avail_impossible` | soft | `availWidth/Height` larger than the physical screen |
+| `low_color_depth` | soft | `screen.colorDepth` < 16 |
+| `sec_fetch_missing` | soft | Browser UA but no `Sec-Fetch-*` request header |
+
+**Remaining candidates (same shape, drop-in later):**
+
+- `productSub`/`product` sanity (`"20030107"` / `"Gecko"` for all mainstream browsers).
+- `pdfViewerEnabled` expected `true` on desktop Chrome.
+- `maxTouchPoints` > 0 on a desktop UA, or `ontouchstart` present without touch — touch/UA mismatch.
+- `navigator.plugins` vs `mimeTypes` coherence (plugins present, mimeTypes empty).
+- Zero `outerHeight`/`innerHeight` (a headless tell).
+- `Accept-Encoding` / `Accept-Language` header absent on a browser UA (server-side; **validate against the CF/nginx path first — proxies can strip these**, which is why `sec_fetch_missing` is soft, not hard).
+- `Accept: */*` on a top-level navigation (weak).
+
+### Layer 2 — Medium (more collection / tuning; still no new infra or deps)
+
+**Shipped:**
+
+| Signal | Tier | Idea |
+|---|---|---|
+| `tz_self_inconsistent` | consistency | `Intl….timeZone` (IANA) vs `getTimezoneOffset()` — Go resolves the zone with `time.LoadLocation` (embeds `time/tzdata`) at request time (threaded in as `Signals.Now`, keeping `Evaluate` pure). IP-independent. |
+| `canvas_unstable` | consistency | Two identical canvas draws hashing differently ⇒ noise-injecting anti-fingerprint tool. |
+| `canvas_blank` | soft | The drawn canvas has no non-transparent pixels ⇒ blocked / headless. |
+| `ch_brands_mismatch` | consistency | Parse the `Sec-CH-UA` header brand list and compare to JS `userAgentData.brands` (GREASE decoy ignored). |
+| `missing_proprietary_codecs` | soft | Browser UA but neither H.264 nor AAC (`canPlayType`) ⇒ stripped / headless build. |
+| `no_fonts` | soft | Zero probe fonts detectable via the `measureText` width technique ⇒ neutralised font surface / font-less VM. |
+
+**Remaining candidates (not yet built):**
+
+- **Browser version plausibility** — parse the Chrome major from the UA vs `userAgentData.fullVersionList`; flag impossible or very stale versions.
+- **Fuller media-codec / font-diversity matrices** — beyond the current H.264/AAC pair and the zero-fonts floor, score against expected per-browser codec sets and typical font-count ranges (needs careful thresholds to avoid mobile false positives).
+- **JS engine tells** (G23) — `Error` stack format, `Function.prototype.toString` quirks, `Math`/number formatting differences (V8 vs SpiderMonkey vs JSC) vs the claimed browser.
+- **WebRTC** (G09) — collect ICE candidates: local-IP leak, presence of an mDNS `.local` candidate, and `srflx` public IP vs the server-observed IP. (Async/flaky — deferred deliberately.)
+- **Request velocity** (G43) — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, so it bends the current stateless rule; better backed by MongoDB (now available, not yet used by botcheck), sitting below the domain service.
+
+### Layer 3 — Hard (new infrastructure, dependencies, ML, or a stored corpus)
+
+> MongoDB is now available (a `site-of-tools` database + a `platform/mongo.go`
+> client), so the DB-backed items below are no longer *blocked* on provisioning a
+> database — what remains is building the corpus/logic and wiring it below the
+> domain service. botcheck does not use Mongo yet.
+
+- **TLS fingerprint (JA3/JA4)** (G27) — the connection's TLS ClientHello vs the UA-implied stack. Blocked today: Cloudflare/nginx terminate TLS. Paths: an nginx/OpenResty JA3 module forwarding an `X-JA3` header, or terminating TLS in Go on this subdomain and peeking the ClientHello. Real work — infra.
+- **HTTP/2 frame fingerprint (Akamai-style)** (G26) — SETTINGS / WINDOW_UPDATE / header-priority ordering. nginx downgrades to HTTP/1.1 before Go sees it; needs Go-terminated h2 or edge capture.
+- **TCP/IP SYN fingerprint (p0f / zardaxt)** (G30) — OS inferred from SYN packet fields vs UA OS. Needs raw packet capture on the host.
+- **Behavioral biometrics** (G34) — stream mouse/keystroke/scroll/touch events and classify (incolumitas runs a 30+ classifier ensemble). Needs an event pipeline and a trained model. ML.
+- **Fingerprint rarity / crowd-blending** (G40) — store every fingerprint and score how rare the combination is. MongoDB is now available for the corpus; lands naturally as one more `Check` once storage sits below the domain service (not built yet).
+- **Stable visitor ID / returning-device matching** (G47) — probabilistic identity across sessions (FingerprintJS-Pro style). Needs storage (MongoDB now available) and matching logic.
+- **ML risk model** (G52) — a trained classifier (logistic / gradient-boosted) over the whole signal vector, replacing the hand-tuned weights. Needs labelled data, training, and serving.
+- **Active challenge / proof-of-work / invisible CAPTCHA** (G59) — deliberately out of scope: we never issue or solve CAPTCHAs, and a self-test tool blocks nothing.
 

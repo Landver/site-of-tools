@@ -127,19 +127,20 @@ Moscow-timezone-vs-Istanbul-IP contradiction, worker/iframe inconsistencies) wer
 caught only by the services that specifically cross-check contexts and layers
 (CreepJS, incolumitas).
 
-## Building our own
+## What we built from this
 
-The companion doc [building-our-own.md](building-our-own.md) synthesizes these
-twelve reports into a design for our own detector: which signals to collect
-client-side, which to derive server-side (IP/ASN reputation, TLS JA3/JA4, HTTP/2
-frame + header-order fingerprinting, TCP/IP OS fingerprinting), how to layer a
-domain service below the handler per our architecture, and which open-source
-collectors to reuse (fp-collect / fp-scanner, CreepJS modules, MixVisit, BotD,
-FingerprintJS) versus what has to be built from scratch (the server-side fusion,
-consistency cross-checks, and any behavioral layer). It leans on the recurring
-lesson above: client signals are all spoofable, so the load-bearing checks are
-the cross-layer and cross-context consistency ones plus the server-observed
-network facts the browser cannot forge.
+This research fed a shipped tool, **Bot check** (`botcheck.corpberry.com`). Its
+design + reference doc is [`../botcheck.md`](../botcheck.md): which signals it
+collects client-side, which it derives server-side (IP/ASN reputation via
+`iptools`, header/Client-Hints cross-checks), how the pure domain scorer layers
+below the handler, and which open-source collectors it borrows (BotD, CreepJS
+modules, fp-collect / fp-scanner, MixVisit, FingerprintJS). What it deliberately
+*doesn't* do yet — TLS JA3/JA4, HTTP/2 frame + header-order fingerprinting, TCP/IP
+OS fingerprinting, behavioral and crowd/rarity scoring — and the backlog of what
+to build next live in [`ROADMAP.md`](ROADMAP.md). The recurring lesson throughout:
+client signals are all spoofable, so the load-bearing checks are the cross-layer
+and cross-context consistency ones plus the server-observed network facts the
+browser cannot forge.
 
 ## Reports
 
