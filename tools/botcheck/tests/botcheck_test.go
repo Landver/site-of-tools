@@ -352,6 +352,126 @@ func TestUnknownIPTimezoneDoesNotTripCrossCheck(t *testing.T) {
 	}
 }
 
+// crawler builds the Signals a real bot presents: a UA in the HTTP header, an egress
+// ASN number, and NO client fingerprint (crawlers don't run our JS), so client checks
+// Skip and only the server-side rules score.
+func crawler(ua, asn string) botcheck.Signals {
+	return botcheck.Signals{HTTPUserAgent: ua, ASN: asn}
+}
+
+// TestGoodBotClassification is the G36 core: recognised crawlers / AI agents are
+// named, but the "good-bot" downgrade is granted ONLY when the egress ASN NUMBER is
+// the operator's single-tenant crawler ASN — which an outsider can't originate from,
+// including the operator's own rentable public cloud (a different ASN). Multi-tenant
+// crawlers (Googlebot) and cloud-hosted agents (GPTBot) are recognised-but-unverified
+// and still penalised: recognition is not leniency.
+func TestGoodBotClassification(t *testing.T) {
+	const (
+		yandex     = "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"
+		gptbot     = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.1; +https://openai.com/gptbot"
+		claudeUser = "Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)"
+		claudeBot  = "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://anthropic.com/claudebot)"
+		googlebot  = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+		bingbot    = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
+		applebot   = "Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)"
+		metaFetch  = "meta-externalfetcher/1.1"
+		metaAgent  = "meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)"
+		bytespider = "Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)"
+		seznam     = "Mozilla/5.0 (compatible; SeznamBot/4.0; +https://o-seznam.cz/)"
+		yeti       = "Mozilla/5.0 (compatible; Yeti/1.1; +https://naver.me/bot)"
+		yetiNoMark = "Mozilla/5.0 (compatible; Yeti/1.1)"
+	)
+	// ASN numbers: crawler ASNs (verify) vs. clouds / others (must NOT verify).
+	const (
+		asnYandex      = "13238"  // YandexBot's own AS
+		asnYandexCloud = "200350" // Yandex Cloud — rentable, a DIFFERENT AS (the red-team evasion)
+		asnApple       = "714"    // Applebot
+		asnMeta        = "32934"  // Meta
+		asnSeznam      = "43037"  // SeznamBot
+		asnNaver       = "23576"  // Yeti / Naver
+		asnAnthropic   = "399358" // Claude-User
+		asnByteDance   = "396986" // Bytespider
+		asnGoogle      = "15169"  // Google (multi-tenant: crawler + GCP)
+		asnMicrosoft   = "8075"   // Microsoft (multi-tenant: Bing + Azure + GPTBot host)
+		asnAWS         = "16509"  // Amazon AWS (cloud host)
+		asnDO          = "14061"  // DigitalOcean (off-network)
+		asnCloudflare  = "13335"  // Cloudflare (off-network)
+	)
+	cases := []struct {
+		name     string
+		ua       string
+		asn      string
+		verdict  string
+		botName  string // "" ⇒ expect Bot == nil (not a recognised bot)
+		verified bool
+	}{
+		{"YandexBot from Yandex", yandex, asnYandex, "good-bot", "YandexBot", true},
+		{"YandexBot from Yandex CLOUD (rented VM — must not verify)", yandex, asnYandexCloud, "bot", "YandexBot", false},
+		{"YandexBot off-network (spoof)", yandex, asnDO, "bot", "YandexBot", false},
+		{"YandexBot no ASN (fail closed)", yandex, "", "bot", "YandexBot", false},
+		{"GPTBot on Azure (declared, not spoof-flagged)", gptbot, asnMicrosoft, "bot", "GPTBot (OpenAI)", false},
+		{"Claude-User from Anthropic", claudeUser, asnAnthropic, "good-bot", "Claude-User (Anthropic)", true},
+		{"Claude-User off-network (AWS)", claudeUser, asnAWS, "bot", "Claude-User (Anthropic)", false},
+		{"ClaudeBot declared-only", claudeBot, asnAWS, "bot", "ClaudeBot (Anthropic)", false},
+		{"Googlebot multi-tenant (never verified even from Google AS)", googlebot, asnGoogle, "bot", "Googlebot", false},
+		{"Bingbot multi-tenant", bingbot, asnMicrosoft, "bot", "Bingbot", false},
+		{"Applebot from Apple", applebot, asnApple, "good-bot", "Applebot", true},
+		{"Applebot from AS 'AS714' (prefix-normalised)", applebot, "AS714", "good-bot", "Applebot", true},
+		{"Meta-ExternalFetcher from Meta (no generic bot token)", metaFetch, asnMeta, "good-bot", "Meta-ExternalFetcher", true},
+		{"Meta-ExternalAgent off-network still penalised", metaAgent, asnCloudflare, "bot", "Meta-ExternalAgent", false},
+		{"Bytespider from ByteDance", bytespider, asnByteDance, "good-bot", "Bytespider (ByteDance)", true},
+		{"Bytespider off-network (AWS)", bytespider, asnAWS, "bot", "Bytespider (ByteDance)", false},
+		{"SeznamBot from Seznam", seznam, asnSeznam, "good-bot", "SeznamBot", true},
+		{"Yeti with naver marker from Naver", yeti, asnNaver, "good-bot", "Yeti (Naver)", true},
+		{"Yeti without the naver marker is not recognised", yetiNoMark, asnNaver, "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := botcheck.Evaluate(crawler(tc.ua, tc.asn))
+			if tc.botName == "" {
+				if r.Bot != nil {
+					t.Fatalf("expected Bot == nil, got %+v", r.Bot)
+				}
+				return
+			}
+			if r.Bot == nil {
+				t.Fatalf("expected Bot %q, got nil (verdict %s)", tc.botName, r.Verdict)
+			}
+			if r.Bot.Name != tc.botName || r.Bot.Verified != tc.verified {
+				t.Errorf("Bot = %+v, want name %q verified %v", r.Bot, tc.botName, tc.verified)
+			}
+			if r.Verdict != tc.verdict {
+				t.Errorf("Verdict = %q, want %q (score %d)", r.Verdict, tc.verdict, r.Score)
+			}
+			// No-evasion invariant: every recognised bot trips bot_user_agent, and that
+			// deduction is suppressed IFF the bot is verified (never for a UA-only claim).
+			bua := check(t, r, "bot_user_agent")
+			if !bua.Triggered {
+				t.Errorf("bot_user_agent must fire for recognised bot %q (no silent escape)", tc.botName)
+			}
+			if bua.Suppressed != tc.verified {
+				t.Errorf("bot_user_agent Suppressed = %v, want %v (suppressed iff verified)", bua.Suppressed, tc.verified)
+			}
+		})
+	}
+}
+
+// TestCurlAndHumanAreNotGoodBots: the classifier only ever activates on a recognised
+// token — a plain HTTP client stays a bot with no identity, and a real human is never
+// touched even from an operator's corporate network (the ASN is not consulted).
+func TestCurlAndHumanAreNotGoodBots(t *testing.T) {
+	if r := botcheck.Evaluate(crawler("curl/8.4.0", "24940")); r.Bot != nil || r.Verdict != "bot" {
+		t.Errorf("curl: Bot=%+v verdict=%q, want nil / bot", r.Bot, r.Verdict)
+	}
+	// A human on Apple's corporate network (ASN 714, a verifiable crawler ASN) with a
+	// normal Chrome UA: no bot token ⇒ ASN never consulted ⇒ normal human verdict, no Bot.
+	h := cleanChrome()
+	h.ASN = "714"
+	if r := botcheck.Evaluate(h); r.Bot != nil || r.Verdict != "human" {
+		t.Errorf("human on a crawler ASN: Bot=%+v verdict=%q, want nil / human", r.Bot, r.Verdict)
+	}
+}
+
 // TestQuickWinSignals covers the G01/G02/G05 rules: each mutation makes a single
 // new cross-check fire against an otherwise-clean Chrome fixture.
 func TestQuickWinSignals(t *testing.T) {

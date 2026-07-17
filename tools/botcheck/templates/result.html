@@ -1,14 +1,14 @@
 {{define "botcheck/check"}}
 <li class="flex items-start gap-3 py-2">
   <span class="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full
-    {{if .Skipped}}bg-faint{{else if .Triggered}}bg-danger{{else}}bg-ok{{end}}"></span>
+    {{if .Skipped}}bg-faint{{else if .Suppressed}}bg-faint{{else if .Triggered}}bg-danger{{else}}bg-ok{{end}}"></span>
   <span class="flex-1 min-w-0">
-    <span class="{{if .Triggered}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
+    <span class="{{if and .Triggered (not .Suppressed)}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
     {{if .Detail}}<span class="text-faint"> — {{.Detail}}</span>{{end}}
   </span>
   <span class="shrink-0 text-xs font-mono
-    {{if .Skipped}}text-faint{{else if .Triggered}}text-danger{{else}}text-ok{{end}}">
-    {{if .Skipped}}not collected{{else if .Triggered}}{{if eq .Tier "soft"}}flagged{{else}}−{{.Weight}}{{end}}{{else}}ok{{end}}
+    {{if .Skipped}}text-faint{{else if .Suppressed}}text-faint{{else if .Triggered}}text-danger{{else}}text-ok{{end}}">
+    {{if .Skipped}}not collected{{else if .Suppressed}}expected{{else if .Triggered}}{{if eq .Tier "soft"}}flagged{{else}}−{{.Weight}}{{end}}{{else}}ok{{end}}
   </span>
 </li>
 {{end}}
@@ -21,18 +21,19 @@
 {{else}}
 <div class="w-full">
   {{/* Score summary. Colour follows the verdict band: human = ok/green,
-       suspicious = warn/amber, bot = danger/red. Classes are literal (Tailwind
-       only sees literal strings), so each band is spelled out. */}}
+       suspicious = warn/amber, bot = danger/red, good-bot = brand/blue (a verified
+       crawler). Classes are literal (Tailwind only sees literal strings), so each
+       band is spelled out. */}}
   <div class="card">
     <div class="eyebrow">verdict</div>
     <div class="flex items-baseline gap-3">
       <span class="text-4xl font-semibold
-        {{if eq .Verdict "human"}}text-ok{{else if eq .Verdict "suspicious"}}text-warn{{else}}text-danger{{end}}">
+        {{if eq .Verdict "human"}}text-ok{{else if eq .Verdict "suspicious"}}text-warn{{else if eq .Verdict "good-bot"}}text-brand{{else}}text-danger{{end}}">
         {{.Score}}<span class="text-xl text-faint">/100</span>
       </span>
       <span class="text-lg font-medium
-        {{if eq .Verdict "human"}}text-ok{{else if eq .Verdict "suspicious"}}text-warn{{else}}text-danger{{end}}">
-        {{if eq .Verdict "human"}}Looks human{{else if eq .Verdict "suspicious"}}Suspicious{{else}}Looks like a bot{{end}}
+        {{if eq .Verdict "human"}}text-ok{{else if eq .Verdict "suspicious"}}text-warn{{else if eq .Verdict "good-bot"}}text-brand{{else}}text-danger{{end}}">
+        {{if eq .Verdict "human"}}Looks human{{else if eq .Verdict "suspicious"}}Suspicious{{else if eq .Verdict "good-bot"}}Verified {{if eq .Bot.Kind "ai-agent"}}AI agent{{else}}crawler{{end}}{{else}}Looks like a bot{{end}}
       </span>
     </div>
     <p class="mt-2 text-sm text-muted">
@@ -40,6 +41,23 @@
       Each flagged check subtracts its points; environment checks are weak on their
       own and only count once three or more fire together.
     </p>
+    {{/* When the User-Agent is a recognised crawler / AI agent, name it. A verified
+         one (its network corroborates the operator) is trusted; a merely declared one
+         is still scored as automation, because any scraper can copy the User-Agent. */}}
+    {{with .Bot}}
+    <div class="mt-3 pt-3 border-t border-line text-sm">
+      {{if .Verified}}
+        <span class="text-brand font-medium">Verified {{if eq .Kind "ai-agent"}}AI agent{{else}}search crawler{{end}}:</span>
+        {{.Name}}. The request comes from this operator's own network, so its bot-shaped
+        signals are expected, not penalised.
+      {{else}}
+        <span class="text-warn font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
+        {{.Name}}, declared by the User-Agent but not corroborated by the network, so it is
+        still scored as automation. A scraper can copy this User-Agent; only traffic from the
+        operator's own network reads as verified.
+      {{end}}
+    </div>
+    {{end}}
   </div>
 
   {{/* The transparent breakdown, grouped by tier (via Report.Group). Two columns

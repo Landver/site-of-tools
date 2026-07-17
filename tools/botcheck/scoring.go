@@ -44,6 +44,17 @@ var rules = []rule{
 			if tok := botUAToken(s.HTTPUserAgent); tok != "" {
 				return true, "matched " + tok
 			}
+			// Recognise every good-bot/AI-agent token too: several (Meta-ExternalAgent,
+			// Claude-User, ChatGPT-User, …) carry no generic bot/spider/crawler substring
+			// and would otherwise escape this penalty. Check both the header and any
+			// posted navigator UA. A *verified* good bot has this deduction suppressed in
+			// Evaluate; an unverified one keeps it — recognition is not leniency.
+			if b := matchGoodBot(s.HTTPUserAgent); b != nil {
+				return true, "recognized " + b.name
+			}
+			if b := matchGoodBot(s.NavMainUA); b != nil {
+				return true, "recognized " + b.name
+			}
 			return false, ""
 		},
 	},

@@ -4,8 +4,8 @@ A live score of how much the visitor's browser looks like a human vs. an
 automated bot. It fuses **client-side signals** (collected by a vendored JS
 collector) with **server-observed signals** (HTTP headers + IP reputation) and
 cross-checks the two — the disagreements are what give automation away. Output is
-a 0–100 authenticity score, a verdict band (`human` / `suspicious` / `bot`), and
-a transparent per-signal breakdown.
+a 0–100 authenticity score, a verdict band (`human` / `suspicious` / `bot`, plus
+`good-bot` for a verified crawler / AI agent), and a transparent per-signal breakdown.
 
 **The thesis:** client signals are all spoofable, so the detection power lives in
 the server cross-checking what the browser *claims* against what the connection
@@ -177,6 +177,16 @@ Start at **100** and subtract each triggered rule's weight; clamp at 0; map to a
 band: `≥80 human`, `≥50 suspicious`, else `bot`. `Evaluate` is a pure function of
 `Signals` — no DB, no ML, no globals — so it is trivially testable and race-free.
 Rules are tiered:
+
+> **Good-bot override (G36).** A recognised crawler / AI agent (see
+> [`goodbots.go`](../goodbots.go)) is *named* on the report. If the egress ASN
+> **number** is the operator's single-tenant crawler AS — one an outsider can't
+> originate from (matched by number, not owner name, since the name also covers the
+> operator's rentable public cloud) — the verdict is overridden to `good-bot` and its
+> expected deductions (`bot_user_agent`, `datacenter_ip`, `proxy_ip`) are recorded as
+> "expected", not counted. Recognition alone never lowers the score: a merely
+> *declared* Googlebot (or any UA copy) stays a fully-penalised `bot`, so there is no
+> spoof path to leniency. Every other tell (webdriver, CDP, tamper) still counts.
 
 - **Hard tells** (≈40–60): `navigator.webdriver`, automation-framework globals,
   bot/HTTP-client User-Agent, monkey-patched natives, software WebGL renderer, CDP

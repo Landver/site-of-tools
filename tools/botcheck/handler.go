@@ -102,6 +102,7 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	// "-" is IP2Location's unknown placeholder (e.g. localhost); treat it as no
 	// signal so the timezone cross-check doesn't fire against it.
 	sig.IPTimezone = cleanPlaceholder(res.Timezone)
+	sig.ASN = cleanPlaceholder(res.ASN) // egress ASN number, for good-bot corroboration
 	if p := res.Proxy; p != nil && p.IsProxy {
 		sig.IsProxy = true
 		switch p.ProxyType {

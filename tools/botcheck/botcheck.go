@@ -108,6 +108,7 @@ type Signals struct {
 	SecFetchMode    string `json:"-"` // Sec-Fetch-Mode header (real browsers always send it)
 	AcceptLanguage  string `json:"-"`
 	IPTimezone      string `json:"-"`
+	ASN             string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
 	IsDatacenter    bool   `json:"-"`
 	IsProxy         bool   `json:"-"`
 	IsVPN           bool   `json:"-"`
@@ -138,16 +139,22 @@ type Check struct {
 	Weight    int    `json:"weight"`
 	Triggered bool   `json:"triggered"`
 	Skipped   bool   `json:"skipped,omitempty"`
-	Detail    string `json:"detail,omitempty"`
+	// Suppressed marks a rule that fired but did not dock the score because it is
+	// expected of a verified good bot (bot-shaped, from a datacenter). The row still
+	// shows in the breakdown, as "expected" rather than a deduction.
+	Suppressed bool   `json:"suppressed,omitempty"`
+	Detail     string `json:"detail,omitempty"`
 }
 
 // Report is the content-negotiated result the transport layer renders as HTML or
 // JSON. Score is an authenticity score: 100 = looks fully human, 0 = looks fully
-// automated.
+// automated. Bot is set when the User-Agent is a recognised crawler / AI agent
+// (verified or not); a verified one also overrides Verdict to "good-bot".
 type Report struct {
-	Score   int     `json:"score"`
-	Verdict string  `json:"verdict"` // "human" | "suspicious" | "bot"
-	Checks  []Check `json:"checks"`
+	Score   int          `json:"score"`
+	Verdict string       `json:"verdict"` // "human" | "suspicious" | "bot" | "good-bot"
+	Bot     *BotIdentity `json:"bot,omitempty"`
+	Checks  []Check      `json:"checks"`
 }
 
 // Scoring constants. The soft rule (borrowed from deviceandbrowserinfo) is that
@@ -167,6 +174,13 @@ const (
 // hard/consistency rule subtracts its weight; soft rules are summed separately
 // and only bite as a cluster.
 func Evaluate(s Signals) Report {
+	// Identify a recognised crawler / AI agent up front (nil for anything else). A
+	// *verified* one (operator corroborated by the egress ASN) is expected to look
+	// bot-shaped, so its expected deductions are suppressed below and its verdict is
+	// overridden — but only verified: an unverified UA claim is labelled, not excused.
+	bot := classifyGoodBot(clientUA(s), s.ASN)
+	suppress := bot != nil && bot.Verified
+
 	checks := make([]Check, 0, len(rules))
 	deduction := 0
 
@@ -176,29 +190,48 @@ func Evaluate(s Signals) Report {
 		if !skipped {
 			triggered, detail = r.eval(s)
 		}
-		checks = append(checks, Check{
+		c := Check{
 			ID: r.id, Label: r.label, Tier: r.tier, Weight: r.weight,
 			Triggered: triggered, Skipped: skipped, Detail: detail,
-		})
-		// Hard/consistency rules dock their weight immediately; soft rules never
-		// bite individually — they cost one softComboWeight only as a cluster,
-		// applied once below.
-		if triggered && r.tier != TierSoft {
-			deduction += r.weight
 		}
+		// Hard/consistency rules dock their weight immediately; soft rules never bite
+		// individually — they cost one softComboWeight only as a cluster, applied once
+		// below. For a verified good bot, the expected-crawler deductions are recorded
+		// but not counted (they'd wrongly tank a legitimate crawler's score).
+		if triggered && r.tier != TierSoft {
+			if suppress && suppressedForGoodBot[r.id] {
+				c.Suppressed = true
+			} else {
+				deduction += r.weight
+			}
+		}
+		checks = append(checks, c)
 	}
 
 	// SoftClusterActive (SoftFired ≥ softComboThreshold) is the single source of
 	// truth for the soft-cluster rule, shared by scoring here and the display helpers.
-	report := Report{Checks: checks}
+	report := Report{Checks: checks, Bot: bot}
 	if report.SoftClusterActive() {
 		deduction += softComboWeight
 	}
 
-	score := max(0, 100-deduction)
-	report.Score = score
-	report.Verdict = verdictFor(score)
+	report.Score = max(0, 100-deduction)
+	report.Verdict = verdictFor(report.Score)
+	if suppress {
+		report.Verdict = "good-bot" // classification override, independent of the score
+	}
 	return report
+}
+
+// suppressedForGoodBot are the deductions a genuine verified crawler is expected to
+// trip — being a bot, from a datacenter/hosting network. They are recorded but not
+// counted for a corroborated good bot, so its score reads coherently. Every other
+// rule (webdriver, CDP, native tamper, …) still counts, so a compromised host inside
+// the operator's own network would still surface in the breakdown.
+var suppressedForGoodBot = map[string]bool{
+	"bot_user_agent": true,
+	"datacenter_ip":  true,
+	"proxy_ip":       true,
 }
 
 func verdictFor(score int) string {

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -240,6 +241,69 @@ func TestCheckQuickWinSignalsThroughHandler(t *testing.T) {
 		}
 		if !c.Triggered {
 			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+}
+
+func TestCheckGoodBotThroughHandler(t *testing.T) {
+	// G36 end-to-end: a verified crawler (Applebot from Apple's AS714) → "good-bot"
+	// verdict + a Bot identity in the JSON. Proves addServerSignals wires res.ASN
+	// through to the corroboration. GET / is the server-only path a real crawler hits.
+	const applebot = "Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)"
+	looker := fakeLooker{res: &iptools.Result{ASN: "714", ASName: "Apple Inc."}}
+	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "application/json", "User-Agent": applebot})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if rep.Verdict != "good-bot" {
+		t.Errorf("verdict = %q, want good-bot (score %d):\n%s", rep.Verdict, rep.Score, rec.Body.String())
+	}
+	if rep.Bot == nil || rep.Bot.Name != "Applebot" || !rep.Bot.Verified {
+		t.Errorf("Bot = %+v, want verified Applebot", rep.Bot)
+	}
+}
+
+func TestCheckSpoofedGoodBotThroughHandler(t *testing.T) {
+	// The same Applebot UA from a NON-Apple network is recognised but NOT verified, so
+	// it stays a bot — the no-evasion property, proven end-to-end through the handler.
+	const applebot = "Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)"
+	looker := fakeLooker{res: &iptools.Result{ASN: "14061", ASName: "DigitalOcean, LLC"}}
+	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "application/json", "User-Agent": applebot})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if rep.Verdict == "good-bot" {
+		t.Errorf("verdict = good-bot for an off-network Applebot claim — must not verify a spoof")
+	}
+	if rep.Bot == nil || rep.Bot.Verified {
+		t.Errorf("Bot = %+v, want recognised-but-unverified Applebot", rep.Bot)
+	}
+}
+
+func TestGoodBotResultTemplateRenders(t *testing.T) {
+	// The good-bot verdict branch + the "expected" suppressed-row rendering must work.
+	r := platform.NewRenderer(false, nil,
+		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
+	)
+	rep := botcheck.Report{
+		Score: 100, Verdict: "good-bot",
+		Bot: &botcheck.BotIdentity{Name: "Applebot", Kind: "search-crawler", Verified: true},
+		Checks: []botcheck.Check{{
+			ID: "bot_user_agent", Label: "User-Agent is a known bot / HTTP client", Tier: "hard",
+			Weight: 60, Triggered: true, Suppressed: true, Detail: "recognized Applebot",
+		}},
+	}
+	var buf bytes.Buffer
+	if err := r.Render(nil, &buf, "botcheck/result", rep); err != nil {
+		t.Fatalf("render good-bot fragment: %v", err)
+	}
+	body := buf.String()
+	for _, want := range []string{"Verified", "Applebot", "expected"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("good-bot fragment missing %q:\n%s", want, body)
 		}
 	}
 }

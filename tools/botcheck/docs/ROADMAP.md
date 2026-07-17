@@ -32,8 +32,24 @@ cross-check), **G02** (`navigator.productSub` engine constant), **G05**
 (feature-detect the real Blink/Gecko/WebKit engine vs the engine the UA claims),
 and **G53** (on-page scope disclosure). They added three consistency rules (35 →
 38) and the collector reports `fullVersionList`, `productSub`, and a
-feature-detected `engine`. Still open below: G04, G03, G08, G36, G06, G07, and the
+feature-detected `engine`. Still open below: G04, G03, G08, G06, G07, and the
 rest.
+
+**Good-bot / AI-agent classification shipped (2026-07-17): G36.** Recognised
+crawlers and AI agents are now named ([`goodbots.go`](../goodbots.go)) instead of
+lumped in with curl/scrapers, and a fourth verdict **`good-bot`** downgrades them —
+but ONLY when the egress ASN **number** is the operator's single-tenant crawler ASN,
+which an outsider can't originate traffic from (Apple/Yandex/Baidu/Naver/Seznam/
+Anthropic/Meta/ByteDance). It matches the ASN *number*, not the owner *name*: a name
+substring ("yandex") also matches the operator's rentable public cloud (Yandex Cloud
+is a separate AS200350), which would let a scraper on a rented VM verify itself.
+Multi-tenant crawlers (Googlebot/Bingbot on shared Google/Microsoft ASNs) and
+cloud-hosted agents (GPTBot on Azure) are recognised but stay unverified and fully
+penalised, so a copied User-Agent never escapes the bot score (the no-evasion
+invariant). `bot_user_agent` was widened to every allowlist token (several —
+`Meta-ExternalAgent`, `Claude-User` — carry no generic `bot` substring). Follow-up
+for full coverage: a published-IP-range check to verify the multi-tenant and
+cloud-hosted operators that share their ASN with paying tenants.
 
 **Review follow-up (2026-07-17, same day):** an adversarial review of the batch
 above fixed two false positives before they mattered — the version check now
@@ -147,7 +163,8 @@ Beyond individual signals, several services model good *practices* worth copying
   can't see behind nginx (G26–G30, G48).
 - **Good-bot / AI-agent classification.** DataDome and Fingerprint separate
   verified Googlebot-style crawlers and known AI-company agents from malicious
-  automation; we lump every bot-shaped UA together as bad (G36).
+  automation; we now separate them (G36, shipped): recognised crawlers/agents are
+  named, and verified ones (ASN-corroborated) get a distinct `good-bot` verdict.
 
 ## Quick wins (highest value, lowest cost)
 
@@ -163,7 +180,7 @@ self-test tool — do these first. IDs link into the full tables below.
 | G03 | Broaden cross-context (worker/iframe/SW) comparison beyond UA | low | We already spawn worker + iframe and compare UA. Cheaply extend the same collectors to also diff languages, hardwareConcurrency, platform, and (if collected) GPU renderer across those contexts, and add a Service Worker context. Each mismatch is a strong consistency tell we're currently leaving on the table. |
 | G05 | Feature-detect true engine and compare to claimed UA | low | We compare UA vs userAgentData.platform but never feature-detect the real engine. Add a small engine-probe module and one rule (feature-detected engine family vs UA-claimed browser). Cheap, deterministic, and robust against UA spoofing. |
 | G08 | WebGL/GPU identity vs claimed OS/UA coherence | low | We read UNMASKED_RENDERER only to flag software renderers (swiftshader/llvmpipe). Add a coherence rule: GPU vendor family (Apple/Intel/NVIDIA/AMD/Adreno) vs UA-claimed OS. Cheap, catches spoofed-OS anti-detect browsers our software-renderer check ignores. |
-| G36 | Good-bot allowlist + AI-agent/LLM-crawler classification | low | We parse bot tokens but lump all as bad. Add a small allowlist of known good crawlers and known AI-agent UAs (with reverse-DNS/ASN corroboration for the crawlers) and report them as a distinct category. Topical for 2026 AI-agent traffic and cheap to add to our UA parser. |
+| G36 | Good-bot allowlist + AI-agent/LLM-crawler classification _(shipped)_ | low | **Shipped** in [`goodbots.go`](../goodbots.go): an allowlist of good crawlers + AI agents, ASN-**number** corroboration for single-tenant operators, and a `good-bot` verdict for verified ones. Recognition never reduces the score by itself (no evasion). |
 | G06 | HTTP header value/presence consistency vs claimed browser | low | Cheap server-side rule set; validate against the CF/nginx path first (proxies can rewrite/strip these) — same caveat that made sec_fetch_missing soft. |
 | G07 | WebGL vendor/renderer/feature internal inconsistency | low | Collect the vendor string too (we only keep the renderer) and add a vendor/renderer coherence rule. |
 
@@ -227,7 +244,7 @@ what they do and the recommended move for our stack.
 
 | # | Capability they provide | Who has it | Sev · Effort · Status | What they do that we don't → recommended move |
 |---|---|---|---|---|
-| G36 | Good-bot allowlist + AI-agent/LLM-crawler classification | DataDome, Fingerprint.com, BrowserScan.net | medium · low · Partial | Distinguish verified good bots (Googlebot/Bingbot etc.) from malicious automation, and (Fingerprint/DataDome) classify known AI-company user agents to separate benign AI assistants/crawlers from bad bots. → **We parse bot tokens but lump all as bad. Add a small allowlist of known good crawlers and known AI-agent UAs (with reverse-DNS/ASN corroboration for the crawlers) and report them as a distinct category. Topical for 2026 AI-agent traffic and cheap to add to our UA parser.** |
+| G36 | Good-bot allowlist + AI-agent/LLM-crawler classification | DataDome, Fingerprint.com, BrowserScan.net | medium · low · **Shipped** | Distinguish verified good bots (Googlebot/Bingbot etc.) from malicious automation, and (Fingerprint/DataDome) classify known AI-company user agents to separate benign AI assistants/crawlers from bad bots. → **Shipped ([`goodbots.go`](../goodbots.go)): a curated crawler + AI-agent allowlist, a `good-bot` verdict, and ASN-**number** corroboration (the crawler's own AS, distinct from any cloud the operator resells under the same name). The downgrade is granted ONLY for single-tenant operator ASNs (Apple/Yandex/Baidu/Naver/Seznam/Anthropic/Meta/ByteDance) an outsider can't originate from — multi-tenant clouds (Googlebot on AS15169, GPTBot on Azure) are recognised-but-unverified and still penalised, so no UA-spoof escapes. Full coverage of the cloud operators needs a published-IP-range check (follow-up).** |
 | G37 | IP blacklist / DNSBL / abuser-score reputation | bot.incolumitas, BrowserScan.net, Pixelscan, whoer.net | medium · ml-or-db · **Not built** | Look up the egress IP against blacklists/DNSBLs and return an abuser_score / blacklist flag beyond mere datacenter/VPN/Tor classification. → **Our IP2Proxy PX12 gives datacenter/VPN/Tor/proxy but no reputation/abuser score. Adding a bundled DNSBL/reputation dataset (or an offline blocklist BIN) would strengthen the network tier without breaking statelessness. Medium value; check whether an IP2Location/IP2Proxy tier or a static blocklist can be bind-mounted like the existing BINs.** |
 | G38 | Surface ASN/ISP and name the specific VPN/hosting provider _(we do a narrower version)_ | bot.incolumitas, Fingerprint.com, Pixelscan, whoer.net | low · low · Partial | Name the ASN/ISP/company and the specific VPN service (bot.incolumitas identified NordVPN behind DataCamp/CDN77) rather than only a boolean datacenter/VPN flag. → **IP2Proxy/IP2Location records typically carry ISP/ASN/provider fields we may already have in the BINs but don't surface. Add these to the 'your request' card for transparency — cheap and improves the report without new data sources.** |
 | G39 | Cross-customer / collective threat intelligence | DataDome | low · ml-or-db · **Not built** | Score an IP/fingerprint seen attacking one protected site across the entire customer network (network effect), plus a maintained known-bot signature repository grown by genetic algorithms. → **Not applicable — we're a single self-test page with no protected-site network. Note as an enterprise-only capability we intentionally don't pursue.** |
