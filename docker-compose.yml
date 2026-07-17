@@ -24,5 +24,5 @@ services:
       - ./tools/iptools/assets:/tools/iptools/assets:ro
     # MongoDB needs NO volume: it's a network dependency reached over the wire via
     # MONGODB_URI (from .env, above), not a mounted file like the BINs. The
-    # container just needs outbound network to mongodb.corpberry.com. See
+    # container just needs outbound network to localhost. See
     # docs/DEPLOYMENT.md §9. No feature uses Mongo yet.

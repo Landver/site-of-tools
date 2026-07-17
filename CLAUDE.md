@@ -21,7 +21,7 @@ frontend stack. Favor the simple, idiomatic path and explain Go-specific choices
    task tempts you toward `npm`/`node_modules`, stop.
 4. **htmx only when plain HTML can't do it** (AJAX, partial swaps, WS).
 5. **Persistence lives below the domain.** MongoDB is now available — a shared
-   server (`mongodb.corpberry.com`), a dedicated `site-of-tools` database, and a
+   server (`localhost`), a dedicated `site-of-tools` database, and a
    client in `platform/mongo.go` (`platform.OpenMongo`, `MONGODB_URI` config).
    **No feature uses it yet**, and the app stays stateless until one does. When a
    feature needs storage, put it *below* the domain service (a repository the

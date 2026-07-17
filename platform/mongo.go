@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultMongoDatabase is the application database on the shared MongoDB server
-// (mongodb.corpberry.com). Config.MongoDatabase defaults to this; override with
+// (localhost). Config.MongoDatabase defaults to this; override with
 // MONGODB_DATABASE. Note this is *not* the database in the connection string's
 // path (that segment names the auth database — "/admin" — which is separate from
 // the application database selected here).

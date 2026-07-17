@@ -180,7 +180,7 @@ git pull && docker compose up -d --build && docker compose logs -f site-of-tools
 
 ## 9. MongoDB (external dependency)
 
-The app can talk to a shared **MongoDB** server at `mongodb.corpberry.com`, with a
+The app can talk to a shared **MongoDB** server at `localhost`, with a
 dedicated `site-of-tools` database. Unlike the IP2Location BINs (§6), this is a
 **network dependency, not a bind-mounted file** — nothing to download or mount.
 
@@ -201,7 +201,7 @@ dedicated `site-of-tools` database. Unlike the IP2Location BINs (§6), this is a
   that can reach the server to create it explicitly (it adds an empty `_meta`
   collection and is idempotent).
 
-> **Reachability caveat.** `mongodb.corpberry.com` is a Cloudflare-proxied DNS
+> **Reachability caveat.** `localhost` is a Cloudflare-proxied DNS
 > record, and Cloudflare's proxy does not forward raw MongoDB TCP (port 27017) — so
 > the server is reachable only from hosts on its allowed network path (e.g. the
 > prod host / an internal network), **not** from an arbitrary machine. Provision

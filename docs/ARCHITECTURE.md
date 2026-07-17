@@ -237,7 +237,7 @@ Keep htmx-owned and Alpine-owned regions distinct.
 | `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `tools/iptools/assets/asn/...BIN` |
 | `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `tools/iptools/assets/ip2proxy/...BIN` |
 | `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not the app) | — |
-| `MONGODB_URI` | MongoDB connection string (credentials + auth db). Optional — empty disables Mongo | `mongodb://user:pass@mongodb.corpberry.com/admin` |
+| `MONGODB_URI` | MongoDB connection string (credentials + auth db). Optional — empty disables Mongo | `mongodb://user:pass@localhost/admin` |
 | `MONGODB_DATABASE` | app database name; defaults to `site-of-tools` | `site-of-tools` |
 
 **MongoDB** is a *network* dependency, not a bind-mounted file like the BINs, so
@@ -338,7 +338,7 @@ one thing nothing imports. Nothing is a single-file folder for its own sake.
 ## 10. Out of scope now (deliberately deferred)
 
 - **Persistence / MongoDB** — the connection is now wired: a shared server
-  (`mongodb.corpberry.com`), the `site-of-tools` database, a `platform/mongo.go`
+  (`localhost`), the `site-of-tools` database, a `platform/mongo.go`
   client, and `MONGODB_URI` config (§6). **No feature uses it yet**, so the app is
   still stateless in practice. When a feature needs storage (e.g. botcheck
   crowd/rarity scoring, request velocity, visitor history, or IP-tool rate
