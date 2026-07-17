@@ -54,7 +54,8 @@ assets:
 # One-off: materialize the site-of-tools database on the shared Mongo server.
 # Mongo creates databases lazily, so this makes it exist up front. Reads
 # MONGODB_URI from .env (included above); run from a host that can reach the
-# server. The app itself does not use Mongo yet — see docs/ARCHITECTURE.md §10.
+# server. Optional now that the app writes on first request (request log +
+# lookup history) — it just provisions up front. See docs/ARCHITECTURE.md §10.
 mongo-init:
 	go run mongoinit.go
 

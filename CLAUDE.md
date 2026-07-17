@@ -65,7 +65,7 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 
 - `main.go` at repo **root** — the single binary's entrypoint.
 - `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`,
-  `conn.go`, `mongo.go` (shared Mongo client — plumbing only, no feature uses it yet).
+  `conn.go`, `mongo.go` (shared Mongo client; used by the request log + IP-tool lookup history — see rule #5).
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); its
   own package so it can `go:embed` those files.
 - `site/` — the apex corpberry.com project (its own package, same embed reason).

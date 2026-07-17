@@ -28,7 +28,7 @@ CSS is built by a single prebuilt binary.
 | Live reload      | air — `github.com/air-verse/air`                   | v1.65.x           |
 | GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
 | Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
-| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; client wired, unused yet) | v2.8.x |
+| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history) | v2.8.x |
 | Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
 | Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
 

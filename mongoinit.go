@@ -8,7 +8,7 @@
 //
 // It is NOT part of the app build — the //go:build ignore tag excludes it from
 // `go build ./...`, `go vet ./...`, and the test gate. Run it once from a host
-// that can reach the server (the app itself never touches Mongo yet):
+// that can reach the server (optional now that the app writes on first request):
 //
 //	make mongo-init          # loads .env, then runs: go run mongoinit.go
 //	# or directly:
