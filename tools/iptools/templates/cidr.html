@@ -2,10 +2,10 @@
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
-<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
+<body>
   {{template "partials/header" .}}
 
-  <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
+  <main class="page-main">
     {{template "ip/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">Subnet calculator</h1>
     <p class="mt-2 text-sm text-muted">
@@ -40,16 +40,16 @@
       {{with .Subnet}}
       <div class="mt-6 flex flex-wrap gap-4 items-start">
         <div class="card">
-          <div class="eyebrow mb-3">{{.Family}} · /{{.Prefix}}</div>
+          <div class="eyebrow">{{.Family}} · /{{.Prefix}}</div>
           <dl class="spec grid-cols-[8rem_1fr]">
-            <dt class="text-faint">Network</dt>      <dd class="font-mono break-all text-strong">{{.CIDR}}</dd>
-            <dt class="text-faint">Network addr</dt> <dd class="font-mono break-all">{{.Network}}</dd>
-            {{if .Broadcast}}<dt class="text-faint">Broadcast</dt> <dd class="font-mono break-all">{{.Broadcast}}</dd>{{end}}
-            {{if .Netmask}}<dt class="text-faint">Netmask</dt>   <dd class="font-mono">{{.Netmask}}</dd>{{end}}
-            {{if .Wildcard}}<dt class="text-faint">Wildcard</dt>  <dd class="font-mono">{{.Wildcard}}</dd>{{end}}
-            <dt class="text-faint">Host range</dt>   <dd class="font-mono break-all">{{.FirstHost}} – {{.LastHost}}</dd>
-            <dt class="text-faint">Usable hosts</dt> <dd class="font-mono">{{.Usable}}</dd>
-            <dt class="text-faint">Total addrs</dt>  <dd class="font-mono">{{.Total}}</dd>
+            <dt>Network</dt>      <dd class="font-mono break-all text-strong">{{.CIDR}}</dd>
+            <dt>Network addr</dt> <dd class="font-mono break-all">{{.Network}}</dd>
+            {{if .Broadcast}}<dt>Broadcast</dt> <dd class="font-mono break-all">{{.Broadcast}}</dd>{{end}}
+            {{if .Netmask}}<dt>Netmask</dt>   <dd class="font-mono">{{.Netmask}}</dd>{{end}}
+            {{if .Wildcard}}<dt>Wildcard</dt>  <dd class="font-mono">{{.Wildcard}}</dd>{{end}}
+            <dt>Host range</dt>   <dd class="font-mono break-all">{{.FirstHost}} – {{.LastHost}}</dd>
+            <dt>Usable hosts</dt> <dd class="font-mono">{{.Usable}}</dd>
+            <dt>Total addrs</dt>  <dd class="font-mono">{{.Total}}</dd>
           </dl>
         </div>
       </div>

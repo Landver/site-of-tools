@@ -49,16 +49,35 @@
   --color-warn:    #fbbf24;
 }
 
-/* Reusable info card (looked-up IP + your IPv6). One definition keeps the
-   repeated styling DRY; basis-80 is a comfortable min width so cards wrap to the
-   next line rather than cramming, and grow fills the row. */
+@layer base {
+  /* Page shell — every page renders the same flex-column body so the footer
+     (mt-auto) sticks to the bottom. Centralised here, so markup keeps a bare
+     <body> on all pages instead of repeating the cluster. */
+  body {
+    @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
+  }
+  /* Alpine's cloak: hide x-cloak elements until Alpine initialises. */
+  [x-cloak] {
+    display: none !important;
+  }
+}
+
 @layer components {
+  /* Reusable info card, used across the tools (lookup results, IPv6, verdicts,
+     empty states). One definition keeps the repeated styling DRY; basis-80 is a
+     comfortable min width so cards wrap to the next line rather than cramming,
+     and grow fills the row. */
   .card {
     @apply grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5;
   }
   /* Small brand-magenta uppercase label above section headings and card titles. */
   .eyebrow {
     @apply font-mono text-xs uppercase tracking-widest text-brand;
+  }
+  /* …and as a card title it always gets the same bottom margin — baked in so
+     call sites stay a bare `eyebrow` (same precedent as .spec > dt). */
+  .card > .eyebrow {
+    @apply mb-3;
   }
   /* Text input + primary button, shared by the lookup and CIDR forms. */
   .field {
@@ -67,7 +86,7 @@
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
   }
-  /* Inline error alert (lookup error, invalid CIDR); add a layout util inline. */
+  /* Inline error alert; add a layout util inline. */
   .alert-error {
     @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger;
   }
@@ -75,5 +94,20 @@
      inline where needed, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */
   .spec {
     @apply grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm;
+  }
+  /* Every <dt> in a spec list is a faint label — baked in so rows stay bare <dt>. */
+  .spec > dt {
+    @apply text-faint;
+  }
+
+  /* Page scaffolding shared by every page: centred column, capped width,
+     vertical rhythm. The apex narrows it inline (`page-main max-w-2xl`). */
+  .page-main {
+    @apply mx-auto w-full max-w-4xl px-6 py-12 flex-1;
+  }
+
+  /* Underlined brand link (apex contact rows, history IP links). */
+  .link-brand {
+    @apply border-b border-brand text-strong hover:text-brand;
   }
 }

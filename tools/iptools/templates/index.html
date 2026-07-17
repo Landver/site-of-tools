@@ -2,10 +2,10 @@
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
-<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
+<body>
   {{template "partials/header" .}}
 
-  <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
+  <main class="page-main">
     {{template "ip/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">IP Tools</h1>
     <p class="mt-2 text-sm text-muted">
@@ -26,7 +26,7 @@
     </form>
 
     <!-- Docs: the non-obvious part is the CLI/JSON interface (the cards are
-         self-labelling). Same <details> pattern as the inspector's disclosure. -->
+         self-labelling). Same <details> pattern as the other tools' docs blocks. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 space-y-3 text-muted">
@@ -51,12 +51,12 @@
       <!-- Your IPv6: detected client-side (only the browser can prove it has
            working IPv6), then detailed from our own lookup. Component below. -->
       <div x-data="ipv6probe" class="card">
-        <div class="eyebrow mb-3">your ipv6</div>
+        <div class="eyebrow">your ipv6</div>
         <p x-show="state === 'loading'" class="text-sm text-faint">Checking your connection…</p>
         <dl x-show="state === 'ok'" x-cloak class="spec">
-          <dt class="text-faint">Address</dt>  <dd class="font-mono break-all text-strong" x-text="ip"></dd>
-          <dt class="text-faint">Network</dt>  <dd x-text="net || '—'"></dd>
-          <dt class="text-faint">Location</dt> <dd x-text="loc || '—'"></dd>
+          <dt>Address</dt>  <dd class="font-mono break-all text-strong" x-text="ip"></dd>
+          <dt>Network</dt>  <dd x-text="net || '—'"></dd>
+          <dt>Location</dt> <dd x-text="loc || '—'"></dd>
         </dl>
         <p x-show="state === 'none'" x-cloak class="text-sm text-muted">
           No IPv6 detected. Your network appears to be IPv4-only.

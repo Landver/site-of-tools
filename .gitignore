@@ -6,6 +6,8 @@ tools/iptools/assets/
 
 # Claude Code worktree state (not part of the project)
 .claude/worktrees/
+# local git worktrees (agent/dev isolation, not part of the project)
+.worktrees/
 
 # build artifacts
 # (comments MUST be on their own line — gitignore has no inline comments)

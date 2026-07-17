@@ -2,10 +2,10 @@
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
-<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
+<body>
   {{template "partials/header" .}}
 
-  <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
+  <main class="page-main">
     {{template "ip/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">Lookup history</h1>
     <p class="mt-2 text-sm text-muted">
@@ -37,7 +37,7 @@
             {{range .Entries}}
             <tr class="border-b border-line/60">
               <td class="py-2 pr-4 font-mono">
-                <a href="/?ip={{.IP}}" class="border-b border-brand text-strong hover:text-brand">{{.IP}}</a>
+                <a href="/?ip={{.IP}}" class="link-brand">{{.IP}}</a>
               </td>
               <td class="py-2 pr-4 text-muted">{{with .City}}{{.}}, {{end}}{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</td>
               <td class="py-2 pr-4 text-muted">{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</td>

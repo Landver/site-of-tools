@@ -6,13 +6,13 @@
      visitor's HTTP version terminate upstream so they're omitted; Cookie and
      Authorization are never read. */}}
 {{define "partials/conn"}}
-<div class="eyebrow mb-3">your request</div>
+<div class="eyebrow">your request</div>
 <dl class="spec">
-  <dt class="text-faint">Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
-  <dt class="text-faint">Detected via</dt> <dd>{{.Via}}</dd>
-  <dt class="text-faint">Connection</dt>   <dd>{{.Scheme}}</dd>
-  <dt class="text-faint">Language</dt>     <dd>{{with .Language}}{{.}}{{else}}—{{end}}</dd>
-  <dt class="text-faint">Host</dt>         <dd class="break-all">{{.Host}}</dd>
-  <dt class="text-faint">Browser</dt>      <dd class="font-mono break-all text-strong">{{.Browser}}</dd>
+  <dt>Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
+  <dt>Detected via</dt> <dd>{{.Via}}</dd>
+  <dt>Connection</dt>   <dd>{{.Scheme}}</dd>
+  <dt>Language</dt>     <dd>{{with .Language}}{{.}}{{else}}—{{end}}</dd>
+  <dt>Host</dt>         <dd class="break-all">{{.Host}}</dd>
+  <dt>Browser</dt>      <dd class="font-mono break-all text-strong">{{.Browser}}</dd>
 </dl>
 {{end}}

@@ -2,10 +2,10 @@
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
-<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
+<body>
   {{template "partials/header" .}}
 
-  <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
+  <main class="page-main">
     <h1 class="text-2xl font-semibold text-strong">Bot check</h1>
     <p class="mt-2 text-sm text-muted">
       A live score of how much your browser looks like a human vs. an automated bot. We combine what your browser reports
@@ -68,7 +68,7 @@
     <!-- Results land here — the analyzing placeholder until the collector's POST returns. -->
     <div id="result" class="mt-6" aria-live="polite">
       <div class="card">
-        <div class="eyebrow mb-3">analyzing</div>
+        <div class="eyebrow">analyzing</div>
         <p class="text-sm text-faint">Reading your browser signals…</p>
       </div>
     </div>

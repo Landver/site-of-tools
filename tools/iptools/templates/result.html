@@ -8,30 +8,30 @@
        flow, and #result is display:contents, so these become flow items directly. */}}
   {{with .Result}}
   <div class="card">
-    <div class="eyebrow mb-3">{{if $.Self}}your location{{else}}location{{end}}</div>
+    <div class="eyebrow">{{if $.Self}}your location{{else}}location{{end}}</div>
     <dl class="spec">
-      <dt class="text-faint">Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
-      <dt class="text-faint">Region</dt>    <dd>{{.Region}}</dd>
-      <dt class="text-faint">City</dt>      <dd>{{.City}}</dd>
-      <dt class="text-faint">ZIP</dt>       <dd>{{.Zip}}</dd>
-      <dt class="text-faint">Timezone</dt>  <dd>{{.Timezone}}</dd>
-      <dt class="text-faint">Coords</dt>    <dd>{{.Latitude}}, {{.Longitude}}</dd>
-      <dt class="text-faint">ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
+      <dt>Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
+      <dt>Region</dt>    <dd>{{.Region}}</dd>
+      <dt>City</dt>      <dd>{{.City}}</dd>
+      <dt>ZIP</dt>       <dd>{{.Zip}}</dd>
+      <dt>Timezone</dt>  <dd>{{.Timezone}}</dd>
+      <dt>Coords</dt>    <dd>{{.Latitude}}, {{.Longitude}}</dd>
+      <dt>ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
     </dl>
   </div>
   {{with .Proxy}}
   <div class="card">
-    <div class="eyebrow mb-3">proxy / network</div>
+    <div class="eyebrow">proxy / network</div>
     <dl class="spec">
-      <dt class="text-faint">Proxy</dt>
+      <dt>Proxy</dt>
       <dd>{{if .IsProxy}}<span class="text-danger">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not in any known proxy or VPN list</span>{{end}}</dd>
-      {{if .UsageType}}<dt class="text-faint">Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
-      {{if .ISP}}<dt class="text-faint">ISP</dt>       <dd>{{.ISP}}</dd>{{end}}
-      {{if .Domain}}<dt class="text-faint">Domain</dt>    <dd>{{.Domain}}</dd>{{end}}
-      {{if .Provider}}<dt class="text-faint">Provider</dt>  <dd>{{.Provider}}</dd>{{end}}
-      {{if .Threat}}<dt class="text-faint">Threat</dt>    <dd class="text-danger">{{.Threat}}</dd>{{end}}
-      {{if .FraudScore}}<dt class="text-faint">Fraud</dt>     <dd>{{.FraudScore}}/99</dd>{{end}}
-      {{if .LastSeen}}<dt class="text-faint">Last seen</dt> <dd>{{.LastSeen}} days ago</dd>{{end}}
+      {{if .UsageType}}<dt>Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
+      {{if .ISP}}<dt>ISP</dt>       <dd>{{.ISP}}</dd>{{end}}
+      {{if .Domain}}<dt>Domain</dt>    <dd>{{.Domain}}</dd>{{end}}
+      {{if .Provider}}<dt>Provider</dt>  <dd>{{.Provider}}</dd>{{end}}
+      {{if .Threat}}<dt>Threat</dt>    <dd class="text-danger">{{.Threat}}</dd>{{end}}
+      {{if .FraudScore}}<dt>Fraud</dt>     <dd>{{.FraudScore}}/99</dd>{{end}}
+      {{if .LastSeen}}<dt>Last seen</dt> <dd>{{.LastSeen}} days ago</dd>{{end}}
     </dl>
   </div>
   {{end}}
