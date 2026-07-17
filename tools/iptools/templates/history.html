@@ -1,0 +1,56 @@
+{{define "ip/history"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body class="bg-canvas text-body min-h-screen flex flex-col antialiased">
+  {{template "partials/header" .}}
+
+  <main class="max-w-4xl mx-auto w-full px-6 py-12 flex-1">
+    {{template "ip/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Lookup history</h1>
+    <p class="mt-2 text-sm text-muted">
+      The most recent IP lookups run from this page. Click any address to run it again.
+    </p>
+
+    {{if .Error}}
+      <div class="alert-error mt-6">{{.Error}}</div>
+    {{else if not .Enabled}}
+      <div class="card mt-6 text-sm text-muted">
+        History is off. No storage is configured for this tool right now.
+      </div>
+    {{else if not .Entries}}
+      <div class="card mt-6 text-sm text-muted">
+        No lookups recorded yet. Look one up and it will show here.
+      </div>
+    {{else}}
+      <div class="mt-6 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-faint border-b border-line">
+              <th class="py-2 pr-4 font-medium">IP</th>
+              <th class="py-2 pr-4 font-medium">Location</th>
+              <th class="py-2 pr-4 font-medium">Network</th>
+              <th class="py-2 font-medium whitespace-nowrap">When (UTC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Entries}}
+            <tr class="border-b border-line/60">
+              <td class="py-2 pr-4 font-mono">
+                <a href="/?ip={{.IP}}" class="border-b border-brand text-strong hover:text-brand">{{.IP}}</a>
+              </td>
+              <td class="py-2 pr-4 text-muted">{{with .City}}{{.}}, {{end}}{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</td>
+              <td class="py-2 pr-4 text-muted">{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</td>
+              <td class="py-2 text-faint whitespace-nowrap">{{.CreatedAt.UTC.Format "2006-01-02 15:04"}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    {{end}}
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

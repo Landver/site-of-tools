@@ -28,8 +28,8 @@ type Config struct {
 	// (platform.OpenMongo returns ErrMongoUnavailable and callers degrade, exactly
 	// like the missing-BIN path). MongoDatabase is the app database name on the
 	// shared server; it defaults to platform.DefaultMongoDatabase ("site-of-tools").
-	// No feature uses Mongo yet — the connection is wired in config so a future
-	// storage layer can sit below the domain services (ARCHITECTURE §10).
+	// Used by the IP-tool lookup history and the request-log corpus; an empty
+	// MongoURI disables both (they no-op) so the app still boots (ARCHITECTURE §10).
 	MongoURI      string
 	MongoDatabase string
 }

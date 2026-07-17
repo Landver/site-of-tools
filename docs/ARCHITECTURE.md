@@ -247,7 +247,8 @@ config lives in `platform/config.go` and the client in `platform/mongo.go`
 (`platform.OpenMongo` → a nil-safe `*Mongo` wrapper). It is **optional and
 degrades gracefully**: an empty `MONGODB_URI` yields `ErrMongoUnavailable`, exactly
 the "missing data is non-fatal" contract `iptools.OpenService` uses for absent
-BINs. No feature uses Mongo yet (§10).
+BINs. Its first users are the IP-tool lookup history and the engine-level request
+log (§10).
 
 ---
 
@@ -337,14 +338,16 @@ one thing nothing imports. Nothing is a single-file folder for its own sake.
 
 ## 10. Out of scope now (deliberately deferred)
 
-- **Persistence / MongoDB** — the connection is now wired: a shared server
-  (`localhost`), the `site-of-tools` database, a `platform/mongo.go`
-  client, and `MONGODB_URI` config (§6). **No feature uses it yet**, so the app is
-  still stateless in practice. When a feature needs storage (e.g. botcheck
-  crowd/rarity scoring, request velocity, visitor history, or IP-tool rate
-  limiting), add its repository *below* the domain service (rule #5) and take the
-  `*mongo.Database` from the shared client — the plumbing already exists. Run
-  `make mongo-init` once to materialize the database (Mongo creates it lazily).
+- **Persistence / MongoDB** — wired and now in use by its first two features: the
+  IP tool's **lookup history** (`tools/iptools/history.go`, a repository below the
+  domain per rule #5) and the engine-level **request log** (`platform/requestlog.go`,
+  a shared async writer fed by the request-logger middleware). Both take the
+  `*mongo.Database` from the shared client (`platform.OpenMongo`, opened once in
+  `main.go`) and self-prune via `platform.EnsureTTLIndex`; both degrade to no-ops
+  when `MONGODB_URI` is empty, so the app still boots stateless. Further storage
+  features (e.g. botcheck crowd/rarity scoring, request velocity, IP-tool rate
+  limiting) follow the same shape. Mongo creates collections lazily on first write;
+  `make mongo-init` just materializes the database up front.
 - **Huma / OpenAPI** — later, only if a formal public API is wanted (§4).
 - **CI/CD** — now implemented (was deferred): GitHub Actions (`.github/workflows/ci.yml`)
   runs vet + build + test on every push/PR to `master` and auto-deploys to the prod

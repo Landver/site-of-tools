@@ -17,7 +17,7 @@ import (
 // regression that dropped the CF branch, inverted precedence, or trusted an
 // X-Forwarded-For from an untrusted peer would otherwise pass the whole suite.
 func TestRealIPExtraction(t *testing.T) {
-	app := platform.NewApp(nil, fstest.MapFS{}, false)
+	app := platform.NewApp(nil, fstest.MapFS{}, false, nil) // nil RequestLog: persistence off
 	app.GET("/ip", func(c *echo.Context) error { return c.String(http.StatusOK, c.RealIP()) })
 
 	// httptest's default RemoteAddr (192.0.2.1, TEST-NET-1) is neither loopback nor

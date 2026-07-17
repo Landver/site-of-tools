@@ -20,18 +20,22 @@ type Looker interface {
 
 // handler holds the transport-layer dependencies for the ip.corpberry.com routes.
 type handler struct {
-	svc Looker
+	svc  Looker
+	hist *History // nil when Mongo is disabled — Record/Recent are nil-safe
 }
 
 // Register wires the ip.corpberry.com routes onto e. Lookups are query-param only
-// (?ip=…), consistent with /cidr?cidr=… — there is no /:ip pretty route.
+// (?ip=…), consistent with /cidr?cidr=… — there is no /:ip pretty route. hist may
+// be nil (Mongo off): the /history view is then simply empty.
 //
-//	GET /        an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
-//	GET /cidr    subnet / CIDR calculator (?cidr=…)
-func Register(e *echo.Echo, svc Looker) {
-	h := &handler{svc: svc}
+//	GET /         an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
+//	GET /cidr     subnet / CIDR calculator (?cidr=…)
+//	GET /history  the most recent user-initiated lookups
+func Register(e *echo.Echo, svc Looker, hist *History) {
+	h := &handler{svc: svc, hist: hist}
 	e.GET("/", h.index)
 	e.GET("/cidr", h.cidr)
+	e.GET("/history", h.history)
 }
 
 // index serves the visitor's own IP by default, or ?ip= to look one up. A bare hit
@@ -81,10 +85,47 @@ func (h *handler) cidr(c *echo.Context) error {
 	return c.Render(code, "ip/cidr", vm)
 }
 
+// history lists the most recent user-initiated lookups. Content-negotiated like
+// the rest of the tool: JSON for API/CLI, the page for browsers. When Mongo is
+// disabled the repo is nil and this simply shows an empty history. The HTML view
+// carries the IP2Location credit (it displays geo/ASN data from the databases).
+func (h *handler) history(c *echo.Context) error {
+	const limit = 50
+	entries, err := h.hist.Recent(c.Request().Context(), limit)
+
+	if platform.WantsJSON(c) {
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		if entries == nil {
+			entries = []HistoryEntry{} // render [] not null
+		}
+		return c.JSON(http.StatusOK, map[string]any{"lookups": entries})
+	}
+
+	vm := map[string]any{
+		"Title": "Lookup history", "Active": "history",
+		"Entries": entries, "Enabled": h.hist != nil, "Attribution": true,
+	}
+	if err != nil {
+		vm["Error"] = err.Error()
+	}
+	return c.Render(http.StatusOK, "ip/history", vm)
+}
+
 // show looks up ip and responds in the caller's preferred format. self marks the
 // result as the visitor's own IP (for a small label in the HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.svc.Lookup(ip)
+
+	// Record real, user-initiated web lookups for the /history view: successful,
+	// not the visitor's own auto-looked-up IP (self), and from the browser UI
+	// rather than a JSON caller — which also excludes the page's own IPv6 self-probe
+	// (it requests JSON) and CLI calls. Record is fire-and-forget and nil-safe, so
+	// it adds no latency and no-ops when Mongo is off.
+	if err == nil && !self && !platform.WantsJSON(c) {
+		h.hist.Record(res)
+	}
 
 	// API / CLI: raw JSON — the geolocation result, or an error.
 	if platform.WantsJSON(c) {

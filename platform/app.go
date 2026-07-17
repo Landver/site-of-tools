@@ -11,21 +11,24 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 )
 
 // NewApp builds a fresh *echo.Echo with the shared setup every subdomain uses:
-// renderer, middleware, Cloudflare-aware IP extraction, and static serving.
-func NewApp(r *Renderer, staticFS fs.FS, dev bool) *echo.Echo {
+// renderer, middleware, Cloudflare-aware IP extraction, and static serving. reqlog
+// is the shared request-log corpus (one store across all subdomains); pass nil to
+// disable persistence — the middleware then only logs to slog, as before.
+func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Echo {
 	e := echo.New()
 	e.Renderer = r
 	// Feeds c.RealIP(), so RequestLogger records the real client IP, not nginx's.
 	e.IPExtractor = cfIPExtractor()
 
 	e.Use(middleware.Recover())
-	e.Use(requestLogger())
+	e.Use(requestLogger(reqlog))
 	e.Use(middleware.Gzip())
 
 	if dev {
@@ -84,10 +87,13 @@ func cfIPExtractor() echo.IPExtractor {
 }
 
 // requestLogger is the built-in v5 RequestLogger trimmed to the fields we care
-// about: it drops user_agent and request_id and puts status before uri. slog
-// still prepends time/level/msg. One attribute list serves both the success and
-// error cases (error appends its own field).
-func requestLogger() echo.MiddlewareFunc {
+// about: the slog line drops user_agent and request_id and puts status before uri
+// (slog still prepends time/level/msg). One attribute list serves both the success
+// and error cases (error appends its own field). When reqlog is non-nil it also
+// persists each request (minus static assets) to the Mongo corpus — reusing the
+// values this middleware already captures rather than adding a second pass; the
+// corpus does keep user_agent even though the slog line omits it.
+func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 	return middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogLatency:       true,
 		LogRemoteIP:      true,
@@ -115,6 +121,22 @@ func requestLogger() echo.MiddlewareFunc {
 				attrs = append(attrs, slog.String("error", v.Error.Error()))
 			}
 			c.Logger().LogAttrs(context.Background(), level, msg, attrs...)
+
+			// Persist to the corpus off the request path (Record is non-blocking and
+			// nil-safe). Skip static assets — high volume, no analytic value.
+			if ShouldRecord(c.Request().URL.Path) {
+				reqlog.Record(RequestEntry{
+					Method:    v.Method,
+					Host:      v.Host,
+					URI:       v.URI,
+					Status:    v.Status,
+					RemoteIP:  v.RemoteIP,
+					UserAgent: c.Request().UserAgent(),
+					LatencyMS: v.Latency.Milliseconds(),
+					BytesOut:  v.ResponseSize,
+					CreatedAt: time.Now(),
+				})
+			}
 			return nil
 		},
 	})

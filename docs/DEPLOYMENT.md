@@ -194,8 +194,9 @@ dedicated `site-of-tools` database. Unlike the IP2Location BINs (§6), this is a
   works from dev and prod.
 - **Optional + fail-fast.** An empty `MONGODB_URI` disables Mongo cleanly
   (`ErrMongoUnavailable`); a set-but-unreachable server fails fast at open time
-  (10s server-selection timeout) rather than hanging. **No feature uses Mongo yet**,
-  so this is plumbing only today.
+  (10s server-selection timeout) rather than hanging. Two features use it now —
+  IP-tool lookup history and the request log — and both degrade to no-ops when it's
+  disabled, so the app still boots without a database.
 - **Provisioning.** Mongo creates a database on first write, so `site-of-tools`
   only "exists" once something writes to it. Run `make mongo-init` once from a host
   that can reach the server to create it explicitly (it adds an empty `_meta`

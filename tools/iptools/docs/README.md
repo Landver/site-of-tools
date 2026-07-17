@@ -1,11 +1,14 @@
 # IP tools (`ip.corpberry.com`)
 
-A small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Two pages
+A small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Three pages
 today, switched by a sub-nav:
 
 - **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; a bare visit also
   inspects *your own* connection (see [Endpoints](#endpoints)).
 - **Subnet calculator** (`/cidr`) — pure CIDR math, no databases.
+- **Lookup history** (`/history`) — the most recent user-run lookups, backed by
+  MongoDB (see [Lookup history](#lookup-history)); degrades to an empty page when
+  Mongo is off.
 
 This is the tool's design + reference doc. The tool is a straight application of
 the layered request pattern in
@@ -105,6 +108,7 @@ only** (`?ip=…`), consistent with `/cidr?cidr=…` — there is no `/:ip` pret
 | `GET /?ip=…` (htmx) | HTML **fragment**, the result card only (`hx-target="#result"`) |
 | `GET /` or `GET /?ip=…` (JSON) | Geolocation + ASN + proxy for that IP |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
+| `GET /history` | The most recent user-run lookups (HTML page, or `{"lookups":[…]}` JSON) |
 
 So this just works:
 ```
@@ -131,13 +135,41 @@ DNS-only in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
 working IPv6 path (by fetching an IPv6-only host), so it isn't in the JSON — by
 nature, not omission.
 
+## Lookup history
+
+`GET /history` lists the most recent lookups run from the tool. It is the first
+MongoDB-backed feature here, and a straight application of rule #5: persistence
+lives *below* the domain in a repository (`history.go`, the `History` type), not in
+the handler.
+
+- **Storage.** One document per lookup in the `ip_lookups` collection: the queried
+  IP, its country/city/ASN, and `created_at`. A TTL index (via
+  `platform.EnsureTTLIndex`, 90 days) self-prunes, so it never grows unbounded and
+  the same index serves the newest-first sort — no second index.
+- **What gets recorded.** Only *user-initiated web* lookups: a successful, explicit
+  `?ip=` query from the browser UI. That deliberately excludes the visitor's own
+  auto-lookup (the bare `/` visit and the IPv6 self-probe, which requests JSON) and
+  CLI/JSON callers — so `/history` shows what people chose to look up, not everyone's
+  own address.
+- **Off the request path.** `Record` writes in a background goroutine, so recording
+  never adds latency to (or can fail) the lookup the visitor is waiting on.
+- **Degrades to nothing.** With Mongo disabled the repository is `nil`; `/history`
+  renders an empty "history is off" state and JSON returns `{"lookups":[]}` — the
+  same nil-safe contract as an absent geo database.
+- **Replay.** Each row's IP links back to `/?ip=…`, so a past lookup re-runs in one
+  click.
+
+The engine-level **request log** (`platform.RequestLog`, `platform/requestlog.go`)
+is a separate, cross-cutting corpus of *every* request (all subdomains); it is not
+part of this tool. See [ARCHITECTURE §10](../../../docs/ARCHITECTURE.md#10-out-of-scope-now-deliberately-deferred).
+
 ## Abuse protection
 
 None in v1. Rate limiting is deferred with the other stateful concerns: **MongoDB
-is now available** (a shared client in `platform/`, unused by this tool so far), so
-it's a build-it call rather than a blocked one — it's a public endpoint, so
-revisit rate limiting when we wire storage below the domain service. The
-`IPExtractor` is already wired, so request logs show the real client IP.
+is now wired** (a shared client in `platform/`, now used by this tool for lookup
+history), so it's a build-it call rather than a blocked one — it's a public
+endpoint, so revisit rate limiting when it's worth it. The `IPExtractor` is already
+wired, so both the request logs and the request-log corpus show the real client IP.
 
 ## Attribution (required)
 
@@ -158,7 +190,7 @@ same acknowledgment wording, so one credit covers both.
 
 - Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
 - Map view of lat/lon; bulk lookup; ASN → prefix listing; range → minimal CIDRs.
-- With Mongo (now available, not yet used here): retain/replay lookups.
+- Rate limiting on the public endpoint, now that storage is wired.
 
-*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector, and the
-subnet/CIDR calculator.)*
+*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector, the
+subnet/CIDR calculator, and Mongo-backed lookup history.)*

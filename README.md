@@ -10,9 +10,10 @@ tool; each tool that grows big enough gets its own subdomain.
 ## Stack
 
 Go 1.26 · Echo v5 · `html/template` · htmx · Alpine.js · Tailwind (standalone
-CLI, no npm) · MongoDB (client wired in `platform/`, not yet used by any feature)
-· Docker (distroless). Server-rendered HTML with htmx for the interactive bits;
-every endpoint also returns JSON for CLI/API callers.
+CLI, no npm) · MongoDB (IP-tool lookup history + request-log corpus; optional —
+empty `MONGODB_URI` disables it and the app runs stateless) · Docker (distroless).
+Server-rendered HTML with htmx for the interactive bits; every endpoint also
+returns JSON for CLI/API callers.
 
 ## Quick start (dev)
 

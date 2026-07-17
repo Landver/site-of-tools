@@ -9,6 +9,7 @@ import (
 	"log"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -21,6 +22,29 @@ import (
 
 func main() {
 	cfg := platform.Load()
+
+	// Open the shared MongoDB client once at startup and share it across features.
+	// A disabled (empty MONGODB_URI) or unreachable server is non-fatal — Mongo is
+	// nil, every repository built from it no-ops, and the app runs stateless,
+	// exactly the missing-BIN contract the IP tool uses. Feature repos take their
+	// *mongo.Database from mdb.DB() (nil-safe).
+	mongoCtx, cancelMongo := context.WithTimeout(context.Background(), 12*time.Second)
+	mdb, mErr := platform.OpenMongo(mongoCtx, cfg.MongoURI, cfg.MongoDatabase)
+	cancelMongo()
+	if mErr != nil {
+		log.Printf("mongo: disabled (%v); lookup history + request log will no-op", mErr)
+	}
+	// Close on shutdown. LIFO: reqlog drains (below) before the client closes.
+	defer mdb.Close(context.Background())
+
+	// Mongo-backed features. Index creation is bounded and best-effort; a nil db
+	// yields nil stores (disabled). The request log is engine-level and shared by
+	// every subdomain; lookup history belongs to the IP tool.
+	idxCtx, cancelIdx := context.WithTimeout(context.Background(), 10*time.Second)
+	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
+	lookupHistory := iptools.NewHistory(idxCtx, mdb.DB())
+	cancelIdx()
+	defer reqlog.Close(context.Background())
 
 	// Template funcs available to every template: the shared header uses these for
 	// the logo link (always the apex) and the Tools dropdown. Tools come from one
@@ -51,7 +75,7 @@ func main() {
 	)
 
 	// apex: corpberry.com
-	apex := platform.NewApp(renderer, staticFS, cfg.IsDev())
+	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	site.Register(apex, cfg)
 
 	// ip.corpberry.com — missing databases are non-fatal; the tool reports it.
@@ -59,12 +83,12 @@ func main() {
 	if err != nil {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
-	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev())
-	iptools.Register(ipApp, geo)
+	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+	iptools.Register(ipApp, geo, lookupHistory)
 
 	// botcheck.corpberry.com — reuses the same IP service for its server-side
 	// reputation signals (nil geo degrades gracefully, exactly like the IP tool).
-	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev())
+	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	botcheck.Register(botApp, geo)
 
 	hosts := map[string]*echo.Echo{

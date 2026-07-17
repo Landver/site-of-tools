@@ -20,12 +20,16 @@ frontend stack. Favor the simple, idiomatic path and explain Go-specific choices
    `shared/static/js/`. CSS is built by the Tailwind **standalone binary**. If a
    task tempts you toward `npm`/`node_modules`, stop.
 4. **htmx only when plain HTML can't do it** (AJAX, partial swaps, WS).
-5. **Persistence lives below the domain.** MongoDB is now available — a shared
-   server (`localhost`), a dedicated `site-of-tools` database, and a
-   client in `platform/mongo.go` (`platform.OpenMongo`, `MONGODB_URI` config).
-   **No feature uses it yet**, and the app stays stateless until one does. When a
-   feature needs storage, put it *below* the domain service (a repository the
-   service calls), never in a handler. See ARCHITECTURE §10.
+5. **Persistence lives below the domain.** MongoDB is wired — a shared server
+   (`localhost`), the `site-of-tools` database, and a client in
+   `platform/mongo.go` (`platform.OpenMongo`, opened once in `main.go`,
+   `MONGODB_URI` config). Two features use it: the IP tool's **lookup history**
+   (`tools/iptools/history.go`) and the engine-level **request log**
+   (`platform/requestlog.go`). Both are nil-safe — an empty `MONGODB_URI` disables
+   Mongo and they no-op, so the app still boots stateless. New storage sits
+   *below* the domain service (a repository the service/handler calls), never the
+   driver in a handler; take the `*mongo.Database` from the shared client and
+   ensure a self-pruning index with `platform.EnsureTTLIndex`. See ARCHITECTURE §10.
 6. **Tests are required and enforced.** Each package's tests live in a
    `<pkg>/tests/` folder (black-box, exported API); run
    `go test ./... -race` (`make test`). The tracked `.githooks/pre-push` hook runs

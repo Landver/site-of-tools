@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
@@ -37,9 +38,9 @@ var ErrMongoUnavailable = errors.New("mongodb is not configured (MONGODB_URI is 
 //
 // This type deliberately owns only the connection, no business logic. Per
 // CLAUDE.md rule #5, a feature's persistence (repositories, queries, indexes)
-// lives *below* its domain service, taking the *mongo.Database from DB(). No
-// feature uses Mongo yet; this is the plumbing that lets one land later without
-// reshaping the app.
+// lives *below* its domain service, taking the *mongo.Database from DB() — see
+// iptools.History (lookup history) and RequestLog (the request corpus), the first
+// two consumers.
 type Mongo struct {
 	Client *mongo.Client // the raw driver client (transactions, admin commands, …)
 	db     *mongo.Database
@@ -123,4 +124,20 @@ func (m *Mongo) EnsureDatabase(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// EnsureTTLIndex idempotently creates an ascending index on field that also
+// expires each document ttl after its field value. It's the one bit of setup
+// every time-ordered collection here needs — a rolling corpus that self-prunes —
+// so features (the request log, iptools history) share this helper instead of
+// repeating the options dance. The same ascending index also serves a *descending*
+// sort on field (Mongo scans it in reverse), so a "most recent N" query needs no
+// second index. Re-creating an identical index is a no-op, so callers can run this
+// on every startup.
+func EnsureTTLIndex(ctx context.Context, coll *mongo.Collection, field string, ttl time.Duration) error {
+	_, err := coll.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: field, Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(int32(ttl.Seconds())),
+	})
+	return err
 }

@@ -34,7 +34,7 @@ func newTestApp(svc iptools.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc)
+	iptools.Register(e, svc, nil) // nil History: persistence off in handler tests
 	return e
 }
 
