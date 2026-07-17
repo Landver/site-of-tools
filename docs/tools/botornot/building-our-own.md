@@ -1,4 +1,4 @@
-# Building our own "bot-or-not" service (`botcheck.corpberry.com`)
+# Building Bot check (`botcheck.corpberry.com`), our own bot detector
 
 A concrete design for a new tool subdomain that scores a visitor's browser as
 **human / suspicious / bot** and shows a per-signal breakdown — the same core job

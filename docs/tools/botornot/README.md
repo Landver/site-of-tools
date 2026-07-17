@@ -28,18 +28,18 @@ in what they catch is itself instructive.
 
 | Service | Category | Registration | Gives a score? (type) | Client / Server / Both | Flagged our test browser as a bot? | Report |
 |---|---|---|---|---|---|---|
-| deviceandbrowserinfo | Bot detector (researcher, A. Vastel) | No | Boolean `isBot` + per-signal booleans (no number) | Both (collect client, verdict server) | **Yes** — via `isAutomatedWithCDP` alone | [deviceandbrowserinfo.md](deviceandbrowserinfo.md) |
-| incolumitas | Bot detector (independent researcher testbed) | No | Behavioral `0–1` float + per-test OK/FAIL (no single number) | Both (hybrid) | **Partial** — no single verdict, but WEBDRIVER / HEADCHR_IFRAME / service-worker checks failed and IP unmasked as VPN/datacenter | [incolumitas.md](incolumitas.md) |
-| sannysoft | Bot leak-checklist (open-source aggregation) | No | No score — per-test pass/fail table | Client only | **No aggregate verdict**; one red row (HEADCHR_IFRAME) | [sannysoft.md](sannysoft.md) |
-| creepjs | Fingerprint / tamper-detection research (open-source) | No | Trust/crowd-blending % + LIES count + headless % (no bot verdict) | Client (server crowd-blending is design-inferred) | **No hard verdict** — but caught UA spoof + timezone inconsistency + WebRTC IP leak | [creepjs.md](creepjs.md) |
-| fingerprint | Device-intelligence / anti-bot vendor (commercial) | No (playground) | **Yes** — numeric Suspect Score + categorical Bot field | Both (decision server-side) | **No** (Bot = Not detected) — but flagged VPN, datacenter IP, Dev Tools, incognito; Suspect Score 33 | [fingerprint.md](fingerprint.md) |
-| browserscan | Fingerprint + bot checker (commercial, anti-detect) | No | Categorical bot verdict (`/bot-detection`) + numeric Trust Score % (home) | Both (bot verdict client; trust score + TLS/HTTP2/IP server) | **No** — "Normal" (missed the CDP automation) | [browserscan.md](browserscan.md) |
-| pixelscan | Fingerprint multichecker (commercial, anti-detect) | No | Consistency verdict + per-module pass/warn/fail; binary human/bot on `/bot-check` | Both (hybrid) | **No verdict obtained** — report never rendered in our browser (itself a weak signal) | [pixelscan.md](pixelscan.md) |
-| iphey | Fingerprint / anonymity checker (commercial, MixVisit demo) | No | Categorical trust label + 5 per-group statuses (no number) | Both (mostly client; thin proprietary verdict) | **No** — "Trust Good" (Trustworthy) | [iphey.md](iphey.md) |
-| whoer | Anonymity / "disguise" checker (commercial, VPN funnel) | No (basic/extended) | "Disguise" % `0–100` (inverted: high = clean) + insecurity bar | Both (hybrid) | **No** — 100% disguise; did not even detect Electron | [whoer.md](whoer.md) |
-| amiunique | Uniqueness research (academic, Inria/CNRS) — *not a detector* | No | No bot score — per-attribute similarity ratio + uniqueness verdict | Both (collection only; no decision layer) | **N/A** — no bot verdict by design | [amiunique.md](amiunique.md) |
-| coveryourtracks | Uniqueness / tracker-blocking (EFF) — *not a detector* | No | No bot score — entropy in bits + tracker-protection verdict | Both (uniqueness scored server-side) | **N/A** — no bot verdict; results flow did not render | [coveryourtracks.md](coveryourtracks.md) |
-| datadome | Enterprise edge anti-bot (commercial) | Yes (Vulnerability Scan); Device Check has no page | **Yes** — real-time per-request trust score → allow / block / challenge (never exposed to client) | Both (decision server-side, edge-first) | **Not testable firsthand** (no public scorer) — inferred it would very likely block or challenge | [datadome.md](datadome.md) |
+| deviceandbrowserinfo | Bot detector (researcher, A. Vastel) | No | Boolean `isBot` + per-signal booleans (no number) | Both (collect client, verdict server) | **Yes** — via `isAutomatedWithCDP` alone | [deviceandbrowserinfo.md](reports/deviceandbrowserinfo.md) |
+| incolumitas | Bot detector (independent researcher testbed) | No | Behavioral `0–1` float + per-test OK/FAIL (no single number) | Both (hybrid) | **Partial** — no single verdict, but WEBDRIVER / HEADCHR_IFRAME / service-worker checks failed and IP unmasked as VPN/datacenter | [incolumitas.md](reports/incolumitas.md) |
+| sannysoft | Bot leak-checklist (open-source aggregation) | No | No score — per-test pass/fail table | Client only | **No aggregate verdict**; one red row (HEADCHR_IFRAME) | [sannysoft.md](reports/sannysoft.md) |
+| creepjs | Fingerprint / tamper-detection research (open-source) | No | Trust/crowd-blending % + LIES count + headless % (no bot verdict) | Client (server crowd-blending is design-inferred) | **No hard verdict** — but caught UA spoof + timezone inconsistency + WebRTC IP leak | [creepjs.md](reports/creepjs.md) |
+| fingerprint | Device-intelligence / anti-bot vendor (commercial) | No (playground) | **Yes** — numeric Suspect Score + categorical Bot field | Both (decision server-side) | **No** (Bot = Not detected) — but flagged VPN, datacenter IP, Dev Tools, incognito; Suspect Score 33 | [fingerprint.md](reports/fingerprint.md) |
+| browserscan | Fingerprint + bot checker (commercial, anti-detect) | No | Categorical bot verdict (`/bot-detection`) + numeric Trust Score % (home) | Both (bot verdict client; trust score + TLS/HTTP2/IP server) | **No** — "Normal" (missed the CDP automation) | [browserscan.md](reports/browserscan.md) |
+| pixelscan | Fingerprint multichecker (commercial, anti-detect) | No | Consistency verdict + per-module pass/warn/fail; binary human/bot on `/bot-check` | Both (hybrid) | **No verdict obtained** — report never rendered in our browser (itself a weak signal) | [pixelscan.md](reports/pixelscan.md) |
+| iphey | Fingerprint / anonymity checker (commercial, MixVisit demo) | No | Categorical trust label + 5 per-group statuses (no number) | Both (mostly client; thin proprietary verdict) | **No** — "Trust Good" (Trustworthy) | [iphey.md](reports/iphey.md) |
+| whoer | Anonymity / "disguise" checker (commercial, VPN funnel) | No (basic/extended) | "Disguise" % `0–100` (inverted: high = clean) + insecurity bar | Both (hybrid) | **No** — 100% disguise; did not even detect Electron | [whoer.md](reports/whoer.md) |
+| amiunique | Uniqueness research (academic, Inria/CNRS) — *not a detector* | No | No bot score — per-attribute similarity ratio + uniqueness verdict | Both (collection only; no decision layer) | **N/A** — no bot verdict by design | [amiunique.md](reports/amiunique.md) |
+| coveryourtracks | Uniqueness / tracker-blocking (EFF) — *not a detector* | No | No bot score — entropy in bits + tracker-protection verdict | Both (uniqueness scored server-side) | **N/A** — no bot verdict; results flow did not render | [coveryourtracks.md](reports/coveryourtracks.md) |
+| datadome | Enterprise edge anti-bot (commercial) | Yes (Vulnerability Scan); Device Check has no page | **Yes** — real-time per-request trust score → allow / block / challenge (never exposed to client) | Both (decision server-side, edge-first) | **Not testable firsthand** (no public scorer) — inferred it would very likely block or challenge | [datadome.md](reports/datadome.md) |
 
 ## How our test browser scored across all services
 
@@ -143,15 +143,15 @@ network facts the browser cannot forge.
 
 ## Reports
 
-- [deviceandbrowserinfo.md](deviceandbrowserinfo.md) — transparent bot verdict; the one that caught us (CDP)
-- [incolumitas.md](incolumitas.md) — the most comprehensive reference; hybrid client + server + behavioral
-- [sannysoft.md](sannysoft.md) — classic open-source leak checklist (Intoli + fp-scanner + fp-collect)
-- [creepjs.md](creepjs.md) — tamper/"lie" detection and cross-context recompute
-- [fingerprint.md](fingerprint.md) — commercial leader; Smart Signals + Suspect Score, server-side decision
-- [browserscan.md](browserscan.md) — anti-detect checker; categorical bot verdict + trust score + TLS/HTTP2
-- [pixelscan.md](pixelscan.md) — consistency/coherence cross-validation checker
-- [iphey.md](iphey.md) — MixVisit-powered consistency trust verdict
-- [whoer.md](whoer.md) — anonymity "disguise" score (inverted polarity)
-- [amiunique.md](amiunique.md) — academic uniqueness/entropy tool (not a detector)
-- [coveryourtracks.md](coveryourtracks.md) — EFF uniqueness + tracker-blocking (not a detector)
-- [datadome.md](datadome.md) — enterprise edge anti-bot; documented via research, not firsthand
+- [deviceandbrowserinfo.md](reports/deviceandbrowserinfo.md) — transparent bot verdict; the one that caught us (CDP)
+- [incolumitas.md](reports/incolumitas.md) — the most comprehensive reference; hybrid client + server + behavioral
+- [sannysoft.md](reports/sannysoft.md) — classic open-source leak checklist (Intoli + fp-scanner + fp-collect)
+- [creepjs.md](reports/creepjs.md) — tamper/"lie" detection and cross-context recompute
+- [fingerprint.md](reports/fingerprint.md) — commercial leader; Smart Signals + Suspect Score, server-side decision
+- [browserscan.md](reports/browserscan.md) — anti-detect checker; categorical bot verdict + trust score + TLS/HTTP2
+- [pixelscan.md](reports/pixelscan.md) — consistency/coherence cross-validation checker
+- [iphey.md](reports/iphey.md) — MixVisit-powered consistency trust verdict
+- [whoer.md](reports/whoer.md) — anonymity "disguise" score (inverted polarity)
+- [amiunique.md](reports/amiunique.md) — academic uniqueness/entropy tool (not a detector)
+- [coveryourtracks.md](reports/coveryourtracks.md) — EFF uniqueness + tracker-blocking (not a detector)
+- [datadome.md](reports/datadome.md) — enterprise edge anti-bot; documented via research, not firsthand

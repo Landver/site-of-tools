@@ -1,4 +1,4 @@
-# botcheck — next detection features, by complexity
+# Bot check — next detection features, by complexity
 
 A backlog of additional bot/not signals for `botcheck`, split into three effort
 layers. **Layer 1 (simple)** was implemented alongside this doc; Layers 2–3 are

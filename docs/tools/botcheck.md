@@ -1,6 +1,7 @@
 # Bot check (`botcheck.corpberry.com`)
 
-A live "bot or not" score for the visitor's browser. It fuses **client-side
+A live score of how much the visitor's browser looks like a human vs. an
+automated bot. It fuses **client-side
 signals** (collected by a vendored JS collector) with **server-observed signals**
 (HTTP headers + IP reputation) and cross-checks the two — the disagreements are
 what give automation away. Output is a 0–100 authenticity score, a verdict band
@@ -9,6 +10,11 @@ what give automation away. Output is a 0–100 authenticity score, a verdict ban
 This tool is the practical follow-up to the research in
 [botornot/](botornot/) (how the major public bot-detection services work) and its
 design doc [botornot/building-our-own.md](botornot/building-our-own.md).
+
+> **Naming:** the tool is **Bot check** (display name) / `botcheck` (the Go
+> package, routes, and the `botcheck.corpberry.com` subdomain). "Bot-or-not"
+> refers only to the competitor research in [botornot/](botornot/), never to this
+> tool.
 
 ## Package layout (`botcheck/`, mirrors `iptools/`)
 
