@@ -3,7 +3,7 @@
 .gitignore
 tmp
 bin
-iptools/assets
+tools/iptools/assets
 .env
 shared/tailwindcss
 docs
