@@ -33,10 +33,10 @@ the forward view — the current design lives in [`../botcheck.md`](README.md).
   `iphey`, `whoer`, `amiunique`, `coveryourtracks`, `datadome`) — see the
   [RESEARCH.md](RESEARCH.md) for the cross-service summary.
 - Our **shipped** implementation, read as ground truth (not the design doc):
-  [`botcheck/scoring.go`](scoring.go) (the 35 detection rules),
-  [`botcheck/botcheck.go`](botcheck.go) (the `Signals` struct +
-  scorer), [`botcheck/handler.go`](handler.go) (server signals),
-  and [`shared/static/js/botcheck.js`](../../shared/static/js/botcheck.js) (the
+  [`botcheck/scoring.go`](../scoring.go) (the 35 detection rules),
+  [`botcheck/botcheck.go`](../botcheck.go) (the `Signals` struct +
+  scorer), [`botcheck/handler.go`](../handler.go) (server signals),
+  and [`shared/static/js/botcheck.js`](../../../shared/static/js/botcheck.js) (the
   vendored collector).
 
 Each competitor capability was compared against that code, and **every claimed gap

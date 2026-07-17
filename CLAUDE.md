@@ -67,8 +67,9 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 - `site/` — the apex corpberry.com project (its own package, same embed reason).
 - `tools/<tool>/` — each tool subdomain, self-contained (e.g. `tools/iptools/`,
   `tools/botcheck/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
-  + a `tests/` sub-package + the tool's own docs (`README.md`, and for botcheck
-  `RESEARCH.md`/`ROADMAP.md`/`reports/`). Each is its own Go package (embed reason).
+  + a `tests/` sub-package + a `docs/` folder holding the tool's markdown
+  (`docs/README.md`, and for botcheck `docs/RESEARCH.md`/`ROADMAP.md`/`reports/`).
+  Each is its own Go package (embed reason); keep `.md` in `docs/`, not the code root.
 - Tests go in `<pkg>/tests/` (black-box). A white-box test that needs unexported
   symbols is the exception and sits beside the code as `*_test.go`.
 - Don't reintroduce `internal/` or `cmd/`, and don't split a tool's code from its

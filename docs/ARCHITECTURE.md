@@ -159,7 +159,7 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 
 Result: `curl 'https://ip.corpberry.com/?ip=8.8.8.8'` returns JSON automatically
 (curl sends `Accept: */*`, no `text/html`); a browser at the same URL gets the page.
-See [tools/iptools/](../tools/iptools/README.md).
+See [tools/iptools/](../tools/iptools/docs/README.md).
 
 > When a real, documented, versioned **public JSON API** is wanted later, add
 > **Huma** (`humaecho` adapter) on `/api/v1` of the relevant sub-app. It reuses
@@ -268,7 +268,7 @@ site-of-tools/
 ├── site/                     # apex corpberry.com project
 │   ├── site.go · embed.go
 │   └── templates/home.html
-├── tools/                    # self-contained tool subdomains — code AND docs co-located
+├── tools/                    # self-contained tool subdomains (code + a docs/ folder each)
 │   ├── iptools/              #   ip.corpberry.com — SELF-CONTAINED
 │   │   ├── geoip.go          #     geo/proxy domain (pure Go, no HTTP)
 │   │   ├── cidr.go           #     subnet-calculator domain
@@ -277,14 +277,15 @@ site-of-tools/
 │   │   ├── download-assets.sh#     fetch this tool's databases
 │   │   ├── templates/        #     index · result · cidr · nav
 │   │   ├── assets/           #     the .BIN databases (gitignored, bind-mounted)
-│   │   └── README.md         #     this tool's design + reference doc
+│   │   └── docs/README.md    #     this tool's design + reference doc
 │   └── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
 │       ├── botcheck.go · scoring.go · handler.go · embed.go · tests/
 │       ├── templates/        #     index · result
-│       ├── README.md         #     design + reference
-│       ├── RESEARCH.md       #     how the 12 competitor services work
-│       ├── ROADMAP.md        #     what to build next & why
-│       └── reports/          #     per-service research writeups
+│       └── docs/             #     all of this tool's markdown
+│           ├── README.md     #       design + reference
+│           ├── RESEARCH.md   #       how the 12 competitor services work
+│           ├── ROADMAP.md    #       what to build next & why
+│           └── reports/      #       per-service research writeups
 ├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
 ├── .githooks/pre-push        # test gate (enable: make hooks)
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile

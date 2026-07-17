@@ -10,7 +10,7 @@ a transparent per-signal breakdown.
 **The thesis:** client signals are all spoofable, so the detection power lives in
 the server cross-checking what the browser *claims* against what the connection
 *actually shows*. The tool reuses the entire server-observed IP layer from
-[`iptools`](../iptools/README.md) (IP2Proxy PX12 + IP2Location) for free, so it is
+[`iptools`](../../iptools/docs/README.md) (IP2Proxy PX12 + IP2Location) for free, so it is
 essentially "a JS collector + a deterministic server scorer."
 
 This doc is the tool's **design + reference**. Its two companions in this folder
@@ -60,7 +60,7 @@ facts, *map* the `*iptools.Result` into `Signals` fields, call `Evaluate`, then
 `platform.Respond`. Reusing `iptools.Looker` means the handler test injects a fake
 IP service (no 1.7 GB PX12 BIN in CI), and a nil service degrades gracefully
 exactly as it does for the IP tool. This is a straight application of
-[ARCHITECTURE.md §4](../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this).
+[ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this).
 
 ## Request flow
 
