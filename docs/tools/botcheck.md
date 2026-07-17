@@ -75,8 +75,13 @@ by tier (automation tells / consistency cross-checks / environment heuristics).
 
 ## Known gaps (documented, not bugs)
 
-TLS/JA3 + HTTP/2 fingerprinting (nginx terminates TLS upstream), behavioral
-biometrics, and crowd/rarity scoring are out of scope without the planned
-MongoDB / ML. See the design doc for the full rationale and future paths. The
-tool is a **self-test/inspection page, not an inline WAF** — it scores the
-current visitor and blocks nothing.
+TLS/JA3 + HTTP/2 fingerprinting (nginx terminates TLS upstream) and behavioral
+biometrics need infra/ML we don't have. Crowd/rarity scoring needs a persistence
+layer, and **MongoDB is now available** (a shared server, the `site-of-tools`
+database, and the `platform/mongo.go` client) — but botcheck **does not use it
+yet** and stays a pure, deterministic, in-request scorer. The DB-backed models
+(crowd/rarity, request velocity, returning-visitor history) can build on that
+client when we add them, sitting below the domain scorer per rule #5. See the
+design doc for the full rationale and future paths. The tool is a
+**self-test/inspection page, not an inline WAF** — it scores the current visitor
+and blocks nothing.

@@ -17,7 +17,7 @@ GOBIN := $(shell go env GOPATH 2>/dev/null)/bin
 INPUT_CSS  := shared/static/css/input.css
 OUTPUT_CSS := shared/static/css/styles.css
 
-.PHONY: help deps tools hooks assets css css-watch dev run build test docker
+.PHONY: help deps tools hooks assets mongo-init css css-watch dev run build test docker
 
 help:
 	@echo "Targets:"
@@ -25,6 +25,7 @@ help:
 	@echo "  tools      fetch Tailwind binary, install air, enable git hooks"
 	@echo "  hooks      enable the pre-push test gate (git core.hooksPath)"
 	@echo "  assets     download IP2Location LITE databases (needs token in .env)"
+	@echo "  mongo-init create the site-of-tools database on the Mongo server (needs MONGODB_URI)"
 	@echo "  css        build minified stylesheet"
 	@echo "  css-watch  rebuild stylesheet on change"
 	@echo "  dev        run with live reload (APP_ENV=dev)"
@@ -49,6 +50,13 @@ hooks:
 
 assets:
 	@bash iptools/download-assets.sh
+
+# One-off: materialize the site-of-tools database on the shared Mongo server.
+# Mongo creates databases lazily, so this makes it exist up front. Reads
+# MONGODB_URI from .env (included above); run from a host that can reach the
+# server. The app itself does not use Mongo yet — see docs/ARCHITECTURE.md §10.
+mongo-init:
+	go run mongoinit.go
 
 css: $(TAILWIND)
 	$(TAILWIND) -i $(INPUT_CSS) -o $(OUTPUT_CSS) --minify

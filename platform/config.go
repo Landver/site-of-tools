@@ -23,6 +23,15 @@ type Config struct {
 
 	// IP2Proxy PX12 (proxy/VPN/threat). Optional — empty disables the proxy section.
 	PX12 string
+
+	// MongoDB connection. Optional — an empty MongoURI disables Mongo entirely
+	// (platform.OpenMongo returns ErrMongoUnavailable and callers degrade, exactly
+	// like the missing-BIN path). MongoDatabase is the app database name on the
+	// shared server; it defaults to platform.DefaultMongoDatabase ("site-of-tools").
+	// No feature uses Mongo yet — the connection is wired in config so a future
+	// storage layer can sit below the domain services (ARCHITECTURE §10).
+	MongoURI      string
+	MongoDatabase string
 }
 
 // Load reads config from the environment (after loading .env if present).
@@ -37,6 +46,9 @@ func Load() Config {
 		ASNV4:      os.Getenv("IP2LOCATION_ASN_V4"),
 		ASNV6:      os.Getenv("IP2LOCATION_ASN_V6"),
 		PX12:       os.Getenv("IP2PROXY_PX12"),
+		MongoURI:   os.Getenv("MONGODB_URI"),
+		// Default the app database name so only MONGODB_URI is mandatory to enable Mongo.
+		MongoDatabase: getenv("MONGODB_DATABASE", DefaultMongoDatabase),
 	}
 }
 

@@ -134,8 +134,10 @@ nature, not omission.
 
 ## Abuse protection
 
-None in v1 — deferred with the other stateful concerns until MongoDB lands (a
-deliberate call; it's a public endpoint, so revisit rate limiting then). The
+None in v1. Rate limiting is deferred with the other stateful concerns: **MongoDB
+is now available** (a shared client in `platform/`, unused by this tool so far), so
+it's a build-it call rather than a blocked one — it's a public endpoint, so
+revisit rate limiting when we wire storage below the domain service. The
 `IPExtractor` is already wired, so request logs show the real client IP.
 
 ---
@@ -161,7 +163,7 @@ carries the same acknowledgment wording, so one credit covers both.
 
 - Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
 - Map view of lat/lon; bulk lookup; ASN → prefix listing; range → minimal CIDRs.
-- When Mongo lands: retain/replay lookups.
+- With Mongo (now available, not yet used here): retain/replay lookups.
 
 *(Done since v1: proxy/VPN detection, IPv6 check, connection inspector, and the
 subnet/CIDR calculator.)*

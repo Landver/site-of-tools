@@ -10,8 +10,9 @@ tool; each tool that grows big enough gets its own subdomain.
 ## Stack
 
 Go 1.26 · Echo v5 · `html/template` · htmx · Alpine.js · Tailwind (standalone
-CLI, no npm) · Docker (distroless). Server-rendered HTML with htmx for the
-interactive bits; every endpoint also returns JSON for CLI/API callers.
+CLI, no npm) · MongoDB (client wired in `platform/`, not yet used by any feature)
+· Docker (distroless). Server-rendered HTML with htmx for the interactive bits;
+every endpoint also returns JSON for CLI/API callers.
 
 ## Quick start (dev)
 
@@ -25,7 +26,7 @@ Then:
 git clone git@github.com:Landver/site-of-tools.git
 cd site-of-tools
 
-cp .env.example .env      # fill in IP2LOCATION_DOWNLOAD_TOKEN if you'll run `make assets`
+cp .env.example .env      # set IP2LOCATION_DOWNLOAD_TOKEN (for `make assets`); MONGODB_URI is optional (empty disables Mongo)
 make deps                 # go mod tidy (writes go.sum)
 make tools                # Tailwind binary + air + enable git hooks
 make assets               # download the IP2Location LITE .BIN databases
@@ -73,7 +74,7 @@ nginx blocks live in [deploy/nginx/](deploy/nginx/); full steps in
 
 ```
 main.go            entrypoint (single binary)
-platform/          shared engine: config · app factory · renderer + negotiation
+platform/          shared engine: config · app factory · renderer + negotiation · mongo client
 shared/            shared front-end: base partials + htmx/alpine/tailwind css
 site/              apex project (corpberry.com)
 iptools/           the IP tools: code · templates · assets (.BIN) · download script

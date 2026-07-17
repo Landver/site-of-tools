@@ -32,12 +32,14 @@ and 15 are already acknowledged in our design docs as **Deferred**.
 
 Each row carries **`Sev · Effort · Status`**:
 
-- **Sev** (severity) = value **to our tool specifically** — a stateless, no-ML,
-  no-DB self-test page on a personal portfolio, *not* an enterprise WAF. A cheap
+- **Sev** (severity) = value **to our tool specifically** — a stateless, no-ML
+  self-test page on a personal portfolio (MongoDB is now available but botcheck
+  doesn't use it yet), *not* an enterprise WAF. A cheap
   client signal we simply forgot rates higher than DataDome-scale behavioral ML,
   which is near-worthless at our scale.
 - **Effort** = `trivial` → `low` → `medium` → `high-infra` (needs edge/TLS/packet
-  access) → `ml-or-db` (needs the planned MongoDB or a trained model).
+  access) → `ml-or-db` (needs persistence in MongoDB — now available but unused by
+  botcheck — or a trained model).
 - **Status** = **Not built** (true blind spot) · **Partial** (we do a weaker
   version) · **Deferred (documented)** (already an acknowledged gap in our docs).
 
@@ -56,13 +58,15 @@ three clean buckets:
    feature-detection, GPU-vs-OS coherence. These are pure deterministic Go/JS
    rules that fit the existing scorer with no new infra.
 
-2. **Structural blind spots needing infra/DB/ML we deliberately lack.** The
-   network layer (TLS **JA3/JA4**, HTTP/2 frames, TCP SYN, header order), crowd
-   **rarity/entropy**, persistent **identity**, **behavioral** biometrics, and an
-   **ML** risk model. Most are already documented as deferred. The network-layer
-   ones are genuinely out of reach while nginx/Cloudflare terminate TLS in front of
-   Go; the rest wait on the planned MongoDB or conflict with the stateless/no-ML
-   rules. These are correctly parked, not oversights.
+2. **Structural blind spots needing infra, ML, or persistence botcheck doesn't
+   use yet.** The network layer (TLS **JA3/JA4**, HTTP/2 frames, TCP SYN, header
+   order), crowd **rarity/entropy**, persistent **identity**, **behavioral**
+   biometrics, and an **ML** risk model. Most are already documented as deferred.
+   The network-layer ones are genuinely out of reach while nginx/Cloudflare
+   terminate TLS in front of Go. The DB-backed ones are now *unblocked* — **MongoDB
+   is available** (a `site-of-tools` database + a `platform/mongo.go` client) — but
+   botcheck persists nothing yet, so they stay build-it tasks; the ML ones conflict
+   with the no-ML rule. These are correctly parked, not oversights.
 
 3. **Intentional non-goals.** Enforcement/inline-WAF decisions, CAPTCHA / active
    challenges / proof-of-work, signed verdict tokens, and collector obfuscation.
@@ -187,10 +191,10 @@ what they do and the recommended move for our stack.
 | G37 | IP blacklist / DNSBL / abuser-score reputation | bot.incolumitas, BrowserScan.net, Pixelscan, whoer.net | medium · ml-or-db · **Not built** | Look up the egress IP against blacklists/DNSBLs and return an abuser_score / blacklist flag beyond mere datacenter/VPN/Tor classification. → **Our IP2Proxy PX12 gives datacenter/VPN/Tor/proxy but no reputation/abuser score. Adding a bundled DNSBL/reputation dataset (or an offline blocklist BIN) would strengthen the network tier without breaking statelessness. Medium value; check whether an IP2Location/IP2Proxy tier or a static blocklist can be bind-mounted like the existing BINs.** |
 | G38 | Surface ASN/ISP and name the specific VPN/hosting provider _(we do a narrower version)_ | bot.incolumitas, Fingerprint.com, Pixelscan, whoer.net | low · low · Partial | Name the ASN/ISP/company and the specific VPN service (bot.incolumitas identified NordVPN behind DataCamp/CDN77) rather than only a boolean datacenter/VPN flag. → **IP2Proxy/IP2Location records typically carry ISP/ASN/provider fields we may already have in the BINs but don't surface. Add these to the 'your request' card for transparency — cheap and improves the report without new data sources.** |
 | G39 | Cross-customer / collective threat intelligence | DataDome | low · ml-or-db · **Not built** | Score an IP/fingerprint seen attacking one protected site across the entire customer network (network effect), plus a maintained known-bot signature repository grown by genetic algorithms. → **Not applicable — we're a single self-test page with no protected-site network. Note as an enterprise-only capability we intentionally don't pursue.** |
-| G40 | Crowd-blending / fingerprint rarity / uniqueness entropy | CreepJS, Fingerprint.com, iphey.com, AmIUnique.org, EFF Cover Your Tracks, deviceandbrowserinfo.com, Pixelscan | low · ml-or-db · Deferred (documented) | Score a fingerprint against a visitor population: rarity/'one in X', Shannon-entropy bits per attribute, crowd-blending score with letter grades, or outlier detection against a real-people fingerprint DB — a rare/impossible fingerprint reads as fake. → **Deferred and fundamentally at odds with our stateless, no-DB rule. Requires a population corpus + storage. Keep deferred; if MongoDB lands per the architecture roadmap, a minimal rarity table is the first crowd feature worth prototyping — but it's not a self-test priority.** |
-| G41 | Fingerprint-reuse detection across requests | bot.incolumitas | low · ml-or-db · **Not built** | Flag identical canvas/WebGL fingerprints repeated across many requests to unmask scraping-farm infrastructure (caught ScrapingBee returning a constant fingerprint). → **Requires cross-request state, which our stateless design forbids. Defer with the broader crowd/DB work; not meaningful for a single-shot self-test anyway.** |
-| G42 | Fuzzy / locality-sensitive fingerprint hash + surfaced FP ID | CreepJS, incolumitas, Fingerprint.com | low · ml-or-db · **Not built** | Compute both an exact fingerprint ID and a separate fuzzy/LSH hash so near-identical fingerprints cluster even when one attribute changes; surface the ID to the user. → **Lands with the planned MongoDB alongside rarity scoring; not meaningful while stateless.** |
-| G43 | Request velocity per device / IP over time windows | Fingerprint.com, DataDome | low · ml-or-db · **Not built** | Count distinct IPs / linked IDs per device (and requests per IP) over rolling windows to flag bursts and linkage. → **Needs cross-request state — bends the stateless rule; sits below the domain service once MongoDB lands (next-features.md Layer-2).** |
+| G40 | Crowd-blending / fingerprint rarity / uniqueness entropy | CreepJS, Fingerprint.com, iphey.com, AmIUnique.org, EFF Cover Your Tracks, deviceandbrowserinfo.com, Pixelscan | low · ml-or-db · Deferred (documented) | Score a fingerprint against a visitor population: rarity/'one in X', Shannon-entropy bits per attribute, crowd-blending score with letter grades, or outlier detection against a real-people fingerprint DB — a rare/impossible fingerprint reads as fake. → **Deferred while botcheck stays stateless in practice. Requires a population corpus + storage; **MongoDB is now available** for the storage half, so accumulating a corpus and adding a minimal rarity table is the first crowd feature worth prototyping — but it's not a self-test priority.** |
+| G41 | Fingerprint-reuse detection across requests | bot.incolumitas | low · ml-or-db · **Not built** | Flag identical canvas/WebGL fingerprints repeated across many requests to unmask scraping-farm infrastructure (caught ScrapingBee returning a constant fingerprint). → **Requires cross-request state, which botcheck's stateless design avoids today (MongoDB is now available to back it). Defer with the broader crowd/DB work; not meaningful for a single-shot self-test anyway.** |
+| G42 | Fuzzy / locality-sensitive fingerprint hash + surfaced FP ID | CreepJS, incolumitas, Fingerprint.com | low · ml-or-db · **Not built** | Compute both an exact fingerprint ID and a separate fuzzy/LSH hash so near-identical fingerprints cluster even when one attribute changes; surface the ID to the user. → **Lands alongside rarity scoring now that MongoDB is available; not meaningful until botcheck actually persists fingerprints.** |
+| G43 | Request velocity per device / IP over time windows | Fingerprint.com, DataDome | low · ml-or-db · **Not built** | Count distinct IPs / linked IDs per device (and requests per IP) over rolling windows to flag bursts and linkage. → **Needs cross-request state — bends the stateless rule; sits below the domain service, backed by MongoDB (now available, not yet used by botcheck) (next-features.md Layer-2).** |
 | G44 | Residential-proxy detection (distinct from datacenter/VPN) | Fingerprint.com, DataDome, Pixelscan | low · ml-or-db · Partial | Detect residential proxies (graded confidence), the hard case aimed at agentic/AI fraud, separate from datacenter/VPN classification. → **PX12 may already tag some residential proxies; verify which proxy types the bundled BIN classifies and surface them. True residential-proxy detection at competitor quality needs a specialized feed we won't maintain — accept partial coverage.** |
 
 ### Persistent identity & history
@@ -199,7 +203,7 @@ what they do and the recommended move for our stack.
 |---|---|---|---|---|
 | G45 | Evercookie / supercookie persistence test | whoer.net, AmIUnique.org, EFF Cover Your Tracks | low · low · **Not built** | Test whether a supercookie/DOM-storage persistence vector survives, surfacing tracking/persistence exposure. → **This is a privacy-exposure test, not bot detection. Out of scope for our tool; skip.** |
 | G46 | Returning-visitor result history / timeline | AmIUnique.org, iphey.com, EFF Cover Your Tracks | low · medium · Deferred (documented) | Persist prior results (server corpus or browser localStorage) so a user can revisit and see how their fingerprint/result changed over time, with a selectable time window. → **A localStorage-only history (no server persistence) would respect our stateless server rule and give a nice UX touch. Low priority but the cheapest 'history' option if we want it.** |
-| G47 | Stable persistent visitor ID / device matching | Fingerprint.com, CreepJS, iphey.com, bot.incolumitas | low · ml-or-db · Deferred (documented) | Produce a stable device/visitor ID (Fingerprint: survives incognito/cookie-clear/VPN switching; CreepJS: FP ID + fuzzy locality hash; iphey: 128-bit hash) for cross-session correlation. → **Deferred and off-mission for a stateless self-test. A within-request fingerprint hash (no storage) could be shown for transparency cheaply, but persistent cross-session identity needs storage and contradicts our no-DB rule. Keep deferred.** |
+| G47 | Stable persistent visitor ID / device matching | Fingerprint.com, CreepJS, iphey.com, bot.incolumitas | low · ml-or-db · Deferred (documented) | Produce a stable device/visitor ID (Fingerprint: survives incognito/cookie-clear/VPN switching; CreepJS: FP ID + fuzzy locality hash; iphey: 128-bit hash) for cross-session correlation. → **Deferred and off-mission for a stateless self-test. A within-request fingerprint hash (no storage) could be shown for transparency cheaply, but persistent cross-session identity needs storage (MongoDB is now available) and botcheck deliberately isn't stateful yet. Keep deferred.** |
 
 ### Scoring model & cross-layer fusion
 
@@ -245,9 +249,10 @@ oversights:
   (G26), TCP SYN fingerprint (G30), HTTP header order/casing (G29), and the
   cross-layer OS-coherence rule that depends on them (G48). All blind as long as
   nginx/Cloudflare terminate TLS in front of Go.
-- **Needs the planned MongoDB / a corpus:** crowd rarity & entropy (G40, G58),
-  fuzzy hashing (G42), fingerprint-reuse (G41), request velocity (G43), persistent
-  visitor ID (G47), returning-visitor history (G46, cheap via localStorage only).
+- **Needs a stored corpus (MongoDB is now available, but botcheck doesn't use it
+  yet):** crowd rarity & entropy (G40, G58), fuzzy hashing (G42), fingerprint-reuse
+  (G41), request velocity (G43), persistent visitor ID (G47), returning-visitor
+  history (G46, cheap via localStorage only).
 - **Conflicts with no-ML / stateless:** behavioral biometrics (G34), intent
   modeling (G35), ML risk model (G52), time-staggered re-scoring (G51).
 - **Off-brand non-goals for a self-test tool:** enforcement / inline WAF (G61),

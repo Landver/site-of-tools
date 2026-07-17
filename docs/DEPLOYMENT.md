@@ -175,3 +175,34 @@ Break-glass (manual deploy on the host, e.g. if Actions is down):
 ```bash
 git pull && docker compose up -d --build && docker compose logs -f site-of-tools
 ```
+
+---
+
+## 9. MongoDB (external dependency)
+
+The app can talk to a shared **MongoDB** server at `mongodb.corpberry.com`, with a
+dedicated `site-of-tools` database. Unlike the IP2Location BINs (§6), this is a
+**network dependency, not a bind-mounted file** — nothing to download or mount.
+
+- **Config, not volumes.** `MONGODB_URI` (and optional `MONGODB_DATABASE`) live in
+  `.env`, which `docker-compose` already loads via `env_file` (§5), so the value
+  reaches the container with **no compose change and no new volume**. The container
+  does need outbound network to reach the server.
+- **Per-host secret.** `.env` is gitignored and per-host, and the deploy is a
+  `git merge --ff-only` (§8) that never touches it — so add `MONGODB_URI` to the
+  **prod host's `.env`** separately; it isn't shipped by the deploy. The same URI
+  works from dev and prod.
+- **Optional + fail-fast.** An empty `MONGODB_URI` disables Mongo cleanly
+  (`ErrMongoUnavailable`); a set-but-unreachable server fails fast at open time
+  (10s server-selection timeout) rather than hanging. **No feature uses Mongo yet**,
+  so this is plumbing only today.
+- **Provisioning.** Mongo creates a database on first write, so `site-of-tools`
+  only "exists" once something writes to it. Run `make mongo-init` once from a host
+  that can reach the server to create it explicitly (it adds an empty `_meta`
+  collection and is idempotent).
+
+> **Reachability caveat.** `mongodb.corpberry.com` is a Cloudflare-proxied DNS
+> record, and Cloudflare's proxy does not forward raw MongoDB TCP (port 27017) — so
+> the server is reachable only from hosts on its allowed network path (e.g. the
+> prod host / an internal network), **not** from an arbitrary machine. Provision
+> the database and run Mongo-backed work from such a host.

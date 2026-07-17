@@ -28,6 +28,7 @@ CSS is built by a single prebuilt binary.
 | Live reload      | air — `github.com/air-verse/air`                   | v1.65.x           |
 | GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
 | Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
+| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; client wired, unused yet) | v2.8.x |
 | Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
 | Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
 
@@ -236,6 +237,17 @@ Keep htmx-owned and Alpine-owned regions distinct.
 | `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `iptools/assets/asn/...BIN` |
 | `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables the proxy section | `iptools/assets/ip2proxy/...BIN` |
 | `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not the app) | — |
+| `MONGODB_URI` | MongoDB connection string (credentials + auth db). Optional — empty disables Mongo | `mongodb://user:pass@mongodb.corpberry.com/admin` |
+| `MONGODB_DATABASE` | app database name; defaults to `site-of-tools` | `site-of-tools` |
+
+**MongoDB** is a *network* dependency, not a bind-mounted file like the BINs, so
+the same `MONGODB_URI` works from dev and prod (add it to `.env` wherever you run
+the app; dev and prod share the host but not necessarily the working copy). The
+config lives in `platform/config.go` and the client in `platform/mongo.go`
+(`platform.OpenMongo` → a nil-safe `*Mongo` wrapper). It is **optional and
+degrades gracefully**: an empty `MONGODB_URI` yields `ErrMongoUnavailable`, exactly
+the "missing data is non-fatal" contract `iptools.OpenService` uses for absent
+BINs. No feature uses Mongo yet (§10).
 
 ---
 
@@ -248,7 +260,7 @@ others import can't be `package main`, and `go:embed` can't cross directories
 ```
 site-of-tools/
 ├── main.go                   # package main — entrypoint: config → sub-apps → vhost → listen
-├── platform/                 # shared engine (importable): config.go, app.go, render.go
+├── platform/                 # shared engine (importable): config.go, app.go, render.go, conn.go, mongo.go
 ├── shared/                   # shared front-end ONLY: base partials + vendored htmx/alpine/css
 │   ├── embed.go              #   (its own package so it can go:embed what lives here)
 │   ├── templates/partials/   #   head · header · footer
@@ -313,8 +325,14 @@ is the one thing nothing imports. Nothing is a single-file folder for its own sa
 
 ## 10. Out of scope now (deliberately deferred)
 
-- **Persistence / MongoDB** — v1 is fully stateless. Mongo is planned; when it
-  lands, put a storage layer *below* the domain services.
+- **Persistence / MongoDB** — the connection is now wired: a shared server
+  (`mongodb.corpberry.com`), the `site-of-tools` database, a `platform/mongo.go`
+  client, and `MONGODB_URI` config (§6). **No feature uses it yet**, so the app is
+  still stateless in practice. When a feature needs storage (e.g. botcheck
+  crowd/rarity scoring, request velocity, visitor history, or IP-tool rate
+  limiting), add its repository *below* the domain service (rule #5) and take the
+  `*mongo.Database` from the shared client — the plumbing already exists. Run
+  `make mongo-init` once to materialize the database (Mongo creates it lazily).
 - **Huma / OpenAPI** — later, only if a formal public API is wanted (§4).
 - **CI/CD** — now implemented (was deferred): GitHub Actions (`.github/workflows/ci.yml`)
   runs vet + build + test on every push/PR to `master` and auto-deploys to the prod

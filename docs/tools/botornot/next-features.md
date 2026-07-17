@@ -3,7 +3,8 @@
 A backlog of additional bot/not signals for `botcheck`, split into three effort
 layers. **Layer 1 (simple)** was implemented alongside this doc; Layers 2–3 are
 designed but not built. Complexity is measured against our stack: one Go binary
-(Echo v5), a vendored JS collector (no npm), no DB yet, and nginx/Cloudflare
+(Echo v5), a vendored JS collector (no npm), MongoDB now available but not yet used by
+botcheck, and nginx/Cloudflare
 terminating TLS in front (so the raw connection is not visible to Go).
 
 Every client signal is spoofable, so the durable value is in **cross-checks** —
@@ -54,15 +55,20 @@ population shows. New signals should prefer that shape over standalone tells.
 - **Fuller media-codec / font-diversity matrices** — beyond the current H.264/AAC pair and the zero-fonts floor, score against expected per-browser codec sets and typical font-count ranges (needs careful thresholds to avoid mobile false positives).
 - **JS engine tells** — `Error` stack format, `Function.prototype.toString` quirks, `Math`/number formatting differences (V8 vs SpiderMonkey vs JSC) vs the claimed browser.
 - **WebRTC** — collect ICE candidates: local-IP leak, presence of an mDNS `.local` candidate, and `srflx` public IP vs the server-observed IP. (Async/flaky — deferred deliberately.)
-- **Request velocity** — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, so it bends the current stateless rule; better once the planned MongoDB lands, sitting below the domain service.
+- **Request velocity** — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, so it bends the current stateless rule; better backed by MongoDB (now available, not yet used by botcheck), sitting below the domain service.
 
-## Layer 3 — Hard (new infrastructure, dependencies, ML, or the DB)
+## Layer 3 — Hard (new infrastructure, dependencies, ML, or a stored corpus)
+
+> MongoDB is now available (a `site-of-tools` database + a `platform/mongo.go`
+> client), so the DB-backed items below are no longer *blocked* on provisioning a
+> database — what remains is building the corpus/logic and wiring it below the
+> domain service. botcheck does not use Mongo yet.
 
 - **TLS fingerprint (JA3/JA4)** — the connection's TLS ClientHello vs the UA-implied stack. Blocked today: Cloudflare/nginx terminate TLS. Paths: an nginx/OpenResty JA3 module forwarding an `X-JA3` header, or terminating TLS in Go on this subdomain and peeking the ClientHello. Real work — infra.
 - **HTTP/2 frame fingerprint (Akamai-style)** — SETTINGS / WINDOW_UPDATE / header-priority ordering. nginx downgrades to HTTP/1.1 before Go sees it; needs Go-terminated h2 or edge capture.
 - **TCP/IP SYN fingerprint (p0f / zardaxt)** — OS inferred from SYN packet fields vs UA OS. Needs raw packet capture on the host.
 - **Behavioral biometrics** — stream mouse/keystroke/scroll/touch events and classify (incolumitas runs a 30+ classifier ensemble). Needs an event pipeline and a trained model. ML.
-- **Fingerprint rarity / crowd-blending** — store every fingerprint and score how rare the combination is. Needs the planned MongoDB; lands naturally as one more `Check` once storage sits below the domain service.
-- **Stable visitor ID / returning-device matching** — probabilistic identity across sessions (FingerprintJS-Pro style). Needs a DB and matching logic.
+- **Fingerprint rarity / crowd-blending** — store every fingerprint and score how rare the combination is. MongoDB is now available for the corpus; lands naturally as one more `Check` once storage sits below the domain service (not built yet).
+- **Stable visitor ID / returning-device matching** — probabilistic identity across sessions (FingerprintJS-Pro style). Needs storage (MongoDB now available) and matching logic.
 - **ML risk model** — a trained classifier (logistic / gradient-boosted) over the whole signal vector, replacing the hand-tuned weights. Needs labelled data, training, and serving.
 - **Active challenge / proof-of-work / invisible CAPTCHA** — deliberately out of scope: we never issue or solve CAPTCHAs, and a self-test tool blocks nothing.

@@ -20,8 +20,12 @@ frontend stack. Favor the simple, idiomatic path and explain Go-specific choices
    `shared/static/js/`. CSS is built by the Tailwind **standalone binary**. If a
    task tempts you toward `npm`/`node_modules`, stop.
 4. **htmx only when plain HTML can't do it** (AJAX, partial swaps, WS).
-5. **Stateless.** No database yet. MongoDB is planned; until then, no persistence.
-   When it lands, put storage *below* the domain services.
+5. **Persistence lives below the domain.** MongoDB is now available — a shared
+   server (`mongodb.corpberry.com`), a dedicated `site-of-tools` database, and a
+   client in `platform/mongo.go` (`platform.OpenMongo`, `MONGODB_URI` config).
+   **No feature uses it yet**, and the app stays stateless until one does. When a
+   feature needs storage, put it *below* the domain service (a repository the
+   service calls), never in a handler. See ARCHITECTURE §10.
 6. **Tests are required and enforced.** Each package's tests live in a
    `<pkg>/tests/` folder (black-box, exported API); run
    `go test ./... -race` (`make test`). The tracked `.githooks/pre-push` hook runs
@@ -36,7 +40,8 @@ frontend stack. Favor the simple, idiomatic path and explain Go-specific choices
 Go 1.26.x · Echo **v5** (`github.com/labstack/echo/v5`) · htmx 2.0.x · Alpine
 3.15.x · Tailwind standalone v4.3.x · air `github.com/air-verse/air` v1.65.x ·
 `github.com/ip2location/ip2location-go/v9` v9.8.x · `github.com/ip2location/ip2proxy-go/v4`
-v4.2.x · `github.com/google/go-cmp`
+v4.2.x · `go.mongodb.org/mongo-driver/v2` v2.8.x (use **/v2**, not v1) ·
+`github.com/google/go-cmp`
 v0.7.x · base `gcr.io/distroless/static-debian12:nonroot`.
 
 ## Echo v5, not v4 (important)
@@ -55,7 +60,8 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 ## Layout (Go: one folder = one package)
 
 - `main.go` at repo **root** — the single binary's entrypoint.
-- `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`.
+- `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`,
+  `conn.go`, `mongo.go` (shared Mongo client — plumbing only, no feature uses it yet).
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); its
   own package so it can `go:embed` those files.
 - `site/`, `iptools/` — self-contained projects: code + `templates/` (+ tool
@@ -71,6 +77,7 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 - `make tools` — Tailwind binary + air + enable git hooks
 - `make hooks` — enable the pre-push test gate
 - `make assets` — download IP2Location LITE BINs (uses `.env` token)
+- `make mongo-init` — create the `site-of-tools` Mongo database (needs `MONGODB_URI`; run from a host that can reach the server)
 - `make css` / `make css-watch` — build / watch `styles.css`
 - `make dev` — live reload (`APP_ENV=dev`, disk FS + template reparse)
 - `make test` — `go test ./... -race`

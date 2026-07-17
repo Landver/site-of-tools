@@ -10,7 +10,8 @@ This is a **design doc, not built yet.** It is the synthesis of the 11-service
 research in this folder (see `../botornot/*.md` and the cross-service
 `synthesis.md`) mapped onto this repo's constraints: one Go 1.26 binary, Echo v5,
 content-negotiated HTML+JSON, layered domain package, vendored JS (no npm),
-stateless (no DB yet). Read [ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)
+stateless (MongoDB is now wired in `platform/`, but no feature — botcheck
+included — uses it yet). Read [ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)
 first — this tool is a straight application of that pattern, and
 [`iptools.md`](../iptools.md) is the sibling tool it borrows the most from.
 
@@ -43,7 +44,8 @@ deduction scorer with a per-signal table.
 
 **Explicitly deferred (see §6):** TLS/JA3/JA4 + HTTP/2 frame fingerprinting
 (blocked by our nginx topology), behavioral biometrics, and crowd-blending/rarity
-(both need the future MongoDB and/or ML).
+(behavioral needs ML; crowd-blending needs a stored corpus — MongoDB is now
+available for it, though botcheck persists nothing yet).
 
 **Non-goals:** this is a self-test/inspection tool, not an inline WAF. It does not
 block requests, set a verdict cookie, or protect other endpoints. It returns a
@@ -451,9 +453,10 @@ fixtures. Presentation follows the universal pattern: **the number + verdict at 
 top, the per-signal `Checks` table below** (each row pass/fail with its `Detail`),
 which is what makes these pages trustworthy and debuggable.
 
-**No database, no ML, no persistence** — everything is a pure function of the one
-request, so it slots under CLAUDE.md rules #1 and #5 with room for the DB-backed
-models to sit *below* the domain service later.
+**No database, no ML, no persistence in the MVP** — the scorer is a pure function
+of the one request, so it slots under CLAUDE.md rules #1 and #5. MongoDB is now
+available, so the DB-backed models can sit *below* this domain service when added,
+without reshaping the scorer.
 
 ---
 
@@ -510,8 +513,10 @@ Honest gaps, each with the reason and the cheap thing we do instead:
   domain service (rule #5) once we have somewhere to stream events.
 - **Crowd-blending / rarity scoring** (CreepJS grades, AmIUnique uniqueness). Needs
   a population database. *Cheap approximation:* rule-based consistency (§4) instead
-  of statistical rarity. Lands naturally when the planned **MongoDB** arrives —
-  store each `Signals`+`Report`, then add a rarity signal as one more `Check`.
+  of statistical rarity. **MongoDB is now available** (shared server +
+  `site-of-tools` DB + `platform/mongo.go` client), so this is now a build-it task,
+  not a blocked one: persist each `Signals`+`Report` below the domain scorer, then
+  add a rarity signal as one more `Check`. Not built yet.
 - **Active challenge / CAPTCHA / proof-of-work** (DataDome Picasso, incolumitas
   form challenge). Out of scope and off-brand — we never solve or issue CAPTCHAs.
   Not needed for a self-test tool.
@@ -519,9 +524,10 @@ Honest gaps, each with the reason and the cheap thing we do instead:
   scale and not our shape (we're a self-test page, not an inline WAF).
 
 If we later want an **enforcement mode** (other tools asking "is this visitor a
-bot?"), that's the DB era: persist `Report`s keyed by a signed request token
-(Fingerprint's `requestId` / DataDome's signed cookie pattern) and expose a
-server-verified lookup — but *never* trust a score the client computed or replays.
+bot?"), that's the persistence path — and MongoDB is now available for it: persist
+`Report`s keyed by a signed request token (Fingerprint's `requestId` / DataDome's
+signed cookie pattern) and expose a server-verified lookup — but *never* trust a
+score the client computed or replays.
 
 ---
 
