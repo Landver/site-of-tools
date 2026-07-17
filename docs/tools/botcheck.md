@@ -10,7 +10,7 @@ a transparent per-signal breakdown.
 **The thesis:** client signals are all spoofable, so the detection power lives in
 the server cross-checking what the browser *claims* against what the connection
 *actually shows*. The tool reuses the entire server-observed IP layer from
-[`iptools`](iptools.md) (IP2Proxy PX12 + IP2Location) for free, so it is
+[`iptools`](iptools/README.md) (IP2Proxy PX12 + IP2Location) for free, so it is
 essentially "a JS collector + a deterministic server scorer."
 
 This doc is the tool's **design + reference**. Its two companions in

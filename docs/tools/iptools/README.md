@@ -1,22 +1,30 @@
-# Tool: IP Tools (`ip.corpberry.com`)
+# IP tools (`ip.corpberry.com`)
 
 A small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Two pages
-today (a sub-nav switches between them):
+today, switched by a sub-nav:
 
-- **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; on a bare visit it
-  also inspects *your* connection (see [Endpoints](#endpoints)).
+- **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; a bare visit also
+  inspects *your own* connection (see [Endpoints](#endpoints)).
 - **Subnet calculator** (`/cidr`) — pure CIDR math, no databases.
 
-Layout:
+This is the tool's design + reference doc. The tool is a straight application of
+the layered request pattern in
+[ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
+and it's the sibling that [`botcheck`](../botcheck.md) borrows its server-side IP
+layer from.
 
-- **Code + everything:** `iptools/` — self-contained: `geoip.go` (geo/proxy domain),
-  `cidr.go` (subnet domain), `handler.go` (transport), `templates/`, `tests/`,
-  `assets/`, `download-assets.sh`.
-- **Data:** `iptools/assets/` (the `.BIN` databases; gitignored, bind-mounted).
-- **DB download:** `iptools/download-assets.sh` (run via `make assets`).
-- **Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
+## Package layout (`iptools/`, self-contained)
 
----
+- `geoip.go` — geo/proxy **domain** (pure Go, no HTTP): `Service`, `Result`,
+  `OpenService`, `Lookup`, the `Looker` interface.
+- `cidr.go` — the subnet-calculator **domain** (pure CIDR math, no databases).
+- `handler.go` — **transport**: `Register` + the query-param parsing, then
+  `platform.Respond`.
+- `templates/` — `index.html`, `result.html`, `cidr.html`, `nav.html`.
+- `assets/` — the `.BIN` databases (gitignored, bind-mounted read-only in prod).
+- `download-assets.sh` — fetches the databases (run via `make assets`).
+
+**Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
 
 ## Datasets
 
@@ -30,11 +38,9 @@ IP2Location **LITE** (free tier). Present on disk today:
 
 IP2Proxy (proxy/VPN/threat detection) is read by a **separate** module,
 `github.com/ip2location/ip2proxy-go/v4` (v3 panics on a PX12 database — needs
-≥v4). It's **optional**: set `IP2PROXY_PX12` to enable the proxy section, leave
-it empty to disable. Like the geo BINs it reads via `ReadAt`, so the 1.7 GB file
+≥v4). It's **optional**: set `IP2PROXY_PX12` to enable the proxy section, leave it
+empty to disable. Like the geo BINs it reads via `ReadAt`, so the 1.7 GB file
 costs ~no RAM (~9 MB RSS observed), not a full in-memory load.
-
----
 
 ## `geoip` domain service
 
@@ -78,8 +84,6 @@ and the tool shows a friendly message. The handler depends on a small `Looker`
 interface (`Lookup(string) (*Result, error)`) so tests inject a fake — no BINs
 needed. LITE data can return placeholder `"-"` for some fields; guard on display.
 
----
-
 ## Fields exposed
 
 **Geolocation:** country (code + name), region, city, ZIP, timezone, latitude,
@@ -87,15 +91,12 @@ longitude, ASN, AS name. **Proxy (when PX12 loaded):** is-proxy, proxy type,
 usage type, threat, provider, fraud score, ISP, domain, last-seen — nested under
 `proxy` in JSON, shown as a separate "proxy / network" card in HTML.
 
----
-
 ## Endpoints
 
-Every view is content-negotiated ([ARCHITECTURE.md §4](../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
-browsers and htmx get HTML, everyone else gets JSON.
-
-Lookups are **query-param only** (`?ip=…`), consistent with `/cidr?cidr=…` — there
-is no `/:ip` pretty route.
+Every view is content-negotiated
+([ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
+browsers and htmx get HTML, everyone else gets JSON. Lookups are **query-param
+only** (`?ip=…`), consistent with `/cidr?cidr=…` — there is no `/:ip` pretty route.
 
 | Request | Response |
 |---------|----------|
@@ -130,8 +131,6 @@ DNS-only in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
 working IPv6 path (by fetching an IPv6-only host), so it isn't in the JSON — by
 nature, not omission.
 
----
-
 ## Abuse protection
 
 None in v1. Rate limiting is deferred with the other stateful concerns: **MongoDB
@@ -140,24 +139,20 @@ it's a build-it call rather than a blocked one — it's a public endpoint, so
 revisit rate limiting when we wire storage below the domain service. The
 `IPExtractor` is already wired, so request logs show the real client IP.
 
----
-
 ## Attribution (required)
 
-IP2Location LITE's license **requires a specific, visible credit** on *"all
-sites, advertising materials, and documentation mentioning features or the use
-of this database"*. The exact acknowledgment it mandates is:
+IP2Location LITE's license **requires a specific, visible credit** on *"all sites,
+advertising materials, and documentation mentioning features or the use of this
+database"*. The exact acknowledgment it mandates is:
 
 > [site or product name] uses the IP2Location LITE database for
 > [IP geolocation](https://lite.ip2location.com).
 
 We render that verbatim in the shared footer, but **gated on a `.Attribution`
 view-model flag** set only by this tool's handler — so it shows on the IP tool
-pages (which use the databases) and is omitted on the apex, which does not use
-or mention the data and therefore falls outside the clause. IP2Proxy LITE
-carries the same acknowledgment wording, so one credit covers both.
-
----
+pages (which use the databases) and is omitted on the apex, which does not use or
+mention the data and therefore falls outside the clause. IP2Proxy LITE carries the
+same acknowledgment wording, so one credit covers both.
 
 ## Later (this subdomain)
 
