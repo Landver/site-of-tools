@@ -115,6 +115,33 @@ var rules = []rule{
 		},
 	},
 	{
+		// Feature-detect the real rendering engine (Blink/Gecko/WebKit) client-side
+		// and compare to the engine the UA claims. Robust against a spoofed UA string:
+		// the engine probes read capabilities the UA can't fake. Only fires on a
+		// confident disagreement (both sides known and different).
+		id: "engine_ua_mismatch", label: "Feature-detected engine ≠ engine the User-Agent claims", tier: TierConsistency, weight: 30, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			want := engineFromUA(clientUA(s))
+			if want == "" || s.Engine == "" || s.Engine == want {
+				return false, ""
+			}
+			return true, fmt.Sprintf("engine %s vs UA implies %s", s.Engine, want)
+		},
+	},
+	{
+		// A UA-string spoof that edits "Chrome/NNN" but leaves userAgentData intact
+		// disagrees here: the UA's Chromium major must equal the version userAgentData
+		// reports (uaFullVersion / fullVersionList). The CreepJS/Electron frozen-UA catch.
+		id: "ua_chrome_version_mismatch", label: "User-Agent Chrome version ≠ userAgentData version", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			uaM, chM := uaChromeMajor(clientUA(s)), chVersionMajor(s.UAData)
+			if uaM == 0 || chM == 0 || uaM == chM {
+				return false, ""
+			}
+			return true, fmt.Sprintf("UA Chrome %d vs userAgentData %d", uaM, chM)
+		},
+	},
+	{
 		id: "embedded_runtime", label: "User-Agent is an embedded app runtime (Electron/CEF)", tier: TierConsistency, weight: 25,
 		eval: func(s Signals) (bool, string) {
 			ua := s.HTTPUserAgent
@@ -258,6 +285,19 @@ var rules = []rule{
 		},
 	},
 	{
+		// navigator.productSub is a fixed per-engine constant ("20030107" on every
+		// WebKit/Blink browser, "20100101" on Gecko). A value that doesn't match the
+		// engine the UA claims is a classic spoof/patched-runtime tell.
+		id: "productsub_mismatch", label: "navigator.productSub not the engine's constant", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			want := expectedProductSub(clientUA(s))
+			if want == "" || s.ProductSub == "" || s.ProductSub == want {
+				return false, ""
+			}
+			return true, fmt.Sprintf("productSub %s, expected %s", s.ProductSub, want)
+		},
+	},
+	{
 		id: "language_primary_mismatch", label: "navigator.language ≠ navigator.languages[0]", tier: TierConsistency, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.NavLanguage == "" || len(s.Languages) == 0 || s.Languages[0] == "" {
@@ -357,5 +397,15 @@ var rules = []rule{
 		// surface or a font-less headless/VM environment.
 		id: "no_fonts", label: "No system fonts detectable", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.FontCount == 0, "" },
+	},
+	{
+		// Desktop Chromium ships an internal PDF viewer (navigator.pdfViewerEnabled
+		// true); headless builds often report false. Desktop-only: Android Chrome
+		// legitimately reports false, so gate on a non-mobile Chrome UA.
+		id: "pdf_viewer_disabled", label: "Desktop Chrome but PDF viewer disabled (headless tell)", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			ua := clientUA(s)
+			return strings.Contains(ua, "Chrome") && !isMobileUA(ua) && !s.UAData.Mobile && !s.PdfViewerEnabled, ""
+		},
 	},
 }

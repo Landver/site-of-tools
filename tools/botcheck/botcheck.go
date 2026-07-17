@@ -17,6 +17,7 @@ package botcheck
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,10 +28,29 @@ import (
 )
 
 // UAData is the subset of navigator.userAgentData the collector reports. It exists
-// so Go can cross-check the JS-reported platform against the Sec-CH-UA-Platform
-// request header and the legacy User-Agent string.
+// so Go can cross-check the JS-reported platform + browser version against the
+// Sec-CH-UA-Platform request header and the legacy User-Agent string. The version
+// fields (uaFullVersion / fullVersionList) are the G01 catch: a UA-string spoof
+// that forgets to keep userAgentData in sync disagrees here (see
+// ua_chrome_version_mismatch). Architecture/Bitness/Model are collected for the
+// raw dump and future coherence rules but not scored yet.
 type UAData struct {
-	Platform string `json:"platform"`
+	Platform        string         `json:"platform"`
+	PlatformVersion string         `json:"platformVersion"`
+	UAFullVersion   string         `json:"uaFullVersion"`
+	FullVersionList []BrandVersion `json:"fullVersionList"`
+	Architecture    string         `json:"architecture"`
+	Bitness         string         `json:"bitness"`
+	Model           string         `json:"model"`
+	Mobile          bool           `json:"mobile"`
+}
+
+// BrandVersion is one entry of navigator.userAgentData.fullVersionList
+// (e.g. {"Google Chrome", "125.0.6422.60"}); the GREASE decoy brand is ignored
+// when reading it (see chVersionMajor / realBrandSet).
+type BrandVersion struct {
+	Brand   string `json:"brand"`
+	Version string `json:"version"`
 }
 
 // Signals is everything the scorer needs: client-collected values (bound
@@ -83,6 +103,11 @@ type Signals struct {
 	CodecH264       bool     `json:"codecH264"`       // <video> can play H.264
 	CodecAAC        bool     `json:"codecAAC"`        // <audio> can play AAC
 	FontCount       int      `json:"fontCount"`       // probe fonts detected (-1 = couldn't measure)
+
+	// ── quick-win client signals (G01/G02/G05) ───────────────────────────────
+	ProductSub       string `json:"productSub"`       // navigator.productSub — engine constant ("20030107" WebKit/Blink, "20100101" Gecko)
+	PdfViewerEnabled bool   `json:"pdfViewerEnabled"` // navigator.pdfViewerEnabled — true on desktop Chromium
+	Engine           string `json:"engine"`           // feature-detected engine family: "blink" | "gecko" | "webkit"
 
 	// ── server-observed (filled by the handler; never read off the wire) ─────
 	HTTPUserAgent   string `json:"-"`
@@ -303,6 +328,92 @@ func clientUA(s Signals) string {
 		return s.NavMainUA
 	}
 	return s.HTTPUserAgent
+}
+
+// isMobileUA reports whether a User-Agent is a phone/tablet build — used to gate
+// desktop-only tells (e.g. Android Chrome legitimately reports pdfViewerEnabled=false).
+func isMobileUA(ua string) bool {
+	return strings.Contains(ua, "Mobile") || strings.Contains(ua, "Android") ||
+		strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad")
+}
+
+// engineFromUA maps a User-Agent to the rendering engine a genuine browser with
+// that UA must run: "blink" (Chrome/Edge/Opera/Chromium), "gecko" (Firefox),
+// "webkit" (Safari and every iOS browser — Apple mandates WebKit there). "" means
+// "can't tell", so a mismatch rule treats it as no signal. iOS is checked first
+// because CriOS/FxiOS UAs carry a brand token but still run WebKit.
+func engineFromUA(ua string) string {
+	switch {
+	case ua == "":
+		return ""
+	case osFromUA(ua) == "iOS":
+		return "webkit"
+	case strings.Contains(ua, "Firefox"), strings.Contains(ua, "FxiOS"):
+		return "gecko"
+	case strings.Contains(ua, "Edg"), strings.Contains(ua, "OPR"),
+		strings.Contains(ua, "Chrome"), strings.Contains(ua, "Chromium"):
+		return "blink"
+	case strings.Contains(ua, "Safari"):
+		return "webkit"
+	default:
+		return ""
+	}
+}
+
+// expectedProductSub returns the navigator.productSub constant every mainstream
+// browser on this engine reports: Gecko always "20100101", WebKit/Blink
+// (Chrome/Edge/Opera/Safari) always "20030107". "" ⇒ can't tell (don't fire).
+func expectedProductSub(ua string) string {
+	if strings.Contains(ua, "Firefox") || strings.Contains(ua, "FxiOS") {
+		return "20100101"
+	}
+	if looksLikeBrowser(ua) {
+		return "20030107"
+	}
+	return ""
+}
+
+// majorOf parses the leading integer of a dotted version ("125.0.6422.60" ⇒ 125).
+// 0 ⇒ no leading digits.
+func majorOf(v string) int {
+	v = strings.TrimSpace(v)
+	i := 0
+	for i < len(v) && v[i] >= '0' && v[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(v[:i])
+	return n
+}
+
+// uaChromeMajor parses the Chromium major version from a UA's "Chrome/125.0.0.0"
+// token — the version Chrome/Edge/Opera all track. 0 ⇒ not a Chromium UA.
+func uaChromeMajor(ua string) int {
+	const tok = "Chrome/"
+	if i := strings.Index(ua, tok); i >= 0 {
+		return majorOf(ua[i+len(tok):])
+	}
+	return 0
+}
+
+// chVersionMajor returns the browser major version userAgentData reports,
+// preferring uaFullVersion and falling back to the first non-GREASE fullVersionList
+// entry. 0 ⇒ nothing reported (non-Chromium or hints withheld).
+func chVersionMajor(u UAData) int {
+	if m := majorOf(u.UAFullVersion); m > 0 {
+		return m
+	}
+	for _, bv := range u.FullVersionList {
+		if strings.Contains(strings.ToLower(bv.Brand), "brand") {
+			continue // skip the GREASE decoy ("Not.A/Brand")
+		}
+		if m := majorOf(bv.Version); m > 0 {
+			return m
+		}
+	}
+	return 0
 }
 
 // firstToken returns the first token that appears (case-insensitively) in ua.

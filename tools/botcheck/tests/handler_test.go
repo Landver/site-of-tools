@@ -219,6 +219,31 @@ func TestCheckSoftSignalsRenderAsFlagged(t *testing.T) {
 	}
 }
 
+func TestCheckQuickWinSignalsThroughHandler(t *testing.T) {
+	// A Chrome UA whose feature-detected engine is gecko, whose productSub is Gecko's
+	// constant, and whose userAgentData version disagrees with the UA. Proves the new
+	// client fields — including the nested uaData object — bind from JSON and their
+	// rules fire end-to-end through the real handler.
+	body := `{"navMainUA":"` + chromeMacUA + `","engine":"gecko","productSub":"20100101",` +
+		`"uaData":{"platform":"macOS","uaFullVersion":"120.0.0.0"}}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{"engine_ua_mismatch", "productsub_mismatch", "ua_chrome_version_mismatch"} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+}
+
 func TestCheckDatacenterPlusHeadlessIsBot(t *testing.T) {
 	// End-to-end: a headless fingerprint from a datacenter IP → bot, in JSON.
 	looker := fakeLooker{res: &iptools.Result{Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "DCH"}}}

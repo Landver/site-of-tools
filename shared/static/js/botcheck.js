@@ -1,11 +1,12 @@
 // botcheck collector — vendored, hand-written, no npm (CLAUDE.md rule #3).
 //
 // Gathers the client-side signals a server can't see (navigator/webdriver/CDP
-// traces, WebGL, cross-context UA, permissions, geometry, timezone, high-entropy
-// client hints), POSTs them as JSON to /check, and swaps the returned HTML
-// fragment into #result. Every probe is wrapped in safe() so one failure never
-// aborts collection. Scoring/verdict happens server-side in Go — this only
-// collects, it never decides.
+// traces, WebGL, cross-context UA, permissions, geometry, timezone, the full
+// high-entropy client-hint set, a feature-detected engine family, and engine
+// constants like navigator.productSub), POSTs them as JSON to /check, and swaps
+// the returned HTML fragment into #result. Every probe is wrapped in safe() so one
+// failure never aborts collection. Scoring/verdict happens server-side in Go —
+// this only collects, it never decides.
 (() => {
   "use strict";
 
@@ -152,14 +153,38 @@
 
   const uaData = async () => {
     const d = navigator.userAgentData;
-    // getHighEntropyValues can REJECT (e.g. NotAllowedError in a sandbox), and
-    // safe() only catches synchronous throws — so the `.catch` is what stops a
-    // rejection from propagating up through the Promise.all in collect() and
-    // aborting the whole fingerprint. Only navigator.userAgentData.platform is
-    // consumed server-side, so that's all we ask for.
-    const hi = await safe(() => d?.getHighEntropyValues?.(["platform"])?.catch(() => null), null);
-    return { platform: hi?.platform ?? d?.platform ?? "" };
+    // Request the full high-entropy set so Go can cross-check the UA string against
+    // what userAgentData reports (browser version, platform, architecture). The
+    // version fields are the load-bearing G01 catch: a UA-string spoof that leaves
+    // userAgentData untouched disagrees. getHighEntropyValues can REJECT (e.g.
+    // NotAllowedError in a sandbox), and safe() only catches synchronous throws —
+    // so the `.catch` is what stops a rejection from propagating up through the
+    // Promise.all in collect() and aborting the whole fingerprint.
+    const hints = ["platform", "platformVersion", "architecture", "bitness", "model", "uaFullVersion", "fullVersionList"];
+    const hi = await safe(() => d?.getHighEntropyValues?.(hints)?.catch(() => null), null);
+    return {
+      platform: hi?.platform ?? d?.platform ?? "",
+      platformVersion: hi?.platformVersion ?? "",
+      uaFullVersion: hi?.uaFullVersion ?? "",
+      fullVersionList: hi?.fullVersionList ?? [],
+      architecture: hi?.architecture ?? "",
+      bitness: hi?.bitness ?? "",
+      model: hi?.model ?? "",
+      mobile: safe(() => d?.mobile ?? false, false),
+    };
   };
+
+  // engineFamily feature-detects the real rendering engine, independent of the
+  // (spoofable) UA string: gecko (Firefox), webkit (Safari + all iOS browsers),
+  // blink (Chrome/Edge/Opera/Chromium). Each probe reads a capability unique to one
+  // engine; Go compares the result to the engine the UA claims. "" ⇒ couldn't tell.
+  const engineFamily = () => safe(() => {
+    const sup = (p, v) => safe(() => CSS.supports(p, v), false);
+    if (sup("-moz-appearance", "none") || "MozAppearance" in document.documentElement.style) return "gecko";
+    if (typeof window.GestureEvent !== "undefined") return "webkit";
+    if (sup("-webkit-app-region", "drag") || "webkitRequestFileSystem" in window) return "blink";
+    return "";
+  }, "");
 
   const permState = () => safe(
     () => navigator.permissions.query({ name: "notifications" }).then((p) => p.state || "", () => ""),
@@ -200,6 +225,9 @@
       tzOffset: safe(() => new Date().getTimezoneOffset(), 0),
       brands: safe(() => (navigator.userAgentData?.brands || []).map((b) => b.brand), []),
       fontCount: detectFonts(),
+      productSub: safe(() => navigator.productSub ?? "", ""),
+      pdfViewerEnabled: safe(() => navigator.pdfViewerEnabled === true, false),
+      engine: engineFamily(),
       ...canvasProbe(),
       ...codecs(),
     };
