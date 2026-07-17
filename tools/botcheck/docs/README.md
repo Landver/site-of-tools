@@ -153,20 +153,21 @@ under CLAUDE.md golden rule #4. The collector builds one JSON object and POSTs i
   WebGL vendor/renderer + params, AudioContext hash, font list — used for
   GPU-vs-claimed-OS coherence and spoof/noise-stability, not a uniqueness score.
 - **The cross-check most free tools skip (our differentiator)** —
-  `navigator.userAgentData.getHighEntropyValues([...])` for the **full** set
-  (`platform`, `platformVersion`, `uaFullVersion`, `fullVersionList`,
-  `architecture`, `bitness`, `model`), triangulated against both the legacy UA
-  string *and* the `Sec-CH-UA` request headers. The browser version reported here
-  must match the UA's `Chrome/NNN` major (this is exactly where CreepJS caught the
-  Electron UA spoof: UA said macOS 10_15_7, `userAgentData` said 26.5.1).
+  `navigator.userAgentData.getHighEntropyValues(["fullVersionList"])`, triangulated
+  against the legacy UA string *and* the `Sec-CH-UA` request headers. The UA's
+  `Chrome/NNN` major must match the **`Chromium` brand entry** of `fullVersionList`
+  (the true engine version — comparing against a fork's *branded* version, e.g.
+  Opera's, would false-positive, so we read the Chromium entry specifically). This
+  is the CreepJS/Electron catch: a UA-string spoof that leaves `userAgentData`
+  untouched disagrees here.
 - **Real-engine feature detection** — probe capabilities unique to one engine
   (`-moz-appearance` ⇒ Gecko, `GestureEvent` ⇒ WebKit, `-webkit-app-region` /
   `webkitRequestFileSystem` ⇒ Blink) and cross-check the detected engine against
   the one the UA claims — robust against a spoofed UA string a parse would trust.
 - **Engine constants** — `navigator.productSub` is a fixed per-engine value
   (`20030107` on WebKit/Blink, `20100101` on Gecko); a value that disagrees with
-  the claimed engine is a patched-runtime tell. `navigator.pdfViewerEnabled` is a
-  soft desktop-Chromium headless tell.
+  the engine the UA claims (derived via the same `engineFromUA` helper, so iOS
+  browsers are correctly treated as WebKit) is a patched-runtime tell.
 - **Timezone** — `Intl.DateTimeFormat().resolvedOptions().timeZone` +
   `getTimezoneOffset()`, compared to the IP timezone from IP2Location.
 
@@ -188,14 +189,14 @@ Rules are tiered:
   on a Chromium UA; `navigator.appVersion` ≠ UA; `navigator.language` ≠
   `languages[0]`; IANA zone ≠ `getTimezoneOffset()` (self-consistency); canvas
   randomised between draws; `Sec-CH-UA` header brands ≠ `userAgentData.brands`;
-  feature-detected engine ≠ engine the UA claims; UA `Chrome/NNN` major ≠
-  `userAgentData` version; `navigator.productSub` ≠ the engine's constant.
+  feature-detected engine ≠ engine the UA claims; UA `Chrome/NNN` major ≠ the
+  `Chromium` `fullVersionList` entry; `navigator.productSub` ≠ the engine's constant.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
   screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`,
-  canvas renders blank, no H.264/AAC codecs, no detectable fonts, desktop Chrome
-  with the PDF viewer disabled. Soft signals **only bite as a cluster of ≥3** (one
-  25-point deduction), so a single quirk never false-positives a real human.
+  canvas renders blank, no H.264/AAC codecs, no detectable fonts. Soft signals
+  **only bite as a cluster of ≥3** (one 25-point deduction), so a single quirk
+  never false-positives a real human.
 
 The load-bearing rules are the **cross-checks** — combinations that should not
 co-occur — because a rule engine beats a checklist here: JS `navigator.userAgent`

@@ -1,8 +1,8 @@
 // botcheck collector — vendored, hand-written, no npm (CLAUDE.md rule #3).
 //
 // Gathers the client-side signals a server can't see (navigator/webdriver/CDP
-// traces, WebGL, cross-context UA, permissions, geometry, timezone, the full
-// high-entropy client-hint set, a feature-detected engine family, and engine
+// traces, WebGL, cross-context UA, permissions, geometry, timezone, the
+// userAgentData version list, a feature-detected engine family, and engine
 // constants like navigator.productSub), POSTs them as JSON to /check, and swaps
 // the returned HTML fragment into #result. Every probe is wrapped in safe() so one
 // failure never aborts collection. Scoring/verdict happens server-side in Go —
@@ -153,24 +153,16 @@
 
   const uaData = async () => {
     const d = navigator.userAgentData;
-    // Request the full high-entropy set so Go can cross-check the UA string against
-    // what userAgentData reports (browser version, platform, architecture). The
-    // version fields are the load-bearing G01 catch: a UA-string spoof that leaves
-    // userAgentData untouched disagrees. getHighEntropyValues can REJECT (e.g.
-    // NotAllowedError in a sandbox), and safe() only catches synchronous throws —
-    // so the `.catch` is what stops a rejection from propagating up through the
-    // Promise.all in collect() and aborting the whole fingerprint.
-    const hints = ["platform", "platformVersion", "architecture", "bitness", "model", "uaFullVersion", "fullVersionList"];
-    const hi = await safe(() => d?.getHighEntropyValues?.(hints)?.catch(() => null), null);
+    // fullVersionList is the load-bearing G01 signal: a UA-string spoof that edits
+    // "Chrome/NNN" but leaves userAgentData intact disagrees with the "Chromium"
+    // brand entry Go compares against. platform is low-entropy (read directly);
+    // fullVersionList is high-entropy, so it needs getHighEntropyValues — which can
+    // REJECT (e.g. NotAllowedError in a sandbox), and safe() only catches synchronous
+    // throws, so the `.catch` stops a rejection from aborting the whole fingerprint.
+    const hi = await safe(() => d?.getHighEntropyValues?.(["fullVersionList"])?.catch(() => null), null);
     return {
-      platform: hi?.platform ?? d?.platform ?? "",
-      platformVersion: hi?.platformVersion ?? "",
-      uaFullVersion: hi?.uaFullVersion ?? "",
+      platform: safe(() => d?.platform ?? "", ""),
       fullVersionList: hi?.fullVersionList ?? [],
-      architecture: hi?.architecture ?? "",
-      bitness: hi?.bitness ?? "",
-      model: hi?.model ?? "",
-      mobile: safe(() => d?.mobile ?? false, false),
     };
   };
 
@@ -226,7 +218,6 @@
       brands: safe(() => (navigator.userAgentData?.brands || []).map((b) => b.brand), []),
       fontCount: detectFonts(),
       productSub: safe(() => navigator.productSub ?? "", ""),
-      pdfViewerEnabled: safe(() => navigator.pdfViewerEnabled === true, false),
       engine: engineFamily(),
       ...canvasProbe(),
       ...codecs(),

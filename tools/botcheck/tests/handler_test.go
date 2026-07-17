@@ -221,11 +221,11 @@ func TestCheckSoftSignalsRenderAsFlagged(t *testing.T) {
 
 func TestCheckQuickWinSignalsThroughHandler(t *testing.T) {
 	// A Chrome UA whose feature-detected engine is gecko, whose productSub is Gecko's
-	// constant, and whose userAgentData version disagrees with the UA. Proves the new
-	// client fields — including the nested uaData object — bind from JSON and their
-	// rules fire end-to-end through the real handler.
+	// constant, and whose userAgentData Chromium version disagrees with the UA. Proves
+	// the new client fields — including the nested uaData.fullVersionList array — bind
+	// from JSON and their rules fire end-to-end through the real handler.
 	body := `{"navMainUA":"` + chromeMacUA + `","engine":"gecko","productSub":"20100101",` +
-		`"uaData":{"platform":"macOS","uaFullVersion":"120.0.0.0"}}`
+		`"uaData":{"platform":"macOS","fullVersionList":[{"brand":"Chromium","version":"120.0.0.0"}]}}`
 	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
 	var rep botcheck.Report
 	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {

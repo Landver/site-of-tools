@@ -27,14 +27,27 @@ implemented; their "remaining candidates" and all of Layer 3 are not. This doc i
 the forward view — the current design lives in [`../botcheck.md`](README.md).
 
 **Quick-win batch shipped (2026-07-17):** the first four quick wins below are now
-live — **G01** (full `getHighEntropyValues` set + a UA-`Chrome/NNN`-major vs
-`userAgentData`-version cross-check), **G02** (`navigator.productSub` engine
-constant + a soft `pdfViewerEnabled` desktop tell), **G05** (feature-detect the
-real Blink/Gecko/WebKit engine vs the engine the UA claims), and **G53** (on-page
-scope disclosure). They added three consistency rules + one soft rule (35 → 39)
-and the collector now reports the high-entropy hints, `productSub`,
-`pdfViewerEnabled`, and a feature-detected `engine`. Still open below: G04, G03,
-G08, G36, G06, G07, and the rest.
+live — **G01** (a UA-`Chrome/NNN`-major vs `userAgentData` `Chromium`-entry
+cross-check), **G02** (`navigator.productSub` engine constant), **G05**
+(feature-detect the real Blink/Gecko/WebKit engine vs the engine the UA claims),
+and **G53** (on-page scope disclosure). They added three consistency rules (35 →
+38) and the collector reports `fullVersionList`, `productSub`, and a
+feature-detected `engine`. Still open below: G04, G03, G08, G36, G06, G07, and the
+rest.
+
+**Review follow-up (2026-07-17, same day):** an adversarial review of the batch
+above fixed two false positives before they mattered — the version check now
+compares the UA against the `Chromium` `fullVersionList` entry (not the fork's
+branded `uaFullVersion`, which made real **Opera/Vivaldi/Yandex/Samsung** score
+"suspicious"), and `productSub` derives its expected engine from `engineFromUA`
+(so **iOS Firefox**, WebKit under an FxiOS token, is no longer flagged). The
+`pdfViewerEnabled` soft tell was **dropped**: it fires on ordinary desktop Chrome
+with the "Download PDFs" setting or the `AlwaysOpenPdfExternally` enterprise policy
+(a user preference, not a headless tell) and correlates with `empty_plugins`,
+eroding the soft-cluster margin — low value for its false-fire cost. Unused
+high-entropy fields (`platformVersion`/`architecture`/`bitness`/`model`/
+`uaFullVersion`) were trimmed from the collector and struct. Regression tests now
+cover Opera, desktop Safari, and iOS Safari/Firefox/Chrome.
 
 ## What this is built from
 
@@ -43,7 +56,7 @@ G08, G36, G06, G07, and the rest.
   `iphey`, `whoer`, `amiunique`, `coveryourtracks`, `datadome`) — see the
   [RESEARCH.md](RESEARCH.md) for the cross-service summary.
 - Our **shipped** implementation, read as ground truth (not the design doc):
-  [`botcheck/scoring.go`](../scoring.go) (the 39 detection rules),
+  [`botcheck/scoring.go`](../scoring.go) (the 38 detection rules),
   [`botcheck/botcheck.go`](../botcheck.go) (the `Signals` struct +
   scorer), [`botcheck/handler.go`](../handler.go) (server signals),
   and [`shared/static/js/botcheck.js`](../../../shared/static/js/botcheck.js) (the
@@ -165,7 +178,7 @@ what they do and the recommended move for our stack.
 | # | Capability they provide | Who has it | Sev · Effort · Status | What they do that we don't → recommended move |
 |---|---|---|---|---|
 | G01 | Expand userAgentData high-entropy hints + platformVersion coherence | CreepJS, iphey.com, Fingerprint.com | medium · trivial · **Shipped** | Pull the full getHighEntropyValues set (architecture, bitness, model, platformVersion, uaFullVersion, fullVersionList) and cross-check against the UA. CreepJS caught a UA claiming macOS 10_15_7 while userAgentData reported macOS 26.5.1 — the frozen-Electron/spoof tell. → **We request platform ONLY. Request platformVersion + uaFullVersion + fullVersionList too and add a rule comparing UA-embedded OS version vs userAgentData.platformVersion. This is the exact Electron/spoof catch we cite in our design, made stronger for near-zero cost.** |
-| G02 | navigator.productSub / oscpu / buildID / pdfViewerEnabled | iphey.com, AmIUnique.org, CreepJS | medium · trivial · **Shipped (productSub + pdfViewerEnabled; oscpu/buildID skipped)** | productSub is a classic engine tell (Chromium is always '20030107', Gecko '20100101'); oscpu/buildID/pdfViewerEnabled add OS/engine consistency and a headless tell (pdfViewerEnabled often false headless). → **Drop-in client fields + consistency rules; productSub and pdfViewerEnabled are already flagged as candidates in the internal backlog (Layer 1).** |
+| G02 | navigator.productSub / oscpu / buildID / pdfViewerEnabled | iphey.com, AmIUnique.org, CreepJS | medium · trivial · **Shipped (productSub only; pdfViewerEnabled dropped as a user-setting false-fire, oscpu/buildID skipped)** | productSub is a classic engine tell (Chromium is always '20030107', Gecko '20100101'); oscpu/buildID/pdfViewerEnabled add OS/engine consistency and a headless tell (pdfViewerEnabled often false headless). → **Shipped productSub as an engine-aware consistency rule. pdfViewerEnabled was tried then dropped: it is false on ordinary desktop Chrome with "Download PDFs" set or the AlwaysOpenPdfExternally policy, so it flags a user preference, not headless.** |
 | G03 | Broaden cross-context (worker/iframe/SW) comparison beyond UA | deviceandbrowserinfo.com, bot.incolumitas, CreepJS | medium · low · Partial | Recompute and diff more than the UA across contexts — languages, hardwareConcurrency, platform, and even WebGL renderer/fonts — between main thread, Web Worker, Service Worker, and iframe. Caught Bright Data returning Linux in a worker while the top UA claimed Windows. → **We already spawn worker + iframe and compare UA. Cheaply extend the same collectors to also diff languages, hardwareConcurrency, platform, and (if collected) GPU renderer across those contexts, and add a Service Worker context. Each mismatch is a strong consistency tell we're currently leaving on the table.** |
 | G04 | Deep native-function tamper / lie detection | CreepJS, deviceandbrowserinfo.com, bot.incolumitas, BrowserScan.net, Pixelscan, Fingerprint.com | medium · low · Partial | Go well beyond a toString '[native code]' check: CreepJS's queryLies checks each API for illegal own-properties/descriptors (prototype/arguments/caller), traps whether call/new/apply/class-extends throw the correct TypeError, and detects the Function.prototype.toString Proxy that puppeteer-extra-stealth installs via error-stack frame inspection. bot.incolumitas targets stealth-plugin artefacts directly (puppeteerExtraStealthUsed, overrideTest). → **We only run the '[native code]' toString check on 4 methods. Extend it: (1) descriptor/own-property sanity on the same natives, (2) verify call/new throw correct TypeErrors, (3) add the Proxy-via-error-stack probe to catch stealth-plugin Function.toString proxies. Pure client JS, deterministic, fits our scorer — this is the single highest-leverage cheap upgrade.** |
 | G05 | Feature-detect true engine and compare to claimed UA _(we do a narrower version)_ | iphey.com, CreepJS | medium · low · **Shipped** | Feature-detect the actual rendering engine/version (Chromium via webkitResolveLocalFileSystemURL + BatteryManager + vendor; Gecko via buildID + onmozfullscreenchange; WebKit via ApplePayError) and cross-check against the claimed UA — catches spoofed UAs and anti-detect browsers a string parse misses. → **We compare UA vs userAgentData.platform but never feature-detect the real engine. Add a small engine-probe module and one rule (feature-detected engine family vs UA-claimed browser). Cheap, deterministic, and robust against UA spoofing.** |
@@ -324,8 +337,7 @@ Where an item also appears in the competitor audit above, its `G##` is noted.
 | `screen_avail_impossible` | soft | `availWidth/Height` larger than the physical screen |
 | `low_color_depth` | soft | `screen.colorDepth` < 16 |
 | `sec_fetch_missing` | soft | Browser UA but no `Sec-Fetch-*` request header |
-| `productsub_mismatch` | consistency | `navigator.productSub` ≠ the engine's constant (`20030107` WebKit/Blink, `20100101` Gecko) — G02, shipped 2026-07-17 |
-| `pdf_viewer_disabled` | soft | Desktop Chrome (non-mobile) but `navigator.pdfViewerEnabled` false — G02, shipped 2026-07-17 |
+| `productsub_mismatch` | consistency | `navigator.productSub` ≠ the engine's constant (`20030107` WebKit/Blink, `20100101` Gecko), engine inferred via `engineFromUA` so iOS browsers are WebKit — G02, shipped 2026-07-17 |
 
 **Remaining candidates (same shape, drop-in later):**
 
@@ -347,7 +359,7 @@ Where an item also appears in the competitor audit above, its `G##` is noted.
 | `ch_brands_mismatch` | consistency | Parse the `Sec-CH-UA` header brand list and compare to JS `userAgentData.brands` (GREASE decoy ignored). |
 | `missing_proprietary_codecs` | soft | Browser UA but neither H.264 nor AAC (`canPlayType`) ⇒ stripped / headless build. |
 | `no_fonts` | soft | Zero probe fonts detectable via the `measureText` width technique ⇒ neutralised font surface / font-less VM. |
-| `ua_chrome_version_mismatch` | consistency | UA `Chrome/NNN` major ≠ the version `userAgentData` reports (`uaFullVersion` / `fullVersionList`, GREASE ignored) — G01, shipped 2026-07-17. |
+| `ua_chrome_version_mismatch` | consistency | UA `Chrome/NNN` major ≠ the `Chromium` (or `Google Chrome`) `fullVersionList` entry — compares the engine version, so Chromium forks whose branded version diverges (Opera/Vivaldi/Samsung) don't false-positive — G01, shipped 2026-07-17. |
 | `engine_ua_mismatch` | consistency | Feature-detected engine (`-moz-appearance`⇒Gecko, `GestureEvent`⇒WebKit, `-webkit-app-region`/`webkitRequestFileSystem`⇒Blink) ≠ the engine the UA claims — G05, shipped 2026-07-17. |
 
 **Remaining candidates (not yet built):**

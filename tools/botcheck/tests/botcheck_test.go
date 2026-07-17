@@ -47,10 +47,9 @@ func cleanChrome() botcheck.Signals {
 		SecCHUAPlatform: `"macOS"`,
 		SecFetchMode:    "cors",
 		UAData: botcheck.UAData{
-			Platform:      "macOS",
-			UAFullVersion: "125.0.6422.60", // major 125 == Chrome/125 in the UA
+			Platform: "macOS",
 			FullVersionList: []botcheck.BrandVersion{
-				{Brand: "Chromium", Version: "125.0.6422.60"},
+				{Brand: "Chromium", Version: "125.0.6422.60"}, // major 125 == Chrome/125 in the UA
 				{Brand: "Google Chrome", Version: "125.0.6422.60"},
 				{Brand: "Not.A/Brand", Version: "24.0.0.0"},
 			},
@@ -67,9 +66,8 @@ func cleanChrome() botcheck.Signals {
 		CodecAAC:        true,
 		FontCount:       8,
 		// Quick-win signals (G01/G02/G05), all consistent with a real Chrome 125.
-		ProductSub:       "20030107", // WebKit/Blink constant
-		PdfViewerEnabled: true,       // desktop Chromium ships the PDF viewer
-		Engine:           "blink",    // feature-detected engine matches the Chrome UA
+		ProductSub: "20030107", // WebKit/Blink constant
+		Engine:     "blink",    // feature-detected engine matches the Chrome UA
 	}
 }
 
@@ -364,17 +362,16 @@ func TestQuickWinSignals(t *testing.T) {
 	}{
 		// G05: engine feature-detected as Gecko while the UA claims Chrome (Blink).
 		{"engine vs UA", func(s *botcheck.Signals) { s.Engine = "gecko" }, "engine_ua_mismatch"},
-		// G01: UA says Chrome/125 but userAgentData reports version 120.
-		{"UA version vs userAgentData", func(s *botcheck.Signals) { s.UAData.UAFullVersion = "120.0.0.0" }, "ua_chrome_version_mismatch"},
-		// G01 fallback: uaFullVersion absent, fullVersionList still disagrees.
-		{"version via fullVersionList", func(s *botcheck.Signals) {
-			s.UAData.UAFullVersion = ""
+		// G01: UA says Chrome/125 but userAgentData's Chromium entry reports 120.
+		{"UA version vs userAgentData Chromium entry", func(s *botcheck.Signals) {
+			s.UAData.FullVersionList = []botcheck.BrandVersion{{Brand: "Chromium", Version: "120.0.0.0"}, {Brand: "Not.A/Brand", Version: "24"}}
+		}, "ua_chrome_version_mismatch"},
+		// G01 fallback: no Chromium entry, "Google Chrome" entry still disagrees.
+		{"version via Google Chrome entry", func(s *botcheck.Signals) {
 			s.UAData.FullVersionList = []botcheck.BrandVersion{{Brand: "Google Chrome", Version: "120.0.0.0"}, {Brand: "Not.A/Brand", Version: "24"}}
 		}, "ua_chrome_version_mismatch"},
 		// G02: productSub is Gecko's constant on a Chrome (WebKit/Blink) UA.
 		{"productSub wrong for engine", func(s *botcheck.Signals) { s.ProductSub = "20100101" }, "productsub_mismatch"},
-		// G02 (soft): desktop Chrome with the internal PDF viewer disabled.
-		{"pdf viewer disabled", func(s *botcheck.Signals) { s.PdfViewerEnabled = false }, "pdf_viewer_disabled"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -387,22 +384,86 @@ func TestQuickWinSignals(t *testing.T) {
 	}
 }
 
-// TestFirefoxDoesNotTripEngineConstants guards the engine-awareness of the new
-// rules: a genuine Firefox reports Gecko's productSub and a Gecko engine and has no
-// userAgentData version, so none of the Chromium-oriented cross-checks may fire.
-func TestFirefoxDoesNotTripEngineConstants(t *testing.T) {
-	const ffUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0"
-	s := botcheck.Signals{
-		ClientCollected: true,
-		NavMainUA:       ffUA,
-		HTTPUserAgent:   ffUA,
-		ProductSub:      "20100101", // Gecko's constant
-		Engine:          "gecko",    // Firefox exposes no userAgentData, so no version to check
+// realBrowserUAs are genuine, non-Chrome browsers whose engine-aware cross-checks
+// must NOT false-positive — the exact real-world cases the review flagged: a
+// Chromium fork whose branded version diverges from the Chromium engine (Opera),
+// desktop WebKit (Safari), and iOS browsers (WebKit under any brand token).
+const (
+	operaUA   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 OPR/111.0.0.0"
+	safariUA  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+	fxiosUA   = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/119.0 Mobile/15E148 Safari/605.1.15"
+	criosUA   = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.6422.80 Mobile/15E148 Safari/604.1"
+	firefoxUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0"
+)
+
+// TestRealBrowsersDoNotFalsePositive is the regression guard for the engine-aware
+// rules. Each case is a genuine human browser that must not trip the version /
+// productSub / engine cross-checks — the classes with no coverage before this batch
+// (WebKit/iOS) plus the Opera-style fork whose branded version diverges from the
+// Chromium engine major (which the pre-review code got wrong).
+func TestRealBrowsersDoNotFalsePositive(t *testing.T) {
+	cases := []struct {
+		name        string
+		s           botcheck.Signals
+		mustNotFire []string
+	}{
+		{
+			// Opera: UA carries Chrome/125 (Chromium engine) + OPR/111 (Opera's own
+			// version). The Chromium fullVersionList entry (125) must be what we compare.
+			name: "desktop Opera (Chromium fork, branded version diverges)",
+			s: botcheck.Signals{
+				ClientCollected: true, NavMainUA: operaUA, HTTPUserAgent: operaUA,
+				Engine: "blink", ProductSub: "20030107", Vendor: "Google Inc.",
+				UAData: botcheck.UAData{Platform: "macOS", FullVersionList: []botcheck.BrandVersion{
+					{Brand: "Chromium", Version: "125.0.6422.60"},
+					{Brand: "Opera", Version: "111.0.5067.24"},
+					{Brand: "Not.A/Brand", Version: "24.0.0.0"},
+				}},
+			},
+			mustNotFire: []string{"ua_chrome_version_mismatch", "engine_ua_mismatch", "productsub_mismatch"},
+		},
+		{
+			name: "desktop Safari (WebKit, no userAgentData)",
+			s: botcheck.Signals{
+				ClientCollected: true, NavMainUA: safariUA, HTTPUserAgent: safariUA,
+				Engine: "webkit", ProductSub: "20030107",
+			},
+			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch", "ua_chrome_version_mismatch"},
+		},
+		{
+			name: "iOS Firefox (WebKit under FxiOS)",
+			s: botcheck.Signals{
+				ClientCollected: true, NavMainUA: fxiosUA, HTTPUserAgent: fxiosUA,
+				Engine: "webkit", ProductSub: "20030107", // Apple forces WebKit ⇒ WebKit's productSub
+			},
+			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch"},
+		},
+		{
+			name: "iOS Chrome (WebKit under CriOS)",
+			s: botcheck.Signals{
+				ClientCollected: true, NavMainUA: criosUA, HTTPUserAgent: criosUA,
+				Engine: "webkit", ProductSub: "20030107",
+			},
+			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch"},
+		},
+		{
+			// Genuine desktop Firefox: Gecko engine + Gecko productSub, no userAgentData.
+			name: "desktop Firefox (Gecko)",
+			s: botcheck.Signals{
+				ClientCollected: true, NavMainUA: firefoxUA, HTTPUserAgent: firefoxUA,
+				Engine: "gecko", ProductSub: "20100101",
+			},
+			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch", "ua_chrome_version_mismatch"},
+		},
 	}
-	r := botcheck.Evaluate(s)
-	for _, id := range []string{"productsub_mismatch", "engine_ua_mismatch", "ua_chrome_version_mismatch"} {
-		if check(t, r, id).Triggered {
-			t.Errorf("%s must not fire for a genuine Firefox browser", id)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := botcheck.Evaluate(tc.s)
+			for _, id := range tc.mustNotFire {
+				if check(t, r, id).Triggered {
+					t.Errorf("%s must not fire for %s (detail: %q)", id, tc.name, check(t, r, id).Detail)
+				}
+			}
+		})
 	}
 }

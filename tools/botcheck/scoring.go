@@ -130,8 +130,8 @@ var rules = []rule{
 	},
 	{
 		// A UA-string spoof that edits "Chrome/NNN" but leaves userAgentData intact
-		// disagrees here: the UA's Chromium major must equal the version userAgentData
-		// reports (uaFullVersion / fullVersionList). The CreepJS/Electron frozen-UA catch.
+		// disagrees here: the UA's Chromium major must equal the "Chromium" brand entry
+		// of fullVersionList (see chVersionMajor). The CreepJS/Electron frozen-UA catch.
 		id: "ua_chrome_version_mismatch", label: "User-Agent Chrome version ≠ userAgentData version", tier: TierConsistency, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			uaM, chM := uaChromeMajor(clientUA(s)), chVersionMajor(s.UAData)
@@ -332,11 +332,7 @@ var rules = []rule{
 	{
 		id: "no_chrome_object", label: "window.chrome missing on a Chrome User-Agent", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
-			ua := s.NavMainUA
-			if ua == "" {
-				ua = s.HTTPUserAgent
-			}
-			return strings.Contains(ua, "Chrome") && !s.HasChromeObject, ""
+			return strings.Contains(clientUA(s), "Chrome") && !s.HasChromeObject, ""
 		},
 	},
 	{
@@ -397,15 +393,5 @@ var rules = []rule{
 		// surface or a font-less headless/VM environment.
 		id: "no_fonts", label: "No system fonts detectable", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.FontCount == 0, "" },
-	},
-	{
-		// Desktop Chromium ships an internal PDF viewer (navigator.pdfViewerEnabled
-		// true); headless builds often report false. Desktop-only: Android Chrome
-		// legitimately reports false, so gate on a non-mobile Chrome UA.
-		id: "pdf_viewer_disabled", label: "Desktop Chrome but PDF viewer disabled (headless tell)", tier: TierSoft, weight: 8, needsClient: true,
-		eval: func(s Signals) (bool, string) {
-			ua := clientUA(s)
-			return strings.Contains(ua, "Chrome") && !isMobileUA(ua) && !s.UAData.Mobile && !s.PdfViewerEnabled, ""
-		},
 	},
 }
