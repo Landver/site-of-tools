@@ -130,6 +130,24 @@ func TestIndexSetsAcceptCH(t *testing.T) {
 	}
 }
 
+func TestIndexRendersHistoryCard(t *testing.T) {
+	// G46: the "your recent checks" card ships in the page shell — hidden until the
+	// collector fills it from the visitor's own localStorage, with copy stating the
+	// list never leaves the browser. The list itself is client-rendered JS (no JS
+	// harness here); this pins the card's presence, its initial hidden state, and
+	// the local-only disclosure.
+	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	for _, want := range []string{
+		`id="botcheck-history" hidden`, "your recent checks",
+		"only in your browser's local storage", "never sent to",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index page missing %q for the G46 history card:\n%s", want, body)
+		}
+	}
+}
+
 func TestIndexCurlGetsServerOnlyScore(t *testing.T) {
 	// A datacenter IP should surface in the server-only score, even with no client
 	// fingerprint. A normal browser UA avoids the empty-UA bot signal so we isolate

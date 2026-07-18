@@ -274,7 +274,7 @@ what they do and the recommended move for our stack.
 | # | Capability they provide | Who has it | Sev · Effort · Status | What they do that we don't → recommended move |
 |---|---|---|---|---|
 | G45 | Evercookie / supercookie persistence test | whoer.net, AmIUnique.org, EFF Cover Your Tracks | low · low · **Not built** | Test whether a supercookie/DOM-storage persistence vector survives, surfacing tracking/persistence exposure. → **This is a privacy-exposure test, not bot detection. Out of scope for our tool; skip.** |
-| G46 | Returning-visitor result history / timeline | AmIUnique.org, iphey.com, EFF Cover Your Tracks | low · medium · Deferred (documented) | Persist prior results (server corpus or browser localStorage) so a user can revisit and see how their fingerprint/result changed over time, with a selectable time window. → **A localStorage-only history (no server persistence) would respect our stateless server rule and give a nice UX touch. Low priority but the cheapest 'history' option if we want it.** |
+| G46 | Returning-visitor result history / timeline | AmIUnique.org, iphey.com, EFF Cover Your Tracks | low · medium · **Shipped (localStorage only)** | Persist prior results (server corpus or browser localStorage) so a user can revisit and see how their fingerprint/result changed over time, with a selectable time window. → **A localStorage-only history (no server persistence) would respect our stateless server rule and give a nice UX touch. Low priority but the cheapest 'history' option if we want it.** → **Shipped 2026-07-18 (localStorage only, no server state):** after each run the collector appends `{ts, score, verdict}` — read from the swapped-in verdict card's `data-score`/`data-verdict` attrs — to a `botcheck:history` localStorage list capped at the 20 most recent entries, all storage access wrapped so private mode never breaks the result flow. A "your recent checks" card renders the list (hidden when empty) and states it never leaves the browser. The selectable time window / server-corpus variant stays deferred. |
 | G47 | Stable persistent visitor ID / device matching | Fingerprint.com, CreepJS, iphey.com, bot.incolumitas | low · ml-or-db · Deferred (documented) | Produce a stable device/visitor ID (Fingerprint: survives incognito/cookie-clear/VPN switching; CreepJS: FP ID + fuzzy locality hash; iphey: 128-bit hash) for cross-session correlation. → **Deferred and off-mission for a stateless self-test. A within-request fingerprint hash (no storage) could be shown for transparency cheaply, but persistent cross-session identity needs storage (MongoDB is now available) and botcheck deliberately isn't stateful yet. Keep deferred.** |
 
 ### Scoring model & cross-layer fusion
@@ -323,8 +323,8 @@ oversights:
   nginx/Cloudflare terminate TLS in front of Go.
 - **Needs a stored corpus (MongoDB is now available, but botcheck doesn't use it
   yet):** crowd rarity & entropy (G40, G58), fuzzy hashing (G42), fingerprint-reuse
-  (G41), request velocity (G43), persistent visitor ID (G47), returning-visitor
-  history (G46, cheap via localStorage only).
+  (G41), request velocity (G43), persistent visitor ID (G47). (Returning-visitor
+  history, G46, shipped localStorage-only instead — no corpus needed.)
 - **Conflicts with no-ML / stateless:** behavioral biometrics (G34), intent
   modeling (G35), ML risk model (G52), time-staggered re-scoring (G51).
 - **Off-brand non-goals for a self-test tool:** enforcement / inline WAF (G61),

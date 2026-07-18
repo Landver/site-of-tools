@@ -5,9 +5,10 @@
 // Web Worker / iframe / Service Worker, permissions, geometry, timezone, the
 // userAgentData version list, a feature-detected engine family, and engine
 // constants like navigator.productSub), POSTs them as JSON to /check, and swaps
-// the returned HTML fragment into #result. Every probe is wrapped in safe() so
-// one failure never aborts collection. Scoring/verdict happens server-side in
-// Go — this only collects, it never decides.
+// the returned HTML fragment into #result. After a run it also appends the
+// verdict to a localStorage-only history (G46, never uploaded). Every probe is
+// wrapped in safe() so one failure never aborts collection. Scoring/verdict
+// happens server-side in Go — this only collects, it never decides.
 (() => {
   "use strict";
 
@@ -619,6 +620,54 @@
     };
   };
 
+  // ── G46: returning-visitor history (localStorage only, never uploaded) ────
+  // After each completed run, append {ts, score, verdict} — read off the
+  // swapped-in verdict card's data attrs — to the botcheck:history list (capped
+  // at the 20 most recent) and re-render the "your recent checks" card. Every
+  // step goes through safe(): private mode can make any localStorage access
+  // throw, and history is best-effort — it must never break the result flow.
+  const HISTORY_KEY = "botcheck:history";
+  const HISTORY_MAX = 20;
+  const VERDICT_CLASS = { human: "text-ok", suspicious: "text-warn", "good-bot": "text-brand" };
+
+  const readHistory = () => safe(() => {
+    const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
+  }, []);
+
+  const renderHistory = () => safe(() => {
+    const card = document.getElementById("botcheck-history");
+    const ul = card && card.querySelector("ul");
+    if (!ul) return;
+    const entries = readHistory();
+    card.hidden = entries.length === 0;
+    ul.replaceChildren(...entries.reverse().map((e) => {
+      const li = document.createElement("li");
+      li.className = "flex items-baseline gap-3 py-2";
+      const time = document.createElement("span");
+      time.className = "flex-1 min-w-0 text-faint";
+      time.textContent = new Date(e.ts).toLocaleString();
+      const score = document.createElement("span");
+      score.className = "shrink-0 font-mono text-strong";
+      score.textContent = e.score + "/100";
+      const verdict = document.createElement("span");
+      verdict.className = "shrink-0 font-mono text-xs " + (VERDICT_CLASS[e.verdict] || "text-danger");
+      verdict.textContent = e.verdict;
+      li.append(time, score, verdict);
+      return li;
+    }));
+  });
+
+  const recordHistory = () => safe(() => {
+    const el = document.querySelector("#result [data-score][data-verdict]");
+    const score = el ? Number(el.getAttribute("data-score")) : NaN;
+    if (!Number.isFinite(score)) return; // an error fragment carries no verdict card
+    const list = readHistory();
+    list.push({ ts: Date.now(), score, verdict: el.getAttribute("data-verdict") || "" });
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(-HISTORY_MAX)));
+    renderHistory();
+  });
+
   const runBotCheck = async () => {
     const status = document.getElementById("botcheck-status");
     const result = document.getElementById("result");
@@ -630,6 +679,7 @@
         body: JSON.stringify(await collect()),
       });
       if (result) result.innerHTML = await res.text();
+      recordHistory();
       if (status) status.textContent = "";
     } catch {
       if (status) status.textContent = "check failed — try again";
@@ -637,6 +687,7 @@
   };
 
   window.runBotCheck = runBotCheck;
+  renderHistory(); // G46: a returning visitor sees their history before the first run
 
   // Auto-run once the page is warmed up. Probes that touch the font cache and media
   // pipeline can read "cold" at DOMContentLoaded — a spurious "no fonts / no codecs"
