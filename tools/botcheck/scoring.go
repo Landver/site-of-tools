@@ -14,6 +14,7 @@ type rule struct {
 	id          string
 	label       string
 	tier        string
+	subgroup    string
 	weight      int
 	needsClient bool
 	eval        func(Signals) (bool, string)
@@ -122,7 +123,7 @@ var rules = []rule{
 
 	// ── Consistency (client claim vs. server / second context) ─────────────────
 	{
-		id: "ua_header_mismatch", label: "JS User-Agent ≠ HTTP User-Agent", tier: TierConsistency, weight: 35, needsClient: true,
+		id: "ua_header_mismatch", label: "JS User-Agent ≠ HTTP User-Agent", tier: TierConsistency, subgroup: subgroupUA, weight: 35, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.NavMainUA == "" || s.HTTPUserAgent == "" || s.NavMainUA == s.HTTPUserAgent {
 				return false, ""
@@ -131,7 +132,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "context_ua_mismatch", label: "Worker/iframe/Service-Worker User-Agent ≠ main-thread User-Agent", tier: TierConsistency, weight: 35, needsClient: true,
+		id: "context_ua_mismatch", label: "Worker/iframe/Service-Worker User-Agent ≠ main-thread User-Agent", tier: TierConsistency, subgroup: subgroupContext, weight: 35, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.NavMainUA == "" {
 				return false, ""
@@ -154,7 +155,7 @@ var rules = []rule{
 		// shows the real list. Compare primary subtags only (en-US vs en is the
 		// same language), and only when both sides answered — an empty context
 		// list means the API is unsupported there, not a mismatch.
-		id: "context_language_mismatch", label: "Worker/iframe/Service-Worker language ≠ main-thread language", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "context_language_mismatch", label: "Worker/iframe/Service-Worker language ≠ main-thread language", tier: TierConsistency, subgroup: subgroupContext, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if len(s.Languages) == 0 {
 				return false, ""
@@ -185,7 +186,7 @@ var rules = []rule{
 		// farbling report the same capped number in every context of the origin,
 		// so a real privacy browser still agrees with itself. Only a spoof that
 		// patched one context and forgot the others disagrees.
-		id: "context_cores_mismatch", label: "Worker/iframe/Service-Worker hardwareConcurrency ≠ main thread", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "context_cores_mismatch", label: "Worker/iframe/Service-Worker hardwareConcurrency ≠ main thread", tier: TierConsistency, subgroup: subgroupContext, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.HardwareCores == 0 {
 				return false, ""
@@ -209,7 +210,7 @@ var rules = []rule{
 		// G03: userAgentData.platform re-read in each secondary context (empty on
 		// Safari/Firefox, which simply skip). normPlatform on both sides so
 		// "macOS" vs "Mac OS X" style spelling variants can't false-fire.
-		id: "context_platform_mismatch", label: "Worker/iframe/Service-Worker platform ≠ main-thread platform", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "context_platform_mismatch", label: "Worker/iframe/Service-Worker platform ≠ main-thread platform", tier: TierConsistency, subgroup: subgroupContext, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			main := normPlatform(s.UAData.Platform)
 			if main == "" {
@@ -233,7 +234,7 @@ var rules = []rule{
 		// GPU ⇒ same renderer string; a spoofed top-frame WebGL read disagrees.
 		// Fires only when both reads succeeded (OffscreenCanvas WebGL is often
 		// unsupported, which just leaves the worker side empty).
-		id: "context_webgl_mismatch", label: "Worker WebGL renderer ≠ main-thread WebGL renderer", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "context_webgl_mismatch", label: "Worker WebGL renderer ≠ main-thread WebGL renderer", tier: TierConsistency, subgroup: subgroupContext, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.WebGLRenderer == "" || s.WorkerWebGLRenderer == "" || s.WebGLRenderer == s.WorkerWebGLRenderer {
 				return false, ""
@@ -242,7 +243,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "ch_platform_mismatch", label: "Sec-CH-UA-Platform ≠ navigator.userAgentData.platform", tier: TierConsistency, weight: 30, needsClient: true,
+		id: "ch_platform_mismatch", label: "Sec-CH-UA-Platform ≠ navigator.userAgentData.platform", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			h, j := normPlatform(s.SecCHUAPlatform), normPlatform(s.UAData.Platform)
 			if h == "" || j == "" || h == j {
@@ -252,7 +253,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "ua_os_mismatch", label: "OS in User-Agent ≠ userAgentData.platform", tier: TierConsistency, weight: 30, needsClient: true,
+		id: "ua_os_mismatch", label: "OS in User-Agent ≠ userAgentData.platform", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			ua := osFromUA(s.NavMainUA)
 			if ua == "" {
@@ -270,7 +271,7 @@ var rules = []rule{
 		// and compare to the engine the UA claims. Robust against a spoofed UA string:
 		// the engine probes read capabilities the UA can't fake. Only fires on a
 		// confident disagreement (both sides known and different).
-		id: "engine_ua_mismatch", label: "Feature-detected engine ≠ engine the User-Agent claims", tier: TierConsistency, weight: 30, needsClient: true,
+		id: "engine_ua_mismatch", label: "Feature-detected engine ≠ engine the User-Agent claims", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			want := engineFromUA(clientUA(s))
 			if want == "" || s.Engine == "" || s.Engine == want {
@@ -283,7 +284,7 @@ var rules = []rule{
 		// A UA-string spoof that edits "Chrome/NNN" but leaves userAgentData intact
 		// disagrees here: the UA's Chromium major must equal the "Chromium" brand entry
 		// of fullVersionList (see chVersionMajor). The CreepJS/Electron frozen-UA catch.
-		id: "ua_chrome_version_mismatch", label: "User-Agent Chrome version ≠ userAgentData version", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "ua_chrome_version_mismatch", label: "User-Agent Chrome version ≠ userAgentData version", tier: TierConsistency, subgroup: subgroupUA, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			uaM, chM := uaChromeMajor(clientUA(s)), chVersionMajor(s.UAData)
 			if uaM == 0 || chM == 0 || uaM == chM {
@@ -293,7 +294,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "embedded_runtime", label: "User-Agent is an embedded app runtime (Electron/CEF)", tier: TierConsistency, weight: 25,
+		id: "embedded_runtime", label: "User-Agent is an embedded app runtime (Electron/CEF)", tier: TierConsistency, subgroup: subgroupUA, weight: 25,
 		eval: func(s Signals) (bool, string) {
 			ua := s.HTTPUserAgent
 			if ua == "" {
@@ -306,7 +307,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.BrowserTZ == "" || s.IPTimezone == "" {
 				return false, ""
@@ -329,7 +330,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "datacenter_ip", label: "Egress IP is a datacenter / Tor address", tier: TierConsistency, weight: 30,
+		id: "datacenter_ip", label: "Egress IP is a datacenter / Tor address", tier: TierConsistency, subgroup: subgroupNetwork, weight: 30,
 		eval: func(s Signals) (bool, string) {
 			if s.IsDatacenter {
 				return true, "datacenter / hosting"
@@ -344,7 +345,7 @@ var rules = []rule{
 		// Mutually exclusive with datacenter_ip: IP2Proxy marks datacenters/Tor as
 		// proxies too, so only fire here for a VPN or an otherwise-uncategorised
 		// proxy — never double-count an address the datacenter rule already caught.
-		id: "proxy_ip", label: "Egress IP is a proxy / VPN", tier: TierConsistency, weight: 20,
+		id: "proxy_ip", label: "Egress IP is a proxy / VPN", tier: TierConsistency, subgroup: subgroupNetwork, weight: 20,
 		eval: func(s Signals) (bool, string) {
 			if s.IsVPN {
 				return true, "VPN"
@@ -356,13 +357,13 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "permission_impossible", label: "Impossible permission state (prompt while denied)", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "permission_impossible", label: "Impossible permission state (prompt while denied)", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			return s.PermissionState == "prompt" && s.NotificationPerm == "denied", ""
 		},
 	},
 	{
-		id: "lang_mismatch", label: "navigator.languages ≠ Accept-Language", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "lang_mismatch", label: "navigator.languages ≠ Accept-Language", tier: TierConsistency, subgroup: subgroupUA, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			var nav string
 			if len(s.Languages) > 0 {
@@ -376,21 +377,21 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "cdp_main_only", label: "CDP automation detected in main thread only", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "cdp_main_only", label: "CDP automation detected in main thread only", tier: TierConsistency, subgroup: subgroupContext, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
 	},
 	{
 		// G14: the CDP serialization trap fired ONLY in the Service Worker context.
 		// Guarded against the main/worker flags so one observation never
 		// double-counts with cdp_both / cdp_main_only.
-		id: "cdp_sw_only", label: "CDP automation detected in the Service Worker only", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "cdp_sw_only", label: "CDP automation detected in the Service Worker only", tier: TierConsistency, subgroup: subgroupContext, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.SWCDP && !s.CDPMainThread && !s.CDPWorker, "" },
 	},
 	{
 		// Self-consistency (no IP needed): the browser's own IANA timezone must
 		// agree with its own Date().getTimezoneOffset(). Spoofers commonly change
 		// one and forget the other.
-		id: "tz_self_inconsistent", label: "Timezone name disagrees with getTimezoneOffset()", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "tz_self_inconsistent", label: "Timezone name disagrees with getTimezoneOffset()", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			secs, ok := zoneOffsetSeconds(s.BrowserTZ, s.Now)
 			if s.BrowserTZ == "" || !ok {
@@ -406,14 +407,14 @@ var rules = []rule{
 	{
 		// Randomised canvas output (two identical draws hashing differently) is a
 		// noise-injecting anti-fingerprint / stealth tool.
-		id: "canvas_unstable", label: "Canvas output is randomised between draws", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "canvas_unstable", label: "Canvas output is randomised between draws", tier: TierConsistency, subgroup: subgroupInternals, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CanvasSupported && !s.CanvasStable, "" },
 	},
 	{
 		// Parse the Sec-CH-UA header brand list (server) and compare to the JS
 		// userAgentData.brands (client); a spoofed User-Agent that forgets to keep
 		// the two in sync is caught here. GREASE decoy brand is ignored.
-		id: "ch_brands_mismatch", label: "Sec-CH-UA header brands ≠ userAgentData.brands", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "ch_brands_mismatch", label: "Sec-CH-UA header brands ≠ userAgentData.brands", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			hdr, js := realBrandSet(chBrandNames(s.SecCHUA)), realBrandSet(s.Brands)
 			if len(hdr) == 0 || len(js) == 0 || sameStringSet(hdr, js) {
@@ -423,7 +424,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "vendor_mismatch", label: "Chromium User-Agent but navigator.vendor ≠ \"Google Inc.\"", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "vendor_mismatch", label: "Chromium User-Agent but navigator.vendor ≠ \"Google Inc.\"", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			ua := clientUA(s)
 			if strings.Contains(ua, "Chrome") && s.Vendor != "" && s.Vendor != "Google Inc." {
@@ -433,7 +434,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "app_version_mismatch", label: "navigator.appVersion inconsistent with User-Agent", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "app_version_mismatch", label: "navigator.appVersion inconsistent with User-Agent", tier: TierConsistency, subgroup: subgroupUA, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Every mainstream browser reports appVersion as the UA minus "Mozilla/".
 			if s.NavMainUA == "" || s.AppVersion == "" || !strings.HasPrefix(s.NavMainUA, "Mozilla/") {
@@ -446,7 +447,7 @@ var rules = []rule{
 		// navigator.productSub is a fixed per-engine constant ("20030107" on every
 		// WebKit/Blink browser, "20100101" on Gecko). A value that doesn't match the
 		// engine the UA claims is a classic spoof/patched-runtime tell.
-		id: "productsub_mismatch", label: "navigator.productSub not the engine's constant", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "productsub_mismatch", label: "navigator.productSub not the engine's constant", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			want := expectedProductSub(clientUA(s))
 			if want == "" || s.ProductSub == "" || s.ProductSub == want {
@@ -456,7 +457,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "language_primary_mismatch", label: "navigator.language ≠ navigator.languages[0]", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "language_primary_mismatch", label: "navigator.language ≠ navigator.languages[0]", tier: TierConsistency, subgroup: subgroupUA, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.NavLanguage == "" || len(s.Languages) == 0 || s.Languages[0] == "" {
 				return false, ""
@@ -477,7 +478,7 @@ var rules = []rule{
 		// family AND differ: an empty or unparseable string (VM, software rasteriser,
 		// masked) is no signal, so e.g. an "ARM" vendor beside a "Mali" renderer
 		// (normal on Android) stays silent.
-		id: "webgl_vendor_mismatch", label: "WebGL vendor and renderer disagree", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "webgl_vendor_mismatch", label: "WebGL vendor and renderer disagree", tier: TierConsistency, subgroup: subgroupInternals, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			vf, rf := gpuVendorFamily(s.WebGLVendor, ""), gpuVendorFamily("", s.WebGLRenderer)
 			if vf == "" || rf == "" || vf == rf {
@@ -497,7 +498,7 @@ var rules = []rule{
 		// Chrome OS, Mesa/unknown GPU, unparseable UA. The GPU family is read from
 		// vendor and renderer together, so Firefox ("NVIDIA Corporation") and
 		// Safari ("Apple Inc." / "Apple GPU") are classified as confidently as ANGLE.
-		id: "gpu_os_mismatch", label: "WebGL GPU impossible on the claimed OS", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "gpu_os_mismatch", label: "WebGL GPU impossible on the claimed OS", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			fam, os := gpuVendorFamily(s.WebGLVendor, s.WebGLRenderer), osFromUA(clientUA(s))
 			if fam == "" || os == "" || !gpuOSImpossible[fam][os] {
@@ -511,7 +512,7 @@ var rules = []rule{
 		// privacy extensions (canvas/WebGL noise injectors) is conceivable for these
 		// DOM-facing APIs, and such a patch can leave an impossible descriptor — so
 		// this is a consistency hit, not a standalone bot proof.
-		id: "native_descriptor_tamper", label: "Native function has an impossible property descriptor", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "native_descriptor_tamper", label: "Native function has an impossible property descriptor", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Skip pre-v2 payloads (stale collector): false would mean "field
 			// didn't exist yet", not tampering — see collectorVDeepTamper.
@@ -525,7 +526,7 @@ var rules = []rule{
 		// Same not-hard reasoning as native_descriptor_tamper: a privacy extension's
 		// JS override of a DOM API typically misses the constructor/brand-check
 		// TypeErrors a genuine native throws.
-		id: "native_callnew_tamper", label: "Native function misses its call/new TypeError traps", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "native_callnew_tamper", label: "Native function misses its call/new TypeError traps", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Skip pre-v2 payloads, same as native_descriptor_tamper.
 			if s.CollectorV < collectorVDeepTamper {
@@ -539,7 +540,7 @@ var rules = []rule{
 		// iframe.contentWindow patch wrapping the fresh context to inject spoofs
 		// (CreepJS hasIframeProxy). True only when the patched getter verifiably
 		// throws; a genuine engine never does.
-		id: "iframe_proxy", label: "iframe contentWindow is proxied (stealth iframe patch)", tier: TierConsistency, weight: 30, needsClient: true,
+		id: "iframe_proxy", label: "iframe contentWindow is proxied (stealth iframe patch)", tier: TierConsistency, subgroup: subgroupInternals, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.IframeProxied, "" },
 	},
 	{
@@ -548,7 +549,7 @@ var rules = []rule{
 		// reports 0. v3-gated: the field is damning when zero on a stale payload
 		// that never sent it. Deliberately no reverse direction (desktop UA +
 		// touch): touch-screen Windows laptops would false-fire constantly.
-		id: "mobile_no_touch", label: "Mobile User-Agent reports zero touch points", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "mobile_no_touch", label: "Mobile User-Agent reports zero touch points", tier: TierConsistency, subgroup: subgroupInternals, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
 				return false, ""
@@ -568,7 +569,7 @@ var rules = []rule{
 		// not hard (same reasoning as native_descriptor_tamper): a legit privacy
 		// extension could patch these the same way. v3-gated: the OK bool is
 		// damning when false on a stale payload that never sent it.
-		id: "navigator_proto_tamper", label: "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "navigator_proto_tamper", label: "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
 				return false, ""
@@ -582,7 +583,7 @@ var rules = []rule{
 		// TypeError); a stealth-bolted fake gets the shape or the error constructor
 		// wrong (CreepJS hasBadChromeRuntime). Chrome UA only; v3-gated like the
 		// other fail-to-pass OK bools.
-		id: "chrome_runtime_tamper", label: "window.chrome.runtime fails the integrity probe", tier: TierConsistency, weight: 20, needsClient: true,
+		id: "chrome_runtime_tamper", label: "window.chrome.runtime fails the integrity probe", tier: TierConsistency, subgroup: subgroupInternals, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
 				return false, ""
@@ -595,7 +596,7 @@ var rules = []rule{
 		// early among window keys; a stealth patch bolting on a fake chrome object
 		// appends it late — 'chrome' in the last ~50 window keys (CreepJS
 		// hasHighChromeIndex). Chrome UA only.
-		id: "chrome_late_injection", label: "window.chrome was injected late (stealth bolt-on)", tier: TierConsistency, weight: 15, needsClient: true,
+		id: "chrome_late_injection", label: "window.chrome was injected late (stealth bolt-on)", tier: TierConsistency, subgroup: subgroupInternals, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			return strings.Contains(clientUA(s), "Chrome") && s.ChromeLateInjection, ""
 		},
@@ -606,7 +607,7 @@ var rules = []rule{
 		// the UA claims — a second engine check, independent of the CSS/capability
 		// probes engine_ua_mismatch uses, and robust against a spoofed UA string.
 		// Both sides confident or no fire.
-		id: "jsengine_ua_mismatch", label: "Feature-detected JS engine ≠ engine the User-Agent claims", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "jsengine_ua_mismatch", label: "Feature-detected JS engine ≠ engine the User-Agent claims", tier: TierConsistency, subgroup: subgroupUA, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			want := jsEngineFromUA(clientUA(s))
 			if want == "" || s.JSEngine == "" || s.JSEngine == want {
@@ -623,7 +624,7 @@ var rules = []rule{
 		// normal NAT, never a tell), and only same-family candidates are compared
 		// (dual-stack IPv6-vs-IPv4 would false-fire real browsers). An empty
 		// candidate list or an unknown egress means "not supplied" ⇒ no signal.
-		id: "webrtc_ip_mismatch", label: "Public WebRTC candidate IP ≠ egress IP", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "webrtc_ip_mismatch", label: "Public WebRTC candidate IP ≠ egress IP", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			egress, ok := publicIP(s.EgressIP)
 			if !ok || len(s.WebRTCIPs) == 0 {
@@ -652,7 +653,7 @@ var rules = []rule{
 		// a couple of IPs honestly, hence the five-IP floor. Verified crawler
 		// fleets legitimately share one fingerprint across many IPs, so this
 		// deduction is suppressed for them (suppressedForGoodBot).
-		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, weight: 25, needsClient: true,
+		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintIPs < fingerprintReuseMinIPs {
 				return false, ""

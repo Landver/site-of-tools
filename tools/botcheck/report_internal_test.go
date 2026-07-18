@@ -7,6 +7,14 @@ import "testing"
 // a ruleExplanations entry — including the 14 rules being built in parallel on
 // the sibling branch, whose entries are pre-seeded here and must survive the
 // merge (the second loop pins those reserved IDs by name).
+func TestEveryConsistencyRuleHasSubgroup(t *testing.T) {
+	for _, r := range rules {
+		if r.tier == TierConsistency && r.subgroup == "" {
+			t.Errorf("consistency rule %q (%s) has no subgroup", r.id, r.label)
+		}
+	}
+}
+
 func TestEveryRuleHasAnExplanation(t *testing.T) {
 	for _, r := range rules {
 		if ruleExplanations[r.id] == "" {

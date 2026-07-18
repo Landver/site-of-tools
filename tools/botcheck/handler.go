@@ -85,10 +85,7 @@ func (h *handler) index(c *echo.Context) error {
 	// dependency clear. We request only what the scorer reads — nothing more.
 	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
-		// G38/G44: enrich the "your request" card with the ASN/proxy attribution
-		// the shared conn partial renders when present (best-effort, like the IP
-		// signals — a failed lookup renders the six transport rows unchanged).
-		"Title": "Bot check", "Conn": platform.Conn(c).WithNetwork(h.network(c)),
+		"Title": "Bot check",
 	})
 }
 
@@ -107,7 +104,7 @@ func (h *handler) check(c *echo.Context) error {
 			Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}})
 	}
 	sig.ClientCollected = true
-	h.addServerSignals(c, &sig)
+	connNet := h.addServerSignals(c, &sig)
 	// G41/G42: fold the fingerprint into the rolling corpus, then count how many
 	// distinct IPs presented this exact one — the scraping-farm tell. Best-effort:
 	// a disabled corpus or a Mongo error leaves FingerprintIPs 0 ("no corpus
@@ -123,14 +120,20 @@ func (h *handler) check(c *echo.Context) error {
 	if platform.WantsJSON(c) {
 		return c.JSON(http.StatusOK, report)
 	}
-	return c.Render(http.StatusOK, "botcheck/result", report)
+	return c.Render(http.StatusOK, "botcheck/result", map[string]any{
+		"Report": report,
+		"Conn":   platform.Conn(c).WithNetwork(connNet),
+	})
 }
 
 // addServerSignals fills the half of Signals that Go sees without any JS: request
 // headers plus IP reputation/geo from the shared iptools service. The IP lookup
 // is best-effort — a missing/failed database just leaves those fields zero (the
 // scorer treats that as "no server IP signal"), exactly as the IP tool degrades.
-func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
+// It returns the conn-card network attribution from the same lookup so the check
+// handler can enrich the "your request" pane without a second IP lookup.
+func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnNetwork {
+	var net platform.ConnNetwork
 	r := c.Request()
 	sig.Now = time.Now()
 	sig.HTTPUserAgent = r.UserAgent()
@@ -150,11 +153,11 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	sig.HTTPUpgradeInsecureRequests = r.Header.Get("Upgrade-Insecure-Requests")
 
 	if h.svc == nil {
-		return
+		return net
 	}
 	res, err := h.svc.Lookup(c.RealIP())
 	if err != nil || res == nil {
-		return
+		return net
 	}
 	// "-" is IP2Location's unknown placeholder (e.g. localhost); treat it as no
 	// signal so the timezone cross-check doesn't fire against it.
@@ -171,6 +174,7 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 			sig.IsTor = true
 		}
 	}
+	return res.ConnNetwork()
 }
 
 // cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to an
@@ -183,21 +187,4 @@ func cleanPlaceholder(s string) string {
 		return ""
 	}
 	return s
-}
-
-// network resolves the G38/G44 conn-card enrichment: the ASN and proxy
-// attribution the shared conn partial renders when present. It follows the
-// addServerSignals degradation contract — a nil service or a failed lookup
-// yields a zero ConnNetwork, and the card renders its six transport rows
-// unchanged. The Result → ConnNetwork mapping itself lives on iptools.Result
-// (ConnNetwork) so both tools share one implementation.
-func (h *handler) network(c *echo.Context) platform.ConnNetwork {
-	if h.svc == nil {
-		return platform.ConnNetwork{}
-	}
-	res, err := h.svc.Lookup(c.RealIP())
-	if err != nil {
-		return platform.ConnNetwork{}
-	}
-	return res.ConnNetwork() // nil-safe: no result ⇒ no enrichment
 }

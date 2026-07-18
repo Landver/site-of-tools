@@ -259,6 +259,15 @@ const (
 	TierSoft        = "soft"        // weak on its own; only counts in a cluster
 )
 
+// Subgroup splits the consistency tier into presentation groups. It has no
+// effect on scoring; it is only used to render the result breakdown.
+const (
+	subgroupNetwork   = "network"
+	subgroupUA        = "ua"
+	subgroupContext   = "context"
+	subgroupInternals = "internals"
+)
+
 // Check is one row in the transparent breakdown table. Triggered means the
 // anomaly fired (bad); Skipped means it could not be evaluated (e.g. a
 // client-only signal on a server-only request) and so neither counts nor reads
@@ -267,6 +276,7 @@ type Check struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Tier      string `json:"tier"`
+	Subgroup  string `json:"-"`
 	Weight    int    `json:"weight"`
 	Triggered bool   `json:"triggered"`
 	Skipped   bool   `json:"skipped,omitempty"`
@@ -400,7 +410,7 @@ func Evaluate(s Signals) Report {
 			triggered, detail = r.eval(s)
 		}
 		c := Check{
-			ID: r.id, Label: r.label, Tier: r.tier, Weight: r.weight,
+			ID: r.id, Label: r.label, Tier: r.tier, Subgroup: r.subgroup, Weight: r.weight,
 			Triggered: triggered, Skipped: skipped, Detail: detail,
 		}
 		// Hard/consistency rules dock their weight immediately; soft rules never bite
@@ -887,6 +897,18 @@ func (r Report) Group(tier string) []Check {
 	out := make([]Check, 0, len(r.Checks))
 	for _, c := range r.Checks {
 		if c.Tier == tier {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// Subgroup returns the checks in one tier + subgroup. Empty subgroup returns
+// nothing; this is only used by the consistency tier, which is split for display.
+func (r Report) Subgroup(tier, subgroup string) []Check {
+	out := make([]Check, 0, len(r.Checks))
+	for _, c := range r.Checks {
+		if c.Tier == tier && c.Subgroup == subgroup {
 			out = append(out, c)
 		}
 	}

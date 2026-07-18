@@ -811,7 +811,10 @@
         headers: { "Content-Type": "application/json", "Accept": "text/html" },
         body: JSON.stringify(await collect()),
       });
-      if (result) result.innerHTML = await res.text();
+      if (result) {
+        result.innerHTML = await res.text();
+        if (window.Alpine) window.Alpine.initTree(result);
+      }
       recordHistory();
       if (status) status.textContent = "";
     } catch {

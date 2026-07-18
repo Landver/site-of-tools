@@ -97,6 +97,25 @@ func TestTierScoreMatchesEvaluate(t *testing.T) {
 	}
 }
 
+func TestSubgroup(t *testing.T) {
+	rep := botcheck.Report{Checks: []botcheck.Check{
+		{ID: "webdriver", Tier: "hard"},
+		{ID: "tz_mismatch", Tier: "consistency", Subgroup: "network"},
+		{ID: "datacenter_ip", Tier: "consistency", Subgroup: "network"},
+		{ID: "ua_header_mismatch", Tier: "consistency", Subgroup: "ua"},
+	}}
+	got := rep.Subgroup("consistency", "network")
+	if len(got) != 2 || got[0].ID != "tz_mismatch" || got[1].ID != "datacenter_ip" {
+		t.Errorf("Subgroup(consistency, network) = %+v, want the two network checks", got)
+	}
+	if got := rep.Subgroup("hard", "network"); len(got) != 0 {
+		t.Errorf("Subgroup(hard, network) = %+v, want empty", got)
+	}
+	if got := rep.Subgroup("consistency", "no-such-subgroup"); len(got) != 0 {
+		t.Errorf("Subgroup(consistency, no-such-subgroup) = %+v, want empty", got)
+	}
+}
+
 func TestEnvironment(t *testing.T) {
 	tests := []struct {
 		name string
@@ -158,7 +177,7 @@ func renderResult(t *testing.T, rep botcheck.Report) string {
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 	)
 	var buf bytes.Buffer
-	if err := r.Render(nil, &buf, "botcheck/result", rep); err != nil {
+	if err := r.Render(nil, &buf, "botcheck/result", map[string]any{"Report": rep}); err != nil {
 		t.Fatalf("render result fragment: %v", err)
 	}
 	return buf.String()

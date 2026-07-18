@@ -117,7 +117,7 @@ func TestIndexBrowserGetsFullPage(t *testing.T) {
 	if !strings.Contains(body, "<html") {
 		t.Errorf("browser GET / should be a full page:\n%s", body)
 	}
-	for _, want := range []string{"Bot check", "your request"} {
+	for _, want := range []string{"Bot check", "Run again"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -131,42 +131,35 @@ func TestIndexSetsAcceptCH(t *testing.T) {
 	}
 }
 
-func TestIndexEnrichesConnCard(t *testing.T) {
-	// G38/G44 wiring: the browser page's "your request" card picks up the ASN +
-	// proxy attribution from the IP lookup (the shared conn partial renders those
-	// rows only when enriched via WithNetwork).
+func TestCheckFragmentEnrichesConnCard(t *testing.T) {
 	looker := fakeLooker{res: &iptools.Result{
 		ASN: "14061", ASName: "DigitalOcean, LLC",
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"},
 	}}
-	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "text/html"})
-	body := rec.Body.String()
+	body := `{"navMainUA":"` + chromeMacUA + `"}`
+	rec := post(newTestApp(looker), "/check", body, map[string]string{"Accept": "text/html", "User-Agent": chromeMacUA})
+	frag := rec.Body.String()
 	for _, want := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("enriched conn card missing %q:\n%s", want, body)
+		if !strings.Contains(frag, want) {
+			t.Errorf("enriched conn card missing %q:\n%s", want, frag)
 		}
 	}
 	// A lookup without network data renders no ASN/proxy rows (unchanged card).
-	rec = get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
-	if body := rec.Body.String(); strings.Contains(body, "<dt>ASN</dt>") || strings.Contains(body, "<dt>Proxy</dt>") {
-		t.Errorf("an empty lookup must render no network rows:\n%s", body)
+	rec = post(newTestApp(fakeLooker{}), "/check", `{}`, map[string]string{"Accept": "text/html"})
+	if frag := rec.Body.String(); strings.Contains(frag, "<dt>ASN</dt>") || strings.Contains(frag, "<dt>Proxy</dt>") {
+		t.Errorf("an empty lookup must render no network rows:\n%s", frag)
 	}
 }
 
-func TestIndexRendersHistoryCard(t *testing.T) {
-	// G46: the "your recent checks" card ships in the page shell — hidden until the
-	// collector fills it from the visitor's own localStorage, with copy stating the
-	// list never leaves the browser. The list itself is client-rendered JS (no JS
-	// harness here); this pins the card's presence, its initial hidden state, and
-	// the local-only disclosure.
-	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
-	body := rec.Body.String()
+func TestCheckFragmentRendersHistoryCard(t *testing.T) {
+	rec := post(newTestApp(fakeLooker{}), "/check", `{}`, map[string]string{"Accept": "text/html"})
+	frag := rec.Body.String()
 	for _, want := range []string{
 		`id="botcheck-history" hidden`, "your recent checks",
 		"only in your browser's local storage", "never sent to",
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("index page missing %q for the G46 history card:\n%s", want, body)
+		if !strings.Contains(frag, want) {
+			t.Errorf("history card missing %q in fragment:\n%s", want, frag)
 		}
 	}
 }
@@ -346,7 +339,7 @@ func TestGoodBotResultTemplateRenders(t *testing.T) {
 		}},
 	}
 	var buf bytes.Buffer
-	if err := r.Render(nil, &buf, "botcheck/result", rep); err != nil {
+	if err := r.Render(nil, &buf, "botcheck/result", map[string]any{"Report": rep}); err != nil {
 		t.Fatalf("render good-bot fragment: %v", err)
 	}
 	body := buf.String()
