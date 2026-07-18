@@ -176,8 +176,8 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 // cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to an
 // empty string, so an unknown IP timezone/country is treated as "no signal"
 // rather than a real value the cross-checks could spuriously trip on. It lives
-// here with its callers (addServerSignals, network) — the domain scorer never
-// uses it.
+// here with its caller (addServerSignals) — the domain scorer never uses it.
+// (The conn-card enrichment uses the shared mapping on iptools.Result instead.)
 func cleanPlaceholder(s string) string {
 	if s == "-" {
 		return ""
@@ -189,19 +189,15 @@ func cleanPlaceholder(s string) string {
 // attribution the shared conn partial renders when present. It follows the
 // addServerSignals degradation contract — a nil service or a failed lookup
 // yields a zero ConnNetwork, and the card renders its six transport rows
-// unchanged.
+// unchanged. The Result → ConnNetwork mapping itself lives on iptools.Result
+// (ConnNetwork) so both tools share one implementation.
 func (h *handler) network(c *echo.Context) platform.ConnNetwork {
 	if h.svc == nil {
 		return platform.ConnNetwork{}
 	}
 	res, err := h.svc.Lookup(c.RealIP())
-	if err != nil || res == nil {
+	if err != nil {
 		return platform.ConnNetwork{}
 	}
-	n := platform.ConnNetwork{ASN: cleanPlaceholder(res.ASN), ASName: cleanPlaceholder(res.ASName)}
-	if p := res.Proxy; p != nil && p.IsProxy {
-		n.ProxyType = p.ProxyType
-		n.Provider = cleanPlaceholder(p.Provider)
-	}
-	return n
+	return res.ConnNetwork() // nil-safe: no result ⇒ no enrichment
 }

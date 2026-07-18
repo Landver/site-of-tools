@@ -819,4 +819,56 @@ var rules = []rule{
 		id: "zero_outer_height", label: "window.outerHeight is zero", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.OuterH == 0 && s.InnerH > 0, "" },
 	},
+	{
+		// G15: window.matchMedia is a function in every real browser, desktop and
+		// mobile, since the CSS2 era — a browser-claimed UA without it is a
+		// stripped JS environment (jsdom-style) wearing a browser UA. Soft, not
+		// hard: an exotic embedded webview could conceivably lack it. v4-gated:
+		// a stale collector never sent the env section, so a missing value would
+		// bind false and read as evidence on a pre-v4 payload.
+		id: "matchmedia_missing", label: "Browser User-Agent but window.matchMedia is missing", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.CollectorV < collectorVTamperV4 {
+				return false, ""
+			}
+			return looksLikeBrowser(clientUA(s)) && !s.Env.MatchMedia, ""
+		},
+	},
+	{
+		// G21: navigator.connection derives its effectiveType from the very
+		// rtt/downlink estimates it reports (the worst of the two, per the spec's
+		// threshold table), so the type can never be FASTER than its own numbers
+		// imply — a '4g' claim beside rtt 2000 is a spoofed override. The
+		// thresholds are graced by the API's own reporting rounding (see
+		// ectFromRTT) so a real browser's rounded values never contradict its
+		// claim, and only a strictly-faster claim fires: a slower claim is
+		// conceivable from a mid-update estimate and never counts. Silent when
+		// connection is absent (most Firefox/Safari) — that absence is normal,
+		// never a signal. Soft: network estimates update asynchronously, so a
+		// live change mid-read could briefly disagree — it only bites in a
+		// cluster.
+		id: "netinfo_incoherent", label: "navigator.connection effectiveType contradicts its own rtt/downlink", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.CollectorV < collectorVTamperV4 {
+				return false, ""
+			}
+			c := s.Env.Connection
+			claimed := ectRank(c.EffectiveType)
+			if claimed == 0 {
+				return false, "" // API absent or a future/unknown type ⇒ can't compare
+			}
+			worst, seen := 4, false
+			if c.RTT > 0 {
+				worst, seen = min(worst, ectFromRTT(c.RTT)), true
+			}
+			if c.Downlink > 0 {
+				worst, seen = min(worst, ectFromDownlink(c.Downlink)), true
+			}
+			if !seen || claimed <= worst {
+				return false, "" // no metrics to check, or the claim isn't faster than implied
+			}
+			return true, fmt.Sprintf("effectiveType %q but rtt %dms / downlink %.2fMbps imply at most %s",
+				c.EffectiveType, c.RTT, c.Downlink, ectName(worst))
+		},
+	},
 }

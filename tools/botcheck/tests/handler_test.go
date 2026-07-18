@@ -485,7 +485,7 @@ func TestCheckDeepTamperSignalsThroughHandler(t *testing.T) {
 // header rules — nothing in the body trips a client rule. Europe/Moscow is used
 // because it keeps UTC+3 year-round (no DST), so tzOffset -180 stays consistent
 // with the handler's live time.Now() stamp whatever the wall clock says.
-var cleanClientBody = `{"v":3,"nativeToStringOK":true,"hasChromeObject":true,` +
+var cleanClientBody = `{"v":4,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
 	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
 	`"languages":["en-US","en"],"language":"en-US","vendor":"Google Inc.",` +
@@ -504,7 +504,25 @@ var cleanClientBody = `{"v":3,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"iframeWebdriver":false,"iframeProxied":false,"swWebdriver":false,"swCDP":false,` +
 	`"maxTouchPoints":0,"navProtoDescriptorsOK":true,"chromeRuntimeOK":true,` +
 	`"chromeLateInjection":false,"jsEngine":"v8","webrtcIPs":[],"imageBroken":false,` +
-	`"mimeTypes":2,"outerH":900,"innerH":800}`
+	`"mimeTypes":2,"outerH":900,"innerH":800` +
+	cleanClientEnv
+
+// cleanClientEnv is the v4 collector's additive env section for the clean
+// desktop-Chrome fingerprint (leading comma, and it closes the outer object).
+// Chrome exposes no GPC property, so the key is absent — fail-to-absent.
+const cleanClientEnv = `,"env":{"matchMedia":true,"dpr":2,"colorScheme":"light","forcedColors":false,` +
+	`"reducedMotion":false,"dynamicRange":"standard","gamut":"p3",` +
+	`"connection":{"effectiveType":"4g","downlink":10,"rtt":50,"saveData":false},` +
+	`"storageQuotaMB":285000,"permissions":{"notifications":"default","geolocation":"prompt"},` +
+	`"emeClearKey":true}}`
+
+// staleV3ClientBody is cleanClientBody as a stale cached v3 collector would
+// POST it: the same clean fingerprint but v:3 and no env section (the v4 batch
+// didn't exist for it). The v4-gated rules must skip rather than read the
+// absent env keys as evidence.
+var staleV3ClientBody = strings.Replace(
+	strings.TrimSuffix(cleanClientBody, cleanClientEnv)+"}",
+	`"v":4`, `"v":3`, 1)
 
 // staleV2ClientBody is the same clean fingerprint as a stale cached v2 collector
 // would POST it: no v3 keys at all. The v3-gated rules must skip rather than
@@ -702,5 +720,68 @@ func TestCheckStaleV2PayloadScores100ThroughHandler(t *testing.T) {
 	}
 	if rep.Score != 100 {
 		t.Errorf("stale v2 payload: score=%d, want 100", rep.Score)
+	}
+}
+
+func TestCheckV4SignalsThroughHandler(t *testing.T) {
+	// v4 end-to-end: the nested env section binds from the POSTed JSON and its
+	// rules fire through the real handler — here a spoofed browser whose
+	// environment lacks window.matchMedia and whose connection claims '4g' while
+	// reporting a 2000ms rtt (which implies at most 2g by the spec's own table).
+	body := `{"v":4,"navMainUA":"` + chromeMacUA + `",` +
+		`"env":{"matchMedia":false,"dpr":2,"colorScheme":"dark",` +
+		`"connection":{"effectiveType":"4g","downlink":10,"rtt":2000,"saveData":false},` +
+		`"storageQuotaMB":285000,"gpc":true,` +
+		`"permissions":{"notifications":"denied","geolocation":"prompt"},"emeClearKey":true}}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{"matchmedia_missing", "netinfo_incoherent"} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+	// The entropy half of the env section echoes into the raw-dump payload
+	// (G54) — never scored, but visible in the report.
+	if rep.ClientPayload == nil || rep.ClientPayload.Env.GPC == nil || !*rep.ClientPayload.Env.GPC ||
+		rep.ClientPayload.Env.StorageQuotaMB != 285000 || rep.ClientPayload.Env.Permissions.Geolocation != "prompt" {
+		t.Errorf("env entropy fields should bind into the echoed payload: %+v", rep.ClientPayload.Env)
+	}
+}
+
+func TestCheckStaleV3PayloadSkipsV4Rules(t *testing.T) {
+	// A returning visitor whose browser still runs the cached v3 collector POSTs
+	// a payload with no env section at all; the v4-gated rules must skip rather
+	// than read the missing keys as evidence — the deploy-time cache-staleness
+	// contract, one version up from TestCheckStaleV2PayloadScores100ThroughHandler.
+	rec := post(newTestApp(fakeLooker{}), "/check", staleV3ClientBody, map[string]string{
+		"Accept": "application/json", "User-Agent": chromeMacUA,
+		"Accept-Encoding": "gzip, deflate, br, zstd", "Accept-Language": "en-US,en;q=0.9",
+		"Sec-Fetch-Mode": "cors",
+	})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, c := range rep.Checks {
+		switch c.ID {
+		case "matchmedia_missing", "netinfo_incoherent":
+			if c.Triggered {
+				t.Errorf("%s must skip a pre-v4 payload, not read missing env keys as evidence", c.ID)
+			}
+		}
+	}
+	// Only accept_nav_mismatch fires (the JSON Accept) — a single soft signal
+	// under the cluster threshold — so the score stays 100.
+	if rep.Score != 100 {
+		t.Errorf("stale v3 payload: score=%d, want 100", rep.Score)
 	}
 }

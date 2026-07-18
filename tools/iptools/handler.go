@@ -160,7 +160,15 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
 	}
-	vm["Conn"] = platform.Conn(c) // full page only — the "your request" card
+	// Full page only — the "your request" card. G38/G44: when the visitor looked
+	// at their OWN IP, the same lookup also enriches the card with the ASN/proxy
+	// attribution the shared conn partial renders (a lookup of someone else's IP
+	// says nothing about this connection, so only self-lookups enrich).
+	conn := platform.Conn(c)
+	if self && err == nil {
+		conn = conn.WithNetwork(res.ConnNetwork())
+	}
+	vm["Conn"] = conn
 	return c.Render(code, "ip/index", vm)
 }
 
@@ -169,6 +177,27 @@ func statusFor(err error) int {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest
+}
+
+// ConnNetwork maps a lookup result into the shared conn-card network
+// attribution (G38/G44): ASN/AS-name plus the proxy type/provider, as the plain
+// strings platform.ConnInfo.WithNetwork expects. It is THE Result → ConnNetwork
+// mapping, shared by iptools' own handler and by botcheck's (whose conn card
+// enriches from the same lookup) so the two tools can't drift apart.
+// Lookup already blanks the databases' "-" placeholders via clean(); it runs
+// again here so a hand-built Result (tests, fakes) maps the same way. A nil
+// Result yields the zero value — no enrichment, the card renders its plain
+// transport rows.
+func (r *Result) ConnNetwork() platform.ConnNetwork {
+	if r == nil {
+		return platform.ConnNetwork{}
+	}
+	n := platform.ConnNetwork{ASN: clean(r.ASN), ASName: clean(r.ASName)}
+	if p := r.Proxy; p != nil && p.IsProxy {
+		n.ProxyType = p.ProxyType
+		n.Provider = clean(p.Provider)
+	}
+	return n
 }
 
 // routable reports whether ipStr is a public address worth geolocating — not

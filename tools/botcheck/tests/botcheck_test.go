@@ -16,6 +16,11 @@ import (
 
 const chromeMacUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
+// boolPtr returns a *bool — the v4 env section's fail-to-absent booleans (GPC,
+// EME ClearKey) are pointers so "not supplied" never reads as a determined
+// false.
+func boolPtr(b bool) *bool { return &b }
+
 // testNow is a fixed winter instant so timezone-offset checks are deterministic
 // (America/New_York is -05:00 in January).
 var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
@@ -24,7 +29,7 @@ var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 func cleanChrome() botcheck.Signals {
 	return botcheck.Signals{
 		ClientCollected:  true,
-		CollectorV:       3, // the current payload version (v3 batch fields present)
+		CollectorV:       4, // the current payload version (v4 env section present)
 		NativeToStringOK: true,
 		HasChromeObject:  true,
 		NavMainUA:        chromeMacUA,
@@ -109,6 +114,20 @@ func cleanChrome() botcheck.Signals {
 		MimeTypes:             2,
 		OuterH:                900,
 		InnerH:                800,
+		// v4 env section (G15/G21), all consistent with a real desktop Chrome:
+		// matchMedia present, a coherent 4g connection sample, and the entropy
+		// surfaces populated. Chrome exposes no GPC property (nil = absent).
+		Env: botcheck.EnvInfo{
+			MatchMedia:     true,
+			DPR:            2,
+			ColorScheme:    "light",
+			DynamicRange:   "standard",
+			Gamut:          "p3",
+			Connection:     botcheck.ConnectionInfo{EffectiveType: "4g", Downlink: 10, RTT: 50},
+			StorageQuotaMB: 285000,
+			Permissions:    botcheck.PermissionSample{Notifications: "default", Geolocation: "prompt"},
+			EMEClearKey:    boolPtr(true),
+		},
 	}
 }
 
@@ -653,6 +672,10 @@ var v3RuleIDs = []string{
 	"zero_outer_height", // soft
 }
 
+// v4RuleIDs are the rules added in the v4 batch (G15/G21) — same assertion
+// contract as v3RuleIDs.
+var v4RuleIDs = []string{"matchmedia_missing", "netinfo_incoherent"}
+
 // mirrorUA switches a fixture's browser: the UA in every context the collector
 // reports from, plus the appVersion, so the fixture stays internally consistent.
 func mirrorUA(s *botcheck.Signals, ua string) {
@@ -689,12 +712,16 @@ func realSafari() botcheck.Signals {
 	s.Engine, s.JSEngine = "webkit", "jsc"
 	s.Vendor = "Apple Computer, Inc."
 	s.HasChromeObject = false
-	s.UAData = botcheck.UAData{}          // WebKit exposes no userAgentData
+	s.UAData = botcheck.UAData{} // WebKit exposes no userAgentData
 	s.Brands = nil
 	s.SecCHUA, s.SecCHUAPlatform = "", "" // and so sends no Sec-CH-UA hints
 	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "", "", ""
 	s.WebGLVendor, s.WebGLRenderer = "Apple Inc.", "Apple GPU"
 	s.WorkerWebGLRenderer = "Apple GPU"
+	// WebKit has no Network Information API (normal absence, never a signal) and
+	// Safari supports only FairPlay EME — ClearKey is a determined false.
+	s.Env.Connection = botcheck.ConnectionInfo{}
+	s.Env.EMEClearKey = boolPtr(false)
 	return s
 }
 
@@ -714,6 +741,10 @@ func realFirefox() botcheck.Signals {
 	s.WebGLVendor, s.WebGLRenderer = "NVIDIA Corporation", "NVIDIA GeForce RTX 3080"
 	s.WorkerWebGLRenderer = "NVIDIA GeForce RTX 3080"
 	s.Plugins, s.MimeTypes = 0, 0
+	// Firefox ships no Network Information API by default (normal absence) but
+	// does expose navigator.globalPrivacyControl (default off).
+	s.Env.Connection = botcheck.ConnectionInfo{}
+	s.Env.GPC = boolPtr(false)
 	return s
 }
 
@@ -737,6 +768,9 @@ func realIPhone(ua string) botcheck.Signals {
 	s.OuterH, s.InnerH = 700, 700
 	s.WebGLVendor, s.WebGLRenderer = "Apple Inc.", "Apple GPU"
 	s.WorkerWebGLRenderer = "Apple GPU"
+	// Every iOS browser is WebKit: no Network Information API (CriOS/FxiOS
+	// included — the API is Chromium-only).
+	s.Env.Connection = botcheck.ConnectionInfo{}
 	return s
 }
 
@@ -764,6 +798,9 @@ func realAndroid() botcheck.Signals {
 	s.OuterH, s.InnerH = 740, 700
 	s.WebGLVendor, s.WebGLRenderer = adrenoVendor, adrenoRenderer
 	s.WorkerWebGLRenderer = adrenoRenderer
+	// Android Chrome does expose navigator.connection — a realistic coherent
+	// cellular estimate (4g type matching its own rtt/downlink).
+	s.Env.Connection = botcheck.ConnectionInfo{EffectiveType: "4g", Downlink: 2.5, RTT: 100}
 	return s
 }
 
@@ -771,7 +808,7 @@ func realAndroid() botcheck.Signals {
 // set: genuine human browsers — including the tricky cases (a Chromium fork
 // whose branded version diverges, WebKit with no userAgentData, iOS browsers
 // that are WebKit under any brand token, phones with touch) — must score 100
-// with zero false fires from the v3 batch.
+// with zero false fires from the v3 and v4 batches.
 func TestRealBrowsersDoNotFalsePositive(t *testing.T) {
 	cases := []struct {
 		name string
@@ -795,6 +832,11 @@ func TestRealBrowsersDoNotFalsePositive(t *testing.T) {
 			for _, id := range v3RuleIDs {
 				if check(t, r, id).Triggered {
 					t.Errorf("%s: v3 rule %s false-fired for %s (detail: %q)", tc.name, id, tc.name, check(t, r, id).Detail)
+				}
+			}
+			for _, id := range v4RuleIDs {
+				if check(t, r, id).Triggered {
+					t.Errorf("%s: v4 rule %s false-fired for %s (detail: %q)", tc.name, id, tc.name, check(t, r, id).Detail)
 				}
 			}
 		})
@@ -1434,5 +1476,168 @@ func TestWebRTCIPMismatch(t *testing.T) {
 				t.Errorf("webrtc_ip_mismatch must not fire for %s", tc.name)
 			}
 		})
+	}
+}
+
+// ── v4 batch signals (G15/G21) ───────────────────────────────────────────────
+
+// TestV4Signals covers the v4-batch rules in the fires direction: each mutation
+// makes exactly one new rule fire against an otherwise-clean Chrome fixture. The
+// guard directions (stale payload, absent API, unknown type, rounding boundary)
+// are covered per-rule below.
+func TestV4Signals(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*botcheck.Signals)
+		id     string
+	}{
+		// G15: a browser UA from an environment with no window.matchMedia.
+		{"matchMedia missing", func(s *botcheck.Signals) { s.Env.MatchMedia = false }, "matchmedia_missing"},
+		// G21: the connection's effectiveType claims faster than its own metrics.
+		{"effectiveType faster than its own rtt", func(s *botcheck.Signals) { s.Env.Connection.RTT = 2000 }, "netinfo_incoherent"},
+		{"effectiveType faster than its own downlink", func(s *botcheck.Signals) { s.Env.Connection.Downlink = 0.3 }, "netinfo_incoherent"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+" fires", func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			if !check(t, botcheck.Evaluate(s), tc.id).Triggered {
+				t.Errorf("%s should fire (%s)", tc.id, tc.name)
+			}
+		})
+		t.Run(tc.name+" passes clean", func(t *testing.T) {
+			if check(t, botcheck.Evaluate(cleanChrome()), tc.id).Triggered {
+				t.Errorf("%s must not fire on the clean fixture", tc.id)
+			}
+		})
+	}
+}
+
+// TestMatchMediaMissing: matchmedia_missing fires only on a browser-claimed UA
+// (looksLikeBrowser) — a self-declared bot or HTTP client is already caught by
+// the hard rules and must not double-count here — and it Skips (rather than
+// reading as a pass) on a server-only request.
+func TestMatchMediaMissing(t *testing.T) {
+	fires := cleanChrome()
+	fires.Env.MatchMedia = false
+	if !check(t, botcheck.Evaluate(fires), "matchmedia_missing").Triggered {
+		t.Errorf("matchmedia_missing should fire for a browser UA without matchMedia")
+	}
+
+	// A non-browser UA never fires: the rule asks "a real browser would have
+	// matchMedia", which doesn't apply to a declared bot / HTTP client.
+	for name, ua := range map[string]string{
+		"curl":           "curl/8.4.0",
+		"HeadlessChrome": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/125.0.0.0 Safari/537.36",
+		"Googlebot":      "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+		"unparseable":    "some-unparseable-agent",
+	} {
+		s := cleanChrome()
+		mirrorUA(&s, ua)
+		s.Env.MatchMedia = false
+		if check(t, botcheck.Evaluate(s), "matchmedia_missing").Triggered {
+			t.Errorf("matchmedia_missing must not fire for a non-browser UA (%s)", name)
+		}
+	}
+
+	// Server-only request: skipped, not triggered.
+	r := botcheck.Evaluate(botcheck.Signals{HTTPUserAgent: chromeMacUA})
+	if c := check(t, r, "matchmedia_missing"); !c.Skipped || c.Triggered {
+		t.Errorf("matchmedia_missing should be Skipped (not triggered) without a client fingerprint: %+v", c)
+	}
+}
+
+// TestNetinfoIncoherent covers the effectiveType-vs-own-metrics cross-check:
+// the browser derives effectiveType from exactly the rtt/downlink it reports
+// (the worst of the two, per the spec's threshold table), so a claim FASTER
+// than its own numbers imply is a spoofed override. Thresholds are graced by
+// the API's reporting rounding, a slower-than-implied claim never fires, and
+// absent/unknown values are no signal.
+func TestNetinfoIncoherent(t *testing.T) {
+	conn := func(ect string, rtt int, downlink float64) botcheck.Signals {
+		s := cleanChrome()
+		s.Env.Connection = botcheck.ConnectionInfo{EffectiveType: ect, RTT: rtt, Downlink: downlink}
+		return s
+	}
+	fires := []struct {
+		name     string
+		ect      string
+		rtt      int
+		downlink float64
+	}{
+		{"'4g' with rtt 2000 (implies 2g at best)", "4g", 2000, 10},
+		{"'4g' with rtt 3000 (implies slow-2g)", "4g", 3000, 0},
+		{"'4g' with downlink 0.04 (implies slow-2g)", "4g", 0, 0.04},
+		{"'3g' with rtt 2000 (implies 2g at best)", "3g", 2000, 0.5},
+		{"'3g' with downlink 0.06 (implies slow-2g)", "3g", 100, 0.06},
+		{"'2g' with rtt 3000 (implies slow-2g)", "2g", 3000, 0},
+		{"'4g', fast rtt but 3g downlink (worst of the two)", "4g", 50, 0.3},
+	}
+	for _, tc := range fires {
+		t.Run("fires/"+tc.name, func(t *testing.T) {
+			if !check(t, botcheck.Evaluate(conn(tc.ect, tc.rtt, tc.downlink)), "netinfo_incoherent").Triggered {
+				t.Errorf("netinfo_incoherent should fire for %s", tc.name)
+			}
+		})
+	}
+	silent := []struct {
+		name     string
+		ect      string
+		rtt      int
+		downlink float64
+	}{
+		{"coherent 4g", "4g", 50, 10},
+		{"coherent 3g (downlink drives the type)", "3g", 300, 0.5},
+		{"rounding boundary: reported rtt 270 still allows '4g'", "4g", 270, 10},
+		{"claims SLOWER than its metrics imply (never fires)", "3g", 50, 10},
+		{"slow-2g with rtt 2000 (coherent real case)", "slow-2g", 2000, 0},
+		{"slow-2g with mixed 2g/slow-2g metrics (worst wins)", "slow-2g", 1500, 0.06},
+		{"unknown effectiveType (a future value)", "5g", 3000, 0.01},
+		{"effectiveType absent (metrics alone are not compared)", "", 3000, 0.01},
+		{"no metrics reported (can't verify the claim)", "4g", 0, 0},
+	}
+	for _, tc := range silent {
+		t.Run("silent/"+tc.name, func(t *testing.T) {
+			if check(t, botcheck.Evaluate(conn(tc.ect, tc.rtt, tc.downlink)), "netinfo_incoherent").Triggered {
+				t.Errorf("netinfo_incoherent must not fire for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestV4GateSkipsStalePayload: a fingerprint from a stale cached v3 collector
+// carries no env section, so the v4 fields bind zero — the v4-gated rules must
+// skip rather than read that as evidence (the same contract
+// TestV3GateSkipsStalePayload proved for the v3 gate). A crafted v3-stamped
+// payload that smuggles bad v4-shaped values must be skipped too: the version
+// stamp, not the keys, decides.
+func TestV4GateSkipsStalePayload(t *testing.T) {
+	// A genuine stale v3 payload: no env keys at all, everything binds zero.
+	absent := cleanChrome()
+	absent.CollectorV = 3
+	absent.Env = botcheck.EnvInfo{}
+	r := botcheck.Evaluate(absent)
+	for _, id := range v4RuleIDs {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s must not fire on a pre-v4 payload with no env section", id)
+		}
+	}
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Errorf("stale v3 payload (no env): score=%d verdict=%q, want 100/human", r.Score, r.Verdict)
+	}
+
+	// A crafted v3-stamped payload with bad v4-shaped values: still skipped.
+	crafted := cleanChrome()
+	crafted.CollectorV = 3
+	crafted.Env.MatchMedia = false
+	crafted.Env.Connection = botcheck.ConnectionInfo{EffectiveType: "4g", RTT: 3000}
+	r = botcheck.Evaluate(crafted)
+	for _, id := range v4RuleIDs {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s must skip a pre-v4 payload even when v4-shaped values are present", id)
+		}
+	}
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Errorf("crafted v3-stamped payload: score=%d verdict=%q, want 100/human", r.Score, r.Verdict)
 	}
 }

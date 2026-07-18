@@ -42,7 +42,7 @@ could call is a possible later bolt-on — see [ROADMAP.md](ROADMAP.md).)
 - `botcheck.go` — **pure domain**: `Signals`, `Check`, `Report`, `Evaluate`, and
   the signal helpers. No `echo`, no `iptools` import — so its tests construct
   `Signals` directly, with no HTTP and no databases.
-- `scoring.go` — the ordered weighted rule set (64 rules: hard tells → consistency
+- `scoring.go` — the ordered weighted rule set (66 rules: hard tells → consistency
   cross-checks → soft heuristics) and the soft-signal combination rule.
 - `corpus.go` — the Mongo fingerprint corpus (G41/G42): a nil-safe repository
   (mirrors `iptools/history.go`) recording fingerprint sightings and counting
@@ -136,9 +136,10 @@ gap (see [ROADMAP.md](ROADMAP.md)), not a bug.
 
 Plain HTML can't read `navigator`/`canvas`/`WebGL`, so a JS collector is justified
 under CLAUDE.md golden rule #4. The collector builds one JSON object and POSTs it.
-The payload carries a version (`v`, currently **3**); rules whose fields are
-damning-when-false (the G04 deep-tamper probes, added in v2, and the G17/G22
-integrity OK-bools + touch/mimeTypes fields, added in v3) skip older payloads, so
+The payload carries a version (`v`, currently **4**); rules whose fields are
+damning-when-false (the G04 deep-tamper probes, added in v2, the G17/G22
+integrity OK-bools + touch/mimeTypes fields, added in v3, and the G15/G21
+env-section reads, added in v4) skip older payloads, so
 a returning visitor with a stale cached collector never reads as tampered.
 
 - **Hard automation tells** — `navigator.webdriver`; automation-framework globals
@@ -206,6 +207,18 @@ a returning visitor with a stale cached collector never reads as tampered.
   host candidate ≠ egress is normal NAT — and only the egress's own address
   family is compared, so dual-stack stays silent). A public candidate that isn't
   the egress pierces a VPN/proxy.
+- **The v4 `env` section (G15/G21)** — one additive object of cheap
+  environment/API probes, all fail-to-absent (a missing key is "not supplied",
+  never evidence): `window.matchMedia` presence, devicePixelRatio,
+  prefers-color-scheme / forced-colors / reduced-motion / dynamic-range /
+  color-gamut media queries, a `navigator.connection` sample (effectiveType /
+  downlink / rtt / saveData — absent on most Firefox/Safari installs, which is
+  normal), the rounded storage-quota MB, `navigator.globalPrivacyControl`, a
+  two-name Permissions sample, and EME ClearKey availability. Only two of these
+  feed rules (`matchmedia_missing`, `netinfo_incoherent`); the rest are entropy
+  for the raw dump and are deliberately **never scored** — user preferences and
+  hardware capabilities are not bot tells, and the quota is explicitly not an
+  incognito detector (G19, skipped).
 
 ## Scoring model (no ML, deterministic)
 
@@ -256,7 +269,9 @@ Rules are tiered:
   canvas renders blank, no H.264/AAC codecs, no detectable fonts, browser UA
   without `Accept-Encoding`, without `Accept-Language`, or with an `Accept`
   lacking `text/html`, a guaranteed-loadable image failing, plugins without
-  `mimeTypes`, zero `outerHeight`. Soft signals **only bite as a cluster of ≥3**
+  `mimeTypes`, zero `outerHeight`, browser UA without `window.matchMedia`,
+  `navigator.connection` effectiveType contradicting its own rtt/downlink.
+  Soft signals **only bite as a cluster of ≥3**
   (one 25-point deduction), so a single quirk never false-positives a real human.
 
 The load-bearing rules are the **cross-checks** — combinations that should not

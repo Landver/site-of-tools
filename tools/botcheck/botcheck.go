@@ -50,6 +50,52 @@ type BrandVersion struct {
 	Version string `json:"version"`
 }
 
+// ConnectionInfo is the v4 navigator.connection sample (G21): the browser's own
+// network-quality estimate. The whole API is absent on most Firefox/Safari
+// installs, which binds the zero struct — EffectiveType "" means "not supplied",
+// never a signal. The netinfo_incoherent rule cross-checks effectiveType against
+// the rtt/downlink reported by the SAME object (the browser derives the type
+// from exactly those estimates, so a spoofed override can contradict itself).
+type ConnectionInfo struct {
+	EffectiveType string  `json:"effectiveType"` // "slow-2g" | "2g" | "3g" | "4g"
+	Downlink      float64 `json:"downlink"`      // Mbps estimate (0 = not supplied)
+	RTT           int     `json:"rtt"`           // ms estimate (0 = not supplied)
+	SaveData      bool    `json:"saveData"`      // the user asked for reduced data usage
+}
+
+// PermissionSample is the v4 two-name Permissions API sample (G21). States are
+// "granted" / "denied" / "prompt"; "" means the query failed or the name is
+// unsupported (older Safari rejects 'geolocation'), never evidence. Entropy
+// only — no rule scores permission VALUES (they are user preferences).
+type PermissionSample struct {
+	Notifications string `json:"notifications"`
+	Geolocation   string `json:"geolocation"`
+}
+
+// EnvInfo is the v4 collector's additive "env" section (G15/G21): CSS
+// media-query / display-capability values and the network/storage API surface.
+// Every field fails to absent in the collector and reads zero here when not
+// supplied — zero is never evidence. The two rules that read this section
+// (matchmedia_missing, netinfo_incoherent) are v4-gated (collectorVTamperV4) so
+// a stale cached v3 collector skips them; everything else is entropy that flows
+// into the raw fingerprint dump but is deliberately never scored — user
+// preferences (colour scheme, forced colours, GPC) and hardware capabilities
+// (gamut, EME) are not bot tells.
+type EnvInfo struct {
+	MatchMedia     bool             `json:"matchMedia"`     // window.matchMedia is a function — always sent by a v4 collector
+	DPR            float64          `json:"dpr"`            // devicePixelRatio (0 = not supplied)
+	ColorScheme    string           `json:"colorScheme"`    // prefers-color-scheme: "light" | "dark"
+	ForcedColors   bool             `json:"forcedColors"`   // forced-colors: active (Windows High Contrast)
+	ReducedMotion  bool             `json:"reducedMotion"`  // prefers-reduced-motion: reduce
+	DynamicRange   string           `json:"dynamicRange"`   // "high" | "standard"
+	Gamut          string           `json:"gamut"`          // widest supported color-gamut: "rec2020" | "p3" | "srgb"
+	Connection     ConnectionInfo   `json:"connection"`     // navigator.connection (zero = API absent)
+	StorageQuotaMB int              `json:"storageQuotaMB"` // navigator.storage.estimate().quota, MB (0 = not supplied)
+	GPC            *bool            `json:"gpc"`            // navigator.globalPrivacyControl (nil = the browser doesn't expose it)
+	Permissions    PermissionSample `json:"permissions"`    // tiny Permissions API sample
+	EMEClearKey    *bool            `json:"emeClearKey"`    // ClearKey EME available (nil = the probe couldn't run)
+}
+
 // Signals is everything the scorer needs: client-collected values (bound
 // straight from the POSTed fingerprint JSON via the json tags) and
 // server-observed values (headers + IP lookup, filled by the handler and hidden
@@ -164,6 +210,13 @@ type Signals struct {
 	MimeTypes             int      `json:"mimeTypes"`             // navigator.mimeTypes.length (Layer-1 backlog)
 	OuterH                int      `json:"outerH"`                // window.outerHeight (Layer-1 backlog)
 	InnerH                int      `json:"innerH"`                // window.innerHeight (Layer-1 backlog)
+
+	// ── v4 batch signals (G15/G21) ───────────────────────────────────────────
+	// Added with payload v4 as one additive "env" section. Same contract as the
+	// v3 batch: every value fails to absent in the collector, zero here means
+	// "not supplied" (never evidence), and the rules reading the section are
+	// v4-gated (collectorVTamperV4) so a stale cached v3 collector skips them.
+	Env EnvInfo `json:"env"`
 
 	// ── server-observed (filled by the handler; never read off the wire) ─────
 	HTTPUserAgent   string `json:"-"`
@@ -311,6 +364,12 @@ const (
 	// chromeRuntimeOK, maxTouchPoints, mimeTypes). Rules keyed on those skip
 	// payloads older than this, same stale-collector contract as above.
 	collectorVTamperV3 = 3
+	// collectorVTamperV4 is the payload version that introduced the v4 "env"
+	// section (G15/G21). Rules keyed on it (matchmedia_missing,
+	// netinfo_incoherent) skip payloads older than this — a stale cached v3
+	// collector never sent the section, so its zero values must not read as
+	// evidence.
+	collectorVTamperV4 = 4
 	// fingerprintReuseMinIPs is the distinct-IP floor for the fingerprint_reuse
 	// rule (G41/G42): below it, a person roaming networks (home + work + mobile)
 	// stays silent; at or above it, what remains is infrastructure reusing one
@@ -595,6 +654,73 @@ func jsEngineFromUA(ua string) string {
 		return "jsc"
 	default:
 		return ""
+	}
+}
+
+// ectRank orders the Network Information effectiveType values slowest→fastest
+// (slow-2g < 2g < 3g < 4g). 0 = an unknown/unsupplied value, which callers
+// treat as "can't tell", never a mismatch.
+func ectRank(ect string) int {
+	switch ect {
+	case "slow-2g":
+		return 1
+	case "2g":
+		return 2
+	case "3g":
+		return 3
+	case "4g":
+		return 4
+	default:
+		return 0
+	}
+}
+
+// ectName maps a rank back to its effectiveType string, for rule detail lines.
+func ectName(rank int) string {
+	switch rank {
+	case 1:
+		return "slow-2g"
+	case 2:
+		return "2g"
+	case 3:
+		return "3g"
+	default:
+		return "4g"
+	}
+}
+
+// ectFromRTT maps a reported connection.rtt (ms) to the effectiveType the
+// Network Information spec's threshold table implies for it. Each threshold is
+// graced by the API's own reporting rounding (rtt is rounded to 50 ms before
+// the page sees it, while the browser computes effectiveType from the raw
+// estimate) so a real browser whose rounded report lands one step across a
+// boundary never contradicts its own claim.
+func ectFromRTT(rtt int) int {
+	switch {
+	case rtt >= 2050: // spec: ≥ 2000 ⇒ slow-2g
+		return 1
+	case rtt >= 1450: // spec: ≥ 1400 ⇒ 2g
+		return 2
+	case rtt >= 320: // spec: ≥ 270 ⇒ 3g
+		return 3
+	default:
+		return 4
+	}
+}
+
+// ectFromDownlink maps a reported connection.downlink (Mbps) to the implied
+// effectiveType, with the same one-step rounding grace as ectFromRTT (downlink
+// is reported rounded to 0.05 Mbps).
+func ectFromDownlink(downlink float64) int {
+	switch {
+	case downlink < 0.10: // spec: < 0.05 ⇒ slow-2g
+		return 1
+	case downlink < 0.12: // spec: < 0.07 ⇒ 2g
+		return 2
+	case downlink < 0.75: // spec: < 0.7 ⇒ 3g
+		return 3
+	default:
+		return 4
 	}
 }
 
