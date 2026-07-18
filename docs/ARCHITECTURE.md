@@ -28,7 +28,7 @@ CSS is built by a single prebuilt binary.
 | Live reload      | air — `github.com/air-verse/air`                   | v1.65.x           |
 | GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
 | Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
-| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history) | v2.8.x |
+| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history + botcheck fingerprint corpus) | v2.8.x |
 | Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
 | Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
 
@@ -338,12 +338,14 @@ one thing nothing imports. Nothing is a single-file folder for its own sake.
 
 ## 10. Out of scope now (deliberately deferred)
 
-- **Persistence / MongoDB** — wired and now in use by its first two features: the
+- **Persistence / MongoDB** — wired and now in use by three features: the
   IP tool's **lookup history** (`tools/iptools/history.go`, a repository below the
-  domain per rule #5) and the engine-level **request log** (`platform/requestlog.go`,
-  a shared async writer fed by the request-logger middleware). Both take the
+  domain per rule #5), the engine-level **request log** (`platform/requestlog.go`,
+  a shared async writer fed by the request-logger middleware), and botcheck's
+  **fingerprint corpus** (`tools/botcheck/corpus.go`, the rolling 30-day store
+  behind the `fingerprint_reuse` rule). All take the
   `*mongo.Database` from the shared client (`platform.OpenMongo`, opened once in
-  `main.go`) and self-prune via `platform.EnsureTTLIndex`; both degrade to no-ops
+  `main.go`) and self-prune via `platform.EnsureTTLIndex`; all degrade to no-ops
   when `MONGODB_URI` is empty, so the app still boots stateless. Further storage
   features (e.g. botcheck crowd/rarity scoring, request velocity, IP-tool rate
   limiting) follow the same shape. Mongo creates collections lazily on first write;

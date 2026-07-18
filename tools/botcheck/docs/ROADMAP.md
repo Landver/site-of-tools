@@ -78,6 +78,25 @@ high-entropy fields (`platformVersion`/`architecture`/`bitness`/`model`/
 `uaFullVersion`) were trimmed from the collector and struct. Regression tests now
 cover Opera, desktop Safari, and iOS Safari/Firefox/Chrome.
 
+**Wave 1+2 shipped (2026-07-18): 50 → 66 rules.** Wave 1 added the v3 detection
+batch (G09 WebRTC leak, G10 broken-image, G11 iframe webdriver+proxy, G12
+mobile-no-touch, G13 wider automation markers, G14 SW webdriver+CDP, G17
+navigator-proto walk, G22 chrome.runtime integrity + late injection, G23
+error-stack JS-engine cross-check, plus the plugins/mimeTypes and zero-outerHeight
+softs — collector payload `v: 3`) and the reporting/transparency batch (G54 raw
+fingerprint dump, G55 per-signal explanations, G56 detected-environment line, G50
+per-tier sub-scores, the G38/G44 conn-card surface). Wave 2 made botcheck the
+third Mongo consumer: a rolling 30-day **fingerprint corpus** (G41/G42) backs the
+`fingerprint_reuse` consistency rule (an exact fingerprint seen from ≥5 distinct
+IPs — the scraping-farm catch; suppressed for verified good bots), and the
+G38/G44 wiring now feeds ASN/proxy-provider rows into the conn card of both
+botcheck and iptools. G46 shipped localStorage-only returning-visitor history (no
+server state). The collector payload is now `v: 4` with the additive `env`
+section (G15 media/display probes + G21 connection/storage/GPC/permissions/EME
+entropy), adding two soft rules (`matchmedia_missing`, `netinfo_incoherent`) —
+66 rules total. A real-Chrome E2E pass (kimi-webbridge) verified 100/human with
+zero false fires across all 66.
+
 ## What this is built from
 
 - The twelve firsthand service reports in this folder (`deviceandbrowserinfo`,
