@@ -21,7 +21,8 @@ type Looker interface {
 
 // handler holds the transport-layer dependencies for botcheck.corpberry.com.
 type handler struct {
-	svc Looker
+	svc    Looker
+	corpus *Corpus // nil-safe: a disabled Mongo turns the fingerprint corpus into a no-op
 }
 
 // Register wires the botcheck.corpberry.com routes onto e.
@@ -29,8 +30,8 @@ type handler struct {
 //	GET  /                  the check page (browser) — or a server-only score (curl/JSON)
 //	POST /check             accepts the collected client fingerprint, returns the full score
 //	GET  /botcheck-sw.js    the tiny Service Worker the collector registers (G03)
-func Register(e *echo.Echo, svc Looker) {
-	h := &handler{svc: svc}
+func Register(e *echo.Echo, svc Looker, corpus *Corpus) {
+	h := &handler{svc: svc, corpus: corpus}
 	e.GET("/", h.index)
 	e.POST("/check", h.check)
 	e.GET("/botcheck-sw.js", h.serviceWorker)
@@ -84,7 +85,10 @@ func (h *handler) index(c *echo.Context) error {
 	// dependency clear. We request only what the scorer reads — nothing more.
 	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
-		"Title": "Bot check", "Conn": platform.Conn(c),
+		// G38/G44: enrich the "your request" card with the ASN/proxy attribution
+		// the shared conn partial renders when present (best-effort, like the IP
+		// signals — a failed lookup renders the six transport rows unchanged).
+		"Title": "Bot check", "Conn": platform.Conn(c).WithNetwork(h.network(c)),
 	})
 }
 
@@ -104,6 +108,15 @@ func (h *handler) check(c *echo.Context) error {
 	}
 	sig.ClientCollected = true
 	h.addServerSignals(c, &sig)
+	// G41/G42: fold the fingerprint into the rolling corpus, then count how many
+	// distinct IPs presented this exact one — the scraping-farm tell. Best-effort:
+	// a disabled corpus or a Mongo error leaves FingerprintIPs 0 ("no corpus
+	// data"), the fingerprint_reuse rule stays silent, and the score is unchanged.
+	hash := sig.FingerprintHash()
+	_ = h.corpus.Record(c.Request().Context(), hash, c.RealIP())
+	if n, err := h.corpus.DistinctIPs(c.Request().Context(), hash); err == nil {
+		sig.FingerprintIPs = n
+	}
 	report := Evaluate(sig)
 	report.ClientPayload = &sig // G54: echo the raw fingerprint for the dump + JSON API
 
@@ -163,10 +176,32 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 // cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to an
 // empty string, so an unknown IP timezone/country is treated as "no signal"
 // rather than a real value the cross-checks could spuriously trip on. It lives
-// here with its sole caller (addServerSignals) — the domain scorer never uses it.
+// here with its callers (addServerSignals, network) — the domain scorer never
+// uses it.
 func cleanPlaceholder(s string) string {
 	if s == "-" {
 		return ""
 	}
 	return s
+}
+
+// network resolves the G38/G44 conn-card enrichment: the ASN and proxy
+// attribution the shared conn partial renders when present. It follows the
+// addServerSignals degradation contract — a nil service or a failed lookup
+// yields a zero ConnNetwork, and the card renders its six transport rows
+// unchanged.
+func (h *handler) network(c *echo.Context) platform.ConnNetwork {
+	if h.svc == nil {
+		return platform.ConnNetwork{}
+	}
+	res, err := h.svc.Lookup(c.RealIP())
+	if err != nil || res == nil {
+		return platform.ConnNetwork{}
+	}
+	n := platform.ConnNetwork{ASN: cleanPlaceholder(res.ASN), ASName: cleanPlaceholder(res.ASName)}
+	if p := res.Proxy; p != nil && p.IsProxy {
+		n.ProxyType = p.ProxyType
+		n.Provider = cleanPlaceholder(p.Provider)
+	}
+	return n
 }

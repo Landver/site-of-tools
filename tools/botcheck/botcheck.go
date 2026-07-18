@@ -16,6 +16,8 @@
 package botcheck
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/netip"
@@ -183,6 +185,12 @@ type Signals struct {
 	IsProxy                     bool   `json:"-"`
 	IsVPN                       bool   `json:"-"`
 	IsTor                       bool   `json:"-"`
+	// FingerprintIPs counts the distinct IPs that presented this exact stable
+	// fingerprint within the rolling 30-day corpus (G41/G42). Filled by the
+	// handler from the Mongo corpus on POST /check only; 0 means "no corpus
+	// data" (store disabled, count failed, or first sighting), which the
+	// fingerprint_reuse rule treats as no signal — never evidence.
+	FingerprintIPs int `json:"-"`
 
 	// Now is the request time, stamped by the handler. It's an input (not a call
 	// to the clock) so Evaluate stays pure and testable; used to resolve the
@@ -231,6 +239,11 @@ type Report struct {
 	Bot           *BotIdentity `json:"bot,omitempty"`
 	Checks        []Check      `json:"checks"`
 	ClientPayload *Signals     `json:"clientPayload,omitempty"`
+	// FingerprintIPs surfaces the corpus count behind the fingerprint_reuse
+	// rule (G41/G42): how many distinct IPs presented this exact fingerprint in
+	// the rolling 30-day window. 0 = corpus off or first sighting — the HTML
+	// card hides the line then, and omitempty keeps it out of the JSON.
+	FingerprintIPs int `json:"fingerprintIPs,omitempty"`
 }
 
 // RawJSON returns the client-collected half of the fingerprint as indented JSON
@@ -244,6 +257,38 @@ func (s Signals) RawJSON() string {
 		return ""
 	}
 	return string(b)
+}
+
+// FingerprintHash is the G41/G42 stable identity of the client half of this
+// fingerprint: sha256 over a canonical subset of stable client-reported
+// fields — UA, languages, userAgentData.platform, cores, memory, screen +
+// colour depth, timezone, WebGL vendor + renderer, productSub, engine, font
+// count. The subset is deliberately limited to what a scraping farm locks when
+// it clones one browser profile: volatile surfaces (window geometry, canvas/
+// audio probes) and every server-observed field stay out, so one browser keeps
+// one hash across visits while two genuinely different browsers don't share
+// one. Pure and deterministic — same Signals in, same hash out — so the corpus
+// can count distinct IPs per hash. Fields are joined with a unit separator
+// none of them can contain, so no two field lists can collide by concatenation.
+func (s Signals) FingerprintHash() string {
+	fields := []string{
+		s.NavMainUA,
+		strings.Join(s.Languages, ","),
+		s.UAData.Platform,
+		strconv.Itoa(s.HardwareCores),
+		strconv.FormatFloat(s.DeviceMemory, 'f', -1, 64),
+		strconv.Itoa(s.ScreenW),
+		strconv.Itoa(s.ScreenH),
+		strconv.Itoa(s.ColorDepth),
+		s.BrowserTZ,
+		s.WebGLVendor,
+		s.WebGLRenderer,
+		s.ProductSub,
+		s.Engine,
+		strconv.Itoa(s.FontCount),
+	}
+	sum := sha256.Sum256([]byte(strings.Join(fields, "\x1f")))
+	return hex.EncodeToString(sum[:])
 }
 
 // Scoring constants. The soft rule (borrowed from deviceandbrowserinfo) is that
@@ -266,6 +311,11 @@ const (
 	// chromeRuntimeOK, maxTouchPoints, mimeTypes). Rules keyed on those skip
 	// payloads older than this, same stale-collector contract as above.
 	collectorVTamperV3 = 3
+	// fingerprintReuseMinIPs is the distinct-IP floor for the fingerprint_reuse
+	// rule (G41/G42): below it, a person roaming networks (home + work + mobile)
+	// stays silent; at or above it, what remains is infrastructure reusing one
+	// locked fingerprint across a proxy pool.
+	fingerprintReuseMinIPs = 5
 )
 
 // Evaluate runs every rule against the signals and returns the scored report. It
@@ -310,7 +360,9 @@ func Evaluate(s Signals) Report {
 
 	// SoftClusterActive (SoftFired ≥ softComboThreshold) is the single source of
 	// truth for the soft-cluster rule, shared by scoring here and the display helpers.
-	report := Report{Checks: checks, Bot: bot}
+	// FingerprintIPs carries the corpus count straight through to the report —
+	// it's an input like every other Signals field, so Evaluate stays pure.
+	report := Report{Checks: checks, Bot: bot, FingerprintIPs: s.FingerprintIPs}
 	if report.SoftClusterActive() {
 		deduction += softComboWeight
 	}
@@ -324,14 +376,16 @@ func Evaluate(s Signals) Report {
 }
 
 // suppressedForGoodBot are the deductions a genuine verified crawler is expected to
-// trip — being a bot, from a datacenter/hosting network. They are recorded but not
-// counted for a corroborated good bot, so its score reads coherently. Every other
-// rule (webdriver, CDP, native tamper, …) still counts, so a compromised host inside
-// the operator's own network would still surface in the breakdown.
+// trip — being a bot, from a datacenter/hosting network, and sharing one fingerprint
+// across its fleet's many IPs. They are recorded but not counted for a corroborated
+// good bot, so its score reads coherently. Every other rule (webdriver, CDP, native
+// tamper, …) still counts, so a compromised host inside the operator's own network
+// would still surface in the breakdown.
 var suppressedForGoodBot = map[string]bool{
-	"bot_user_agent": true,
-	"datacenter_ip":  true,
-	"proxy_ip":       true,
+	"bot_user_agent":    true,
+	"datacenter_ip":     true,
+	"proxy_ip":          true,
+	"fingerprint_reuse": true,
 }
 
 func verdictFor(score int) string {

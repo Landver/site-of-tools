@@ -26,7 +26,8 @@ type fakeLooker struct {
 func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
 
 // newTestApp builds a bare echo with the real (embedded) templates and the given
-// Looker. Embedded FS is used so it works regardless of the test's cwd.
+// Looker. Embedded FS is used so it works regardless of the test's cwd. The
+// corpus is nil (Mongo off) — the corpus tests live in corpus_test.go.
 func newTestApp(svc botcheck.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
@@ -34,7 +35,7 @@ func newTestApp(svc botcheck.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, svc)
+	botcheck.Register(e, svc, nil)
 	return e
 }
 
@@ -127,6 +128,28 @@ func TestIndexSetsAcceptCH(t *testing.T) {
 	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
 	if ch := rec.Header().Get("Accept-CH"); !strings.Contains(ch, "Sec-CH-UA-Platform") {
 		t.Errorf("Accept-CH = %q, want it to request Sec-CH-UA-Platform", ch)
+	}
+}
+
+func TestIndexEnrichesConnCard(t *testing.T) {
+	// G38/G44 wiring: the browser page's "your request" card picks up the ASN +
+	// proxy attribution from the IP lookup (the shared conn partial renders those
+	// rows only when enriched via WithNetwork).
+	looker := fakeLooker{res: &iptools.Result{
+		ASN: "14061", ASName: "DigitalOcean, LLC",
+		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"},
+	}}
+	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	for _, want := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("enriched conn card missing %q:\n%s", want, body)
+		}
+	}
+	// A lookup without network data renders no ASN/proxy rows (unchanged card).
+	rec = get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
+	if body := rec.Body.String(); strings.Contains(body, "<dt>ASN</dt>") || strings.Contains(body, "<dt>Proxy</dt>") {
+		t.Errorf("an empty lookup must render no network rows:\n%s", body)
 	}
 }
 
