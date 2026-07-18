@@ -42,8 +42,11 @@ could call is a possible later bolt-on — see [ROADMAP.md](ROADMAP.md).)
 - `botcheck.go` — **pure domain**: `Signals`, `Check`, `Report`, `Evaluate`, and
   the signal helpers. No `echo`, no `iptools` import — so its tests construct
   `Signals` directly, with no HTTP and no databases.
-- `scoring.go` — the ordered weighted rule set (63 rules: hard tells → consistency
+- `scoring.go` — the ordered weighted rule set (64 rules: hard tells → consistency
   cross-checks → soft heuristics) and the soft-signal combination rule.
+- `corpus.go` — the Mongo fingerprint corpus (G41/G42): a nil-safe repository
+  (mirrors `iptools/history.go`) recording fingerprint sightings and counting
+  distinct IPs per hash. A disabled Mongo turns it into a no-op.
 - `handler.go` — transport: parses the client payload, gathers server signals off
   `*echo.Context`, maps the shared `iptools.Service` result into plain `Signals`
   fields, calls `Evaluate`, and content-negotiates the response.
@@ -120,6 +123,7 @@ is to make the two disagree and weight the disagreement.
 | **`Sec-CH-UA*` client-hint headers** | `c.Request().Header.Get("Sec-CH-UA" / …-Platform / …-Mobile)` | Cross-checked vs the JS `navigator.userAgentData` — spoofers routinely forget to keep header + JS hints in sync |
 | **`Accept-Language`** | `c.Request().Header.Get("Accept-Language")` | vs `navigator.languages` (JS) and vs IP-country. Empty/`*` is a weak tell |
 | **Header presence / plausibility** | `c.Request().Header` | Missing `Accept`/`Accept-Encoding`, or a Chrome UA with no `Sec-CH-UA` on a secure connection |
+| **Fingerprint corpus** — distinct IPs presenting this exact fingerprint in 30 days | `Corpus.DistinctIPs` (Mongo `botcheck_fingerprints`, 30-day TTL) | The scraping-farm catch (`fingerprint_reuse`): a farm locks one fingerprint and rotates its proxy pool; one person roaming never reaches five IPs |
 | **Connection metadata** | shared `platform.Conn(c)` — resolved IP, how derived (Cloudflare/XFF/direct), scheme, host | Shown in the "your request" card; also feeds the IP lookup |
 
 We deliberately **cannot** read HTTP header order/casing, TLS JA3/JA4, HTTP/2
@@ -215,7 +219,8 @@ Rules are tiered:
 > **number** is the operator's single-tenant crawler AS — one an outsider can't
 > originate from (matched by number, not owner name, since the name also covers the
 > operator's rentable public cloud) — the verdict is overridden to `good-bot` and its
-> expected deductions (`bot_user_agent`, `datacenter_ip`, `proxy_ip`) are recorded as
+> expected deductions (`bot_user_agent`, `datacenter_ip`, `proxy_ip`,
+> `fingerprint_reuse`) are recorded as
 > "expected", not counted. Recognition alone never lowers the score: a merely
 > *declared* Googlebot (or any UA copy) stays a fully-penalised `bot`, so there is no
 > spoof path to leniency. Every other tell (webdriver, CDP, tamper) still counts.
@@ -243,7 +248,8 @@ Rules are tiered:
   `contentWindow` proxied; mobile UA with zero touch points; Navigator.prototype
   accessor-descriptor anomaly; `chrome.runtime` integrity failure; `window.chrome`
   injected late; Error-stack JS engine ≠ engine the UA claims; public WebRTC
-  candidate IP ≠ egress IP.
+  candidate IP ≠ egress IP; this exact fingerprint seen from ≥5 distinct IPs in
+  the rolling 30-day corpus.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
   screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`,
@@ -285,6 +291,29 @@ Even without this we still have the JS `getHighEntropyValues()` copy; the header
 opt-in gives us the *server-observed* side of the comparison (the point is that a
 spoofing client keeps the two out of sync).
 
+## Storage: the fingerprint corpus (G41/G42)
+
+Botcheck stores exactly one thing: a rolling corpus of fingerprint sightings in
+MongoDB (the `botcheck_fingerprints` collection in the shared `site-of-tools`
+database). On every `POST /check` the handler hashes the POSTed fingerprint's
+stable client fields — `Signals.FingerprintHash()`, sha256 over UA, languages,
+userAgentData.platform, cores, memory, screen + colour depth, timezone, WebGL
+vendor/renderer, productSub, engine, font count — records `(hash, IP, ts)`, and
+counts how many **distinct IPs** presented that exact hash. Five or more trips
+the `fingerprint_reuse` consistency rule (−25): the scraping-farm catch (a farm
+locks one browser fingerprint and rotates its proxy pool — the incolumitas
+ScrapingBee case), while one person roaming networks never reaches five IPs in a
+month. Verified crawler fleets share one fingerprint by design, so the rule is
+suppressed for them (G36).
+
+The corpus is deliberately minimal and self-pruning: a `ts` TTL index expires
+every sighting after 30 days, the hash is one-way (the raw fingerprint is never
+stored), and — exactly like the iptools history — a disabled Mongo (empty
+`MONGODB_URI`) turns the whole thing into a no-op: `FingerprintIPs` stays 0, the
+rule stays silent, and the score is unchanged. The domain scorer itself stays
+pure: the count arrives as a plain `Signals` field, so `Evaluate` still needs no
+DB and its tests still construct `Signals` directly.
+
 ## Collector provenance (vendored by hand, no npm)
 
 Per golden rule #3 there is **no npm and no `node_modules`** — the collector is
@@ -319,16 +348,23 @@ one we'd want.
   and assert the negotiated output (JSON for `Accept: */*`, the `botcheck/result`
   fragment for `Accept: text/html`), with a fake `iptools.Looker` (no PX12 BIN in
   CI) and a nil service (IP signals absent, still scores the client half).
+- **Corpus (`corpus_test.go`)** — `FingerprintHash` determinism (server-observed
+  fields never leak in), the `fingerprint_reuse` floor (fires at ≥5, silent
+  below) + good-bot suppression, and the nil-safe disabled store. Live Mongo
+  round-trip + end-to-end handler wiring run only when `MONGODB_TEST_URI` is
+  set, skipping cleanly otherwise (the iptools-history pattern).
 
 ## Known gaps (documented, not bugs)
 
 TLS/JA3 + HTTP/2 fingerprinting (nginx terminates TLS upstream) and behavioral
 biometrics need infra/ML we don't have. Crowd/rarity scoring needs a persistence
-layer, and **MongoDB is now available** (a shared server, the `site-of-tools`
-database, and the `platform/mongo.go` client) — but botcheck **does not use it
-yet** and stays a pure, deterministic, in-request scorer. The DB-backed models
-(crowd/rarity, request velocity, returning-visitor history) can build on that
-client when we add them, sitting below the domain scorer per rule #5. The full
+layer; **MongoDB is available** (a shared server, the `site-of-tools` database,
+and the `platform/mongo.go` client) and botcheck now uses it for exactly one
+thing — the rolling fingerprint corpus behind `fingerprint_reuse` (see Storage
+above) — while the domain scorer stays a pure, deterministic, in-request
+function. The remaining DB-backed models (crowd/rarity, request velocity,
+returning-visitor history) can build on the same client when we add them,
+sitting below the domain scorer per rule #5. The full
 list of deferred items — with severity, effort, and the cheap approximation we do
 instead — lives in [ROADMAP.md](ROADMAP.md). The tool is a
 **self-test/inspection page, not an inline WAF** — it scores the current visitor

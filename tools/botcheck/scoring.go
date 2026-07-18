@@ -642,6 +642,25 @@ var rules = []rule{
 		},
 	},
 
+	{
+		// G41/G42: this exact stable fingerprint (UA, screen, GPU, timezone, …)
+		// was recorded from many distinct IPs in the rolling 30-day Mongo
+		// corpus — the scraping-farm tell (a farm locks one fingerprint and
+		// rotates its proxy pool; the incolumitas ScrapingBee catch).
+		// FingerprintIPs is 0 ("no corpus data") whenever Mongo is off or the
+		// count failed, which never fires; one person roaming networks reaches
+		// a couple of IPs honestly, hence the five-IP floor. Verified crawler
+		// fleets legitimately share one fingerprint across many IPs, so this
+		// deduction is suppressed for them (suppressedForGoodBot).
+		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.FingerprintIPs < fingerprintReuseMinIPs {
+				return false, ""
+			}
+			return true, fmt.Sprintf("exact fingerprint seen from %d IPs in the 30-day corpus", s.FingerprintIPs)
+		},
+	},
+
 	// ── Soft heuristics (only bite as a cluster of ≥3) ─────────────────────────
 	{
 		id: "empty_plugins", label: "No browser plugins", tier: TierSoft, weight: 8, needsClient: true,
