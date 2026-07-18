@@ -11,7 +11,9 @@
       A live score of how much your browser looks like a human vs. an automated bot. We combine what your browser reports
       (via JavaScript) with what your connection actually shows the server (HTTP headers,
       IP reputation), then cross-check the two: the disagreements are what give bots away.
-      Nothing is stored, and the check runs the moment this page loads.
+      One thing is kept: a hash of your browser's stable fingerprint plus the IP it arrived
+      from, held in a rolling 30-day corpus that catches the same fingerprint reused across
+      many IPs. The check runs the moment this page loads.
     </p>
 
     <!-- Controls first: the button sits where the other tools' form does, so "run"
@@ -37,8 +39,12 @@
         </p>
         <p>
           It does <span class="text-strong">not</span> use behavioral tracking, mouse or
-          keystroke analysis, machine learning, or any stored history: every deduction is
-          a fixed, explainable rule you can read below. Nothing is stored.
+          keystroke analysis, or machine learning: every deduction is a fixed,
+          explainable rule you can read below. The one thing stored is a rolling
+          30-day fingerprint corpus — a one-way hash of the stable fingerprint plus
+          the IP that presented it — which a single rule uses to catch the same exact
+          fingerprint arriving from many IPs (the scraping-farm tell). Sightings
+          expire automatically; nothing else is kept.
         </p>
         <p>
           A low score means "looks automated", not "is malicious". Privacy-conscious and
@@ -80,6 +86,18 @@
     {{with .Conn}}
     <div class="card mt-6">{{template "partials/conn" .}}</div>
     {{end}}
+
+    <!-- Your recent checks (G46): filled by the collector from the visitor's own
+         localStorage (key botcheck:history) after each run — the list lives only
+         in this browser and is never uploaded. Hidden until it has an entry. -->
+    <div class="card mt-6" id="botcheck-history" hidden>
+      <div class="eyebrow">your recent checks</div>
+      <p class="text-sm text-faint">
+        This list lives only in your browser's local storage — it is never sent to
+        the server, and clearing your browser data erases it.
+      </p>
+      <ul class="mt-3 flex flex-col divide-y divide-line text-sm"></ul>
+    </div>
   </main>
 
   {{template "partials/footer" .}}

@@ -128,7 +128,10 @@ input → output, so a full render is enough (no htmx, per CLAUDE.md rule 4).
 **Connection inspector** (the "your request" card): server-computed request facts —
 the resolved IP and how it was derived (Cloudflare / X-Forwarded-For / direct),
 scheme, host, User-Agent, and language. TLS and HTTP version are omitted (they
-terminate upstream); `Cookie`/`Authorization` are never read. `ip.corpberry.com` is
+terminate upstream); `Cookie`/`Authorization` are never read. When the visitor
+looks at their own IP (a bare visit), the same lookup also enriches the card
+with its ASN and proxy/VPN attribution (`Result.ConnNetwork()` →
+`platform.ConnInfo.WithNetwork` — the mapping botcheck's card shares). `ip.corpberry.com` is
 DNS-only in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
 
 **IPv6 check** is the one genuinely client-side piece: only the browser can prove a

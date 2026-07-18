@@ -26,7 +26,8 @@ type fakeLooker struct {
 func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
 
 // newTestApp builds a bare echo with the real (embedded) templates and the given
-// Looker. Embedded FS is used so it works regardless of the test's cwd.
+// Looker. Embedded FS is used so it works regardless of the test's cwd. The
+// corpus is nil (Mongo off) — the corpus tests live in corpus_test.go.
 func newTestApp(svc botcheck.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
@@ -34,7 +35,7 @@ func newTestApp(svc botcheck.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, svc)
+	botcheck.Register(e, svc, nil)
 	return e
 }
 
@@ -127,6 +128,46 @@ func TestIndexSetsAcceptCH(t *testing.T) {
 	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
 	if ch := rec.Header().Get("Accept-CH"); !strings.Contains(ch, "Sec-CH-UA-Platform") {
 		t.Errorf("Accept-CH = %q, want it to request Sec-CH-UA-Platform", ch)
+	}
+}
+
+func TestIndexEnrichesConnCard(t *testing.T) {
+	// G38/G44 wiring: the browser page's "your request" card picks up the ASN +
+	// proxy attribution from the IP lookup (the shared conn partial renders those
+	// rows only when enriched via WithNetwork).
+	looker := fakeLooker{res: &iptools.Result{
+		ASN: "14061", ASName: "DigitalOcean, LLC",
+		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"},
+	}}
+	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	for _, want := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("enriched conn card missing %q:\n%s", want, body)
+		}
+	}
+	// A lookup without network data renders no ASN/proxy rows (unchanged card).
+	rec = get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
+	if body := rec.Body.String(); strings.Contains(body, "<dt>ASN</dt>") || strings.Contains(body, "<dt>Proxy</dt>") {
+		t.Errorf("an empty lookup must render no network rows:\n%s", body)
+	}
+}
+
+func TestIndexRendersHistoryCard(t *testing.T) {
+	// G46: the "your recent checks" card ships in the page shell — hidden until the
+	// collector fills it from the visitor's own localStorage, with copy stating the
+	// list never leaves the browser. The list itself is client-rendered JS (no JS
+	// harness here); this pins the card's presence, its initial hidden state, and
+	// the local-only disclosure.
+	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	for _, want := range []string{
+		`id="botcheck-history" hidden`, "your recent checks",
+		"only in your browser's local storage", "never sent to",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index page missing %q for the G46 history card:\n%s", want, body)
+		}
 	}
 }
 
@@ -444,7 +485,7 @@ func TestCheckDeepTamperSignalsThroughHandler(t *testing.T) {
 // header rules — nothing in the body trips a client rule. Europe/Moscow is used
 // because it keeps UTC+3 year-round (no DST), so tzOffset -180 stays consistent
 // with the handler's live time.Now() stamp whatever the wall clock says.
-var cleanClientBody = `{"v":3,"nativeToStringOK":true,"hasChromeObject":true,` +
+var cleanClientBody = `{"v":4,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
 	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
 	`"languages":["en-US","en"],"language":"en-US","vendor":"Google Inc.",` +
@@ -463,7 +504,25 @@ var cleanClientBody = `{"v":3,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"iframeWebdriver":false,"iframeProxied":false,"swWebdriver":false,"swCDP":false,` +
 	`"maxTouchPoints":0,"navProtoDescriptorsOK":true,"chromeRuntimeOK":true,` +
 	`"chromeLateInjection":false,"jsEngine":"v8","webrtcIPs":[],"imageBroken":false,` +
-	`"mimeTypes":2,"outerH":900,"innerH":800}`
+	`"mimeTypes":2,"outerH":900,"innerH":800` +
+	cleanClientEnv
+
+// cleanClientEnv is the v4 collector's additive env section for the clean
+// desktop-Chrome fingerprint (leading comma, and it closes the outer object).
+// Chrome exposes no GPC property, so the key is absent — fail-to-absent.
+const cleanClientEnv = `,"env":{"matchMedia":true,"dpr":2,"colorScheme":"light","forcedColors":false,` +
+	`"reducedMotion":false,"dynamicRange":"standard","gamut":"p3",` +
+	`"connection":{"effectiveType":"4g","downlink":10,"rtt":50,"saveData":false},` +
+	`"storageQuotaMB":285000,"permissions":{"notifications":"default","geolocation":"prompt"},` +
+	`"emeClearKey":true}}`
+
+// staleV3ClientBody is cleanClientBody as a stale cached v3 collector would
+// POST it: the same clean fingerprint but v:3 and no env section (the v4 batch
+// didn't exist for it). The v4-gated rules must skip rather than read the
+// absent env keys as evidence.
+var staleV3ClientBody = strings.Replace(
+	strings.TrimSuffix(cleanClientBody, cleanClientEnv)+"}",
+	`"v":4`, `"v":3`, 1)
 
 // staleV2ClientBody is the same clean fingerprint as a stale cached v2 collector
 // would POST it: no v3 keys at all. The v3-gated rules must skip rather than
@@ -661,5 +720,68 @@ func TestCheckStaleV2PayloadScores100ThroughHandler(t *testing.T) {
 	}
 	if rep.Score != 100 {
 		t.Errorf("stale v2 payload: score=%d, want 100", rep.Score)
+	}
+}
+
+func TestCheckV4SignalsThroughHandler(t *testing.T) {
+	// v4 end-to-end: the nested env section binds from the POSTed JSON and its
+	// rules fire through the real handler — here a spoofed browser whose
+	// environment lacks window.matchMedia and whose connection claims '4g' while
+	// reporting a 2000ms rtt (which implies at most 2g by the spec's own table).
+	body := `{"v":4,"navMainUA":"` + chromeMacUA + `",` +
+		`"env":{"matchMedia":false,"dpr":2,"colorScheme":"dark",` +
+		`"connection":{"effectiveType":"4g","downlink":10,"rtt":2000,"saveData":false},` +
+		`"storageQuotaMB":285000,"gpc":true,` +
+		`"permissions":{"notifications":"denied","geolocation":"prompt"},"emeClearKey":true}}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{"matchmedia_missing", "netinfo_incoherent"} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+	// The entropy half of the env section echoes into the raw-dump payload
+	// (G54) — never scored, but visible in the report.
+	if rep.ClientPayload == nil || rep.ClientPayload.Env.GPC == nil || !*rep.ClientPayload.Env.GPC ||
+		rep.ClientPayload.Env.StorageQuotaMB != 285000 || rep.ClientPayload.Env.Permissions.Geolocation != "prompt" {
+		t.Errorf("env entropy fields should bind into the echoed payload: %+v", rep.ClientPayload.Env)
+	}
+}
+
+func TestCheckStaleV3PayloadSkipsV4Rules(t *testing.T) {
+	// A returning visitor whose browser still runs the cached v3 collector POSTs
+	// a payload with no env section at all; the v4-gated rules must skip rather
+	// than read the missing keys as evidence — the deploy-time cache-staleness
+	// contract, one version up from TestCheckStaleV2PayloadScores100ThroughHandler.
+	rec := post(newTestApp(fakeLooker{}), "/check", staleV3ClientBody, map[string]string{
+		"Accept": "application/json", "User-Agent": chromeMacUA,
+		"Accept-Encoding": "gzip, deflate, br, zstd", "Accept-Language": "en-US,en;q=0.9",
+		"Sec-Fetch-Mode": "cors",
+	})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, c := range rep.Checks {
+		switch c.ID {
+		case "matchmedia_missing", "netinfo_incoherent":
+			if c.Triggered {
+				t.Errorf("%s must skip a pre-v4 payload, not read missing env keys as evidence", c.ID)
+			}
+		}
+	}
+	// Only accept_nav_mismatch fires (the JSON Accept) — a single soft signal
+	// under the cluster threshold — so the score stays 100.
+	if rep.Score != 100 {
+		t.Errorf("stale v3 payload: score=%d, want 100", rep.Score)
 	}
 }

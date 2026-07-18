@@ -279,3 +279,36 @@ func TestHandlerShowsProxySection(t *testing.T) {
 		t.Errorf("json missing proxy object: %s", recj.Body.String())
 	}
 }
+
+func TestConnectionInspectorEnrichedForOwnIP(t *testing.T) {
+	// G38/G44 wiring: when the visitor looks at their OWN IP, the same lookup
+	// also enriches the "your request" card with the ASN/proxy rows (the shared
+	// conn partial renders them only when enriched via WithNetwork).
+	res := &iptools.Result{
+		IP: "203.0.113.7", ASN: "14061", ASName: "DigitalOcean, LLC",
+		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"},
+	}
+	app := newTestApp(fakeLooker{res: res})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "text/html")
+	req.RemoteAddr = "203.0.113.7:5555" // routable ⇒ the bare page self-looks-up
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	for _, want := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("self-lookup conn card missing %q:\n%s", want, body)
+		}
+	}
+
+	// A ?ip= lookup of SOMEONE ELSE's IP must not enrich the conn card: their
+	// ASN says nothing about this connection. (The lookup result itself shows
+	// its own ASN/proxy section — asserted here are the conn card's formats.)
+	rec = do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
+	body = rec.Body.String()
+	for _, absent := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("a ?ip= lookup must not put the looked-up network on the conn card, found %q:\n%s", absent, body)
+		}
+	}
+}

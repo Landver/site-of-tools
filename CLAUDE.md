@@ -23,9 +23,10 @@ frontend stack. Favor the simple, idiomatic path and explain Go-specific choices
 5. **Persistence lives below the domain.** MongoDB is wired — a shared server
    (`localhost`), the `site-of-tools` database, and a client in
    `platform/mongo.go` (`platform.OpenMongo`, opened once in `main.go`,
-   `MONGODB_URI` config). Two features use it: the IP tool's **lookup history**
-   (`tools/iptools/history.go`) and the engine-level **request log**
-   (`platform/requestlog.go`). Both are nil-safe — an empty `MONGODB_URI` disables
+   `MONGODB_URI` config). Three features use it: the IP tool's **lookup history**
+   (`tools/iptools/history.go`), the engine-level **request log**
+   (`platform/requestlog.go`), and botcheck's **fingerprint corpus**
+   (`tools/botcheck/corpus.go`). All are nil-safe — an empty `MONGODB_URI` disables
    Mongo and they no-op, so the app still boots stateless. New storage sits
    *below* the domain service (a repository the service/handler calls), never the
    driver in a handler; take the `*mongo.Database` from the shared client and
@@ -65,7 +66,7 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 
 - `main.go` at repo **root** — the single binary's entrypoint.
 - `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`,
-  `conn.go`, `mongo.go` (shared Mongo client; used by the request log + IP-tool lookup history — see rule #5).
+  `conn.go`, `mongo.go` (shared Mongo client; used by the request log, IP-tool lookup history, and botcheck fingerprint corpus — see rule #5).
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); its
   own package so it can `go:embed` those files.
 - `site/` — the apex corpberry.com project (its own package, same embed reason).

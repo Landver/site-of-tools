@@ -42,8 +42,11 @@ could call is a possible later bolt-on — see [ROADMAP.md](ROADMAP.md).)
 - `botcheck.go` — **pure domain**: `Signals`, `Check`, `Report`, `Evaluate`, and
   the signal helpers. No `echo`, no `iptools` import — so its tests construct
   `Signals` directly, with no HTTP and no databases.
-- `scoring.go` — the ordered weighted rule set (63 rules: hard tells → consistency
+- `scoring.go` — the ordered weighted rule set (66 rules: hard tells → consistency
   cross-checks → soft heuristics) and the soft-signal combination rule.
+- `corpus.go` — the Mongo fingerprint corpus (G41/G42): a nil-safe repository
+  (mirrors `iptools/history.go`) recording fingerprint sightings and counting
+  distinct IPs per hash. A disabled Mongo turns it into a no-op.
 - `handler.go` — transport: parses the client payload, gathers server signals off
   `*echo.Context`, maps the shared `iptools.Service` result into plain `Signals`
   fields, calls `Evaluate`, and content-negotiates the response.
@@ -120,6 +123,7 @@ is to make the two disagree and weight the disagreement.
 | **`Sec-CH-UA*` client-hint headers** | `c.Request().Header.Get("Sec-CH-UA" / …-Platform / …-Mobile)` | Cross-checked vs the JS `navigator.userAgentData` — spoofers routinely forget to keep header + JS hints in sync |
 | **`Accept-Language`** | `c.Request().Header.Get("Accept-Language")` | vs `navigator.languages` (JS) and vs IP-country. Empty/`*` is a weak tell |
 | **Header presence / plausibility** | `c.Request().Header` | Missing `Accept`/`Accept-Encoding`, or a Chrome UA with no `Sec-CH-UA` on a secure connection |
+| **Fingerprint corpus** — distinct IPs presenting this exact fingerprint in 30 days | `Corpus.DistinctIPs` (Mongo `botcheck_fingerprints`, 30-day TTL) | The scraping-farm catch (`fingerprint_reuse`): a farm locks one fingerprint and rotates its proxy pool; one person roaming never reaches five IPs |
 | **Connection metadata** | shared `platform.Conn(c)` — resolved IP, how derived (Cloudflare/XFF/direct), scheme, host | Shown in the "your request" card; also feeds the IP lookup |
 
 We deliberately **cannot** read HTTP header order/casing, TLS JA3/JA4, HTTP/2
@@ -132,9 +136,10 @@ gap (see [ROADMAP.md](ROADMAP.md)), not a bug.
 
 Plain HTML can't read `navigator`/`canvas`/`WebGL`, so a JS collector is justified
 under CLAUDE.md golden rule #4. The collector builds one JSON object and POSTs it.
-The payload carries a version (`v`, currently **3**); rules whose fields are
-damning-when-false (the G04 deep-tamper probes, added in v2, and the G17/G22
-integrity OK-bools + touch/mimeTypes fields, added in v3) skip older payloads, so
+The payload carries a version (`v`, currently **4**); rules whose fields are
+damning-when-false (the G04 deep-tamper probes, added in v2, the G17/G22
+integrity OK-bools + touch/mimeTypes fields, added in v3, and the G15/G21
+env-section reads, added in v4) skip older payloads, so
 a returning visitor with a stale cached collector never reads as tampered.
 
 - **Hard automation tells** — `navigator.webdriver`; automation-framework globals
@@ -202,6 +207,18 @@ a returning visitor with a stale cached collector never reads as tampered.
   host candidate ≠ egress is normal NAT — and only the egress's own address
   family is compared, so dual-stack stays silent). A public candidate that isn't
   the egress pierces a VPN/proxy.
+- **The v4 `env` section (G15/G21)** — one additive object of cheap
+  environment/API probes, all fail-to-absent (a missing key is "not supplied",
+  never evidence): `window.matchMedia` presence, devicePixelRatio,
+  prefers-color-scheme / forced-colors / reduced-motion / dynamic-range /
+  color-gamut media queries, a `navigator.connection` sample (effectiveType /
+  downlink / rtt / saveData — absent on most Firefox/Safari installs, which is
+  normal), the rounded storage-quota MB, `navigator.globalPrivacyControl`, a
+  two-name Permissions sample, and EME ClearKey availability. Only two of these
+  feed rules (`matchmedia_missing`, `netinfo_incoherent`); the rest are entropy
+  for the raw dump and are deliberately **never scored** — user preferences and
+  hardware capabilities are not bot tells, and the quota is explicitly not an
+  incognito detector (G19, skipped).
 
 ## Scoring model (no ML, deterministic)
 
@@ -215,7 +232,8 @@ Rules are tiered:
 > **number** is the operator's single-tenant crawler AS — one an outsider can't
 > originate from (matched by number, not owner name, since the name also covers the
 > operator's rentable public cloud) — the verdict is overridden to `good-bot` and its
-> expected deductions (`bot_user_agent`, `datacenter_ip`, `proxy_ip`) are recorded as
+> expected deductions (`bot_user_agent`, `datacenter_ip`, `proxy_ip`,
+> `fingerprint_reuse`) are recorded as
 > "expected", not counted. Recognition alone never lowers the score: a merely
 > *declared* Googlebot (or any UA copy) stays a fully-penalised `bot`, so there is no
 > spoof path to leniency. Every other tell (webdriver, CDP, tamper) still counts.
@@ -243,14 +261,17 @@ Rules are tiered:
   `contentWindow` proxied; mobile UA with zero touch points; Navigator.prototype
   accessor-descriptor anomaly; `chrome.runtime` integrity failure; `window.chrome`
   injected late; Error-stack JS engine ≠ engine the UA claims; public WebRTC
-  candidate IP ≠ egress IP.
+  candidate IP ≠ egress IP; this exact fingerprint seen from ≥5 distinct IPs in
+  the rolling 30-day corpus.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
   screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`,
   canvas renders blank, no H.264/AAC codecs, no detectable fonts, browser UA
   without `Accept-Encoding`, without `Accept-Language`, or with an `Accept`
   lacking `text/html`, a guaranteed-loadable image failing, plugins without
-  `mimeTypes`, zero `outerHeight`. Soft signals **only bite as a cluster of ≥3**
+  `mimeTypes`, zero `outerHeight`, browser UA without `window.matchMedia`,
+  `navigator.connection` effectiveType contradicting its own rtt/downlink.
+  Soft signals **only bite as a cluster of ≥3**
   (one 25-point deduction), so a single quirk never false-positives a real human.
 
 The load-bearing rules are the **cross-checks** — combinations that should not
@@ -284,6 +305,29 @@ c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform-Version")
 Even without this we still have the JS `getHighEntropyValues()` copy; the header
 opt-in gives us the *server-observed* side of the comparison (the point is that a
 spoofing client keeps the two out of sync).
+
+## Storage: the fingerprint corpus (G41/G42)
+
+Botcheck stores exactly one thing: a rolling corpus of fingerprint sightings in
+MongoDB (the `botcheck_fingerprints` collection in the shared `site-of-tools`
+database). On every `POST /check` the handler hashes the POSTed fingerprint's
+stable client fields — `Signals.FingerprintHash()`, sha256 over UA, languages,
+userAgentData.platform, cores, memory, screen + colour depth, timezone, WebGL
+vendor/renderer, productSub, engine, font count — records `(hash, IP, ts)`, and
+counts how many **distinct IPs** presented that exact hash. Five or more trips
+the `fingerprint_reuse` consistency rule (−25): the scraping-farm catch (a farm
+locks one browser fingerprint and rotates its proxy pool — the incolumitas
+ScrapingBee case), while one person roaming networks never reaches five IPs in a
+month. Verified crawler fleets share one fingerprint by design, so the rule is
+suppressed for them (G36).
+
+The corpus is deliberately minimal and self-pruning: a `ts` TTL index expires
+every sighting after 30 days, the hash is one-way (the raw fingerprint is never
+stored), and — exactly like the iptools history — a disabled Mongo (empty
+`MONGODB_URI`) turns the whole thing into a no-op: `FingerprintIPs` stays 0, the
+rule stays silent, and the score is unchanged. The domain scorer itself stays
+pure: the count arrives as a plain `Signals` field, so `Evaluate` still needs no
+DB and its tests still construct `Signals` directly.
 
 ## Collector provenance (vendored by hand, no npm)
 
@@ -319,16 +363,23 @@ one we'd want.
   and assert the negotiated output (JSON for `Accept: */*`, the `botcheck/result`
   fragment for `Accept: text/html`), with a fake `iptools.Looker` (no PX12 BIN in
   CI) and a nil service (IP signals absent, still scores the client half).
+- **Corpus (`corpus_test.go`)** — `FingerprintHash` determinism (server-observed
+  fields never leak in), the `fingerprint_reuse` floor (fires at ≥5, silent
+  below) + good-bot suppression, and the nil-safe disabled store. Live Mongo
+  round-trip + end-to-end handler wiring run only when `MONGODB_TEST_URI` is
+  set, skipping cleanly otherwise (the iptools-history pattern).
 
 ## Known gaps (documented, not bugs)
 
 TLS/JA3 + HTTP/2 fingerprinting (nginx terminates TLS upstream) and behavioral
 biometrics need infra/ML we don't have. Crowd/rarity scoring needs a persistence
-layer, and **MongoDB is now available** (a shared server, the `site-of-tools`
-database, and the `platform/mongo.go` client) — but botcheck **does not use it
-yet** and stays a pure, deterministic, in-request scorer. The DB-backed models
-(crowd/rarity, request velocity, returning-visitor history) can build on that
-client when we add them, sitting below the domain scorer per rule #5. The full
+layer; **MongoDB is available** (a shared server, the `site-of-tools` database,
+and the `platform/mongo.go` client) and botcheck now uses it for exactly one
+thing — the rolling fingerprint corpus behind `fingerprint_reuse` (see Storage
+above) — while the domain scorer stays a pure, deterministic, in-request
+function. The remaining DB-backed models (crowd/rarity, request velocity,
+returning-visitor history) can build on the same client when we add them,
+sitting below the domain scorer per rule #5. The full
 list of deferred items — with severity, effort, and the cheap approximation we do
 instead — lives in [ROADMAP.md](ROADMAP.md). The tool is a
 **self-test/inspection page, not an inline WAF** — it scores the current visitor

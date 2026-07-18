@@ -39,10 +39,15 @@ func main() {
 
 	// Mongo-backed features. Index creation is bounded and best-effort; a nil db
 	// yields nil stores (disabled). The request log is engine-level and shared by
-	// every subdomain; lookup history belongs to the IP tool.
+	// every subdomain; lookup history belongs to the IP tool, the fingerprint
+	// corpus to botcheck.
 	idxCtx, cancelIdx := context.WithTimeout(context.Background(), 10*time.Second)
 	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
 	lookupHistory := iptools.NewHistory(idxCtx, mdb.DB())
+	corpus := botcheck.NewCorpus(mdb.DB())
+	// Best-effort, same as the history TTL index inside NewHistory: a failure
+	// only forfeits auto-expiry, so it is non-fatal.
+	_ = corpus.EnsureIndexes(idxCtx)
 	cancelIdx()
 	defer reqlog.Close(context.Background())
 
@@ -87,9 +92,10 @@ func main() {
 	iptools.Register(ipApp, geo, lookupHistory)
 
 	// botcheck.corpberry.com — reuses the same IP service for its server-side
-	// reputation signals (nil geo degrades gracefully, exactly like the IP tool).
+	// reputation signals (nil geo degrades gracefully, exactly like the IP tool)
+	// and the Mongo corpus for its fingerprint-reuse signal.
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	botcheck.Register(botApp, geo)
+	botcheck.Register(botApp, geo, corpus)
 
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):         apex,

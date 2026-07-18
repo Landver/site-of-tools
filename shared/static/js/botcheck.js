@@ -3,11 +3,13 @@
 // Gathers the client-side signals a server can't see (navigator/webdriver/CDP
 // traces, the WebGL GPU vendor+renderer, cross-context navigator values from a
 // Web Worker / iframe / Service Worker, permissions, geometry, timezone, the
-// userAgentData version list, a feature-detected engine family, and engine
-// constants like navigator.productSub), POSTs them as JSON to /check, and swaps
-// the returned HTML fragment into #result. Every probe is wrapped in safe() so
-// one failure never aborts collection. Scoring/verdict happens server-side in
-// Go — this only collects, it never decides.
+// userAgentData version list, a feature-detected engine family, engine
+// constants like navigator.productSub, and the v4 "env" probes (media queries,
+// connection/storage/EME/GPC surface), POSTs them as JSON to /check, and swaps
+// the returned HTML fragment into #result. After a run it also appends the
+// verdict to a localStorage-only history (G46, never uploaded). Every probe is
+// wrapped in safe() so one failure never aborts collection. Scoring/verdict
+// happens server-side in Go — this only collects, it never decides.
 (() => {
   "use strict";
 
@@ -340,6 +342,131 @@
     } catch { resolve(false); }
   });
 
+  // ── v4 probes (G15/G21): the additive "env" section ───────────────────────
+  // Same conventions as the v3 probes, tightened: every value fails to ABSENT
+  // (the key is simply never set) — an unsupported API or a failed query is
+  // "not supplied", never a zero that could read as evidence. The scored rules
+  // (matchmedia_missing, netinfo_incoherent) are v4-gated server-side; the rest
+  // is entropy for the raw dump and is deliberately never scored (user
+  // preferences and hardware capabilities are not bot tells).
+
+  // mediaProbe reads the CSS media-query / display-capability surface (G15).
+  // matchMedia itself is the one capability flag: it exists in every real
+  // browser, so Go's matchmedia_missing rule treats its absence on a browser UA
+  // as a stripped-environment tell. Each query is individually safe()d and set
+  // only when it resolved — a browser without matchMedia at all yields just
+  // { matchMedia: false }.
+  const mediaProbe = () => {
+    const hasMM = safe(() => typeof window.matchMedia === "function", false);
+    const out = { matchMedia: hasMM };
+    if (!hasMM) return out;
+    const mq = (q) => safe(() => window.matchMedia(q).matches, null); // null = query failed
+    if (mq("(prefers-color-scheme: dark)") === true) out.colorScheme = "dark";
+    else if (mq("(prefers-color-scheme: light)") === true) out.colorScheme = "light";
+    const fc = mq("(forced-colors: active)");
+    if (fc !== null) out.forcedColors = fc;
+    const rm = mq("(prefers-reduced-motion: reduce)");
+    if (rm !== null) out.reducedMotion = rm;
+    const dr = mq("(dynamic-range: high)");
+    if (dr !== null) out.dynamicRange = dr ? "high" : "standard";
+    // color-gamut: report the widest supported; srgb is universal, so it is the
+    // fallback answer whenever the query API works at all.
+    if (mq("(color-gamut: rec2020)") === true) out.gamut = "rec2020";
+    else if (mq("(color-gamut: p3)") === true) out.gamut = "p3";
+    else if (mq("(color-gamut: srgb)") !== null) out.gamut = "srgb";
+    const dpr = safe(() => window.devicePixelRatio, 0);
+    if (typeof dpr === "number" && isFinite(dpr) && dpr > 0) out.dpr = dpr;
+    return out;
+  };
+
+  // connectionProbe samples navigator.connection (G21) — the browser's own
+  // network-quality estimate. The API doesn't exist on most Firefox/Safari
+  // installs: that absence is normal and resolves null, which Go reads as "not
+  // supplied" (the netinfo_incoherent rule simply skips). Each field is set
+  // only when it reports a sensible value.
+  const connectionProbe = () => safe(() => {
+    const c = navigator.connection;
+    if (!c) return null;
+    const out = {};
+    if (typeof c.effectiveType === "string" && c.effectiveType) out.effectiveType = c.effectiveType;
+    if (typeof c.downlink === "number" && isFinite(c.downlink)) out.downlink = c.downlink;
+    if (typeof c.rtt === "number" && isFinite(c.rtt)) out.rtt = c.rtt;
+    if (typeof c.saveData === "boolean") out.saveData = c.saveData;
+    return out;
+  }, null);
+
+  // storageProbe reads the storage quota estimate, rounded to whole MB (G21).
+  // 0 = couldn't tell (API absent, estimate failed) — Go treats 0 as absent.
+  // The quota feeds nothing but the raw dump; deliberately no incognito
+  // heuristic (that's G19, skipped in the roadmap).
+  const storageProbe = () => safe(
+    () => navigator.storage?.estimate?.().then((e) => {
+      const q = e && e.quota;
+      return typeof q === "number" && isFinite(q) && q > 0 ? Math.round(q / 1048576) : 0;
+    }, () => 0),
+    Promise.resolve(0),
+  );
+
+  // permissionsProbe samples two Permissions API states (G21). Each name is
+  // individually fail-to-absent — older Safari rejects 'geolocation' — and the
+  // whole sample is null when the API itself is missing. Entropy only: the
+  // states are user choices, so no rule ever scores them.
+  const permissionsProbe = () => {
+    if (!safe(() => !!(navigator.permissions && navigator.permissions.query), false)) {
+      return Promise.resolve(null);
+    }
+    const q = (name) => safe(
+      () => navigator.permissions.query({ name }).then((p) => p.state || "", () => ""),
+      Promise.resolve(""),
+    );
+    return Promise.all([q("notifications"), q("geolocation")]).then(([n, g]) => {
+      const out = {};
+      if (n) out.notifications = n;
+      if (g) out.geolocation = g;
+      return out;
+    });
+  };
+
+  // emeProbe asks whether ClearKey EME is available (G21). true/false are both
+  // determined answers; null means the probe couldn't run (no EME API, an
+  // unexpected error) — fail-to-absent, never evidence.
+  const emeProbe = () => safe(
+    () => {
+      if (typeof navigator.requestMediaKeySystemAccess !== "function") return Promise.resolve(null);
+      const cfg = [{
+        initDataTypes: ["cenc"],
+        videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
+      }];
+      return navigator.requestMediaKeySystemAccess("org.w3.clearkey", cfg).then(
+        () => true,
+        (err) => (err && err.name === "NotSupportedError" ? false : null),
+      );
+    },
+    Promise.resolve(null),
+  );
+
+  // gpcProbe reads navigator.globalPrivacyControl (G21): a boolean where the
+  // browser exposes it (Firefox), null elsewhere — absent, never false.
+  const gpcProbe = () => safe(() => {
+    const g = navigator.globalPrivacyControl;
+    return typeof g === "boolean" ? g : null;
+  }, null);
+
+  // envSection assembles the v4 env object from the probes above. quota/perms/
+  // eme are the already-resolved async probe results from collect()'s one
+  // Promise.all, so this adds no wall time to the happy path.
+  const envSection = (quotaMB, perms, eme) => {
+    const env = mediaProbe();
+    const conn = connectionProbe();
+    if (conn) env.connection = conn;
+    if (quotaMB > 0) env.storageQuotaMB = quotaMB;
+    const gpc = gpcProbe();
+    if (gpc !== null) env.gpc = gpc;
+    if (perms) env.permissions = perms;
+    if (eme !== null) env.emeClearKey = eme;
+    return env;
+  };
+
   // webglGPU reads the unmasked VENDOR and RENDERER from WEBGL_debug_renderer_info.
   // Go compares the two against each other (vendor/renderer coherence, G07) and the
   // GPU family against the UA-claimed OS (G08). Any failure (no WebGL, extension
@@ -538,15 +665,17 @@
 
   const collect = async () => {
     const iframe = iframeProbe();
-    const [worker, sw, ua, perm, webrtcIPs, imageBroken] = await Promise.all(
-      [workerProbe(), swProbe(), uaData(), permState(), webrtcProbe(), imageProbe()],
+    const [worker, sw, ua, perm, webrtcIPs, imageBroken, quotaMB, perms, eme] = await Promise.all(
+      [workerProbe(), swProbe(), uaData(), permState(), webrtcProbe(), imageProbe(),
+        storageProbe(), permissionsProbe(), emeProbe()], // v4: parallel with the rest — no added wall time
     );
     return {
       // Payload version. Bump when a new field is damning-when-false (a missing
       // key binds false server-side): Go skips those rules on older payloads, so
       // a stale cached copy of this file never reads as tampered. v2 = G04 probes;
-      // v3 = the G09–G14/G17/G22/G23 batch + Layer-1 backlog fields.
-      v: 3,
+      // v3 = the G09–G14/G17/G22/G23 batch + Layer-1 backlog fields; v4 = the
+      // G15/G21 "env" section (media queries, connection, storage, EME, GPC).
+      v: 4,
       webdriver: safe(() => navigator.webdriver === true, false),
       frameworkGlobals: frameworkGlobals(),
       cdpMainThread: cdpTrap(),
@@ -616,8 +745,61 @@
       mimeTypes: safe(() => navigator.mimeTypes?.length ?? 0, 0),
       outerH: safe(() => window.outerHeight ?? 0, 0),
       innerH: safe(() => window.innerHeight ?? 0, 0),
+      // v4 batch (G15/G21): one additive env section — media-query/display
+      // values, the connection sample, storage quota, permissions, EME, GPC.
+      // Every key inside fails to absent; the scored rules are v4-gated, the
+      // rest is entropy for the raw dump only.
+      env: envSection(quotaMB, perms, eme),
     };
   };
+
+  // ── G46: returning-visitor history (localStorage only, never uploaded) ────
+  // After each completed run, append {ts, score, verdict} — read off the
+  // swapped-in verdict card's data attrs — to the botcheck:history list (capped
+  // at the 20 most recent) and re-render the "your recent checks" card. Every
+  // step goes through safe(): private mode can make any localStorage access
+  // throw, and history is best-effort — it must never break the result flow.
+  const HISTORY_KEY = "botcheck:history";
+  const HISTORY_MAX = 20;
+  const VERDICT_CLASS = { human: "text-ok", suspicious: "text-warn", "good-bot": "text-brand" };
+
+  const readHistory = () => safe(() => {
+    const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
+  }, []);
+
+  const renderHistory = () => safe(() => {
+    const card = document.getElementById("botcheck-history");
+    const ul = card && card.querySelector("ul");
+    if (!ul) return;
+    const entries = readHistory();
+    card.hidden = entries.length === 0;
+    ul.replaceChildren(...entries.reverse().map((e) => {
+      const li = document.createElement("li");
+      li.className = "flex items-baseline gap-3 py-2";
+      const time = document.createElement("span");
+      time.className = "flex-1 min-w-0 text-faint";
+      time.textContent = new Date(e.ts).toLocaleString();
+      const score = document.createElement("span");
+      score.className = "shrink-0 font-mono text-strong";
+      score.textContent = e.score + "/100";
+      const verdict = document.createElement("span");
+      verdict.className = "shrink-0 font-mono text-xs " + (VERDICT_CLASS[e.verdict] || "text-danger");
+      verdict.textContent = e.verdict;
+      li.append(time, score, verdict);
+      return li;
+    }));
+  });
+
+  const recordHistory = () => safe(() => {
+    const el = document.querySelector("#result [data-score][data-verdict]");
+    const score = el ? Number(el.getAttribute("data-score")) : NaN;
+    if (!Number.isFinite(score)) return; // an error fragment carries no verdict card
+    const list = readHistory();
+    list.push({ ts: Date.now(), score, verdict: el.getAttribute("data-verdict") || "" });
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(-HISTORY_MAX)));
+    renderHistory();
+  });
 
   const runBotCheck = async () => {
     const status = document.getElementById("botcheck-status");
@@ -630,6 +812,7 @@
         body: JSON.stringify(await collect()),
       });
       if (result) result.innerHTML = await res.text();
+      recordHistory();
       if (status) status.textContent = "";
     } catch {
       if (status) status.textContent = "check failed — try again";
@@ -637,6 +820,7 @@
   };
 
   window.runBotCheck = runBotCheck;
+  renderHistory(); // G46: a returning visitor sees their history before the first run
 
   // Auto-run once the page is warmed up. Probes that touch the font cache and media
   // pipeline can read "cold" at DOMContentLoaded — a spurious "no fonts / no codecs"
