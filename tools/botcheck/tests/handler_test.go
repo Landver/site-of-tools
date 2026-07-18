@@ -133,12 +133,20 @@ func TestIndexSetsAcceptCH(t *testing.T) {
 func TestIndexCurlGetsServerOnlyScore(t *testing.T) {
 	// A datacenter IP should surface in the server-only score, even with no client
 	// fingerprint. A normal browser UA avoids the empty-UA bot signal so we isolate
-	// the datacenter check.
+	// the datacenter check. The request carries the headers a real browser always
+	// sends (Accept-Encoding, Accept-Language, Sec-Fetch-Mode) so the G06 presence
+	// checks stay quiet too; Accept must stay application/json (the JSON path),
+	// which accept_nav_mismatch still flags — a single soft signal, under the
+	// cluster threshold, so it costs nothing.
 	looker := fakeLooker{res: &iptools.Result{
 		CountryCode: "TR", Timezone: "Europe/Istanbul",
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "DCH"},
 	}}
-	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	rec := get(newTestApp(looker), "/", map[string]string{
+		"Accept": "application/json", "User-Agent": chromeMacUA,
+		"Accept-Encoding": "gzip, deflate, br", "Accept-Language": "en-US,en;q=0.9",
+		"Sec-Fetch-Mode": "navigate",
+	})
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Fatalf("content-type = %q, want application/json", ct)
 	}
@@ -319,5 +327,203 @@ func TestCheckDatacenterPlusHeadlessIsBot(t *testing.T) {
 	}
 	if rep.Verdict != "bot" || rep.Score != 0 {
 		t.Errorf("headless+datacenter: score=%d verdict=%q, want 0/bot", rep.Score, rep.Verdict)
+	}
+}
+
+func TestCheckGPUCoherenceThroughHandler(t *testing.T) {
+	// G07/G08 end-to-end: an Apple GPU reported on a Windows Chrome UA. The
+	// vendor/renderer pair is internally consistent (G07 stays silent) but the
+	// GPU is impossible for the claimed OS (G08 fires) — and it proves the new
+	// webglVendor field binds from JSON alongside webglRenderer through the real
+	// handler.
+	const winUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	body := `{"navMainUA":"` + winUA + `","webglVendor":"Google Inc. (Apple)",` +
+		`"webglRenderer":"ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": winUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var gpuOS, vendor botcheck.Check
+	for _, c := range rep.Checks {
+		switch c.ID {
+		case "gpu_os_mismatch":
+			gpuOS = c
+		case "webgl_vendor_mismatch":
+			vendor = c
+		}
+	}
+	if !gpuOS.Triggered {
+		t.Errorf("gpu_os_mismatch should fire for an Apple GPU on a Windows UA:\n%s", rec.Body.String())
+	}
+	if vendor.Triggered {
+		t.Errorf("webgl_vendor_mismatch must not fire for a consistent Apple/Apple pair:\n%s", rec.Body.String())
+	}
+}
+
+func TestServiceWorkerScriptServed(t *testing.T) {
+	// G03: the collector registers /botcheck-sw.js as a Service Worker, so the app
+	// must serve it with a JavaScript MIME type (registration refuses anything
+	// else), answering messages, and — critically — with NO fetch handler, so it
+	// can never intercept a request on the origin.
+	rec := get(newTestApp(fakeLooker{}), "/botcheck-sw.js", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/javascript") {
+		t.Errorf("content-type = %q, want application/javascript", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "onmessage") {
+		t.Errorf("SW script should answer messages:\n%s", body)
+	}
+	if strings.Contains(body, "onfetch") || strings.Contains(body, `"fetch"`) {
+		t.Errorf("SW script must never install a fetch handler:\n%s", body)
+	}
+}
+
+func TestCheckCrossContextSignalsThroughHandler(t *testing.T) {
+	// G03 end-to-end: the new cross-context fields bind from the POSTed JSON and
+	// their rules fire — here a Service Worker leaking a Linux UA, platform, and
+	// core count while the top frame claims macOS (the Bright Data scenario).
+	body := `{"navMainUA":"` + chromeMacUA + `","hardwareCores":8,"uaData":{"platform":"macOS"},` +
+		`"swUA":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",` +
+		`"swPlatform":"Linux","swCores":4}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{"context_ua_mismatch", "context_platform_mismatch", "context_cores_mismatch"} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+}
+
+func TestCheckDeepTamperSignalsThroughHandler(t *testing.T) {
+	// G04 end-to-end: the three deep-tamper fields bind from the POSTed JSON and
+	// their rules fire through the real handler. nativeToStringProxied is inverted
+	// (true = bad); nativeToStringOK stays true because a stealth proxy's purpose
+	// is to keep the shallow check green.
+	body := `{"v":2,"nativeToStringOK":true,"nativeDescriptorsOK":false,"nativeCallNewOK":false,"nativeToStringProxied":true}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{"tostring_proxy", "native_descriptor_tamper", "native_callnew_tamper"} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+	for _, c := range rep.Checks {
+		if c.ID == "native_tamper" && c.Triggered {
+			t.Errorf("native_tamper must not fire when nativeToStringOK binds true:\n%s", rec.Body.String())
+		}
+	}
+}
+
+// cleanClientBody is the JSON twin of cleanChrome (botcheck_test.go): a fully
+// consistent client fingerprint, so the G06 handler tests isolate the server-side
+// header rules — nothing in the body trips a client rule. Europe/Moscow is used
+// because it keeps UTC+3 year-round (no DST), so tzOffset -180 stays consistent
+// with the handler's live time.Now() stamp whatever the wall clock says.
+var cleanClientBody = `{"v":2,"nativeToStringOK":true,"hasChromeObject":true,` +
+	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
+	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
+	`"languages":["en-US","en"],"language":"en-US","vendor":"Google Inc.",` +
+	`"appVersion":"` + strings.TrimPrefix(chromeMacUA, "Mozilla/") + `",` +
+	`"webglRenderer":"ANGLE (Apple, Apple M1, OpenGL 4.1)","plugins":3,` +
+	`"screenW":1920,"screenH":1080,"availW":1920,"availH":1040,"colorDepth":30,` +
+	`"outerW":1680,"innerW":1400,"hardwareCores":8,"deviceMemory":8,` +
+	`"browserTZ":"Europe/Moscow","tzOffset":-180,` +
+	`"canvasSupported":true,"canvasStable":true,"canvasBlank":false,` +
+	`"brands":["Chromium","Google Chrome","Not.A/Brand"],` +
+	`"uaData":{"platform":"macOS","fullVersionList":[` +
+	`{"brand":"Chromium","version":"125.0.6422.60"},` +
+	`{"brand":"Google Chrome","version":"125.0.6422.60"},` +
+	`{"brand":"Not.A/Brand","version":"24.0.0.0"}]},` +
+	`"codecH264":true,"codecAAC":true,"fontCount":8,"productSub":"20030107","engine":"blink"}`
+
+func TestCheckHeaderClusterThroughHandler(t *testing.T) {
+	// G06 end-to-end: a browser-UA POST with no Accept-Encoding, no Accept-Language,
+	// and a scripted-client Accept (*/*) trips exactly the three new soft header
+	// checks — a full cluster, so the single -25 deduction applies (100 → 75).
+	// Sec-Fetch-Mode is sent so sec_fetch_missing stays out of the count.
+	rec := post(newTestApp(fakeLooker{}), "/check", cleanClientBody, map[string]string{
+		"Accept": "*/*", "User-Agent": chromeMacUA, "Sec-Fetch-Mode": "cors",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{"accept_encoding_missing", "accept_language_missing", "accept_nav_mismatch"} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+	soft := 0
+	for _, c := range rep.Checks {
+		if c.Tier == "soft" && c.Triggered {
+			soft++
+		}
+	}
+	if soft != 3 {
+		t.Errorf("triggered soft checks = %d, want exactly 3 (only the new header checks):\n%s", soft, rec.Body.String())
+	}
+	if rep.Score != 75 || rep.Verdict != "suspicious" {
+		t.Errorf("header cluster: score=%d verdict=%q, want 75/suspicious (one soft-cluster deduction)", rep.Score, rep.Verdict)
+	}
+}
+
+func TestCheckFullBrowserHeadersFlagNone(t *testing.T) {
+	// The same clean fingerprint with the complete header set a real browser sends
+	// (an Accept that includes text/html, Accept-Encoding, Accept-Language,
+	// Sec-Fetch-Mode, Upgrade-Insecure-Requests) must flag NOTHING. Accept says
+	// text/html, so the answer is the HTML fragment: a 100 score with no "flagged"
+	// soft rows and no cluster deduction.
+	rec := post(newTestApp(fakeLooker{}), "/check", cleanClientBody, map[string]string{
+		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		"Accept-Encoding":           "gzip, deflate, br, zstd",
+		"Accept-Language":           "en-US,en;q=0.9",
+		"Sec-Fetch-Mode":            "cors",
+		"Upgrade-Insecure-Requests": "1",
+		"User-Agent":                chromeMacUA,
+	})
+	frag := rec.Body.String()
+	if !strings.Contains(frag, "100<span") {
+		t.Errorf("a full-header clean browser should score 100:\n%s", frag)
+	}
+	// A triggered soft row renders "flagged" as its status. The word also appears
+	// once in the static explanatory copy ("Each flagged check subtracts…"), so a
+	// fully clean fragment contains it exactly once — any triggered soft row adds
+	// another.
+	if n := strings.Count(frag, "flagged"); n != 1 {
+		t.Errorf("a full-header clean browser should have no flagged soft rows (found %d extra):\n%s", n-1, frag)
+	}
+	if strings.Contains(frag, "weak signals counted together") {
+		t.Errorf("no soft cluster should be active for a full-header clean browser:\n%s", frag)
 	}
 }

@@ -24,6 +24,7 @@ var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 func cleanChrome() botcheck.Signals {
 	return botcheck.Signals{
 		ClientCollected:  true,
+		CollectorV:       2, // the current payload version (G04 deep-tamper fields present)
 		NativeToStringOK: true,
 		HasChromeObject:  true,
 		NavMainUA:        chromeMacUA,
@@ -35,9 +36,14 @@ func cleanChrome() botcheck.Signals {
 		Vendor:           "Google Inc.",
 		AppVersion:       strings.TrimPrefix(chromeMacUA, "Mozilla/"),
 		AcceptLanguage:   "en-US,en;q=0.9",
-		WebGLRenderer:    "ANGLE (Apple, Apple M1, OpenGL 4.1)",
-		Plugins:          3,
-		ScreenW:          1920, ScreenH: 1080,
+		// G06 server-observed headers, as a real Chrome sends them.
+		HTTPAccept:                  "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		HTTPAcceptEncoding:          "gzip, deflate, br, zstd",
+		HTTPUpgradeInsecureRequests: "1",
+		WebGLRenderer:               "ANGLE (Apple, Apple M1, OpenGL 4.1)",
+		WebGLVendor:                 "Google Inc. (Apple)", // Chrome's ANGLE vendor shim — same family as the renderer (G07/G08 stay silent)
+		Plugins:                     3,
+		ScreenW:                     1920, ScreenH: 1080,
 		AvailW: 1920, AvailH: 1040,
 		ColorDepth: 30,
 		OuterW:     1680, InnerW: 1400,
@@ -68,6 +74,24 @@ func cleanChrome() botcheck.Signals {
 		// Quick-win signals (G01/G02/G05), all consistent with a real Chrome 125.
 		ProductSub: "20030107", // WebKit/Blink constant
 		Engine:     "blink",    // feature-detected engine matches the Chrome UA
+		// G03 cross-context signals: the worker / iframe / Service Worker all
+		// mirror the main thread, exactly as a real browser's extra contexts do.
+		SWUA:                chromeMacUA,
+		WorkerLanguages:     []string{"en-US", "en"},
+		IframeLanguages:     []string{"en-US", "en"},
+		SWLanguages:         []string{"en-US", "en"},
+		WorkerCores:         8,
+		IframeCores:         8,
+		SWCores:             8,
+		WorkerPlatform:      "macOS",
+		IframePlatform:      "macOS",
+		SWPlatform:          "macOS",
+		WorkerWebGLRenderer: "ANGLE (Apple, Apple M1, OpenGL 4.1)",
+		// G04 deep tamper probes: a genuine browser passes all three (proxied is
+		// inverted polarity — true would mean a Function.prototype.toString Proxy).
+		NativeDescriptorsOK:   true,
+		NativeCallNewOK:       true,
+		NativeToStringProxied: false,
 	}
 }
 
@@ -146,6 +170,9 @@ func TestPlatformSpoofScoresSuspicious(t *testing.T) {
 	s := cleanChrome()
 	s.SecCHUAPlatform = "" // isolate the ua_os check from the CH-platform check
 	s.UAData = botcheck.UAData{Platform: "Windows"}
+	// The secondary contexts claim Windows too (a consistent spoof), so the G03
+	// context-platform rule stays quiet and only the UA-vs-platform tell fires.
+	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "Windows", "Windows", "Windows"
 
 	r := botcheck.Evaluate(s)
 	if diff := cmp.Diff([]string{"ua_os_mismatch"}, triggeredIDs(r)); diff != "" {
@@ -216,6 +243,13 @@ func TestServerOnlySkipsClientChecks(t *testing.T) {
 	if !check(t, r, "tz_mismatch").Skipped {
 		t.Errorf("tz_mismatch should be Skipped on a server-only request (needs client BrowserTZ)")
 	}
+	// The GPU coherence rules read only client-collected WebGL strings, so they must
+	// skip too — never read as passing without a fingerprint.
+	for _, id := range []string{"webgl_vendor_mismatch", "gpu_os_mismatch"} {
+		if !check(t, r, id).Skipped {
+			t.Errorf("%s should be Skipped on a server-only request", id)
+		}
+	}
 	bot := check(t, r, "bot_user_agent")
 	if bot.Skipped || !bot.Triggered {
 		t.Errorf("bot_user_agent should fire (not skip) for a curl UA: %+v", bot)
@@ -234,9 +268,17 @@ func TestEmptyUserAgentFlags(t *testing.T) {
 
 func TestElectronUAIsSuspiciousNotHardBot(t *testing.T) {
 	// An Electron browser (like the in-app one) should read as suspicious via the
-	// dedicated embedded-runtime signal, NOT as a definitive curl-class bot.
+	// dedicated embedded-runtime signal, NOT as a definitive curl-class bot. The
+	// fixture sends the headers any real browser sends (Sec-Fetch-Mode,
+	// Accept-Language, Accept-Encoding) so the header-presence soft checks stay
+	// quiet and the score isolates the embedded-runtime deduction.
 	const electronUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.2 Chrome/148.0.0.0 Electron/42.5.1 Safari/537.36"
-	r := botcheck.Evaluate(botcheck.Signals{HTTPUserAgent: electronUA})
+	r := botcheck.Evaluate(botcheck.Signals{
+		HTTPUserAgent:      electronUA,
+		SecFetchMode:       "navigate",
+		AcceptLanguage:     "en-US,en;q=0.9",
+		HTTPAcceptEncoding: "gzip, deflate, br",
+	})
 
 	if check(t, r, "bot_user_agent").Triggered {
 		t.Errorf("Electron UA must NOT trip the hard bot_user_agent rule")
@@ -283,6 +325,72 @@ func TestSecFetchMissingFlagsScriptedBrowserUA(t *testing.T) {
 	}
 	if check(t, botcheck.Evaluate(cleanChrome()), "sec_fetch_missing").Triggered {
 		t.Errorf("sec_fetch_missing must NOT fire for a browser that sent Sec-Fetch-Mode")
+	}
+}
+
+// TestHeaderPresenceSignals covers the G06 header checks: each is soft (a proxy
+// can strip/rewrite headers), guarded by looksLikeBrowser, and must fire ONLY
+// when a claimed browser omits a header every real browser sends (Accept-Encoding,
+// Accept-Language) or sends an Accept with no text/html — never on absent data,
+// a curl UA, or an empty UA.
+func TestHeaderPresenceSignals(t *testing.T) {
+	browserNoEnc := cleanChrome()
+	browserNoEnc.HTTPAcceptEncoding = ""
+	browserNoLang := cleanChrome()
+	browserNoLang.AcceptLanguage = ""
+	browserStarAccept := cleanChrome()
+	browserStarAccept.HTTPAccept = "*/*" // the bare-curl tell
+	browserJSONAccept := cleanChrome()
+	browserJSONAccept.HTTPAccept = "application/json" // the API-client tell
+	browserNoAccept := cleanChrome()
+	browserNoAccept.HTTPAccept = "" // absent means "not supplied" — must not fire
+
+	cases := []struct {
+		name string
+		s    botcheck.Signals
+		id   string
+		want bool
+	}{
+		{"encoding missing under a browser UA fires", browserNoEnc, "accept_encoding_missing", true},
+		{"encoding present does not fire", cleanChrome(), "accept_encoding_missing", false},
+		{"encoding missing under a curl UA ignored", botcheck.Signals{HTTPUserAgent: "curl/8.4.0"}, "accept_encoding_missing", false},
+		{"encoding missing under an empty UA ignored", botcheck.Signals{}, "accept_encoding_missing", false},
+		{"language missing under a browser UA fires", browserNoLang, "accept_language_missing", true},
+		{"language present does not fire", cleanChrome(), "accept_language_missing", false},
+		{"language missing under a curl UA ignored", botcheck.Signals{HTTPUserAgent: "curl/8.4.0"}, "accept_language_missing", false},
+		{"language missing under an empty UA ignored", botcheck.Signals{}, "accept_language_missing", false},
+		{"Accept */* under a browser UA fires", browserStarAccept, "accept_nav_mismatch", true},
+		{"Accept application/json under a browser UA fires", browserJSONAccept, "accept_nav_mismatch", true},
+		{"a real browser Accept does not fire", cleanChrome(), "accept_nav_mismatch", false},
+		{"an absent Accept never fires", browserNoAccept, "accept_nav_mismatch", false},
+		{"Accept */* under a curl UA ignored", botcheck.Signals{HTTPUserAgent: "curl/8.4.0", HTTPAccept: "*/*"}, "accept_nav_mismatch", false},
+		{"Accept */* under an empty UA ignored", botcheck.Signals{HTTPAccept: "*/*"}, "accept_nav_mismatch", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := check(t, botcheck.Evaluate(tc.s), tc.id).Triggered; got != tc.want {
+				t.Errorf("%s: Triggered = %v, want %v", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSingleHeaderSoftSignalStaysHuman(t *testing.T) {
+	// One missing header is ONE soft signal — under the cluster threshold it is
+	// flagged but must cost nothing, or a single header-rewriting proxy would
+	// condemn a real user.
+	s := cleanChrome()
+	s.HTTPAcceptEncoding = ""
+
+	r := botcheck.Evaluate(s)
+	if !check(t, r, "accept_encoding_missing").Triggered {
+		t.Fatalf("accept_encoding_missing should be flagged")
+	}
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Errorf("one header soft signal: score=%d verdict=%q, want 100/human (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
+	}
+	if r.SoftFired() != 1 || r.SoftClusterActive() {
+		t.Errorf("1 soft: SoftFired=%d clusterActive=%v, want 1 / false", r.SoftFired(), r.SoftClusterActive())
 	}
 }
 
@@ -585,5 +693,365 @@ func TestRealBrowsersDoNotFalsePositive(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ── G07/G08: WebGL GPU coherence ─────────────────────────────────────────────
+
+// UAs for the GPU/OS matrix (chromeMacUA, criosUA and friends are defined above).
+const (
+	chromeWinGPUUA     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	chromeLinuxGPUUA   = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	chromeAndroidGPUUA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+)
+
+// Realistic WebGL unmasked vendor/renderer pairs, one per reporting style:
+// Chrome's ANGLE shim, Safari's generalised Apple pair, Firefox's plain driver
+// strings, and Android's mobile GPUs.
+const (
+	angleAppleVendor   = "Google Inc. (Apple)"
+	angleAppleRenderer = "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"
+	angleNVVendor      = "Google Inc. (NVIDIA)"
+	angleNVRenderer    = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+	angleAMDVendor     = "Google Inc. (AMD)"
+	angleAMDRenderer   = "ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+	angleIntelVendor   = "Google Inc. (Intel)"
+	angleIntelRenderer = "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+	adrenoVendor       = "Qualcomm"
+	adrenoRenderer     = "Adreno (TM) 740"
+	maliVendor         = "ARM" // "ARM" alone parses to no family — the renderer carries "Mali"
+	maliRenderer       = "Mali-G78"
+)
+
+// gpuSignals builds a minimal client-collected fixture carrying just a UA and a
+// WebGL vendor/renderer pair. Assertions below target only the two GPU rules, so
+// the other fields stay zero (their rules are covered elsewhere).
+func gpuSignals(ua, vendor, renderer string) botcheck.Signals {
+	return botcheck.Signals{
+		ClientCollected:  true,
+		NativeToStringOK: true,
+		NavMainUA:        ua,
+		HTTPUserAgent:    ua,
+		WebGLVendor:      vendor,
+		WebGLRenderer:    renderer,
+	}
+}
+
+// TestWebGLVendorMismatch covers G07: the unmasked VENDOR and RENDERER come from
+// the same driver, so a confident cross-family pair is a hand-edited spoof. It
+// must fire only when BOTH sides parse to a known family AND disagree — any
+// absent or unparseable string means no signal.
+func TestWebGLVendorMismatch(t *testing.T) {
+	fires := []struct{ name, vendor, renderer string }{
+		{"Apple vendor vs NVIDIA renderer", "Apple Inc.", angleNVRenderer},
+		{"NVIDIA vendor vs AMD renderer", "NVIDIA Corporation", "AMD Radeon RX 6600"},
+		{"Intel vendor vs Adreno renderer", "Intel Inc.", adrenoRenderer},
+	}
+	for _, tc := range fires {
+		t.Run("fires/"+tc.name, func(t *testing.T) {
+			r := botcheck.Evaluate(gpuSignals(chromeMacUA, tc.vendor, tc.renderer))
+			if !check(t, r, "webgl_vendor_mismatch").Triggered {
+				t.Errorf("webgl_vendor_mismatch should fire for vendor %q vs renderer %q", tc.vendor, tc.renderer)
+			}
+		})
+	}
+	silent := []struct{ name, vendor, renderer string }{
+		{"ANGLE Apple pair", angleAppleVendor, angleAppleRenderer},
+		{"ANGLE NVIDIA pair", angleNVVendor, angleNVRenderer},
+		{"Firefox NVIDIA pair", "NVIDIA Corporation", "NVIDIA GeForce RTX 3080"},
+		{"Safari generalised Apple pair", "Apple Inc.", "Apple GPU"},
+		{"ARM vendor + Mali renderer (normal Android)", maliVendor, maliRenderer},
+		{"absent vendor", "", angleNVRenderer},
+		{"absent renderer", "NVIDIA Corporation", ""},
+		{"both absent", "", ""},
+		{"software rasteriser (no family)", "Google Inc. (Google)", "Google SwiftShader"},
+		{"VM passthrough (no family)", "VMware, Inc.", "SVGA3D; build: RELEASE;"},
+	}
+	for _, tc := range silent {
+		t.Run("silent/"+tc.name, func(t *testing.T) {
+			r := botcheck.Evaluate(gpuSignals(chromeMacUA, tc.vendor, tc.renderer))
+			if check(t, r, "webgl_vendor_mismatch").Triggered {
+				t.Errorf("webgl_vendor_mismatch must not fire for vendor %q vs renderer %q", tc.vendor, tc.renderer)
+			}
+		})
+	}
+}
+
+// TestCrossContextSignals covers the G03 rules: each mutation makes one
+// secondary-context value (Web Worker / iframe / Service Worker) contradict the
+// main thread, which must fire exactly the rule watching that pair.
+func TestCrossContextSignals(t *testing.T) {
+	const linuxChromeUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	cases := []struct {
+		name   string
+		mutate func(*botcheck.Signals)
+		id     string
+	}{
+		// context_ua_mismatch gained the Service-Worker side.
+		{"service worker UA differs", func(s *botcheck.Signals) { s.SWUA = linuxChromeUA }, "context_ua_mismatch"},
+		// A different primary language in any one context fires the language rule.
+		{"worker language differs", func(s *botcheck.Signals) { s.WorkerLanguages = []string{"ru-RU", "ru"} }, "context_language_mismatch"},
+		{"iframe language differs", func(s *botcheck.Signals) { s.IframeLanguages = []string{"de-DE", "de"} }, "context_language_mismatch"},
+		{"service worker language differs", func(s *botcheck.Signals) { s.SWLanguages = []string{"fr-FR"} }, "context_language_mismatch"},
+		// A different core count in any one context fires the cores rule.
+		{"worker cores differ", func(s *botcheck.Signals) { s.WorkerCores = 4 }, "context_cores_mismatch"},
+		{"iframe cores differ", func(s *botcheck.Signals) { s.IframeCores = 16 }, "context_cores_mismatch"},
+		{"service worker cores differ", func(s *botcheck.Signals) { s.SWCores = 2 }, "context_cores_mismatch"},
+		// A different userAgentData.platform in any one context fires the platform rule.
+		{"worker platform differs", func(s *botcheck.Signals) { s.WorkerPlatform = "Linux" }, "context_platform_mismatch"},
+		{"iframe platform differs", func(s *botcheck.Signals) { s.IframePlatform = "Windows" }, "context_platform_mismatch"},
+		{"service worker platform differs", func(s *botcheck.Signals) { s.SWPlatform = "Chrome OS" }, "context_platform_mismatch"},
+		// The worker's OffscreenCanvas WebGL renderer disagrees with the main thread's.
+		{"worker WebGL renderer differs", func(s *botcheck.Signals) {
+			s.WorkerWebGLRenderer = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060, OpenGL 4.5)"
+		}, "context_webgl_mismatch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			if !check(t, botcheck.Evaluate(s), tc.id).Triggered {
+				t.Errorf("%s should fire", tc.id)
+			}
+		})
+	}
+}
+
+// TestDeepTamperSignals covers the G04 rules in both directions plus the skip
+// contract: each rule fires on its bad value, stays silent on the clean fixture,
+// and Skips (rather than reading as a pass) when no client fingerprint was
+// collected at all.
+func TestDeepTamperSignals(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*botcheck.Signals)
+		id     string
+	}{
+		// The stealth hallmark: Function.prototype.toString carries Proxy artifacts.
+		{"toString proxied", func(s *botcheck.Signals) { s.NativeToStringProxied = true }, "tostring_proxy"},
+		// A monkey-patched native leaves an impossible property descriptor.
+		{"descriptor tamper", func(s *botcheck.Signals) { s.NativeDescriptorsOK = false }, "native_descriptor_tamper"},
+		// A patched native misses the call/new TypeError traps a genuine one throws.
+		{"call/new tamper", func(s *botcheck.Signals) { s.NativeCallNewOK = false }, "native_callnew_tamper"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+" fires", func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			if !check(t, botcheck.Evaluate(s), tc.id).Triggered {
+				t.Errorf("%s should fire on the bad value (%s)", tc.id, tc.name)
+			}
+		})
+		t.Run(tc.name+" passes clean", func(t *testing.T) {
+			if check(t, botcheck.Evaluate(cleanChrome()), tc.id).Triggered {
+				t.Errorf("%s must not fire on the clean fixture", tc.id)
+			}
+		})
+		t.Run(tc.name+" skips server-only", func(t *testing.T) {
+			r := botcheck.Evaluate(botcheck.Signals{HTTPUserAgent: chromeMacUA})
+			if c := check(t, r, tc.id); !c.Skipped || c.Triggered {
+				t.Errorf("%s should be Skipped (not triggered) without a client fingerprint: %+v", tc.id, c)
+			}
+		})
+	}
+}
+
+// TestDeepTamperSkipsStalePayload: a fingerprint from a stale cached collector
+// (payload version before the G04 fields existed) must never trip the deep-tamper
+// rules — its missing keys bind false, which would otherwise read as confirmed
+// tampering and cost a real human 95 points (the deploy-time cache-staleness guard).
+func TestDeepTamperSkipsStalePayload(t *testing.T) {
+	s := cleanChrome()
+	s.CollectorV = 0 // pre-G04 collector: none of the deep-tamper keys were sent
+	s.NativeDescriptorsOK = false
+	s.NativeCallNewOK = false
+	s.NativeToStringProxied = true
+
+	r := botcheck.Evaluate(s)
+	for _, id := range []string{"tostring_proxy", "native_descriptor_tamper", "native_callnew_tamper"} {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s must not fire on a pre-v2 payload", id)
+		}
+	}
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Errorf("stale-collector payload: score=%d verdict=%q, want 100/human", r.Score, r.Verdict)
+	}
+}
+
+// TestGPUOSMismatch covers G08: the GPU vendor family must be plausible for the
+// OS the UA claims. Only the enumerated impossible pairs may fire; every
+// real-world combination (including the odd-but-real ones the adversarial review
+// taught: AMD on an Intel Mac, Adreno on a Snapdragon Windows laptop) stays
+// silent, as do unknown GPUs and unparseable UAs.
+func TestGPUOSMismatch(t *testing.T) {
+	fires := []struct{ name, ua, vendor, renderer string }{
+		{"Apple GPU + Windows UA", chromeWinGPUUA, angleAppleVendor, angleAppleRenderer},
+		{"Apple GPU + Linux UA", chromeLinuxGPUUA, angleAppleVendor, angleAppleRenderer},
+		{"Apple GPU + Android UA", chromeAndroidGPUUA, angleAppleVendor, angleAppleRenderer},
+		{"NVIDIA + iOS UA", criosUA, angleNVVendor, angleNVRenderer},
+		{"NVIDIA + Android UA", chromeAndroidGPUUA, angleNVVendor, angleNVRenderer},
+		{"AMD Radeon + iOS UA", criosUA, angleAMDVendor, angleAMDRenderer},
+		{"AMD Radeon + Android UA", chromeAndroidGPUUA, angleAMDVendor, angleAMDRenderer},
+		{"Adreno + macOS UA", chromeMacUA, adrenoVendor, adrenoRenderer},
+		{"Adreno + iOS UA", criosUA, adrenoVendor, adrenoRenderer},
+		{"Mali + macOS UA", chromeMacUA, maliVendor, maliRenderer},
+		{"Mali + iOS UA", criosUA, maliVendor, maliRenderer},
+	}
+	for _, tc := range fires {
+		t.Run("fires/"+tc.name, func(t *testing.T) {
+			r := botcheck.Evaluate(gpuSignals(tc.ua, tc.vendor, tc.renderer))
+			if !check(t, r, "gpu_os_mismatch").Triggered {
+				t.Errorf("gpu_os_mismatch should fire for %s", tc.name)
+			}
+			// The vendor/renderer pairs here are internally consistent, so the G07
+			// rule must stay silent — G08 alone catches the spoofed OS.
+			if check(t, r, "webgl_vendor_mismatch").Triggered {
+				t.Errorf("webgl_vendor_mismatch must not fire for the consistent pair in %s", tc.name)
+			}
+		})
+	}
+	silent := []struct{ name, ua, vendor, renderer string }{
+		{"AMD Radeon + macOS (Intel Macs exist)", chromeMacUA, angleAMDVendor, angleAMDRenderer},
+		{"NVIDIA + macOS (pre-2014 NVIDIA Macs)", chromeMacUA, "NVIDIA Corporation", "NVIDIA GeForce GT 650M"},
+		{"Adreno + Windows (Snapdragon ARM laptop)", chromeWinGPUUA, adrenoVendor, adrenoRenderer},
+		{"Intel + Windows", chromeWinGPUUA, angleIntelVendor, angleIntelRenderer},
+		{"Intel + Linux", chromeLinuxGPUUA, "Intel", "Mesa Intel(R) UHD Graphics 630"},
+		{"Intel + Android (old Atom phones)", chromeAndroidGPUUA, "Intel", "Intel HD Graphics"},
+		{"NVIDIA + Windows", chromeWinGPUUA, angleNVVendor, angleNVRenderer},
+		{"NVIDIA + Linux", chromeLinuxGPUUA, "NVIDIA Corporation", "NVIDIA GeForce RTX 3080"},
+		{"AMD + Linux", chromeLinuxGPUUA, "AMD", "AMD Radeon RX 6600 (radeonsi, navi23, LLVM 15.0.0)"},
+		{"Apple + macOS", chromeMacUA, angleAppleVendor, angleAppleRenderer},
+		{"Apple + iOS (Safari generalised)", criosUA, "Apple Inc.", "Apple GPU"},
+		{"Adreno + Android", chromeAndroidGPUUA, adrenoVendor, adrenoRenderer},
+		{"Mali + Android", chromeAndroidGPUUA, maliVendor, maliRenderer},
+		{"Mesa llvmpipe + Linux (unknown family)", chromeLinuxGPUUA, "Mesa", "llvmpipe (LLVM 15.0.6, 256 bits)"},
+		{"unknown VM GPU + Windows", chromeWinGPUUA, "VMware, Inc.", "SVGA3D; build: RELEASE;"},
+		{"Apple GPU + unparseable UA", "some-unparseable-agent", angleAppleVendor, angleAppleRenderer},
+		{"both strings absent + Windows", chromeWinGPUUA, "", ""},
+	}
+	for _, tc := range silent {
+		t.Run("silent/"+tc.name, func(t *testing.T) {
+			r := botcheck.Evaluate(gpuSignals(tc.ua, tc.vendor, tc.renderer))
+			if check(t, r, "gpu_os_mismatch").Triggered {
+				t.Errorf("gpu_os_mismatch must not fire for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestCrossContextSignalsDoNotFalsePositive: real browsers report consistent
+// values across contexts — and where a spelling variant is legitimate (a region
+// variant of the same language, a platform alias), the rules must stay quiet.
+func TestCrossContextSignalsDoNotFalsePositive(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*botcheck.Signals)
+		id     string
+	}{
+		// en-GB in the worker vs en-US on the main thread: same primary language,
+		// only a region variant — comparing full tags would flag real users.
+		{"worker language is a region variant", func(s *botcheck.Signals) {
+			s.WorkerLanguages = []string{"en-GB"}
+		}, "context_language_mismatch"},
+		// Platform spelling variants normalise to the same value.
+		{"worker platform spelling variant", func(s *botcheck.Signals) {
+			s.WorkerPlatform = "Mac OS X"
+		}, "context_platform_mismatch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			if check(t, botcheck.Evaluate(s), tc.id).Triggered {
+				t.Errorf("%s must not fire for %s", tc.id, tc.name)
+			}
+		})
+	}
+}
+
+// TestCrossContextAbsentDataNeverFires: every context probe failing or timing
+// out (empty values) is "no signal", never "mismatch" — in both directions: the
+// context side absent while the main thread reports, and the main side absent
+// while a context reports.
+func TestCrossContextAbsentDataNeverFires(t *testing.T) {
+	ids := []string{
+		"context_ua_mismatch", "context_language_mismatch", "context_cores_mismatch",
+		"context_platform_mismatch", "context_webgl_mismatch",
+	}
+
+	// Context side absent (probes unsupported / timed out): clean 100.
+	s := cleanChrome()
+	s.SWUA = ""
+	s.WorkerLanguages, s.IframeLanguages, s.SWLanguages = nil, nil, nil
+	s.WorkerCores, s.IframeCores, s.SWCores = 0, 0, 0
+	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "", "", ""
+	s.WorkerWebGLRenderer = ""
+	r := botcheck.Evaluate(s)
+	for _, id := range ids {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s fired with every context value absent", id)
+		}
+	}
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Errorf("all context probes empty: score=%d verdict=%q, want 100/human", r.Score, r.Verdict)
+	}
+
+	// Main side absent while a context reports: still can't compare.
+	m := cleanChrome()
+	m.Languages = nil // no main language list (also clears lang cross-checks)
+	m.HardwareCores = 0
+	m.UAData.Platform = ""
+	m.WebGLRenderer = ""
+	r = botcheck.Evaluate(m)
+	for _, id := range ids {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s fired with the main-thread value absent", id)
+		}
+	}
+}
+
+// TestBrightDataStyleWorkerSpoof is the G03 scenario from the roadmap: an
+// anti-detect setup (Bright Data was caught exactly this way) patches the top
+// frame to claim macOS, but the Web Worker leaks the real Linux underneath —
+// through its User-Agent, its userAgentData.platform, and its core count.
+func TestBrightDataStyleWorkerSpoof(t *testing.T) {
+	s := cleanChrome() // top frame claims macOS
+	s.NavWorkerUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	s.WorkerPlatform = "Linux"
+	s.WorkerCores = 4
+
+	r := botcheck.Evaluate(s)
+	want := []string{"context_cores_mismatch", "context_platform_mismatch", "context_ua_mismatch"}
+	if diff := cmp.Diff(want, triggeredIDs(r)); diff != "" {
+		t.Errorf("Bright Data style spoof fired wrong checks (-want +got):\n%s", diff)
+	}
+	// 35 (context UA) + 25 (platform) + 20 (cores) = 80 → score 20 → bot.
+	if r.Score != 20 || r.Verdict != "bot" {
+		t.Errorf("Bright Data style spoof: score=%d verdict=%q, want 20/bot", r.Score, r.Verdict)
+	}
+}
+
+// TestStealthPatchedBrowserScoresBot is the G04 scenario: a puppeteer-extra-stealth
+// browser whose toString Proxy DEFEATS the shallow check — NativeToStringOK stays
+// true because the proxy lies for it — so only the deep probes see the tampering.
+func TestStealthPatchedBrowserScoresBot(t *testing.T) {
+	s := cleanChrome()
+	s.NativeToStringProxied = true // hard, 45
+	s.NativeDescriptorsOK = false  // consistency, 25
+	s.NativeCallNewOK = false      // consistency, 25
+
+	r := botcheck.Evaluate(s)
+	want := []string{"native_callnew_tamper", "native_descriptor_tamper", "tostring_proxy"}
+	if diff := cmp.Diff(want, triggeredIDs(r)); diff != "" {
+		t.Errorf("stealth-patched browser fired wrong checks (-want +got):\n%s", diff)
+	}
+	// The shallow check must stay green here — defeating it is the proxy's whole
+	// purpose; if native_tamper fired too, the scenario would be misconstructed.
+	if check(t, r, "native_tamper").Triggered {
+		t.Errorf("native_tamper must stay silent: the stealth proxy lies for the shallow check")
+	}
+	// 45 + 25 + 25 = 95 → score 5 → bot.
+	if r.Score != 5 || r.Verdict != "bot" {
+		t.Errorf("stealth-patched browser: score=%d verdict=%q, want 5/bot", r.Score, r.Verdict)
 	}
 }

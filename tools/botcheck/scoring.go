@@ -19,6 +19,21 @@ type rule struct {
 	eval        func(Signals) (bool, string)
 }
 
+// gpuOSImpossible is the exhaustive list of GPU-family/OS pairs gpu_os_mismatch
+// may ever fire on — combinations no shipping hardware produces: an Apple GPU
+// off macOS/iOS, a desktop discrete GPU (NVIDIA GeForce / AMD Radeon) on a phone
+// OS, a mobile Adreno/Mali on an Apple desktop OS. Everything not listed here is
+// deliberately silent, because real machines exist: AMD Radeon + macOS (Intel
+// Macs), NVIDIA + macOS (pre-2014 Macs), Adreno + Windows (Snapdragon ARM
+// laptops), Intel + Android (old Atom phones), anything + Chrome OS.
+var gpuOSImpossible = map[string]map[string]bool{
+	"apple":  {"Windows": true, "Linux": true, "Android": true},
+	"nvidia": {"iOS": true, "Android": true},
+	"amd":    {"iOS": true, "Android": true},
+	"adreno": {"macOS": true, "iOS": true},
+	"mali":   {"macOS": true, "iOS": true},
+}
+
 // rules is the full ordered signal set. Hard tells first (each near-standalone),
 // then cross-layer/cross-context consistency checks (the load-bearing ones),
 // then soft heuristics (only counted as a cluster — see Evaluate). The score is
@@ -63,6 +78,21 @@ var rules = []rule{
 		eval: func(s Signals) (bool, string) { return !s.NativeToStringOK, "" },
 	},
 	{
+		// Proxying Function.prototype.toString is the puppeteer-extra-stealth hallmark:
+		// it exists precisely to defeat the shallow native_tamper check, and no
+		// legitimate software does it — privacy extensions patch the DOM leak-surface
+		// APIs (canvas/WebGL), never toString itself. That is why this one is hard
+		// while the G04 descriptor/call-new probes below stay consistency-tier.
+		id: "tostring_proxy", label: "Function.prototype.toString is proxied or replaced (stealth hallmark)", tier: TierHard, weight: 45, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			// Skip pre-v2 payloads: the key didn't exist, false would be a lie.
+			if s.CollectorV < collectorVDeepTamper {
+				return false, ""
+			}
+			return s.NativeToStringProxied, ""
+		},
+	},
+	{
 		id: "software_renderer", label: "WebGL uses a software renderer (headless tell)", tier: TierHard, weight: 40, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.WebGLRenderer != "" && isSoftwareRenderer(s.WebGLRenderer) {
@@ -87,7 +117,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "context_ua_mismatch", label: "Worker/iframe User-Agent ≠ main-thread User-Agent", tier: TierConsistency, weight: 35, needsClient: true,
+		id: "context_ua_mismatch", label: "Worker/iframe/Service-Worker User-Agent ≠ main-thread User-Agent", tier: TierConsistency, weight: 35, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.NavMainUA == "" {
 				return false, ""
@@ -98,7 +128,103 @@ var rules = []rule{
 			if s.NavIframeUA != "" && s.NavIframeUA != s.NavMainUA {
 				return true, "iframe differs"
 			}
+			if s.SWUA != "" && s.SWUA != s.NavMainUA {
+				return true, "service worker differs"
+			}
 			return false, ""
+		},
+	},
+	{
+		// G03: navigator.languages re-read in each secondary context. Anti-detect
+		// tools patch the top frame's navigator only, so a worker/iframe/SW still
+		// shows the real list. Compare primary subtags only (en-US vs en is the
+		// same language), and only when both sides answered — an empty context
+		// list means the API is unsupported there, not a mismatch.
+		id: "context_language_mismatch", label: "Worker/iframe/Service-Worker language ≠ main-thread language", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if len(s.Languages) == 0 {
+				return false, ""
+			}
+			main := primaryLang(s.Languages[0])
+			first := func(l []string) string {
+				if len(l) == 0 {
+					return ""
+				}
+				return primaryLang(l[0])
+			}
+			for _, c := range []struct{ name, lang string }{
+				{"worker", first(s.WorkerLanguages)},
+				{"iframe", first(s.IframeLanguages)},
+				{"service worker", first(s.SWLanguages)},
+			} {
+				if c.lang != "" && c.lang != main {
+					return true, fmt.Sprintf("%s primary language %s vs main %s", c.name, c.lang, main)
+				}
+			}
+			return false, ""
+		},
+	},
+	{
+		// G03: hardwareConcurrency re-read in each secondary context. Assumption
+		// (false-positive guard): anti-fingerprint throttling caps the value
+		// GLOBALLY, not per-context — Firefox resistFingerprinting and Brave's
+		// farbling report the same capped number in every context of the origin,
+		// so a real privacy browser still agrees with itself. Only a spoof that
+		// patched one context and forgot the others disagrees.
+		id: "context_cores_mismatch", label: "Worker/iframe/Service-Worker hardwareConcurrency ≠ main thread", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.HardwareCores == 0 {
+				return false, ""
+			}
+			for _, c := range []struct {
+				name  string
+				cores int
+			}{
+				{"worker", s.WorkerCores},
+				{"iframe", s.IframeCores},
+				{"service worker", s.SWCores},
+			} {
+				if c.cores > 0 && c.cores != s.HardwareCores {
+					return true, fmt.Sprintf("%s reports %d cores vs main %d", c.name, c.cores, s.HardwareCores)
+				}
+			}
+			return false, ""
+		},
+	},
+	{
+		// G03: userAgentData.platform re-read in each secondary context (empty on
+		// Safari/Firefox, which simply skip). normPlatform on both sides so
+		// "macOS" vs "Mac OS X" style spelling variants can't false-fire.
+		id: "context_platform_mismatch", label: "Worker/iframe/Service-Worker platform ≠ main-thread platform", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			main := normPlatform(s.UAData.Platform)
+			if main == "" {
+				return false, ""
+			}
+			for _, c := range []struct{ name, platform string }{
+				{"worker", s.WorkerPlatform},
+				{"iframe", s.IframePlatform},
+				{"service worker", s.SWPlatform},
+			} {
+				if p := normPlatform(c.platform); p != "" && p != main {
+					return true, fmt.Sprintf("%s platform %s vs main %s", c.name, p, main)
+				}
+			}
+			return false, ""
+		},
+	},
+	{
+		// G03: the worker's WebGL unmasked renderer (read via OffscreenCanvas) vs
+		// the main thread's — the CreepJS hasBadWebGL diff. Same browser, same
+		// GPU ⇒ same renderer string; a spoofed top-frame WebGL read disagrees.
+		// Fires only when both reads succeeded (OffscreenCanvas WebGL is often
+		// unsupported, which just leaves the worker side empty).
+		id: "context_webgl_mismatch", label: "Worker WebGL renderer ≠ main-thread WebGL renderer", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.WebGLRenderer == "" || s.WorkerWebGLRenderer == "" || s.WebGLRenderer == s.WorkerWebGLRenderer {
+				return false, ""
+			}
+			return true, "worker renderer differs from main thread"
 		},
 	},
 	{
@@ -320,6 +446,73 @@ var rules = []rule{
 			return true, fmt.Sprintf("language %s vs languages[0] %s", s.NavLanguage, s.Languages[0])
 		},
 	},
+	{
+		// G07: the unmasked WebGL VENDOR and RENDERER both come from the same GPU
+		// driver, so a real browser never reports them in different vendor families —
+		// Chrome's ANGLE pair is internally consistent ("Google Inc. (NVIDIA)" /
+		// "ANGLE (NVIDIA, ...)") and modern Safari generalises both to "Apple Inc." /
+		// "Apple GPU". A cross-family pair (vendor says Apple, renderer says NVIDIA)
+		// is a hand-edited spoof. Fires only when BOTH sides parse to a confident
+		// family AND differ: an empty or unparseable string (VM, software rasteriser,
+		// masked) is no signal, so e.g. an "ARM" vendor beside a "Mali" renderer
+		// (normal on Android) stays silent.
+		id: "webgl_vendor_mismatch", label: "WebGL vendor and renderer disagree", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			vf, rf := gpuVendorFamily(s.WebGLVendor, ""), gpuVendorFamily("", s.WebGLRenderer)
+			if vf == "" || rf == "" || vf == rf {
+				return false, ""
+			}
+			return true, fmt.Sprintf("vendor %q (%s) vs renderer %q (%s)", s.WebGLVendor, vf, s.WebGLRenderer, rf)
+		},
+	},
+	{
+		// G08: the GPU family must be plausible for the OS the UA claims — the catch
+		// is an anti-detect browser that rewrites its OS in the UA but can't change
+		// the real GPU WebGL reports. Fires ONLY on the enumerated impossible pairs
+		// (gpuOSImpossible): Apple GPU on Windows/Linux/Android, desktop NVIDIA/AMD
+		// on iOS/Android, mobile Adreno/Mali on macOS/iOS. Deliberately silent on
+		// every ambiguous combination — AMD Radeon + macOS (Intel Macs exist),
+		// Adreno + Windows (Snapdragon ARM laptops), Intel anywhere, any GPU +
+		// Chrome OS, Mesa/unknown GPU, unparseable UA. The GPU family is read from
+		// vendor and renderer together, so Firefox ("NVIDIA Corporation") and
+		// Safari ("Apple Inc." / "Apple GPU") are classified as confidently as ANGLE.
+		id: "gpu_os_mismatch", label: "WebGL GPU impossible on the claimed OS", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			fam, os := gpuVendorFamily(s.WebGLVendor, s.WebGLRenderer), osFromUA(clientUA(s))
+			if fam == "" || os == "" || !gpuOSImpossible[fam][os] {
+				return false, ""
+			}
+			return true, fmt.Sprintf("%s GPU on %s", fam, os)
+		},
+	},
+	{
+		// NOT hard (unlike tostring_proxy): page-context patching by legitimate
+		// privacy extensions (canvas/WebGL noise injectors) is conceivable for these
+		// DOM-facing APIs, and such a patch can leave an impossible descriptor — so
+		// this is a consistency hit, not a standalone bot proof.
+		id: "native_descriptor_tamper", label: "Native function has an impossible property descriptor", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			// Skip pre-v2 payloads (stale collector): false would mean "field
+			// didn't exist yet", not tampering — see collectorVDeepTamper.
+			if s.CollectorV < collectorVDeepTamper {
+				return false, ""
+			}
+			return !s.NativeDescriptorsOK, ""
+		},
+	},
+	{
+		// Same not-hard reasoning as native_descriptor_tamper: a privacy extension's
+		// JS override of a DOM API typically misses the constructor/brand-check
+		// TypeErrors a genuine native throws.
+		id: "native_callnew_tamper", label: "Native function misses its call/new TypeError traps", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			// Skip pre-v2 payloads, same as native_descriptor_tamper.
+			if s.CollectorV < collectorVDeepTamper {
+				return false, ""
+			}
+			return !s.NativeCallNewOK, ""
+		},
+	},
 
 	// ── Soft heuristics (only bite as a cluster of ≥3) ─────────────────────────
 	{
@@ -382,6 +575,53 @@ var rules = []rule{
 		eval: func(s Signals) (bool, string) {
 			if s.SecFetchMode == "" && looksLikeBrowser(s.HTTPUserAgent) {
 				return true, "no Sec-Fetch-Mode"
+			}
+			return false, ""
+		},
+	},
+	{
+		// Real browsers send Accept-Encoding on every request (they all support at
+		// least gzip); a browser User-Agent without one is a scripted client that
+		// didn't bother. Soft, not consistency: a proxy (CF/nginx) on the path can
+		// strip or rewrite these headers — the exact caveat that made
+		// sec_fetch_missing soft.
+		id: "accept_encoding_missing", label: "Browser User-Agent but no Accept-Encoding header", tier: TierSoft, weight: 8,
+		eval: func(s Signals) (bool, string) {
+			if looksLikeBrowser(s.HTTPUserAgent) && s.HTTPAcceptEncoding == "" {
+				return true, "no Accept-Encoding"
+			}
+			return false, ""
+		},
+	},
+	{
+		// Same shape: every real browser sends Accept-Language. Complements the
+		// lang_mismatch consistency rule, which needs BOTH sides (navigator.languages
+		// and the header) to compare values — this one catches the header's total
+		// absence. Soft for the same proxy-strips-headers caveat as
+		// sec_fetch_missing.
+		id: "accept_language_missing", label: "Browser User-Agent but no Accept-Language header", tier: TierSoft, weight: 8,
+		eval: func(s Signals) (bool, string) {
+			if looksLikeBrowser(s.HTTPUserAgent) && s.AcceptLanguage == "" {
+				return true, "no Accept-Language"
+			}
+			return false, ""
+		},
+	},
+	{
+		// A real browser's navigation/fetch Accept always includes text/html; a
+		// scripted client wearing a browser User-Agent sends */* (bare curl) or
+		// application/json. POST /check arrives from fetch() and the vendored
+		// collector explicitly sets "Accept: text/html", so the genuine browser
+		// flow never trips this — but JSON API consumers (Accept: application/json)
+		// do. That's acceptable precisely because the rule is soft: it only bites
+		// inside a >=3 soft cluster, and a proxy can rewrite the header anyway (the
+		// caveat that made sec_fetch_missing soft). An EMPTY Accept means "not
+		// supplied" and never fires.
+		id: "accept_nav_mismatch", label: "Browser User-Agent but Accept doesn't include text/html", tier: TierSoft, weight: 8,
+		eval: func(s Signals) (bool, string) {
+			if looksLikeBrowser(s.HTTPUserAgent) && s.HTTPAccept != "" &&
+				!strings.Contains(strings.ToLower(s.HTTPAccept), "text/html") {
+				return true, "Accept: " + s.HTTPAccept
 			}
 			return false, ""
 		},

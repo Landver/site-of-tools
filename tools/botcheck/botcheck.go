@@ -57,6 +57,13 @@ type BrandVersion struct {
 type Signals struct {
 	ClientCollected bool `json:"-"`
 
+	// CollectorV is the fingerprint-payload version the collector stamps (the
+	// "v" key). Rules whose fields are damning when false (the G04 deep-tamper
+	// probes: a missing key binds false) must not evaluate payloads too old to
+	// carry them — a stale cached botcheck.js would otherwise read as tampered.
+	// 0 = an unversioned/pre-G04 payload. See collectorVDeepTamper.
+	CollectorV int `json:"v"`
+
 	// ── client-collected (bound from the POSTed JSON) ────────────────────────
 	Webdriver        bool     `json:"webdriver"`
 	FrameworkGlobals []string `json:"frameworkGlobals"`
@@ -71,6 +78,7 @@ type Signals struct {
 	NotificationPerm string   `json:"notificationPermission"`
 	HasChromeObject  bool     `json:"hasChromeObject"`
 	WebGLRenderer    string   `json:"webglRenderer"`
+	WebGLVendor      string   `json:"webglVendor"` // UNMASKED_VENDOR_WEBGL (e.g. "Google Inc. (Apple)"); cross-checked against the renderer (G07) and the UA-claimed OS (G08)
 	Plugins          int      `json:"plugins"`
 	ScreenW          int      `json:"screenW"`
 	ScreenH          int      `json:"screenH"`
@@ -101,18 +109,57 @@ type Signals struct {
 	ProductSub string `json:"productSub"` // navigator.productSub — engine constant ("20030107" WebKit/Blink, "20100101" Gecko)
 	Engine     string `json:"engine"`     // feature-detected engine family: "blink" | "gecko" | "webkit"
 
+	// ── cross-context client signals (G03) ───────────────────────────────────
+	// The same navigator values re-read inside a Web Worker, a display:none
+	// iframe, and a Service Worker — three extra JS contexts. Anti-detect tools
+	// overwhelmingly spoof only the top frame's navigator, so a context that
+	// confidently reports something different is a strong consistency tell (the
+	// Bright Data catch: a worker claiming Linux while the top UA says macOS).
+	// Every rule comparing these requires BOTH sides present: "" / 0 / nil means
+	// the context didn't answer (unsupported API, probe timeout), which is never
+	// evidence — the comparison skips instead of firing.
+	SWUA                string   `json:"swUA"`                // Service Worker's navigator.userAgent
+	WorkerLanguages     []string `json:"workerLanguages"`     // worker's navigator.languages
+	IframeLanguages     []string `json:"iframeLanguages"`     // iframe's navigator.languages
+	SWLanguages         []string `json:"swLanguages"`         // Service Worker's navigator.languages
+	WorkerCores         int      `json:"workerCores"`         // worker's navigator.hardwareConcurrency
+	IframeCores         int      `json:"iframeCores"`         // iframe's navigator.hardwareConcurrency
+	SWCores             int      `json:"swCores"`             // Service Worker's navigator.hardwareConcurrency
+	WorkerPlatform      string   `json:"workerPlatform"`      // worker's navigator.userAgentData.platform
+	IframePlatform      string   `json:"iframePlatform"`      // iframe's navigator.userAgentData.platform
+	SWPlatform          string   `json:"swPlatform"`          // Service Worker's navigator.userAgentData.platform
+	WorkerWebGLRenderer string   `json:"workerWebGLRenderer"` // worker's WebGL unmasked renderer via OffscreenCanvas ("" if unsupported)
+
+	// ── G04 deep native-tamper probes (CreepJS queryLies-style) ──────────────
+	// Same contract as NativeToStringOK: an OK field is false ONLY on a confirmed
+	// tamper — a probe that can't run yields the pass value — so on a posted
+	// fingerprint false reads as damning, never as "absent data".
+	NativeDescriptorsOK bool `json:"nativeDescriptorsOK"` // descriptor/own-property sanity on the natives
+	NativeCallNewOK     bool `json:"nativeCallNewOK"`     // call/new TypeError traps behave
+	// NativeToStringProxied is INVERTED: true is the bad value. It means
+	// Function.prototype.toString carries Proxy artifacts — the stealth-plugin
+	// hallmark that exists to defeat the shallow NativeToStringOK check.
+	NativeToStringProxied bool `json:"nativeToStringProxied"`
+
 	// ── server-observed (filled by the handler; never read off the wire) ─────
 	HTTPUserAgent   string `json:"-"`
 	SecCHUAPlatform string `json:"-"`
 	SecCHUA         string `json:"-"` // full Sec-CH-UA header (brand list)
 	SecFetchMode    string `json:"-"` // Sec-Fetch-Mode header (real browsers always send it)
 	AcceptLanguage  string `json:"-"`
-	IPTimezone      string `json:"-"`
-	ASN             string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
-	IsDatacenter    bool   `json:"-"`
-	IsProxy         bool   `json:"-"`
-	IsVPN           bool   `json:"-"`
-	IsTor           bool   `json:"-"`
+	// G06 header-consistency signals, all server-observed.
+	HTTPAccept         string `json:"-"` // Accept header; a browser's navigation/fetch Accept includes text/html
+	HTTPAcceptEncoding string `json:"-"` // Accept-Encoding header; every real browser sends one on every request
+	// Upgrade-Insecure-Requests is captured for completeness but deliberately UNUSED
+	// by any rule: Safari never sends it, so a rule keyed on its presence or absence
+	// would false-positive every real Safari user.
+	HTTPUpgradeInsecureRequests string `json:"-"`
+	IPTimezone                  string `json:"-"`
+	ASN                         string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
+	IsDatacenter                bool   `json:"-"`
+	IsProxy                     bool   `json:"-"`
+	IsVPN                       bool   `json:"-"`
+	IsTor                       bool   `json:"-"`
 
 	// Now is the request time, stamped by the handler. It's an input (not a call
 	// to the clock) so Evaluate stays pure and testable; used to resolve the
@@ -166,6 +213,12 @@ const (
 	suspiciousFloor    = 50 // score ≥ this ⇒ "suspicious"; below ⇒ "bot"
 	softComboThreshold = 3
 	softComboWeight    = 25
+	// collectorVDeepTamper is the payload version that introduced the G04
+	// deep-tamper fields (nativeDescriptorsOK / nativeCallNewOK /
+	// nativeToStringProxied). Those fields are damning when false and a missing
+	// JSON key binds false, so the G04 rules skip payloads older than this —
+	// a returning visitor with a stale cached collector must not read as tampered.
+	collectorVDeepTamper = 2
 )
 
 // Evaluate runs every rule against the signals and returns the scored report. It
@@ -304,6 +357,37 @@ func isSoftwareRenderer(r string) bool {
 		}
 	}
 	return false
+}
+
+// gpuVendorFamily normalises a WebGL unmasked vendor and/or renderer string to a
+// GPU vendor family: "apple", "nvidia", "amd", "intel", "adreno" or "mali". It
+// copes with every real reporting style — Chrome's ANGLE pair ("Google Inc.
+// (NVIDIA)" + "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 ...)"),
+// Safari's generalised "Apple Inc." / "Apple GPU", Firefox's plain
+// "NVIDIA Corporation" / "GeForce ..." — because the ANGLE wrapper and the
+// "Google Inc. (...)" shim always carry the true vendor inside them, so a
+// substring search over the lowercased concatenation suffices. "" means
+// "couldn't tell" (VM passthrough strings, software rasterisers, masked
+// values); callers treat that as "no signal", never as a mismatch — that is
+// what keeps llvmpipe-on-Linux and VMware guests from tripping the GPU rules.
+func gpuVendorFamily(vendor, renderer string) string {
+	s := strings.ToLower(vendor + " " + renderer)
+	switch {
+	case strings.Contains(s, "apple"):
+		return "apple"
+	case strings.Contains(s, "nvidia"), strings.Contains(s, "geforce"), strings.Contains(s, "quadro"):
+		return "nvidia"
+	case strings.Contains(s, "amd"), strings.Contains(s, "radeon"), strings.Contains(s, "ati technologies"):
+		return "amd"
+	case strings.Contains(s, "intel"):
+		return "intel"
+	case strings.Contains(s, "adreno"), strings.Contains(s, "qualcomm"):
+		return "adreno"
+	case strings.Contains(s, "mali"):
+		return "mali"
+	default:
+		return ""
+	}
 }
 
 // botUATokens are headless browsers, scripting HTTP clients, and self-declared

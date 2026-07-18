@@ -26,12 +26,37 @@ type handler struct {
 
 // Register wires the botcheck.corpberry.com routes onto e.
 //
-//	GET  /        the check page (browser) — or a server-only score (curl/JSON)
-//	POST /check   accepts the collected client fingerprint, returns the full score
+//	GET  /                  the check page (browser) — or a server-only score (curl/JSON)
+//	POST /check             accepts the collected client fingerprint, returns the full score
+//	GET  /botcheck-sw.js    the tiny Service Worker the collector registers (G03)
 func Register(e *echo.Echo, svc Looker) {
 	h := &handler{svc: svc}
 	e.GET("/", h.index)
 	e.POST("/check", h.check)
+	e.GET("/botcheck-sw.js", h.serviceWorker)
+}
+
+// swScript is the Service Worker source the collector registers as a fourth JS
+// context for the cross-context checks (G03). A blob: URL can't be registered as
+// a Service Worker, so the app serves it same-origin like workerProbe serves its
+// blob. It answers one message (over the posted MessageChannel port) with its
+// navigator values and has NO fetch handler — deliberately, so it can never
+// intercept or modify a single request on the origin. Served as a constant: it
+// reads nothing from the request and never changes.
+const swScript = `self.onmessage=(ev)=>{` +
+	`const p=ev.ports&&ev.ports[0];` +
+	`if(p){p.postMessage({` +
+	`ua:navigator.userAgent,` +
+	`languages:[...(navigator.languages||[])],` +
+	`cores:navigator.hardwareConcurrency||0,` +
+	`platform:(navigator.userAgentData&&navigator.userAgentData.platform)||""` +
+	`});}};`
+
+// serviceWorker serves swScript with a JavaScript MIME type (Service Worker
+// registration refuses anything else). It sits at the root so the registration
+// gets the widest default scope; the script never uses it.
+func (h *handler) serviceWorker(c *echo.Context) error {
+	return c.Blob(http.StatusOK, "application/javascript", []byte(swScript))
 }
 
 // index serves the page shell to browsers; the vendored collector then gathers
@@ -91,6 +116,15 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	sig.SecCHUA = r.Header.Get("Sec-CH-UA")
 	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")
 	sig.AcceptLanguage = r.Header.Get("Accept-Language")
+	// G06: the content-negotiation headers the header-consistency rules read. All
+	// three are soft signals only — a proxy (CF/nginx) on the path can strip or
+	// rewrite them, the same caveat that made sec_fetch_missing soft.
+	sig.HTTPAccept = r.Header.Get("Accept")
+	sig.HTTPAcceptEncoding = r.Header.Get("Accept-Encoding")
+	// Collected for completeness but deliberately UNUSED in rules: Safari never
+	// sends Upgrade-Insecure-Requests, so any rule requiring it would
+	// false-positive every real Safari user.
+	sig.HTTPUpgradeInsecureRequests = r.Header.Get("Upgrade-Insecure-Requests")
 
 	if h.svc == nil {
 		return

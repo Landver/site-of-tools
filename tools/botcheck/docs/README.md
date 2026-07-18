@@ -132,6 +132,9 @@ gap (see [ROADMAP.md](ROADMAP.md)), not a bug.
 
 Plain HTML can't read `navigator`/`canvas`/`WebGL`, so a JS collector is justified
 under CLAUDE.md golden rule #4. The collector builds one JSON object and POSTs it.
+The payload carries a version (`v`); rules whose fields are damning-when-false
+(the G04 deep-tamper probes, added in v2) skip older payloads, so a returning
+visitor with a stale cached collector never reads as tampered.
 
 - **Hard automation tells** — `navigator.webdriver`; automation-framework globals
   (`$cdc_*`/`$wdc_*`, `__selenium*`/`__webdriver*`, `__playwright`/`__pw_*`,
@@ -139,11 +142,17 @@ under CLAUDE.md golden rule #4. The collector builds one JSON object and POSTs i
   **CDP probe** (`Error.stack` getter + `console.log` serialization trick that
   fires when a DevTools-Protocol client sent `Runtime.enable` — the dominant modern
   tell, run in both the main thread and a Worker).
-- **Lie / tamper detection** — `Function.prototype.toString()` `[native code]`
-  check on key natives (catches monkey-patched getters); error-stack Proxy probes.
-- **Cross-context consistency** — recompute `navigator.{userAgent, platform,
-  languages, hardwareConcurrency}` + WebGL renderer inside a Web Worker and an
-  iframe; POST all copies so Go can diff them (top-frame-only spoofs collapse here).
+- **Lie / tamper detection** — the shallow `Function.prototype.toString()`
+  `[native code]` check on key natives, plus the deep G04 probes: property-
+  descriptor/own-property sanity (with per-spec enumerability — WebIDL operations
+  are `enumerable: true`, ECMA-262 built-ins are not), call/new `TypeError`
+  traps, and a `Function.prototype.toString` Proxy probe (shape differential vs a
+  control native + error-stack apply-frame inspection) — the
+  puppeteer-extra-stealth hallmark.
+- **Cross-context consistency** — recompute `navigator.{userAgent, languages,
+  hardwareConcurrency, userAgentData.platform}` + WebGL renderer inside a Web
+  Worker, a Service Worker (served from `/botcheck-sw.js`), and an iframe; POST
+  all copies so Go can diff them (top-frame-only spoofs collapse here).
 - **Classic headless tells** — impossible permission state (`prompt` while
   `denied`); `window.chrome`/`chrome.runtime` presence; empty
   `plugins`/`mimeTypes`/`languages`; software WebGL renderer (SwiftShader/Mesa);
@@ -189,24 +198,31 @@ Rules are tiered:
 > spoof path to leniency. Every other tell (webdriver, CDP, tamper) still counts.
 
 - **Hard tells** (≈40–60): `navigator.webdriver`, automation-framework globals,
-  bot/HTTP-client User-Agent, monkey-patched natives, software WebGL renderer, CDP
+  bot/HTTP-client User-Agent, monkey-patched natives, a proxied/replaced
+  `Function.prototype.toString` (stealth hallmark), software WebGL renderer, CDP
   in both main thread + Worker.
-- **Consistency** (≈15–35): JS UA ≠ HTTP UA; Worker/iframe UA ≠ main UA;
-  `Sec-CH-UA-Platform` ≠ `userAgentData.platform`; UA OS ≠ platform; embedded
-  runtime (Electron/CEF); browser TZ offset ≠ IP TZ offset; datacenter/Tor IP;
-  proxy/VPN IP; impossible permission state; `navigator.languages` ≠
-  `Accept-Language`; CDP main-thread only; `navigator.vendor` ≠ `"Google Inc."`
-  on a Chromium UA; `navigator.appVersion` ≠ UA; `navigator.language` ≠
-  `languages[0]`; IANA zone ≠ `getTimezoneOffset()` (self-consistency); canvas
-  randomised between draws; `Sec-CH-UA` header brands ≠ `userAgentData.brands`;
-  feature-detected engine ≠ engine the UA claims; UA `Chrome/NNN` major ≠ the
-  `Chromium` `fullVersionList` entry; `navigator.productSub` ≠ the engine's constant.
+- **Consistency** (≈15–35): JS UA ≠ HTTP UA; Worker/iframe/Service-Worker UA ≠
+  main UA; `Sec-CH-UA-Platform` ≠ `userAgentData.platform`; UA OS ≠ platform;
+  embedded runtime (Electron/CEF); browser TZ offset ≠ IP TZ offset;
+  datacenter/Tor IP; proxy/VPN IP; impossible permission state;
+  `navigator.languages` ≠ `Accept-Language`; CDP main-thread only;
+  `navigator.vendor` ≠ `"Google Inc."` on a Chromium UA; `navigator.appVersion` ≠
+  UA; `navigator.language` ≠ `languages[0]`; IANA zone ≠ `getTimezoneOffset()`
+  (self-consistency); canvas randomised between draws; `Sec-CH-UA` header brands
+  ≠ `userAgentData.brands`; feature-detected engine ≠ engine the UA claims; UA
+  `Chrome/NNN` major ≠ the `Chromium` `fullVersionList` entry;
+  `navigator.productSub` ≠ the engine's constant; WebGL unmasked vendor ≠
+  renderer family; GPU family impossible on the UA-claimed OS; context
+  (worker/iframe/SW) language, core count, or platform ≠ main thread; worker
+  WebGL renderer ≠ main-thread renderer; native function with an impossible
+  property descriptor or missing its call/new `TypeError` traps.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
   screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`,
-  canvas renders blank, no H.264/AAC codecs, no detectable fonts. Soft signals
-  **only bite as a cluster of ≥3** (one 25-point deduction), so a single quirk
-  never false-positives a real human.
+  canvas renders blank, no H.264/AAC codecs, no detectable fonts, browser UA
+  without `Accept-Encoding`, without `Accept-Language`, or with an `Accept`
+  lacking `text/html`. Soft signals **only bite as a cluster of ≥3** (one
+  25-point deduction), so a single quirk never false-positives a real human.
 
 The load-bearing rules are the **cross-checks** — combinations that should not
 co-occur — because a rule engine beats a checklist here: JS `navigator.userAgent`
