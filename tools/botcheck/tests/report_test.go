@@ -1,0 +1,231 @@
+package tests
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/shared"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+)
+
+// report_test.go covers the presentation helpers (report.go: G50 sub-scores,
+// G55 explanations, G56 environment line) and their rendering in result.html.
+// Like the domain tests it needs no HTTP and no databases: Reports are built
+// by hand, and the fragment is rendered straight through the real templates.
+
+func TestTierScore(t *testing.T) {
+	tests := []struct {
+		name string
+		rep  botcheck.Report
+		tier string
+		want int
+	}{
+		{"no checks is 100", botcheck.Report{}, "hard", 100},
+		{
+			"triggered checks deduct their weight",
+			botcheck.Report{Checks: []botcheck.Check{
+				{ID: "webdriver", Tier: "hard", Weight: 60, Triggered: true},
+				{ID: "native_tamper", Tier: "hard", Weight: 45, Triggered: true},
+			}},
+			"hard", 0, // 100 − 105, clamped
+		},
+		{
+			"other tiers are untouched",
+			botcheck.Report{Checks: []botcheck.Check{
+				{ID: "webdriver", Tier: "hard", Weight: 60, Triggered: true},
+			}},
+			"consistency", 100,
+		},
+		{
+			"suppressed checks deduct nothing (verified good bot)",
+			botcheck.Report{Checks: []botcheck.Check{
+				{ID: "bot_user_agent", Tier: "hard", Weight: 60, Triggered: true, Suppressed: true},
+				{ID: "tz_mismatch", Tier: "consistency", Weight: 25, Triggered: true},
+			}},
+			"hard", 100,
+		},
+		{
+			"untriggered checks deduct nothing",
+			botcheck.Report{Checks: []botcheck.Check{
+				{ID: "webdriver", Tier: "hard", Weight: 60},
+			}},
+			"hard", 100,
+		},
+		{
+			"soft tier ignores individual hits below the cluster",
+			botcheck.Report{Checks: []botcheck.Check{
+				{ID: "empty_plugins", Tier: "soft", Weight: 8, Triggered: true},
+				{ID: "no_fonts", Tier: "soft", Weight: 8, Triggered: true},
+			}},
+			"soft", 100,
+		},
+		{
+			"soft tier deducts the cluster penalty once active",
+			botcheck.Report{Checks: []botcheck.Check{
+				{ID: "empty_plugins", Tier: "soft", Weight: 8, Triggered: true},
+				{ID: "no_fonts", Tier: "soft", Weight: 8, Triggered: true},
+				{ID: "default_geometry", Tier: "soft", Weight: 8, Triggered: true},
+			}},
+			"soft", 75,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.rep.TierScore(tt.tier); got != tt.want {
+				t.Errorf("TierScore(%q) = %d, want %d", tt.tier, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTierScoreMatchesEvaluate pins the sub-scores to what the scorer actually
+// docked: a real Evaluate report's tier scores must sum to its overall score.
+func TestTierScoreMatchesEvaluate(t *testing.T) {
+	sig := cleanChrome()
+	sig.Webdriver = true      // hard −60
+	sig.IPTimezone = "+03:00" // consistency: tz_mismatch −25 (browser stays New York)
+	rep := botcheck.Evaluate(sig)
+	hard, consistency, soft := rep.TierScore("hard"), rep.TierScore("consistency"), rep.TierScore("soft")
+	if hard != 40 || consistency != 75 || soft != 100 {
+		t.Errorf("tier scores = %d/%d/%d, want 40/75/100 (score %d)",
+			hard, consistency, soft, rep.Score)
+	}
+	if got := hard + consistency + soft - 200; got != rep.Score {
+		t.Errorf("tier scores imply overall %d, Evaluate scored %d", got, rep.Score)
+	}
+}
+
+func TestEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		ua   string
+		want string
+	}{
+		{"Chrome on macOS", chromeMacUA, "Chrome 125 · macOS · Blink"},
+		{"Firefox on Windows",
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+			"Firefox 128 · Windows · Gecko"},
+		{"iOS Safari",
+			"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+			"Safari 17 · iOS · WebKit"},
+		{"iOS Chrome is named Chrome but WebKit-engined",
+			"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.6422.80 Mobile/15E148 Safari/604.1",
+			"Chrome 125 · iOS · WebKit"},
+		{"Edge on Windows",
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.2535.67",
+			"Edge 125 · Windows · Blink"},
+		{"Electron names the runtime and full version",
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Electron/32.1.2",
+			"Electron 32.1.2 (embedded Chromium)"},
+		{"empty UA", "", ""},
+		{"garbage UA", "not a browser at all", ""},
+		{"bot UA with no browser tokens", "curl/8.7.1", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := botcheck.Signals{NavMainUA: tt.ua}.Environment()
+			if got != tt.want {
+				t.Errorf("Environment() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExplanation(t *testing.T) {
+	if got := (botcheck.Check{ID: "webdriver"}).Explanation(); got == "" {
+		t.Error("a known rule ID must have an explanation")
+	}
+	if got := (botcheck.Check{ID: "no_such_rule"}).Explanation(); got != "" {
+		t.Errorf("an unknown rule ID must have no explanation, got %q", got)
+	}
+	// The reserved IDs for the in-flight rules must already carry theirs, so
+	// they go live at merge time rather than waiting for a follow-up.
+	for _, id := range []string{"iframe_webdriver", "webrtc_ip_mismatch", "zero_outer_height"} {
+		if got := (botcheck.Check{ID: id}).Explanation(); got == "" {
+			t.Errorf("reserved rule ID %q must already have an explanation", id)
+		}
+	}
+}
+
+// renderResult renders the result fragment through the real embedded templates,
+// the same way the handler does.
+func renderResult(t *testing.T, rep botcheck.Report) string {
+	t.Helper()
+	r := platform.NewRenderer(false, nil,
+		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
+	)
+	var buf bytes.Buffer
+	if err := r.Render(nil, &buf, "botcheck/result", rep); err != nil {
+		t.Fatalf("render result fragment: %v", err)
+	}
+	return buf.String()
+}
+
+func TestResultTemplateShowsNewSections(t *testing.T) {
+	payload := botcheck.Signals{NavMainUA: chromeMacUA, Webdriver: true}
+	rep := botcheck.Report{
+		Score: 40, Verdict: "bot",
+		Checks: []botcheck.Check{
+			{ID: "webdriver", Label: "navigator.webdriver is true", Tier: "hard", Weight: 60, Triggered: true},
+		},
+		ClientPayload: &payload,
+	}
+	body := renderResult(t, rep)
+	for _, want := range []string{
+		"Detected environment:",      // G56 line
+		"Chrome 125 · macOS · Blink", // …naming the environment
+		"raw fingerprint",            // G54 dump card
+		"webdriver",                  // …with the POSTed values inside
+		"headless tells — 40/100",    // G50 sub-score in the eyebrow
+		">why</summary>",             // G55 per-signal expander
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("result fragment missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestCheckFragmentShowsReportingSections(t *testing.T) {
+	// Handler-level proof that POST /check wires the fingerprint into the new
+	// reporting sections: the raw dump, the detected-environment line, the
+	// per-tier sub-scores, and the per-signal "why" expanders all render in the
+	// swapped-in fragment.
+	body := `{"navMainUA":"` + chromeMacUA + `","webdriver":true,"nativeToStringOK":true}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "text/html", "User-Agent": chromeMacUA})
+	frag := rec.Body.String()
+	for _, want := range []string{
+		"raw fingerprint",
+		"Detected environment:",
+		"Chrome 125 · macOS · Blink",
+		"headless tells — 40/100", // webdriver alone: 100 − 60
+		">why</summary>",
+	} {
+		if !strings.Contains(frag, want) {
+			t.Errorf("POST /check fragment missing %q:\n%s", want, frag)
+		}
+	}
+}
+
+func TestResultTemplateWithoutPayloadHidesNewSections(t *testing.T) {
+	// The server-only GET view (and the error path) has no client payload: the
+	// raw dump and the environment line must not render, and the sub-scores
+	// still show (nothing triggered ⇒ 100).
+	rep := botcheck.Report{
+		Score: 100, Verdict: "human",
+		Checks: []botcheck.Check{
+			{ID: "webdriver", Label: "navigator.webdriver is true", Tier: "hard", Weight: 60},
+		},
+	}
+	body := renderResult(t, rep)
+	for _, absent := range []string{"raw fingerprint", "Detected environment:"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("server-only fragment must not contain %q:\n%s", absent, body)
+		}
+	}
+	if !strings.Contains(body, "headless tells — 100/100") {
+		t.Errorf("an untriggered tier should show a 100 sub-score:\n%s", body)
+	}
+}
