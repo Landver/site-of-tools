@@ -24,7 +24,7 @@ var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 func cleanChrome() botcheck.Signals {
 	return botcheck.Signals{
 		ClientCollected:  true,
-		CollectorV:       2, // the current payload version (G04 deep-tamper fields present)
+		CollectorV:       3, // the current payload version (v3 batch fields present)
 		NativeToStringOK: true,
 		HasChromeObject:  true,
 		NavMainUA:        chromeMacUA,
@@ -92,6 +92,23 @@ func cleanChrome() botcheck.Signals {
 		NativeDescriptorsOK:   true,
 		NativeCallNewOK:       true,
 		NativeToStringProxied: false,
+		// v3 batch signals (G09–G14, G17, G22, G23), all consistent with a real
+		// desktop Chrome 125.
+		IframeWebdriver:       false,
+		IframeProxied:         false,
+		MaxTouchPoints:        0, // desktop: no touch screen
+		SWWebdriver:           false,
+		SWCDP:                 false,
+		NavProtoDescriptorsOK: true,
+		ChromeRuntimeOK:       true,
+		ChromeLateInjection:   false,
+		JSEngine:              "v8",
+		WebRTCIPs:             []string{"192.168.1.50"}, // a host candidate only — private, never a tell
+		EgressIP:              "85.105.22.17",
+		ImageBroken:           false,
+		MimeTypes:             2,
+		OuterH:                900,
+		InnerH:                800,
 	}
 }
 
@@ -617,79 +634,167 @@ func TestQuickWinSignals(t *testing.T) {
 // Chromium fork whose branded version diverges from the Chromium engine (Opera),
 // desktop WebKit (Safari), and iOS browsers (WebKit under any brand token).
 const (
-	operaUA   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 OPR/111.0.0.0"
-	safariUA  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-	fxiosUA   = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/119.0 Mobile/15E148 Safari/605.1.15"
-	criosUA   = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.6422.80 Mobile/15E148 Safari/604.1"
-	firefoxUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0"
+	operaUA     = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 OPR/111.0.0.0"
+	safariUA    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+	iosSafariUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/605.1.15"
+	fxiosUA     = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/119.0 Mobile/15E148 Safari/605.1.15"
+	criosUA     = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.6422.80 Mobile/15E148 Safari/604.1"
+	firefoxUA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0"
 )
 
-// TestRealBrowsersDoNotFalsePositive is the regression guard for the engine-aware
-// rules. Each case is a genuine human browser that must not trip the version /
-// productSub / engine cross-checks — the classes with no coverage before this batch
-// (WebKit/iOS) plus the Opera-style fork whose branded version diverges from the
-// Chromium engine major (which the pre-review code got wrong).
+// v3RuleIDs are the rules added in the v3 batch — asserted to fire on crafted
+// signals and to stay silent on every real-browser fixture.
+var v3RuleIDs = []string{
+	"iframe_webdriver", "webdriver_sw", // hard (G11/G14)
+	"iframe_proxy", "mobile_no_touch", "cdp_sw_only", "navigator_proto_tamper",
+	"chrome_runtime_tamper", "chrome_late_injection", "jsengine_ua_mismatch",
+	"webrtc_ip_mismatch", // consistency
+	"image_broken", "plugins_mimetypes_incoherent",
+	"zero_outer_height", // soft
+}
+
+// mirrorUA switches a fixture's browser: the UA in every context the collector
+// reports from, plus the appVersion, so the fixture stays internally consistent.
+func mirrorUA(s *botcheck.Signals, ua string) {
+	s.NavMainUA, s.NavWorkerUA, s.NavIframeUA, s.SWUA, s.HTTPUserAgent = ua, ua, ua, ua, ua
+	s.AppVersion = strings.TrimPrefix(ua, "Mozilla/")
+}
+
+// The real* builders below are full v3 fingerprints derived from cleanChrome by
+// targeted mutation — every field internally consistent, so a score of exactly
+// 100 is the regression guard for every cross-check, old and new.
+
+// realOpera is a desktop Opera: a Chromium fork whose branded version (111)
+// diverges from the Chromium engine major (125) — the version check must compare
+// against the Chromium fullVersionList entry, and its Sec-CH-UA brands carry
+// "Opera" instead of "Google Chrome".
+func realOpera() botcheck.Signals {
+	s := cleanChrome()
+	mirrorUA(&s, operaUA)
+	s.Brands = []string{"Chromium", "Opera", "Not.A/Brand"}
+	s.SecCHUA = `"Chromium";v="125", "Opera";v="111", "Not.A/Brand";v="24"`
+	s.UAData.FullVersionList = []botcheck.BrandVersion{
+		{Brand: "Chromium", Version: "125.0.6422.60"},
+		{Brand: "Opera", Version: "111.0.5067.24"},
+		{Brand: "Not.A/Brand", Version: "24.0.0.0"},
+	}
+	return s
+}
+
+// realSafari is desktop Safari: WebKit, no userAgentData (and so no Sec-CH-UA
+// hints either), Apple's vendor string, and no window.chrome.
+func realSafari() botcheck.Signals {
+	s := cleanChrome()
+	mirrorUA(&s, safariUA)
+	s.Engine, s.JSEngine = "webkit", "jsc"
+	s.Vendor = "Apple Computer, Inc."
+	s.HasChromeObject = false
+	s.UAData = botcheck.UAData{}          // WebKit exposes no userAgentData
+	s.Brands = nil
+	s.SecCHUA, s.SecCHUAPlatform = "", "" // and so sends no Sec-CH-UA hints
+	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "", "", ""
+	s.WebGLVendor, s.WebGLRenderer = "Apple Inc.", "Apple GPU"
+	s.WorkerWebGLRenderer = "Apple GPU"
+	return s
+}
+
+// realFirefox is desktop Firefox on Windows: Gecko engine constants, an empty
+// navigator.vendor, no userAgentData, and no plugins (modern Firefox ships none).
+func realFirefox() botcheck.Signals {
+	s := cleanChrome()
+	mirrorUA(&s, firefoxUA)
+	s.Engine, s.JSEngine = "gecko", "spidermonkey"
+	s.ProductSub = "20100101"
+	s.Vendor = "" // Firefox reports an empty navigator.vendor
+	s.HasChromeObject = false
+	s.UAData = botcheck.UAData{}
+	s.Brands = nil
+	s.SecCHUA, s.SecCHUAPlatform = "", ""
+	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "", "", ""
+	s.WebGLVendor, s.WebGLRenderer = "NVIDIA Corporation", "NVIDIA GeForce RTX 3080"
+	s.WorkerWebGLRenderer = "NVIDIA GeForce RTX 3080"
+	s.Plugins, s.MimeTypes = 0, 0
+	return s
+}
+
+// realIPhone is an iPhone browser: WebKit under any brand token (Apple mandates
+// it), no userAgentData, no window.chrome (WKWebView), real touch points, and
+// phone geometry (outer == inner, avail == screen).
+func realIPhone(ua string) botcheck.Signals {
+	s := cleanChrome()
+	mirrorUA(&s, ua)
+	s.Engine, s.JSEngine = "webkit", "jsc"
+	s.Vendor = "Apple Computer, Inc."
+	s.HasChromeObject = false
+	s.UAData = botcheck.UAData{}
+	s.Brands = nil
+	s.SecCHUA, s.SecCHUAPlatform = "", ""
+	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "", "", ""
+	s.MaxTouchPoints = 5 // real iPhones report touch
+	s.ScreenW, s.ScreenH = 390, 844
+	s.AvailW, s.AvailH = 390, 844
+	s.OuterW, s.InnerW = 390, 390
+	s.OuterH, s.InnerH = 700, 700
+	s.WebGLVendor, s.WebGLRenderer = "Apple Inc.", "Apple GPU"
+	s.WorkerWebGLRenderer = "Apple GPU"
+	return s
+}
+
+// realAndroid is Chrome on a Pixel phone: mobile UA with touch, Android platform
+// hints everywhere, the phone's Adreno GPU, and no plugins (Android Chrome ships
+// none).
+func realAndroid() botcheck.Signals {
+	s := cleanChrome()
+	mirrorUA(&s, chromeAndroidGPUUA)
+	s.MaxTouchPoints = 5
+	s.UAData = botcheck.UAData{
+		Platform: "Android",
+		FullVersionList: []botcheck.BrandVersion{
+			{Brand: "Chromium", Version: "125.0.6422.60"},
+			{Brand: "Google Chrome", Version: "125.0.6422.60"},
+			{Brand: "Not.A/Brand", Version: "24.0.0.0"},
+		},
+	}
+	s.SecCHUAPlatform = `"Android"`
+	s.WorkerPlatform, s.IframePlatform, s.SWPlatform = "Android", "Android", "Android"
+	s.Plugins, s.MimeTypes = 0, 0
+	s.ScreenW, s.ScreenH = 393, 873
+	s.AvailW, s.AvailH = 393, 873
+	s.OuterW, s.InnerW = 393, 393
+	s.OuterH, s.InnerH = 740, 700
+	s.WebGLVendor, s.WebGLRenderer = adrenoVendor, adrenoRenderer
+	s.WorkerWebGLRenderer = adrenoRenderer
+	return s
+}
+
+// TestRealBrowsersDoNotFalsePositive is the regression guard for the whole rule
+// set: genuine human browsers — including the tricky cases (a Chromium fork
+// whose branded version diverges, WebKit with no userAgentData, iOS browsers
+// that are WebKit under any brand token, phones with touch) — must score 100
+// with zero false fires from the v3 batch.
 func TestRealBrowsersDoNotFalsePositive(t *testing.T) {
 	cases := []struct {
-		name        string
-		s           botcheck.Signals
-		mustNotFire []string
+		name string
+		s    botcheck.Signals
 	}{
-		{
-			// Opera: UA carries Chrome/125 (Chromium engine) + OPR/111 (Opera's own
-			// version). The Chromium fullVersionList entry (125) must be what we compare.
-			name: "desktop Opera (Chromium fork, branded version diverges)",
-			s: botcheck.Signals{
-				ClientCollected: true, NavMainUA: operaUA, HTTPUserAgent: operaUA,
-				Engine: "blink", ProductSub: "20030107", Vendor: "Google Inc.",
-				UAData: botcheck.UAData{Platform: "macOS", FullVersionList: []botcheck.BrandVersion{
-					{Brand: "Chromium", Version: "125.0.6422.60"},
-					{Brand: "Opera", Version: "111.0.5067.24"},
-					{Brand: "Not.A/Brand", Version: "24.0.0.0"},
-				}},
-			},
-			mustNotFire: []string{"ua_chrome_version_mismatch", "engine_ua_mismatch", "productsub_mismatch"},
-		},
-		{
-			name: "desktop Safari (WebKit, no userAgentData)",
-			s: botcheck.Signals{
-				ClientCollected: true, NavMainUA: safariUA, HTTPUserAgent: safariUA,
-				Engine: "webkit", ProductSub: "20030107",
-			},
-			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch", "ua_chrome_version_mismatch"},
-		},
-		{
-			name: "iOS Firefox (WebKit under FxiOS)",
-			s: botcheck.Signals{
-				ClientCollected: true, NavMainUA: fxiosUA, HTTPUserAgent: fxiosUA,
-				Engine: "webkit", ProductSub: "20030107", // Apple forces WebKit ⇒ WebKit's productSub
-			},
-			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch"},
-		},
-		{
-			name: "iOS Chrome (WebKit under CriOS)",
-			s: botcheck.Signals{
-				ClientCollected: true, NavMainUA: criosUA, HTTPUserAgent: criosUA,
-				Engine: "webkit", ProductSub: "20030107",
-			},
-			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch"},
-		},
-		{
-			// Genuine desktop Firefox: Gecko engine + Gecko productSub, no userAgentData.
-			name: "desktop Firefox (Gecko)",
-			s: botcheck.Signals{
-				ClientCollected: true, NavMainUA: firefoxUA, HTTPUserAgent: firefoxUA,
-				Engine: "gecko", ProductSub: "20100101",
-			},
-			mustNotFire: []string{"engine_ua_mismatch", "productsub_mismatch", "ua_chrome_version_mismatch"},
-		},
+		{"desktop Chrome on macOS", cleanChrome()},
+		{"desktop Opera (Chromium fork, branded version diverges)", realOpera()},
+		{"desktop Safari (WebKit, no userAgentData)", realSafari()},
+		{"desktop Firefox (Gecko)", realFirefox()},
+		{"iOS Safari (WebKit)", realIPhone(iosSafariUA)},
+		{"iOS Chrome (WebKit under CriOS)", realIPhone(criosUA)},
+		{"iOS Firefox (WebKit under FxiOS)", realIPhone(fxiosUA)},
+		{"Android Chrome (Pixel)", realAndroid()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := botcheck.Evaluate(tc.s)
-			for _, id := range tc.mustNotFire {
+			if r.Score != 100 || r.Verdict != "human" {
+				t.Errorf("%s: score=%d verdict=%q, want 100/human (fired: %v)", tc.name, r.Score, r.Verdict, triggeredIDs(r))
+			}
+			for _, id := range v3RuleIDs {
 				if check(t, r, id).Triggered {
-					t.Errorf("%s must not fire for %s (detail: %q)", id, tc.name, check(t, r, id).Detail)
+					t.Errorf("%s: v3 rule %s false-fired for %s (detail: %q)", tc.name, id, tc.name, check(t, r, id).Detail)
 				}
 			}
 		})
@@ -1053,5 +1158,281 @@ func TestStealthPatchedBrowserScoresBot(t *testing.T) {
 	// 45 + 25 + 25 = 95 → score 5 → bot.
 	if r.Score != 5 || r.Verdict != "bot" {
 		t.Errorf("stealth-patched browser: score=%d verdict=%q, want 5/bot", r.Score, r.Verdict)
+	}
+}
+
+// ── v3 batch signals (G09–G14, G17, G22, G23 + Layer-1 backlog) ───────────────
+
+// TestV3Signals covers the v3-batch rules in the fires direction: each mutation
+// makes exactly one new rule fire against an otherwise-clean Chrome fixture. The
+// guard directions (stale payload, both-sides-present, address family, exact
+// value) are covered per-rule below.
+func TestV3Signals(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*botcheck.Signals)
+		id     string
+	}{
+		// G11: the iframe's fresh realm leaks webdriver although the top frame
+		// was patched clean.
+		{"iframe webdriver", func(s *botcheck.Signals) { s.IframeWebdriver = true }, "iframe_webdriver"},
+		{"iframe contentWindow proxied", func(s *botcheck.Signals) { s.IframeProxied = true }, "iframe_proxy"},
+		// G14: webdriver / CDP visible only in the Service Worker context.
+		{"service worker webdriver", func(s *botcheck.Signals) { s.SWWebdriver = true }, "webdriver_sw"},
+		{"CDP in service worker only", func(s *botcheck.Signals) { s.SWCDP = true }, "cdp_sw_only"},
+		// G17: a Navigator.prototype accessor descriptor is wrong.
+		{"navigator prototype tamper", func(s *botcheck.Signals) { s.NavProtoDescriptorsOK = false }, "navigator_proto_tamper"},
+		// G22: chrome.runtime fails integrity / the chrome object was injected late.
+		{"chrome runtime tamper", func(s *botcheck.Signals) { s.ChromeRuntimeOK = false }, "chrome_runtime_tamper"},
+		{"chrome late injection", func(s *botcheck.Signals) { s.ChromeLateInjection = true }, "chrome_late_injection"},
+		// G23: the Error-stack engine (SpiderMonkey) disagrees with the Chrome UA (V8).
+		{"JS engine vs UA", func(s *botcheck.Signals) { s.JSEngine = "spidermonkey" }, "jsengine_ua_mismatch"},
+		// G10 + Layer-1 backlog soft tells.
+		{"broken image", func(s *botcheck.Signals) { s.ImageBroken = true }, "image_broken"},
+		{"plugins without mimeTypes", func(s *botcheck.Signals) { s.MimeTypes = 0 }, "plugins_mimetypes_incoherent"},
+		{"zero outerHeight", func(s *botcheck.Signals) { s.OuterH = 0 }, "zero_outer_height"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+" fires", func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			if !check(t, botcheck.Evaluate(s), tc.id).Triggered {
+				t.Errorf("%s should fire (%s)", tc.id, tc.name)
+			}
+		})
+		t.Run(tc.name+" passes clean", func(t *testing.T) {
+			if check(t, botcheck.Evaluate(cleanChrome()), tc.id).Triggered {
+				t.Errorf("%s must not fire on the clean fixture", tc.id)
+			}
+		})
+	}
+}
+
+// TestCDPSWOnlyDoesNotDoubleCount: cdp_sw_only exists precisely to add the
+// Service-Worker-only observation without double-counting it with cdp_both /
+// cdp_main_only — when the main thread or worker also tripped the trap, the
+// older rules own the observation.
+func TestCDPSWOnlyDoesNotDoubleCount(t *testing.T) {
+	s := cleanChrome()
+	s.SWCDP, s.CDPMainThread = true, true
+	r := botcheck.Evaluate(s)
+	if check(t, r, "cdp_sw_only").Triggered {
+		t.Errorf("cdp_sw_only must not fire when the main thread also tripped the trap")
+	}
+	if !check(t, r, "cdp_main_only").Triggered {
+		t.Errorf("cdp_main_only should fire when main+SW tripped but the worker didn't")
+	}
+
+	s = cleanChrome()
+	s.SWCDP, s.CDPMainThread, s.CDPWorker = true, true, true
+	r = botcheck.Evaluate(s)
+	if check(t, r, "cdp_sw_only").Triggered {
+		t.Errorf("cdp_sw_only must not fire when cdp_both already counts the observation")
+	}
+	if !check(t, r, "cdp_both").Triggered {
+		t.Errorf("cdp_both should fire when main+worker tripped the trap")
+	}
+}
+
+// TestV3GateSkipsStalePayload: a fingerprint from a stale cached v2 collector
+// lacks every v3 key, so the damning-when-false/zero v3 fields bind bad — the
+// gated rules must skip rather than read that as tampering (the same contract
+// TestDeepTamperSkipsStalePayload proved for the v2 gate).
+func TestV3GateSkipsStalePayload(t *testing.T) {
+	v2 := func(mut func(*botcheck.Signals)) botcheck.Signals {
+		s := cleanChrome()
+		s.CollectorV = 2
+		mut(&s)
+		return s
+	}
+	cases := []struct {
+		name string
+		s    botcheck.Signals
+		id   string
+	}{
+		{"navigator_proto_tamper", v2(func(s *botcheck.Signals) { s.NavProtoDescriptorsOK = false }), "navigator_proto_tamper"},
+		{"chrome_runtime_tamper", v2(func(s *botcheck.Signals) { s.ChromeRuntimeOK = false }), "chrome_runtime_tamper"},
+		{"plugins_mimetypes_incoherent", v2(func(s *botcheck.Signals) { s.MimeTypes = 0 }), "plugins_mimetypes_incoherent"},
+		{"mobile_no_touch", v2(func(s *botcheck.Signals) {
+			mirrorUA(s, chromeAndroidGPUUA)
+			s.MaxTouchPoints = 0
+		}), "mobile_no_touch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if check(t, botcheck.Evaluate(tc.s), tc.id).Triggered {
+				t.Errorf("%s must not fire on a pre-v3 payload", tc.id)
+			}
+		})
+	}
+
+	// The same stale payload scores clean overall: every ungated v3 rule is
+	// true=bad or a value comparison, so missing keys bind safe by construction.
+	stale := cleanChrome()
+	stale.CollectorV = 2
+	stale.NavProtoDescriptorsOK = false
+	stale.ChromeRuntimeOK = false
+	stale.MaxTouchPoints = 0
+	stale.MimeTypes = 0
+	r := botcheck.Evaluate(stale)
+	if r.Score != 100 || r.Verdict != "human" {
+		t.Errorf("stale v2 payload: score=%d verdict=%q, want 100/human (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
+	}
+
+	// zero_outer_height needs no version gate: the InnerH > 0 guard makes a stale
+	// payload (both fields bind 0) skip by construction.
+	zero := cleanChrome()
+	zero.CollectorV = 2
+	zero.OuterH, zero.InnerH = 0, 0
+	if check(t, botcheck.Evaluate(zero), "zero_outer_height").Triggered {
+		t.Errorf("zero_outer_height must not fire when both height fields are absent (stale payload)")
+	}
+}
+
+// TestMobileNoTouch covers G12: a desktop browser wearing a mobile UA reports
+// maxTouchPoints == 0, which no real phone does. Real iPhone/Android fixtures
+// (touch > 0) must NOT fire, a desktop UA must NOT fire (the reverse direction
+// is deliberately not a rule — touch-screen Windows laptops), and a stale v2
+// payload must skip (the field is damning when zero).
+func TestMobileNoTouch(t *testing.T) {
+	// Positive: a mobile UA with zero touch points, per OS.
+	for _, mk := range []func() botcheck.Signals{
+		func() botcheck.Signals { s := realAndroid(); s.MaxTouchPoints = 0; return s },
+		func() botcheck.Signals { s := realIPhone(criosUA); s.MaxTouchPoints = 0; return s },
+	} {
+		if !check(t, botcheck.Evaluate(mk()), "mobile_no_touch").Triggered {
+			t.Errorf("mobile_no_touch should fire for a mobile UA with maxTouchPoints=0")
+		}
+	}
+
+	// Negative: real phones report touch — every real mobile fixture stays silent.
+	for name, fx := range map[string]botcheck.Signals{
+		"iOS Safari":     realIPhone(iosSafariUA),
+		"iOS Chrome":     realIPhone(criosUA),
+		"iOS Firefox":    realIPhone(fxiosUA),
+		"Android Chrome": realAndroid(),
+	} {
+		if check(t, botcheck.Evaluate(fx), "mobile_no_touch").Triggered {
+			t.Errorf("mobile_no_touch must not fire for a real phone (%s reports touch)", name)
+		}
+	}
+
+	// Negative: desktop UA with zero touch — no reverse direction by design.
+	if check(t, botcheck.Evaluate(cleanChrome()), "mobile_no_touch").Triggered {
+		t.Errorf("mobile_no_touch must not fire for a desktop UA")
+	}
+}
+
+// TestJSEngineUAMismatch covers G23: the Error-stack JS engine vs the engine the
+// UA claims, mapped through engineFromUA (blink→v8, gecko→spidermonkey,
+// webkit→jsc — iOS browsers included). Both sides must be confident: an empty
+// detection or an unparseable UA is no signal.
+func TestJSEngineUAMismatch(t *testing.T) {
+	fires := []struct{ name, ua, detected string }{
+		{"Chrome UA on SpiderMonkey", chromeMacUA, "spidermonkey"},
+		{"Chrome UA on JSC", chromeMacUA, "jsc"},
+		{"Firefox UA on V8", firefoxUA, "v8"},
+		{"Safari UA on V8", safariUA, "v8"},
+		{"iOS Chrome UA on V8 (Apple mandates WebKit/JSC)", criosUA, "v8"},
+	}
+	for _, tc := range fires {
+		t.Run("fires/"+tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			mirrorUA(&s, tc.ua)
+			s.JSEngine = tc.detected
+			if !check(t, botcheck.Evaluate(s), "jsengine_ua_mismatch").Triggered {
+				t.Errorf("jsengine_ua_mismatch should fire for %s", tc.name)
+			}
+		})
+	}
+	silent := []struct{ name, ua, detected string }{
+		{"detection matches the UA", chromeMacUA, "v8"},
+		{"iOS Chrome on JSC", criosUA, "jsc"},
+		{"iOS Firefox on JSC", fxiosUA, "jsc"},
+		{"Firefox on SpiderMonkey", firefoxUA, "spidermonkey"},
+		{"Safari on JSC", safariUA, "jsc"},
+		{"empty detection (probe failed)", chromeMacUA, ""},
+		{"unparseable UA", "some-unparseable-agent", "v8"},
+	}
+	for _, tc := range silent {
+		t.Run("silent/"+tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			mirrorUA(&s, tc.ua)
+			s.JSEngine = tc.detected
+			if check(t, botcheck.Evaluate(s), "jsengine_ua_mismatch").Triggered {
+				t.Errorf("jsengine_ua_mismatch must not fire for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestChromeRulesNeedAChromeUA: the G22 chrome-object rules key on a Chrome UA —
+// a non-Chrome browser never has its (absent or differently-shaped) chrome
+// object held against it.
+func TestChromeRulesNeedAChromeUA(t *testing.T) {
+	s := realSafari()
+	s.ChromeRuntimeOK = false
+	s.ChromeLateInjection = true
+	r := botcheck.Evaluate(s)
+	for _, id := range []string{"chrome_runtime_tamper", "chrome_late_injection"} {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s must not fire without a Chrome UA", id)
+		}
+	}
+}
+
+// TestWebRTCIPMismatch covers G09: a PUBLIC WebRTC candidate that differs from
+// the egress IP pierces a VPN/proxy. Private/loopback/link-local/ULA/CGNAT
+// candidates are excluded (a host candidate ≠ egress is normal NAT), only the
+// egress's own address family is compared (dual-stack stays silent), and absent
+// data on either side is no signal.
+func TestWebRTCIPMismatch(t *testing.T) {
+	const (
+		egressV4 = "85.105.22.17"
+		otherV4  = "203.0.113.9"
+		egressV6 = "2a02:1234:5678::1"
+		otherV6  = "2a02:1234:5678::2"
+	)
+	fires := []struct {
+		name, egress string
+		ips          []string
+	}{
+		{"public IPv4 candidate ≠ egress", egressV4, []string{otherV4}},
+		{"public IPv6 candidate ≠ IPv6 egress", egressV6, []string{otherV6}},
+		{"one public candidate among private hosts", egressV4, []string{"192.168.1.5", "10.0.0.2", otherV4}},
+	}
+	for _, tc := range fires {
+		t.Run("fires/"+tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			s.EgressIP, s.WebRTCIPs = tc.egress, tc.ips
+			if !check(t, botcheck.Evaluate(s), "webrtc_ip_mismatch").Triggered {
+				t.Errorf("webrtc_ip_mismatch should fire for %s", tc.name)
+			}
+		})
+	}
+	silent := []struct {
+		name, egress string
+		ips          []string
+	}{
+		{"candidate equals egress", egressV4, []string{egressV4}},
+		{"private host candidates (normal NAT)", egressV4, []string{"192.168.1.5", "10.0.0.2", "172.16.0.3"}},
+		{"loopback / link-local / ULA", egressV4, []string{"127.0.0.1", "169.254.1.1", "fe80::1", "fd00::5"}},
+		{"CGNAT host candidate (carrier NAT is normal)", egressV4, []string{"100.64.0.5"}},
+		{"IPv4-mapped-IPv6 private form", egressV4, []string{"::ffff:192.168.1.5"}},
+		{"dual-stack: IPv6 candidate vs IPv4 egress", egressV4, []string{"2606:4700:4700::1111"}},
+		{"dual-stack: IPv4 candidate vs IPv6 egress", egressV6, []string{otherV4}},
+		{"empty candidate list", egressV4, nil},
+		{"empty egress", "", []string{otherV4}},
+		{"unparseable egress", "not-an-ip", []string{otherV4}},
+		{"unparseable candidate", egressV4, []string{"garbage", ":::"}},
+	}
+	for _, tc := range silent {
+		t.Run("silent/"+tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			s.EgressIP, s.WebRTCIPs = tc.egress, tc.ips
+			if check(t, botcheck.Evaluate(s), "webrtc_ip_mismatch").Triggered {
+				t.Errorf("webrtc_ip_mismatch must not fire for %s", tc.name)
+			}
+		})
 	}
 }

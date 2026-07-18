@@ -37,19 +37,27 @@ func Register(e *echo.Echo, svc Looker) {
 }
 
 // swScript is the Service Worker source the collector registers as a fourth JS
-// context for the cross-context checks (G03). A blob: URL can't be registered as
-// a Service Worker, so the app serves it same-origin like workerProbe serves its
-// blob. It answers one message (over the posted MessageChannel port) with its
-// navigator values and has NO fetch handler — deliberately, so it can never
-// intercept or modify a single request on the origin. Served as a constant: it
-// reads nothing from the request and never changes.
+// context for the cross-context checks (G03) plus the G14 additions: it reports
+// its navigator.webdriver (a top-frame-only webdriver patch forgets this context)
+// and runs the same CDP Error.stack trap the worker probe uses. It answers one
+// message (over the posted MessageChannel port) and has NO fetch handler —
+// deliberately, so it can never intercept or modify a single request on the
+// origin. Served as a constant: it reads nothing from the request and never
+// changes. The trap must NOT touch `.stack` itself, or it would self-trigger.
 const swScript = `self.onmessage=(ev)=>{` +
 	`const p=ev.ports&&ev.ports[0];` +
-	`if(p){p.postMessage({` +
+	`if(p){` +
+	`let c=false;` +
+	`const e=new Error();` +
+	`try{Object.defineProperty(e,'stack',{configurable:true,get(){c=true;return 'x';}});}catch(_){}` +
+	`try{console.debug(e);}catch(_){}` +
+	`p.postMessage({` +
 	`ua:navigator.userAgent,` +
 	`languages:[...(navigator.languages||[])],` +
 	`cores:navigator.hardwareConcurrency||0,` +
-	`platform:(navigator.userAgentData&&navigator.userAgentData.platform)||""` +
+	`platform:(navigator.userAgentData&&navigator.userAgentData.platform)||"",` +
+	`webdriver:navigator.webdriver===true,` +
+	`cdp:c` +
 	`});}};`
 
 // serviceWorker serves swScript with a JavaScript MIME type (Service Worker
@@ -113,6 +121,7 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) {
 	r := c.Request()
 	sig.Now = time.Now()
 	sig.HTTPUserAgent = r.UserAgent()
+	sig.EgressIP = c.RealIP() // G09: the server-observed IP the WebRTC candidates are compared against
 	sig.SecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
 	sig.SecCHUA = r.Header.Get("Sec-CH-UA")
 	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")

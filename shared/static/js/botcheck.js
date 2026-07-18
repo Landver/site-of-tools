@@ -14,13 +14,24 @@
   const NATIVE_RE = /\{\s*\[native code\]\s*\}/;
 
   // Known automation-framework globals; presence of any is a near-standalone tell.
+  // Only AUTOMATION-only markers belong here: embedded-runtime markers
+  // (CefSharp/Awesomium/CEF) are deliberately excluded — legit desktop apps embed
+  // those engines, and the UA-side embedded_runtime rule already covers that class.
   const WINDOW_MARKERS = [
     "__playwright", "__pw_manual", "__PW_inspect", "_playwright",
+    "__pwInitScripts", "__playwright__binding__", // Playwright binding hooks
     "__nightmare", "_phantom", "callPhantom", "phantom", "__phantomas",
     "domAutomation", "domAutomationController", "_Selenium_IDE_Recorder",
     "__selenium_unwrapped", "__webdriver_evaluate", "__driver_evaluate",
     "__webdriver_script_fn", "__$webdriverAsyncExecutor", "__lastWatirAlert",
     "__fxdriver_unwrapped", "webdriver",
+    // G13: the wider Selenium/Watir canon from the intoli/fp-scanner lineage that
+    // BrowserScan/sannysoft check individually.
+    "__webdriver_unwrapped", "__driver_unwrapped", "__webdriver_script_function",
+    "__webdriver_script_func", "_selenium", "calledSelenium", "_WEBDRIVER_ELEM_CACHE",
+    "ChromeDriverw", "driver-evaluate", "webdriver-evaluate", "selenium-evaluate",
+    "webdriverCommand", "webdriver-evaluate-response",
+    "__lastWatirConfirm", "__lastWatirPrompt", "_watir",
   ];
   const DOC_MARKERS = [
     "$cdc_asdjflasutopfhvcZLmcfl_", "$chrome_asyncScriptInfo",
@@ -47,10 +58,20 @@
   const frameworkGlobals = () => {
     const found = WINDOW_MARKERS.filter((k) => safe(() => typeof window[k] !== "undefined", false))
       .concat(DOC_MARKERS.filter((k) => safe(() => typeof document[k] !== "undefined", false)));
-    // Sweep for ChromeDriver's random-suffixed cdc_ key and similar markers.
-    safe(() => Object.getOwnPropertyNames(document).forEach((n) => {
-      if (SUSPECT_RE.test(n) && !found.includes(n)) found.push(n);
-    }));
+    // Sweep for ChromeDriver's random-suffixed cdc_ key and similar markers — over
+    // both document and window own property names (G17): an injected automation
+    // global the explicit lists miss still surfaces here.
+    for (const obj of [document, window]) {
+      safe(() => Object.getOwnPropertyNames(obj).forEach((n) => {
+        if (SUSPECT_RE.test(n) && !found.includes(n)) found.push(n);
+      }));
+    }
+    // Sequentum's scraping runtime brands window.external (fp-scanner's SEQUENTUM
+    // check; deviceandbrowserinfo's isSequentum reads the same string).
+    safe(() => {
+      const ext = window.external;
+      if (ext && /sequentum/i.test(String(ext))) found.push("sequentum (window.external)");
+    });
     return found;
   };
 
@@ -186,6 +207,139 @@
     return /at\s+\S*apply\b|\bapply@/.test(frames);
   }, false); // any failure ⇒ false: never flag on doubt
 
+  // ── v3 probes (G09/G10/G17/G22/G23) ─────────────────────────────────────────
+  // Same conventions as the G04 probes: OK bools fail to pass (false only on a
+  // confirmed anomaly), TRUE=BAD values default to false on any probe failure,
+  // and strings/lists come out empty when a probe can't run — Go treats empty as
+  // "not supplied", never evidence.
+
+  // navProtoDescriptorsOK (G17): per WebIDL, webdriver / plugins / languages are
+  // accessor (getter-only) properties — enumerable, configurable, living on
+  // Navigator.prototype, never own data properties on the navigator instance —
+  // and their getters are native. A spoof installed via defineProperty/assignment
+  // breaks at least one of those. Only confident anomalies count: an absent or
+  // unreadable property (old engine, blocked API) resolves to pass.
+  const navProtoDescriptorsOK = () => safe(() => {
+    if (typeof Navigator === "undefined" || !Navigator.prototype || typeof navigator === "undefined") return true;
+    return ["webdriver", "plugins", "languages"].every((prop) => {
+      const owner = findOwner(navigator, prop);
+      if (!owner) return true; // property absent entirely ⇒ nothing to check
+      const d = safe(() => Object.getOwnPropertyDescriptor(owner, prop), null);
+      if (!d) return true; // unreadable ⇒ pass, never flag on doubt
+      if (owner !== Navigator.prototype) return false; // own instance property ⇒ spoofed
+      return typeof d.get === "function" && d.set === undefined &&
+        d.enumerable === true && d.configurable === true &&
+        safe(() => NATIVE_RE.test(Function.prototype.toString.call(d.get)), false);
+    });
+  }, true);
+
+  // chromeRuntimeOK (G22): a genuine window.chrome carries chrome.runtime whose
+  // sendMessage/connect are native NON-CONSTRUCTOR methods — no own 'prototype',
+  // and `new fn()` throws a TypeError. A stealth-bolted fake (a plain or bound
+  // function) carries a prototype or constructs silently; an exotic throw isn't a
+  // TypeError (CreepJS hasBadChromeRuntime). Fail-to-pass: absent chrome/runtime
+  // is no confident contradiction — absence is no_chrome_object's territory.
+  const chromeRuntimeOK = () => safe(() => {
+    if (!("chrome" in window)) return true;
+    const c = window.chrome;
+    if (!c || typeof c !== "object" || !("runtime" in c)) return true;
+    const rt = c.runtime;
+    if (!rt || typeof rt !== "object") return true;
+    for (const name of ["sendMessage", "connect"]) {
+      const fn = rt[name];
+      if (typeof fn !== "function") continue; // no confident contradiction
+      if ("prototype" in fn) return false; // a native method carries none
+      try {
+        new fn();
+        return false; // constructed silently ⇒ a JS stand-in
+      } catch (e) {
+        if (!(e instanceof TypeError)) return false;
+      }
+    }
+    return true;
+  }, true);
+
+  // chromeLateInjection (G22): genuine Chrome creates window.chrome during page
+  // setup, so it sits early among window keys; a stealth patch bolting on a fake
+  // chrome object appends it late (CreepJS hasHighChromeIndex — 'chrome' in the
+  // last ~50 of both the enumerable keys and the own property names). TRUE = BAD.
+  const chromeLateInjection = () => safe(() => {
+    if (!("chrome" in window)) return false;
+    return Object.keys(window).slice(-50).includes("chrome") &&
+      Object.getOwnPropertyNames(window).slice(-50).includes("chrome");
+  }, false);
+
+  // jsEngine (G23): the JS engine from the Error-stack format — V8 (Chrome/Edge/
+  // Opera) frames look like "    at fn (url:line:col)"; SpiderMonkey (Firefox)
+  // stacks use "fn@url:line:col" AND the Error carries the proprietary fileName /
+  // lineNumber properties; JavaScriptCore (Safari + every iOS browser) also uses
+  // "fn@url:line:col" but has no fileName/lineNumber. "" ⇒ couldn't tell (a
+  // blocked/empty stack), which Go treats as no signal.
+  const jsEngine = () => safe(() => {
+    const e = new Error();
+    const stack = String((e && e.stack) || "");
+    if (stack.includes(" at ")) return "v8";
+    if (typeof e.fileName === "string" && typeof e.lineNumber === "number") return "spidermonkey";
+    if (stack.includes("@")) return "jsc";
+    return "";
+  }, "");
+
+  // webrtcProbe (G09): open an RTCPeerConnection against a public STUN server and
+  // harvest ICE candidate IPs for ~1.5s (the same timeout shape as the other
+  // async probes). mDNS *.local obfuscation names are skipped — they carry no IP.
+  // Go compares only PUBLIC candidates against the connection's egress IP (the
+  // VPN/proxy pierce) and applies the private/link-local/address-family
+  // exclusions; every failure path here resolves empty, which is never a signal.
+  const webrtcProbe = () => new Promise((resolve) => {
+    const fallback = [];
+    try {
+      const RTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+      if (typeof RTC === "undefined") { resolve(fallback); return; }
+      const ips = new Set();
+      const pc = new RTC({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        safe(() => pc.close());
+        resolve([...ips]);
+      };
+      const timer = setTimeout(done, 1500);
+      const add = (addr) => {
+        if (addr && !String(addr).endsWith(".local")) ips.add(String(addr));
+      };
+      pc.onicecandidate = (ev) => {
+        if (!ev.candidate) { done(); return; } // null candidate ⇒ gathering finished
+        safe(() => {
+          if (ev.candidate.address) { add(ev.candidate.address); return; }
+          // candidate:foundation component transport priority ADDRESS port typ ...
+          const parts = String(ev.candidate.candidate || "").split(/\s+/);
+          if (parts.length > 4 && parts[0].indexOf("candidate:") === 0) add(parts[4]);
+        });
+      };
+      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === "complete") done(); };
+      safe(() => pc.createDataChannel("x")); // an offer needs media or a data channel
+      pc.createOffer()
+        .then((o) => pc.setLocalDescription(o))
+        .catch(done);
+    } catch { resolve(fallback); }
+  });
+
+  // imageProbe (G10): a 1×1 data-URI GIF that MUST load in any real browser
+  // (sannysoft "Broken Image Dimensions"). naturalWidth == 0 — or an error event
+  // — means images are blocked/stripped, a headless tell. TRUE = BAD; a timeout
+  // or a setup error reads as "can't tell" ⇒ false.
+  const imageProbe = () => new Promise((resolve) => {
+    try {
+      const img = new Image();
+      const timer = setTimeout(() => resolve(false), 1500);
+      img.onload = () => { clearTimeout(timer); resolve(img.naturalWidth === 0); };
+      img.onerror = () => { clearTimeout(timer); resolve(true); };
+      img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    } catch { resolve(false); }
+  });
+
   // webglGPU reads the unmasked VENDOR and RENDERER from WEBGL_debug_renderer_info.
   // Go compares the two against each other (vendor/renderer coherence, G07) and the
   // GPU family against the UA-claimed OS (G08). Any failure (no WebGL, extension
@@ -250,10 +404,25 @@
     return count();
   }, -1);
 
+  // iframeProxied — CreepJS hasIframeProxy. The puppeteer-extra-stealth
+  // iframe.contentWindow patch installs a getter that THROWS when a fresh srcdoc
+  // frame's window is read this early; a genuine engine never throws here (Chrome
+  // returns the WindowProxy even detached, Firefox returns null). TRUE = BAD; any
+  // setup failure reads as false (never flag on doubt).
+  const iframeProxied = () => {
+    try {
+      const f = document.createElement("iframe");
+      f.srcdoc = "botcheck";
+      void f.contentWindow; // the stealth getter throws here; a real engine doesn't
+      return false;
+    } catch { return true; }
+  };
+
   // iframeProbe re-reads navigator inside a display:none iframe (a second JS
   // context). Anti-detect tools commonly spoof only the top frame's navigator, so
-  // any value the iframe reports differently is a consistency tell. Empty values
-  // mean the read failed — never a signal.
+  // any value the iframe reports differently is a consistency tell — including
+  // navigator.webdriver, which stealth patches fix in the top frame but forget in
+  // the fresh iframe realm (G11). Empty values mean the read failed — never a signal.
   const iframeProbe = () => safe(() => {
     const f = document.createElement("iframe");
     f.style.display = "none";
@@ -264,10 +433,12 @@
       languages: [...(n.languages || [])],
       cores: n.hardwareConcurrency || 0,
       platform: (n.userAgentData && n.userAgentData.platform) || "",
+      webdriver: n.webdriver === true,
+      proxied: iframeProxied(),
     };
     f.remove();
     return out;
-  }, { ua: "", languages: [], cores: 0, platform: "" });
+  }, { ua: "", languages: [], cores: 0, platform: "", webdriver: false, proxied: false });
 
   // workerProbe recomputes the navigator values and runs the CDP trap inside a Web
   // Worker (a third JS context) — a top-frame-only spoof leaks here. It also tries
@@ -304,7 +475,7 @@
   // behind on the visitor's browser. Every failure path resolves with empty values
   // (no SW support, slow first install, HTTPS-only restrictions) — never a signal.
   const swProbe = () => new Promise((resolve) => {
-    const fallback = { ua: "", languages: [], cores: 0, platform: "" };
+    const fallback = { ua: "", languages: [], cores: 0, platform: "", webdriver: false, cdp: false };
     try {
       if (!("serviceWorker" in navigator)) { resolve(fallback); return; }
       let reg = null;
@@ -367,12 +538,15 @@
 
   const collect = async () => {
     const iframe = iframeProbe();
-    const [worker, sw, ua, perm] = await Promise.all([workerProbe(), swProbe(), uaData(), permState()]);
+    const [worker, sw, ua, perm, webrtcIPs, imageBroken] = await Promise.all(
+      [workerProbe(), swProbe(), uaData(), permState(), webrtcProbe(), imageProbe()],
+    );
     return {
       // Payload version. Bump when a new field is damning-when-false (a missing
       // key binds false server-side): Go skips those rules on older payloads, so
-      // a stale cached copy of this file never reads as tampered. v2 = G04 probes.
-      v: 2,
+      // a stale cached copy of this file never reads as tampered. v2 = G04 probes;
+      // v3 = the G09–G14/G17/G22/G23 batch + Layer-1 backlog fields.
+      v: 3,
       webdriver: safe(() => navigator.webdriver === true, false),
       frameworkGlobals: frameworkGlobals(),
       cdpMainThread: cdpTrap(),
@@ -425,6 +599,23 @@
       workerWebGLRenderer: worker.webgl || "",
       ...canvasProbe(),
       ...codecs(),
+      // v3 batch: the G09–G14/G17/G22/G23 signals + the Layer-1 backlog fields.
+      // The OK bools fail to pass (gated on v server-side); the TRUE=BAD booleans
+      // and the value fields default safe on a stale payload.
+      iframeWebdriver: iframe.webdriver === true, // G11: webdriver re-read in the iframe
+      iframeProxied: iframe.proxied === true, // G11: iframe contentWindow Proxy (true = bad)
+      swWebdriver: sw.webdriver === true, // G14: webdriver in the Service Worker
+      swCDP: !!sw.cdp, // G14: the CDP Error.stack trap, in the Service Worker
+      maxTouchPoints: safe(() => navigator.maxTouchPoints ?? 0, 0), // G12
+      navProtoDescriptorsOK: navProtoDescriptorsOK(), // G17 fail-to-pass
+      chromeRuntimeOK: chromeRuntimeOK(), // G22 fail-to-pass
+      chromeLateInjection: chromeLateInjection(), // G22: true = bad
+      jsEngine: jsEngine(), // G23: "v8" | "spidermonkey" | "jsc" | ""
+      webrtcIPs: webrtcIPs, // G09: deduped candidate IPs (mDNS skipped); [] = no signal
+      imageBroken: imageBroken, // G10: true = bad
+      mimeTypes: safe(() => navigator.mimeTypes?.length ?? 0, 0),
+      outerH: safe(() => window.outerHeight ?? 0, 0),
+      innerH: safe(() => window.innerHeight ?? 0, 0),
     };
   };
 

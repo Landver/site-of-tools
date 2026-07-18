@@ -18,6 +18,7 @@ package botcheck
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -142,6 +143,26 @@ type Signals struct {
 	// hallmark that exists to defeat the shallow NativeToStringOK check.
 	NativeToStringProxied bool `json:"nativeToStringProxied"`
 
+	// ── v3 batch signals (G09–G14, G17, G22, G23 + Layer-1 backlog) ───────────
+	// Added with payload v3. The two OK bools are fail-to-pass like the G04
+	// probes (false only on a confirmed anomaly), so the rules keyed on them are
+	// v3-gated (see collectorVTamperV3); the TRUE=BAD booleans and the value
+	// fields bind safe on a stale payload and need no gate.
+	IframeWebdriver       bool     `json:"iframeWebdriver"`       // navigator.webdriver re-read inside the iframe (G11)
+	IframeProxied         bool     `json:"iframeProxied"`         // iframe contentWindow Proxy detected — true = bad (G11)
+	MaxTouchPoints        int      `json:"maxTouchPoints"`        // navigator.maxTouchPoints (G12)
+	SWWebdriver           bool     `json:"swWebdriver"`           // navigator.webdriver read in the Service Worker (G14)
+	SWCDP                 bool     `json:"swCDP"`                 // the CDP Error.stack trap fired in the Service Worker (G14)
+	NavProtoDescriptorsOK bool     `json:"navProtoDescriptorsOK"` // fail-to-pass OK bool: WebIDL accessor-descriptor walk (G17)
+	ChromeRuntimeOK       bool     `json:"chromeRuntimeOK"`       // fail-to-pass OK bool: chrome.runtime integrity (G22)
+	ChromeLateInjection   bool     `json:"chromeLateInjection"`   // window.chrome injected late — true = bad (G22)
+	JSEngine              string   `json:"jsEngine"`              // feature-detected JS engine: "v8" | "spidermonkey" | "jsc" (G23)
+	WebRTCIPs             []string `json:"webrtcIPs"`             // deduped ICE candidate IPs, mDNS .local skipped (G09)
+	ImageBroken           bool     `json:"imageBroken"`           // a guaranteed-loadable 1×1 image failed — true = bad (G10)
+	MimeTypes             int      `json:"mimeTypes"`             // navigator.mimeTypes.length (Layer-1 backlog)
+	OuterH                int      `json:"outerH"`                // window.outerHeight (Layer-1 backlog)
+	InnerH                int      `json:"innerH"`                // window.innerHeight (Layer-1 backlog)
+
 	// ── server-observed (filled by the handler; never read off the wire) ─────
 	HTTPUserAgent   string `json:"-"`
 	SecCHUAPlatform string `json:"-"`
@@ -156,6 +177,7 @@ type Signals struct {
 	// would false-positive every real Safari user.
 	HTTPUpgradeInsecureRequests string `json:"-"`
 	IPTimezone                  string `json:"-"`
+	EgressIP                    string `json:"-"` // connection IP the server observed (c.RealIP()), for the WebRTC cross-check (G09)
 	ASN                         string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
 	IsDatacenter                bool   `json:"-"`
 	IsProxy                     bool   `json:"-"`
@@ -239,6 +261,11 @@ const (
 	// JSON key binds false, so the G04 rules skip payloads older than this —
 	// a returning visitor with a stale cached collector must not read as tampered.
 	collectorVDeepTamper = 2
+	// collectorVTamperV3 is the payload version that introduced the v3 batch
+	// fields that are damning when false/zero (navProtoDescriptorsOK,
+	// chromeRuntimeOK, maxTouchPoints, mimeTypes). Rules keyed on those skip
+	// payloads older than this, same stale-collector contract as above.
+	collectorVTamperV3 = 3
 )
 
 // Evaluate runs every rule against the signals and returns the scored report. It
@@ -497,6 +524,47 @@ func expectedProductSub(ua string) string {
 	default:
 		return ""
 	}
+}
+
+// jsEngineFromUA maps a User-Agent to the JS engine a genuine browser with that UA
+// must run: Blink browsers are V8, Gecko is SpiderMonkey, WebKit (Safari + every
+// iOS browser) is JavaScriptCore ("jsc"). It derives the rendering engine from
+// engineFromUA (single source of truth), so iOS browsers — WebKit under any
+// FxiOS/CriOS brand token — map to JSC correctly. "" ⇒ can't tell (don't fire).
+func jsEngineFromUA(ua string) string {
+	switch engineFromUA(ua) {
+	case "blink":
+		return "v8"
+	case "gecko":
+		return "spidermonkey"
+	case "webkit":
+		return "jsc"
+	default:
+		return ""
+	}
+}
+
+// cgnatRange is the carrier-grade NAT shared address space (RFC 6598). A host
+// candidate in it differing from the egress IP is normal carrier NAT on real
+// mobile networks, not a proxy tell — same exclusion class as RFC1918.
+var cgnatRange = netip.MustParsePrefix("100.64.0.0/10")
+
+// publicIP parses s as an IP and normalises it, reporting whether it is a public
+// (globally routable) address. webrtc_ip_mismatch compares only public candidates:
+// a host candidate behind NAT (RFC1918/ULA/loopback/link-local/CGNAT) differing
+// from the egress IP is normal and never a tell. IPv4-mapped IPv6 forms are
+// unmapped so the family comparison in the rule is apples-to-apples.
+func publicIP(s string) (netip.Addr, bool) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	addr = addr.Unmap()
+	if !addr.IsGlobalUnicast() || addr.IsLoopback() || addr.IsLinkLocalUnicast() ||
+		addr.IsPrivate() || addr.IsMulticast() || addr.IsUnspecified() || cgnatRange.Contains(addr) {
+		return netip.Addr{}, false
+	}
+	return addr, true
 }
 
 // majorOf parses the leading integer of a dotted version ("125.0.6422.60" ⇒ 125).

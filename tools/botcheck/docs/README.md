@@ -42,7 +42,7 @@ could call is a possible later bolt-on — see [ROADMAP.md](ROADMAP.md).)
 - `botcheck.go` — **pure domain**: `Signals`, `Check`, `Report`, `Evaluate`, and
   the signal helpers. No `echo`, no `iptools` import — so its tests construct
   `Signals` directly, with no HTTP and no databases.
-- `scoring.go` — the ordered weighted rule set (hard tells → consistency
+- `scoring.go` — the ordered weighted rule set (63 rules: hard tells → consistency
   cross-checks → soft heuristics) and the soft-signal combination rule.
 - `handler.go` — transport: parses the client payload, gathers server signals off
   `*echo.Context`, maps the shared `iptools.Service` result into plain `Signals`
@@ -132,32 +132,44 @@ gap (see [ROADMAP.md](ROADMAP.md)), not a bug.
 
 Plain HTML can't read `navigator`/`canvas`/`WebGL`, so a JS collector is justified
 under CLAUDE.md golden rule #4. The collector builds one JSON object and POSTs it.
-The payload carries a version (`v`); rules whose fields are damning-when-false
-(the G04 deep-tamper probes, added in v2) skip older payloads, so a returning
-visitor with a stale cached collector never reads as tampered.
+The payload carries a version (`v`, currently **3**); rules whose fields are
+damning-when-false (the G04 deep-tamper probes, added in v2, and the G17/G22
+integrity OK-bools + touch/mimeTypes fields, added in v3) skip older payloads, so
+a returning visitor with a stale cached collector never reads as tampered.
 
 - **Hard automation tells** — `navigator.webdriver`; automation-framework globals
-  (`$cdc_*`/`$wdc_*`, `__selenium*`/`__webdriver*`, `__playwright`/`__pw_*`,
-  `_phantom`/`callPhantom`, `__nightmare`, Sequentum in `window.external`); the
-  **CDP probe** (`Error.stack` getter + `console.log` serialization trick that
-  fires when a DevTools-Protocol client sent `Runtime.enable` — the dominant modern
-  tell, run in both the main thread and a Worker).
+  (`$cdc_*`/`$wdc_*`, `__selenium*`/`__webdriver*`, `__playwright`/`__pw_*` +
+  Playwright binding hooks, `_phantom`/`callPhantom`, `__nightmare`, the wider
+  Selenium/Watir canon, Sequentum in `window.external`, plus a suspect-name sweep
+  of both `document` and `window` own properties); the **CDP probe**
+  (`Error.stack` getter + `console.debug` serialization trick that fires when a
+  DevTools-Protocol client sent `Runtime.enable` — the dominant modern tell, run
+  in the main thread, a Worker, and the Service Worker).
 - **Lie / tamper detection** — the shallow `Function.prototype.toString()`
   `[native code]` check on key natives, plus the deep G04 probes: property-
   descriptor/own-property sanity (with per-spec enumerability — WebIDL operations
   are `enumerable: true`, ECMA-262 built-ins are not), call/new `TypeError`
   traps, and a `Function.prototype.toString` Proxy probe (shape differential vs a
   control native + error-stack apply-frame inspection) — the
-  puppeteer-extra-stealth hallmark.
+  puppeteer-extra-stealth hallmark. The G17/G22 additions: a **Navigator.prototype
+  accessor-descriptor walk** (`webdriver`/`plugins`/`languages` must be native,
+  getter-only, enumerable+configurable accessors living on the prototype, never
+  own properties on the instance) and **chrome.runtime integrity** (genuine
+  `sendMessage`/`connect` are native non-constructors — no own `prototype`, and
+  `new fn()` throws a `TypeError`; a stealth-bolted fake gets the shape or the
+  error constructor wrong) plus the **late-injection index** ('chrome' among the
+  last ~50 window keys means it was bolted on after page setup).
 - **Cross-context consistency** — recompute `navigator.{userAgent, languages,
-  hardwareConcurrency, userAgentData.platform}` + WebGL renderer inside a Web
-  Worker, a Service Worker (served from `/botcheck-sw.js`), and an iframe; POST
-  all copies so Go can diff them (top-frame-only spoofs collapse here).
+  hardwareConcurrency, userAgentData.platform, webdriver}` + WebGL renderer inside
+  a Web Worker, a Service Worker (served from `/botcheck-sw.js`), and an iframe
+  (which also reports whether its `contentWindow` is a Proxy); POST all copies so
+  Go can diff them (top-frame-only spoofs collapse here).
 - **Classic headless tells** — impossible permission state (`prompt` while
-  `denied`); `window.chrome`/`chrome.runtime` presence; empty
-  `plugins`/`mimeTypes`/`languages`; software WebGL renderer (SwiftShader/Mesa);
-  default `800x600` / `screen == avail` / `outerWidth < innerWidth`;
-  implausible `hardwareConcurrency`/`deviceMemory`.
+  `denied`); `window.chrome` presence; empty `plugins`/`languages`; plugins
+  without `mimeTypes`; software WebGL renderer (SwiftShader/Mesa); default
+  `800x600` / `screen == avail` / `outerWidth < innerWidth` / zero `outerHeight`;
+  implausible `hardwareConcurrency`/`deviceMemory`; a guaranteed-loadable 1×1
+  image that fails; a mobile UA reporting zero touch points.
 - **Fingerprint surfaces (for consistency, not raw entropy)** — canvas 2D hash,
   WebGL vendor/renderer + params, AudioContext hash, font list — used for
   GPU-vs-claimed-OS coherence and spoof/noise-stability, not a uniqueness score.
@@ -176,9 +188,20 @@ visitor with a stale cached collector never reads as tampered.
 - **Engine constants** — `navigator.productSub` is a fixed per-engine value
   (`20030107` on WebKit/Blink, `20100101` on Gecko); a value that disagrees with
   the engine the UA claims (derived via the same `engineFromUA` helper, so iOS
-  browsers are correctly treated as WebKit) is a patched-runtime tell.
+  browsers are correctly treated as WebKit) is a patched-runtime tell. A second,
+  independent engine check fingerprints the **JS engine** from the `Error` stack
+  format (V8 ` at ` frames, SpiderMonkey's proprietary `fileName`/`lineNumber`,
+  JSC otherwise) and compares it against the UA-claimed engine (Blink⇒V8,
+  Gecko⇒SpiderMonkey, WebKit⇒JSC).
 - **Timezone** — `Intl.DateTimeFormat().resolvedOptions().timeZone` +
   `getTimezoneOffset()`, compared to the IP timezone from IP2Location.
+- **WebRTC candidate IPs** — an `RTCPeerConnection` against a public STUN server
+  (`stun.l.google.com:19302`, ~1.5 s harvest, mDNS `.local` names skipped)
+  collects ICE candidate IPs; Go compares only **public** candidates against the
+  server-observed egress IP (private/loopback/link-local/ULA/CGNAT excluded — a
+  host candidate ≠ egress is normal NAT — and only the egress's own address
+  family is compared, so dual-stack stays silent). A public candidate that isn't
+  the egress pierces a VPN/proxy.
 
 ## Scoring model (no ML, deterministic)
 
@@ -200,29 +223,35 @@ Rules are tiered:
 - **Hard tells** (≈40–60): `navigator.webdriver`, automation-framework globals,
   bot/HTTP-client User-Agent, monkey-patched natives, a proxied/replaced
   `Function.prototype.toString` (stealth hallmark), software WebGL renderer, CDP
-  in both main thread + Worker.
+  in both main thread + Worker, `navigator.webdriver` true inside the iframe or
+  the Service Worker.
 - **Consistency** (≈15–35): JS UA ≠ HTTP UA; Worker/iframe/Service-Worker UA ≠
   main UA; `Sec-CH-UA-Platform` ≠ `userAgentData.platform`; UA OS ≠ platform;
   embedded runtime (Electron/CEF); browser TZ offset ≠ IP TZ offset;
   datacenter/Tor IP; proxy/VPN IP; impossible permission state;
-  `navigator.languages` ≠ `Accept-Language`; CDP main-thread only;
-  `navigator.vendor` ≠ `"Google Inc."` on a Chromium UA; `navigator.appVersion` ≠
-  UA; `navigator.language` ≠ `languages[0]`; IANA zone ≠ `getTimezoneOffset()`
-  (self-consistency); canvas randomised between draws; `Sec-CH-UA` header brands
-  ≠ `userAgentData.brands`; feature-detected engine ≠ engine the UA claims; UA
-  `Chrome/NNN` major ≠ the `Chromium` `fullVersionList` entry;
-  `navigator.productSub` ≠ the engine's constant; WebGL unmasked vendor ≠
+  `navigator.languages` ≠ `Accept-Language`; CDP main-thread only; CDP Service-
+  Worker only; `navigator.vendor` ≠ `"Google Inc."` on a Chromium UA;
+  `navigator.appVersion` ≠ UA; `navigator.language` ≠ `languages[0]`; IANA zone ≠
+  `getTimezoneOffset()` (self-consistency); canvas randomised between draws;
+  `Sec-CH-UA` header brands ≠ `userAgentData.brands`; feature-detected engine ≠
+  engine the UA claims; UA `Chrome/NNN` major ≠ the `Chromium` `fullVersionList`
+  entry; `navigator.productSub` ≠ the engine's constant; WebGL unmasked vendor ≠
   renderer family; GPU family impossible on the UA-claimed OS; context
   (worker/iframe/SW) language, core count, or platform ≠ main thread; worker
   WebGL renderer ≠ main-thread renderer; native function with an impossible
-  property descriptor or missing its call/new `TypeError` traps.
+  property descriptor or missing its call/new `TypeError` traps; iframe
+  `contentWindow` proxied; mobile UA with zero touch points; Navigator.prototype
+  accessor-descriptor anomaly; `chrome.runtime` integrity failure; `window.chrome`
+  injected late; Error-stack JS engine ≠ engine the UA claims; public WebRTC
+  candidate IP ≠ egress IP.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
   screen larger than physical, low colour depth, browser UA without `Sec-Fetch-*`,
   canvas renders blank, no H.264/AAC codecs, no detectable fonts, browser UA
   without `Accept-Encoding`, without `Accept-Language`, or with an `Accept`
-  lacking `text/html`. Soft signals **only bite as a cluster of ≥3** (one
-  25-point deduction), so a single quirk never false-positives a real human.
+  lacking `text/html`, a guaranteed-loadable image failing, plugins without
+  `mimeTypes`, zero `outerHeight`. Soft signals **only bite as a cluster of ≥3**
+  (one 25-point deduction), so a single quirk never false-positives a real human.
 
 The load-bearing rules are the **cross-checks** — combinations that should not
 co-occur — because a rule engine beats a checklist here: JS `navigator.userAgent`

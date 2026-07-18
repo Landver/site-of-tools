@@ -362,10 +362,11 @@ func TestCheckGPUCoherenceThroughHandler(t *testing.T) {
 }
 
 func TestServiceWorkerScriptServed(t *testing.T) {
-	// G03: the collector registers /botcheck-sw.js as a Service Worker, so the app
+	// G03+G14: the collector registers /botcheck-sw.js as a Service Worker, so the app
 	// must serve it with a JavaScript MIME type (registration refuses anything
-	// else), answering messages, and — critically — with NO fetch handler, so it
-	// can never intercept a request on the origin.
+	// else), answering messages with its navigator values + webdriver + the CDP
+	// trap, and — critically — with NO fetch handler, so it can never intercept a
+	// request on the origin.
 	rec := get(newTestApp(fakeLooker{}), "/botcheck-sw.js", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -374,8 +375,10 @@ func TestServiceWorkerScriptServed(t *testing.T) {
 		t.Errorf("content-type = %q, want application/javascript", ct)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "onmessage") {
-		t.Errorf("SW script should answer messages:\n%s", body)
+	for _, want := range []string{"onmessage", "webdriver", "cdp"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("SW script should report %q:\n%s", want, body)
+		}
 	}
 	if strings.Contains(body, "onfetch") || strings.Contains(body, `"fetch"`) {
 		t.Errorf("SW script must never install a fetch handler:\n%s", body)
@@ -441,7 +444,31 @@ func TestCheckDeepTamperSignalsThroughHandler(t *testing.T) {
 // header rules — nothing in the body trips a client rule. Europe/Moscow is used
 // because it keeps UTC+3 year-round (no DST), so tzOffset -180 stays consistent
 // with the handler's live time.Now() stamp whatever the wall clock says.
-var cleanClientBody = `{"v":2,"nativeToStringOK":true,"hasChromeObject":true,` +
+var cleanClientBody = `{"v":3,"nativeToStringOK":true,"hasChromeObject":true,` +
+	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
+	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
+	`"languages":["en-US","en"],"language":"en-US","vendor":"Google Inc.",` +
+	`"appVersion":"` + strings.TrimPrefix(chromeMacUA, "Mozilla/") + `",` +
+	`"webglRenderer":"ANGLE (Apple, Apple M1, OpenGL 4.1)","plugins":3,` +
+	`"screenW":1920,"screenH":1080,"availW":1920,"availH":1040,"colorDepth":30,` +
+	`"outerW":1680,"innerW":1400,"hardwareCores":8,"deviceMemory":8,` +
+	`"browserTZ":"Europe/Moscow","tzOffset":-180,` +
+	`"canvasSupported":true,"canvasStable":true,"canvasBlank":false,` +
+	`"brands":["Chromium","Google Chrome","Not.A/Brand"],` +
+	`"uaData":{"platform":"macOS","fullVersionList":[` +
+	`{"brand":"Chromium","version":"125.0.6422.60"},` +
+	`{"brand":"Google Chrome","version":"125.0.6422.60"},` +
+	`{"brand":"Not.A/Brand","version":"24.0.0.0"}]},` +
+	`"codecH264":true,"codecAAC":true,"fontCount":8,"productSub":"20030107","engine":"blink",` +
+	`"iframeWebdriver":false,"iframeProxied":false,"swWebdriver":false,"swCDP":false,` +
+	`"maxTouchPoints":0,"navProtoDescriptorsOK":true,"chromeRuntimeOK":true,` +
+	`"chromeLateInjection":false,"jsEngine":"v8","webrtcIPs":[],"imageBroken":false,` +
+	`"mimeTypes":2,"outerH":900,"innerH":800}`
+
+// staleV2ClientBody is the same clean fingerprint as a stale cached v2 collector
+// would POST it: no v3 keys at all. The v3-gated rules must skip rather than
+// read the missing (damning-when-false/zero) fields as tampering.
+var staleV2ClientBody = `{"v":2,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
 	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
 	`"languages":["en-US","en"],"language":"en-US","vendor":"Google Inc.",` +
@@ -525,5 +552,114 @@ func TestCheckFullBrowserHeadersFlagNone(t *testing.T) {
 	}
 	if strings.Contains(frag, "weak signals counted together") {
 		t.Errorf("no soft cluster should be active for a full-header clean browser:\n%s", frag)
+	}
+}
+
+func TestCheckV3SignalsThroughHandler(t *testing.T) {
+	// v3 end-to-end: the new client fields bind from the POSTed JSON and their
+	// rules fire through the real handler — here a stealth browser whose iframe
+	// and Service Worker leak webdriver, whose Navigator.prototype descriptors and
+	// chrome.runtime fail integrity, whose chrome object was injected late, and
+	// whose Error stack betrays SpiderMonkey under a Chrome UA.
+	body := `{"v":3,"navMainUA":"` + chromeMacUA + `",` +
+		`"iframeWebdriver":true,"swWebdriver":true,` +
+		`"navProtoDescriptorsOK":false,"chromeRuntimeOK":false,` +
+		`"chromeLateInjection":true,"jsEngine":"spidermonkey"}`
+	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, id := range []string{
+		"iframe_webdriver", "webdriver_sw", "navigator_proto_tamper",
+		"chrome_runtime_tamper", "chrome_late_injection", "jsengine_ua_mismatch",
+	} {
+		var c botcheck.Check
+		for _, got := range rep.Checks {
+			if got.ID == id {
+				c = got
+			}
+		}
+		if !c.Triggered {
+			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
+		}
+	}
+}
+
+func TestCheckWebRTCMismatchThroughHandler(t *testing.T) {
+	// G09 end-to-end: httptest's RemoteAddr (192.0.2.1) is the egress the handler
+	// wires into Signals.EgressIP; a PUBLIC WebRTC candidate that differs pierces
+	// the proxy claim, while a private host candidate (normal NAT) must not.
+	postIPs := func(ips string) botcheck.Report {
+		body := `{"v":3,"navMainUA":"` + chromeMacUA + `","webrtcIPs":[` + ips + `]}`
+		rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
+		var rep botcheck.Report
+		if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return rep
+	}
+	fired := false
+	for _, c := range postIPs(`"192.168.1.5","203.0.113.9"`).Checks {
+		if c.ID == "webrtc_ip_mismatch" {
+			fired = c.Triggered
+		}
+	}
+	if !fired {
+		t.Errorf("webrtc_ip_mismatch should fire when a public candidate ≠ the egress")
+	}
+	for _, c := range postIPs(`"192.168.1.5","10.0.0.2"`).Checks {
+		if c.ID == "webrtc_ip_mismatch" && c.Triggered {
+			t.Errorf("webrtc_ip_mismatch must not fire for private host candidates only")
+		}
+	}
+}
+
+func TestCheckStaleV2PayloadScores100ThroughHandler(t *testing.T) {
+	// A returning visitor whose browser still runs the cached v2 collector POSTs a
+	// payload with no v3 keys; the v3-gated rules must skip and the ungated ones
+	// bind safe, so the score stays 100 with full browser headers — the
+	// deploy-time cache-staleness contract, end to end.
+	rec := post(newTestApp(fakeLooker{}), "/check", staleV2ClientBody, map[string]string{
+		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		"Accept-Encoding":           "gzip, deflate, br, zstd",
+		"Accept-Language":           "en-US,en;q=0.9",
+		"Sec-Fetch-Mode":            "cors",
+		"Upgrade-Insecure-Requests": "1",
+		"User-Agent":                chromeMacUA,
+	})
+	frag := rec.Body.String()
+	if !strings.Contains(frag, "100<span") {
+		t.Errorf("a stale v2 payload from a clean browser should score 100:\n%s", frag)
+	}
+	// No v3 rule may read the missing fields as tampering — check the JSON view
+	// for exact rule state rather than scraping the fragment. The request carries
+	// the headers a real browser always sends so the header-presence soft checks
+	// stay quiet; Accept: application/json still trips accept_nav_mismatch alone,
+	// a single soft signal under the cluster threshold, so it costs nothing.
+	rec = post(newTestApp(fakeLooker{}), "/check", staleV2ClientBody, map[string]string{
+		"Accept": "application/json", "User-Agent": chromeMacUA,
+		"Accept-Encoding": "gzip, deflate, br, zstd", "Accept-Language": "en-US,en;q=0.9",
+		"Sec-Fetch-Mode": "cors",
+	})
+	var rep botcheck.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, c := range rep.Checks {
+		switch c.ID {
+		case "navigator_proto_tamper", "chrome_runtime_tamper", "mobile_no_touch", "plugins_mimetypes_incoherent":
+			if c.Triggered {
+				t.Errorf("%s must skip a pre-v3 payload, not read missing keys as tampering", c.ID)
+			}
+		case "iframe_webdriver", "webdriver_sw", "iframe_proxy", "cdp_sw_only", "chrome_late_injection",
+			"jsengine_ua_mismatch", "webrtc_ip_mismatch", "image_broken", "zero_outer_height":
+			if c.Triggered {
+				t.Errorf("%s must bind safe on a pre-v3 payload", c.ID)
+			}
+		}
+	}
+	if rep.Score != 100 {
+		t.Errorf("stale v2 payload: score=%d, want 100", rep.Score)
 	}
 }

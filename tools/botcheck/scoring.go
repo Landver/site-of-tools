@@ -105,6 +105,20 @@ var rules = []rule{
 		id: "cdp_both", label: "CDP automation detected in main thread and Worker", tier: TierHard, weight: 40, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && s.CDPWorker, "" },
 	},
+	{
+		// G11: navigator.webdriver re-read inside the iframe's fresh JS context.
+		// Stealth toolkits patch the top frame's navigator (even its prototype);
+		// the iframe realm has its own Navigator.prototype and leaks the truth.
+		id: "iframe_webdriver", label: "navigator.webdriver is true inside the iframe", tier: TierHard, weight: 60, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.IframeWebdriver, "" },
+	},
+	{
+		// G14: navigator.webdriver read inside the Service Worker — a third
+		// context a top-frame-only webdriver patch forgets (the incolumitas
+		// inconsistentServiceWorkerNavigatorPropery catch).
+		id: "webdriver_sw", label: "navigator.webdriver is true in the Service Worker", tier: TierHard, weight: 60, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.SWWebdriver, "" },
+	},
 
 	// ── Consistency (client claim vs. server / second context) ─────────────────
 	{
@@ -366,6 +380,13 @@ var rules = []rule{
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
 	},
 	{
+		// G14: the CDP serialization trap fired ONLY in the Service Worker context.
+		// Guarded against the main/worker flags so one observation never
+		// double-counts with cdp_both / cdp_main_only.
+		id: "cdp_sw_only", label: "CDP automation detected in the Service Worker only", tier: TierConsistency, weight: 15, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.SWCDP && !s.CDPMainThread && !s.CDPWorker, "" },
+	},
+	{
 		// Self-consistency (no IP needed): the browser's own IANA timezone must
 		// agree with its own Date().getTimezoneOffset(). Spoofers commonly change
 		// one and forget the other.
@@ -513,6 +534,113 @@ var rules = []rule{
 			return !s.NativeCallNewOK, ""
 		},
 	},
+	{
+		// G11: the iframe's contentWindow is a Proxy — the puppeteer-extra-stealth
+		// iframe.contentWindow patch wrapping the fresh context to inject spoofs
+		// (CreepJS hasIframeProxy). True only when the patched getter verifiably
+		// throws; a genuine engine never does.
+		id: "iframe_proxy", label: "iframe contentWindow is proxied (stealth iframe patch)", tier: TierConsistency, weight: 30, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.IframeProxied, "" },
+	},
+	{
+		// G12: a phone UA reporting zero touch points. Real Android/iOS devices
+		// always report maxTouchPoints > 0; a desktop browser wearing a mobile UA
+		// reports 0. v3-gated: the field is damning when zero on a stale payload
+		// that never sent it. Deliberately no reverse direction (desktop UA +
+		// touch): touch-screen Windows laptops would false-fire constantly.
+		id: "mobile_no_touch", label: "Mobile User-Agent reports zero touch points", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.CollectorV < collectorVTamperV3 {
+				return false, ""
+			}
+			os := osFromUA(clientUA(s))
+			if (os == "Android" || os == "iOS") && s.MaxTouchPoints == 0 {
+				return true, fmt.Sprintf("%s UA with maxTouchPoints=0", os)
+			}
+			return false, ""
+		},
+	},
+	{
+		// G17: per WebIDL, webdriver/plugins/languages are accessor (getter-only)
+		// properties — enumerable, configurable, living on Navigator.prototype,
+		// never own data properties on the navigator instance. A spoof installed
+		// via defineProperty/assignment breaks at least one of those. Consistency,
+		// not hard (same reasoning as native_descriptor_tamper): a legit privacy
+		// extension could patch these the same way. v3-gated: the OK bool is
+		// damning when false on a stale payload that never sent it.
+		id: "navigator_proto_tamper", label: "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.CollectorV < collectorVTamperV3 {
+				return false, ""
+			}
+			return !s.NavProtoDescriptorsOK, ""
+		},
+	},
+	{
+		// G22: a genuine window.chrome on Chrome carries chrome.runtime with native
+		// non-constructor connect/sendMessage (no own prototype, `new fn()` throws a
+		// TypeError); a stealth-bolted fake gets the shape or the error constructor
+		// wrong (CreepJS hasBadChromeRuntime). Chrome UA only; v3-gated like the
+		// other fail-to-pass OK bools.
+		id: "chrome_runtime_tamper", label: "window.chrome.runtime fails the integrity probe", tier: TierConsistency, weight: 20, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.CollectorV < collectorVTamperV3 {
+				return false, ""
+			}
+			return strings.Contains(clientUA(s), "Chrome") && !s.ChromeRuntimeOK, ""
+		},
+	},
+	{
+		// G22: genuine Chrome creates window.chrome during page setup, so it sits
+		// early among window keys; a stealth patch bolting on a fake chrome object
+		// appends it late — 'chrome' in the last ~50 window keys (CreepJS
+		// hasHighChromeIndex). Chrome UA only.
+		id: "chrome_late_injection", label: "window.chrome was injected late (stealth bolt-on)", tier: TierConsistency, weight: 15, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			return strings.Contains(clientUA(s), "Chrome") && s.ChromeLateInjection, ""
+		},
+	},
+	{
+		// G23: the JS engine detected from the Error-stack format (V8 " at "
+		// frames, SpiderMonkey fileName/lineNumber, JSC otherwise) vs the engine
+		// the UA claims — a second engine check, independent of the CSS/capability
+		// probes engine_ua_mismatch uses, and robust against a spoofed UA string.
+		// Both sides confident or no fire.
+		id: "jsengine_ua_mismatch", label: "Feature-detected JS engine ≠ engine the User-Agent claims", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			want := jsEngineFromUA(clientUA(s))
+			if want == "" || s.JSEngine == "" || s.JSEngine == want {
+				return false, ""
+			}
+			return true, fmt.Sprintf("JS engine %s vs UA implies %s", s.JSEngine, want)
+		},
+	},
+	{
+		// G09: a PUBLIC WebRTC candidate IP that isn't the connection's egress IP —
+		// the classic VPN/proxy pierce: the browser leaks the real address over
+		// STUN while HTTP traffic egresses through the proxy. Private/link-local/
+		// loopback/ULA/CGNAT candidates are excluded (a host candidate ≠ egress is
+		// normal NAT, never a tell), and only same-family candidates are compared
+		// (dual-stack IPv6-vs-IPv4 would false-fire real browsers). An empty
+		// candidate list or an unknown egress means "not supplied" ⇒ no signal.
+		id: "webrtc_ip_mismatch", label: "Public WebRTC candidate IP ≠ egress IP", tier: TierConsistency, weight: 25, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			egress, ok := publicIP(s.EgressIP)
+			if !ok || len(s.WebRTCIPs) == 0 {
+				return false, ""
+			}
+			for _, cand := range s.WebRTCIPs {
+				ip, ok := publicIP(cand)
+				if !ok || ip.Is4() != egress.Is4() {
+					continue // private/loopback/etc., or a different address family
+				}
+				if ip != egress {
+					return true, fmt.Sprintf("WebRTC candidate %s ≠ egress %s", ip, egress)
+				}
+			}
+			return false, ""
+		},
+	},
 
 	// ── Soft heuristics (only bite as a cluster of ≥3) ─────────────────────────
 	{
@@ -644,5 +772,32 @@ var rules = []rule{
 		// surface or a font-less headless/VM environment.
 		id: "no_fonts", label: "No system fonts detectable", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.FontCount == 0, "" },
+	},
+	{
+		// G10: a 1×1 data-URI image that MUST load in any real browser reported
+		// naturalWidth == 0 or errored — images stripped/blocked, a headless tell.
+		// Soft: an image-blocking extension is a user choice, so it only bites in
+		// a cluster. true = bad keeps stale (pre-v3) payloads safe.
+		id: "image_broken", label: "A guaranteed-loadable image failed (images stripped)", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.ImageBroken, "" },
+	},
+	{
+		// A faked navigator.plugins array that forgot its paired mimeTypes: plugins
+		// present but zero mimeTypes. v3-gated: mimeTypes is damning when zero on
+		// a stale payload that never sent it.
+		id: "plugins_mimetypes_incoherent", label: "Plugins present but no mimeTypes (incoherent fake)", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.CollectorV < collectorVTamperV3 {
+				return false, ""
+			}
+			return s.Plugins > 0 && s.MimeTypes == 0, ""
+		},
+	},
+	{
+		// A zero window.outerHeight while innerHeight is positive — a headless
+		// window tell. The InnerH > 0 guard makes stale pre-v3 payloads (where
+		// both bind 0) skip instead of firing.
+		id: "zero_outer_height", label: "window.outerHeight is zero", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.OuterH == 0 && s.InnerH > 0, "" },
 	},
 }
