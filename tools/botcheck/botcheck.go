@@ -16,6 +16,7 @@
 package botcheck
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -197,11 +198,30 @@ type Check struct {
 // JSON. Score is an authenticity score: 100 = looks fully human, 0 = looks fully
 // automated. Bot is set when the User-Agent is a recognised crawler / AI agent
 // (verified or not); a verified one also overrides Verdict to "good-bot".
+// ClientPayload echoes the POSTed client fingerprint (set only by POST /check,
+// nil on a server-only GET score) so the report can show the raw values behind
+// the verdict — the G54 raw-dump for the debugging audience. Server-observed
+// fields never leak into it: they are json:"-" on Signals, and the HTML template
+// renders it through RawJSON.
 type Report struct {
-	Score   int          `json:"score"`
-	Verdict string       `json:"verdict"` // "human" | "suspicious" | "bot" | "good-bot"
-	Bot     *BotIdentity `json:"bot,omitempty"`
-	Checks  []Check      `json:"checks"`
+	Score         int          `json:"score"`
+	Verdict       string       `json:"verdict"` // "human" | "suspicious" | "bot" | "good-bot"
+	Bot           *BotIdentity `json:"bot,omitempty"`
+	Checks        []Check      `json:"checks"`
+	ClientPayload *Signals     `json:"clientPayload,omitempty"`
+}
+
+// RawJSON returns the client-collected half of the fingerprint as indented JSON
+// for the raw-dump section (G54). Every server-observed field is json:"-", so a
+// plain Marshal already emits exactly what the browser POSTed — headers and IP
+// facts can't leak through it. Marshal here cannot fail (plain scalar fields),
+// but a failure would degrade to an empty dump, never an error page.
+func (s Signals) RawJSON() string {
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // Scoring constants. The soft rule (borrowed from deviceandbrowserinfo) is that

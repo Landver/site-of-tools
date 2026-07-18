@@ -23,8 +23,9 @@
   {{/* Score summary. Colour follows the verdict band: human = ok/green,
        suspicious = warn/amber, bot = danger/red, good-bot = brand/blue (a verified
        crawler). Classes are literal (Tailwind only sees literal strings), so each
-       band is spelled out. */}}
-  <div class="card">
+       band is spelled out. The data-* attrs let the collector record the outcome
+       into the visitor's localStorage history (G46) without scraping text. */}}
+  <div class="card" data-score="{{.Score}}" data-verdict="{{.Verdict}}">
     <div class="eyebrow">verdict</div>
     <div class="flex items-baseline gap-3">
       <span class="text-4xl font-semibold

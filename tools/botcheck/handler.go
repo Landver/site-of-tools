@@ -97,6 +97,7 @@ func (h *handler) check(c *echo.Context) error {
 	sig.ClientCollected = true
 	h.addServerSignals(c, &sig)
 	report := Evaluate(sig)
+	report.ClientPayload = &sig // G54: echo the raw fingerprint for the dump + JSON API
 
 	if platform.WantsJSON(c) {
 		return c.JSON(http.StatusOK, report)
