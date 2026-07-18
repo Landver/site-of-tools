@@ -81,7 +81,7 @@ var ruleExplanations = map[string]string{
 	"no_fonts":                   "No probe fonts could be detected at all — a neutralised font-enumeration surface or a font-less headless/VM environment. Aggressive anti-fingerprint settings suppress fonts too, so it's a soft cluster signal.",
 
 	// ── Reserved IDs (rules being built in parallel; inert until they land) ────
-	"iframe_webdriver":             "navigator.webdriver re-read inside a fresh same-origin iframe — automation often deletes the flag from the top frame but forgets new browsing contexts, so a clean top frame with a flagged iframe is the tell.",
+	"iframe_webdriver":             "navigator.webdriver re-read inside a fresh same-origin iframe — automation often deletes the flag from the top frame but forgets new browsing contexts, so a clean top frame with webdriver still true in the iframe is the tell.",
 	"iframe_proxy":                 "The JavaScript Proxy constructor re-checked inside an iframe's separate realm: runtimes that instrument only the main window disagree with themselves there.",
 	"mobile_no_touch":              "A mobile (Android/iOS) User-Agent with no touch support, though every real phone browser reports touch points — a desktop spoofing a mobile UA usually forgets the touch surface. Desktop-mode edge cases are why it isn't a hard tell.",
 	"webdriver_sw":                 "navigator.webdriver re-read inside the Service Worker — a third JavaScript realm automation tools rarely bother to patch.",
