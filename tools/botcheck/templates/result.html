@@ -5,6 +5,15 @@
   <span class="flex-1 min-w-0">
     <span class="{{if and .Triggered (not .Suppressed)}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
     {{if .Detail}}<span class="text-faint"> — {{.Detail}}</span>{{end}}
+    {{/* G55: the per-signal "why" — what the check looks at and its known
+         limitation, collapsed behind a subtle summary so the row stays compact.
+         Hidden when the rule has no explanation (unknown/new ID). */}}
+    {{with .Explanation}}
+    <details class="mt-0.5">
+      <summary class="cursor-pointer text-xs text-faint hover:text-muted">why</summary>
+      <p class="mt-1 text-xs text-faint">{{.}}</p>
+    </details>
+    {{end}}
   </span>
   <span class="shrink-0 text-xs font-mono
     {{if .Skipped}}text-faint{{else if .Suppressed}}text-faint{{else if .Triggered}}text-danger{{else}}text-ok{{end}}">
@@ -42,6 +51,15 @@
       Each flagged check subtracts its points; environment checks are weak on their
       own and only count once three or more fire together.
     </p>
+    {{/* G56: name the detected environment plainly (browser + major, OS, engine;
+         embedded runtimes get the runtime + version). ClientPayload is nil on the
+         server-only GET view, and Environment is "" when the UA is unparseable —
+         either case hides the line. */}}
+    {{with .ClientPayload}}
+      {{with .Environment}}
+    <p class="mt-2 text-sm text-faint">Detected environment: <span class="font-mono">{{.}}</span></p>
+      {{end}}
+    {{end}}
     {{/* When the User-Agent is a recognised crawler / AI agent, name it. A verified
          one (its network corroborates the operator) is trusted; a merely declared one
          is still scored as automation, because any scraper can copy the User-Agent. */}}
@@ -71,13 +89,16 @@
   <div class="grid gap-4 items-start sm:grid-cols-2 mt-4">
     <div class="grid gap-4">
       <div class="card">
-        <div class="eyebrow">automation &amp; headless tells</div>
+        {{/* G50: the tier sub-score sits in the eyebrow, muted; the overall
+             score stays the hero. It re-derives from the same checks, so the
+             per-tier numbers can never disagree with the total. */}}
+        <div class="eyebrow">automation &amp; headless tells — {{.TierScore "hard"}}/100</div>
         <ul class="flex flex-col divide-y divide-line text-sm">
           {{range .Group "hard"}}{{template "botcheck/check" .}}{{end}}
         </ul>
       </div>
       <div class="card">
-        <div class="eyebrow">environment heuristics</div>
+        <div class="eyebrow">environment heuristics — {{.TierScore "soft"}}/100</div>
         <ul class="flex flex-col divide-y divide-line text-sm">
           {{range .Group "soft"}}{{template "botcheck/check" .}}{{end}}
         </ul>
@@ -93,12 +114,26 @@
       </div>
     </div>
     <div class="card">
-      <div class="eyebrow">consistency cross-checks</div>
+      <div class="eyebrow">consistency cross-checks — {{.TierScore "consistency"}}/100</div>
       <ul class="flex flex-col divide-y divide-line text-sm">
         {{range .Group "consistency"}}{{template "botcheck/check" .}}{{end}}
       </ul>
     </div>
   </div>
+
+  {{/* G54: the raw values behind the verdict, for diffing a masked browser
+       against expectations. Guarded: ClientPayload is nil on the server-only
+       GET view and on the error path. RawJSON is exactly what the browser
+       POSTed — server-observed fields are json:"-" so they can't leak. */}}
+  {{with .ClientPayload}}
+  <div class="card mt-4">
+    <div class="eyebrow">raw fingerprint</div>
+    <details class="text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">The exact values your browser sent</summary>
+      <pre class="mt-3 max-h-96 overflow-auto rounded-md border border-line p-4 font-mono text-xs text-muted">{{.RawJSON}}</pre>
+    </details>
+  </div>
+  {{end}}
 </div>
 {{end}}
 {{end}}
