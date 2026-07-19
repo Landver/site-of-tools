@@ -42,11 +42,11 @@ utility library:
   a reliable signal even in principle: stealth fakes it perfectly (real
   captured `STATIC_DATA`, correctly-erroring `sendMessage`/`connect`
   mocks) exactly when it would otherwise be missing, no-op when it's
-  already there. Reframes `chrome_runtime_tamper` question from
-  [real-Chrome baseline entry](2026-07-19-chrome-runtime-real-chrome-baseline.md):
-  even fully organic sample resolving "absent on real Chrome too" wouldn't
-  make presence-checking safe against stealth-equipped adversary, only
-  against naive one.
+  already there. Reframes the `chrome_runtime_tamper` question (full
+  investigation: [checks/chrome_runtime_tamper.md](../checks/chrome_runtime_tamper.md)):
+  even a fully organic sample resolving "absent on real Chrome too" wouldn't
+  make presence-checking safe against a stealth-equipped adversary, only
+  against a naive one.
 
 **One concrete, untested idea for sharper probe:** `stripProxyFromErrors`
 does single anchor-based splice per stack trace — finds one anchor line,

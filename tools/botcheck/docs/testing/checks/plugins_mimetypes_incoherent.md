@@ -1,0 +1,25 @@
+# `plugins_mimetypes_incoherent` — Plugins present but no mimeTypes (incoherent fake)
+
+*(part of [testing checks index](README.md), see [testing index](../README.md) and [botcheck docs index](../../README.md))*
+
+**Tier:** soft · **Weight:** 8 · **Reads client signal:** yes
+
+## What it checks
+
+navigator.plugins and navigator.mimeTypes must cross-reference each other; a spoofed plugin list that isn't wired both ways is internally incoherent.
+
+## Origin & history
+
+Internal-backlog item, shipped 2026-07-18 (v3-gated): `navigator.plugins` and `navigator.mimeTypes` must cross-reference each other in a real browser; a spoofed plugin list that isn't wired both ways is internally incoherent.
+
+## Test status: Not yet tested against real automation
+
+No real-automation-harness finding yet.
+
+## Go scorer coverage
+
+`tests/botcheck_test.go`: `TestQuickWinSignals`, `TestV3Signals`, `TestV3GateSkipsStalePayload`; `tests/handler_test.go`: `TestCheckStaleV2PayloadScores100ThroughHandler`.
+
+---
+
+"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["plugins_mimetypes_incoherent"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.

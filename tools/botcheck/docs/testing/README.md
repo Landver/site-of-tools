@@ -6,8 +6,15 @@ Companion to [`../RESEARCH.md`](../RESEARCH.md) (how competitor services
 work) and [`../roadmap/README.md`](../roadmap/README.md) (feature/signal gap
 audit). Narrower scope: **does botcheck catch real, off-the-shelf automation
 tools** — verified by running them for real, not reasoning about them. See
-[findings-log.md](findings-log.md) for what testing found,
-[next-steps.md](next-steps.md) for what's left to fix.
+[findings-log.md](findings-log.md) for the dated, chronological account of
+what testing found, [next-steps.md](next-steps.md) for what's left to fix
+that isn't specific to one check, and **[checks/](checks/README.md) as the
+single per-check reference** — one file per rule in
+[`scoring.go`](../../scoring.go) covering what it checks, its origin/history,
+its real-automation test status, and its Go scorer coverage, so "what does
+this check do, why does it exist, and is it actually verified" all answer
+from one file instead of a grep across `roadmap/`, `changelog.md`,
+`findings/`, and `report.go` comments.
 
 Started 2026-07-19, after manual review (Claude's own in-app/CDP-driven
 browser) found CDP-detection checks reading "ok" against a session actually

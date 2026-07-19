@@ -11,50 +11,31 @@ the raw connection isn't visible to Go). Every client signal is spoofable, so
 new signals should prefer the **cross-check** shape — browser claim vs a
 second context / the connection / the population — over standalone tells.
 Where an item also appears in the competitor audit, its `G##` is noted and
-linked.
+linked. Each shipped item's implementation lives in its own
+[checks/](../testing/checks/README.md) file now, not restated here.
 
 ## Layer 1 — Simple (no new deps or infra; pure-Go rules over collected fields)
 
-**Shipped:**
-
-| Signal | Tier | Idea |
-|---|---|---|
-| `vendor_mismatch` | consistency | Chromium UA but `navigator.vendor` ≠ `"Google Inc."` |
-| `app_version_mismatch` | consistency | `navigator.appVersion` ≠ UA without the `Mozilla/` prefix |
-| `language_primary_mismatch` | consistency | `navigator.language` ≠ `navigator.languages[0]` |
-| `screen_avail_impossible` | soft | `availWidth/Height` larger than the physical screen |
-| `low_color_depth` | soft | `screen.colorDepth` < 16 |
-| `sec_fetch_missing` | soft | Browser UA but no `Sec-Fetch-*` request header |
-| `productsub_mismatch` | consistency | `navigator.productSub` ≠ the engine's constant (`20030107` WebKit/Blink, `20100101` Gecko), engine inferred via `engineFromUA` so iOS browsers are WebKit — [client-signals.md](client-signals.md) G02, shipped 2026-07-17 |
-
-**Remaining candidates (same shape, drop in later):**
-
-- ~~`maxTouchPoints` > 0 on a desktop UA, or `ontouchstart` present without touch — touch/UA mismatch.~~ — **shipped 2026-07-18** as `mobile_no_touch` (consistency, v3-gated: Android/iOS UA + zero touch). Desktop-UA-plus-touch reverse direction deliberately skipped — touch-screen Windows laptops would false-fire it.
-- ~~`navigator.plugins` vs `mimeTypes` coherence (plugins present, mimeTypes empty).~~ — **shipped 2026-07-18** as `plugins_mimetypes_incoherent` (soft, v3-gated).
-- ~~Zero `outerHeight`/`innerHeight` (a headless tell).~~ — **shipped 2026-07-18** as `zero_outer_height` (soft: `outerHeight == 0` with `innerHeight > 0`, guard that makes stale pre-v3 payloads skip).
-- `Accept-Encoding` / `Accept-Language` header absent on a browser UA — **shipped 2026-07-17 via** [client-signals.md](client-signals.md) **G06** as soft `accept_encoding_missing` / `accept_language_missing` rules (soft, not hard, exactly because proxies can strip these — the `sec_fetch_missing` caveat).
-- `Accept` without `text/html` on a browser-UA request — **shipped 2026-07-17 via G06** as the soft `accept_nav_mismatch` rule.
+**All shipped** — `vendor_mismatch`, `app_version_mismatch`,
+`language_primary_mismatch`, `screen_avail_impossible`, `low_color_depth`,
+`sec_fetch_missing`, `productsub_mismatch` (G02), `mobile_no_touch` (G12),
+`plugins_mimetypes_incoherent`, `zero_outer_height`, `accept_encoding_missing`
+/ `accept_language_missing` / `accept_nav_mismatch` (G06). Nothing remains at
+this complexity tier — see [checks/](../testing/checks/README.md) for any of
+these.
 
 ## Layer 2 — Medium (more collection / tuning; still no new infra or deps)
 
-**Shipped:**
-
-| Signal | Tier | Idea |
-|---|---|---|
-| `tz_self_inconsistent` | consistency | `Intl….timeZone` (IANA) vs `getTimezoneOffset()` — Go resolves zone w/ `time.LoadLocation` (embeds `time/tzdata`) at request time (threaded in as `Signals.Now`, keeping `Evaluate` pure). IP-independent. |
-| `canvas_unstable` | consistency | Two identical canvas draws hashing differently ⇒ noise-injecting anti-fingerprint tool. |
-| `canvas_blank` | soft | Drawn canvas has no non-transparent pixels ⇒ blocked / headless. |
-| `ch_brands_mismatch` | consistency | Parse `Sec-CH-UA` header brand list, compare to JS `userAgentData.brands` (GREASE decoy ignored). |
-| `missing_proprietary_codecs` | soft | Browser UA but neither H.264 nor AAC (`canPlayType`) ⇒ stripped / headless build. |
-| `no_fonts` | soft | Zero probe fonts detectable via `measureText` width technique ⇒ neutralised font surface / font-less VM. |
-| `ua_chrome_version_mismatch` | consistency | UA `Chrome/NNN` major ≠ the `Chromium` (or `Google Chrome`) `fullVersionList` entry — compares engine version, so Chromium forks whose branded version diverges (Opera/Vivaldi/Samsung) don't false-positive — [client-signals.md](client-signals.md) G01, shipped 2026-07-17. |
-| `engine_ua_mismatch` | consistency | Feature-detected engine (`-moz-appearance`⇒Gecko, `GestureEvent`⇒WebKit, `-webkit-app-region`/`webkitRequestFileSystem`⇒Blink) ≠ engine the UA claims — G05, shipped 2026-07-17. |
+**Shipped:** `tz_self_inconsistent`, `canvas_unstable`, `canvas_blank`,
+`ch_brands_mismatch`, `missing_proprietary_codecs`, `no_fonts`,
+`ua_chrome_version_mismatch` (G01), `engine_ua_mismatch` (G05),
+`jsengine_ua_mismatch` — error-stack half only (G23), `webrtc_ip_mismatch`
+(G09). See [checks/](../testing/checks/README.md) for any of these.
 
 **Remaining candidates (not yet built):**
 
 - **Fuller media-codec / font-diversity matrices** — beyond current H.264/AAC pair and zero-fonts floor, score against expected per-browser codec sets and typical font-count ranges (needs careful thresholds to avoid mobile false positives).
-- **JS engine tells** (G23) — `Error` stack format, `Function.prototype.toString` quirks, `Math`/number formatting differences (V8 vs SpiderMonkey vs JSC) vs claimed browser. Error-stack half **shipped 2026-07-18** as `jsengine_ua_mismatch`; Math/toString-quirk halves stay here (need per-engine reference tables).
-- **WebRTC** (G09) — collect ICE candidates: local-IP leak, presence of an mDNS `.local` candidate, and `srflx` public IP vs server-observed IP. **Shipped 2026-07-18** as `webrtc_ip_mismatch` (public candidates only, same address family, private/link-local/ULA/CGNAT excluded).
+- **JS engine tells, the rest of G23** — `Math`/number-formatting differences (V8 vs SpiderMonkey vs JSC) vs claimed browser. The error-stack half already shipped as `jsengine_ua_mismatch`; this remaining half needs per-engine reference tables.
 - **Request velocity** (G43) — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, bends the current stateless rule; better backed by MongoDB (already used by botcheck for the G41/G42 fingerprint corpus, but not yet for this), sitting below the domain service.
 
 ## Layer 3 — Hard (new infrastructure, dependencies, ML, or a stored corpus)

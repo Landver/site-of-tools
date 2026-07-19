@@ -9,75 +9,56 @@ in [internal-backlog.md](internal-backlog.md) implemented; their "remaining
 candidates" and all Layer 3 are not.
 
 **Quick-win batch shipped (2026-07-17):** first four quick wins now live —
-**G01** (a UA-`Chrome/NNN`-major vs `userAgentData` `Chromium`-entry
-cross-check), **G02** (`navigator.productSub` engine constant), **G05**
-(feature-detect real Blink/Gecko/WebKit engine vs engine UA claims), and **G53**
-(on-page scope disclosure). Added three consistency rules (35 → 38); collector
+G01, G02, G05, G53. Added three consistency rules (35 → 38); collector
 reports `fullVersionList`, `productSub`, and a feature-detected `engine`.
+Implementation per rule: [checks/ua_chrome_version_mismatch.md](../testing/checks/ua_chrome_version_mismatch.md),
+[checks/productsub_mismatch.md](../testing/checks/productsub_mismatch.md),
+[checks/engine_ua_mismatch.md](../testing/checks/engine_ua_mismatch.md).
 
 **Second quick-win batch shipped (2026-07-17):** every remaining quick win now
-live — **G04** (deep native-tamper detection: descriptor/own-property sanity
-w/ per-spec enumerability, call/new `TypeError` traps, and a
-`Function.prototype.toString` Proxy probe), **G03** (cross-context diff beyond
-UA — languages, `hardwareConcurrency`, `userAgentData.platform`, worker WebGL —
-plus a Service-Worker context served from `/botcheck-sw.js`), **G07+G08**
-(WebGL vendor/renderer coherence + GPU-family-vs-claimed-OS coherence), and
-**G06** (HTTP header presence/value consistency, soft-tier). Rule set grew
-38 → 50, and collector payload now versioned (`v: 2`) so stale cached
-collector skips damning-when-false G04 rules instead of reading as tampered. A
-real-Chrome E2E pass caught and fixed one false positive before deploy: WebIDL
-operations are `enumerable: true` by spec, so descriptor probe now asserts
-enumerability per target family (ECMA-262 vs WebIDL) instead of blanket-false.
+live — G04, G03, G07+G08, G06. Rule set grew 38 → 50, and collector payload
+now versioned (`v: 2`) so stale cached collector skips damning-when-false G04
+rules instead of reading as tampered. Implementation, including the WebIDL
+enumerability false positive a real-Chrome E2E pass caught and fixed before
+deploy: [checks/tostring_proxy.md](../testing/checks/tostring_proxy.md),
+[checks/native_descriptor_tamper.md](../testing/checks/native_descriptor_tamper.md),
+[checks/context_ua_mismatch.md](../testing/checks/context_ua_mismatch.md),
+[checks/webgl_vendor_mismatch.md](../testing/checks/webgl_vendor_mismatch.md),
+[checks/gpu_os_mismatch.md](../testing/checks/gpu_os_mismatch.md),
+[checks/accept_encoding_missing.md](../testing/checks/accept_encoding_missing.md).
 
 **Good-bot / AI-agent classification shipped (2026-07-17): G36.** Recognised
 crawlers and AI agents now named ([`goodbots.go`](../../goodbots.go)) instead
 of lumped in w/ curl/scrapers, and a fourth verdict **`good-bot`** downgrades
 them — but ONLY when egress ASN **number** is operator's single-tenant crawler
-ASN, which an outsider can't originate traffic from (Apple/Yandex/Baidu/Naver/
-Seznam/Anthropic/Meta/ByteDance). Matches ASN *number*, not owner *name*: a
-name substring ("yandex") also matches operator's rentable public cloud
-(Yandex Cloud is separate AS200350), which'd let a scraper on a rented VM
-verify itself. Multi-tenant crawlers (Googlebot/Bingbot on shared
-Google/Microsoft ASNs) and cloud-hosted agents (GPTBot on Azure) recognised
-but stay unverified and fully penalised, so a copied User-Agent never escapes
-bot score (no-evasion invariant). `bot_user_agent` widened to every allowlist
-token (several — `Meta-ExternalAgent`, `Claude-User` — carry no generic `bot`
-substring). Follow-up for full coverage: a published-IP-range check to verify
-multi-tenant and cloud-hosted operators sharing their ASN w/ paying tenants.
+ASN, which an outsider can't originate traffic from. Full mechanism: see
+[roadmap/ip-reputation.md](ip-reputation.md) G36; effect on scoring rules:
+[checks/bot_user_agent.md](../testing/checks/bot_user_agent.md) and
+[checks/fingerprint_reuse.md](../testing/checks/fingerprint_reuse.md).
 
-**Review follow-up (2026-07-17, same day):** an adversarial review of batch
-above fixed two false positives before they mattered — version check now
-compares UA against the `Chromium` `fullVersionList` entry (not fork's branded
-`uaFullVersion`, which made real **Opera/Vivaldi/Yandex/Samsung** score
-"suspicious"), and `productSub` derives expected engine from `engineFromUA`
-(so **iOS Firefox**, WebKit under an FxiOS token, no longer flagged). The
-`pdfViewerEnabled` soft tell was **dropped**: fires on ordinary desktop Chrome
-w/ "Download PDFs" setting or `AlwaysOpenPdfExternally` enterprise policy (a
-user preference, not headless tell) and correlates w/ `empty_plugins`, eroding
-soft-cluster margin — low value for its false-fire cost. Unused high-entropy
-fields (`platformVersion`/`architecture`/`bitness`/`model`/`uaFullVersion`)
-trimmed from collector and struct. Regression tests now cover Opera, desktop
-Safari, and iOS Safari/Firefox/Chrome.
+**Review follow-up (2026-07-17, same day):** an adversarial review of the
+batch above fixed two false positives before they mattered (Opera/Vivaldi/
+Yandex/Samsung on `ua_chrome_version_mismatch`, iOS Firefox on
+`productsub_mismatch` — detail in those checks' files) and dropped the
+`pdfViewerEnabled` soft tell entirely (see
+[checks/productsub_mismatch.md](../testing/checks/productsub_mismatch.md)).
+Regression tests now cover Opera, desktop Safari, and iOS Safari/Firefox/Chrome.
 
-**Wave 1+2 shipped (2026-07-18): 50 → 66 rules.** Wave 1 added v3 detection
-batch (G09 WebRTC leak, G10 broken-image, G11 iframe webdriver+proxy, G12
-mobile-no-touch, G13 wider automation markers, G14 SW webdriver+CDP, G17
-navigator-proto walk, G22 chrome.runtime integrity + late injection, G23
-error-stack JS-engine cross-check, plus plugins/mimeTypes and
-zero-outerHeight softs — collector payload `v: 3`) and reporting/transparency
-batch (G54 raw fingerprint dump, G55 per-signal explanations, G56
-detected-environment line, G50 per-tier sub-scores, the G38/G44 conn-card
-surface). Wave 2 made botcheck the third Mongo consumer: a rolling 30-day
-**fingerprint corpus** (G41/G42) backs the `fingerprint_reuse` consistency
-rule (an exact fingerprint seen from ≥5 distinct IPs — the scraping-farm
-catch; suppressed for verified good bots), and the G38/G44 wiring now feeds
-ASN/proxy-provider rows into the conn card of both botcheck and iptools. G46
-shipped localStorage-only returning-visitor history (no server state).
-Collector payload now `v: 4` w/ additive `env` section (G15 media/display
-probes + G21 connection/storage/GPC/permissions/EME entropy), adding two soft
-rules (`matchmedia_missing`, `netinfo_incoherent`) — 66 rules total. A
-real-Chrome E2E pass (kimi-webbridge) verified 100/human w/ zero false fires
-across all 66.
+**Wave 1+2 shipped (2026-07-18): 50 → 66 rules.** Wave 1 added the v3
+detection batch (G09, G10, G11, G12, G13, G14, G17, G22, G23, plus
+plugins/mimeTypes and zero-outerHeight softs — collector payload `v: 3`) and
+a reporting/transparency batch (G54 raw fingerprint dump, G55 per-signal
+explanations, G56 detected-environment line, G50 per-tier sub-scores, the
+G38/G44 conn-card surface — none of these are scoring rules, see
+[reporting-ux.md](reporting-ux.md) / [ip-reputation.md](ip-reputation.md)).
+Wave 2 made botcheck the third Mongo consumer: the fingerprint corpus (G41/G42,
+see [checks/fingerprint_reuse.md](../testing/checks/fingerprint_reuse.md)),
+and G46 shipped localStorage-only returning-visitor history (not a scoring
+rule). Collector payload now `v: 4` with an additive `env` section (G15, G21),
+adding two soft rules (`matchmedia_missing`, `netinfo_incoherent`) — 66 rules
+total. A real-Chrome E2E pass (kimi-webbridge) verified 100/human with zero
+false fires across all 66. Per-rule implementation for every G-item in this
+wave: [checks/](../testing/checks/README.md).
 
 **False-negative audit (2026-07-19).** A manual review found CDP-detection
 checks reading "ok" against a session that is in fact CDP-driven, which

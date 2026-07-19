@@ -33,6 +33,11 @@ symbols), enforces two structural invariants over unexported
 `rules`/`ruleExplanations`: every consistency-tier rule has a subgroup, every
 rule ID — all 66 currently implemented, plus 1 remaining reserved ID,
 `system_color_headless` — has a `ruleExplanations` entry (G55 coverage guard).
+For which specific Go tests exercise which rule ID today, see
+[testing/checks/](testing/checks/README.md) — each of the 66 per-check files
+lists its own scorer-test coverage instead of this page trying to enumerate
+all 66 (a few, e.g. `framework_globals` and `ch_platform_mismatch`, currently
+have none beyond the blanket explanation-presence guard above).
 
 **Structural limitation worth knowing:** suite constructs `Signals` directly,
 never exercises `shared/static/js/botcheck.js` — actual browser collector — at

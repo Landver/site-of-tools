@@ -51,7 +51,7 @@ tiered:
   own rtt/downlink, and (as of 2026-07-19) three CDP-preview checks
   (`cdp_both`/`cdp_main_only`/`cdp_sw_only`) — downgraded from hard/consistency
   after audit found they never fire against real CDP-driven automation; see
-  [the CDP-trap finding](testing/findings/2026-07-19-cdp-trap-family-confirmed-dead.md).
+  [the CDP-trap check status](testing/checks/cdp_both.md).
   Soft signals **only bite as cluster of ≥3** (one 25-point deduction), single
   quirk never false-positives a real human.
 

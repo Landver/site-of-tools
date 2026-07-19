@@ -54,7 +54,8 @@ answers it.
 |---|---|
 | [testing/README.md](testing/README.md) | npm/Puppeteer-based test harness architecture (gitignored, not shipped) — why it exists, how to run it, how to add a framework |
 | [testing/findings-log.md](testing/findings-log.md) | Dated findings — confirmed bugs, confirmed-dead techniques, what real stealth tooling does and doesn't evade |
-| [testing/next-steps.md](testing/next-steps.md) | Prioritized open items from audit |
+| [testing/next-steps.md](testing/next-steps.md) | Prioritized open items that don't belong to a single check |
+| [testing/checks/](testing/checks/README.md) | **Everything about one check, per check** — one file per rule in `scoring.go`: what it checks, which `G##` roadmap item shipped it and why, test status against real automation, Go scorer coverage |
 
 ## Scope & non-goals
 

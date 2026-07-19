@@ -22,7 +22,7 @@ reads as tampered.
   DevTools-Protocol client sent `Runtime.enable`, run in main thread, Worker,
   Service Worker). **2026-07-19 finding:** CDP probe confirmed dead against
   five real CDP-driven automation frameworks, downgraded to soft tier — see
-  [the CDP-trap finding](testing/findings/2026-07-19-cdp-trap-family-confirmed-dead.md)
+  [the CDP-trap check status](testing/checks/cdp_both.md)
   before assuming this still works as strong tell.
 - **Lie / tamper detection** — shallow `Function.prototype.toString()`
   `[native code]` check on key natives, plus deep G04 probes: property-
