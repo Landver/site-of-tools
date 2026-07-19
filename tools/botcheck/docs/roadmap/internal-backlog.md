@@ -55,7 +55,7 @@ linked.
 - **Fuller media-codec / font-diversity matrices** — beyond the current H.264/AAC pair and the zero-fonts floor, score against expected per-browser codec sets and typical font-count ranges (needs careful thresholds to avoid mobile false positives).
 - **JS engine tells** (G23) — `Error` stack format, `Function.prototype.toString` quirks, `Math`/number formatting differences (V8 vs SpiderMonkey vs JSC) vs the claimed browser. The Error-stack half is **shipped 2026-07-18** as `jsengine_ua_mismatch`; the Math/toString-quirk halves stay here (they need per-engine reference tables).
 - **WebRTC** (G09) — collect ICE candidates: local-IP leak, presence of an mDNS `.local` candidate, and `srflx` public IP vs the server-observed IP. **Shipped 2026-07-18** as `webrtc_ip_mismatch` (public candidates only, same address family, private/link-local/ULA/CGNAT excluded).
-- **Request velocity** (G43) — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, so it bends the current stateless rule; better backed by MongoDB (now available, not yet used by botcheck), sitting below the domain service.
+- **Request velocity** (G43) — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, so it bends the current stateless rule; better backed by MongoDB (already used by botcheck for the G41/G42 fingerprint corpus, but not yet for this), sitting below the domain service.
 
 ## Layer 3 — Hard (new infrastructure, dependencies, ML, or a stored corpus)
 

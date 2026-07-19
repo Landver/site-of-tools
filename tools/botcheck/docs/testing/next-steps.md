@@ -10,21 +10,26 @@
 2. **Resolve `chrome_runtime_tamper` for real** — get one real, unmodified
    consumer Google Chrome (not "Chrome for Testing") to check whether
    `chrome.runtime` is reliably present there. If yes, ship the tightened
-   version from the 2026-07-19 audit (already written and verified against the
-   stealth case, just reverted for lack of this one data point) — it would
-   close a confirmed stealth-evasion gap. If no, this check may need retiring
-   instead. See [findings-log.md](findings-log.md)'s `chrome_runtime_tamper`
-   entry for the full reasoning and where the reverted diff lives (git
-   history).
-3. **The stealth-specific G04/G22 probes need their own follow-up.**
-   `tostring_proxy`, `native_descriptor_tamper`, `native_callnew_tamper`,
-   `navigator_proto_tamper` were all built explicitly to catch
-   `puppeteer-extra-plugin-stealth` and none of them do anymore against the
-   current version (2.11.2) — the plugin evidently evolved past them. Worth a
-   focused pass reading the current stealth-plugin source (it's open source)
-   to see exactly what changed and whether a sharper probe is feasible, rather
-   than assuming the cross-context checks alone are enough going forward (they
-   worked this time; that's not a guarantee).
+   version from the 2026-07-19 audit (already worked out and verified against
+   the stealth case in-session, just reverted for lack of this one data point)
+   — it would close a confirmed stealth-evasion gap. If no, this check may
+   need retiring instead. **Note:** the tightened version was never committed
+   (checked `git log`/`git stash list`/`git reflog` for
+   `shared/static/js/botcheck.js` — only a comment documenting the audit
+   exists in history; the logic itself is unchanged), so it isn't recoverable
+   from git and would need to be re-derived from
+   [findings-log.md](findings-log.md)'s `chrome_runtime_tamper` entry, which
+   has the exact before/after logic described.
+3. **The stealth-specific G04/G17 probes need their own follow-up.**
+   `tostring_proxy`, `native_descriptor_tamper`, `native_callnew_tamper` (G04)
+   were built explicitly to catch `puppeteer-extra-plugin-stealth` by name;
+   `navigator_proto_tamper` (G17) targets the same class of patch without
+   naming a specific plugin in its own comment. None of the four still catch
+   the current stealth-plugin version (2.11.2) — it evidently evolved past
+   them. Worth a focused pass reading the current stealth-plugin source (it's
+   open source) to see exactly what changed and whether a sharper probe is
+   feasible, rather than assuming the cross-context checks alone are enough
+   going forward (they worked this time; that's not a guarantee).
 4. **The raw-CDP / custom-harness gap is the real remaining hole** and doesn't
    have a client-side JS fix: a disciplined custom automation client that (a)
    doesn't include "Headless" in its UA, (b) doesn't trip `navigator.webdriver`

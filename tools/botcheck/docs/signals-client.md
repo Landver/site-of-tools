@@ -42,30 +42,38 @@ a returning visitor with a stale cached collector never reads as tampered.
   finding:** all of these were evaded by the current `puppeteer-extra-plugin-stealth`
   — see [testing/findings-log.md](testing/findings-log.md).
 - **Cross-context consistency** — recompute `navigator.{userAgent, languages,
-  hardwareConcurrency, userAgentData.platform, webdriver}` + WebGL renderer inside
-  a Web Worker, a Service Worker (served from `/botcheck-sw.js`), and an iframe
-  (which also reports whether its `contentWindow` is a Proxy); POST all copies so
-  Go can diff them (top-frame-only spoofs collapse here). **This is the family
-  that actually caught `puppeteer-extra-plugin-stealth`** in the 2026-07-19 audit
-  when the purpose-built stealth checks above didn't — see
-  [testing/findings-log.md](testing/findings-log.md).
+  hardwareConcurrency, userAgentData.platform}` inside a Web Worker, a Service
+  Worker (served from `/botcheck-sw.js`), and an iframe, plus the WebGL
+  renderer inside the Worker; `navigator.webdriver` itself is re-read only in
+  the iframe and the Service Worker (the Worker instead adds the OffscreenCanvas
+  WebGL read), and the iframe also reports whether its `contentWindow` is a
+  Proxy. POST all copies so Go can diff them (top-frame-only spoofs collapse
+  here). **This is the family that actually caught `puppeteer-extra-plugin-stealth`**
+  in the 2026-07-19 audit when the purpose-built stealth checks above didn't —
+  see [testing/findings-log.md](testing/findings-log.md).
 - **Classic headless tells** — impossible permission state (`prompt` while
   `denied`); `window.chrome` presence; empty `plugins`/`languages`; plugins
   without `mimeTypes`; software WebGL renderer (SwiftShader/Mesa); default
-  `800x600` / `screen == avail` / `outerWidth < innerWidth` / zero `outerHeight`;
-  implausible `hardwareConcurrency`/`deviceMemory`; a guaranteed-loadable 1×1
-  image that fails; a mobile UA reporting zero touch points.
-- **Fingerprint surfaces (for consistency, not raw entropy)** — canvas 2D hash,
-  WebGL vendor/renderer + params, AudioContext hash, font list — used for
-  GPU-vs-claimed-OS coherence and spoof/noise-stability, not a uniqueness score.
+  `800x600` screen / available screen area larger than the physical screen
+  (not `screen == avail`, which is common and never flagged) /
+  `outerWidth < innerWidth` / zero `outerHeight`; implausible
+  `hardwareConcurrency`/`deviceMemory`; a guaranteed-loadable 1×1 image that
+  fails; a mobile UA reporting zero touch points.
+- **Fingerprint surfaces (for consistency, not raw entropy)** — canvas 2D
+  stability/blank checks (no hash is transmitted), WebGL vendor + renderer
+  strings, and a probe-font count (not a font list, and no AudioContext hash —
+  neither is implemented) — used for GPU-vs-claimed-OS coherence and
+  spoof/noise-stability, not a uniqueness score.
 - **The cross-check most free tools skip (our differentiator)** —
   `navigator.userAgentData.getHighEntropyValues(["fullVersionList"])`, triangulated
-  against the legacy UA string *and* the `Sec-CH-UA` request headers. The UA's
+  against the legacy UA string (`ua_chrome_version_mismatch`). The UA's
   `Chrome/NNN` major must match the **`Chromium` brand entry** of `fullVersionList`
   (the true engine version — comparing against a fork's *branded* version, e.g.
   Opera's, would false-positive, so we read the Chromium entry specifically). This
   is the CreepJS/Electron catch: a UA-string spoof that leaves `userAgentData`
-  untouched disagrees here.
+  untouched disagrees here. The Sec-CH-UA header's brand list is separately
+  cross-checked against `userAgentData.brands` (`ch_brands_mismatch`), but no
+  rule compares it to `fullVersionList`.
 - **Real-engine feature detection** — probe capabilities unique to one engine
   (`-moz-appearance` ⇒ Gecko, `GestureEvent` ⇒ WebKit, `-webkit-app-region` /
   `webkitRequestFileSystem` ⇒ Blink) and cross-check the detected engine against

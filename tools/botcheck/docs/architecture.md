@@ -16,7 +16,15 @@
   [storage.md](storage.md).
 - `handler.go` — transport: parses the client payload, gathers server signals off
   `*echo.Context`, maps the shared `iptools.Service` result into plain `Signals`
-  fields, calls `Evaluate`, and content-negotiates the response.
+  fields, folds the fingerprint into the Mongo corpus (G41/G42), serves the
+  `/botcheck-sw.js` Service Worker script, calls `Evaluate`, and
+  content-negotiates the response.
+- `report.go` — presentation helpers: per-tier sub-scores (`TierScore`), rule
+  explanations (`Explanation`/`ruleExplanations`), and the browser/engine
+  display line (`Environment`).
+- `goodbots.go` — the verified-crawler classifier: `BotIdentity`, the good-bot
+  allowlist, and `classifyGoodBot` (called from `Evaluate` to suppress expected
+  deductions).
 - `templates/` — `botcheck/index` (page) + `botcheck/result` (fragment).
 - `tests/` — black-box domain + handler tests. See [go-test-suite.md](go-test-suite.md).
 - collector: `shared/static/js/botcheck.js` (hand-vendored, no npm). See
@@ -48,8 +56,11 @@ Browser                          Go (botcheck.corpberry.com app)
   │                                        2. gather server signals from *echo.Context
   │                                        3. iptools.Service.Lookup(c.RealIP())  (IP rep/geo/tz)
   │                                        4. build botcheck.Signals{client + server}
-  │                                        5. report := botcheck.Evaluate(signals)   ← pure domain
-  │                                        6. respond: HTML fragment | JSON
+  │                                        5. fold into the Mongo corpus (Record) and read back
+  │                                           the distinct-IP count (DistinctIPs) → FingerprintIPs
+  │                                           (G41/G42; no-ops on a disabled/nil corpus)
+  │                                        6. report := botcheck.Evaluate(signals)   ← pure domain
+  │                                        7. respond: HTML fragment | JSON
   │  ◀── results-table fragment (browser)  or  JSON (curl/API)
   └── collector injects fragment into #result
 ```
@@ -67,6 +78,7 @@ still returns an IP-based partial score).
 |---|---|---|
 | `GET /` | Full page; the collector then POSTs `/check` | Server-only score (headers + IP, no JS signals) |
 | `POST /check` | HTML results fragment | Full JSON `Report` |
+| `GET /botcheck-sw.js` | Service Worker script (`application/javascript`) | same |
 
 ```sh
 # server-only score of your request (no JS signals)
@@ -79,16 +91,18 @@ curl -X POST https://botcheck.corpberry.com/check \
 ## Client-Hints opt-in (an Echo v5 detail)
 
 Chromium sends the low-entropy hints (`Sec-CH-UA`, `Sec-CH-UA-Mobile`,
-`Sec-CH-UA-Platform`) by default on secure origins, but the high-entropy ones
-(`platformVersion`, `fullVersionList`, `architecture`) only arrive if the server
-asks. `GET /` sets the opt-in response headers so they appear on the subsequent
-`POST /check`:
+`Sec-CH-UA-Platform`) by default on secure origins. `GET /` explicitly opts in
+to `Sec-CH-UA-Platform` anyway, so it reliably appears on the subsequent
+`POST /check` for the `ch_platform_mismatch` cross-check:
 
 ```go
-c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List, Sec-CH-UA-Arch")
-c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform-Version")
+c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
 ```
 
-Even without this we still have the JS `getHighEntropyValues()` copy; the header
-opt-in gives us the *server-observed* side of the comparison (the point is that a
-spoofing client keeps the two out of sync).
+That's the only `Accept-CH`/`Critical-CH` header the server sends — there is no
+opt-in for the high-entropy hints (`platformVersion`, `fullVersionList`,
+`architecture`). `fullVersionList` instead comes purely from the client-side
+`navigator.userAgentData.getHighEntropyValues(["fullVersionList"])` call in the
+collector; the header opt-in only strengthens the *server-observed* side of the
+platform comparison (the point is that a spoofing client keeps the two out of
+sync).

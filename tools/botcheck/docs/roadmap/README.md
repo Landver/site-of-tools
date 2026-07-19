@@ -71,10 +71,13 @@ Each row in the category files carries **`Sev · Effort · Status`**:
 
 Each competitor capability was compared against that code, and **every claimed
 gap was verified against the real source** to remove false "we don't do X"
-entries. None survived: of 62 items, 0 were things we actually already
-shipped-but-uncredited, 16 are things we do in a narrower form (**Partial**), 31
-are genuine blind spots (**Not built**), and 15 are already acknowledged in our
-design docs as **Deferred**.
+entries at the time this audit was written. That snapshot has since moved on as
+more items shipped (2026-07-19 recount of the current category files' Status
+column): of the 62 items, 30 are now **Shipped**, 19 are genuine blind spots
+(**Not built**), 13 are already acknowledged in our design docs as
+**Deferred**, and 0 currently carry a **Partial** status (the rows that used to
+be narrower-form implementations have since been updated to Shipped as the
+work landed — see [changelog.md](changelog.md)).
 
 ## Note on method & confidence
 

@@ -11,7 +11,7 @@ these findings produced.
 backing `cdp_both`/`cdp_main_only`/`cdp_sw_only` — defines a getter on an
 `Error`'s `.stack` and calls `console.debug()` on it, expecting a CDP client
 with `Runtime.enable` active to invoke the getter while building an object
-preview. Tested against **five** genuinely CDP-driven sessions and it fired
+preview. Tested against **six** genuinely CDP-driven sessions and it fired
 **zero** times in every one:
 
 1. Claude's own in-app CDP-driven browser tool (the original trigger for this audit).
@@ -108,11 +108,16 @@ Five frameworks run via `Workflow` in parallel, each in its own
 | Nightmare (~2015-2018, Electron-based) | failed to install | n/a | Ancient Electron 2.0.18 has no darwin-arm64 build (404) and its Node-v24-incompatible `extract-zip@1.7.0` postinstall step corrupts the darwin-x64 fallback under Rosetta. Expected, not pursued further — the `__nightmare` WINDOW_MARKERS entry stays unexercised. |
 
 **Headline finding — puppeteer-extra-stealth deep-dive.** This is the single
-most important result of the whole audit. The six checks the codebase's own
-comments specifically name as targeting this exact plugin —
-`tostring_proxy`, `native_descriptor_tamper`, `native_callnew_tamper`,
-`navigator_proto_tamper`, `chrome_runtime_tamper`, `chrome_late_injection` —
-**were evaded, all six, cleanly.** `navigator.webdriver` itself was hidden
+most important result of the whole audit. Six checks the codebase built to
+target this class of stealth patch — `tostring_proxy`,
+`native_descriptor_tamper`, `native_callnew_tamper`, `navigator_proto_tamper`,
+`chrome_runtime_tamper`, `chrome_late_injection` — **were evaded, all six,
+cleanly.** (Three of the six — `tostring_proxy`, `native_descriptor_tamper`,
+`chrome_runtime_tamper` — have code comments that name
+`puppeteer-extra-plugin-stealth` specifically; `navigator_proto_tamper` and
+`chrome_late_injection` describe the general stealth-patch shape without
+naming a plugin, and `native_callnew_tamper` shares its section comment with
+`native_descriptor_tamper`.) `navigator.webdriver` itself was hidden
 everywhere (main thread, iframe, and Service Worker all read `false`) — a more
 thorough hide than a naive delete-only patch. And yet **the tool still scored
 it 25/100, "bot," not human.** What actually caught it were three of the
@@ -182,6 +187,6 @@ Chrome sample.
 
 This findings log, the harness architecture, and the next-steps list used to
 be one 299-line `TESTING.md`, itself a sibling to a 386-line `README.md` and a
-465-line `ROADMAP.md`. Split by topic into `docs/testing/`, `docs/roadmap/`,
+464-line `ROADMAP.md`. Split by topic into `docs/testing/`, `docs/roadmap/`,
 and standalone reference files — see the top-level
 [docs index](../README.md). No content was dropped, only relocated.

@@ -81,7 +81,7 @@ shared/            shared front-end: base partials + htmx/alpine/tailwind css
 site/              apex project (corpberry.com)
 tools/             self-contained tool subdomains (code + docs co-located):
                      iptools/   IP tools: code · templates · assets (.BIN) · README
-                     botcheck/  Bot check: code · templates · README · RESEARCH · ROADMAP · reports
+                     botcheck/  Bot check: code · templates · README · RESEARCH · roadmap/ · testing/ · reports/
 deploy/nginx/      reverse-proxy server blocks
 docs/              architecture & deployment
 ```

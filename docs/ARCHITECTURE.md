@@ -280,7 +280,7 @@ site-of-tools/
 │   │   ├── assets/           #     the .BIN databases (gitignored, bind-mounted)
 │   │   └── docs/README.md    #     this tool's design + reference doc
 │   └── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
-│       ├── botcheck.go · scoring.go · handler.go · embed.go · tests/
+│       ├── botcheck.go · scoring.go · handler.go · goodbots.go · report.go · corpus.go · embed.go · tests/
 │       ├── templates/        #     index · result
 │       └── docs/             #     all of this tool's markdown, split by topic
 │           ├── README.md     #       index — links to everything below

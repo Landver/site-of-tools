@@ -16,12 +16,24 @@ tests only.
 - **Handler (`handler_test.go`)** — `httptest`: `POST /check` a JSON fingerprint
   and assert the negotiated output (JSON for `Accept: */*`, the `botcheck/result`
   fragment for `Accept: text/html`), with a fake `iptools.Looker` (no PX12 BIN in
-  CI) and a nil service (IP signals absent, still scores the client half).
+  CI) whose zero value returns a nil result, so IP signals are absent and only
+  the client half of the fingerprint is scored.
 - **Corpus (`corpus_test.go`)** — `FingerprintHash` determinism (server-observed
   fields never leak in), the `fingerprint_reuse` floor (fires at ≥5, silent
   below) + good-bot suppression, and the nil-safe disabled store. Live Mongo
   round-trip + end-to-end handler wiring run only when `MONGODB_TEST_URI` is
   set, skipping cleanly otherwise (the iptools-history pattern).
+- **Report (`report_test.go`)** — `TierScore` per-tier deductions/suppression,
+  rule `Explanation` lookups, and the `Environment` browser/engine display
+  line, plus their rendering through `result.html`.
+
+A white-box test beside the code, `tools/botcheck/report_internal_test.go`
+(package `botcheck`, the CLAUDE.md-documented exception for tests needing
+unexported symbols), enforces two structural invariants over the unexported
+`rules`/`ruleExplanations`: every consistency-tier rule has a subgroup, and
+every rule ID — all 66 currently implemented, plus 1 remaining reserved ID,
+`system_color_headless` — has a `ruleExplanations` entry (the G55 coverage
+guard).
 
 **A structural limitation worth knowing:** this suite constructs `Signals`
 directly and never exercises `shared/static/js/botcheck.js` — the actual
