@@ -97,6 +97,31 @@ entropy), adding two soft rules (`matchmedia_missing`, `netinfo_incoherent`) —
 66 rules total. A real-Chrome E2E pass (kimi-webbridge) verified 100/human with
 zero false fires across all 66.
 
+**False-negative audit (2026-07-19).** A manual review found the CDP-detection
+checks reading "ok" against a session that is in fact CDP-driven, which turned
+into a real (npm/Puppeteer+Playwright+Selenium-based, gitignored, not part of
+the shipped product) test harness against five actual automation tools,
+including `puppeteer-extra-plugin-stealth`. Found and fixed a genuine bug:
+`webglGPU()` in the collector referenced an undefined variable, silently
+zeroing `webglVendor`/`webglRenderer` for every visitor since it shipped
+(neutering `software_renderer`/`webgl_vendor_mismatch`/`gpu_os_mismatch` — 85
+points of scoring logic that had never fired for anyone). Confirmed the
+CDP-trap trio (`cdp_both`/`cdp_main_only`/`cdp_sw_only`) never fires against
+any of five genuinely CDP-driven sessions tested — the technique appears dead
+on current Chromium, not evaded by any one browser — and downgraded it from
+hard/consistency tier to soft accordingly (kept running, just stopped
+overselling it). The headline result: all six checks built specifically to
+catch `puppeteer-extra-plugin-stealth` (`tostring_proxy`,
+`native_descriptor_tamper`, `native_callnew_tamper`, `navigator_proto_tamper`,
+`chrome_runtime_tamper`, `chrome_late_injection`) were evaded cleanly by the
+current plugin version — but the tool's cross-context consistency checks
+caught it anyway (score 25/100, not human), validating the core design thesis
+even where the purpose-built checks failed. The real remaining gap: a
+disciplined custom automation client with a normal UA currently evades nearly
+everything tested. Full test architecture, findings log, and prioritized
+roadmap in [`TESTING.md`](TESTING.md) — read that before touching the CDP
+rules, the G04/G22 stealth probes, or re-litigating this audit.
+
 ## What this is built from
 
 - The twelve firsthand service reports in this folder (`deviceandbrowserinfo`,

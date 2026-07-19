@@ -103,10 +103,6 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "cdp_both", label: "CDP automation detected in main thread and Worker", tier: TierHard, weight: 40, needsClient: true,
-		eval: func(s Signals) (bool, string) { return s.CDPMainThread && s.CDPWorker, "" },
-	},
-	{
 		// G11: navigator.webdriver re-read inside the iframe's fresh JS context.
 		// Stealth toolkits patch the top frame's navigator (even its prototype);
 		// the iframe realm has its own Navigator.prototype and leaks the truth.
@@ -375,17 +371,6 @@ var rules = []rule{
 			}
 			return true, fmt.Sprintf("JS %s vs header %s", nav, hdr)
 		},
-	},
-	{
-		id: "cdp_main_only", label: "CDP automation detected in main thread only", tier: TierConsistency, subgroup: subgroupContext, weight: 15, needsClient: true,
-		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
-	},
-	{
-		// G14: the CDP serialization trap fired ONLY in the Service Worker context.
-		// Guarded against the main/worker flags so one observation never
-		// double-counts with cdp_both / cdp_main_only.
-		id: "cdp_sw_only", label: "CDP automation detected in the Service Worker only", tier: TierConsistency, subgroup: subgroupContext, weight: 15, needsClient: true,
-		eval: func(s Signals) (bool, string) { return s.SWCDP && !s.CDPMainThread && !s.CDPWorker, "" },
 	},
 	{
 		// Self-consistency (no IP needed): the browser's own IANA timezone must
@@ -871,5 +856,33 @@ var rules = []rule{
 			return true, fmt.Sprintf("effectiveType %q but rtt %dms / downlink %.2fMbps imply at most %s",
 				c.EffectiveType, c.RTT, c.Downlink, ectName(worst))
 		},
+	},
+	{
+		// Downgraded from hard/weight-40 (2026-07-19): an audit tested this trap
+		// (an Error.stack getter read during a console.debug call — see
+		// cdpTrap() in shared/static/js/botcheck.js) against five genuinely
+		// CDP-driven sessions — Puppeteer (headless + headful), Playwright,
+		// Selenium/chromedriver, a hand-rolled CDP client with Runtime.enable
+		// active and no --enable-automation, and puppeteer-extra-stealth — and it
+		// fired zero times across all of them. The premise (a CDP client's
+		// object-preview generation invokes property getters) doesn't hold on
+		// current Chromium regardless of transport; it isn't one browser evading
+		// it. Left running (harmless when silent, and free in case a future
+		// Chromium regression or an older engine revives it) rather than deleted
+		// — see tools/botcheck/docs/TESTING.md for the full writeup.
+		id: "cdp_both", label: "CDP automation detected in main thread and Worker", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.CDPMainThread && s.CDPWorker, "" },
+	},
+	{
+		// Same downgrade and same reasoning as cdp_both above.
+		id: "cdp_main_only", label: "CDP automation detected in main thread only", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
+	},
+	{
+		// Same downgrade and same reasoning as cdp_both above. Still guarded
+		// against the main/worker flags so one observation never double-counts
+		// with cdp_both / cdp_main_only in the soft-signal cluster count.
+		id: "cdp_sw_only", label: "CDP automation detected in the Service Worker only", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) { return s.SWCDP && !s.CDPMainThread && !s.CDPWorker, "" },
 	},
 }

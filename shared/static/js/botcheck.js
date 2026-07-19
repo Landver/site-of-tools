@@ -241,6 +241,19 @@
   // function) carries a prototype or constructs silently; an exotic throw isn't a
   // TypeError (CreepJS hasBadChromeRuntime). Fail-to-pass: absent chrome/runtime
   // is no confident contradiction — absence is no_chrome_object's territory.
+  //
+  // 2026-07-19 audit note: tried tightening this to flag window.chrome existing
+  // WITHOUT runtime at all (puppeteer-extra-plugin-stealth 2.11.2's chrome evasion
+  // has exactly this shape — adds app/csi, omits runtime — and evaded this rule
+  // as originally written). Reverted after verification: the official "Chrome for
+  // Testing" binary itself lacks chrome.runtime entirely — headless AND headful,
+  // even with --enable-automation stripped and navigator.webdriver patched away.
+  // That means the absence is a property of this Chrome *distribution*, not proof
+  // of automation or stealth, and there's no genuine consumer-Chrome sample in this
+  // audit's environment to confirm it behaves differently. Shipping the tightened
+  // version risked scoring real human visitors on that build as tampered — not
+  // worth it without verifying against actual consumer Chrome first. See
+  // tools/botcheck/docs/TESTING.md for the full note; left as an open roadmap item.
   const chromeRuntimeOK = () => safe(() => {
     if (!("chrome" in window)) return true;
     const c = window.chrome;
@@ -472,6 +485,7 @@
   // GPU family against the UA-claimed OS (G08). Any failure (no WebGL, extension
   // blocked) yields empty strings, which Go treats as "not supplied", never a tell.
   const webglGPU = () => safe(() => {
+    const c = document.createElement("canvas");
     const gl = c.getContext("webgl") || c.getContext("experimental-webgl");
     const ext = gl?.getExtension("WEBGL_debug_renderer_info");
     return {

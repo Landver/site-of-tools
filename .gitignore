@@ -21,3 +21,7 @@ shared/static/css/styles.css
 *.exe
 # downloaded Go toolchain tarball (install to /usr/local, don't commit)
 *.tar.gz
+
+# one-off npm/Puppeteer verification harness — not part of the Go build,
+# never meant to be a standing dependency (see CLAUDE.md rule #3)
+/verify-cdp/
