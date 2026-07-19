@@ -14,7 +14,7 @@ Internal-backlog Layer 2 item, shipped: a browser UA reporting neither H.264 nor
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `HTMLVideoElement`/`HTMLAudioElement.prototype.canPlayType` to always return `""`. Fired through the real collector. Incidental data point: genuine "Chrome for Testing" 150 (Selenium, raw-cdp, stealth) all ship real H.264/AAC support unmodified — this rule's premise (headless builds often lack codecs) doesn't hold for that specific binary. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `canPlayType` to reject H.264/AAC → fired. (Real Chrome-for-Testing ships both unmodified.) See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

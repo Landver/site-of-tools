@@ -14,7 +14,7 @@ The Chrome major version in the UA string must equal the Chromium version userAg
 
 ## Test status: Verified — fires correctly
 
-Curl `POST /check`: client JSON body with `navMainUA` claiming `Chrome/999.0.0.0` against `uaData.fullVersionList` claiming the real Chromium `125`. Fired `UA Chrome 999 vs userAgentData 125`. (Both sides of this comparison are client-JSON fields — no browser Client Hints support needed; closed this way rather than via the browser probe because of the harness caveat noted on `ch_platform_mismatch`.) See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Curl `POST /check`: client JSON claiming `Chrome/999` vs `uaData` claiming real Chromium `125` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

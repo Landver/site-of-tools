@@ -14,7 +14,7 @@ A mobile (Android/iOS) User-Agent with no touch support, though every real phone
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): set an Android UA via `page.setUserAgent`, left `maxTouchPoints` at this desktop host's real value (0). Fired `Android UA with maxTouchPoints=0` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): Android UA + real desktop `maxTouchPoints: 0` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

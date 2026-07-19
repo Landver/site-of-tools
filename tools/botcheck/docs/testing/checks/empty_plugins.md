@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `navigator.plugins` to `[]`. Fired through the real collector; genuine Chrome-for-Testing automation reports its real (non-empty) plugin list and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `navigator.plugins` to `[]` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

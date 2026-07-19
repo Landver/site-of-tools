@@ -14,7 +14,7 @@ The JavaScript Proxy constructor re-checked inside an iframe's separate realm: r
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): patched `HTMLIFrameElement.prototype.contentWindow` to throw on read, mimicking the puppeteer-extra-stealth iframe patch this rule targets. Fired through the real collector's `iframeProxied()` probe; genuine automation (stealth included) leaves the getter alone and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): patched `iframe.contentWindow` to throw (mimicking stealth's own patch) → fired. Genuine automation, stealth included, leaves it alone and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

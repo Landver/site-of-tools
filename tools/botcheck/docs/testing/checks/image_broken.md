@@ -14,7 +14,7 @@ A deliberately broken image reports dimensions that don't match what the claimed
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `HTMLImageElement.prototype.naturalWidth` to always read 0. Fired through the real collector's guaranteed-loadable-image probe; genuine automation with images intact stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `naturalWidth` to always read 0 → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

@@ -14,7 +14,7 @@ navigator.connection derives its effectiveType from the very rtt/downlink estima
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `navigator.connection` to claim `effectiveType: "4g"` alongside `rtt: 2000ms`/`downlink: 0.05Mbps` (which imply slow-2g). Fired `effectiveType "4g" but rtt 2000ms / downlink 0.05Mbps imply at most slow-2g` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): `connection` claiming 4g w/ slow-2g-implying rtt/downlink → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

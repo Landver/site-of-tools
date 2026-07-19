@@ -14,7 +14,7 @@ The same stable browser fingerprint (User-Agent, screen, GPU, timezone, …) arr
 
 ## Test status: Verified — fires correctly
 
-Closed despite the longitudinal-corpus caveat above: `POST /check` with an identical synthetic fingerprint from 6 distinct spoofed `CF-Connecting-IP` values (trusted unconditionally in dev — see `platform/app.go`'s `cfIPExtractor`). Fired at exactly the 5th distinct IP (`fingerprintReuseMinIPs`), silent at 4; repeat hits from one IP never inflated the count — confirms real dedup against the live Mongo corpus, not just a hit counter. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+`POST /check` w/ an identical fingerprint from 6 spoofed `CF-Connecting-IP` values: fired at exactly 5 distinct IPs (`fingerprintReuseMinIPs`), silent at 4; same-IP repeats never inflated the count. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

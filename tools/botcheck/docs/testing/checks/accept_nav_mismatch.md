@@ -14,7 +14,7 @@ A real browser's navigation/fetch Accept includes text/html; bare API clients se
 
 ## Test status: Verified — fires correctly
 
-Curl-verified both directions: `Accept: application/json` (curl's own default when requesting JSON) fires, exactly as the doc comment expects for a JSON API caller. A real `POST /check` mimicking the collector's own `fetch` call (`Accept: text/html`, per `botcheck.js`) stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Curl-verified: `Accept: application/json` fires (expected — JSON callers trip this soft check by design); the real collector's own `Accept: text/html` fetch stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

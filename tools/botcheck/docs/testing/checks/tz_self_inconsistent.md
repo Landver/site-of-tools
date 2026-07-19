@@ -14,7 +14,7 @@ Internal-backlog Layer 2 item, shipped: compares `Intl.DateTimeFormat().resolved
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `Date.prototype.getTimezoneOffset` to return `0`, left the real IANA zone name (`Europe/Moscow`) untouched. Fired `Europe/Moscow implies -180 min but reported 0` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `getTimezoneOffset()`, real IANA zone name untouched → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

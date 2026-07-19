@@ -14,7 +14,7 @@ Internal-backlog Layer 2 item, shipped: parses the `Sec-CH-UA` header's brand li
 
 ## Test status: Verified — fires correctly
 
-Curl `POST /check`: real `Sec-CH-UA` header (Chromium + Google Chrome brands) against a client JSON body claiming `brands: ["Opera"]`. Fired with `header and JS brand lists differ`. (The browser-probe route hit a harness quirk — the root `puppeteer` package's plain launch reports empty `userAgentData.brands` on this origin even unmodified, unlike raw-cdp/selenium — so this was closed via direct header+payload instead; see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md) for the harness caveat.)
+Curl `POST /check`: real `Sec-CH-UA` header vs a client JSON body claiming a different brand → fired. (Browser-probe route hit a harness quirk instead — see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).)
 
 ## Go scorer coverage
 

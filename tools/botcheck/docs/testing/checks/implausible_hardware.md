@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `navigator.hardwareConcurrency` to `999`. Fired `cores=999` through the real collector — and, as a bonus, tripped `context_cores_mismatch` too (`worker reports 10 cores vs main 999`, the override only reaching the main thread). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `hardwareConcurrency` to `999` → fired (plus bonus `context_cores_mismatch`, override only reaching the main thread). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

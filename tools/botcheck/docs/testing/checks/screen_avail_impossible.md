@@ -14,7 +14,7 @@ Internal-backlog Layer 1 item, shipped: `availWidth`/`availHeight` larger than t
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `screen.availWidth` to `99999`. Fired through the real collector; genuine automation reports a sane (non-impossible) available area and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `screen.availWidth` to `99999` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

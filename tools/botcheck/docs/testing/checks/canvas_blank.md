@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): patched `CanvasRenderingContext2D.prototype.getImageData` to return an all-zero (fully transparent) buffer. Fired through the real collector; genuine automation with a working canvas (Selenium, raw-cdp, stealth) stayed `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): patched `getImageData` to return an all-zero buffer → fired. Genuine automation with a working canvas stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

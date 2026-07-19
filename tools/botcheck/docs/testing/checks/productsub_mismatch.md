@@ -14,7 +14,7 @@ navigator.productSub is a fixed per-engine constant — '20030107' on every WebK
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`), two ways: a dedicated override of `navigator.productSub` to `"99999999"` fired `productSub 99999999, expected 20030107`; separately, the `engine_ua_mismatch` scenario's UA-claims-Firefox override made the real (unmodified) `"20030107"` productSub disagree with the now Firefox-implied `"20100101"`, firing this rule too. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`), two ways: a direct `productSub` override, and incidentally via `engine_ua_mismatch`'s Firefox-UA scenario. Both fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

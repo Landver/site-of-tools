@@ -14,7 +14,7 @@ JavaScript engine behaviour (error formats and other V8/SpiderMonkey/JavaScriptC
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.userAgent` to claim Firefox while the real JS engine underneath stayed V8. Fired `JS engine v8 vs UA implies spidermonkey` through the real collector's error-stack-format probe. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): UA claimed Firefox, real JS engine stayed V8 → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

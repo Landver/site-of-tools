@@ -14,7 +14,7 @@ Internal-backlog Layer 1 item, shipped: `navigator.appVersion` is always the UA 
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.appVersion` to an arbitrary string via `evaluateOnNewDocument`, left the real UA in place. Fired with the exact expected mismatch detail through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.appVersion` alone → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

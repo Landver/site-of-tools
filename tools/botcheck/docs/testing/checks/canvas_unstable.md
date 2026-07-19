@@ -14,7 +14,7 @@ Internal-backlog Layer 2 item, shipped: two identical canvas draws hashing diffe
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): patched `HTMLCanvasElement.prototype.toDataURL` to return a different value each call. Fired through the real collector; genuine automation (Selenium, raw-cdp, stealth) reports stable draws and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): patched `toDataURL` to vary each call → fired. Genuine automation reports stable draws and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

@@ -14,7 +14,7 @@ Internal-backlog Layer 1 item, shipped: `navigator.language` must equal `navigat
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.language` to `"fr-FR"`, left `navigator.languages[0]` at its real `en-US`. Fired `language fr-FR vs languages[0] en-US` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.language` alone, `languages[0]` stayed real → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

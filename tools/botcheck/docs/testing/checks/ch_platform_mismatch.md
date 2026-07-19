@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Curl `POST /check`: `Sec-CH-UA-Platform: "Windows"` header against a client JSON body claiming `uaData.platform: "macOS"`. Fired with `header Windows vs JS macOS`. (Same harness caveat as `ch_brands_mismatch` — the root `puppeteer` package's plain launch reports empty `userAgentData.platform` on this origin, so the direct header+payload route was used instead of a browser probe; see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).) No longer the least-verified check in the set.
+Curl `POST /check`: `Sec-CH-UA-Platform: Windows` header vs a client JSON body claiming `macOS` → fired. Same harness quirk as `ch_brands_mismatch` — see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

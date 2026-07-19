@@ -14,7 +14,7 @@ Original day-1 rule, its scope clarified by **G13** (2026-07-18): CefSharp/Aweso
 
 ## Test status: Verified — fires correctly
 
-Dedicated real-browser probe now closes what was previously only incidental corroboration: `automation-harness/ua-mismatch-probe.mjs` set an Electron-flavored UA (`...botcheck-harness Electron/25.3.1 Chrome/114...`) via `page.setUserAgent`, fired `matched electron` through the real collector, `-25`. Independently reconfirmed live: this session's own in-app Browser pane genuinely IS Electron 42.5.1-embedded — hitting the real dev instance from it scored 75/100 "Suspicious" with `embedded_runtime` as the *only* deduction, everything else `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe set an Electron-flavored UA → fired. Reconfirmed live: this session's own in-app browser genuinely is Electron-embedded, scored 75/100 with this as the only deduction. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

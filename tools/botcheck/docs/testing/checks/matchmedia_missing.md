@@ -14,7 +14,7 @@ window.matchMedia is part of every real browser's CSS support, desktop and mobil
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): deleted `window.matchMedia`. Fired through the real collector; genuine automation exposes it and stays `ok`. Side effect worth knowing: this uncovered a real, separate bug — `shared/templates/partials/head.html`'s inline theme-detector calls bare `matchMedia(...)` unguarded and threw under this exact condition, breaking `window.toggleTheme` site-wide. Fixed with a `typeof` guard; see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): deleted `window.matchMedia` → fired. Side effect: uncovered a real bug in `shared/templates/partials/head.html`'s unguarded theme-detector, fixed same session. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

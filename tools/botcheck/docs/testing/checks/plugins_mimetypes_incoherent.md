@@ -14,7 +14,7 @@ Internal-backlog item, shipped 2026-07-18 (v3-gated): `navigator.plugins` and `n
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): left `navigator.plugins` at its real non-zero value, overrode `navigator.mimeTypes` to `[]`. Fired through the real collector; genuine automation's real plugins/mimeTypes stay cross-referenced and `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): zeroed `mimeTypes` while `plugins` stayed real → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

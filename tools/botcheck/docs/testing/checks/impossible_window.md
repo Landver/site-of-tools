@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Fired on stock, unmodified headless Puppeteer with no window-size flag set (`outerWidth`/`outerHeight` read 0 while `innerWidth`/`innerHeight` are real) — genuine automation artifact, no override needed. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Fired on stock headless Puppeteer with no window-size flag set — genuine automation artifact, no override needed. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

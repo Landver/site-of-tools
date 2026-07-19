@@ -14,7 +14,7 @@ The cross-context idea applied to navigator.languages: a worker, iframe, or Serv
 
 ## Test status: Verified — fires correctly
 
-Fired as an incidental bonus of the `lang_mismatch` scenario in `automation-harness/ua-mismatch-probe.mjs`: overriding `navigator.languages` on the main thread left the Worker's real value in place, tripping `worker primary language en vs main de` through the real collector — same cross-context family that already caught stealth via UA/cores/WebGL. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Fired as a bonus of the `lang_mismatch` probe scenario — main-thread-only override left the Worker's real language in place. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

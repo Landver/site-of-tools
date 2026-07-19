@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): `window.chrome = undefined`. Fired through the real collector. Note for anyone extending this probe: `window.chrome` is a non-configurable-but-writable own property on this Chromium build — `delete`/`Object.defineProperty` throws "Cannot redefine property," plain assignment is the way to nuke it. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): `window.chrome = undefined` → fired. (`delete`/`defineProperty` throws on this build — plain assignment works.) See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

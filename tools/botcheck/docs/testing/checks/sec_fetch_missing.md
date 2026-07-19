@@ -14,7 +14,7 @@ Internal-backlog Layer 1 item, shipped: a browser-claimed UA sending no `Sec-Fet
 
 ## Test status: Verified — fires correctly
 
-Curl-verified both directions against local dev: browser UA + no `Sec-Fetch-Mode` fires; header present stays `ok`; non-browser UA never fires (gated by `looksLikeBrowser`). Confirmed clean on a real `POST /check` mimicking the collector's own `fetch` headers too. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Curl-verified both directions vs local dev: fires w/ browser UA + no `Sec-Fetch-Mode`, stays `ok` w/ header present or non-browser UA. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

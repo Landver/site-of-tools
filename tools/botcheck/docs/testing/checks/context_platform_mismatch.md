@@ -14,7 +14,7 @@ userAgentData.platform re-read in a worker, iframe, or Service Worker disagrees 
 
 ## Test status: Verified — fires correctly
 
-Fired as an incidental bonus of the `ch_platform_mismatch` scenario in `automation-harness/ua-mismatch-probe.mjs`: patching `userAgentData` on the main thread doesn't reach a dedicated Worker's separate realm, so the Worker still reported the real platform — tripped `service worker platform macOS vs main Windows` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Fired as a bonus of the `ch_platform_mismatch` probe scenario — a Worker's separate realm still reported the real platform. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

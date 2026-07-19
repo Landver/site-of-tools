@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): kept the real HTTP `User-Agent` header, overrode `navigator.userAgent` afterward via `evaluateOnNewDocument` so only the JS side diverges. Fired `navigator vs header differ` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): kept the real HTTP header, overrode `navigator.userAgent` alone → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-No construction needed: fired on stock, unmodified Selenium/chromedriver, plain headless Puppeteer, and raw-CDP runs alike — headless Chromium's real screen default is 800×600 unless a window-size/screen-emulation flag overrides it. Strongest evidence tier here: genuine off-the-shelf automation, not a synthetic probe. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Fired on stock, unmodified Selenium/Puppeteer/raw-CDP — headless Chromium's real screen default, no override needed. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

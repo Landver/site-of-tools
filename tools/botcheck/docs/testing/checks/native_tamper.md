@@ -14,7 +14,7 @@ Original day-1 rule — the shallow `[native code]` `toString()` check on a hand
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`automation-harness/fire-branch-probe.mjs`): replaced `Function.prototype.toString` with a crude plain-function stand-in (not a Proxy — that subtler patch is `tostring_proxy`'s target, not this one). Fired through the real collector. Confirms the shallow/deep split is real: puppeteer-extra-stealth's actual Proxy-based patch (seen live in the multi-framework matrix) leaves this rule `ok` and is caught by `tostring_proxy` instead. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): crude non-Proxy `Function.prototype.toString` replacement → fired, confirming the shallow/deep split vs `tostring_proxy` (which catches the Proxy-based version stealth actually uses). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

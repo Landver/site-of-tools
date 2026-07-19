@@ -14,7 +14,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Test status: Verified — fires correctly
 
-Curl `POST /check`: client JSON body with `navMainUA` claiming Windows against `uaData.platform: "macOS"`. Fired `UA Windows vs platform macOS`. (Both sides are client-JSON fields; closed via direct payload rather than the browser probe for the same reason as `ua_chrome_version_mismatch` — see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md) for the harness caveat.)
+Curl `POST /check`: client JSON claiming a Windows UA vs `uaData.platform: macOS` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
