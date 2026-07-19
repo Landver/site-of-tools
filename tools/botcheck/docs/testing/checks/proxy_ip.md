@@ -12,9 +12,9 @@ The egress IP is a known VPN or public proxy. Plenty of privacy-conscious people
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Investigated — local dataset can't confirm
 
-No real-automation-harness finding and no dedicated Go test references this rule ID directly.
+Same investigation and same conclusion as [`datacenter_ip`](datacenter_ip.md): ~30 known VPN/hosting/Tor egress IPs against the local IP2Proxy LITE PX12 snapshot, none flagged. LITE-tier coverage gap, not a rule bug — the eval is a straight passthrough of `IsVPN`/`IsProxy`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

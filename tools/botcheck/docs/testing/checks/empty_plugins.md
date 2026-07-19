@@ -12,9 +12,9 @@ navigator.plugins is empty — typical of headless builds, but also of modern de
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `navigator.plugins` to `[]`. Fired through the real collector; genuine Chrome-for-Testing automation reports its real (non-empty) plugin list and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

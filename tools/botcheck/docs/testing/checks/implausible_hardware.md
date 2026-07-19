@@ -12,9 +12,9 @@ hardwareConcurrency or deviceMemory sits outside any plausible range (negative, 
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `navigator.hardwareConcurrency` to `999`. Fired `cores=999` through the real collector — and, as a bonus, tripped `context_cores_mismatch` too (`worker reports 10 cores vs main 999`, the override only reaching the main thread). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

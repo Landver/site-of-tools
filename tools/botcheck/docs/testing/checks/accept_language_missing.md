@@ -12,9 +12,9 @@ Every real browser sends Accept-Language. Its total absence suggests a scripted 
 
 **G06**, shipped 2026-07-17, same batch as `accept_encoding_missing`: total absence of `Accept-Language` on a browser-claimed UA, kept soft for the same proxy-stripping caveat.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Curl-verified both directions against local dev: browser UA + header absent fires; browser UA + header present stays `ok`; non-browser UA never fires (gated by `looksLikeBrowser`). Confirmed clean on a real `POST /check` mimicking the collector's own `fetch` headers too. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

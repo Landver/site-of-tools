@@ -12,9 +12,9 @@ The Sec-CH-UA-Platform request header and navigator.userAgentData.platform come 
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation finding and no dedicated Go test references this rule ID directly — the least-verified check in the whole set (zero test coverage at either layer).
+Curl `POST /check`: `Sec-CH-UA-Platform: "Windows"` header against a client JSON body claiming `uaData.platform: "macOS"`. Fired with `header Windows vs JS macOS`. (Same harness caveat as `ch_brands_mismatch` — the root `puppeteer` package's plain launch reports empty `userAgentData.platform` on this origin, so the direct header+payload route was used instead of a browser probe; see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).) No longer the least-verified check in the set.
 
 ## Go scorer coverage
 

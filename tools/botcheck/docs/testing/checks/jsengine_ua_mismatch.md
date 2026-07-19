@@ -12,9 +12,9 @@ JavaScript engine behaviour (error formats and other V8/SpiderMonkey/JavaScriptC
 
 **G23**, shipped 2026-07-18 (error-stack half only; Math-result and window/HTMLElement key-set fingerprinting stay deferred, needing per-engine reference tables): fingerprints the JS engine from `Error` stack format (V8's ` at ` frames, SpiderMonkey's proprietary `fileName`/`lineNumber` plus `fn@url` frames, JSC otherwise), compared against the engine the UA claims via the same `engineFromUA` mapping `engine_ua_mismatch` and `productsub_mismatch` use.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.userAgent` to claim Firefox while the real JS engine underneath stayed V8. Fired `JS engine v8 vs UA implies spidermonkey` through the real collector's error-stack-format probe. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

@@ -12,9 +12,9 @@ A real browser's navigation/fetch Accept includes text/html; bare API clients se
 
 **G06**, shipped 2026-07-17, same batch: a browser-claimed UA whose navigation/fetch `Accept` doesn't include `text/html` — bare API clients send `*/*` or `application/json` instead. Legitimate JSON consumers of this tool trip it too, harmless since one soft signal alone never moves the score.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Curl-verified both directions: `Accept: application/json` (curl's own default when requesting JSON) fires, exactly as the doc comment expects for a JSON API caller. A real `POST /check` mimicking the collector's own `fetch` call (`Accept: text/html`, per `botcheck.js`) stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

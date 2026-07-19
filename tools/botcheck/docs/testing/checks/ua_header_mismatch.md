@@ -12,9 +12,9 @@ navigator.userAgent and the HTTP User-Agent header are the same string in a real
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-Not one of the checks the 2026-07-19 stealth deep-dive specifically targeted or named (that audit's closest hit, `context_ua_mismatch`, compares the UA across *contexts*, not JS-reported UA against the HTTP header on one request) — no real-automation data point either way yet.
+Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): kept the real HTTP `User-Agent` header, overrode `navigator.userAgent` afterward via `evaluateOnNewDocument` so only the JS side diverges. Fired `navigator vs header differ` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

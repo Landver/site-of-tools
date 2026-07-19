@@ -12,9 +12,9 @@ The available screen area is reported larger than the physical screen — imposs
 
 Internal-backlog Layer 1 item, shipped: `availWidth`/`availHeight` larger than the physical screen — impossible on a real display, the sign of a spoofed screen object that doesn't model taskbar/menu-bar math.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `screen.availWidth` to `99999`. Fired through the real collector; genuine automation reports a sane (non-impossible) available area and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

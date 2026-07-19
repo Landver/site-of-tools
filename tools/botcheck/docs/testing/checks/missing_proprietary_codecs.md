@@ -12,9 +12,9 @@ Stock desktop browsers ship H.264 and AAC support; stripped or headless Chromium
 
 Internal-backlog Layer 2 item, shipped: a browser UA reporting neither H.264 nor AAC support via `canPlayType` — stock desktop browsers ship both; stripped or headless Chromium builds often have neither. Linux installs with open codec packs can look similar, kept soft for that reason.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `HTMLVideoElement`/`HTMLAudioElement.prototype.canPlayType` to always return `""`. Fired through the real collector. Incidental data point: genuine "Chrome for Testing" 150 (Selenium, raw-cdp, stealth) all ship real H.264/AAC support unmodified — this rule's premise (headless builds often lack codecs) doesn't hold for that specific binary. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

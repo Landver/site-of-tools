@@ -15,14 +15,10 @@ than dated.
 
 ## 2026-07-19
 
-Several 2026-07-19 findings below have been fully absorbed into their
-check's file and removed as standalone files (their row here now links
-straight to the check) — see
-[Per-check test-status docs added](findings/2026-07-19-checks-folder-added.md)
-for why. Rows still linking under `findings/` are the ones with content
-that doesn't reduce to a single check (a cross-framework audit, a shared
-root-cause investigation) or that this log is the primary record of (docs
-reorganizations).
+Several 2026-07-19 findings absorbed into their check's file, dropped as
+standalone files — row links straight to check instead. Rows still under
+`findings/` = content that don't reduce to one check (cross-framework audit,
+shared root-cause dig).
 
 | Finding | What it found |
 |---|---|
@@ -30,12 +26,12 @@ reorganizations).
 | [`webdriver_sw`: confirmed across 3 frameworks, left as-is](checks/webdriver_sw.md) | Service Worker's `navigator.webdriver` reads `false` for real automation across Playwright, Selenium, and Puppeteer — structural blind spot, not patchable bug. Docs fixed, tier unchanged. |
 | [`webglGPU()` bug: FIXED](findings/2026-07-19-webglgpu-bug-fixed.md) | Undefined-variable bug zeroed `webglVendor`/`webglRenderer` for every visitor since launch, neutering 85 points of scoring logic (`software_renderer`, `webgl_vendor_mismatch`, `gpu_os_mismatch`). Fixed and deployed same day. |
 | [Multi-framework matrix results](findings/2026-07-19-multi-framework-matrix-results.md) | Headline audit: 5 frameworks scored live. `puppeteer-extra-plugin-stealth` evaded all 6 purpose-built stealth checks but caught by cross-context consistency checks (25/100). Raw CDP with no automation flags scored 40/100 on UA string alone. |
-| [Docs reorganized](findings/2026-07-19-docs-reorganized.md) | Findings log (plus harness architecture and next-steps list) split out of one 299-line `TESTING.md`, itself split from 386-line `README.md` and 464-line `ROADMAP.md`. No content dropped, only relocated. |
+| [Raw-CDP/custom-harness gap: accepted as known architectural limit (CLOSED)](findings/2026-07-19-raw-cdp-gap-accepted.md) | Disciplined custom automation client (normal UA, consistent webdriver behavior, no framework markers) evades nearly everything — no client-side fix exists. Weighed IP-reputation/fingerprint-reuse build-out and a behavioral layer against accepting the gap; chose accept. |
 | [Read `puppeteer-extra-plugin-stealth`'s source](findings/2026-07-19-puppeteer-extra-stealth-source-read.md) | Traced why several evaded checks stopped working, via plugin's shared `_utils/index.js` helpers. One untested idea for sharper proxy-trap probe. |
 | [`tz_mismatch` + `webrtc_ip_mismatch`: sandbox artifact, confirmed non-issue (CLOSED)](checks/tz_mismatch.md) | 50/100 "Suspicious" reading on genuine human visit traced to Claude in Chrome sandbox's own network topology, not false-positive risk. Confirmed clean on ordinary Chrome session. Closed. |
 | [`tostring_proxy` FIXED: V8's stack-frame format outran both stealth's stripper and our detector](checks/tostring_proxy.md) | Single illegal call already leaked stealth's raw `newHandler` proxy-trap frame, since current V8 formats it as bracket alias (`[as apply]`) matching neither `stripProxyFromErrors`' anchor search nor our old regex — two independent bugs, same V8 format-drift root cause. Verified live: stealth's score dropped 25→0, other three frameworks unchanged. |
 | [`chrome_runtime_tamper`: evaded, fix drafted and reverted, deprioritized](checks/chrome_runtime_tamper.md) | The most heavily investigated open item: tightened `chromeRuntimeOK()` closed the stealth gap but was reverted after "Chrome for Testing" (and, less conclusively, a real consumer Chrome sample) turned out to lack `chrome.runtime` too. Deprioritized once stealth's own source showed presence-checking was never sound against it regardless. |
-| [Per-check test-status docs added](findings/2026-07-19-checks-folder-added.md) | "Status of tests per check" wasn't answerable without grepping three files and merging by rule ID by hand. Added `checks/` — one file per implemented rule, current test status + Go test coverage, `next-steps.md` trimmed to only what isn't check-specific. |
+| [Remaining 43 checks: real-automation + fire-branch sweep (41 VERIFIED, 2 blocked by local dataset)](findings/2026-07-19-remaining-43-checks-sweep.md) | Every check that sat "not yet tested" now has a real-automation or constructed-fire-branch data point: header curls, a live-Mongo-corpus `fingerprint_reuse` test, two new Puppeteer probe scripts (`ua-mismatch-probe.mjs`, `fire-branch-probe.mjs`) exercising 28 checks through the real collector, plus stock automation naturally tripping `default_geometry`/`impossible_window`. Zero botcheck rule bugs found. One real (non-botcheck) bug found and fixed: `shared/templates/partials/head.html`'s theme-detector called unguarded `matchMedia()`. `datacenter_ip`/`proxy_ip` stay unconfirmed — local IP2Proxy LITE snapshot doesn't classify any tried IP as a proxy. Genuine-human baseline (Claude's in-app browser, and the user's real Chrome via Claude-in-Chrome) confirmed clean except one real `zero_outer_height` false positive, safely absorbed by its soft-cluster tier. |
 
 ## Adding a new finding
 

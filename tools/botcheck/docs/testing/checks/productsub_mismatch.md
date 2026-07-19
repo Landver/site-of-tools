@@ -12,9 +12,9 @@ navigator.productSub is a fixed per-engine constant — '20030107' on every WebK
 
 **G02** (client-signals.md), shipped 2026-07-17, also tracked as an internal-backlog Layer 1 item: `navigator.productSub` is a fixed per-engine constant (`20030107` WebKit/Blink, `20100101` Gecko); the expected value is derived via the same `engineFromUA` helper `engine_ua_mismatch` uses, so iOS browsers (WebKit under an `FxiOS`/`CriOS` token) are correctly treated as WebKit rather than false-firing. `oscpu`/`buildID`/`pdfViewerEnabled` (the rest of G02) were tried and dropped — `pdfViewerEnabled` fires on ordinary desktop Chrome with the "Download PDFs" setting or the `AlwaysOpenPdfExternally` enterprise policy, a user preference rather than a headless tell, and correlates with `empty_plugins`, eroding the soft-cluster margin for a low-value catch.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`), two ways: a dedicated override of `navigator.productSub` to `"99999999"` fired `productSub 99999999, expected 20030107`; separately, the `engine_ua_mismatch` scenario's UA-claims-Firefox override made the real (unmodified) `"20030107"` productSub disagree with the now Firefox-implied `"20100101"`, firing this rule too. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

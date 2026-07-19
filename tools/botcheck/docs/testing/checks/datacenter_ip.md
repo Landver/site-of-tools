@@ -12,9 +12,9 @@ The egress IP belongs to a datacenter/hosting range or is a Tor exit — where a
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Investigated — local dataset can't confirm
 
-No framework in the 2026-07-19 audit ran from a datacenter/Tor egress, so this rule had nothing to react to either way; untested by the harness so far.
+Tried ~30 known datacenter/hosting/VPN/Tor egress IPs (curl + spoofed `CF-Connecting-IP`) against the local IP2Proxy LITE PX12 snapshot — none flagged as proxy, including `8.8.8.8`/`1.1.1.1` (cited elsewhere as `DCH`-flagged in the paid, non-LITE database). Read as a LITE-tier coverage gap in this snapshot, not a rule bug: the eval itself is a straight passthrough of `IsDatacenter`, already exercised by Go fixtures. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

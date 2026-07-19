@@ -12,9 +12,9 @@ Built-in JavaScript functions stringify as '[native code]'; automation stealth p
 
 Original day-1 rule — the shallow `[native code]` `toString()` check on a handful of natives. **G04** (shipped 2026-07-17) added the deeper probes that became `tostring_proxy`, `native_descriptor_tamper`, and `native_callnew_tamper` as separate rules, specifically because this shallow check alone doesn't catch a Proxy-based replacement that fakes the native string.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-Not one of the six checks the 2026-07-19 stealth deep-dive specifically targeted, so no real-automation data point either way yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): replaced `Function.prototype.toString` with a crude plain-function stand-in (not a Proxy — that subtler patch is `tostring_proxy`'s target, not this one). Fired through the real collector. Confirms the shallow/deep split is real: puppeteer-extra-stealth's actual Proxy-based patch (seen live in the multi-framework matrix) leaves this rule `ok` and is caught by `tostring_proxy` instead. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

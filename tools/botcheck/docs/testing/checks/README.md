@@ -27,14 +27,57 @@ One reserved rule ID with no active check yet, `system_color_headless` (see [go-
 | [`iframe_webdriver`](iframe_webdriver.md) | hard | 60 |
 | [`webdriver`](webdriver.md) | hard | 60 |
 
-## Verified against real automation — fires correctly (4)
+## Verified against real automation — fires correctly (45)
+
+41 of these closed in the [2026-07-19 full-check sweep](../findings/2026-07-19-remaining-43-checks-sweep.md): a mix of stock off-the-shelf automation (no override needed), and two new Puppeteer-based probe scripts under `automation-harness/` (`ua-mismatch-probe.mjs`, `fire-branch-probe.mjs`) that construct the exact condition each rule targets through the real `botcheck.js` collector, not a Go-side `Signals{}` literal.
 
 | Check | Tier | Weight |
 |---|---|---|
+| [`accept_encoding_missing`](accept_encoding_missing.md) | soft | 8 |
+| [`accept_language_missing`](accept_language_missing.md) | soft | 8 |
+| [`accept_nav_mismatch`](accept_nav_mismatch.md) | soft | 8 |
+| [`app_version_mismatch`](app_version_mismatch.md) | consistency | 15 |
+| [`canvas_blank`](canvas_blank.md) | soft | 8 |
+| [`canvas_unstable`](canvas_unstable.md) | consistency | 15 |
+| [`ch_brands_mismatch`](ch_brands_mismatch.md) | consistency | 20 |
+| [`ch_platform_mismatch`](ch_platform_mismatch.md) | consistency | 30 |
 | [`context_cores_mismatch`](context_cores_mismatch.md) | consistency | 20 |
+| [`context_language_mismatch`](context_language_mismatch.md) | consistency | 20 |
+| [`context_platform_mismatch`](context_platform_mismatch.md) | consistency | 25 |
 | [`context_ua_mismatch`](context_ua_mismatch.md) | consistency | 35 |
 | [`context_webgl_mismatch`](context_webgl_mismatch.md) | consistency | 20 |
+| [`default_geometry`](default_geometry.md) | soft | 8 |
+| [`embedded_runtime`](embedded_runtime.md) | consistency | 25 |
+| [`empty_languages`](empty_languages.md) | soft | 8 |
+| [`empty_plugins`](empty_plugins.md) | soft | 8 |
+| [`engine_ua_mismatch`](engine_ua_mismatch.md) | consistency | 30 |
+| [`fingerprint_reuse`](fingerprint_reuse.md) | consistency | 25 |
+| [`iframe_proxy`](iframe_proxy.md) | consistency | 30 |
+| [`image_broken`](image_broken.md) | soft | 8 |
+| [`implausible_hardware`](implausible_hardware.md) | soft | 8 |
+| [`impossible_window`](impossible_window.md) | soft | 8 |
+| [`jsengine_ua_mismatch`](jsengine_ua_mismatch.md) | consistency | 25 |
+| [`lang_mismatch`](lang_mismatch.md) | consistency | 15 |
+| [`language_primary_mismatch`](language_primary_mismatch.md) | consistency | 15 |
+| [`low_color_depth`](low_color_depth.md) | soft | 8 |
+| [`matchmedia_missing`](matchmedia_missing.md) | soft | 8 |
+| [`missing_proprietary_codecs`](missing_proprietary_codecs.md) | soft | 8 |
+| [`mobile_no_touch`](mobile_no_touch.md) | consistency | 20 |
+| [`native_tamper`](native_tamper.md) | hard | 45 |
+| [`netinfo_incoherent`](netinfo_incoherent.md) | soft | 8 |
+| [`no_chrome_object`](no_chrome_object.md) | soft | 8 |
+| [`no_fonts`](no_fonts.md) | soft | 8 |
 | [`permission_impossible`](permission_impossible.md) | consistency | 25 |
+| [`plugins_mimetypes_incoherent`](plugins_mimetypes_incoherent.md) | soft | 8 |
+| [`productsub_mismatch`](productsub_mismatch.md) | consistency | 20 |
+| [`screen_avail_impossible`](screen_avail_impossible.md) | soft | 8 |
+| [`sec_fetch_missing`](sec_fetch_missing.md) | soft | 8 |
+| [`tz_self_inconsistent`](tz_self_inconsistent.md) | consistency | 25 |
+| [`ua_chrome_version_mismatch`](ua_chrome_version_mismatch.md) | consistency | 25 |
+| [`ua_header_mismatch`](ua_header_mismatch.md) | consistency | 35 |
+| [`ua_os_mismatch`](ua_os_mismatch.md) | consistency | 30 |
+| [`vendor_mismatch`](vendor_mismatch.md) | consistency | 20 |
+| [`zero_outer_height`](zero_outer_height.md) | soft | 8 |
 
 ## Verified against real automation — evaded, open gap (4)
 
@@ -64,50 +107,15 @@ One reserved rule ID with no active check yet, `system_color_headless` (see [go-
 | [`tz_mismatch`](tz_mismatch.md) | consistency | 25 |
 | [`webrtc_ip_mismatch`](webrtc_ip_mismatch.md) | consistency | 25 |
 
-## Not yet tested against real automation (43)
+## Investigated — local dataset can't confirm (2)
+
+Rule logic is a straight passthrough (already exercised by Go fixtures); this local IP2Proxy LITE PX12 snapshot just doesn't classify any of the ~30 known datacenter/VPN/Tor IPs tried as a proxy. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 | Check | Tier | Weight |
 |---|---|---|
-| [`accept_encoding_missing`](accept_encoding_missing.md) | soft | 8 |
-| [`accept_language_missing`](accept_language_missing.md) | soft | 8 |
-| [`accept_nav_mismatch`](accept_nav_mismatch.md) | soft | 8 |
-| [`app_version_mismatch`](app_version_mismatch.md) | consistency | 15 |
-| [`canvas_blank`](canvas_blank.md) | soft | 8 |
-| [`canvas_unstable`](canvas_unstable.md) | consistency | 15 |
-| [`ch_brands_mismatch`](ch_brands_mismatch.md) | consistency | 20 |
-| [`ch_platform_mismatch`](ch_platform_mismatch.md) | consistency | 30 |
-| [`context_language_mismatch`](context_language_mismatch.md) | consistency | 20 |
-| [`context_platform_mismatch`](context_platform_mismatch.md) | consistency | 25 |
 | [`datacenter_ip`](datacenter_ip.md) | consistency | 30 |
-| [`default_geometry`](default_geometry.md) | soft | 8 |
-| [`embedded_runtime`](embedded_runtime.md) | consistency | 25 |
-| [`empty_languages`](empty_languages.md) | soft | 8 |
-| [`empty_plugins`](empty_plugins.md) | soft | 8 |
-| [`engine_ua_mismatch`](engine_ua_mismatch.md) | consistency | 30 |
-| [`fingerprint_reuse`](fingerprint_reuse.md) | consistency | 25 |
-| [`iframe_proxy`](iframe_proxy.md) | consistency | 30 |
-| [`image_broken`](image_broken.md) | soft | 8 |
-| [`implausible_hardware`](implausible_hardware.md) | soft | 8 |
-| [`impossible_window`](impossible_window.md) | soft | 8 |
-| [`jsengine_ua_mismatch`](jsengine_ua_mismatch.md) | consistency | 25 |
-| [`lang_mismatch`](lang_mismatch.md) | consistency | 15 |
-| [`language_primary_mismatch`](language_primary_mismatch.md) | consistency | 15 |
-| [`low_color_depth`](low_color_depth.md) | soft | 8 |
-| [`matchmedia_missing`](matchmedia_missing.md) | soft | 8 |
-| [`missing_proprietary_codecs`](missing_proprietary_codecs.md) | soft | 8 |
-| [`mobile_no_touch`](mobile_no_touch.md) | consistency | 20 |
-| [`native_tamper`](native_tamper.md) | hard | 45 |
-| [`netinfo_incoherent`](netinfo_incoherent.md) | soft | 8 |
-| [`no_chrome_object`](no_chrome_object.md) | soft | 8 |
-| [`no_fonts`](no_fonts.md) | soft | 8 |
-| [`plugins_mimetypes_incoherent`](plugins_mimetypes_incoherent.md) | soft | 8 |
-| [`productsub_mismatch`](productsub_mismatch.md) | consistency | 20 |
 | [`proxy_ip`](proxy_ip.md) | consistency | 20 |
-| [`screen_avail_impossible`](screen_avail_impossible.md) | soft | 8 |
-| [`sec_fetch_missing`](sec_fetch_missing.md) | soft | 8 |
-| [`tz_self_inconsistent`](tz_self_inconsistent.md) | consistency | 25 |
-| [`ua_chrome_version_mismatch`](ua_chrome_version_mismatch.md) | consistency | 25 |
-| [`ua_header_mismatch`](ua_header_mismatch.md) | consistency | 35 |
-| [`ua_os_mismatch`](ua_os_mismatch.md) | consistency | 30 |
-| [`vendor_mismatch`](vendor_mismatch.md) | consistency | 20 |
-| [`zero_outer_height`](zero_outer_height.md) | soft | 8 |
+
+## Not yet tested against real automation (0)
+
+Every implemented check has at least one real-automation or constructed-fire-branch data point as of 2026-07-19 — see the [full sweep finding](../findings/2026-07-19-remaining-43-checks-sweep.md). This section is kept (empty) as the place a newly-added, untested check lands.

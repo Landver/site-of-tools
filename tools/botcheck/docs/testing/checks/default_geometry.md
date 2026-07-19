@@ -12,9 +12,9 @@ The screen is exactly 800×600, the default of headless images and fresh VMs. Re
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+No construction needed: fired on stock, unmodified Selenium/chromedriver, plain headless Puppeteer, and raw-CDP runs alike — headless Chromium's real screen default is 800×600 unless a window-size/screen-emulation flag overrides it. Strongest evidence tier here: genuine off-the-shelf automation, not a synthetic probe. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

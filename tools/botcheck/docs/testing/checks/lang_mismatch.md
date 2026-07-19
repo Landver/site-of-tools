@@ -12,9 +12,9 @@ navigator.languages and the Accept-Language header are set from the same browser
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding and no dedicated Go test references this rule ID directly.
+Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.languages` to `["de-DE"]`, left the real `Accept-Language` header (en-US) untouched. Fired `JS de vs header en` through the real collector — plus, as a bonus, tripped `language_primary_mismatch` and `context_language_mismatch` in the same run. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

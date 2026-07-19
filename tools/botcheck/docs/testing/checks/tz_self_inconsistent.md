@@ -12,9 +12,9 @@ The browser's IANA timezone name implies a different UTC offset than Date().getT
 
 Internal-backlog Layer 2 item, shipped: compares `Intl.DateTimeFormat().resolvedOptions().timeZone` (IANA name) against `getTimezoneOffset()` — Go resolves the zone with `time.LoadLocation` (embedding `time/tzdata`) at request time, threaded in as `Signals.Now` to keep `Evaluate` pure. IP-independent, unlike `tz_mismatch`.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `Date.prototype.getTimezoneOffset` to return `0`, left the real IANA zone name (`Europe/Moscow`) untouched. Fired `Europe/Moscow implies -180 min but reported 0` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

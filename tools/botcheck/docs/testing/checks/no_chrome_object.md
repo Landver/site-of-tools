@@ -12,9 +12,9 @@ A Chrome User-Agent but no window.chrome object, which real desktop Chrome alway
 
 Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): `window.chrome = undefined`. Fired through the real collector. Note for anyone extending this probe: `window.chrome` is a non-configurable-but-writable own property on this Chromium build — `delete`/`Object.defineProperty` throws "Cannot redefine property," plain assignment is the way to nuke it. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

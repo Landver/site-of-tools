@@ -12,9 +12,9 @@ The screen reports a colour depth below 16 bits. No real modern display looks li
 
 Internal-backlog Layer 1 item, shipped: `screen.colorDepth` below 16 bits — no real modern display reports that.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `screen.colorDepth` to `8`. Fired `colorDepth=8` through the real collector; genuine automation reports a real 24-bit display and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

@@ -12,9 +12,9 @@ A browser-claimed User-Agent but no Sec-Fetch-* headers, which real browsers sen
 
 Internal-backlog Layer 1 item, shipped: a browser-claimed UA sending no `Sec-Fetch-*` headers, which real browsers send on every navigation/fetch. Kept soft rather than hard for the same reason as the **G06** header rules — a proxy in the path can strip headers too.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Curl-verified both directions against local dev: browser UA + no `Sec-Fetch-Mode` fires; header present stays `ok`; non-browser UA never fires (gated by `looksLikeBrowser`). Confirmed clean on a real `POST /check` mimicking the collector's own `fetch` headers too. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

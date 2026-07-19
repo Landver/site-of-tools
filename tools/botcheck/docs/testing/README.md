@@ -53,6 +53,11 @@ automation-harness/
   cdp-trap.test.mjs         # node:test — isolated cdpTrap() probe, no network
   full-sweep.mjs            # full check-breakdown dump against a live instance,
                              # headless vs. headful, with a diff
+  ua-mismatch-probe.mjs     # constructs UA/engine/platform-mismatch fire conditions
+                             # (Puppeteer + evaluateOnNewDocument overrides) against
+                             # the real collector — see findings/2026-07-19-remaining-43-checks-sweep.md
+  fire-branch-probe.mjs     # same idea for the DOM/API-override family (canvas,
+                             # fonts, screen, matchMedia, connection, iframe, …)
   frameworks/
     playwright/             # one subfolder per automation framework under test
     selenium/
@@ -84,4 +89,7 @@ about detection evasion tools not distributed over npm (Python's
 `nodriver`/`undetected-chromedriver`, Go-based CDP libraries, browser
 extensions). Treat every "confirmed dead" finding in
 [findings-log.md](findings-log.md) as "dead against modern Chromium via
-npm-distributed tooling," not "dead everywhere, forever."
+npm-distributed tooling," not "dead everywhere, forever." **2026-07-19:**
+considered a dedicated Python-based pass against the non-npm tools above,
+decided not worth the infra spend right now — revisit only if this class of
+tool becomes a real, active concern.

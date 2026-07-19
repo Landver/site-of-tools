@@ -12,9 +12,9 @@ A Chromium-family User-Agent whose navigator.vendor isn't 'Google Inc.' — real
 
 Internal-backlog Layer 1 item, shipped: a Chromium-family UA whose `navigator.vendor` isn't `"Google Inc."` — real Chrome, Edge, and Opera all report it; forks that drop the field entirely yield no signal rather than a false mismatch.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.vendor` to `"Evil Corp"` on a Chrome-claiming UA. Fired `vendor=Evil Corp` through the real collector — a dedicated positive to go with the prior incidental sandbox trip noted below. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

@@ -12,9 +12,9 @@ The page feature-detects the real rendering engine (Blink/Gecko/WebKit) and comp
 
 **G05**, shipped 2026-07-17: `engineFamily()` feature-detects the real rendering engine independent of the UA string (`-moz-appearance` ⇒ Gecko, `GestureEvent` ⇒ WebKit, `-webkit-app-region`/`webkitRequestFileSystem` ⇒ Blink), compared against the engine `engineFromUA` infers from the claimed User-Agent — robust against a spoofed UA string a parse would otherwise trust.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/ua-mismatch-probe.mjs`): overrode `navigator.userAgent` to claim Firefox while the real engine underneath stayed Blink. Fired `engine blink vs UA implies gecko` through the real collector's feature-detection probe. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

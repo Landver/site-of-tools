@@ -12,9 +12,9 @@ The brand list in the Sec-CH-UA header disagrees with navigator.userAgentData.br
 
 Internal-backlog Layer 2 item, shipped: parses the `Sec-CH-UA` header's brand list and compares it to JS `navigator.userAgentData.brands` (the GREASE decoy brand ignored on both sides).
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Curl `POST /check`: real `Sec-CH-UA` header (Chromium + Google Chrome brands) against a client JSON body claiming `brands: ["Opera"]`. Fired with `header and JS brand lists differ`. (The browser-probe route hit a harness quirk — the root `puppeteer` package's plain launch reports empty `userAgentData.brands` on this origin even unmodified, unlike raw-cdp/selenium — so this was closed via direct header+payload instead; see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md) for the harness caveat.)
 
 ## Go scorer coverage
 

@@ -12,9 +12,9 @@ The JavaScript Proxy constructor re-checked inside an iframe's separate realm: r
 
 **G11**, shipped 2026-07-18, alongside `iframe_webdriver`: builds a fresh `srcdoc` iframe and checks whether its `contentWindow` is itself a Proxy — CreepJS's `hasIframeProxy` is the direct mechanical reference. Stealth's own contentWindow-proxy patch verifiably throws when this fresh frame's window is read, which is what the probe catches.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-Not one of the six checks the 2026-07-19 stealth deep-dive specifically targeted, so no real-automation data point either way yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): patched `HTMLIFrameElement.prototype.contentWindow` to throw on read, mimicking the puppeteer-extra-stealth iframe patch this rule targets. Fired through the real collector's `iframeProxied()` probe; genuine automation (stealth included) leaves the getter alone and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

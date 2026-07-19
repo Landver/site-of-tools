@@ -12,9 +12,9 @@ No probe fonts could be detected at all — a neutralised font-enumeration surfa
 
 Internal-backlog Layer 2 item, shipped: zero probe fonts detectable via the `measureText` width technique — a neutralised font-enumeration surface or a genuinely font-less headless/VM environment. Aggressive anti-fingerprint settings suppress fonts too, kept soft for that reason.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): patched `CanvasRenderingContext2D.prototype.measureText` so every probe font measures identically to its baseline. Fired (`fontCount: 0`) through the real collector's `detectFonts()`; genuine automation (Selenium, raw-cdp, stealth) reports real fonts (11 detected) and stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

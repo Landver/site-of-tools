@@ -12,9 +12,9 @@ navigator.connection derives its effectiveType from the very rtt/downlink estima
 
 **G21**, shipped 2026-07-18 (wave-2, same v4 `env` section as `matchmedia_missing`): `navigator.connection`'s `effectiveType` is derived by the browser from its own `rtt`/`downlink` numbers, so claiming a faster type than those numbers imply means the object was overridden by a spoof — thresholds are graced to tolerate the API's own rounding. Firefox and Safari usually lack this API entirely, a normal absence read as no signal. Deliberately **not** built from the same G21 batch: incognito detection via storage quota (that's G19, separately skipped as unreliable), an rtt-vs-IP-geo cross-check (client RTT measures the same egress path the IP geolocation already describes, so an ordinary VPN user would false-fire it), full Permissions-state enumeration (a two-name sample already carries the entropy at no extra cost), and MediaCapabilities beyond EME ClearKey.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): overrode `navigator.connection` to claim `effectiveType: "4g"` alongside `rtt: 2000ms`/`downlink: 0.05Mbps` (which imply slow-2g). Fired `effectiveType "4g" but rtt 2000ms / downlink 0.05Mbps imply at most slow-2g` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

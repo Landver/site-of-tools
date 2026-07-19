@@ -12,9 +12,9 @@ userAgentData.platform re-read in a worker, iframe, or Service Worker disagrees 
 
 **G03**, shipped 2026-07-18, same four-rule batch: diffs `userAgentData.platform` across contexts. Empty values (unsupported API, probe timeout) are never treated as a mismatch.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-Same cross-context family that caught stealth via other fields (UA, cores, WebGL), but this specific field wasn't called out as firing in the audit's stealth deep-dive.
+Fired as an incidental bonus of the `ch_platform_mismatch` scenario in `automation-harness/ua-mismatch-probe.mjs`: patching `userAgentData` on the main thread doesn't reach a dedicated Worker's separate realm, so the Worker still reported the real platform — tripped `service worker platform macOS vs main Windows` through the real collector. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

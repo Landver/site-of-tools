@@ -12,9 +12,9 @@ The same stable browser fingerprint (User-Agent, screen, GPU, timezone, …) arr
 
 **G41/G42**, shipped 2026-07-18: backed by the rolling 30-day Mongo fingerprint corpus ([`corpus.go`](../../../corpus.go), `botcheck_fingerprints` collection) — `Signals.FingerprintHash()` (sha256 over UA, languages, platform, cores, memory, screen, timezone, WebGL vendor/renderer, productSub, engine, font count) is the exact fingerprint ID; this rule fires at five or more distinct IPs presenting the same hash in the window, the scraping-farm catch (one person roaming networks never reaches five in a month). Suppressed for verified crawler fleets (**G36**), which legitimately share one fingerprint by design. Full storage detail: [storage.md](../../storage.md).
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding — this rule is inherently about longitudinal reuse across many IPs over a rolling 30-day corpus, not something a single-session framework run can exercise. Has solid dedicated Go-level coverage instead (below).
+Closed despite the longitudinal-corpus caveat above: `POST /check` with an identical synthetic fingerprint from 6 distinct spoofed `CF-Connecting-IP` values (trusted unconditionally in dev — see `platform/app.go`'s `cfIPExtractor`). Fired at exactly the 5th distinct IP (`fingerprintReuseMinIPs`), silent at 4; repeat hits from one IP never inflated the count — confirms real dedup against the live Mongo corpus, not just a hit counter. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

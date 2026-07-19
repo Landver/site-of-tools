@@ -12,9 +12,9 @@ window.matchMedia is part of every real browser's CSS support, desktop and mobil
 
 **G15**, shipped 2026-07-18 (wave-2 probes batch, collector payload bumped to `v: 4` with an additive `env` section): a browser-claimed UA missing `window.matchMedia` entirely is a stripped JavaScript environment (jsdom-style) wearing a browser UA. A devicePixelRatio-vs-screen consistency rule from the same G15 batch was **deliberately not built**: zoom legitimately changes DPR and inner-window sizes while `screen.*` stays zoom-invariant in Chrome, so a zoomed-out real window would false-fire it. CSS system colors were also dropped from this batch (see `image_broken`'s G10 note — same dated-tell problem).
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No real-automation-harness finding yet.
+Real-browser probe (`automation-harness/fire-branch-probe.mjs`): deleted `window.matchMedia`. Fired through the real collector; genuine automation exposes it and stays `ok`. Side effect worth knowing: this uncovered a real, separate bug — `shared/templates/partials/head.html`'s inline theme-detector calls bare `matchMedia(...)` unguarded and threw under this exact condition, breaking `window.toggleTheme` site-wide. Fixed with a `typeof` guard; see [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

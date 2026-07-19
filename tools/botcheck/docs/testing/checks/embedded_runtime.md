@@ -12,9 +12,9 @@ The User-Agent belongs to an embedded runtime (Electron, CEF, QtWebEngine, NW.js
 
 Original day-1 rule, its scope clarified by **G13** (2026-07-18): CefSharp/Awesomium/CEF are deliberately excluded from `framework_globals`'s hard-60 automation-marker list specifically because this rule already covers that class of legitimate desktop app embedding a Chromium engine — a division of labor between the two rules, not an oversight.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No dedicated automation-harness finding, but incidentally corroborated: the `chrome_runtime_tamper` deprioritization investigation independently observed this session's own in-app Browser pane presenting an Electron UA (`...Electron/42.5.1...`) — "same class of embedded runtime `embedded_runtime` is built to flag," per that investigation's notes (see [checks/chrome_runtime_tamper.md](chrome_runtime_tamper.md)). Not a substitute for a dedicated test against this rule.
+Dedicated real-browser probe now closes what was previously only incidental corroboration: `automation-harness/ua-mismatch-probe.mjs` set an Electron-flavored UA (`...botcheck-harness Electron/25.3.1 Chrome/114...`) via `page.setUserAgent`, fired `matched electron` through the real collector, `-25`. Independently reconfirmed live: this session's own in-app Browser pane genuinely IS Electron 42.5.1-embedded — hitting the real dev instance from it scored 75/100 "Suspicious" with `embedded_runtime` as the *only* deduction, everything else `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

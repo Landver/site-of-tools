@@ -12,9 +12,9 @@ window.outerHeight is exactly 0 — no real browser window has zero outer height
 
 Internal-backlog item, shipped 2026-07-18 (v3-gated, guarded so stale pre-v3 payloads skip rather than false-fire): `window.outerHeight` exactly `0` while `innerHeight` is positive — no real browser window has zero outer height, but a headless environment that never creates a visible window reports it.
 
-## Test status: Not yet tested against real automation
+## Test status: Verified — fires correctly
 
-No dedicated finding, but fired once as an incidental data point: the same confounded Claude-in-Chrome sandbox session from the `tz_mismatch`/`webrtc_ip_mismatch` investigation also tripped this rule — it stayed a no-op (below the soft cluster's 3-signal threshold) and wasn't investigated further since that session was already known to be an unrepresentative sandbox — see [`tz_mismatch`](tz_mismatch.md).
+Confirmed three ways. Constructed: real-browser probe (`automation-harness/fire-branch-probe.mjs`) overrode `window.outerHeight` to `0`, fired through the real collector. Genuine off-the-shelf automation: plain headless Puppeteer with no window-size flag set reports a real `outerHeight: 0` on its own, no override needed. Genuine human, no automation at all: the user's actual Chrome 149/macOS (via the Claude-in-Chrome connector) scored 100/100 "Looks human" but this one line read **flagged** — `window.outerHeight` genuinely read 0 under that extension-driven browsing session. All three land safely: this is exactly why the rule is soft-tier and only bites inside a ≥3-signal cluster — the real false-positive case cost nothing. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 

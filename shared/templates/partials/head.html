@@ -10,7 +10,11 @@
     (function () {
       var el = document.documentElement;
       var saved = localStorage.getItem("theme");
-      el.setAttribute("data-theme", saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+      // typeof-guard: a stripped/hardened JS environment without matchMedia (see
+      // botcheck's matchmedia_missing check) would otherwise throw here, before
+      // toggleTheme() below is even defined.
+      var prefersDark = typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
+      el.setAttribute("data-theme", saved || (prefersDark ? "dark" : "light"));
       window.toggleTheme = function () {
         var next = el.getAttribute("data-theme") === "dark" ? "light" : "dark";
         localStorage.setItem("theme", next);
