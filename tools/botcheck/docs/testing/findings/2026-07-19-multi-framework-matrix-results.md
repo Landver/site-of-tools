@@ -4,7 +4,7 @@
 [botcheck docs index](../../README.md))*
 
 Five frameworks run via `Workflow` in parallel, each in its own
-`verify-cdp/frameworks/<name>/` subfolder against the local dev instance:
+`automation-harness/frameworks/<name>/` subfolder against the local dev instance:
 
 | Framework | Setup | Live score | What actually caught it |
 |---|---|---|---|

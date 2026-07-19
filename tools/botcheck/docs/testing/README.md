@@ -29,17 +29,19 @@ prior E2E pass, because nobody had a harness that could catch a client-side
 ## Test architecture
 
 A gitignored, npm-based harness lives outside the Go module at
-**`/verify-cdp/`** (repo root, sibling to `tools/`) — **not** part of the shipped
-product, **not** committed (see `.gitignore`: `/verify-cdp/`). This is a
+**`/automation-harness/`** (repo root, sibling to `tools/`) — **not** part of the shipped
+product, **not** committed (see `.gitignore`: `/automation-harness/`). This is a
 deliberate, scoped exception to CLAUDE.md rule #3 ("No Node/npm. Ever."): the
 rule protects the *shipped binary and its frontend* from a JS toolchain
 dependency; it says nothing about disposable local verification tooling that
 never ships. If that changes (the repo decides to track these tests for real),
 un-gitignore the folder and promote it properly — flagged here rather than
-decided unilaterally.
+decided unilaterally. (Named `automation-harness`, not `verify-cdp` — it
+outgrew that name once it started covering Playwright, Selenium,
+puppeteer-extra-stealth, and raw CDP, not just the CDP trap.)
 
 ```
-verify-cdp/
+automation-harness/
   .puppeteerrc.cjs          # keeps the downloaded Chromium local to this folder
   .chromium-cache/          # ~550MB, shared across every Puppeteer-based test below
   cdp-trap.test.mjs         # node:test — isolated cdpTrap() probe, no network

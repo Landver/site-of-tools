@@ -24,4 +24,4 @@ shared/static/css/styles.css
 
 # one-off npm/Puppeteer verification harness — not part of the Go build,
 # never meant to be a standing dependency (see CLAUDE.md rule #3)
-/verify-cdp/
+automation-harness/

@@ -21,7 +21,7 @@ their scoring): **AmIUnique** and **EFF Cover Your Tracks** (the latter is AGPLv
 so read-only, never vendored). The server scorer is our own — none of these ship
 one we'd want.
 
-> **Note:** [`/verify-cdp/`](../../../verify-cdp) is a separate thing — a
+> **Note:** [`/automation-harness/`](../../../automation-harness) is a separate thing — a
 > gitignored, npm-based *test* harness (not shipped, not committed) that drives
 > real automation frameworks against the live tool to check detection actually
 > works. See [testing/README.md](testing/README.md). It's a deliberate, scoped

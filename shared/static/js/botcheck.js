@@ -185,12 +185,31 @@
   //   quirk would hit both alike and read as "can't tell".
   //
   // Tell B — error-stack trap frames (CreepJS queryLies-style). Calling a proxied
-  //   function routes through the attacker's JS `apply` trap, so when the native
-  //   under it throws (guaranteed here by an illegal `this`), the trap's frame
-  //   lands in err.stack ("at Function.apply" / "at Object.apply" in V8, "apply@…"
-  //   in Gecko/WebKit). A pristine engine throws straight at our call site — a
-  //   `.call` invocation never produces an `apply` frame. Message text is never
+  //   function routes through the attacker's JS trap, so when the native under it
+  //   throws (guaranteed here by an illegal `this`), the trap's own frame lands in
+  //   err.stack. A pristine engine throws straight at our call site — a `.call`
+  //   invocation never produces an extra trap frame. Message text is never
   //   asserted; an unreadable or empty stack is "can't tell" ⇒ false.
+  //
+  //   2026-07-19 audit note: the original regex (`at\s+\S*apply\b|\bapply@`)
+  //   assumed V8 names a Proxy trap's frame as a plain "at Object.apply" /
+  //   "at Function.apply" — true on the older V8 puppeteer-extra-stealth's own
+  //   anchor-stripping (`stripProxyFromErrors` in its `_utils/index.js`) was
+  //   written against. Current V8 (Chrome 150) instead renders it as an ALIAS
+  //   frame, e.g. "at newHandler.<computed> [as apply]" — which the old regex
+  //   never matched, so this tell silently never fired (confirmed evaded in
+  //   the multi-framework matrix run). The alias format also means stealth's
+  //   OWN anchor search (which looks for a literal "Object.newHandler.<computed>
+  //   [as " prefix) misses too, on this V8, on the very first illegal call — no
+  //   double-nesting needed, its stripping is just a no-op here. Verified via
+  //   `automation-harness/frameworks/puppeteer-extra-stealth`: unmodified
+  //   stealth 2.11.2 leaks the raw "[as apply]" frame on a single throw;
+  //   Playwright's un-stealthed headless Chromium and a genuine unpatched
+  //   Chromium (Electron) both throw a clean, alias-free native stack for the
+  //   exact same call, so the broadened pattern doesn't pick up ordinary
+  //   automation or ordinary browsers — only an actual Proxy trap in the way.
+  const TRAP_ALIAS_RE =
+    /\[as (?:apply|construct|get|set|has|deleteProperty|defineProperty|getOwnPropertyDescriptor|ownKeys|getPrototypeOf|setPrototypeOf|isExtensible|preventExtensions)\]/;
   const nativeToStringProxied = () => safe(() => {
     const fts = Function.prototype.toString;
     const ctrl = Function.prototype.call; // known-native control, same spec shape
@@ -206,7 +225,7 @@
       try { Function.prototype.toString.call(null); return ""; } catch (e) { return String((e && e.stack) || ""); }
     }, "");
     const frames = stack.split("\n").slice(1).join("\n"); // drop the message line
-    return /at\s+\S*apply\b|\bapply@/.test(frames);
+    return /at\s+\S*apply\b|\bapply@/.test(frames) || TRAP_ALIAS_RE.test(frames);
   }, false); // any failure ⇒ false: never flag on doubt
 
   // ── v3 probes (G09/G10/G17/G22/G23) ─────────────────────────────────────────

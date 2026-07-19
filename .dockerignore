@@ -8,3 +8,4 @@ tools/iptools/assets
 shared/tailwindcss
 docs
 *.md
+automation-harness/
