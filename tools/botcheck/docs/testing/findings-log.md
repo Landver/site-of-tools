@@ -1,84 +1,13 @@
-# Bot check — automation test architecture & false-negative roadmap
+# Bot check — automation-test findings log
 
-Companion to [`RESEARCH.md`](RESEARCH.md) (how competitor services work) and
-[`ROADMAP.md`](ROADMAP.md) (feature/signal gap audit). This doc is narrower:
-**does botcheck actually catch real, off-the-shelf automation tools**, verified
-by running them for real rather than reasoning about them — plus what that
-testing found broken and what's left to fix.
+*(part of the [botcheck docs index](../README.md), see [README.md](README.md)
+for the harness architecture)* — dated entries, newest section at the bottom
+of each date. See [next-steps.md](next-steps.md) for the prioritized to-do list
+these findings produced.
 
-Started 2026-07-19, after a manual review (via Claude's own in-app/CDP-driven
-browser) found the CDP-detection checks reading "ok" against a session that is
-in fact CDP-driven. That review is written up in the session that produced this
-doc; the summary worth keeping is below.
+## 2026-07-19 — CDP-trap family: confirmed dead, downgraded to soft tier (FIXED)
 
-## Why this needed real browsers, not more reasoning
-
-`go test ./... -race` (CLAUDE.md rule #6) never exercises
-[`shared/static/js/botcheck.js`](../../../shared/static/js/botcheck.js) — the Go
-tests construct `Signals` directly and feed them to `Evaluate`. That's correct
-for testing the *scorer*, but it means a bug in the *collector* (wrong value,
-thrown exception, wrong DOM read) is structurally invisible to the existing test
-suite forever. The `webglGPU()` bug below shipped and passed every Go test and
-every prior E2E pass, because nobody had a harness that could catch a client-side
-`ReferenceError` swallowed by `safe()`.
-
-## Test architecture
-
-A gitignored, npm-based harness lives outside the Go module at
-**`/verify-cdp/`** (repo root, sibling to `tools/`) — **not** part of the shipped
-product, **not** committed (see `.gitignore`: `/verify-cdp/`). This is a
-deliberate, scoped exception to CLAUDE.md rule #3 ("No Node/npm. Ever."): the
-rule protects the *shipped binary and its frontend* from a JS toolchain
-dependency; it says nothing about disposable local verification tooling that
-never ships. If that changes (the repo decides to track these tests for real),
-un-gitignore the folder and promote it properly — flagged here rather than
-decided unilaterally.
-
-```
-verify-cdp/
-  .puppeteerrc.cjs          # keeps the downloaded Chromium local to this folder
-  .chromium-cache/          # ~550MB, shared across every Puppeteer-based test below
-  cdp-trap.test.mjs         # node:test — isolated cdpTrap() probe, no network
-  full-sweep.mjs            # full check-breakdown dump against a live instance,
-                             # headless vs. headful, with a diff
-  frameworks/
-    playwright/             # one subfolder per automation framework under test
-    selenium/
-    puppeteer-extra-stealth/
-    raw-cdp/
-    nightmare/
-```
-
-**Target:** point every test at a **local dev instance**
-(`APP_ENV=dev go run .` from repo root, served at `http://botcheck.localhost:8080/`
-— Chromium resolves `*.localhost` to loopback natively, no `/etc/hosts` edit
-needed), not production. Two reasons: it exercises whatever fix is currently
-uncommitted in the working tree, and it doesn't add synthetic noise to the real
-Mongo request log / fingerprint corpus. Hit the real
-`https://botcheck.corpberry.com/` only when specifically validating deployed
-behavior.
-
-**Adding a new framework:** make a new `frameworks/<name>/` subfolder, `npm init
--y`, install only what that framework needs, keep any downloaded browser binary
-local to the subfolder (mirror `.puppeteerrc.cjs`'s pattern — e.g.
-`PLAYWRIGHT_BROWSERS_PATH` for Playwright), and reuse `full-sweep.mjs`'s
-DOM-extraction approach for reading the score/verdict/check-list/raw-fingerprint
-out of the rendered `#result` fragment. Report at minimum: `navigator.webdriver`,
-`frameworkGlobals`, `cdpMainThread`/`cdpWorker`, and whether the live score
-matched expectations.
-
-**Known gap in this harness:** it proves a signal fires or doesn't against
-*today's* Chromium build. It says nothing about older Chromium/Firefox/Safari,
-and nothing about detection evasion tools not distributed over npm (Python's
-`nodriver`/`undetected-chromedriver`, Go-based CDP libraries, browser
-extensions). Treat every "confirmed dead" finding below as "dead against modern
-Chromium via npm-distributed tooling," not "dead everywhere, forever."
-
-## Findings log
-
-### 2026-07-19 — CDP-trap family: confirmed dead, downgraded to soft tier (FIXED)
-
-`cdpTrap()` ([botcheck.js:52](../../../shared/static/js/botcheck.js:52)) —
+`cdpTrap()` ([botcheck.js](../../../../shared/static/js/botcheck.js)) —
 backing `cdp_both`/`cdp_main_only`/`cdp_sw_only` — defines a getter on an
 `Error`'s `.stack` and calls `console.debug()` on it, expecting a CDP client
 with `Runtime.enable` active to invoke the getter while building an object
@@ -116,13 +45,13 @@ tell). `go test ./... -race` green after the change — nothing in the existing
 suite asserted a specific tier for these three IDs, only `.Triggered` booleans,
 so this was safe to change without touching test expectations.
 
-### 2026-07-19 — `webdriver_sw`: confirmed across 3 frameworks, left as-is (documentation fix only)
+## 2026-07-19 — `webdriver_sw`: confirmed across 3 frameworks, left as-is (documentation fix only)
 
 Playwright, Selenium/chromedriver, and the original Puppeteer session all show
 the same pattern: main thread `webdriver: true` and iframe `iframeWebdriver:
 true` correctly, but the Service Worker `swWebdriver: false` — for the *same*
 automated session, three separate frameworks, not a fluke. The SW script itself
-is written correctly ([handler.go:60](../handler.go:60),
+is written correctly (the `swScript` const in [handler.go](../../handler.go),
 `navigator.webdriver===true`) — Chromium's `ServiceWorkerGlobalScope` appears to
 simply not carry the `--enable-automation` flag into `navigator.webdriver`
 there, regardless of patching.
@@ -138,9 +67,9 @@ state plainly that a clean reading here isn't reassuring. Left running as a
 hard tell on the chance it does fire someday (a genuine positive would still
 be strong evidence); just stopped pretending a miss means anything.
 
-### 2026-07-19 — `webglGPU()` bug: FIXED
+## 2026-07-19 — `webglGPU()` bug: FIXED
 
-[botcheck.js:474](../../../shared/static/js/botcheck.js:474) referenced an
+`webglGPU()` in [botcheck.js](../../../../shared/static/js/botcheck.js) referenced an
 undefined variable `c` instead of creating its own canvas (unlike
 `canvasProbe()`/`detectFonts()`, which each make their own). Reproduced directly
 in a real page: throws `ReferenceError: c is not defined`, silently swallowed by
@@ -156,19 +85,16 @@ the top-level fields.
 **Fixed:** added `const c = document.createElement("canvas");` at the top of
 `webglGPU()`. Verified the fix directly (same reproduction, now returns real
 vendor/renderer instead of throwing). `go test ./... -race` still green (this
-bug was invisible to it — see "why this needed real browsers" above). This had
-been silently neutering three rules for every visitor since it shipped:
-`software_renderer` (40 pts, hard), `webgl_vendor_mismatch` (20 pts),
-`gpu_os_mismatch` (25 pts) — 85 points of scoring logic that had never
-evaluated a single real fingerprint.
+bug was invisible to it — see [README.md](README.md)'s "why this needed real
+browsers"). This had been silently neutering three rules for every visitor
+since it shipped: `software_renderer` (40 pts, hard), `webgl_vendor_mismatch`
+(20 pts), `gpu_os_mismatch` (25 pts) — 85 points of scoring logic that had
+never evaluated a single real fingerprint.
 
-**Not yet deployed** — this is a local source fix, uncommitted, verified only
-in this working tree and against the local dev server. It needs review + a
-commit + a push to reach `https://botcheck.corpberry.com/` (deploy is
-CI/CD-driven off pushes to the deploy branch — not something to do
-autonomously).
+**Deployed 2026-07-19** (same day, after review) — merged to `master` and
+confirmed live on `https://botcheck.corpberry.com/` via CI/CD.
 
-### 2026-07-19 — multi-framework matrix results
+## 2026-07-19 — multi-framework matrix results
 
 Five frameworks run via `Workflow` in parallel, each in its own
 `verify-cdp/frameworks/<name>/` subfolder against the local dev instance:
@@ -211,8 +137,8 @@ doc — validated against a real, current, actively-maintained adversarial tool.
 The six checks specifically built to catch stealth's *signature* all missed;
 the checks built to catch stealth's *incompleteness* caught it anyway. Good
 news for the architecture, bad news for those six specific checks, which need
-their own follow-up (see Roadmap) since stealth has evidently moved past what
-they detect.
+their own follow-up (see [next-steps.md](next-steps.md)) since stealth has
+evidently moved past what they detect.
 
 **Raw-CDP finding — the actual remaining gap, worse than initially scoped.**
 Score 40/100 "bot" against a hand-rolled CDP client with no `--enable-automation`
@@ -230,7 +156,7 @@ client currently has almost nothing standing in its way. Not a code bug to
 patch — a structural limitation of what client-side JS can detect about a
 disciplined custom automation client that doesn't announce itself. Documented
 here rather than "fixed" because there's no honest fix for it at this layer;
-see Roadmap for what a next layer of defense would need.
+see [next-steps.md](next-steps.md) for what a next layer of defense would need.
 
 **`chrome_runtime_tamper` — investigated, a promising fix reverted.** The
 stealth-evasion finding above prompted tightening `chromeRuntimeOK()` to flag
@@ -246,54 +172,16 @@ property of that Chrome *distribution*, not proof of automation — and this
 audit's sandbox has no genuine consumer-Chrome binary to check whether regular
 Chrome behaves differently. Reverted rather than ship an unverified rule that
 could score real human visitors as tampered. Full reasoning is inline at
-[botcheck.js:238](../../../shared/static/js/botcheck.js:238) and in
-[report.go](../report.go)'s `chrome_runtime_tamper` explanation. This is the
-single most valuable open item in the roadmap below — it's a real, closeable
-gap, just not closeable tonight without a genuine consumer Chrome sample.
+the `chromeRuntimeOK()` comment in [botcheck.js](../../../../shared/static/js/botcheck.js) and in
+[`../../report.go`](../../report.go)'s `chrome_runtime_tamper` explanation.
+This is the single most valuable open item in [next-steps.md](next-steps.md)
+— it's a real, closeable gap, just not closeable without a genuine consumer
+Chrome sample.
 
-## Roadmap (prioritized)
+## 2026-07-19 — docs reorganized
 
-1. **Land the fixes already made** — `webglGPU()` bug fix, and the CDP-trio
-   re-tier/re-weight/re-documentation — by reviewing the diff and pushing (deploy
-   is CI/CD-driven off pushes; not done autonomously). Nothing here is
-   deployed yet; `https://botcheck.corpberry.com/` still runs the old code.
-2. **Resolve `chrome_runtime_tamper` for real** — get one real, unmodified
-   consumer Google Chrome (not "Chrome for Testing") to check whether
-   `chrome.runtime` is reliably present there. If yes, ship the tightened
-   version from tonight (already written and verified against the stealth
-   case, just reverted for lack of this one data point) — it would close a
-   confirmed stealth-evasion gap. If no, this check may need retiring instead.
-3. **The stealth-specific G04/G22 probes need their own follow-up.**
-   `tostring_proxy`, `native_descriptor_tamper`, `native_callnew_tamper`,
-   `navigator_proto_tamper` were all built explicitly to catch
-   `puppeteer-extra-plugin-stealth` and none of them do anymore against the
-   current version (2.11.2) — the plugin evidently evolved past them. Worth a
-   focused pass reading the current stealth-plugin source (it's open source)
-   to see exactly what changed and whether a sharper probe is feasible, rather
-   than assuming the cross-context checks alone are enough going forward (they
-   worked this time; that's not a guarantee).
-4. **The raw-CDP / custom-harness gap is the real remaining hole** and doesn't
-   have a client-side JS fix: a disciplined custom automation client that (a)
-   doesn't include "Headless" in its UA, (b) doesn't trip `navigator.webdriver`
-   or does so consistently across every context (unlike stealth's inconsistent
-   patching), and (c) injects no framework markers currently evades nearly
-   everything in this tool. The honest options are architectural, not
-   check-level: lean harder on IP/network reputation and the fingerprint-reuse
-   corpus (orthogonal signals, already built), consider a behavioral layer
-   (mouse/keyboard trajectory, already noted as a non-goal in `ROADMAP.md`'s
-   G52 for good reason), or accept this as a known, documented limit of a
-   client-fingerprint-only, no-ML detector. Don't let a future contributor
-   "fix" this with another single clever trap without reading this section
-   first — that's exactly how the CDP trap ended up here.
-5. **Revisit `ROADMAP.md`'s G16** (DevTools-open / debugger-timing detection),
-   previously shelved as "skip, redundant with the CDP trap." That reasoning
-   assumed the CDP trap works; it doesn't. Note, though: G16 detects a human
-   with DevTools open, not automation — Puppeteer/Playwright/Selenium don't
-   open a visible DevTools panel by default, so G16 wouldn't actually have
-   caught anything in this audit's matrix either. Re-evaluate what it's
-   actually good for before building it.
-6. **Non-npm evasion tools stay untested by this harness** — Python's
-   `undetected-chromedriver`/`nodriver`, browser extensions, and anything not
-   on npm are a known blind spot of this specific test setup, not confirmed
-   safe. Worth a separate pass if this matters enough (would need a Python
-   environment, out of scope for the npm-based harness described here).
+This findings log, the harness architecture, and the next-steps list used to
+be one 299-line `TESTING.md`, itself a sibling to a 386-line `README.md` and a
+465-line `ROADMAP.md`. Split by topic into `docs/testing/`, `docs/roadmap/`,
+and standalone reference files — see the top-level
+[docs index](../README.md). No content was dropped, only relocated.

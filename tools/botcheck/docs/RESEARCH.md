@@ -137,7 +137,7 @@ below the handler, and which open-source collectors it borrows (BotD, CreepJS
 modules, fp-collect / fp-scanner, MixVisit, FingerprintJS). What it deliberately
 *doesn't* do yet — TLS JA3/JA4, HTTP/2 frame + header-order fingerprinting, TCP/IP
 OS fingerprinting, behavioral and crowd/rarity scoring — and the backlog of what
-to build next live in [`ROADMAP.md`](ROADMAP.md). The recurring lesson throughout:
+to build next live in [`roadmap/`](roadmap/README.md). The recurring lesson throughout:
 client signals are all spoofable, so the load-bearing checks are the cross-layer
 and cross-context consistency ones plus the server-observed network facts the
 browser cannot forge.

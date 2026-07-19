@@ -869,7 +869,7 @@ var rules = []rule{
 		// current Chromium regardless of transport; it isn't one browser evading
 		// it. Left running (harmless when silent, and free in case a future
 		// Chromium regression or an older engine revives it) rather than deleted
-		// — see tools/botcheck/docs/TESTING.md for the full writeup.
+		// — see tools/botcheck/docs/testing/findings-log.md for the full writeup.
 		id: "cdp_both", label: "CDP automation detected in main thread and Worker", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && s.CDPWorker, "" },
 	},

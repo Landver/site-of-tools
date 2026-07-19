@@ -73,7 +73,10 @@ When unsure of an exact v5 signature, check the pinned v5 docs (context7:
 - `tools/<tool>/` — each tool subdomain, self-contained (e.g. `tools/iptools/`,
   `tools/botcheck/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
   + a `tests/` sub-package + a `docs/` folder holding the tool's markdown
-  (`docs/README.md`, and for botcheck `docs/RESEARCH.md`/`ROADMAP.md`/`reports/`).
+  (`docs/README.md`, and for botcheck an index at `docs/README.md` linking out
+  to `docs/RESEARCH.md`/`reports/`, `docs/roadmap/`, `docs/testing/`, and
+  per-topic reference files — split by topic to keep any single doc read
+  small).
   Each is its own Go package (embed reason); keep `.md` in `docs/`, not the code root.
 - Tests go in `<pkg>/tests/` (black-box). A white-box test that needs unexported
   symbols is the exception and sits beside the code as `*_test.go`.

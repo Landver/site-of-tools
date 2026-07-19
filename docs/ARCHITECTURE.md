@@ -282,10 +282,11 @@ site-of-tools/
 │   └── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
 │       ├── botcheck.go · scoring.go · handler.go · embed.go · tests/
 │       ├── templates/        #     index · result
-│       └── docs/             #     all of this tool's markdown
-│           ├── README.md     #       design + reference
+│       └── docs/             #     all of this tool's markdown, split by topic
+│           ├── README.md     #       index — links to everything below
 │           ├── RESEARCH.md   #       how the 12 competitor services work
-│           ├── ROADMAP.md    #       what to build next & why
+│           ├── roadmap/      #       what to build next & why (per-category files)
+│           ├── testing/      #       automation-detection test harness + findings
 │           └── reports/      #       per-service research writeups
 ├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
 ├── .githooks/pre-push        # test gate (enable: make hooks)
