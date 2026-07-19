@@ -20,7 +20,7 @@ See [finding](../findings/2026-07-19-multi-framework-matrix-results.md).
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestHeadlessChromeScoresBot`, `TestServerOnlySkipsClientChecks`; `tests/handler_test.go`: `TestCheckJSONFlagsWebdriver`, `TestIndexCurlGetsServerOnlyScore`, `TestCheckDatacenterPlusHeadlessIsBot`, `TestServiceWorkerScriptServed`; `tests/report_test.go`: `TestTierScore`, `TestSubgroup`, `TestExplanation`, `TestResultTemplateShowsNewSections`, `TestCheckFragmentShowsReportingSections`, `TestResultTemplateWithoutPayloadHidesNewSections`.
+`tests/botcheck_test.go`: `TestHeadlessChromeScoresBot`, `TestServerOnlySkipsClientChecks`; `tests/handler_test.go`: `TestCheckJSONFlagsWebdriver`, `TestIndexCurlGetsServerOnlyScore`, `TestCheckDatacenterPlusHeadlessIsBot`, `TestServiceWorkerScriptServed`; `tests/report_test.go`: `TestSubgroup`, `TestExplanation`, `TestResultTemplateShowsNewSections`, `TestCheckFragmentShowsReportingSections`, `TestResultTemplateWithoutPayloadHidesNewSections`.
 
 ---
 

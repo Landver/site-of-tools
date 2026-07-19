@@ -10,92 +10,10 @@ import (
 	"github.com/Landver/site-of-tools/tools/botcheck"
 )
 
-// report_test.go covers the presentation helpers (report.go: G50 sub-scores,
-// G55 explanations, G56 environment line) and their rendering in result.html.
-// Like the domain tests it needs no HTTP and no databases: Reports are built
-// by hand, and the fragment is rendered straight through the real templates.
-
-func TestTierScore(t *testing.T) {
-	tests := []struct {
-		name string
-		rep  botcheck.Report
-		tier string
-		want int
-	}{
-		{"no checks is 100", botcheck.Report{}, "hard", 100},
-		{
-			"triggered checks deduct their weight",
-			botcheck.Report{Checks: []botcheck.Check{
-				{ID: "webdriver", Tier: "hard", Weight: 60, Triggered: true},
-				{ID: "native_tamper", Tier: "hard", Weight: 45, Triggered: true},
-			}},
-			"hard", 0, // 100 − 105, clamped
-		},
-		{
-			"other tiers are untouched",
-			botcheck.Report{Checks: []botcheck.Check{
-				{ID: "webdriver", Tier: "hard", Weight: 60, Triggered: true},
-			}},
-			"consistency", 100,
-		},
-		{
-			"suppressed checks deduct nothing (verified good bot)",
-			botcheck.Report{Checks: []botcheck.Check{
-				{ID: "bot_user_agent", Tier: "hard", Weight: 60, Triggered: true, Suppressed: true},
-				{ID: "tz_mismatch", Tier: "consistency", Weight: 25, Triggered: true},
-			}},
-			"hard", 100,
-		},
-		{
-			"untriggered checks deduct nothing",
-			botcheck.Report{Checks: []botcheck.Check{
-				{ID: "webdriver", Tier: "hard", Weight: 60},
-			}},
-			"hard", 100,
-		},
-		{
-			"soft tier ignores individual hits below the cluster",
-			botcheck.Report{Checks: []botcheck.Check{
-				{ID: "empty_plugins", Tier: "soft", Weight: 8, Triggered: true},
-				{ID: "no_fonts", Tier: "soft", Weight: 8, Triggered: true},
-			}},
-			"soft", 100,
-		},
-		{
-			"soft tier deducts the cluster penalty once active",
-			botcheck.Report{Checks: []botcheck.Check{
-				{ID: "empty_plugins", Tier: "soft", Weight: 8, Triggered: true},
-				{ID: "no_fonts", Tier: "soft", Weight: 8, Triggered: true},
-				{ID: "default_geometry", Tier: "soft", Weight: 8, Triggered: true},
-			}},
-			"soft", 75,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.rep.TierScore(tt.tier); got != tt.want {
-				t.Errorf("TierScore(%q) = %d, want %d", tt.tier, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestTierScoreMatchesEvaluate pins the sub-scores to what the scorer actually
-// docked: a real Evaluate report's tier scores must sum to its overall score.
-func TestTierScoreMatchesEvaluate(t *testing.T) {
-	sig := cleanChrome()
-	sig.Webdriver = true      // hard −60
-	sig.IPTimezone = "+03:00" // consistency: tz_mismatch −25 (browser stays New York)
-	rep := botcheck.Evaluate(sig)
-	hard, consistency, soft := rep.TierScore("hard"), rep.TierScore("consistency"), rep.TierScore("soft")
-	if hard != 40 || consistency != 75 || soft != 100 {
-		t.Errorf("tier scores = %d/%d/%d, want 40/75/100 (score %d)",
-			hard, consistency, soft, rep.Score)
-	}
-	if got := hard + consistency + soft - 200; got != rep.Score {
-		t.Errorf("tier scores imply overall %d, Evaluate scored %d", got, rep.Score)
-	}
-}
+// report_test.go covers the presentation helpers (report.go: G55 explanations,
+// G56 environment line) and their rendering in result.html. Like the domain
+// tests it needs no HTTP and no databases: Reports are built by hand, and the
+// fragment is rendered straight through the real templates.
 
 func TestSubgroup(t *testing.T) {
 	rep := botcheck.Report{Checks: []botcheck.Check{
@@ -198,7 +116,6 @@ func TestResultTemplateShowsNewSections(t *testing.T) {
 		"Chrome 125 · macOS · Blink", // …naming the environment
 		"raw fingerprint",            // G54 dump card
 		"webdriver",                  // …with the POSTed values inside
-		"headless tells — 40/100",    // G50 sub-score in the eyebrow
 		">why</summary>",             // G55 per-signal expander
 	} {
 		if !strings.Contains(body, want) {
@@ -219,7 +136,6 @@ func TestCheckFragmentShowsReportingSections(t *testing.T) {
 		"raw fingerprint",
 		"Detected environment:",
 		"Chrome 125 · macOS · Blink",
-		"headless tells — 40/100", // webdriver alone: 100 − 60
 		">why</summary>",
 	} {
 		if !strings.Contains(frag, want) {
@@ -230,8 +146,7 @@ func TestCheckFragmentShowsReportingSections(t *testing.T) {
 
 func TestResultTemplateWithoutPayloadHidesNewSections(t *testing.T) {
 	// The server-only GET view (and the error path) has no client payload: the
-	// raw dump and the environment line must not render, and the sub-scores
-	// still show (nothing triggered ⇒ 100).
+	// raw dump and the environment line must not render.
 	rep := botcheck.Report{
 		Score: 100, Verdict: "human",
 		Checks: []botcheck.Check{
@@ -243,8 +158,5 @@ func TestResultTemplateWithoutPayloadHidesNewSections(t *testing.T) {
 		if strings.Contains(body, absent) {
 			t.Errorf("server-only fragment must not contain %q:\n%s", absent, body)
 		}
-	}
-	if !strings.Contains(body, "headless tells — 100/100") {
-		t.Errorf("an untriggered tier should show a 100 sub-score:\n%s", body)
 	}
 }

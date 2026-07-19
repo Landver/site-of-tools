@@ -111,3 +111,20 @@ caught. All three findings logged only (see
 [`../testing/findings-log.md`](../testing/findings-log.md) and
 [`../testing/next-steps.md`](../testing/next-steps.md)) — no scoring or
 collector code changed in this pass.
+
+**Result-page UX fixes (2026-07-19, same day).** Two user-reported issues on
+the result page fixed. First, the "raw fingerprint" tab buried its JSON dump
+behind a `<details>` toggle even though the tab itself is already one click
+away and not shown by default — an unnecessary second click removed; the dump
+now renders directly under the "Raw fingerprint" tab. Second, **G50 per-tier
+sub-scores reverted**: `Report.TierScore("consistency")` computed one score
+for the whole consistency tier, but the result page reused that same call in
+all four consistency subgroup cards (IP & network, User-Agent, cross-context,
+browser internals) — so a card could read e.g. "browser internals
+cross-checks — 50/100" while every check inside it showed "ok", the 50
+actually coming from a different subgroup's failure. Rather than build a
+subgroup-scoped score, the per-card score line was dropped entirely from all
+six breakdown cards (hard, soft, and the four consistency subgroups); the
+hero score at the top of the page already carries the overall number.
+`Report.TierScore` and its tests removed as dead code — see
+[reporting-ux.md](reporting-ux.md) (G50).

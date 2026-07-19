@@ -6,11 +6,9 @@ import (
 )
 
 // report.go holds the presentation helpers the result template renders on top
-// of the scored Report — per-signal explanations (G55), the detected-environment
-// line (G56), and per-tier sub-scores (G50). Nothing here changes scoring: these
-// are pure read-only views over what Evaluate already computed, so the score and
-// the numbers shown beside it can never drift apart (TierScore re-derives a
-// tier's score from the same checks the overall score used).
+// of the scored Report — per-signal explanations (G55) and the detected-environment
+// line (G56). Nothing here changes scoring: these are pure read-only views over
+// what Evaluate already computed.
 
 // Explanation is the G55 per-signal write-up: what the check looks at, why it
 // fires, and its known limitation — the candor that makes a transparency tool
@@ -98,29 +96,6 @@ var ruleExplanations = map[string]string{
 	"system_color_headless":        "CSS system colours resolve to values no real desktop theme produces — headless builds have no OS theme underneath, so themed colours fall back to defaults.",
 	"plugins_mimetypes_incoherent": "navigator.plugins and navigator.mimeTypes must cross-reference each other; a spoofed plugin list that isn't wired both ways is internally incoherent.",
 	"zero_outer_height":            "window.outerHeight is exactly 0 — no real browser window has zero outer height, but a headless environment that never creates a visible window reports it.",
-}
-
-// TierScore is the G50 per-tier sub-score: 100 minus the weights of that tier's
-// triggered, non-suppressed checks, clamped at 0. For the soft tier the only
-// possible deduction is the cluster penalty (soft checks never dock points
-// individually), so it reads 100 unless the cluster is active. Suppressed
-// checks (expected of a verified good bot) deduct nothing here, exactly as they
-// deduct nothing from the overall score — the sub-scores always sum with the
-// hero number.
-func (r Report) TierScore(tier string) int {
-	score := 100
-	if tier == TierSoft {
-		if r.SoftClusterActive() {
-			score -= softComboWeight
-		}
-		return max(score, 0)
-	}
-	for _, c := range r.Checks {
-		if c.Tier == tier && c.Triggered && !c.Suppressed {
-			score -= c.Weight
-		}
-	}
-	return max(score, 0)
 }
 
 // Environment names the detected browsing environment in one short human line

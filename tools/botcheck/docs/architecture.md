@@ -18,9 +18,8 @@
   fields, folds fingerprint into Mongo corpus (G41/G42), serves the
   `/botcheck-sw.js` Service Worker script, calls `Evaluate`, content-negotiates
   the response.
-- `report.go` — presentation helpers: per-tier sub-scores (`TierScore`), rule
-  explanations (`Explanation`/`ruleExplanations`), browser/engine display line
-  (`Environment`).
+- `report.go` — presentation helpers: rule explanations (`Explanation`/
+  `ruleExplanations`), browser/engine display line (`Environment`).
 - `goodbots.go` — verified-crawler classifier: `BotIdentity`, good-bot allowlist,
   `classifyGoodBot` (called from `Evaluate` to suppress expected deductions).
 - `templates/` — `botcheck/index` (page) + `botcheck/result` (fragment).

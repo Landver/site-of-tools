@@ -23,9 +23,9 @@ only.
   good-bot suppression, and nil-safe disabled store. Live Mongo round-trip +
   end-to-end handler wiring run only when `MONGODB_TEST_URI` set, skip cleanly
   otherwise (iptools-history pattern).
-- **Report (`report_test.go`)** — `TierScore` per-tier deductions/suppression,
-  rule `Explanation` lookups, `Environment` browser/engine display line, plus
-  their rendering through `result.html`.
+- **Report (`report_test.go`)** — `Subgroup` filtering, rule `Explanation`
+  lookups, `Environment` browser/engine display line, plus their rendering
+  through `result.html`.
 
 White-box test beside code, `tools/botcheck/report_internal_test.go` (package
 `botcheck`, CLAUDE.md-documented exception for tests needing unexported

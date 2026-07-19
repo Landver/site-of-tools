@@ -20,7 +20,7 @@ See [finding](../findings/2026-07-19-multi-framework-matrix-results.md).
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestServerOnlySkipsClientChecks`, `TestEmptyUserAgentFlags`, `TestElectronUAIsSuspiciousNotHardBot`, `TestGoodBotClassification`; `tests/handler_test.go`: `TestGoodBotResultTemplateRenders`; `tests/report_test.go`: `TestTierScore`.
+`tests/botcheck_test.go`: `TestServerOnlySkipsClientChecks`, `TestEmptyUserAgentFlags`, `TestElectronUAIsSuspiciousNotHardBot`, `TestGoodBotClassification`; `tests/handler_test.go`: `TestGoodBotResultTemplateRenders`.
 
 ---
 

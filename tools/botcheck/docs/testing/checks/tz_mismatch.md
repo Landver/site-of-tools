@@ -18,7 +18,7 @@ Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there'
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestStealthSpoofScoresBot`, `TestServerOnlySkipsClientChecks`, `TestTimezoneOffsetComparedNotStringMatched`, `TestUnknownIPTimezoneDoesNotTripCrossCheck`; `tests/handler_test.go`: `TestPlaceholderTimezoneCleanedThroughHandler`, `TestCheckTimezoneMismatchFiresThroughHandler`; `tests/report_test.go`: `TestTierScore`, `TestSubgroup`.
+`tests/botcheck_test.go`: `TestStealthSpoofScoresBot`, `TestServerOnlySkipsClientChecks`, `TestTimezoneOffsetComparedNotStringMatched`, `TestUnknownIPTimezoneDoesNotTripCrossCheck`; `tests/handler_test.go`: `TestPlaceholderTimezoneCleanedThroughHandler`, `TestCheckTimezoneMismatchFiresThroughHandler`; `tests/report_test.go`: `TestSubgroup`.
 
 ---
 

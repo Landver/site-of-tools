@@ -18,7 +18,7 @@ Real-browser probe (`fire-branch-probe.mjs`): patched `measureText` so every pro
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestLayer2Signals`; `tests/report_test.go`: `TestTierScore`.
+`tests/botcheck_test.go`: `TestLayer2Signals`.
 
 ---
 

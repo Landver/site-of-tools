@@ -18,7 +18,7 @@ Real-browser probe (`fire-branch-probe.mjs`): crude non-Proxy `Function.prototyp
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestStealthPatchedBrowserScoresBot`; `tests/handler_test.go`: `TestCheckDeepTamperSignalsThroughHandler`; `tests/report_test.go`: `TestTierScore`.
+`tests/botcheck_test.go`: `TestStealthPatchedBrowserScoresBot`; `tests/handler_test.go`: `TestCheckDeepTamperSignalsThroughHandler`.
 
 ---
 

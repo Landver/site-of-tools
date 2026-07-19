@@ -18,7 +18,7 @@ Real-browser probe (`fire-branch-probe.mjs`): overrode `navigator.plugins` to `[
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestTwoSoftSignalsStayHuman`; `tests/report_test.go`: `TestTierScore`.
+`tests/botcheck_test.go`: `TestTwoSoftSignalsStayHuman`.
 
 ---
 

@@ -18,7 +18,7 @@ Fired on stock, unmodified Selenium/Puppeteer/raw-CDP — headless Chromium's re
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestTwoSoftSignalsStayHuman`; `tests/report_test.go`: `TestTierScore`.
+`tests/botcheck_test.go`: `TestTwoSoftSignalsStayHuman`.
 
 ---
 
