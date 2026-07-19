@@ -50,7 +50,7 @@ Beyond individual signals, several services model good *practices* worth copying
   `[native code]` — it walks property descriptors, traps whether `call`/`new`
   throw the right `TypeError`, and detects the `Function.prototype.toString` Proxy
   that stealth plugins install. See [client-signals.md](client-signals.md) (G04,
-  G17, G22) — and [`../testing/findings-log.md`](../testing/findings-log.md) for
+  G17, G22) — and [the multi-framework matrix results](../testing/findings/2026-07-19-multi-framework-matrix-results.md) for
   the 2026-07-19 finding that the current `puppeteer-extra-plugin-stealth`
   evades all of these anyway.
 - **Feature-detecting the *real* engine.** iphey/MixVisit feature-detect Blink vs

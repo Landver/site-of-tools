@@ -52,7 +52,7 @@ Rules are tiered:
   (as of 2026-07-19) the three CDP-preview checks (`cdp_both`/`cdp_main_only`/
   `cdp_sw_only`) — downgraded from hard/consistency after an audit found they
   never fire against real CDP-driven automation; see
-  [testing/findings-log.md](testing/findings-log.md). Soft signals **only bite
+  [the CDP-trap finding](testing/findings/2026-07-19-cdp-trap-family-confirmed-dead.md). Soft signals **only bite
   as a cluster of ≥3** (one 25-point deduction), so a single quirk never
   false-positives a real human.
 
@@ -65,7 +65,7 @@ vs `userAgentData.platform` vs the GPU renderer's implied platform; main-thread
 navigator vs Worker vs iframe. Any single hard tell (≥40) drops a clean 100 below
 80 on its own, so a real automation flag never reads "human." (2026-07-19 caveat:
 this held up well in practice — see the `puppeteer-extra-plugin-stealth` test in
-[testing/findings-log.md](testing/findings-log.md), where the cross-context
+[the multi-framework matrix results](testing/findings/2026-07-19-multi-framework-matrix-results.md), where the cross-context
 checks caught what six purpose-built stealth-detection rules missed.)
 
 Every rule appears in the response `checks` list as flagged / clean /

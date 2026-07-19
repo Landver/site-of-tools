@@ -42,6 +42,6 @@ exception silently swallowed by its `safe()` wrapper, a wrong DOM read) is
 invisible to `go test` by design, since it tests the *scorer*, not the
 *collector*. This is exactly what let a real bug in `webglGPU()` ship and
 survive every Go test run — see
-[testing/findings-log.md](testing/findings-log.md#2026-07-19--webglgpu-bug-fixed)
+[testing/findings/2026-07-19-webglgpu-bug-fixed.md](testing/findings/2026-07-19-webglgpu-bug-fixed.md)
 for the incident and why the npm-based [testing/](testing/README.md) harness
 exists to cover that gap.

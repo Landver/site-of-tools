@@ -23,7 +23,7 @@ a returning visitor with a stale cached collector never reads as tampered.
   Worker, and the Service Worker). **2026-07-19 finding:** the CDP probe was
   confirmed dead against five real CDP-driven automation frameworks and
   downgraded to soft tier — see
-  [testing/findings-log.md](testing/findings-log.md) before assuming this
+  [the CDP-trap finding](testing/findings/2026-07-19-cdp-trap-family-confirmed-dead.md) before assuming this
   still works as a strong tell.
 - **Lie / tamper detection** — the shallow `Function.prototype.toString()`
   `[native code]` check on key natives, plus the deep G04 probes: property-
@@ -40,7 +40,7 @@ a returning visitor with a stale cached collector never reads as tampered.
   error constructor wrong) plus the **late-injection index** ('chrome' among the
   last ~50 window keys means it was bolted on after page setup). **2026-07-19
   finding:** all of these were evaded by the current `puppeteer-extra-plugin-stealth`
-  — see [testing/findings-log.md](testing/findings-log.md).
+  — see [the multi-framework matrix results](testing/findings/2026-07-19-multi-framework-matrix-results.md).
 - **Cross-context consistency** — recompute `navigator.{userAgent, languages,
   hardwareConcurrency, userAgentData.platform}` inside a Web Worker, a Service
   Worker (served from `/botcheck-sw.js`), and an iframe, plus the WebGL
@@ -50,7 +50,7 @@ a returning visitor with a stale cached collector never reads as tampered.
   Proxy. POST all copies so Go can diff them (top-frame-only spoofs collapse
   here). **This is the family that actually caught `puppeteer-extra-plugin-stealth`**
   in the 2026-07-19 audit when the purpose-built stealth checks above didn't —
-  see [testing/findings-log.md](testing/findings-log.md).
+  see [the multi-framework matrix results](testing/findings/2026-07-19-multi-framework-matrix-results.md).
 - **Classic headless tells** — impossible permission state (`prompt` while
   `denied`); `window.chrome` presence; empty `plugins`/`languages`; plugins
   without `mimeTypes`; software WebGL renderer (SwiftShader/Mesa); default

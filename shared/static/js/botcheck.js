@@ -253,7 +253,7 @@
   // audit's environment to confirm it behaves differently. Shipping the tightened
   // version risked scoring real human visitors on that build as tampered — not
   // worth it without verifying against actual consumer Chrome first. See
-  // tools/botcheck/docs/testing/findings-log.md for the full note; left as an open item.
+  // tools/botcheck/docs/testing/findings/2026-07-19-multi-framework-matrix-results.md for the full note; left as an open item.
   const chromeRuntimeOK = () => safe(() => {
     if (!("chrome" in window)) return true;
     const c = window.chrome;

@@ -20,8 +20,8 @@ in fact CDP-driven.
 the Go tests construct `Signals` directly and feed them to `Evaluate`. That's
 correct for testing the *scorer*, but it means a bug in the *collector* (wrong
 value, thrown exception, wrong DOM read) is structurally invisible to the
-existing test suite forever. The `webglGPU()` bug in
-[findings-log.md](findings-log.md) shipped and passed every Go test and every
+existing test suite forever. The [`webglGPU()` bug](findings/2026-07-19-webglgpu-bug-fixed.md)
+shipped and passed every Go test and every
 prior E2E pass, because nobody had a harness that could catch a client-side
 `ReferenceError` swallowed by `safe()`. See also
 [`../go-test-suite.md`](../go-test-suite.md) for what the Go suite does cover.

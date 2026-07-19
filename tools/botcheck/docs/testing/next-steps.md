@@ -18,8 +18,18 @@
    `shared/static/js/botcheck.js` — only a comment documenting the audit
    exists in history; the logic itself is unchanged), so it isn't recoverable
    from git and would need to be re-derived from
-   [findings-log.md](findings-log.md)'s `chrome_runtime_tamper` entry, which
-   has the exact before/after logic described.
+   [the multi-framework matrix results](findings/2026-07-19-multi-framework-matrix-results.md)'s `chrome_runtime_tamper` entry, which
+   has the exact before/after logic described. **Update 2026-07-19:** got a
+   second data point — genuine consumer Chrome 149 via the Claude in Chrome
+   browser extension also lacks `chrome.runtime` (see the
+   [real-Chrome baseline entry](findings/2026-07-19-chrome-runtime-real-chrome-baseline.md)) — but that session is extension/debugger-
+   controlled, so it's still not the fully organic control this item needs.
+   Also, reading the stealth plugin's actual `chrome.runtime` evasion (see
+   item 3 below) shows presence/absence was never a sound signal against a
+   stealth-equipped adversary in the first place, even with a clean organic
+   sample — it only ever protected against a naive (non-stealth) bot. Worth
+   deciding whether that downgrades this item's priority regardless of what
+   the organic sample eventually shows.
 3. **The stealth-specific G04/G17 probes need their own follow-up.**
    `tostring_proxy`, `native_descriptor_tamper`, `native_callnew_tamper` (G04)
    were built explicitly to catch `puppeteer-extra-plugin-stealth` by name;
@@ -29,7 +39,14 @@
    them. Worth a focused pass reading the current stealth-plugin source (it's
    open source) to see exactly what changed and whether a sharper probe is
    feasible, rather than assuming the cross-context checks alone are enough
-   going forward (they worked this time; that's not a guarantee).
+   going forward (they worked this time; that's not a guarantee). **Update
+   2026-07-19:** read `berstend/puppeteer-extra`'s `_utils/index.js` — see the
+   ["read puppeteer-extra-plugin-stealth's source" entry](findings/2026-07-19-puppeteer-extra-stealth-source-read.md) for
+   the full breakdown (`stripProxyFromErrors`, `patchToString`/
+   `redirectToString`, `replaceProperty` explain all four). That entry also
+   has one concrete, unverified probe idea (chaining two nested proxy-trap
+   throws to try to defeat the single-anchor stack stripping) worth
+   prototyping next.
 4. **The raw-CDP / custom-harness gap is the real remaining hole** and doesn't
    have a client-side JS fix: a disciplined custom automation client that (a)
    doesn't include "Headless" in its UA, (b) doesn't trip `navigator.webdriver`
@@ -60,3 +77,9 @@
    safe. Worth a separate pass if this matters enough (would need a Python
    environment, out of scope for the npm-based harness described in
    [README.md](README.md)).
+7. ~~**`timezone_ip_mismatch` + `webrtc_ip_mismatch` false positive**~~ —
+   closed 2026-07-19: the 50/100 "Suspicious" reading traced to the Claude in
+   Chrome sandbox's own network path (egress ≠ browser timezone/WebRTC
+   address), not a real risk. Owner's ordinary Chrome session (no
+   sandbox/proxy) scored a clean 100/human on the same two checks. See
+   [the finding](findings/2026-07-19-timezone-webrtc-ip-mismatch-closed.md). No scoring change needed.

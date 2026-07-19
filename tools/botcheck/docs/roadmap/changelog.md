@@ -113,3 +113,22 @@ this `roadmap/` folder, a `testing/` folder, and standalone reference files
 alongside `README.md` — see [`../README.md`](../README.md)'s index for the full
 map. No content was dropped, only relocated; check git history for this
 commit if a cross-reference looks stale.
+
+**Audit follow-up (2026-07-19, same day): two new data points, no code shipped
+yet.** Continuing the false-negative audit's next-steps list: (1) a genuine
+consumer Chrome 149 session (via the Claude in Chrome browser extension, not
+the npm harness) also lacks `window.chrome.runtime` — a second data point
+alongside the "Chrome for Testing" binary, though still confounded by
+extension/debugger control rather than a fully organic sample; (2) read the
+current `puppeteer-extra-plugin-stealth` source (`_utils/index.js`) and found
+the generic mechanism — `stripProxyFromErrors`, `patchToString`/
+`redirectToString`, `replaceProperty` — behind all four dead G04/G17 probes,
+plus one untested idea for a sharper probe (chained nested proxy-trap
+throws). The same real session also surfaced an unplanned finding: it scored
+50/100 "Suspicious" purely from `timezone_ip_mismatch` + `webrtc_ip_mismatch`
+firing together, a pattern architecturally identical to any real VPN/proxy
+user, which the original audit's same-network test matrix couldn't have
+caught. All three findings are logged only (see
+[`../testing/findings-log.md`](../testing/findings-log.md) and
+[`../testing/next-steps.md`](../testing/next-steps.md)) — no scoring or
+collector code changed in this pass.
