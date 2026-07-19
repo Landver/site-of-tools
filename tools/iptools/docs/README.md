@@ -1,31 +1,31 @@
 # IP tools (`ip.corpberry.com`)
 
-A small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Three pages
-today, switched by a sub-nav:
+Small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Three
+pages today, switched by sub-nav:
 
-- **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; a bare visit also
-  inspects *your own* connection (see [Endpoints](#endpoints)).
+- **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; bare visit
+  also inspects *your own* connection (see [Endpoints](#endpoints)).
 - **Subnet calculator** (`/cidr`) — pure CIDR math, no databases.
-- **Lookup history** (`/history`) — the most recent user-run lookups, backed by
-  MongoDB (see [Lookup history](#lookup-history)); degrades to an empty page when
-  Mongo is off.
+- **Lookup history** (`/history`) — most recent user-run lookups, backed by
+  MongoDB (see [Lookup history](#lookup-history)); degrades to empty page when
+  Mongo off.
 
-This is the tool's design + reference doc. The tool is a straight application of
-the layered request pattern in
+This is tool's design + reference doc. Straight application of layered request
+pattern in
 [ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
-and it's the sibling that [`botcheck`](../../botcheck/docs/README.md) borrows its server-side IP
-layer from.
+sibling that [`botcheck`](../../botcheck/docs/README.md) borrows its
+server-side IP layer from.
 
 ## Package layout (`iptools/`, self-contained)
 
 - `geoip.go` — geo/proxy **domain** (pure Go, no HTTP): `Service`, `Result`,
   `OpenService`, `Lookup`, the `Looker` interface.
-- `cidr.go` — the subnet-calculator **domain** (pure CIDR math, no databases).
-- `handler.go` — **transport**: `Register` + the query-param parsing, then
+- `cidr.go` — subnet-calculator **domain** (pure CIDR math, no databases).
+- `handler.go` — **transport**: `Register` + query-param parsing, then
   `platform.Respond`.
 - `templates/` — `index.html`, `result.html`, `cidr.html`, `nav.html`.
-- `assets/` — the `.BIN` databases (gitignored, bind-mounted read-only in prod).
-- `download-assets.sh` — fetches the databases (run via `make assets`).
+- `assets/` — `.BIN` databases (gitignored, bind-mounted read-only in prod).
+- `download-assets.sh` — fetches databases (run via `make assets`).
 
 **Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
 
@@ -39,27 +39,27 @@ IP2Location **LITE** (free tier). Present on disk today:
 | ASN | `asn/…LITE-ASN.BIN`, `…LITE-ASN.IPV6.BIN` | 156M / 262M | ✅ |
 | IP2Proxy PX12 | `ip2proxy/…PX12.BIN` (+ CSV) | **1.7 GB** | ✅ |
 
-IP2Proxy (proxy/VPN/threat detection) is read by a **separate** module,
-`github.com/ip2location/ip2proxy-go/v4` (v3 panics on a PX12 database — needs
-≥v4). It's **optional**: set `IP2PROXY_PX12` to enable the proxy section, leave it
-empty to disable. Like the geo BINs it reads via `ReadAt`, so the 1.7 GB file
-costs ~no RAM (~9 MB RSS observed), not a full in-memory load.
+IP2Proxy (proxy/VPN/threat detection) read by **separate** module,
+`github.com/ip2location/ip2proxy-go/v4` (v3 panics on PX12 database — needs
+≥v4). **Optional**: set `IP2PROXY_PX12` to enable proxy section, leave empty to
+disable. Like geo BINs, reads via `ReadAt`, so 1.7 GB file costs ~no RAM (~9 MB
+RSS observed), not full in-memory load.
 
 ## `geoip` domain service
 
 `ip2location-go/v9` reads **both** DB11 and ASN BINs (no separate ASN module);
-IP2Proxy is a **separate** package, `ip2proxy-go/v4`. Key facts (verified):
+IP2Proxy is **separate** package, `ip2proxy-go/v4`. Key facts (verified):
 
-- **Open once at startup, share the handle.** A `*DB` is goroutine-safe (reads go
+- **Open once at startup, share the handle.** `*DB` is goroutine-safe (reads go
   through positional `ReadAt`, no shared offset, no globals). Never open per
-  request; never use the deprecated package-level `Open()/Close()` — use `OpenDB()`.
-- **No mmap, no full load into RAM.** `OpenDB` reads on demand via `ReadAt`; a
+  request; never use deprecated package-level `Open()/Close()` — use `OpenDB()`.
+- **No mmap, no full load into RAM.** `OpenDB` reads on demand via `ReadAt`;
   200 MB+ BIN costs ~no Go heap (served from OS page cache).
-- **IPv4 vs IPv6:** the v4 BIN answers v4 only; the v6 BIN answers **both**. We
-  open all four geo handles and route by address family.
-- **Proxy is optional + best-effort.** When `IP2PROXY_PX12` is set, `OpenService`
-  also opens the single PX12 BIN (answers v4 + v6, same `ReadAt`, ~9 MB RSS); a
-  failed proxy lookup returns `nil` and simply omits the section.
+- **IPv4 vs IPv6:** v4 BIN answers v4 only; v6 BIN answers **both**. We open all
+  four geo handles and route by address family.
+- **Proxy is optional + best-effort.** When `IP2PROXY_PX12` set, `OpenService`
+  also opens single PX12 BIN (answers v4 + v6, same `ReadAt`, ~9 MB RSS); failed
+  proxy lookup returns `nil`, simply omits section.
 
 ```go
 // iptools/geoip.go — pure domain, no HTTP.
@@ -81,34 +81,34 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 }
 ```
 
-`Result` is the plain struct the transport layer renders as HTML or JSON. Missing
-DBs are non-fatal: `OpenService` returns `ErrUnavailable`, the server still boots,
-and the tool shows a friendly message. The handler depends on a small `Looker`
-interface (`Lookup(string) (*Result, error)`) so tests inject a fake — no BINs
-needed. LITE data can return placeholder `"-"` for some fields; guard on display.
+`Result` is plain struct transport layer renders as HTML or JSON. Missing DBs
+non-fatal: `OpenService` returns `ErrUnavailable`, server still boots, tool
+shows friendly message. Handler depends on small `Looker` interface
+(`Lookup(string) (*Result, error)`) so tests inject a fake — no BINs needed.
+LITE data can return placeholder `"-"` for some fields; guard on display.
 
 ## Fields exposed
 
 **Geolocation:** country (code + name), region, city, ZIP, timezone, latitude,
 longitude, ASN, AS name. **Proxy (when PX12 loaded):** is-proxy, proxy type,
-usage type, threat, provider, fraud score, ISP, domain, last-seen — nested under
-`proxy` in JSON, shown as a separate "proxy / network" card in HTML.
+usage type, threat, provider, fraud score, ISP, domain, last-seen — nested
+under `proxy` in JSON, shown as separate "proxy / network" card in HTML.
 
 ## Endpoints
 
-Every view is content-negotiated
+Every view content-negotiated
 ([ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
 browsers and htmx get HTML, everyone else gets JSON. Lookups are **query-param
-only** (`?ip=…`), consistent with `/cidr?cidr=…` — there is no `/:ip` pretty route.
+only** (`?ip=…`), consistent with `/cidr?cidr=…` — no `/:ip` pretty route.
 
 | Request | Response |
 |---------|----------|
-| `GET /` (browser) | Full page: your own IP looked up (if routable), the **connection inspector**, and a client-side IPv6 check — else the empty form |
-| `GET /?ip=…` (browser) | Full page with the looked-up result |
-| `GET /?ip=…` (htmx) | HTML **fragment**, the result card only (`hx-target="#result"`) |
+| `GET /` (browser) | Full page: own IP looked up (if routable), **connection inspector**, client-side IPv6 check — else empty form |
+| `GET /?ip=…` (browser) | Full page with looked-up result |
+| `GET /?ip=…` (htmx) | HTML **fragment**, result card only (`hx-target="#result"`) |
 | `GET /` or `GET /?ip=…` (JSON) | Geolocation + ASN + proxy for that IP |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
-| `GET /history` | The most recent user-run lookups (HTML page, or `{"lookups":[…]}` JSON) |
+| `GET /history` | Most recent user-run lookups (HTML page, or `{"lookups":[…]}` JSON) |
 
 So this just works:
 ```
@@ -121,79 +121,78 @@ $ curl 'https://ip.corpberry.com/cidr?cidr=192.168.1.0/24'
  "broadcast":"192.168.1.255","netmask":"255.255.255.0","usable_hosts":"254", ...}
 ```
 
-The IP-lookup form uses `hx-get="/"` (→ `GET /?ip=…`, `hx-target="#result"`) for a
-partial swap; the subnet calculator is a plain GET form — a calculator is stateless
-input → output, so a full render is enough (no htmx, per CLAUDE.md rule 4).
+IP-lookup form uses `hx-get="/"` (→ `GET /?ip=…`, `hx-target="#result"`) for
+partial swap; subnet calculator is plain GET form — calculator is stateless
+input → output, full render enough (no htmx, per CLAUDE.md rule 4).
 
-**Connection inspector** (the "your request" card): server-computed request facts —
-the resolved IP and how it was derived (Cloudflare / X-Forwarded-For / direct),
-scheme, host, User-Agent, and language. TLS and HTTP version are omitted (they
-terminate upstream); `Cookie`/`Authorization` are never read. When the visitor
-looks at their own IP (a bare visit), the same lookup also enriches the card
-with its ASN and proxy/VPN attribution (`Result.ConnNetwork()` →
-`platform.ConnInfo.WithNetwork` — the mapping botcheck's card shares). `ip.corpberry.com` is
-DNS-only in Cloudflare today, so requests arrive via nginx's `X-Forwarded-For`.
+**Connection inspector** (the "your request" card): server-computed request
+facts — resolved IP and how derived (Cloudflare / X-Forwarded-For / direct),
+scheme, host, User-Agent, language. TLS and HTTP version omitted (terminate
+upstream); `Cookie`/`Authorization` never read. When visitor looks at own IP
+(bare visit), same lookup also enriches card with ASN and proxy/VPN
+attribution (`Result.ConnNetwork()` → `platform.ConnInfo.WithNetwork` —
+mapping botcheck's card shares). `ip.corpberry.com` is DNS-only in Cloudflare
+today, so requests arrive via nginx's `X-Forwarded-For`.
 
-**IPv6 check** is the one genuinely client-side piece: only the browser can prove a
-working IPv6 path (by fetching an IPv6-only host), so it isn't in the JSON — by
+**IPv6 check** is the one genuinely client-side piece: only browser can prove
+working IPv6 path (by fetching IPv6-only host), so it isn't in JSON — by
 nature, not omission.
 
 ## Lookup history
 
-`GET /history` lists the most recent lookups run from the tool. It is the first
-MongoDB-backed feature here, and a straight application of rule #5: persistence
-lives *below* the domain in a repository (`history.go`, the `History` type), not in
-the handler.
+`GET /history` lists most recent lookups run from tool. First MongoDB-backed
+feature here, straight application of rule #5: persistence lives *below*
+domain in a repository (`history.go`, `History` type), not in handler.
 
-- **Storage.** One document per lookup in the `ip_lookups` collection: the queried
-  IP, its country/city/ASN, and `created_at`. A TTL index (via
-  `platform.EnsureTTLIndex`, 90 days) self-prunes, so it never grows unbounded and
-  the same index serves the newest-first sort — no second index.
-- **What gets recorded.** Only *user-initiated web* lookups: a successful, explicit
-  `?ip=` query from the browser UI. That deliberately excludes the visitor's own
-  auto-lookup (the bare `/` visit and the IPv6 self-probe, which requests JSON) and
-  CLI/JSON callers — so `/history` shows what people chose to look up, not everyone's
-  own address.
-- **Off the request path.** `Record` writes in a background goroutine, so recording
-  never adds latency to (or can fail) the lookup the visitor is waiting on.
-- **Degrades to nothing.** With Mongo disabled the repository is `nil`; `/history`
-  renders an empty "history is off" state and JSON returns `{"lookups":[]}` — the
-  same nil-safe contract as an absent geo database.
-- **Replay.** Each row's IP links back to `/?ip=…`, so a past lookup re-runs in one
+- **Storage.** One document per lookup in `ip_lookups` collection: queried IP,
+  its country/city/ASN, `created_at`. TTL index (via
+  `platform.EnsureTTLIndex`, 90 days) self-prunes, so never grows unbounded,
+  same index serves newest-first sort — no second index.
+- **What gets recorded.** Only *user-initiated web* lookups: successful,
+  explicit `?ip=` query from browser UI. Deliberately excludes visitor's own
+  auto-lookup (bare `/` visit and IPv6 self-probe, which requests JSON) and
+  CLI/JSON callers — so `/history` shows what people chose to look up, not
+  everyone's own address.
+- **Off the request path.** `Record` writes in background goroutine, so
+  recording never adds latency to (or can fail) lookup visitor is waiting on.
+- **Degrades to nothing.** With Mongo disabled repository is `nil`;
+  `/history` renders empty "history is off" state, JSON returns
+  `{"lookups":[]}` — same nil-safe contract as absent geo database.
+- **Replay.** Each row's IP links back to `/?ip=…`, past lookup re-runs in one
   click.
 
-The engine-level **request log** (`platform.RequestLog`, `platform/requestlog.go`)
-is a separate, cross-cutting corpus of *every* request (all subdomains); it is not
+Engine-level **request log** (`platform.RequestLog`, `platform/requestlog.go`)
+is separate, cross-cutting corpus of *every* request (all subdomains); not
 part of this tool. See [ARCHITECTURE §10](../../../docs/ARCHITECTURE.md#10-out-of-scope-now-deliberately-deferred).
 
 ## Abuse protection
 
-None in v1. Rate limiting is deferred with the other stateful concerns: **MongoDB
-is now wired** (a shared client in `platform/`, now used by this tool for lookup
-history), so it's a build-it call rather than a blocked one — it's a public
-endpoint, so revisit rate limiting when it's worth it. The `IPExtractor` is already
-wired, so both the request logs and the request-log corpus show the real client IP.
+None in v1. Rate limiting deferred with other stateful concerns: **MongoDB now
+wired** (shared client in `platform/`, now used by this tool for lookup
+history), so build-it call rather than blocked one — public endpoint, revisit
+rate limiting when worth it. `IPExtractor` already wired, so both request logs
+and request-log corpus show real client IP.
 
 ## Attribution (required)
 
-IP2Location LITE's license **requires a specific, visible credit** on *"all sites,
-advertising materials, and documentation mentioning features or the use of this
-database"*. The exact acknowledgment it mandates is:
+IP2Location LITE's license **requires specific, visible credit** on *"all
+sites, advertising materials, and documentation mentioning features or the use
+of this database"*. Exact acknowledgment it mandates:
 
 > [site or product name] uses the IP2Location LITE database for
 > [IP geolocation](https://lite.ip2location.com).
 
-We render that verbatim in the shared footer, but **gated on a `.Attribution`
-view-model flag** set only by this tool's handler — so it shows on the IP tool
-pages (which use the databases) and is omitted on the apex, which does not use or
-mention the data and therefore falls outside the clause. IP2Proxy LITE carries the
-same acknowledgment wording, so one credit covers both.
+We render that verbatim in shared footer, but **gated on `.Attribution`
+view-model flag** set only by this tool's handler — shows on IP tool pages
+(which use databases), omitted on apex, which doesn't use or mention data,
+falls outside clause. IP2Proxy LITE carries same acknowledgment wording, one
+credit covers both.
 
 ## Later (this subdomain)
 
 - Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
 - Map view of lat/lon; bulk lookup; ASN → prefix listing; range → minimal CIDRs.
-- Rate limiting on the public endpoint, now that storage is wired.
+- Rate limiting on public endpoint, now that storage wired.
 
-*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector, the
-subnet/CIDR calculator, and Mongo-backed lookup history.)*
+*(Done since v1: proxy/VPN detection, IPv6 check, connection inspector,
+subnet/CIDR calculator, Mongo-backed lookup history.)*

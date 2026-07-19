@@ -1,28 +1,23 @@
 # Bot-or-not services — research index
 
-This folder is firsthand research into how public "bot-or-not" / browser-check
-services actually work: what signals they collect, whether they decide on the
-client or the server, and what kind of verdict (if any) they emit. Each service
-was driven live in a real browser and then cross-checked against verified web
-research (vendor docs, engineering blogs, open-source repos, and adversarial
-review of the raw notes). The goal is practical: to inform building our own
-detector, so every report is written for a builder — signal lists, architecture,
-scoring model, open-source reusability, and the gaps a production stack must
-still cover.
+Firsthand research into how public "bot-or-not" / browser-check services actually work: what
+signals collected, client or server decision, what verdict (if any) emitted. Each service driven
+live in real browser, cross-checked against verified web research (vendor docs, engineering
+blogs, open-source repos, adversarial review of raw notes). Goal practical: inform building our
+own detector, so every report written for a builder — signal lists, architecture, scoring model,
+open-source reusability, gaps a production stack must still cover.
 
-The test subject throughout was the **in-app Claude/Electron browser**
-(`Claude/… Chrome/148 Electron/42.5.1`, macOS, M-series), egressing through a
-**NordVPN / DataCamp datacenter IP** (`87.249.139.226`, geolocated Istanbul).
-That single browser run against all twelve services is the connective thread of
+Test subject throughout: **in-app Claude/Electron browser** (`Claude/… Chrome/148 Electron/42.5.1`,
+macOS, M-series), egressing through **NordVPN / DataCamp datacenter IP** (`87.249.139.226`,
+geolocated Istanbul). That single browser run against all twelve services is connective thread of
 this research — see ["How our test browser scored"](#how-our-test-browser-scored-across-all-services)
 below.
 
-A note on scope: not all twelve are bot detectors. Several (AmIUnique, EFF Cover
-Your Tracks) are academic/privacy uniqueness tools, and several (iphey, whoer,
-pixelscan, browserscan) are anti-detect-browser consistency checkers whose
-audience is the *evasion* side. They are documented here because their signal
-sets and architectures overlap heavily with real bot detection, and the contrast
-in what they catch is itself instructive.
+Note on scope: not all twelve are bot detectors. Several (AmIUnique, EFF Cover Your Tracks) are
+academic/privacy uniqueness tools; several (iphey, whoer, pixelscan, browserscan) are
+anti-detect-browser consistency checkers whose audience is the *evasion* side. Documented here
+because signal sets and architectures overlap heavily with real bot detection, and contrast in
+what they catch is itself instructive.
 
 ## Comparison table
 
@@ -43,109 +38,91 @@ in what they catch is itself instructive.
 
 ## How our test browser scored across all services
 
-The same CDP-driven, datacenter-egress Electron browser was run against every
-service. The results form a coherent, instructive story about *which* signal
-class catches an AI/automation browser and which is blind to it. Ranked from
-"caught it" to "waved it through":
+Same CDP-driven, datacenter-egress Electron browser run against every service. Results form
+coherent, instructive story about *which* signal class catches an AI/automation browser and
+which is blind to it. Ranked "caught it" to "waved it through":
 
-- **deviceandbrowserinfo — flagged as a bot.** Verdict `isBot: true`, produced by
-  exactly one signal: **`isAutomatedWithCDP: true`**. Every other one of its 20
-  signals returned false. This is the cleanest result in the set: CDP (Chrome
-  DevTools Protocol) automation detection is the single most effective tell
-  against this browser, because CDP is *how* the in-app browser is driven.
+- **deviceandbrowserinfo — flagged as a bot.** Verdict `isBot: true`, produced by exactly one
+  signal: **`isAutomatedWithCDP: true`**. Every other one of its 20 signals returned false.
+  Cleanest result in the set: CDP (Chrome DevTools Protocol) automation detection is the single
+  most effective tell against this browser, because CDP is *how* the in-app browser is driven.
 
-- **incolumitas — multiple red flags, no single verdict.** The behavioral
-  classifier never resolved off `...` (synthetic hovers alone never produced an
-  organic-enough mouse trajectory to score). But the discrete batteries fired:
-  **WEBDRIVER FAILED** and **HEADCHR_IFRAME FAILED** in the old suite, and
-  **`inconsistentServiceWorkerNavigatorProperty` FAILED** in the new one — the
-  Electron/CDP browser leaks worker-context and iframe inconsistencies even
-  though `navigator.webdriver` is absent and `window.chrome` is present.
-  Server-side, its IP API cleanly unmasked the egress as **VPN = NordVPN**,
+- **incolumitas — multiple red flags, no single verdict.** Behavioral classifier never resolved
+  off `...` (synthetic hovers alone never produced organic-enough mouse trajectory to score). But
+  discrete batteries fired: **WEBDRIVER FAILED** and **HEADCHR_IFRAME FAILED** in old suite, and
+  **`inconsistentServiceWorkerNavigatorProperty` FAILED** in new one — Electron/CDP browser leaks
+  worker-context and iframe inconsistencies even though `navigator.webdriver` absent and
+  `window.chrome` present. Server-side, IP API cleanly unmasked egress as **VPN = NordVPN**,
   **datacenter = CDN77/DataCamp**, Istanbul.
 
-- **CreepJS — read it as real Chromium, but caught the lies.** The headless
-  module reported `chromium: true, 44% like headless, 0% headless, 0% stealth`
-  (i.e. a genuine engine, not flagged headless). Its tamper detection is where it
-  earned its keep: it **caught the User-Agent spoof** — the UA string claims macOS
-  Catalina `10_15_7` while `userAgentData` reports macOS `26.5.1` (Electron
-  freezes the legacy UA at 10_15_7) — surfaced a **timezone inconsistency**
-  (reported `Europe/Moscow` while the IP geolocates to Istanbul), and **leaked the
-  egress IP** via WebRTC.
+- **CreepJS — read as real Chromium, but caught the lies.** Headless module reported
+  `chromium: true, 44% like headless, 0% headless, 0% stealth` (genuine engine, not flagged
+  headless). Tamper detection is where it earned its keep: **caught User-Agent spoof** — UA
+  string claims macOS Catalina `10_15_7` while `userAgentData` reports macOS `26.5.1` (Electron
+  freezes legacy UA at 10_15_7) — surfaced **timezone inconsistency** (reported `Europe/Moscow`
+  while IP geolocates to Istanbul), and **leaked egress IP** via WebRTC.
 
-- **Fingerprint — Bot = Not detected, but heavily flagged elsewhere.** The bot
-  signal targets known automation frameworks/VMs, not the mere presence of a
-  debugging protocol, so it did not fire. Yet its Smart Signals lit up:
-  **VPN** ("public VPN IP, timezone mismatch"), **IP Blocklist**
-  ("data_center proxy provider"), **Developer Tools = Yes**, and **Incognito**,
-  for an aggregate **Suspect Score of 33**. It also correctly identified the
-  browser as "Electron 42.5.1".
+- **Fingerprint — Bot = Not detected, but heavily flagged elsewhere.** Bot signal targets known
+  automation frameworks/VMs, not mere presence of debugging protocol, so didn't fire. Yet Smart
+  Signals lit up: **VPN** ("public VPN IP, timezone mismatch"), **IP Blocklist** ("data_center
+  proxy provider"), **Developer Tools = Yes**, and **Incognito**, for aggregate **Suspect Score
+  of 33**. Also correctly identified browser as "Electron 42.5.1".
 
-- **sannysoft — one red row, no verdict.** Passed the headline checks
-  (`navigator.webdriver` missing, `window.chrome` present, real "Apple M5 / Metal"
-  WebGL renderer) but produced a red **HEADCHR_IFRAME FAILED**. Being 100%
-  client-side, it is structurally blind to the datacenter/VPN egress IP.
+- **sannysoft — one red row, no verdict.** Passed headline checks (`navigator.webdriver` missing,
+  `window.chrome` present, real "Apple M5 / Metal" WebGL renderer) but produced red
+  **HEADCHR_IFRAME FAILED**. Being 100% client-side, structurally blind to datacenter/VPN egress IP.
 
-- **browserscan / iphey — passed us as normal / trustworthy.** BrowserScan's
-  `/bot-detection` returned **"Normal"** across its entire framework battery, and
-  its CDP category did not trip *despite this being a genuinely CDP-driven
-  browser* — a notable miss versus deviceandbrowserinfo. iphey resolved to
-  **"Trust Good" (Trustworthy)**: its consistency-only model has no
-  automation-protocol probe, so a self-consistent Chrome-on-macOS fingerprint on
-  a datacenter IP sailed through.
+- **browserscan / iphey — passed us as normal / trustworthy.** BrowserScan's `/bot-detection`
+  returned **"Normal"** across entire framework battery; CDP category didn't trip *despite this
+  being a genuinely CDP-driven browser* — notable miss vs deviceandbrowserinfo. iphey resolved to
+  **"Trust Good" (Trustworthy)**: consistency-only model has no automation-protocol probe, so
+  self-consistent Chrome-on-macOS fingerprint on datacenter IP sailed through.
 
-- **whoer — perfect anonymity score.** "Your disguise: **100%**," insecurity Low.
-  It reported the browser as plain **Chrome 148 and did not detect Electron**. Its
-  only surfaced anomaly was a timezone-name mismatch (`Europe/Istanbul` zone vs a
-  "Moscow Standard Time" system label). An anonymity checker is not an automation
-  detector.
+- **whoer — perfect anonymity score.** "Your disguise: **100%**," insecurity Low. Reported browser
+  as plain **Chrome 148 and did not detect Electron**. Only surfaced anomaly: timezone-name
+  mismatch (`Europe/Istanbul` zone vs "Moscow Standard Time" system label). Anonymity checker is
+  not an automation detector.
 
-- **pixelscan — no verdict.** The JS+Cloudflare-gated report never advanced past
-  the landing state in our Electron browser. The bootstrap failure is itself a
-  mild "this environment looks non-standard" signal, but no score was captured.
+- **pixelscan — no verdict.** JS+Cloudflare-gated report never advanced past landing state in our
+  Electron browser. Bootstrap failure itself mild "this environment looks non-standard" signal,
+  but no score captured.
 
-- **AmIUnique / EFF Cover Your Tracks — no verdict by design.** Neither is a bot
-  detector; they measure fingerprint uniqueness/trackability. Neither looks at the
-  egress IP, so the datacenter address was invisible to both.
+- **AmIUnique / EFF Cover Your Tracks — no verdict by design.** Neither a bot detector; they
+  measure fingerprint uniqueness/trackability. Neither looks at egress IP, so datacenter address
+  invisible to both.
 
-- **DataDome — not testable, inferred hostile.** No public bot-score page exists.
-  But our browser hits close to its worst-case profile: datacenter/VPN egress
-  (blockable server-side before any JS runs), CDP-driven Electron (the exact
-  automation transport its `Error.stack` CDP trick targets), and a frozen macOS
-  UA inviting TLS/UA and Client-Hints consistency failures. It would very likely
+- **DataDome — not testable, inferred hostile.** No public bot-score page exists. But our browser
+  hits close to its worst-case profile: datacenter/VPN egress (blockable server-side before any JS
+  runs), CDP-driven Electron (exact automation transport its `Error.stack` CDP trick targets), and
+  frozen macOS UA inviting TLS/UA and Client-Hints consistency failures. Would very likely
   challenge or hard-block.
 
-**The through-line:** the one signal that reliably condemns this browser is
-**CDP automation detection** (deviceandbrowserinfo caught it on that alone;
-Fingerprint saw the related "Developer Tools = Yes"). Its second liability is the
-**datacenter/VPN egress IP**, visible only to services with a server-side view
-(incolumitas, Fingerprint, whoer's ISP field, and — inferred — DataDome).
-Client-only fingerprint pages and consistency/anonymity checkers largely waved it
-through, because it presents a coherent, real-GPU, non-headless Chrome-on-macOS
-fingerprint. Spoofing tells (the frozen-UA-vs-`userAgentData` mismatch, the
-Moscow-timezone-vs-Istanbul-IP contradiction, worker/iframe inconsistencies) were
-caught only by the services that specifically cross-check contexts and layers
+**The through-line:** one signal that reliably condemns this browser is **CDP automation
+detection** (deviceandbrowserinfo caught it on that alone; Fingerprint saw related "Developer
+Tools = Yes"). Second liability: **datacenter/VPN egress IP**, visible only to services with
+server-side view (incolumitas, Fingerprint, whoer's ISP field, and — inferred — DataDome).
+Client-only fingerprint pages and consistency/anonymity checkers largely waved it through, because
+it presents coherent, real-GPU, non-headless Chrome-on-macOS fingerprint. Spoofing tells
+(frozen-UA-vs-`userAgentData` mismatch, Moscow-timezone-vs-Istanbul-IP contradiction, worker/iframe
+inconsistencies) caught only by services that specifically cross-check contexts and layers
 (CreepJS, incolumitas).
 
 ## What we built from this
 
-This research fed a shipped tool, **Bot check** (`botcheck.corpberry.com`). Its
-design + reference doc index is [`README.md`](README.md): which signals it
-collects client-side, which it derives server-side (IP/ASN reputation via
-`iptools`, header/Client-Hints cross-checks), how the pure domain scorer layers
-below the handler, and which open-source collectors it borrows (BotD, CreepJS
-modules, fp-collect / fp-scanner, MixVisit, FingerprintJS). What it deliberately
-*doesn't* do yet — TLS JA3/JA4, HTTP/2 frame + header-order fingerprinting, TCP/IP
-OS fingerprinting, behavioral and crowd/rarity scoring — and the backlog of what
-to build next live in [`roadmap/`](roadmap/README.md). The recurring lesson throughout:
-client signals are all spoofable, so the load-bearing checks are the cross-layer
-and cross-context consistency ones plus the server-observed network facts the
-browser cannot forge.
+This research fed a shipped tool, **Bot check** (`botcheck.corpberry.com`). Design + reference doc
+index is [`README.md`](README.md): which signals collected client-side, which derived server-side
+(IP/ASN reputation via `iptools`, header/Client-Hints cross-checks), how pure domain scorer layers
+below handler, which open-source collectors it borrows (BotD, CreepJS modules, fp-collect /
+fp-scanner, MixVisit, FingerprintJS). What it deliberately *doesn't* do yet — TLS JA3/JA4, HTTP/2
+frame + header-order fingerprinting, TCP/IP OS fingerprinting, behavioral and crowd/rarity scoring
+— and backlog of what to build next live in [`roadmap/`](roadmap/README.md). Recurring lesson
+throughout: client signals all spoofable, so load-bearing checks are cross-layer and cross-context
+consistency ones plus server-observed network facts browser cannot forge.
 
 ## Reports
 
 - [deviceandbrowserinfo.md](reports/deviceandbrowserinfo.md) — transparent bot verdict; the one that caught us (CDP)
-- [incolumitas.md](reports/incolumitas.md) — the most comprehensive reference; hybrid client + server + behavioral
+- [incolumitas.md](reports/incolumitas.md) — most comprehensive reference; hybrid client + server + behavioral
 - [sannysoft.md](reports/sannysoft.md) — classic open-source leak checklist (Intoli + fp-scanner + fp-collect)
 - [creepjs.md](reports/creepjs.md) — tamper/"lie" detection and cross-context recompute
 - [fingerprint.md](reports/fingerprint.md) — commercial leader; Smart Signals + Suspect Score, server-side decision
