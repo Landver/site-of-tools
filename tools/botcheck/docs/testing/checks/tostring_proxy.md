@@ -27,7 +27,7 @@ See findings: [1](../findings/2026-07-19-multi-framework-matrix-results.md), [2]
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestDeepTamperSignals`, `TestDeepTamperSkipsStalePayload`, `TestStealthPatchedBrowserScoresBot`; `tests/handler_test.go`: `TestCheckDeepTamperSignalsThroughHandler`.
+`tests/botcheck_test.go`: `TestDeepTamperSignals`, `TestDeepTamperSkipsStalePayload`, `TestStealthCaughtByCrossContextChecks` (asserts it stays clean against current stealth), `TestEveryRuleCanFire`; `tests/handler_test.go`: `TestCheckDeepTamperSignalsThroughHandler`.
 
 ---
 

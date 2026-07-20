@@ -7,12 +7,13 @@
 - `botcheck.go` — **pure domain**: `Signals`, `Check`, `Report`, `Evaluate`, signal
   helpers. No `echo`, no `iptools` import — tests construct `Signals` directly, no
   HTTP, no databases.
-- `scoring.go` — ordered weighted rule set (66 rules: hard tells → consistency
+- `scoring.go` — ordered weighted rule set (67 rules: hard tells → consistency
   cross-checks → soft heuristics) and soft-signal combination rule. See
   [scoring-model.md](scoring-model.md).
-- `corpus.go` — Mongo fingerprint corpus (G41/G42): nil-safe repository (mirrors
+- `corpus.go` — Mongo fingerprint corpus (G41/G42 reuse + G43 churn): nil-safe repository (mirrors
   `iptools/history.go`) recording fingerprint sightings, counting distinct IPs per
-  hash. Disabled Mongo turns it into a no-op. See [storage.md](storage.md).
+  hash (reuse) and distinct fingerprints per IP within a short window (churn).
+  Disabled Mongo turns it into a no-op. See [storage.md](storage.md).
 - `handler.go` — transport: parses client payload, gathers server signals off
   `*echo.Context`, maps shared `iptools.Service` result into plain `Signals`
   fields, folds fingerprint into Mongo corpus (G41/G42), serves the

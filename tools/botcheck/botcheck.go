@@ -244,6 +244,13 @@ type Signals struct {
 	// data" (store disabled, count failed, or first sighting), which the
 	// fingerprint_reuse rule treats as no signal — never evidence.
 	FingerprintIPs int `json:"-"`
+	// FingerprintChurn counts the DISTINCT fingerprints this egress IP presented
+	// within the rolling churn window (G43) — the fingerprint-rotation tell, the
+	// temporal inverse of FingerprintIPs. Filled by the handler from the Mongo
+	// corpus on POST /check only; 0 means "no corpus data" (store disabled, count
+	// failed, or first sighting), which the ip_fingerprint_churn rule treats as
+	// no signal — never evidence.
+	FingerprintChurn int `json:"-"`
 
 	// Now is the request time, stamped by the handler. It's an input (not a call
 	// to the clock) so Evaluate stays pure and testable; used to resolve the
@@ -307,6 +314,11 @@ type Report struct {
 	// the rolling 30-day window. 0 = corpus off or first sighting — the HTML
 	// card hides the line then, and omitempty keeps it out of the JSON.
 	FingerprintIPs int `json:"fingerprintIPs,omitempty"`
+	// FingerprintChurn surfaces the corpus count behind the ip_fingerprint_churn
+	// rule (G43): how many distinct fingerprints this IP presented in the rolling
+	// churn window. 0 = corpus off or no rotation — omitempty keeps it out of the
+	// JSON and the HTML card hides the line.
+	FingerprintChurn int `json:"fingerprintChurn,omitempty"`
 }
 
 // RawJSON returns the client-collected half of the fingerprint as indented JSON
@@ -385,6 +397,19 @@ const (
 	// stays silent; at or above it, what remains is infrastructure reusing one
 	// locked fingerprint across a proxy pool.
 	fingerprintReuseMinIPs = 5
+	// fingerprintChurnMinHashes is the distinct-fingerprint floor for the
+	// ip_fingerprint_churn rule (G43): below it, an IP presenting a handful of
+	// browsers (a household's devices, someone re-checking after tweaking their
+	// browser) stays silent; at or above it, one address is cycling enough
+	// distinct fingerprints in the churn window to look like a randomising
+	// automation client or a busy shared egress. Soft-tier, so even above the
+	// floor it only bites as part of a cluster.
+	fingerprintChurnMinHashes = 8
+	// churnWindow is the rolling look-back the handler passes to the corpus when
+	// counting distinct fingerprints per IP for ip_fingerprint_churn. Short
+	// enough that a normal address's few devices never accumulate to the floor,
+	// long enough to catch a burst of rotated fingerprints.
+	churnWindow = 10 * time.Minute
 )
 
 // Evaluate runs every rule against the signals and returns the scored report. It
@@ -431,7 +456,7 @@ func Evaluate(s Signals) Report {
 	// truth for the soft-cluster rule, shared by scoring here and the display helpers.
 	// FingerprintIPs carries the corpus count straight through to the report —
 	// it's an input like every other Signals field, so Evaluate stays pure.
-	report := Report{Checks: checks, Bot: bot, FingerprintIPs: s.FingerprintIPs}
+	report := Report{Checks: checks, Bot: bot, FingerprintIPs: s.FingerprintIPs, FingerprintChurn: s.FingerprintChurn}
 	if report.SoftClusterActive() {
 		deduction += softComboWeight
 	}

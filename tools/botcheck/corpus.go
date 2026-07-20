@@ -85,3 +85,28 @@ func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
 	}
 	return len(ips), nil
 }
+
+// DistinctHashesByIP counts how many DIFFERENT fingerprint hashes this IP
+// presented within the given rolling window — the ip_fingerprint_churn rule's
+// input, and the temporal inverse of DistinctIPs (reuse is one fingerprint from
+// many IPs; churn is many fingerprints from one IP). A normal address shows one
+// or a few (a household's devices); a single address cycling many distinct
+// fingerprints in minutes is a randomising automation client or a busy shared
+// egress. Nil-safe and empty-ip-safe: both return (0, nil), which the rule
+// treats as "no corpus data", never as evidence. The window is passed in (not a
+// package constant) so the domain layer owns the churn semantics and this stays
+// a plain query.
+func (c *Corpus) DistinctHashesByIP(ctx context.Context, ip string, window time.Duration) (int, error) {
+	if c == nil || ip == "" {
+		return 0, nil
+	}
+	filter := bson.D{
+		{Key: "ip", Value: ip},
+		{Key: "ts", Value: bson.D{{Key: "$gte", Value: time.Now().Add(-window)}}},
+	}
+	var hashes []string
+	if err := c.coll.Distinct(ctx, "hash", filter).Decode(&hashes); err != nil {
+		return 0, err
+	}
+	return len(hashes), nil
+}

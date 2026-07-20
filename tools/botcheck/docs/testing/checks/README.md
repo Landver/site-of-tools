@@ -2,7 +2,7 @@
 
 *(part of [testing index](../README.md), see [botcheck docs index](../../README.md))*
 
-One file per implemented check (`tools/botcheck/scoring.go`'s `rules`, 66 total — verified by counting the `why` expander on the live result page, one per rendered check, not the historic per-rule-ID reserved-slot count in `report.go`). Each file is the single place for everything about that one check: **what it checks** (the logic, mirrored from `report.go`), **origin & history** (which `G##` roadmap item shipped it, when, why, what was tried and rejected), **test status** (verified/evaded/fixed/untested against real automation), and **Go scorer coverage** (which unit tests exercise it). Everywhere else that used to carry this per-check — `roadmap/*.md`, `changelog.md`, `findings/*.md`, `next-steps.md` — now points here instead of restating it; those files keep only what's genuinely cross-cutting (competitor comparisons, cross-framework audits, items with no shipped check yet).
+One file per implemented check (`tools/botcheck/scoring.go`'s `rules`, 67 total — verified by counting the `why` expander on the live result page, one per rendered check, not the historic per-rule-ID reserved-slot count in `report.go`). Each file is the single place for everything about that one check: **what it checks** (the logic, mirrored from `report.go`), **origin & history** (which `G##` roadmap item shipped it, when, why, what was tried and rejected), **test status** (verified/evaded/fixed/untested against real automation), and **Go scorer coverage** (which unit tests exercise it). Everywhere else that used to carry this per-check — `roadmap/*.md`, `changelog.md`, `findings/*.md`, `next-steps.md` — now points here instead of restating it; those files keep only what's genuinely cross-cutting (competitor comparisons, cross-framework audits, items with no shipped check yet).
 
 One reserved rule ID with no active check yet, `system_color_headless` (see [go-test-suite.md](../../go-test-suite.md)), has no file here — nothing to report on until it lands.
 
@@ -79,26 +79,23 @@ One reserved rule ID with no active check yet, `system_color_headless` (see [go-
 | [`vendor_mismatch`](vendor_mismatch.md) | consistency | 20 |
 | [`zero_outer_height`](zero_outer_height.md) | soft | 8 |
 
-## Verified against real automation — evaded, open gap (4)
+## Evaded by stealth → downgraded to soft (2026-07-21) (5)
+
+All five were built to catch `puppeteer-extra-plugin-stealth`, evaded by current stealth, and false-positive-prone against privacy extensions — so they moved consistency → soft (cluster-only), the same handling as the CDP-trap trio. The *detection* gap (sharpening ideas) stays open; the *scoring-honesty* gap is closed. See [the downgrade finding](../findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
 
 | Check | Tier | Weight |
 |---|---|---|
-| [`chrome_late_injection`](chrome_late_injection.md) | consistency | 15 |
-| [`native_callnew_tamper`](native_callnew_tamper.md) | consistency | 25 |
-| [`native_descriptor_tamper`](native_descriptor_tamper.md) | consistency | 25 |
-| [`navigator_proto_tamper`](navigator_proto_tamper.md) | consistency | 25 |
+| [`chrome_late_injection`](chrome_late_injection.md) | soft | 8 |
+| [`chrome_runtime_tamper`](chrome_runtime_tamper.md) | soft | 8 |
+| [`native_callnew_tamper`](native_callnew_tamper.md) | soft | 8 |
+| [`native_descriptor_tamper`](native_descriptor_tamper.md) | soft | 8 |
+| [`navigator_proto_tamper`](navigator_proto_tamper.md) | soft | 8 |
 
 ## Confirmed structural blind spot (1)
 
 | Check | Tier | Weight |
 |---|---|---|
 | [`webdriver_sw`](webdriver_sw.md) | hard | 60 |
-
-## Known gap, deprioritized (1)
-
-| Check | Tier | Weight |
-|---|---|---|
-| [`chrome_runtime_tamper`](chrome_runtime_tamper.md) | consistency | 20 |
 
 ## Investigated, closed as non-issue (2)
 
@@ -116,6 +113,14 @@ Rule logic is a straight passthrough (already exercised by Go fixtures); this lo
 | [`datacenter_ip`](datacenter_ip.md) | consistency | 30 |
 | [`proxy_ip`](proxy_ip.md) | consistency | 20 |
 
+## Server-side corpus rule — no browser-observable trigger (1)
+
+`ip_fingerprint_churn` (G43, shipped 2026-07-21) fires from a Mongo corpus count (distinct fingerprints per IP in a short window), not from anything a browser emits, so real-automation testing doesn't apply the way it does to client checks. It's covered by Go domain fixtures and a live-Mongo integration round-trip instead — see its file.
+
+| Check | Tier | Weight |
+|---|---|---|
+| [`ip_fingerprint_churn`](ip_fingerprint_churn.md) | soft | 8 |
+
 ## Not yet tested against real automation (0)
 
-Every implemented check has at least one real-automation or constructed-fire-branch data point as of 2026-07-19 — see the [full sweep finding](../findings/2026-07-19-remaining-43-checks-sweep.md). This section is kept (empty) as the place a newly-added, untested check lands.
+Every client-observable check has at least one real-automation or constructed-fire-branch data point as of 2026-07-19 — see the [full sweep finding](../findings/2026-07-19-remaining-43-checks-sweep.md). This section is kept (empty) as the place a newly-added, untested check lands.

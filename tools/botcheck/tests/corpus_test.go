@@ -138,6 +138,49 @@ func TestNilCorpusIsSafe(t *testing.T) {
 	if n, err := c.DistinctIPs(ctx, "hash"); err != nil || n != 0 {
 		t.Errorf("nil Corpus DistinctIPs = %d, %v; want 0, nil", n, err)
 	}
+	if n, err := c.DistinctHashesByIP(ctx, "203.0.113.1", time.Hour); err != nil || n != 0 {
+		t.Errorf("nil Corpus DistinctHashesByIP = %d, %v; want 0, nil", n, err)
+	}
+	// An empty IP counts nothing even on a live store (guarded before the query).
+	if n, err := c.DistinctHashesByIP(ctx, "", time.Hour); err != nil || n != 0 {
+		t.Errorf("nil Corpus DistinctHashesByIP(empty ip) = %d, %v; want 0, nil", n, err)
+	}
+}
+
+// TestFingerprintChurnRule covers G43: the ip_fingerprint_churn soft rule fires
+// at its distinct-fingerprint floor, stays silent below it, never docks the
+// score on its own (soft, cluster-only), carries the count into the report, and
+// skips a server-only request that never consulted the corpus.
+func TestFingerprintChurnRule(t *testing.T) {
+	// Fires at the eight-distinct-fingerprint floor — a soft signal, so alone it
+	// forms no cluster and leaves the score at 100.
+	s := cleanChrome()
+	s.FingerprintChurn = 8
+	r := botcheck.Evaluate(s)
+	c := check(t, r, "ip_fingerprint_churn")
+	if !c.Triggered || c.Tier != "soft" {
+		t.Fatalf("ip_fingerprint_churn at 8 = %+v, want a triggered soft check", c)
+	}
+	if r.Score != 100 || r.FingerprintChurn != 8 {
+		t.Errorf("score=%d FingerprintChurn=%d, want 100/8 (a lone soft signal never docks; count carried through)", r.Score, r.FingerprintChurn)
+	}
+
+	// Silent below the floor: 0 (no corpus data) and 7 alike.
+	for _, n := range []int{0, 7} {
+		s = cleanChrome()
+		s.FingerprintChurn = n
+		if c := check(t, botcheck.Evaluate(s), "ip_fingerprint_churn"); c.Triggered {
+			t.Errorf("ip_fingerprint_churn fired at %d (below the floor)", n)
+		}
+	}
+
+	// A server-only request never consulted the corpus: skipped, not a pass or a fire.
+	s = cleanChrome()
+	s.ClientCollected = false
+	s.FingerprintChurn = 20
+	if c := check(t, botcheck.Evaluate(s), "ip_fingerprint_churn"); !c.Skipped || c.Triggered {
+		t.Errorf("server-only request: ip_fingerprint_churn = %+v, want skipped and untriggered", c)
+	}
 }
 
 // TestCheckNilCorpusLeavesRuleSilent: with Mongo off the handler still scores,
@@ -154,16 +197,18 @@ func TestCheckNilCorpusLeavesRuleSilent(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if rep.FingerprintIPs != 0 {
-		t.Errorf("FingerprintIPs = %d, want 0 with a nil corpus", rep.FingerprintIPs)
+	if rep.FingerprintIPs != 0 || rep.FingerprintChurn != 0 {
+		t.Errorf("FingerprintIPs=%d FingerprintChurn=%d, want 0/0 with a nil corpus", rep.FingerprintIPs, rep.FingerprintChurn)
 	}
 	for _, c := range rep.Checks {
-		if c.ID == "fingerprint_reuse" && c.Triggered {
-			t.Errorf("fingerprint_reuse fired with a nil corpus:\n%s", rec.Body.String())
+		if (c.ID == "fingerprint_reuse" || c.ID == "ip_fingerprint_churn") && c.Triggered {
+			t.Errorf("%s fired with a nil corpus:\n%s", c.ID, rec.Body.String())
 		}
 	}
-	if strings.Contains(rec.Body.String(), "fingerprintIPs") {
-		t.Errorf("a zero corpus count must stay out of the JSON (omitempty):\n%s", rec.Body.String())
+	for _, key := range []string{"fingerprintIPs", "fingerprintChurn"} {
+		if strings.Contains(rec.Body.String(), key) {
+			t.Errorf("a zero corpus count (%s) must stay out of the JSON (omitempty):\n%s", key, rec.Body.String())
+		}
 	}
 }
 
@@ -286,5 +331,99 @@ func TestCorpusLiveViaHandler(t *testing.T) {
 		if want := i >= 5; fired != want {
 			t.Errorf("POST %d: fingerprint_reuse triggered = %v, want %v", i, fired, want)
 		}
+	}
+}
+
+// TestCorpusChurnLiveRoundTrip is an integration test (MONGODB_TEST_URI only)
+// for DistinctHashesByIP: distinct-fingerprint counting per IP, IPs isolated
+// from each other, repeat sightings not double-counted, and the rolling window
+// enforced (a window shorter than the sightings' age excludes them all).
+func TestCorpusChurnLiveRoundTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	c := liveCorpusDB(t, ctx)
+
+	churn := func(ip string, window time.Duration) int {
+		t.Helper()
+		n, err := c.DistinctHashesByIP(ctx, ip, window)
+		if err != nil {
+			t.Fatalf("DistinctHashesByIP: %v", err)
+		}
+		return n
+	}
+	// One IP presents three distinct fingerprints; a repeat of one doesn't add.
+	for i := 1; i <= 3; i++ {
+		if err := c.Record(ctx, fmt.Sprintf("fp-%d", i), "198.51.100.7"); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+	}
+	if err := c.Record(ctx, "fp-1", "198.51.100.7"); err != nil { // repeat fingerprint
+		t.Fatalf("record: %v", err)
+	}
+	// A second IP is isolated.
+	if err := c.Record(ctx, "fp-9", "198.51.100.8"); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if n := churn("198.51.100.7", time.Hour); n != 3 {
+		t.Errorf("churn(A, 1h) = %d, want 3 distinct fingerprints", n)
+	}
+	if n := churn("198.51.100.8", time.Hour); n != 1 {
+		t.Errorf("churn(B, 1h) = %d, want 1 (IPs are isolated)", n)
+	}
+	// The window is enforced: a window shorter than the sightings' age (they were
+	// recorded a moment ago) excludes them all.
+	if n := churn("198.51.100.7", time.Nanosecond); n != 0 {
+		t.Errorf("churn(A, 1ns) = %d, want 0 (all sightings older than the window)", n)
+	}
+}
+
+// TestCorpusChurnLiveViaHandler drives the real handler against real Mongo:
+// eight DISTINCT fingerprints POSTed from ONE egress IP cross the
+// ip_fingerprint_churn floor, with the count carried into the report. Distinct
+// fingerprints are produced by varying one stable field (screenW), which changes
+// the fingerprint hash.
+func TestCorpusChurnLiveViaHandler(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	corpus := liveCorpusDB(t, ctx)
+
+	r := platform.NewRenderer(false, nil,
+		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
+	)
+	e := echo.New()
+	e.Renderer = r
+	botcheck.Register(e, fakeLooker{}, corpus)
+
+	const floor = 8 // fingerprintChurnMinHashes (unexported); keep in sync
+	var last botcheck.Report
+	for i := 1; i <= floor; i++ {
+		body := fmt.Sprintf(`{"v":4,"navMainUA":%q,"screenW":%d}`, chromeMacUA, 1000+i)
+		req := httptest.NewRequest(http.MethodPost, "/check", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", chromeMacUA)
+		req.RemoteAddr = "198.51.100.42:5555" // one IP, many fingerprints
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST %d: code = %d, want 200", i, rec.Code)
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &last); err != nil {
+			t.Fatalf("POST %d: decode: %v", i, err)
+		}
+		// Each request records before it counts, so the count includes itself.
+		if last.FingerprintChurn != i {
+			t.Errorf("POST %d: FingerprintChurn = %d, want %d", i, last.FingerprintChurn, i)
+		}
+	}
+	var fired bool
+	for _, c := range last.Checks {
+		if c.ID == "ip_fingerprint_churn" {
+			fired = c.Triggered
+		}
+	}
+	if !fired {
+		t.Errorf("ip_fingerprint_churn should fire at %d distinct fingerprints from one IP", floor)
 	}
 }

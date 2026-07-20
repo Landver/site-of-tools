@@ -31,13 +31,18 @@ White-box test beside code, `tools/botcheck/report_internal_test.go` (package
 `botcheck`, CLAUDE.md-documented exception for tests needing unexported
 symbols), enforces two structural invariants over unexported
 `rules`/`ruleExplanations`: every consistency-tier rule has a subgroup, every
-rule ID — all 66 currently implemented, plus 1 remaining reserved ID,
+rule ID — all 67 currently implemented, plus 1 remaining reserved ID,
 `system_color_headless` — has a `ruleExplanations` entry (G55 coverage guard).
-For which specific Go tests exercise which rule ID today, see
-[testing/checks/](testing/checks/README.md) — each of the 66 per-check files
+A third guard lives black-box, `TestEveryRuleCanFire` in
+`tests/botcheck_test.go` (added 2026-07-21): every rule `Evaluate` emits must
+have a fire-path fixture in `ruleFirePaths` that actually trips it (and stays
+silent on the clean fixture), so a dead predicate — like the ones the
+`webglGPU` collector bug silently neutered — fails a test instead of rotting
+unnoticed. For which specific Go tests exercise which rule ID today, see
+[testing/checks/](testing/checks/README.md) — each of the 67 per-check files
 lists its own scorer-test coverage instead of this page trying to enumerate
-all 66 (a few, e.g. `framework_globals` and `ch_platform_mismatch`, currently
-have none beyond the blanket explanation-presence guard above).
+all 67 (a few, e.g. `framework_globals` and `ch_platform_mismatch`, currently
+have none beyond the blanket explanation-presence and fire-path guards above).
 
 **Structural limitation worth knowing:** suite constructs `Signals` directly,
 never exercises `shared/static/js/botcheck.js` — actual browser collector — at

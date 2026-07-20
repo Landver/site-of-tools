@@ -114,6 +114,14 @@ func (h *handler) check(c *echo.Context) error {
 	if n, err := h.corpus.DistinctIPs(c.Request().Context(), hash); err == nil {
 		sig.FingerprintIPs = n
 	}
+	// G43: count how many distinct fingerprints this IP has cycled through in the
+	// churn window — the fingerprint-rotation tell. Same best-effort contract: a
+	// disabled corpus or a Mongo error leaves FingerprintChurn 0 ("no corpus
+	// data"), the ip_fingerprint_churn rule stays silent, and the score is
+	// unchanged.
+	if n, err := h.corpus.DistinctHashesByIP(c.Request().Context(), c.RealIP(), churnWindow); err == nil {
+		sig.FingerprintChurn = n
+	}
 	report := Evaluate(sig)
 	report.ClientPayload = &sig // G54: echo the raw fingerprint for the dump + JSON API
 

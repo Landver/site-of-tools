@@ -160,6 +160,153 @@ func TestCleanChromeScoresHuman(t *testing.T) {
 	}
 }
 
+// ruleFirePaths maps every scoring rule ID to a fixture that makes exactly that
+// rule fire. It is the source of truth for TestEveryRuleCanFire, the completeness
+// guard added 2026-07-21 after the webglGPU collector bug (an undefined variable
+// silently zeroed WebGL fields, so software_renderer/webgl_vendor_mismatch/
+// gpu_os_mismatch — 85 points of logic — never fired for anyone, undetected for
+// the tool's whole life). A domain-level fire-path can't see into the JS
+// collector (that bug lived in botcheck.js, which the no-npm rule keeps out of Go
+// tests — hence real-automation testing stays necessary), but it does guarantee
+// every Go predicate is reachable and that no rule ships without a proven way to
+// trip it.
+var ruleFirePaths = map[string]func() botcheck.Signals{
+	// ── Hard tells ──────────────────────────────────────────────────────────────
+	"webdriver":         func() botcheck.Signals { s := cleanChrome(); s.Webdriver = true; return s },
+	"framework_globals": func() botcheck.Signals { s := cleanChrome(); s.FrameworkGlobals = []string{"__nightmare"}; return s },
+	"bot_user_agent":    func() botcheck.Signals { s := cleanChrome(); s.HTTPUserAgent = "curl/8.7.1"; return s },
+	"native_tamper":     func() botcheck.Signals { s := cleanChrome(); s.NativeToStringOK = false; return s },
+	"tostring_proxy":    func() botcheck.Signals { s := cleanChrome(); s.NativeToStringProxied = true; return s },
+	"software_renderer": func() botcheck.Signals { s := cleanChrome(); s.WebGLRenderer = "Google SwiftShader"; return s },
+	"iframe_webdriver":  func() botcheck.Signals { s := cleanChrome(); s.IframeWebdriver = true; return s },
+	"webdriver_sw":      func() botcheck.Signals { s := cleanChrome(); s.SWWebdriver = true; return s },
+
+	// ── Consistency cross-checks ────────────────────────────────────────────────
+	"ua_header_mismatch": func() botcheck.Signals {
+		s := cleanChrome()
+		s.HTTPUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.1 Safari/537.36"
+		return s
+	},
+	"context_ua_mismatch":       func() botcheck.Signals { s := cleanChrome(); s.NavWorkerUA = firefoxUA; return s },
+	"context_language_mismatch": func() botcheck.Signals { s := cleanChrome(); s.WorkerLanguages = []string{"fr-FR", "fr"}; return s },
+	"context_cores_mismatch":    func() botcheck.Signals { s := cleanChrome(); s.WorkerCores = 4; return s },
+	"context_platform_mismatch": func() botcheck.Signals { s := cleanChrome(); s.WorkerPlatform = "Linux"; return s },
+	"context_webgl_mismatch": func() botcheck.Signals {
+		s := cleanChrome()
+		s.WorkerWebGLRenderer = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+		return s
+	},
+	"ch_platform_mismatch": func() botcheck.Signals { s := cleanChrome(); s.SecCHUAPlatform = `"Windows"`; return s },
+	"ua_os_mismatch":       func() botcheck.Signals { s := cleanChrome(); s.UAData.Platform = "Windows"; return s },
+	"engine_ua_mismatch":   func() botcheck.Signals { s := cleanChrome(); s.Engine = "gecko"; return s },
+	"ua_chrome_version_mismatch": func() botcheck.Signals {
+		s := cleanChrome()
+		s.UAData.FullVersionList[0].Version = "124.0.6300.0"
+		return s
+	},
+	"embedded_runtime": func() botcheck.Signals {
+		s := cleanChrome()
+		s.HTTPUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Electron/32.1.1 Safari/537.36"
+		return s
+	},
+	"tz_mismatch":   func() botcheck.Signals { s := cleanChrome(); s.IPTimezone = "+09:00"; return s },
+	"datacenter_ip": func() botcheck.Signals { s := cleanChrome(); s.IsDatacenter = true; return s },
+	"proxy_ip":      func() botcheck.Signals { s := cleanChrome(); s.IsVPN = true; return s },
+	"permission_impossible": func() botcheck.Signals {
+		s := cleanChrome()
+		s.PermissionState, s.NotificationPerm = "prompt", "denied"
+		return s
+	},
+	"lang_mismatch":        func() botcheck.Signals { s := cleanChrome(); s.AcceptLanguage = "fr-FR,fr;q=0.9"; return s },
+	"tz_self_inconsistent": func() botcheck.Signals { s := cleanChrome(); s.TZOffset = 0; return s },
+	"canvas_unstable":      func() botcheck.Signals { s := cleanChrome(); s.CanvasStable = false; return s },
+	"ch_brands_mismatch": func() botcheck.Signals {
+		s := cleanChrome()
+		s.SecCHUA = `"Chromium";v="125", "Microsoft Edge";v="125", "Not.A/Brand";v="24"`
+		return s
+	},
+	"vendor_mismatch":           func() botcheck.Signals { s := cleanChrome(); s.Vendor = "Apple Computer, Inc."; return s },
+	"app_version_mismatch":      func() botcheck.Signals { s := cleanChrome(); s.AppVersion = "wrong/1.0"; return s },
+	"productsub_mismatch":       func() botcheck.Signals { s := cleanChrome(); s.ProductSub = "20100101"; return s },
+	"language_primary_mismatch": func() botcheck.Signals { s := cleanChrome(); s.NavLanguage = "fr-FR"; return s },
+	"webgl_vendor_mismatch": func() botcheck.Signals {
+		s := cleanChrome()
+		s.WebGLRenderer = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+		return s
+	},
+	"gpu_os_mismatch": func() botcheck.Signals {
+		s := cleanChrome()
+		s.NavMainUA = chromeWinGPUUA
+		s.WebGLVendor, s.WebGLRenderer = angleAppleVendor, angleAppleRenderer
+		return s
+	},
+	"iframe_proxy":         func() botcheck.Signals { s := cleanChrome(); s.IframeProxied = true; return s },
+	"mobile_no_touch":      func() botcheck.Signals { s := realAndroid(); s.MaxTouchPoints = 0; return s },
+	"jsengine_ua_mismatch": func() botcheck.Signals { s := cleanChrome(); s.JSEngine = "spidermonkey"; return s },
+	"webrtc_ip_mismatch":   func() botcheck.Signals { s := cleanChrome(); s.WebRTCIPs = []string{"203.0.113.9"}; return s },
+	"fingerprint_reuse":    func() botcheck.Signals { s := cleanChrome(); s.FingerprintIPs = 5; return s },
+
+	// ── Soft heuristics (fire individually; only bite the score as a ≥3 cluster) ─
+	"empty_plugins":   func() botcheck.Signals { s := cleanChrome(); s.Plugins = 0; return s },
+	"empty_languages": func() botcheck.Signals { s := cleanChrome(); s.Languages = []string{}; return s },
+	"default_geometry": func() botcheck.Signals {
+		s := cleanChrome()
+		s.ScreenW, s.ScreenH, s.AvailW, s.AvailH = 800, 600, 800, 600
+		return s
+	},
+	"impossible_window":            func() botcheck.Signals { s := cleanChrome(); s.OuterW, s.InnerW = 100, 200; return s },
+	"no_chrome_object":             func() botcheck.Signals { s := cleanChrome(); s.HasChromeObject = false; return s },
+	"implausible_hardware":         func() botcheck.Signals { s := cleanChrome(); s.DeviceMemory = 999; return s },
+	"screen_avail_impossible":      func() botcheck.Signals { s := cleanChrome(); s.AvailW = 9999; return s },
+	"low_color_depth":              func() botcheck.Signals { s := cleanChrome(); s.ColorDepth = 8; return s },
+	"sec_fetch_missing":            func() botcheck.Signals { s := cleanChrome(); s.SecFetchMode = ""; return s },
+	"accept_encoding_missing":      func() botcheck.Signals { s := cleanChrome(); s.HTTPAcceptEncoding = ""; return s },
+	"accept_language_missing":      func() botcheck.Signals { s := cleanChrome(); s.AcceptLanguage = ""; return s },
+	"accept_nav_mismatch":          func() botcheck.Signals { s := cleanChrome(); s.HTTPAccept = "application/json"; return s },
+	"canvas_blank":                 func() botcheck.Signals { s := cleanChrome(); s.CanvasBlank = true; return s },
+	"missing_proprietary_codecs":   func() botcheck.Signals { s := cleanChrome(); s.CodecH264, s.CodecAAC = false, false; return s },
+	"no_fonts":                     func() botcheck.Signals { s := cleanChrome(); s.FontCount = 0; return s },
+	"image_broken":                 func() botcheck.Signals { s := cleanChrome(); s.ImageBroken = true; return s },
+	"plugins_mimetypes_incoherent": func() botcheck.Signals { s := cleanChrome(); s.MimeTypes = 0; return s },
+	"zero_outer_height":            func() botcheck.Signals { s := cleanChrome(); s.OuterH = 0; return s },
+	"matchmedia_missing":           func() botcheck.Signals { s := cleanChrome(); s.Env.MatchMedia = false; return s },
+	"netinfo_incoherent":           func() botcheck.Signals { s := cleanChrome(); s.Env.Connection.RTT = 2000; return s },
+	"ip_fingerprint_churn":         func() botcheck.Signals { s := cleanChrome(); s.FingerprintChurn = 20; return s },
+	"cdp_both":                     func() botcheck.Signals { s := cleanChrome(); s.CDPMainThread, s.CDPWorker = true, true; return s },
+	"cdp_main_only":                func() botcheck.Signals { s := cleanChrome(); s.CDPMainThread = true; return s },
+	"cdp_sw_only":                  func() botcheck.Signals { s := cleanChrome(); s.SWCDP = true; return s },
+	// The five deep-tamper probes downgraded to soft 2026-07-21 (still fire here).
+	"native_descriptor_tamper": func() botcheck.Signals { s := cleanChrome(); s.NativeDescriptorsOK = false; return s },
+	"native_callnew_tamper":    func() botcheck.Signals { s := cleanChrome(); s.NativeCallNewOK = false; return s },
+	"navigator_proto_tamper":   func() botcheck.Signals { s := cleanChrome(); s.NavProtoDescriptorsOK = false; return s },
+	"chrome_runtime_tamper":    func() botcheck.Signals { s := cleanChrome(); s.ChromeRuntimeOK = false; return s },
+	"chrome_late_injection":    func() botcheck.Signals { s := cleanChrome(); s.ChromeLateInjection = true; return s },
+}
+
+// TestEveryRuleCanFire is the fire-path completeness guard. It asserts (1) every
+// rule Evaluate emits has an entry in ruleFirePaths — so a new rule can't ship
+// without a proven way to trip it — and (2) each fixture actually fires its rule
+// while the clean fixture does not. A dead predicate (a rule that can never fire,
+// like the ones the webglGPU bug neutered) fails this test loudly instead of
+// rotting silently.
+func TestEveryRuleCanFire(t *testing.T) {
+	// (1) Coverage: every scored rule must have a fire-path fixture.
+	for _, c := range botcheck.Evaluate(cleanChrome()).Checks {
+		if _, ok := ruleFirePaths[c.ID]; !ok {
+			t.Errorf("rule %q has no ruleFirePaths fixture — add one so a dead predicate can't go unnoticed", c.ID)
+		}
+	}
+	// (2) Each fixture fires its target; the clean fixture never does.
+	for id, mk := range ruleFirePaths {
+		if check(t, botcheck.Evaluate(cleanChrome()), id).Triggered {
+			t.Errorf("%s fires on the clean fixture — it must stay silent on a perfect human", id)
+		}
+		if c := check(t, botcheck.Evaluate(mk()), id); !c.Triggered {
+			t.Errorf("%s did not fire on its fire-path fixture — the predicate may be dead (cf. the webglGPU collector bug)", id)
+		}
+	}
+}
+
 func TestHeadlessChromeScoresBot(t *testing.T) {
 	s := cleanChrome()
 	s.Webdriver = true
@@ -665,11 +812,10 @@ const (
 // signals and to stay silent on every real-browser fixture.
 var v3RuleIDs = []string{
 	"iframe_webdriver", "webdriver_sw", // hard (G11/G14)
-	"iframe_proxy", "mobile_no_touch", "cdp_sw_only", "navigator_proto_tamper",
-	"chrome_runtime_tamper", "chrome_late_injection", "jsengine_ua_mismatch",
-	"webrtc_ip_mismatch", // consistency
-	"image_broken", "plugins_mimetypes_incoherent",
-	"zero_outer_height", // soft
+	"iframe_proxy", "mobile_no_touch", "jsengine_ua_mismatch", "webrtc_ip_mismatch", // consistency
+	// soft: cdp_sw_only downgraded 2026-07-19; the deep-tamper trio 2026-07-21.
+	"cdp_sw_only", "navigator_proto_tamper", "chrome_runtime_tamper", "chrome_late_injection",
+	"image_broken", "plugins_mimetypes_incoherent", "zero_outer_height",
 }
 
 // v4RuleIDs are the rules added in the v4 batch (G15/G21) — same assertion
@@ -1178,28 +1324,85 @@ func TestBrightDataStyleWorkerSpoof(t *testing.T) {
 	}
 }
 
-// TestStealthPatchedBrowserScoresBot is the G04 scenario: a puppeteer-extra-stealth
-// browser whose toString Proxy DEFEATS the shallow check — NativeToStringOK stays
-// true because the proxy lies for it — so only the deep probes see the tampering.
-func TestStealthPatchedBrowserScoresBot(t *testing.T) {
-	s := cleanChrome()
-	s.NativeToStringProxied = true // hard, 45
-	s.NativeDescriptorsOK = false  // consistency, 25
-	s.NativeCallNewOK = false      // consistency, 25
+// TestStealthCaughtByCrossContextChecks encodes the headline finding of the
+// 2026-07-19 audit: current puppeteer-extra-stealth EVADES every deep internals
+// tamper probe (they read clean), so those probes are no longer what catches it
+// — the cross-context consistency checks are. A stealth browser patches only its
+// top frame, so its Web Worker leaks the real OS underneath, and that alone
+// scores it a bot. This is why the internals probes were downgraded to soft on
+// 2026-07-21: they weren't carrying the verdict against real stealth anyway.
+func TestStealthCaughtByCrossContextChecks(t *testing.T) {
+	s := cleanChrome() // top frame claims macOS / Chrome, all internals probes clean
+	// The stealth patch didn't reach the Web Worker context — it leaks Linux.
+	s.NavWorkerUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+	s.WorkerPlatform = "Linux"
+	s.WorkerCores = 4
 
 	r := botcheck.Evaluate(s)
-	want := []string{"native_callnew_tamper", "native_descriptor_tamper", "tostring_proxy"}
+	// Every deep internals probe (and the toString-proxy hard tell) reads clean —
+	// modern stealth defeats all of them — so the verdict rests entirely on the
+	// cross-context checks.
+	for _, id := range []string{
+		"tostring_proxy", "native_descriptor_tamper", "native_callnew_tamper",
+		"navigator_proto_tamper", "chrome_runtime_tamper", "chrome_late_injection",
+	} {
+		if check(t, r, id).Triggered {
+			t.Errorf("%s should read clean: stealth evades the internals probes; the context checks are what catch it", id)
+		}
+	}
+	// The cross-context checks catch it, and the verdict is still bot.
+	want := []string{"context_cores_mismatch", "context_platform_mismatch", "context_ua_mismatch"}
 	if diff := cmp.Diff(want, triggeredIDs(r)); diff != "" {
-		t.Errorf("stealth-patched browser fired wrong checks (-want +got):\n%s", diff)
+		t.Errorf("stealth browser fired wrong checks (-want +got):\n%s", diff)
 	}
-	// The shallow check must stay green here — defeating it is the proxy's whole
-	// purpose; if native_tamper fired too, the scenario would be misconstructed.
-	if check(t, r, "native_tamper").Triggered {
-		t.Errorf("native_tamper must stay silent: the stealth proxy lies for the shallow check")
+	// 35 (context UA) + 25 (platform) + 20 (cores) = 80 → score 20 → bot.
+	if r.Score != 20 || r.Verdict != "bot" {
+		t.Errorf("stealth browser caught by context: score=%d verdict=%q, want 20/bot", r.Score, r.Verdict)
 	}
-	// 45 + 25 + 25 = 95 → score 5 → bot.
-	if r.Score != 5 || r.Verdict != "bot" {
-		t.Errorf("stealth-patched browser: score=%d verdict=%q, want 5/bot", r.Score, r.Verdict)
+}
+
+// TestInternalsTamperDowngradedToSoft pins the 2026-07-21 honesty change: the
+// five deep internals tamper probes moved from consistency (individual
+// deductions) to soft (cluster-only). Current stealth evades them and a privacy
+// extension can trip them, so no single one may dock a genuine human again —
+// they only bite when three or more soft signals fire together.
+func TestInternalsTamperDowngradedToSoft(t *testing.T) {
+	fire := map[string]func(*botcheck.Signals){
+		"native_descriptor_tamper": func(s *botcheck.Signals) { s.NativeDescriptorsOK = false },
+		"native_callnew_tamper":    func(s *botcheck.Signals) { s.NativeCallNewOK = false },
+		"navigator_proto_tamper":   func(s *botcheck.Signals) { s.NavProtoDescriptorsOK = false },
+		"chrome_runtime_tamper":    func(s *botcheck.Signals) { s.ChromeRuntimeOK = false },
+		"chrome_late_injection":    func(s *botcheck.Signals) { s.ChromeLateInjection = true },
+	}
+	// Each one, firing ALONE on an otherwise-clean browser, is soft-tier, still
+	// fires, and costs nothing — a privacy-extension human keeps a perfect score.
+	for id, mut := range fire {
+		s := cleanChrome()
+		mut(&s)
+		r := botcheck.Evaluate(s)
+		c := check(t, r, id)
+		if !c.Triggered {
+			t.Errorf("%s should still fire on its bad value", id)
+		}
+		if c.Tier != "soft" {
+			t.Errorf("%s tier = %q, want soft (downgraded 2026-07-21)", id, c.Tier)
+		}
+		if r.Score != 100 || r.Verdict != "human" {
+			t.Errorf("%s alone: score=%d verdict=%q, want 100/human — a soft signal must never dock on its own", id, r.Score, r.Verdict)
+		}
+	}
+	// Three together cross the soft-cluster threshold: one 25-point deduction,
+	// not 3×25.
+	s := cleanChrome()
+	s.NativeDescriptorsOK = false
+	s.NativeCallNewOK = false
+	s.NavProtoDescriptorsOK = false
+	r := botcheck.Evaluate(s)
+	if !r.SoftClusterActive() {
+		t.Fatalf("three soft tamper signals should form a cluster")
+	}
+	if r.Score != 75 || r.Verdict != "suspicious" {
+		t.Errorf("three soft tamper signals: score=%d verdict=%q, want 75/suspicious (one 25-point cluster)", r.Score, r.Verdict)
 	}
 }
 

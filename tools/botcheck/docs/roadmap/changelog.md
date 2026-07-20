@@ -128,3 +128,42 @@ six breakdown cards (hard, soft, and the four consistency subgroups); the
 hero score at the top of the page already carries the overall number.
 `Report.TierScore` and its tests removed as dead code — see
 [reporting-ux.md](reporting-ux.md) (G50).
+
+**Honesty pass + corpus temporal signal (2026-07-21): 66 → 67 rules.** Two
+changes, framed as "make the verdict honest, then extend the proven strength."
+
+*Step 1 — honesty.* The five deep-tamper internals probes
+(`native_descriptor_tamper`, `native_callnew_tamper`, `navigator_proto_tamper`,
+`chrome_runtime_tamper`, `chrome_late_injection`) were **downgraded consistency
+→ soft**, following through on the 2026-07-19 audit that found current stealth
+evades all five while a privacy extension can trip them — at consistency/25, two
+firing dropped a real privacy-tool human to 50/"suspicious", a false positive
+the tool was manufacturing, all while adding nothing against the stealth
+adversary they targeted (the cross-context checks catch that). Soft/cluster-only
+now: no single one docks a human, they only corroborate in a ≥3 cluster. Same
+precedent as the 2026-07-19 CDP-trap downgrade. `tostring_proxy` stays hard (it
+was fixed, not evaded). Full rationale:
+[the downgrade finding](../testing/findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
+Paired with a new **fire-path completeness guard**, `TestEveryRuleCanFire`:
+every rule `Evaluate` emits must have a fixture that trips it, so a dead
+predicate — the class of bug that let `webglGPU` silently zero 85 points for the
+tool's whole life — now fails a test instead of rotting unnoticed (it can't see
+into the JS collector, where that bug lived, so real-automation testing stays
+necessary — see [go-test-suite.md](../go-test-suite.md)).
+
+*Step 2 — extend the corpus.* Shipped **G43** as `ip_fingerprint_churn` (soft,
+8), the temporal inverse of `fingerprint_reuse` on the same
+`botcheck_fingerprints` corpus: `Corpus.DistinctHashesByIP(ip, 10-min window)`
+counts how many distinct fingerprints one egress IP cycled through, firing at ≥8
+— the fingerprint-rotation tell. Soft, because a corporate NAT legitimately
+shows many browsers. Nil-safe like the rest of the corpus (disabled Mongo →
+count 0, rule silent). Rule count 66 → 67. The **rarity/entropy** half of the
+crowd layer (G40/G58) was deliberately *not* shipped as a scoring rule: 2026-07-21
+analysis found rarity doesn't discriminate at a self-test tool's scale (every
+visitor is new, so "rare" describes a first-time human and a bespoke bot
+identically) and a real entropy readout would require storing per-attribute
+fingerprint detail per visitor — a privacy cost not worth paying for a
+non-discriminating signal. Shipping a rarity score would re-introduce exactly
+the overselling Step 1 removed, so it stays a documented deferral with a concrete
+reason — see [ip-reputation.md](ip-reputation.md) (G40, G43) and per-rule detail
+in [checks/](../testing/checks/README.md).

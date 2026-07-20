@@ -33,13 +33,10 @@ tiered:
   `Chromium` `fullVersionList` entry; `navigator.productSub` ≠ engine's constant;
   WebGL unmasked vendor ≠ renderer family; GPU family impossible on
   UA-claimed OS; context (worker/iframe/SW) language, core count, or platform ≠
-  main thread; worker WebGL renderer ≠ main-thread renderer; native function
-  with impossible property descriptor or missing its call/new `TypeError` traps;
-  iframe `contentWindow` proxied; mobile UA with zero touch points;
-  Navigator.prototype accessor-descriptor anomaly; `chrome.runtime` integrity
-  failure; `window.chrome` injected late; Error-stack JS engine ≠ engine UA
-  claims; public WebRTC candidate IP ≠ egress IP; this exact fingerprint seen
-  from ≥5 distinct IPs in rolling 30-day corpus.
+  main thread; worker WebGL renderer ≠ main-thread renderer;
+  iframe `contentWindow` proxied; mobile UA with zero touch points; Error-stack
+  JS engine ≠ engine UA claims; public WebRTC candidate IP ≠ egress IP; this
+  exact fingerprint seen from ≥5 distinct IPs in rolling 30-day corpus.
 - **Soft** (8 each): no plugins, empty languages, default 800×600, impossible
   window geometry, missing `window.chrome`, implausible hardware, available
   screen larger than physical, low colour depth, browser UA without
@@ -48,10 +45,21 @@ tiered:
   `Accept` lacking `text/html`, guaranteed-loadable image failing, plugins
   without `mimeTypes`, zero `outerHeight`, browser UA without
   `window.matchMedia`, `navigator.connection` effectiveType contradicting its
-  own rtt/downlink, and (as of 2026-07-19) three CDP-preview checks
+  own rtt/downlink, one egress IP presenting ≥8 distinct fingerprints in a
+  10-min window (`ip_fingerprint_churn`, the corpus fingerprint-rotation tell —
+  G43, the temporal inverse of the `fingerprint_reuse` consistency rule),
+  three CDP-preview checks
   (`cdp_both`/`cdp_main_only`/`cdp_sw_only`) — downgraded from hard/consistency
-  after audit found they never fire against real CDP-driven automation; see
-  [the CDP-trap check status](testing/checks/cdp_both.md).
+  2026-07-19 after audit found they never fire against real CDP-driven
+  automation; see [the CDP-trap check status](testing/checks/cdp_both.md) — and
+  (as of 2026-07-21) five deep-tamper probes: native function with impossible
+  property descriptor or missing call/new `TypeError` traps
+  (`native_descriptor_tamper`/`native_callnew_tamper`), Navigator.prototype
+  accessor-descriptor anomaly (`navigator_proto_tamper`), `chrome.runtime`
+  integrity failure (`chrome_runtime_tamper`), `window.chrome` injected late
+  (`chrome_late_injection`) — downgraded from consistency/internals after the
+  audit found current stealth evades all five while a privacy extension can trip
+  them; see [the downgrade finding](testing/findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
   Soft signals **only bite as cluster of ≥3** (one 25-point deduction), single
   quirk never false-positives a real human.
 
@@ -74,6 +82,6 @@ pass) — breakdown is the point. In HTML view checks grouped by tier (automatio
 tells / consistency cross-checks / environment heuristics), number + verdict at
 top, per-signal table below.
 
-For full list of 66 rules with IDs, weights, current tier, read
+For full list of 67 rules with IDs, weights, current tier, read
 [`../scoring.go`](../scoring.go) directly — ordered, authoritative source; this
 doc is summary, not mirror.

@@ -36,7 +36,7 @@ these.
 
 - **Fuller media-codec / font-diversity matrices** — beyond current H.264/AAC pair and zero-fonts floor, score against expected per-browser codec sets and typical font-count ranges (needs careful thresholds to avoid mobile false positives).
 - **JS engine tells, the rest of G23** — `Math`/number-formatting differences (V8 vs SpiderMonkey vs JSC) vs claimed browser. The error-stack half already shipped as `jsengine_ua_mismatch`; this remaining half needs per-engine reference tables.
-- **Request velocity** (G43) — an in-memory per-IP counter (a `sync.Map` with TTL) to flag bursts. Introduces process state, bends the current stateless rule; better backed by MongoDB (already used by botcheck for the G41/G42 fingerprint corpus, but not yet for this), sitting below the domain service.
+- ~~**Request velocity** (G43)~~ — **shipped 2026-07-21** as `ip_fingerprint_churn`, the fingerprint-rotation variant: `Corpus.DistinctHashesByIP(ip, 10-min window)` over the existing `botcheck_fingerprints` corpus counts distinct fingerprints per IP, firing soft at ≥8 (a corporate NAT legitimately shows many browsers, so cluster-only). Backed by MongoDB below the domain service exactly as this row anticipated — no process state. Raw request-rate-per-IP was deliberately not added (a self-test tool only sees its own traffic, and a fast-refreshing human would false-fire). See [ip-reputation.md](ip-reputation.md) G43 and [checks/ip_fingerprint_churn.md](../testing/checks/ip_fingerprint_churn.md).
 
 ## Layer 3 — Hard (new infrastructure, dependencies, ML, or a stored corpus)
 

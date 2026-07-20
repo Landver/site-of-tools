@@ -493,11 +493,23 @@ var rules = []rule{
 		},
 	},
 	{
-		// NOT hard (unlike tostring_proxy): page-context patching by legitimate
-		// privacy extensions (canvas/WebGL noise injectors) is conceivable for these
-		// DOM-facing APIs, and such a patch can leave an impossible descriptor — so
-		// this is a consistency hit, not a standalone bot proof.
-		id: "native_descriptor_tamper", label: "Native function has an impossible property descriptor", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
+		// Downgraded consistency → soft (2026-07-21). This probe, and the four
+		// other deep-tamper siblings below (native_callnew_tamper,
+		// navigator_proto_tamper, chrome_runtime_tamper, chrome_late_injection),
+		// were built to catch puppeteer-extra-stealth's signature. The 2026-07-19
+		// audit established two things about that whole class: (1) current stealth
+		// EVADES all of them cleanly (its shared _utils spreads the original
+		// descriptor, so nothing looks off) — so they add nothing against the
+		// adversary they targeted; (2) the only things that DO trip them are a
+		// legitimate privacy extension patching a DOM API (a real human) or a naive
+		// hand-patch, and at consistency/25 two of them firing on a privacy-tool
+		// user dropped a genuine human to 50/"suspicious" — a false positive the
+		// tool shouldn't manufacture. Soft (cluster-only, 8) keeps them as
+		// corroboration when several fire together with other soft tells, but no
+		// single one can dock a human on its own again. Same handling and precedent
+		// as the CDP-trap trio (see cdp_both). Full rationale:
+		// docs/testing/findings/2026-07-21-internals-tamper-downgraded-to-soft.md.
+		id: "native_descriptor_tamper", label: "Native function has an impossible property descriptor", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Skip pre-v2 payloads (stale collector): false would mean "field
 			// didn't exist yet", not tampering — see collectorVDeepTamper.
@@ -508,10 +520,11 @@ var rules = []rule{
 		},
 	},
 	{
-		// Same not-hard reasoning as native_descriptor_tamper: a privacy extension's
-		// JS override of a DOM API typically misses the constructor/brand-check
-		// TypeErrors a genuine native throws.
-		id: "native_callnew_tamper", label: "Native function misses its call/new TypeError traps", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
+		// Downgraded consistency → soft (2026-07-21); same reasoning and precedent
+		// as native_descriptor_tamper above — evaded by current stealth, real
+		// false-positive risk against a privacy extension's DOM-API override, so it
+		// only bites as part of a soft cluster now.
+		id: "native_callnew_tamper", label: "Native function misses its call/new TypeError traps", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Skip pre-v2 payloads, same as native_descriptor_tamper.
 			if s.CollectorV < collectorVDeepTamper {
@@ -550,11 +563,14 @@ var rules = []rule{
 		// G17: per WebIDL, webdriver/plugins/languages are accessor (getter-only)
 		// properties — enumerable, configurable, living on Navigator.prototype,
 		// never own data properties on the navigator instance. A spoof installed
-		// via defineProperty/assignment breaks at least one of those. Consistency,
-		// not hard (same reasoning as native_descriptor_tamper): a legit privacy
-		// extension could patch these the same way. v3-gated: the OK bool is
-		// damning when false on a stale payload that never sent it.
-		id: "navigator_proto_tamper", label: "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
+		// via defineProperty/assignment breaks at least one of those. Downgraded
+		// consistency → soft (2026-07-21), same reasoning and precedent as
+		// native_descriptor_tamper above: modern stealth doesn't patch
+		// navigator.webdriver in JS at all (it uses a launch flag), so this only
+		// catches a naive hand-patch or a legit privacy extension — cluster-only
+		// now. v3-gated: the OK bool is damning when false on a stale payload that
+		// never sent it.
+		id: "navigator_proto_tamper", label: "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
 				return false, ""
@@ -566,9 +582,13 @@ var rules = []rule{
 		// G22: a genuine window.chrome on Chrome carries chrome.runtime with native
 		// non-constructor connect/sendMessage (no own prototype, `new fn()` throws a
 		// TypeError); a stealth-bolted fake gets the shape or the error constructor
-		// wrong (CreepJS hasBadChromeRuntime). Chrome UA only; v3-gated like the
-		// other fail-to-pass OK bools.
-		id: "chrome_runtime_tamper", label: "window.chrome.runtime fails the integrity probe", tier: TierConsistency, subgroup: subgroupInternals, weight: 20, needsClient: true,
+		// wrong (CreepJS hasBadChromeRuntime). Downgraded consistency → soft
+		// (2026-07-21): the most-evaded of the group — current stealth fakes
+		// chrome.runtime perfectly, AND the official Chrome-for-Testing binary lacks
+		// chrome.runtime entirely (so a tightened version risked flagging real
+		// visitors), leaving this able to catch only a naive fake. Cluster-only now.
+		// Chrome UA only; v3-gated like the other fail-to-pass OK bools.
+		id: "chrome_runtime_tamper", label: "window.chrome.runtime fails the integrity probe", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
 				return false, ""
@@ -580,8 +600,11 @@ var rules = []rule{
 		// G22: genuine Chrome creates window.chrome during page setup, so it sits
 		// early among window keys; a stealth patch bolting on a fake chrome object
 		// appends it late — 'chrome' in the last ~50 window keys (CreepJS
-		// hasHighChromeIndex). Chrome UA only.
-		id: "chrome_late_injection", label: "window.chrome was injected late (stealth bolt-on)", tier: TierConsistency, subgroup: subgroupInternals, weight: 15, needsClient: true,
+		// hasHighChromeIndex). Downgraded consistency → soft (2026-07-21), same
+		// group as chrome_runtime_tamper above: current stealth fakes chrome.runtime
+		// in place rather than late-injecting, so this catches only a naive
+		// bolt-on — cluster-only now. Chrome UA only.
+		id: "chrome_late_injection", label: "window.chrome was injected late (stealth bolt-on)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			return strings.Contains(clientUA(s), "Chrome") && s.ChromeLateInjection, ""
 		},
@@ -855,6 +878,25 @@ var rules = []rule{
 			}
 			return true, fmt.Sprintf("effectiveType %q but rtt %dms / downlink %.2fMbps imply at most %s",
 				c.EffectiveType, c.RTT, c.Downlink, ectName(worst))
+		},
+	},
+	{
+		// G43: this egress IP presented many DISTINCT fingerprints inside the
+		// rolling churn window — the fingerprint-rotation tell, the temporal
+		// inverse of fingerprint_reuse (reuse is one fingerprint from many IPs;
+		// churn is many fingerprints from one IP). FingerprintChurn is 0 ("no
+		// corpus data") whenever Mongo is off or the count failed, which never
+		// fires; a household's few devices or a person re-checking after browser
+		// tweaks stays under the floor. Soft, NOT consistency: a large corporate
+		// NAT can legitimately present many browsers from one address, so this
+		// only bites as part of a cluster and never docks a lone visitor. Backed
+		// by the same Mongo corpus as fingerprint_reuse (see corpus.go).
+		id: "ip_fingerprint_churn", label: "This IP presented many different fingerprints in a short window", tier: TierSoft, weight: 8, needsClient: true,
+		eval: func(s Signals) (bool, string) {
+			if s.FingerprintChurn < fingerprintChurnMinHashes {
+				return false, ""
+			}
+			return true, fmt.Sprintf("%d distinct fingerprints from this IP in the churn window", s.FingerprintChurn)
 		},
 	},
 	{

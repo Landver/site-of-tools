@@ -2,7 +2,7 @@
 
 *(part of the [roadmap index](README.md))*
 
-`botcheck` already ships a credible client + server **consistency** scorer: 66
+`botcheck` already ships a credible client + server **consistency** scorer: 67
 tiered rules, cross-context (worker/iframe/service-worker) UA checks, UA/Client-Hints/timezone/IP
 cross-checks, and IP2Proxy datacenter/VPN/Tor classification, all fused
 server-side and shown as a transparent per-signal breakdown. Gaps fall into

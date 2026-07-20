@@ -33,6 +33,12 @@ shared root-cause dig).
 | [`chrome_runtime_tamper`: evaded, fix drafted and reverted, deprioritized](checks/chrome_runtime_tamper.md) | The most heavily investigated open item: tightened `chromeRuntimeOK()` closed the stealth gap but was reverted after "Chrome for Testing" (and, less conclusively, a real consumer Chrome sample) turned out to lack `chrome.runtime` too. Deprioritized once stealth's own source showed presence-checking was never sound against it regardless. |
 | [Remaining 43 checks: real-automation + fire-branch sweep (41 VERIFIED, 2 blocked by local dataset)](findings/2026-07-19-remaining-43-checks-sweep.md) | Every check that sat "not yet tested" now has a real-automation or constructed-fire-branch data point: header curls, a live-Mongo-corpus `fingerprint_reuse` test, two new Puppeteer probe scripts (`ua-mismatch-probe.mjs`, `fire-branch-probe.mjs`) exercising 28 checks through the real collector, plus stock automation naturally tripping `default_geometry`/`impossible_window`. Zero botcheck rule bugs found. One real (non-botcheck) bug found and fixed: `shared/templates/partials/head.html`'s theme-detector called unguarded `matchMedia()`. `datacenter_ip`/`proxy_ip` stay unconfirmed — local IP2Proxy LITE snapshot doesn't classify any tried IP as a proxy. Genuine-human baseline (Claude's in-app browser, and the user's real Chrome via Claude-in-Chrome) confirmed clean except one real `zero_outer_height` false positive, safely absorbed by its soft-cluster tier. |
 
+## 2026-07-21
+
+| Finding | What it found |
+|---|---|
+| [Five deep-tamper internals probes downgraded consistency → soft](findings/2026-07-21-internals-tamper-downgraded-to-soft.md) | Follow-through on the 2026-07-19 audit: `native_descriptor_tamper`, `native_callnew_tamper`, `navigator_proto_tamper`, `chrome_runtime_tamper`, `chrome_late_injection` moved consistency → soft. Evaded by current stealth, false-positive-prone against privacy extensions (two firing dropped a real human to 50/"suspicious"), redundant against naive bots — so cluster-only now, not standalone deductions. Same precedent as the CDP-trap trio. Added `TestEveryRuleCanFire` fire-path completeness guard in the same pass. |
+
 ## Adding a new finding
 
 Add new dated file under [`findings/`](findings/) (name it

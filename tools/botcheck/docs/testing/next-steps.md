@@ -9,17 +9,24 @@ items that don't belong to a single check. Six prior cross-cutting items
 closed 2026-07-19 — moved to [findings-log.md](findings-log.md), not
 restated here.
 
-1. **Stealth-specific G04/G17 probes still open, no concrete idea yet.**
-   `tostring_proxy` fixed already (see
-   [checks/tostring_proxy.md](checks/tostring_proxy.md)) — a *single*
-   illegal call already leaked stealth's unstripped proxy-trap frame, since
-   current V8 renders it as `[as apply]` bracket alias matching neither
-   stealth's own anchor-stripper nor our detector's old regex. Three
-   siblings stay evaded: [checks/native_descriptor_tamper.md](checks/native_descriptor_tamper.md),
-   [checks/native_callnew_tamper.md](checks/native_callnew_tamper.md),
-   [checks/navigator_proto_tamper.md](checks/navigator_proto_tamper.md) —
-   none route through a JS Proxy `apply`/`construct` trap the way
-   `tostring_proxy` does, so the alias-frame fix doesn't reach them.
+1. **Stealth-specific G04/G17/G22 probes: downgraded to soft (2026-07-21);
+   only the *sharpening* stays open.** The five evaded probes
+   (`native_descriptor_tamper`, `native_callnew_tamper`,
+   `navigator_proto_tamper`, `chrome_runtime_tamper`, `chrome_late_injection`)
+   were moved consistency → soft so they no longer oversell stealth coverage or
+   false-positive a privacy-extension human — see
+   [the downgrade finding](findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
+   That closes the *scoring-honesty* half of this item; the *detection* half is
+   still open, no concrete idea yet. `tostring_proxy` (the one that was fixed,
+   see [checks/tostring_proxy.md](checks/tostring_proxy.md)) leaked stealth's
+   unstripped proxy-trap frame because current V8 renders it as an `[as apply]`
+   bracket alias matching neither stealth's anchor-stripper nor our old regex;
+   the three `native_*`/`navigator_proto` siblings don't route through a JS
+   Proxy `apply`/`construct` trap, so that alias-frame fix doesn't reach them.
+   `chrome_runtime_tamper` has a separate untested angle (the alias-frame fix on
+   its call/new traps, needs an HTTPS target — see that check's file). If any
+   sharpening lands and proves out against real stealth, re-promote that check
+   from soft.
 
 2. **`playwright/check.mjs` and `nightmare/test-nightmare.cjs` are both
    broken in this environment**, unrelated to any botcheck rule.

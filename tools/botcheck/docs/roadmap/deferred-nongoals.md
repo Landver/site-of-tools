@@ -12,12 +12,14 @@ aren't mistaken for oversights.
   [scoring-fusion.md](scoring-fusion.md). All blind as long as nginx/Cloudflare
   terminate TLS in front of Go.
 - **Needs a stored corpus (Mongo-backed since wave 2 — the fingerprint corpus
-  shipped G41/G42):** crowd rarity & entropy (G40, G58), fuzzy/LSH hashing
-  (the deferred half of G42), request velocity (G43), persistent visitor ID
-  (G47). See [ip-reputation.md](ip-reputation.md),
-  [reporting-ux.md](reporting-ux.md), [persistent-identity.md](persistent-identity.md).
-  (Returning-visitor history, G46, shipped localStorage-only instead — no
-  corpus needed.)
+  shipped G41/G42, and request velocity/churn G43 shipped 2026-07-21 on the same
+  corpus):** crowd rarity & entropy (G40, G58 — deferred as *scoring* with a
+  concrete reason as of 2026-07-21: rarity doesn't discriminate at self-test
+  scale, see [ip-reputation.md](ip-reputation.md) G40), fuzzy/LSH hashing (the
+  deferred half of G42), persistent visitor ID (G47). See
+  [ip-reputation.md](ip-reputation.md), [reporting-ux.md](reporting-ux.md),
+  [persistent-identity.md](persistent-identity.md). (Returning-visitor history,
+  G46, shipped localStorage-only instead — no corpus needed.)
 - **Conflicts with no-ML / stateless:** behavioral biometrics (G34), intent
   modeling (G35), ML risk model (G52), time-staggered re-scoring (G51). See
   [behavioral.md](behavioral.md), [scoring-fusion.md](scoring-fusion.md).

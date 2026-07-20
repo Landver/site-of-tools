@@ -2,25 +2,27 @@
 
 *(part of [testing checks index](README.md), see [testing index](../README.md) and [botcheck docs index](../../README.md))*
 
-**Tier:** consistency · **Subgroup:** internals · **Weight:** 15 · **Reads client signal:** yes
+**Tier:** soft (downgraded from consistency/internals 2026-07-21) · **Weight:** 8 · **Reads client signal:** yes
 
 ## What it checks
 
-Traces of scripts injected into the page after load (the way CDP's Page.addScriptToEvaluateOnNewDocument installs automation shims) were observed — real browsers don't inject scripts into their own startup.
+window.chrome appears among the last window keys, as if bolted on after startup rather than created during page setup — the old CreepJS hasHighChromeIndex tell for a late-injected fake. Soft, cluster-only since 2026-07-21: current stealth fakes chrome.runtime in place instead of late-injecting, so this only catches a naive bolt-on.
 
 ## Origin & history
 
 **G22**, shipped 2026-07-18, same batch as `chrome_runtime_tamper`: flags `'chrome'` appearing among the last ~50 keys of both the enumerable window keys and the own property names — stealth patches inject `window.chrome` late, after page setup, rather than having it present from the start. Gated on a Chrome UA. Also evaded by current stealth — see the test status above.
 
-## Test status: Verified — evaded (open gap)
+## Test status: Verified — evaded → downgraded to soft (2026-07-21)
 
-**Evaded by `puppeteer-extra-plugin-stealth` 2.11.2**, one of six checks purpose-built for this class of stealth patch that missed it cleanly. Describes the general stealth-patch shape without a named root cause the way the other five got (no dedicated source-read finding for this one specifically). Open, no follow-up investigation yet — see [next-steps.md item 3](../next-steps.md).
+**Evaded by `puppeteer-extra-plugin-stealth` 2.11.2**, one of six checks purpose-built for this class of stealth patch that missed it cleanly. Current stealth fakes `chrome.runtime` in place rather than late-injecting a fake `window.chrome`, so the "high chrome index" premise no longer catches it.
 
-See [finding](../findings/2026-07-19-multi-framework-matrix-results.md).
+**Resolution (2026-07-21): downgraded consistency/15 → soft/8**, with the other four deep-tamper probes — able to catch only a naive bolt-on, so it corroborates as part of a soft cluster now rather than docking on its own. Full rationale: [the downgrade finding](../findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
+
+See findings: [1](../findings/2026-07-19-multi-framework-matrix-results.md), [2](../findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
 
 ## Go scorer coverage
 
-`tests/botcheck_test.go`: `TestQuickWinSignals`, `TestV3Signals`, `TestChromeRulesNeedAChromeUA`; `tests/handler_test.go`: `TestCheckV3SignalsThroughHandler`, `TestCheckStaleV2PayloadScores100ThroughHandler`.
+`tests/botcheck_test.go`: `TestQuickWinSignals`, `TestV3Signals`, `TestChromeRulesNeedAChromeUA`, `TestInternalsTamperDowngradedToSoft`, `TestEveryRuleCanFire`; `tests/handler_test.go`: `TestCheckV3SignalsThroughHandler`, `TestCheckStaleV2PayloadScores100ThroughHandler`.
 
 ---
 
