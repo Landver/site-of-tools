@@ -167,3 +167,29 @@ non-discriminating signal. Shipping a rarity score would re-introduce exactly
 the overselling Step 1 removed, so it stays a documented deferral with a concrete
 reason — see [ip-reputation.md](ip-reputation.md) (G40, G43) and per-rule detail
 in [checks/](../testing/checks/README.md).
+
+**IP blocklist / abuse reputation shipped (2026-07-21): 67 → 68 rules (G37).**
+Added the `ip_blocklisted` rule (consistency/network, weight 25) — the egress-IP
+abuse-reputation signal that had sat as "Not built", giving a real threat/abuse
+read on top of PX12's proxy/VPN/Tor/datacenter *type* classification. Backed by a
+new **shared** Mongo collection `ip_blocklist` (repository
+[`iptools.BlockList`](../../../iptools/blocklist.go)), deliberately not
+botcheck-owned: any service/script/workflow can write flagged IPs into it (fields
+`ip`, `source`, `reason`, `count`, `meta`, `created_at`, `updated_at`; unique
+`(ip, source)` so each source keeps its own record; 60-day TTL on `updated_at` so
+reputation self-prunes — the "delete if not updated in two months" spec). A daily
+background sync ([`iptools/ipsum.go`](../../../iptools/ipsum.go),
+`RunIPsumSync` started in `main.go`) downloads the
+[stamparm/ipsum](https://github.com/stamparm/ipsum) aggregate feed — Unlicense
+(public domain), 30+ blocklists folded into `IP<TAB>count` — and bulk-upserts
+every IP under source `ipsum`, preserving the occurrence count; a `LastSync`
+staleness guard keeps the cadence honest across restarts. Fire logic: an
+ipsum-only listing fires at count ≥3 (ipsum's own auto-ban recommendation), a
+deliberate ban from any other source fires regardless, verified good bots are
+suppressed. Nil-safe end to end (disabled Mongo → silent rule, pure `Evaluate`
+unchanged). Data-source pick came from a 12-candidate survey with adversarial
+license/maintenance verification — see [ip-reputation.md](ip-reputation.md) (G37),
+[checks/ip_blocklisted.md](../testing/checks/ip_blocklisted.md), and
+[storage.md](../storage.md). Spamhaus DROP/EDROP is the intended second writer
+(pending a ToU §3.1 confirmation the owner emailed about); CINS Army a later
+maybe (pending written bundling permission).

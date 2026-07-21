@@ -353,6 +353,31 @@ var rules = []rule{
 		},
 	},
 	{
+		// G37: egress IP on the shared abuse/threat blocklist corpus — ipsum
+		// aggregate feed (30+ lists) + anything another service writes into
+		// ip_blocklist. Server-observed, not client-spoofable, same class as
+		// datacenter_ip/proxy_ip → consistency tier. Fires only above a floor:
+		// ipsum-only needs ≥ ipsumBlocklistFloor lists (ipsum's own auto-ban
+		// grade — one feed drifting onto a recycled residential IP mustn't tank a
+		// real human), a deliberate ban from any other source fires regardless of
+		// count. Empty sources ("not listed" / Mongo off) never fire. Suppressed
+		// for verified good bots (all their reputation deductions are).
+		id: "ip_blocklisted", label: "Egress IP is on a threat / abuse blocklist", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25,
+		eval: func(s Signals) (bool, string) {
+			if len(s.IPBlocklistSources) == 0 {
+				return false, ""
+			}
+			if !s.IPBlocklistDeliberate && s.IPBlocklistCount < ipsumBlocklistFloor {
+				return false, "" // ipsum-only and below the auto-ban confidence floor
+			}
+			detail := "listed by " + strings.Join(s.IPBlocklistSources, ", ")
+			if s.IPBlocklistCount > 0 {
+				detail += fmt.Sprintf(" (%d lists)", s.IPBlocklistCount)
+			}
+			return true, detail
+		},
+	},
+	{
 		id: "permission_impossible", label: "Impossible permission state (prompt while denied)", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			return s.PermissionState == "prompt" && s.NotificationPerm == "denied", ""

@@ -7,7 +7,7 @@
 - `botcheck.go` — **pure domain**: `Signals`, `Check`, `Report`, `Evaluate`, signal
   helpers. No `echo`, no `iptools` import — tests construct `Signals` directly, no
   HTTP, no databases.
-- `scoring.go` — ordered weighted rule set (67 rules: hard tells → consistency
+- `scoring.go` — ordered weighted rule set (68 rules: hard tells → consistency
   cross-checks → soft heuristics) and soft-signal combination rule. See
   [scoring-model.md](scoring-model.md).
 - `corpus.go` — Mongo fingerprint corpus (G41/G42 reuse + G43 churn): nil-safe repository (mirrors

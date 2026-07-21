@@ -45,11 +45,21 @@ func main() {
 	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
 	lookupHistory := iptools.NewHistory(idxCtx, mdb.DB())
 	corpus := botcheck.NewCorpus(mdb.DB())
+	// Shared IP blocklist corpus (G37): ipsum feed + any other service writing
+	// flagged IPs. Read by botcheck's ip_blocklisted rule, fed by the daily
+	// ipsum sync below. Nil-safe when Mongo off.
+	blocklist := iptools.NewBlockList(mdb.DB())
 	// Best-effort, same as history TTL index in NewHistory: failure only
 	// forfeits auto-expiry → non-fatal.
 	_ = corpus.EnsureIndexes(idxCtx)
+	_ = blocklist.EnsureIndexes(idxCtx)
 	cancelIdx()
 	defer reqlog.Close(context.Background())
+
+	// Refresh the ipsum blocklist daily in the background (nil-safe: no Mongo →
+	// returns at once). Self-skips the download if the corpus was refreshed
+	// within the last day → redeploys don't re-fetch the feed.
+	go iptools.RunIPsumSync(context.Background(), blocklist)
 
 	// Template funcs available to every template: shared header uses these for
 	// logo link (always apex) + Tools dropdown. Tools come from one catalog
@@ -95,7 +105,7 @@ func main() {
 	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo
 	// corpus for fingerprint-reuse signal.
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	botcheck.Register(botApp, geo, corpus)
+	botcheck.Register(botApp, geo, corpus, blocklist)
 
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):         apex,

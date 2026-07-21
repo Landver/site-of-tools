@@ -242,6 +242,12 @@ var ruleFirePaths = map[string]func() botcheck.Signals{
 	"jsengine_ua_mismatch": func() botcheck.Signals { s := cleanChrome(); s.JSEngine = "spidermonkey"; return s },
 	"webrtc_ip_mismatch":   func() botcheck.Signals { s := cleanChrome(); s.WebRTCIPs = []string{"203.0.113.9"}; return s },
 	"fingerprint_reuse":    func() botcheck.Signals { s := cleanChrome(); s.FingerprintIPs = 5; return s },
+	"ip_blocklisted": func() botcheck.Signals {
+		s := cleanChrome()
+		s.IPBlocklistSources = []string{"ipsum"}
+		s.IPBlocklistCount = 5 // ≥ ipsumBlocklistFloor (3), so the ipsum-only listing fires
+		return s
+	},
 
 	// ── Soft heuristics (fire alone; only bite score at ≥3 cluster) ─────────────
 	"empty_plugins":   func() botcheck.Signals { s := cleanChrome(); s.Plugins = 0; return s },
@@ -758,6 +764,60 @@ func TestCurlAndHumanAreNotGoodBots(t *testing.T) {
 	h.ASN = "714"
 	if r := botcheck.Evaluate(h); r.Bot != nil || r.Verdict != "human" {
 		t.Errorf("human on a crawler ASN: Bot=%+v verdict=%q, want nil / human", r.Bot, r.Verdict)
+	}
+}
+
+// TestIPBlocklistedRule covers the G37 ip_blocklisted confidence-floor logic:
+// an ipsum-only listing must clear the auto-ban floor before it fires, while a
+// deliberate ban from another source fires regardless of count, and an
+// unlisted IP (or Mongo off, which the handler surfaces as empty sources) is
+// silent.
+func TestIPBlocklistedRule(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(*botcheck.Signals)
+		fires   bool
+		verdict string
+	}{
+		{"not listed", func(s *botcheck.Signals) {}, false, "human"},
+		{"ipsum-only below floor (count 2)", func(s *botcheck.Signals) {
+			s.IPBlocklistSources, s.IPBlocklistCount = []string{"ipsum"}, 2
+		}, false, "human"},
+		{"ipsum-only at floor (count 3)", func(s *botcheck.Signals) {
+			s.IPBlocklistSources, s.IPBlocklistCount = []string{"ipsum"}, 3
+		}, true, "suspicious"},
+		{"deliberate source, no count, bypasses floor", func(s *botcheck.Signals) {
+			s.IPBlocklistSources, s.IPBlocklistDeliberate = []string{"rate-limiter"}, true
+		}, true, "suspicious"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := cleanChrome()
+			tc.mutate(&s)
+			r := botcheck.Evaluate(s)
+			if got := check(t, r, "ip_blocklisted").Triggered; got != tc.fires {
+				t.Errorf("ip_blocklisted Triggered = %v, want %v (score %d)", got, tc.fires, r.Score)
+			}
+			if r.Verdict != tc.verdict {
+				t.Errorf("verdict = %q, want %q (score %d)", r.Verdict, tc.verdict, r.Score)
+			}
+		})
+	}
+}
+
+// TestIPBlocklistedSuppressedForVerifiedGoodBot: a verified crawler whose
+// egress landed on a blocklist trips the rule but the deduction is recorded,
+// not counted — same treatment as its datacenter/proxy reputation hits.
+func TestIPBlocklistedSuppressedForVerifiedGoodBot(t *testing.T) {
+	s := crawler("Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)", "714") // verified from Apple's ASN
+	s.IPBlocklistSources, s.IPBlocklistCount = []string{"ipsum"}, 8
+	r := botcheck.Evaluate(s)
+	if r.Verdict != "good-bot" {
+		t.Fatalf("verdict = %q, want good-bot (score %d)", r.Verdict, r.Score)
+	}
+	c := check(t, r, "ip_blocklisted")
+	if !c.Triggered || !c.Suppressed {
+		t.Errorf("ip_blocklisted for verified good bot: Triggered=%v Suppressed=%v, want both true", c.Triggered, c.Suppressed)
 	}
 }
 

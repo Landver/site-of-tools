@@ -46,9 +46,9 @@ these.
 > the domain service. botcheck uses Mongo only for the fingerprint corpus so
 > far.
 
-- **TLS fingerprint (JA3/JA4)** (G27) — the connection's TLS ClientHello vs UA-implied stack. Blocked today: Cloudflare/nginx terminate TLS. Paths: an nginx/OpenResty JA3 module forwarding an `X-JA3` header, or terminating TLS in Go on this subdomain and peeking ClientHello. Real work — infra.
-- **HTTP/2 frame fingerprint (Akamai-style)** (G26) — SETTINGS / WINDOW_UPDATE / header-priority ordering. nginx downgrades to HTTP/1.1 before Go sees it; needs Go-terminated h2 or edge capture.
-- **TCP/IP SYN fingerprint (p0f / zardaxt)** (G30) — OS inferred from SYN packet fields vs UA OS. Needs raw packet capture on the host.
+- ~~**TLS fingerprint (JA3/JA4)** (G27)~~ — **closed as a dead end, 2026-07-21.** Investigated actually building this (an nginx `ssl_preread` listener or a Go-terminated TLS sidecar for this subdomain) and killed it before touching prod: Cloudflare's proxied mode terminates the visitor's TLS at its own edge and originates a *separate* connection to origin, so whatever ClientHello ever reaches our nginx/Go is Cloudflare's own edge-to-origin handshake — identical for every visitor, not the browser's. No amount of origin-side infra changes that while Cloudflare proxy stays on (required for the client-IP trust model). Cloudflare's own edge-computed JA3/JA4 (`cf-ja3-hash`/`cf-ja4` headers) exists but is gated to Enterprise Bot Management, not worth buying for a personal tool. See [network-layer.md](network-layer.md) G27 for the full finding.
+- ~~**HTTP/2 frame fingerprint (Akamai-style)** (G26)~~ — closes alongside G27, same root cause (see above).
+- ~~**TCP/IP SYN fingerprint (p0f / zardaxt)** (G30)~~ — closes alongside G27: even with raw packet capture, the SYN we'd see is Cloudflare's, not the visitor's.
 - **Behavioral biometrics** (G34) — stream mouse/keystroke/scroll/touch events, classify (incolumitas runs a 30+ classifier ensemble). Needs an event pipeline and a trained model. ML.
 - **Fingerprint rarity / crowd-blending** (G40) — store every fingerprint, score how rare the combination is. MongoDB now available for the corpus; lands naturally as one more `Check` once storage sits below the domain service (not built yet).
 - **Stable visitor ID / returning-device matching** (G47) — probabilistic identity across sessions (FingerprintJS-Pro style). Needs storage (MongoDB now available) and matching logic.

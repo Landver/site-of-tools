@@ -21,8 +21,9 @@ type Looker interface {
 
 // handler holds transport-layer deps for botcheck.corpberry.com.
 type handler struct {
-	svc    Looker
-	corpus *Corpus // nil-safe: disabled Mongo → fingerprint corpus no-ops
+	svc       Looker
+	corpus    *Corpus            // nil-safe: disabled Mongo → fingerprint corpus no-ops
+	blocklist *iptools.BlockList // nil-safe: Mongo off → blocklist lookups no-op (G37)
 }
 
 // Register wires botcheck.corpberry.com routes onto e.
@@ -30,8 +31,8 @@ type handler struct {
 //	GET  /                  check page (browser) — or server-only score (curl/JSON)
 //	POST /check             accepts collected client fingerprint, returns full score
 //	GET  /botcheck-sw.js    tiny Service Worker collector registers (G03)
-func Register(e *echo.Echo, svc Looker, corpus *Corpus) {
-	h := &handler{svc: svc, corpus: corpus}
+func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist *iptools.BlockList) {
+	h := &handler{svc: svc, corpus: corpus, blocklist: blocklist}
 	e.GET("/", h.index)
 	e.POST("/check", h.check)
 	e.GET("/botcheck-sw.js", h.serviceWorker)
@@ -147,6 +148,22 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnN
 	sig.Now = time.Now()
 	sig.HTTPUserAgent = r.UserAgent()
 	sig.EgressIP = c.RealIP() // G09: server-observed IP the WebRTC candidates are compared against
+	// G37: shared IP blocklist (ipsum feed + any other service writing to the
+	// ip_blocklist corpus). Independent of the IP2Location/IP2Proxy lookup below
+	// → runs even w/o the geo BINs (dev/CI). Best-effort: nil blocklist or a
+	// Mongo error leaves fields zero → ip_blocklisted silent. Deliberate = any
+	// source but the ipsum feed → scorer trusts it regardless of count (handler
+	// owns this vocab so the pure scorer needs no iptools import).
+	if lk, err := h.blocklist.Check(r.Context(), c.RealIP()); err == nil {
+		sig.IPBlocklistSources = lk.Sources
+		sig.IPBlocklistCount = lk.MaxCount
+		for _, src := range lk.Sources {
+			if src != iptools.BlocklistSourceIPsum {
+				sig.IPBlocklistDeliberate = true
+				break
+			}
+		}
+	}
 	sig.SecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
 	sig.SecCHUA = r.Header.Get("Sec-CH-UA")
 	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")

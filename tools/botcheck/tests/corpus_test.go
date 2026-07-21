@@ -299,7 +299,7 @@ func TestCorpusLiveViaHandler(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, fakeLooker{}, corpus)
+	botcheck.Register(e, fakeLooker{}, corpus, nil)
 
 	for i := 1; i <= 5; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/check", strings.NewReader(cleanClientBody))
@@ -390,7 +390,7 @@ func TestCorpusChurnLiveViaHandler(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, fakeLooker{}, corpus)
+	botcheck.Register(e, fakeLooker{}, corpus, nil)
 
 	const floor = 8 // fingerprintChurnMinHashes (unexported); keep in sync
 	var last botcheck.Report

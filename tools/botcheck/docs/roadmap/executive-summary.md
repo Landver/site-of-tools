@@ -2,7 +2,7 @@
 
 *(part of the [roadmap index](README.md))*
 
-`botcheck` already ships a credible client + server **consistency** scorer: 67
+`botcheck` already ships a credible client + server **consistency** scorer: 68
 tiered rules, cross-context (worker/iframe/service-worker) UA checks, UA/Client-Hints/timezone/IP
 cross-checks, and IP2Proxy datacenter/VPN/Tor classification, all fused
 server-side and shown as a transparent per-signal breakdown. Gaps fall into
@@ -24,11 +24,16 @@ three clean buckets:
    [ip-reputation.md](ip-reputation.md),
    [persistent-identity.md](persistent-identity.md),
    [behavioral.md](behavioral.md), [scoring-fusion.md](scoring-fusion.md)).
-   Most already documented as deferred. Network-layer ones genuinely out of
-   reach while nginx/Cloudflare terminate TLS in front of Go. DB-backed ones
-   now *unblocked* — MongoDB available — but botcheck persists only the
-   fingerprint corpus so far, so rest stay build-it tasks; ML ones conflict
-   w/ no-ML rule. Correctly parked, not oversights.
+   Most already documented as deferred. **Network-layer ones are a confirmed
+   dead end, not an open infra backlog** — 2026-07-21 finding: Cloudflare's
+   proxied mode terminates the visitor's connection at its edge and
+   originates a wholly separate one to origin at every layer (TCP/TLS/HTTP2),
+   so no origin-side engineering can ever see the visitor's real network
+   characteristics, only Cloudflare's own edge-to-origin connection — see
+   [network-layer.md](network-layer.md). DB-backed ones now *unblocked* —
+   MongoDB available — but botcheck persists only the fingerprint corpus so
+   far, so rest stay build-it tasks; ML ones conflict w/ no-ML rule.
+   Correctly parked, not oversights.
 
 3. **Intentional non-goals.** Enforcement/inline-WAF decisions, CAPTCHA /
    active challenges / proof-of-work, signed verdict tokens, and collector

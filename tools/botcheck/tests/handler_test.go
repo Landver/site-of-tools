@@ -35,7 +35,7 @@ func newTestApp(svc botcheck.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, svc, nil)
+	botcheck.Register(e, svc, nil, nil)
 	return e
 }
 

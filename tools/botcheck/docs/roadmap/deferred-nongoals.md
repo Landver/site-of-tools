@@ -5,12 +5,22 @@
 These items appear scattered across category files; grouped here so they
 aren't mistaken for oversights.
 
-- **Blocked by topology (edge/TLS):** TLS JA3/JA4 (G27), HTTP/2 frame
-  fingerprint (G26), TCP SYN fingerprint (G30), HTTP header order/casing
-  (G29), and the cross-layer OS-coherence rule that depends on them (G48).
-  See [network-layer.md](network-layer.md) and
-  [scoring-fusion.md](scoring-fusion.md). All blind as long as nginx/Cloudflare
-  terminate TLS in front of Go.
+- **Confirmed dead end, not just blocked by current topology (verified
+  2026-07-21):** TLS JA3/JA4 (G27), HTTP/2 frame fingerprint (G26), TCP SYN
+  fingerprint (G30), HTTP header order/casing (G29), and the cross-layer
+  OS-coherence rule that depends on them (G48). Cloudflare's proxied mode runs
+  two fully independent connections at every layer (TCP, TLS, HTTP/2) —
+  visitor↔edge, then a separate edge↔origin connection Cloudflare itself
+  originates — so no amount of origin-side infrastructure (custom nginx
+  module, Go-terminated TLS listener, raw packet capture) would ever expose
+  the visitor's real network characteristics; it would only capture
+  Cloudflare's own edge-to-origin connection, identical for every visitor.
+  The only way to see the real signal is disabling Cloudflare proxy, ruled
+  out separately (breaks the `CF-Connecting-IP` trust model and exposes the
+  shared origin IP for every other project behind the same nginx — see
+  `docs/DEPLOYMENT.md`). Not an open backlog item to revisit with more infra
+  investment — closed. See [network-layer.md](network-layer.md) and
+  [scoring-fusion.md](scoring-fusion.md).
 - **Needs a stored corpus (Mongo-backed since wave 2 — the fingerprint corpus
   shipped G41/G42, and request velocity/churn G43 shipped 2026-07-21 on the same
   corpus):** crowd rarity & entropy (G40, G58 — deferred as *scoring* with a

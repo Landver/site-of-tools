@@ -60,7 +60,7 @@ Each row in category files carries **`Sev · Effort · Status`**:
   `datadome`) — see [`../RESEARCH.md`](../RESEARCH.md) for cross-service
   summary.
 - Our **shipped** implementation, read as ground truth (not design doc):
-  [`../../scoring.go`](../../scoring.go) (the 67 detection rules),
+  [`../../scoring.go`](../../scoring.go) (the 68 detection rules),
   [`../../botcheck.go`](../../botcheck.go) (the `Signals` struct + scorer),
   [`../../handler.go`](../../handler.go) (server signals), and
   [`shared/static/js/botcheck.js`](../../../../shared/static/js/botcheck.js)
@@ -69,11 +69,13 @@ Each row in category files carries **`Sev · Effort · Status`**:
 Each competitor capability compared against that code, and **every claimed gap
 verified against real source** to kill false "we don't do X" entries at time
 this audit was written. Snapshot has since moved on as more items shipped
-(2026-07-19 recount of current category files' Status column): of 62 items, 30
-now **Shipped**, 19 genuine blind spots (**Not built**), 13 already
-acknowledged in design docs as **Deferred**, 0 currently carry **Partial**
-status (rows that used to be narrower-form implementations since updated to
-Shipped as work landed — see [changelog.md](changelog.md)).
+(recount as of 2026-07-21, after G37 shipped): of 62 items, 31 now
+**Shipped**, 18 genuine blind spots (**Not built**), 13 already acknowledged
+in design docs as **Deferred** (the network-layer four, G26/G27/G29/G30 + G48,
+now confirmed dead ends rather than open infra — see
+[network-layer.md](network-layer.md)), 0 currently carry **Partial** status
+(rows that used to be narrower-form implementations since updated to Shipped as
+work landed — see [changelog.md](changelog.md)).
 
 ## Note on method & confidence
 

@@ -231,6 +231,17 @@ type Signals struct {
 	// FingerprintIPs. Handler-filled from Mongo on POST /check only; 0 = no
 	// corpus data → ip_fingerprint_churn treats as no signal, never evidence.
 	FingerprintChurn int `json:"-"`
+	// IP blocklist (G37), handler-filled from the shared ip_blocklist corpus
+	// (ipsum feed + any other service writing flagged IPs). Sources = distinct
+	// sources with this egress IP listed; empty = not listed / corpus off →
+	// ip_blocklisted never fires. Count = highest ipsum-style occurrence count
+	// (how many feeds list it), 0 = no counted source. Deliberate = ≥1 source
+	// is a deliberate ban (anything but the ipsum feed) → trusted regardless of
+	// count. Handler computes it (owns the iptools source-name vocab) so the
+	// pure scorer needs no import.
+	IPBlocklistSources    []string `json:"-"`
+	IPBlocklistCount      int      `json:"-"`
+	IPBlocklistDeliberate bool     `json:"-"`
 
 	// Now = request time, handler-stamped. Input not a clock call → Evaluate
 	// stays pure/testable; resolves browser tz's current UTC offset
@@ -377,6 +388,12 @@ const (
 	// address's few devices never hit floor, long enough to catch a rotation
 	// burst.
 	churnWindow = 10 * time.Minute
+	// ipsumBlocklistFloor: min ipsum count (how many of its 30+ feeds list an
+	// IP) before an ipsum-only listing fires ip_blocklisted. 3 = ipsum's own
+	// README auto-ban recommendation ("at least 3 (black)lists"); below it one
+	// feed's take too weak to dock a real human on a recycled residential IP.
+	// A deliberate ban from any other source bypasses this floor.
+	ipsumBlocklistFloor = 3
 )
 
 // Evaluate: runs every rule against signals → scored report. Pure fn — no
@@ -444,6 +461,10 @@ var suppressedForGoodBot = map[string]bool{
 	"datacenter_ip":     true,
 	"proxy_ip":          true,
 	"fingerprint_reuse": true,
+	// Verified crawler egress can legitimately land on an abuse list (shared
+	// cloud ranges, recycled IPs); reputation deductions recorded-not-counted,
+	// same as datacenter/proxy above.
+	"ip_blocklisted": true,
 }
 
 func verdictFor(score int) string {
