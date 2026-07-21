@@ -11,8 +11,8 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestNegotiation drives the content-negotiation predicates through a real
-// request via a throwaway route, using only the exported API.
+// TestNegotiation: drives content-negotiation predicates thru real request
+// via throwaway route, exported API only.
 func TestNegotiation(t *testing.T) {
 	e := echo.New()
 	e.GET("/n", func(c *echo.Context) error {

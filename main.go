@@ -1,5 +1,5 @@
-// Command site-of-tools is the single binary that powers corpberry.com and every
-// simple tool. It builds one *echo.Echo per subdomain from a shared factory and
+// Command site-of-tools is the single binary, powers corpberry.com + every
+// simple tool. Builds one *echo.Echo per subdomain from shared factory →
 // dispatches by Host header. See docs/ARCHITECTURE.md.
 package main
 
@@ -23,43 +23,43 @@ import (
 func main() {
 	cfg := platform.Load()
 
-	// Open the shared MongoDB client once at startup and share it across features.
-	// A disabled (empty MONGODB_URI) or unreachable server is non-fatal — Mongo is
-	// nil, every repository built from it no-ops, and the app runs stateless,
-	// exactly the missing-BIN contract the IP tool uses. Feature repos take their
-	// *mongo.Database from mdb.DB() (nil-safe).
+	// Open shared MongoDB client once at startup, share across features.
+	// Disabled (empty MONGODB_URI) or unreachable server → non-fatal: Mongo nil,
+	// every repo built from it no-ops, app runs stateless — same contract as IP
+	// tool's missing-BIN case. Feature repos take *mongo.Database from mdb.DB()
+	// (nil-safe).
 	mongoCtx, cancelMongo := context.WithTimeout(context.Background(), 12*time.Second)
 	mdb, mErr := platform.OpenMongo(mongoCtx, cfg.MongoURI, cfg.MongoDatabase)
 	cancelMongo()
 	if mErr != nil {
 		log.Printf("mongo: disabled (%v); lookup history + request log will no-op", mErr)
 	}
-	// Close on shutdown. LIFO: reqlog drains (below) before the client closes.
+	// Close on shutdown. LIFO: reqlog drains (below) before client closes.
 	defer mdb.Close(context.Background())
 
-	// Mongo-backed features. Index creation is bounded and best-effort; a nil db
-	// yields nil stores (disabled). The request log is engine-level and shared by
-	// every subdomain; lookup history belongs to the IP tool, the fingerprint
-	// corpus to botcheck.
+	// Mongo-backed features. Index creation bounded + best-effort; nil db →
+	// nil stores (disabled). Request log = engine-level, shared by every
+	// subdomain; lookup history belongs to IP tool, fingerprint corpus to
+	// botcheck.
 	idxCtx, cancelIdx := context.WithTimeout(context.Background(), 10*time.Second)
 	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
 	lookupHistory := iptools.NewHistory(idxCtx, mdb.DB())
 	corpus := botcheck.NewCorpus(mdb.DB())
-	// Best-effort, same as the history TTL index inside NewHistory: a failure
-	// only forfeits auto-expiry, so it is non-fatal.
+	// Best-effort, same as history TTL index in NewHistory: failure only
+	// forfeits auto-expiry → non-fatal.
 	_ = corpus.EnsureIndexes(idxCtx)
 	cancelIdx()
 	defer reqlog.Close(context.Background())
 
-	// Template funcs available to every template: the shared header uses these for
-	// the logo link (always the apex) and the Tools dropdown. Tools come from one
-	// catalog (site.Tools), so the nav and the apex index render the same list.
+	// Template funcs available to every template: shared header uses these for
+	// logo link (always apex) + Tools dropdown. Tools come from one catalog
+	// (site.Tools) → nav + apex index render same list.
 	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
 
-	// In prod, version static URLs by content hash ({{asset "js/botcheck.js"}} ->
-	// /static/js/botcheck.js?v=<hash>) so a deploy busts the CDN/browser cache for
-	// exactly the changed files. In dev, static is served no-store, so keep URLs
-	// clean — platform.StaticURL is the shared prefix logic both paths use.
+	// Prod: version static URLs by content hash ({{asset "js/botcheck.js"}} ->
+	// /static/js/botcheck.js?v=<hash>) → deploy busts CDN/browser cache for
+	// exactly the changed files. Dev: static served no-store → keep URLs clean.
+	// platform.StaticURL = shared prefix logic both paths use.
 	asset := platform.StaticURL
 	if !cfg.IsDev() {
 		asset = platform.AssetVersioner(staticFS)
@@ -83,7 +83,7 @@ func main() {
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	site.Register(apex, cfg)
 
-	// ip.corpberry.com — missing databases are non-fatal; the tool reports it.
+	// ip.corpberry.com — missing databases non-fatal; tool reports it.
 	geo, err := iptools.OpenService(cfg.DB11V4, cfg.DB11V6, cfg.ASNV4, cfg.ASNV6, cfg.PX12)
 	if err != nil {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
@@ -91,9 +91,9 @@ func main() {
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	iptools.Register(ipApp, geo, lookupHistory)
 
-	// botcheck.corpberry.com — reuses the same IP service for its server-side
-	// reputation signals (nil geo degrades gracefully, exactly like the IP tool)
-	// and the Mongo corpus for its fingerprint-reuse signal.
+	// botcheck.corpberry.com — reuses same IP service for server-side
+	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo
+	// corpus for fingerprint-reuse signal.
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	botcheck.Register(botApp, geo, corpus)
 

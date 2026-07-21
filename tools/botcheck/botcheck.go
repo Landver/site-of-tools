@@ -1,18 +1,15 @@
-// Package botcheck is the botcheck.corpberry.com tool: it scores how much a
-// visitor's browser looks like a human vs. an automated/bot browser, and shows a
-// transparent per-signal breakdown.
+// Package botcheck: scores human vs bot look of a visitor's browser, w/
+// transparent per-signal breakdown, for botcheck.corpberry.com.
 //
-// botcheck.go is the domain layer — pure Go, no HTTP and (deliberately) no
-// iptools import. The handler collects client signals (from a vendored JS
-// collector that POSTs a fingerprint) and server signals (HTTP headers + the
-// existing iptools IP reputation lookup), flattens both into a Signals struct,
-// and calls Evaluate. Keeping this package free of echo/iptools is what lets its
-// tests construct Signals directly, with no databases and no HTTP.
+// botcheck.go = domain layer: pure Go, no HTTP, no iptools import. Handler
+// gathers client signals (JS collector POSTs fingerprint) + server signals
+// (headers + iptools IP lookup) → flattens into Signals → Evaluate. No
+// echo/iptools here → tests build Signals directly, no DB/HTTP.
 //
-// The one load-bearing idea (see docs/RESEARCH.md / docs/roadmap/): every client signal is
-// spoofable, so the strongest checks are the cross-layer/cross-context
-// consistency ones — what the browser *claims* (JS) vs. what the connection
-// *shows* (headers, IP) vs. what a second JS context reports (Worker/iframe).
+// Core idea (docs/RESEARCH.md, docs/roadmap/): every client signal spoofable
+// → strongest checks = cross-layer/cross-context consistency — browser
+// *claims* (JS) vs connection *shows* (headers, IP) vs 2nd JS context
+// (Worker/iframe).
 package botcheck
 
 import (
@@ -25,64 +22,58 @@ import (
 	"strings"
 	"time"
 
-	// Embed the IANA timezone database so time.LoadLocation works regardless of
-	// the (distroless) runtime image — needed for the browser-TZ vs IP-TZ offset
-	// comparison below.
+	// Embeds IANA tz DB → time.LoadLocation works on distroless image —
+	// needed for browser-TZ vs IP-TZ offset compare below.
 	_ "time/tzdata"
 )
 
-// UAData is the subset of navigator.userAgentData the collector reports. It exists
-// so Go can cross-check the JS-reported platform + browser version against the
-// Sec-CH-UA-Platform request header and the legacy User-Agent string. FullVersionList
-// is the G01 catch: a UA-string spoof that edits "Chrome/NNN" but leaves
-// userAgentData intact disagrees with the "Chromium" brand entry here (see
+// UAData: navigator.userAgentData subset collector reports. Lets Go
+// cross-check JS platform+version vs Sec-CH-UA-Platform header + legacy UA.
+// FullVersionList = G01 catch: UA spoof editing "Chrome/NNN" but leaving
+// userAgentData intact disagrees w/ "Chromium" brand entry (see
 // ua_chrome_version_mismatch / chVersionMajor).
 type UAData struct {
 	Platform        string         `json:"platform"`
 	FullVersionList []BrandVersion `json:"fullVersionList"`
 }
 
-// BrandVersion is one entry of navigator.userAgentData.fullVersionList
-// (e.g. {"Chromium", "125.0.6422.60"}); the GREASE decoy brand is ignored when
-// reading it (see chVersionMajor / realBrandSet).
+// BrandVersion: one fullVersionList entry (e.g. {"Chromium",
+// "125.0.6422.60"}). GREASE decoy brand ignored on read (see chVersionMajor
+// / realBrandSet).
 type BrandVersion struct {
 	Brand   string `json:"brand"`
 	Version string `json:"version"`
 }
 
-// ConnectionInfo is the v4 navigator.connection sample (G21): the browser's own
-// network-quality estimate. The whole API is absent on most Firefox/Safari
-// installs, which binds the zero struct — EffectiveType "" means "not supplied",
-// never a signal. The netinfo_incoherent rule cross-checks effectiveType against
-// the rtt/downlink reported by the SAME object (the browser derives the type
-// from exactly those estimates, so a spoofed override can contradict itself).
+// ConnectionInfo: v4 navigator.connection sample (G21) — browser's own
+// net-quality estimate. API absent on most Firefox/Safari → zero struct;
+// EffectiveType "" = not supplied, never a signal. netinfo_incoherent
+// cross-checks effectiveType vs rtt/downlink, SAME object (browser derives
+// type from those estimates → spoofed override self-contradicts).
 type ConnectionInfo struct {
 	EffectiveType string  `json:"effectiveType"` // "slow-2g" | "2g" | "3g" | "4g"
 	Downlink      float64 `json:"downlink"`      // Mbps estimate (0 = not supplied)
 	RTT           int     `json:"rtt"`           // ms estimate (0 = not supplied)
-	SaveData      bool    `json:"saveData"`      // the user asked for reduced data usage
+	SaveData      bool    `json:"saveData"`      // user asked for reduced data usage
 }
 
-// PermissionSample is the v4 two-name Permissions API sample (G21). States are
-// "granted" / "denied" / "prompt"; "" means the query failed or the name is
-// unsupported (older Safari rejects 'geolocation'), never evidence. Entropy
-// only — no rule scores permission VALUES (they are user preferences).
+// PermissionSample: v4 two-name Permissions API sample (G21). States:
+// granted/denied/prompt; "" = query failed or name unsupported (old Safari
+// rejects 'geolocation') — never evidence. Entropy only, no rule scores
+// VALUES (user prefs).
 type PermissionSample struct {
 	Notifications string `json:"notifications"`
 	Geolocation   string `json:"geolocation"`
 }
 
-// EnvInfo is the v4 collector's additive "env" section (G15/G21): CSS
-// media-query / display-capability values and the network/storage API surface.
-// Every field fails to absent in the collector and reads zero here when not
-// supplied — zero is never evidence. The two rules that read this section
-// (matchmedia_missing, netinfo_incoherent) are v4-gated (collectorVTamperV4) so
-// a stale cached v3 collector skips them; everything else is entropy that flows
-// into the raw fingerprint dump but is deliberately never scored — user
-// preferences (colour scheme, forced colours, GPC) and hardware capabilities
-// (gamut, EME) are not bot tells.
+// EnvInfo: v4 collector's additive "env" section (G15/G21) — CSS
+// media-query/display-capability + net/storage API surface. Every field
+// fails-to-absent, zero = not supplied, never evidence. matchmedia_missing +
+// netinfo_incoherent are v4-gated (collectorVTamperV4) → stale v3 collector
+// skips them; rest = entropy in raw dump, never scored — user prefs (colour
+// scheme, forced colours, GPC) + hw caps (gamut, EME) ≠ bot tells.
 type EnvInfo struct {
-	MatchMedia     bool             `json:"matchMedia"`     // window.matchMedia is a function — always sent by a v4 collector
+	MatchMedia     bool             `json:"matchMedia"`     // window.matchMedia is a function — always sent by v4 collector
 	DPR            float64          `json:"dpr"`            // devicePixelRatio (0 = not supplied)
 	ColorScheme    string           `json:"colorScheme"`    // prefers-color-scheme: "light" | "dark"
 	ForcedColors   bool             `json:"forcedColors"`   // forced-colors: active (Windows High Contrast)
@@ -91,27 +82,23 @@ type EnvInfo struct {
 	Gamut          string           `json:"gamut"`          // widest supported color-gamut: "rec2020" | "p3" | "srgb"
 	Connection     ConnectionInfo   `json:"connection"`     // navigator.connection (zero = API absent)
 	StorageQuotaMB int              `json:"storageQuotaMB"` // navigator.storage.estimate().quota, MB (0 = not supplied)
-	GPC            *bool            `json:"gpc"`            // navigator.globalPrivacyControl (nil = the browser doesn't expose it)
+	GPC            *bool            `json:"gpc"`            // navigator.globalPrivacyControl (nil = browser doesn't expose it)
 	Permissions    PermissionSample `json:"permissions"`    // tiny Permissions API sample
-	EMEClearKey    *bool            `json:"emeClearKey"`    // ClearKey EME available (nil = the probe couldn't run)
+	EMEClearKey    *bool            `json:"emeClearKey"`    // ClearKey EME available (nil = probe couldn't run)
 }
 
-// Signals is everything the scorer needs: client-collected values (bound
-// straight from the POSTed fingerprint JSON via the json tags) and
-// server-observed values (headers + IP lookup, filled by the handler and hidden
-// from the wire with json:"-"), all flattened to plain fields so this package
-// imports nothing but stdlib. A zero value means "not supplied"; ClientCollected
-// distinguishes "a real browser reported false/empty" from "no client
-// fingerprint was posted at all" (e.g. a plain curl), so client checks are
-// skipped rather than treated as passing.
+// Signals: everything scorer needs. Client-collected (bound from POSTed
+// fingerprint JSON via json tags) + server-observed (headers + IP lookup,
+// handler-filled, json:"-"), flattened → package imports only stdlib. Zero =
+// not supplied; ClientCollected splits "browser reported false/empty" from
+// "no fingerprint posted" (plain curl) → client checks skip, not pass.
 type Signals struct {
 	ClientCollected bool `json:"-"`
 
-	// CollectorV is the fingerprint-payload version the collector stamps (the
-	// "v" key). Rules whose fields are damning when false (the G04 deep-tamper
-	// probes: a missing key binds false) must not evaluate payloads too old to
-	// carry them — a stale cached botcheck.js would otherwise read as tampered.
-	// 0 = an unversioned/pre-G04 payload. See collectorVDeepTamper.
+	// CollectorV = payload version collector stamps ("v" key). Rules
+	// damning-when-false (G04 deep-tamper: missing key → false) must skip
+	// payloads too old to carry them, else stale cached botcheck.js reads as
+	// tampered. 0 = unversioned/pre-G04. See collectorVDeepTamper.
 	CollectorV int `json:"v"`
 
 	// ── client-collected (bound from the POSTed JSON) ────────────────────────
@@ -128,7 +115,7 @@ type Signals struct {
 	NotificationPerm string   `json:"notificationPermission"`
 	HasChromeObject  bool     `json:"hasChromeObject"`
 	WebGLRenderer    string   `json:"webglRenderer"`
-	WebGLVendor      string   `json:"webglVendor"` // UNMASKED_VENDOR_WEBGL (e.g. "Google Inc. (Apple)"); cross-checked against the renderer (G07) and the UA-claimed OS (G08)
+	WebGLVendor      string   `json:"webglVendor"` // UNMASKED_VENDOR_WEBGL (e.g. "Google Inc. (Apple)"); cross-checked vs renderer (G07) + UA-claimed OS (G08)
 	Plugins          int      `json:"plugins"`
 	ScreenW          int      `json:"screenW"`
 	ScreenH          int      `json:"screenH"`
@@ -149,7 +136,7 @@ type Signals struct {
 	TZOffset        int      `json:"tzOffset"`        // Date().getTimezoneOffset() minutes (west of UTC)
 	CanvasSupported bool     `json:"canvasSupported"` // a 2D canvas context is available
 	CanvasStable    bool     `json:"canvasStable"`    // two identical draws hash the same (else: randomised)
-	CanvasBlank     bool     `json:"canvasBlank"`     // the drawn canvas has no non-transparent pixels
+	CanvasBlank     bool     `json:"canvasBlank"`     // drawn canvas has no non-transparent pixels
 	Brands          []string `json:"brands"`          // navigator.userAgentData.brands names
 	CodecH264       bool     `json:"codecH264"`       // <video> can play H.264
 	CodecAAC        bool     `json:"codecAAC"`        // <audio> can play AAC
@@ -160,14 +147,12 @@ type Signals struct {
 	Engine     string `json:"engine"`     // feature-detected engine family: "blink" | "gecko" | "webkit"
 
 	// ── cross-context client signals (G03) ───────────────────────────────────
-	// The same navigator values re-read inside a Web Worker, a display:none
-	// iframe, and a Service Worker — three extra JS contexts. Anti-detect tools
-	// overwhelmingly spoof only the top frame's navigator, so a context that
-	// confidently reports something different is a strong consistency tell (the
-	// Bright Data catch: a worker claiming Linux while the top UA says macOS).
-	// Every rule comparing these requires BOTH sides present: "" / 0 / nil means
-	// the context didn't answer (unsupported API, probe timeout), which is never
-	// evidence — the comparison skips instead of firing.
+	// Navigator values re-read in Web Worker, display:none iframe, Service
+	// Worker — 3 extra JS contexts. Anti-detect tools mostly spoof only top
+	// frame's navigator → context reporting something different = strong
+	// consistency tell (Bright Data catch: worker says Linux, top UA says
+	// macOS). Rules need BOTH sides present: ""/0/nil = context silent
+	// (unsupported API, probe timeout), never evidence → skip, don't fire.
 	SWUA                string   `json:"swUA"`                // Service Worker's navigator.userAgent
 	WorkerLanguages     []string `json:"workerLanguages"`     // worker's navigator.languages
 	IframeLanguages     []string `json:"iframeLanguages"`     // iframe's navigator.languages
@@ -181,21 +166,20 @@ type Signals struct {
 	WorkerWebGLRenderer string   `json:"workerWebGLRenderer"` // worker's WebGL unmasked renderer via OffscreenCanvas ("" if unsupported)
 
 	// ── G04 deep native-tamper probes (CreepJS queryLies-style) ──────────────
-	// Same contract as NativeToStringOK: an OK field is false ONLY on a confirmed
-	// tamper — a probe that can't run yields the pass value — so on a posted
-	// fingerprint false reads as damning, never as "absent data".
-	NativeDescriptorsOK bool `json:"nativeDescriptorsOK"` // descriptor/own-property sanity on the natives
+	// Same contract as NativeToStringOK: OK field false ONLY on confirmed
+	// tamper — probe that can't run → pass value. On posted fingerprint,
+	// false = damning, never "absent data".
+	NativeDescriptorsOK bool `json:"nativeDescriptorsOK"` // descriptor/own-property sanity on natives
 	NativeCallNewOK     bool `json:"nativeCallNewOK"`     // call/new TypeError traps behave
-	// NativeToStringProxied is INVERTED: true is the bad value. It means
-	// Function.prototype.toString carries Proxy artifacts — the stealth-plugin
-	// hallmark that exists to defeat the shallow NativeToStringOK check.
+	// NativeToStringProxied INVERTED: true = bad. Function.prototype.toString
+	// carries Proxy artifacts — stealth-plugin hallmark meant to defeat
+	// shallow NativeToStringOK check.
 	NativeToStringProxied bool `json:"nativeToStringProxied"`
 
 	// ── v3 batch signals (G09–G14, G17, G22, G23 + Layer-1 backlog) ───────────
-	// Added with payload v3. The two OK bools are fail-to-pass like the G04
-	// probes (false only on a confirmed anomaly), so the rules keyed on them are
-	// v3-gated (see collectorVTamperV3); the TRUE=BAD booleans and the value
-	// fields bind safe on a stale payload and need no gate.
+	// Added w/ payload v3. Two OK bools fail-to-pass like G04 (false only on
+	// confirmed anomaly) → v3-gated (collectorVTamperV3); TRUE=BAD booleans +
+	// value fields bind safe on stale payload, no gate needed.
 	IframeWebdriver       bool     `json:"iframeWebdriver"`       // navigator.webdriver re-read inside the iframe (G11)
 	IframeProxied         bool     `json:"iframeProxied"`         // iframe contentWindow Proxy detected — true = bad (G11)
 	MaxTouchPoints        int      `json:"maxTouchPoints"`        // navigator.maxTouchPoints (G12)
@@ -212,10 +196,9 @@ type Signals struct {
 	InnerH                int      `json:"innerH"`                // window.innerHeight (Layer-1 backlog)
 
 	// ── v4 batch signals (G15/G21) ───────────────────────────────────────────
-	// Added with payload v4 as one additive "env" section. Same contract as the
-	// v3 batch: every value fails to absent in the collector, zero here means
-	// "not supplied" (never evidence), and the rules reading the section are
-	// v4-gated (collectorVTamperV4) so a stale cached v3 collector skips them.
+	// Added w/ payload v4 as one additive "env" section. Same contract as v3:
+	// fails-to-absent, zero = not supplied, never evidence; v4-gated
+	// (collectorVTamperV4) → stale v3 collector skips.
 	Env EnvInfo `json:"env"`
 
 	// ── server-observed (filled by the handler; never read off the wire) ─────
@@ -225,49 +208,46 @@ type Signals struct {
 	SecFetchMode    string `json:"-"` // Sec-Fetch-Mode header (real browsers always send it)
 	AcceptLanguage  string `json:"-"`
 	// G06 header-consistency signals, all server-observed.
-	HTTPAccept         string `json:"-"` // Accept header; a browser's navigation/fetch Accept includes text/html
-	HTTPAcceptEncoding string `json:"-"` // Accept-Encoding header; every real browser sends one on every request
-	// Upgrade-Insecure-Requests is captured for completeness but deliberately UNUSED
-	// by any rule: Safari never sends it, so a rule keyed on its presence or absence
-	// would false-positive every real Safari user.
+	HTTPAccept         string `json:"-"` // Accept header; browser nav/fetch Accept includes text/html
+	HTTPAcceptEncoding string `json:"-"` // Accept-Encoding header; every real browser sends one, every request
+	// Upgrade-Insecure-Requests captured for completeness, deliberately
+	// UNUSED: Safari never sends it → keying a rule on it false-positives
+	// every real Safari user.
 	HTTPUpgradeInsecureRequests string `json:"-"`
 	IPTimezone                  string `json:"-"`
-	EgressIP                    string `json:"-"` // connection IP the server observed (c.RealIP()), for the WebRTC cross-check (G09)
+	EgressIP                    string `json:"-"` // connection IP server observed (c.RealIP()), for WebRTC cross-check (G09)
 	ASN                         string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
 	IsDatacenter                bool   `json:"-"`
 	IsProxy                     bool   `json:"-"`
 	IsVPN                       bool   `json:"-"`
 	IsTor                       bool   `json:"-"`
-	// FingerprintIPs counts the distinct IPs that presented this exact stable
-	// fingerprint within the rolling 30-day corpus (G41/G42). Filled by the
-	// handler from the Mongo corpus on POST /check only; 0 means "no corpus
-	// data" (store disabled, count failed, or first sighting), which the
-	// fingerprint_reuse rule treats as no signal — never evidence.
+	// FingerprintIPs: distinct IPs presenting this exact fingerprint, rolling
+	// 30-day corpus (G41/G42). Handler-filled from Mongo on POST /check only;
+	// 0 = no corpus data (store off, count failed, first sighting) →
+	// fingerprint_reuse treats as no signal, never evidence.
 	FingerprintIPs int `json:"-"`
-	// FingerprintChurn counts the DISTINCT fingerprints this egress IP presented
-	// within the rolling churn window (G43) — the fingerprint-rotation tell, the
-	// temporal inverse of FingerprintIPs. Filled by the handler from the Mongo
-	// corpus on POST /check only; 0 means "no corpus data" (store disabled, count
-	// failed, or first sighting), which the ip_fingerprint_churn rule treats as
-	// no signal — never evidence.
+	// FingerprintChurn: DISTINCT fingerprints this egress IP presented,
+	// rolling churn window (G43) — rotation tell, temporal inverse of
+	// FingerprintIPs. Handler-filled from Mongo on POST /check only; 0 = no
+	// corpus data → ip_fingerprint_churn treats as no signal, never evidence.
 	FingerprintChurn int `json:"-"`
 
-	// Now is the request time, stamped by the handler. It's an input (not a call
-	// to the clock) so Evaluate stays pure and testable; used to resolve the
-	// browser timezone's current UTC offset (DST-aware).
+	// Now = request time, handler-stamped. Input not a clock call → Evaluate
+	// stays pure/testable; resolves browser tz's current UTC offset
+	// (DST-aware).
 	Now time.Time `json:"-"`
 }
 
-// Tier classifies a check by how damning it is; it also drives the soft-signal
-// combination rule (see Evaluate) and the colour in the HTML table.
+// Tier: how damning a check is; drives soft-signal combo rule (see
+// Evaluate) + HTML table colour.
 const (
 	TierHard        = "hard"        // near-standalone bot proof
-	TierConsistency = "consistency" // a combination that should not co-occur
-	TierSoft        = "soft"        // weak on its own; only counts in a cluster
+	TierConsistency = "consistency" // combination that shouldn't co-occur
+	TierSoft        = "soft"        // weak alone; only counts in cluster
 )
 
-// Subgroup splits the consistency tier into presentation groups. It has no
-// effect on scoring; it is only used to render the result breakdown.
+// Subgroup: splits consistency tier into presentation groups. No scoring
+// effect, display only.
 const (
 	subgroupNetwork   = "network"
 	subgroupUA        = "ua"
@@ -275,10 +255,9 @@ const (
 	subgroupInternals = "internals"
 )
 
-// Check is one row in the transparent breakdown table. Triggered means the
-// anomaly fired (bad); Skipped means it could not be evaluated (e.g. a
-// client-only signal on a server-only request) and so neither counts nor reads
-// as a pass.
+// Check: one row in breakdown table. Triggered = anomaly fired (bad);
+// Skipped = couldn't evaluate (e.g. client-only signal, server-only
+// request) — neither pass nor hit.
 type Check struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
@@ -287,45 +266,40 @@ type Check struct {
 	Weight    int    `json:"weight"`
 	Triggered bool   `json:"triggered"`
 	Skipped   bool   `json:"skipped,omitempty"`
-	// Suppressed marks a rule that fired but did not dock the score because it is
-	// expected of a verified good bot (bot-shaped, from a datacenter). The row still
-	// shows in the breakdown, as "expected" rather than a deduction.
+	// Suppressed: rule fired but didn't dock score — expected of verified
+	// good bot (bot-shaped, datacenter). Row still shows, as "expected" not a
+	// deduction.
 	Suppressed bool   `json:"suppressed,omitempty"`
 	Detail     string `json:"detail,omitempty"`
 }
 
-// Report is the content-negotiated result the transport layer renders as HTML or
-// JSON. Score is an authenticity score: 100 = looks fully human, 0 = looks fully
-// automated. Bot is set when the User-Agent is a recognised crawler / AI agent
-// (verified or not); a verified one also overrides Verdict to "good-bot".
-// ClientPayload echoes the POSTed client fingerprint (set only by POST /check,
-// nil on a server-only GET score) so the report can show the raw values behind
-// the verdict — the G54 raw-dump for the debugging audience. Server-observed
-// fields never leak into it: they are json:"-" on Signals, and the HTML template
-// renders it through RawJSON.
+// Report: content-negotiated result, HTML/JSON. Score = authenticity: 100
+// fully human, 0 fully automated. Bot set when UA = recognised crawler/AI
+// agent (verified or not); verified → Verdict overrides to "good-bot".
+// ClientPayload echoes POSTed fingerprint (POST /check only, nil on
+// server-only GET) → report shows raw values behind verdict, G54 raw-dump
+// for debugging. Server-observed fields never leak: json:"-" on Signals,
+// HTML renders via RawJSON.
 type Report struct {
 	Score         int          `json:"score"`
 	Verdict       string       `json:"verdict"` // "human" | "suspicious" | "bot" | "good-bot"
 	Bot           *BotIdentity `json:"bot,omitempty"`
 	Checks        []Check      `json:"checks"`
 	ClientPayload *Signals     `json:"clientPayload,omitempty"`
-	// FingerprintIPs surfaces the corpus count behind the fingerprint_reuse
-	// rule (G41/G42): how many distinct IPs presented this exact fingerprint in
-	// the rolling 30-day window. 0 = corpus off or first sighting — the HTML
-	// card hides the line then, and omitempty keeps it out of the JSON.
+	// FingerprintIPs: corpus count behind fingerprint_reuse (G41/G42) —
+	// distinct IPs, this fingerprint, rolling 30-day window. 0 = corpus off
+	// or first sighting → HTML hides line, omitempty keeps out of JSON.
 	FingerprintIPs int `json:"fingerprintIPs,omitempty"`
-	// FingerprintChurn surfaces the corpus count behind the ip_fingerprint_churn
-	// rule (G43): how many distinct fingerprints this IP presented in the rolling
-	// churn window. 0 = corpus off or no rotation — omitempty keeps it out of the
-	// JSON and the HTML card hides the line.
+	// FingerprintChurn: corpus count behind ip_fingerprint_churn (G43) —
+	// distinct fingerprints, this IP, rolling churn window. 0 = corpus off or
+	// no rotation → omitempty/HTML hide it.
 	FingerprintChurn int `json:"fingerprintChurn,omitempty"`
 }
 
-// RawJSON returns the client-collected half of the fingerprint as indented JSON
-// for the raw-dump section (G54). Every server-observed field is json:"-", so a
-// plain Marshal already emits exactly what the browser POSTed — headers and IP
-// facts can't leak through it. Marshal here cannot fail (plain scalar fields),
-// but a failure would degrade to an empty dump, never an error page.
+// RawJSON: client-collected fingerprint half as indented JSON, raw-dump
+// section (G54). Every server-observed field json:"-" → plain Marshal =
+// exactly what browser POSTed, headers/IP can't leak. Can't fail here (plain
+// scalars); failure would degrade to empty dump, never error page.
 func (s Signals) RawJSON() string {
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -334,17 +308,16 @@ func (s Signals) RawJSON() string {
 	return string(b)
 }
 
-// FingerprintHash is the G41/G42 stable identity of the client half of this
-// fingerprint: sha256 over a canonical subset of stable client-reported
-// fields — UA, languages, userAgentData.platform, cores, memory, screen +
-// colour depth, timezone, WebGL vendor + renderer, productSub, engine, font
-// count. The subset is deliberately limited to what a scraping farm locks when
-// it clones one browser profile: volatile surfaces (window geometry, canvas/
-// audio probes) and every server-observed field stay out, so one browser keeps
-// one hash across visits while two genuinely different browsers don't share
-// one. Pure and deterministic — same Signals in, same hash out — so the corpus
-// can count distinct IPs per hash. Fields are joined with a unit separator
-// none of them can contain, so no two field lists can collide by concatenation.
+// FingerprintHash: G41/G42 stable identity of fingerprint's client half —
+// sha256 over canonical stable-field subset: UA, languages,
+// userAgentData.platform, cores, memory, screen+colour depth, timezone,
+// WebGL vendor+renderer, productSub, engine, font count. Subset = what a
+// scraping farm locks cloning one profile: volatile surfaces (window
+// geometry, canvas/audio probes) + server-observed fields excluded → one
+// browser = one hash across visits, two different browsers ≠ collide.
+// Pure/deterministic — same Signals in, same hash out — corpus counts
+// distinct IPs/hash. Fields joined w/ unit separator none can contain → no
+// collision by concat.
 func (s Signals) FingerprintHash() string {
 	fields := []string{
 		s.NavMainUA,
@@ -366,62 +339,54 @@ func (s Signals) FingerprintHash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Scoring constants. The soft rule (borrowed from deviceandbrowserinfo) is that
-// no single weak signal may ever produce a false positive: a soft hit is ignored
-// until at least softComboThreshold soft signals fire together, at which point
-// the whole cluster promotes to one softComboWeight deduction.
+// Scoring constants. Soft rule (from deviceandbrowserinfo): no single weak
+// signal ever false-positives → soft hit ignored until softComboThreshold
+// fire together, then cluster promotes to one softComboWeight deduction.
 const (
 	humanFloor         = 80 // score ≥ this ⇒ "human"
 	suspiciousFloor    = 50 // score ≥ this ⇒ "suspicious"; below ⇒ "bot"
 	softComboThreshold = 3
 	softComboWeight    = 25
-	// collectorVDeepTamper is the payload version that introduced the G04
-	// deep-tamper fields (nativeDescriptorsOK / nativeCallNewOK /
-	// nativeToStringProxied). Those fields are damning when false and a missing
-	// JSON key binds false, so the G04 rules skip payloads older than this —
-	// a returning visitor with a stale cached collector must not read as tampered.
+	// collectorVDeepTamper: payload version adding G04 deep-tamper fields
+	// (nativeDescriptorsOK/nativeCallNewOK/nativeToStringProxied). Damning
+	// when false, missing key → false → G04 rules skip older payloads, else
+	// stale-collector returning visitor reads as tampered.
 	collectorVDeepTamper = 2
-	// collectorVTamperV3 is the payload version that introduced the v3 batch
-	// fields that are damning when false/zero (navProtoDescriptorsOK,
-	// chromeRuntimeOK, maxTouchPoints, mimeTypes). Rules keyed on those skip
-	// payloads older than this, same stale-collector contract as above.
+	// collectorVTamperV3: payload version adding v3 fields damning when
+	// false/zero (navProtoDescriptorsOK, chromeRuntimeOK, maxTouchPoints,
+	// mimeTypes). Keyed rules skip older payloads, same contract as above.
 	collectorVTamperV3 = 3
-	// collectorVTamperV4 is the payload version that introduced the v4 "env"
-	// section (G15/G21). Rules keyed on it (matchmedia_missing,
-	// netinfo_incoherent) skip payloads older than this — a stale cached v3
-	// collector never sent the section, so its zero values must not read as
-	// evidence.
+	// collectorVTamperV4: payload version adding v4 "env" section (G15/G21).
+	// Keyed rules (matchmedia_missing, netinfo_incoherent) skip older
+	// payloads — stale v3 collector never sent section → zeros mustn't read
+	// as evidence.
 	collectorVTamperV4 = 4
-	// fingerprintReuseMinIPs is the distinct-IP floor for the fingerprint_reuse
-	// rule (G41/G42): below it, a person roaming networks (home + work + mobile)
-	// stays silent; at or above it, what remains is infrastructure reusing one
-	// locked fingerprint across a proxy pool.
+	// fingerprintReuseMinIPs: distinct-IP floor, fingerprint_reuse (G41/G42).
+	// Below → person roaming networks (home+work+mobile), silent. At/above →
+	// infra reusing one locked fingerprint across a proxy pool.
 	fingerprintReuseMinIPs = 5
-	// fingerprintChurnMinHashes is the distinct-fingerprint floor for the
-	// ip_fingerprint_churn rule (G43): below it, an IP presenting a handful of
-	// browsers (a household's devices, someone re-checking after tweaking their
-	// browser) stays silent; at or above it, one address is cycling enough
-	// distinct fingerprints in the churn window to look like a randomising
-	// automation client or a busy shared egress. Soft-tier, so even above the
-	// floor it only bites as part of a cluster.
+	// fingerprintChurnMinHashes: distinct-fingerprint floor,
+	// ip_fingerprint_churn (G43). Below → IP w/ a handful of browsers
+	// (household devices, browser-tweak re-check), silent. At/above → one
+	// address cycling enough fingerprints in churn window to look like
+	// randomising automation or busy shared egress. Soft-tier → only bites
+	// as cluster even above floor.
 	fingerprintChurnMinHashes = 8
-	// churnWindow is the rolling look-back the handler passes to the corpus when
-	// counting distinct fingerprints per IP for ip_fingerprint_churn. Short
-	// enough that a normal address's few devices never accumulate to the floor,
-	// long enough to catch a burst of rotated fingerprints.
+	// churnWindow: rolling look-back handler passes to corpus, counting
+	// distinct fingerprints/IP for ip_fingerprint_churn. Short enough normal
+	// address's few devices never hit floor, long enough to catch a rotation
+	// burst.
 	churnWindow = 10 * time.Minute
 )
 
-// Evaluate runs every rule against the signals and returns the scored report. It
-// is a pure function of its input — no DB, no globals, no clock — so it is
-// trivially testable and race-free. Score starts at 100 and each triggered
-// hard/consistency rule subtracts its weight; soft rules are summed separately
-// and only bite as a cluster.
+// Evaluate: runs every rule against signals → scored report. Pure fn — no
+// DB, no globals, no clock — trivially testable, race-free. Score starts
+// 100; each triggered hard/consistency rule subtracts weight; soft rules
+// summed separately, bite only as cluster.
 func Evaluate(s Signals) Report {
-	// Identify a recognised crawler / AI agent up front (nil for anything else). A
-	// *verified* one (operator corroborated by the egress ASN) is expected to look
-	// bot-shaped, so its expected deductions are suppressed below and its verdict is
-	// overridden — but only verified: an unverified UA claim is labelled, not excused.
+	// ID recognised crawler/AI agent up front (nil otherwise). *Verified*
+	// one (ASN-corroborated) expected bot-shaped → its deductions suppress
+	// below + verdict overrides — unverified UA claim labelled, not excused.
 	bot := classifyGoodBot(clientUA(s), s.ASN)
 	suppress := bot != nil && bot.Verified
 
@@ -438,10 +403,10 @@ func Evaluate(s Signals) Report {
 			ID: r.id, Label: r.label, Tier: r.tier, Subgroup: r.subgroup, Weight: r.weight,
 			Triggered: triggered, Skipped: skipped, Detail: detail,
 		}
-		// Hard/consistency rules dock their weight immediately; soft rules never bite
-		// individually — they cost one softComboWeight only as a cluster, applied once
-		// below. For a verified good bot, the expected-crawler deductions are recorded
-		// but not counted (they'd wrongly tank a legitimate crawler's score).
+		// Hard/consistency rules dock weight immediately; soft rules never
+		// bite alone — cost one softComboWeight only as cluster, applied once
+		// below. Verified good bot: expected-crawler deductions recorded, not
+		// counted (else wrongly tanks a legit crawler's score).
 		if triggered && r.tier != TierSoft {
 			if suppress && suppressedForGoodBot[r.id] {
 				c.Suppressed = true
@@ -452,10 +417,10 @@ func Evaluate(s Signals) Report {
 		checks = append(checks, c)
 	}
 
-	// SoftClusterActive (SoftFired ≥ softComboThreshold) is the single source of
-	// truth for the soft-cluster rule, shared by scoring here and the display helpers.
-	// FingerprintIPs carries the corpus count straight through to the report —
-	// it's an input like every other Signals field, so Evaluate stays pure.
+	// SoftClusterActive (SoftFired ≥ softComboThreshold) = single source of
+	// truth for soft-cluster rule, shared w/ display helpers. FingerprintIPs
+	// carries corpus count straight to report — input like any Signals field
+	// → Evaluate stays pure.
 	report := Report{Checks: checks, Bot: bot, FingerprintIPs: s.FingerprintIPs, FingerprintChurn: s.FingerprintChurn}
 	if report.SoftClusterActive() {
 		deduction += softComboWeight
@@ -469,12 +434,11 @@ func Evaluate(s Signals) Report {
 	return report
 }
 
-// suppressedForGoodBot are the deductions a genuine verified crawler is expected to
-// trip — being a bot, from a datacenter/hosting network, and sharing one fingerprint
-// across its fleet's many IPs. They are recorded but not counted for a corroborated
-// good bot, so its score reads coherently. Every other rule (webdriver, CDP, native
-// tamper, …) still counts, so a compromised host inside the operator's own network
-// would still surface in the breakdown.
+// suppressedForGoodBot: deductions a verified crawler is expected to trip —
+// being a bot, datacenter/hosting network, sharing one fingerprint across
+// fleet IPs. Recorded, not counted, for corroborated good bot → score reads
+// coherent. Every other rule (webdriver, CDP, native tamper, …) still counts
+// → compromised host inside operator's own network still surfaces.
 var suppressedForGoodBot = map[string]bool{
 	"bot_user_agent":    true,
 	"datacenter_ip":     true,
@@ -493,13 +457,12 @@ func verdictFor(score int) string {
 	}
 }
 
-// --- shared signal helpers (used by the rule predicates in scoring.go) --------
+// --- shared signal helpers (used by rule predicates in scoring.go) ---
 
-// osFromUA normalises the OS named in a User-Agent string to the vocabulary
-// navigator.userAgentData.platform uses ("Windows", "macOS", "Linux",
-// "Android", "iOS", "Chrome OS"). "" means "couldn't tell" — callers treat that
-// as "no mismatch" rather than a trigger. Order matters: Android and CrOS UAs
-// also contain "Linux", and iOS UAs contain "like Mac OS X".
+// osFromUA: normalises UA's OS name → navigator.userAgentData.platform
+// vocabulary ("Windows","macOS","Linux","Android","iOS","Chrome OS"). "" =
+// can't tell → callers = no mismatch, not a trigger. Order matters:
+// Android/CrOS UAs also contain "Linux", iOS contains "like Mac OS X".
 func osFromUA(ua string) string {
 	switch {
 	case strings.Contains(ua, "Windows"):
@@ -519,9 +482,9 @@ func osFromUA(ua string) string {
 	}
 }
 
-// normPlatform folds userAgentData/Sec-CH-UA-Platform values into the same
-// vocabulary osFromUA returns (Chromium reports "macOS" but quotes the CH header
-// value, and older/edge cases vary), so the two are comparable.
+// normPlatform: folds userAgentData/Sec-CH-UA-Platform values → same
+// vocabulary as osFromUA (Chromium reports "macOS" but quotes CH header;
+// edge cases vary) → the two comparable.
 func normPlatform(p string) string {
 	p = strings.Trim(strings.TrimSpace(p), `"`)
 	switch strings.ToLower(p) {
@@ -542,8 +505,8 @@ func normPlatform(p string) string {
 	}
 }
 
-// isSoftwareRenderer reports whether a WebGL renderer string is a software
-// rasteriser — a strong "headless / no GPU" tell on a desktop browser.
+// isSoftwareRenderer: WebGL renderer string = software rasteriser? Strong
+// "headless/no GPU" tell on desktop browser.
 func isSoftwareRenderer(r string) bool {
 	r = strings.ToLower(r)
 	for _, m := range []string{"swiftshader", "llvmpipe", "mesa offscreen", "software", "microsoft basic render"} {
@@ -554,17 +517,16 @@ func isSoftwareRenderer(r string) bool {
 	return false
 }
 
-// gpuVendorFamily normalises a WebGL unmasked vendor and/or renderer string to a
-// GPU vendor family: "apple", "nvidia", "amd", "intel", "adreno" or "mali". It
-// copes with every real reporting style — Chrome's ANGLE pair ("Google Inc.
-// (NVIDIA)" + "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 ...)"),
-// Safari's generalised "Apple Inc." / "Apple GPU", Firefox's plain
-// "NVIDIA Corporation" / "GeForce ..." — because the ANGLE wrapper and the
-// "Google Inc. (...)" shim always carry the true vendor inside them, so a
-// substring search over the lowercased concatenation suffices. "" means
-// "couldn't tell" (VM passthrough strings, software rasterisers, masked
-// values); callers treat that as "no signal", never as a mismatch — that is
-// what keeps llvmpipe-on-Linux and VMware guests from tripping the GPU rules.
+// gpuVendorFamily: normalises WebGL unmasked vendor/renderer → GPU vendor
+// family: apple/nvidia/amd/intel/adreno/mali. Copes w/ every real style —
+// Chrome's ANGLE pair ("Google Inc. (NVIDIA)" + "ANGLE (NVIDIA, NVIDIA
+// GeForce RTX 3080 Direct3D11 ...)"), Safari's "Apple Inc."/"Apple GPU",
+// Firefox's plain "NVIDIA Corporation"/"GeForce ..." — ANGLE wrapper +
+// "Google Inc. (...)" shim always carry true vendor inside → substring
+// search over lowercased concat suffices. "" = can't tell (VM passthrough,
+// software rasterisers, masked values) → callers = no signal, never
+// mismatch — keeps llvmpipe-on-Linux + VMware guests from tripping GPU
+// rules.
 func gpuVendorFamily(vendor, renderer string) string {
 	s := strings.ToLower(vendor + " " + renderer)
 	switch {
@@ -585,7 +547,7 @@ func gpuVendorFamily(vendor, renderer string) string {
 	}
 }
 
-// botUATokens are headless browsers, scripting HTTP clients, and self-declared
+// botUATokens: headless browsers, scripting HTTP clients, self-declared
 // bots — definitive non-browser tells (unlike Electron, handled separately).
 var botUATokens = []string{
 	"headlesschrome", "headless", "phantomjs", "slimerjs",
@@ -594,13 +556,13 @@ var botUATokens = []string{
 	"bot", "spider", "crawler",
 }
 
-// embeddedRuntimeTokens are browser engines embedded in a desktop app — real
-// Chromium/WebKit engines, legitimate for an app but unusual for browsing
-// arbitrary sites, so a suspicious (not definitive) signal.
+// embeddedRuntimeTokens: browser engines embedded in desktop apps — real
+// Chromium/WebKit, legit for an app but unusual for arbitrary sites →
+// suspicious, not definitive.
 var embeddedRuntimeTokens = []string{"electron", "cef ", "cefsharp", "qtwebengine", "nw.js", "nwjs"}
 
-// botUAToken returns the first botUATokens match in a User-Agent (or "" for
-// none). An empty UA counts as a token: real browsers always send one.
+// botUAToken: first botUATokens match in UA (or "" for none). Empty UA
+// counts as a token: real browsers always send one.
 func botUAToken(ua string) string {
 	if strings.TrimSpace(ua) == "" {
 		return "(empty user-agent)"
@@ -610,9 +572,9 @@ func botUAToken(ua string) string {
 
 func embeddedRuntimeToken(ua string) string { return firstToken(ua, embeddedRuntimeTokens) }
 
-// looksLikeBrowser reports whether a User-Agent claims to be a mainstream
-// interactive browser — the precondition for "a real browser would have sent
-// header X" checks. It excludes UAs already caught as bots/HTTP clients.
+// looksLikeBrowser: UA claims mainstream interactive browser? Precondition
+// for "real browser would've sent header X" checks. Excludes UAs already
+// caught as bots/HTTP clients.
 func looksLikeBrowser(ua string) bool {
 	if ua == "" || !strings.HasPrefix(ua, "Mozilla/") || botUAToken(ua) != "" {
 		return false
@@ -625,8 +587,8 @@ func looksLikeBrowser(ua string) bool {
 	return false
 }
 
-// clientUA returns the browser's own reported User-Agent (navigator.userAgent),
-// falling back to the HTTP header when the client half wasn't collected.
+// clientUA: browser's own reported UA (navigator.userAgent), falls back to
+// HTTP header if client half uncollected.
 func clientUA(s Signals) string {
 	if s.NavMainUA != "" {
 		return s.NavMainUA
@@ -634,12 +596,12 @@ func clientUA(s Signals) string {
 	return s.HTTPUserAgent
 }
 
-// engineFromUA maps a User-Agent to the rendering engine a genuine browser with
-// that UA must run: "blink" (Chrome/Edge/Opera/Chromium), "gecko" (Firefox),
-// "webkit" (Safari and every iOS browser — Apple mandates WebKit there). "" means
-// "can't tell", so a mismatch rule treats it as no signal. iOS is checked first
-// because CriOS/FxiOS UAs carry a brand token but still run WebKit. It is the
-// single source of truth for UA→engine inference (see expectedProductSub).
+// engineFromUA: maps UA → rendering engine a genuine browser w/ that UA must
+// run: "blink" (Chrome/Edge/Opera/Chromium), "gecko" (Firefox), "webkit"
+// (Safari + every iOS browser — Apple mandates WebKit). "" = can't tell →
+// mismatch rule = no signal. iOS checked first: CriOS/FxiOS UAs carry a
+// brand token but still run WebKit. Single source of truth for UA→engine
+// (see expectedProductSub).
 func engineFromUA(ua string) string {
 	switch {
 	case ua == "":
@@ -658,11 +620,11 @@ func engineFromUA(ua string) string {
 	}
 }
 
-// expectedProductSub returns the navigator.productSub constant every mainstream
-// browser on this engine reports: Gecko always "20100101", WebKit/Blink always
-// "20030107". It derives the engine from engineFromUA (single source of truth), so
-// iOS browsers — WebKit whatever their FxiOS/CriOS brand token — are classified
-// correctly. "" ⇒ can't tell (don't fire).
+// expectedProductSub: navigator.productSub constant every mainstream
+// browser on this engine reports — Gecko always "20100101", WebKit/Blink
+// always "20030107". Derives engine via engineFromUA (single source of
+// truth) → iOS browsers (WebKit under any FxiOS/CriOS token) classify right.
+// "" ⇒ can't tell, don't fire.
 func expectedProductSub(ua string) string {
 	switch engineFromUA(ua) {
 	case "gecko":
@@ -674,11 +636,11 @@ func expectedProductSub(ua string) string {
 	}
 }
 
-// jsEngineFromUA maps a User-Agent to the JS engine a genuine browser with that UA
-// must run: Blink browsers are V8, Gecko is SpiderMonkey, WebKit (Safari + every
-// iOS browser) is JavaScriptCore ("jsc"). It derives the rendering engine from
-// engineFromUA (single source of truth), so iOS browsers — WebKit under any
-// FxiOS/CriOS brand token — map to JSC correctly. "" ⇒ can't tell (don't fire).
+// jsEngineFromUA: maps UA → JS engine a genuine browser must run: Blink=V8,
+// Gecko=SpiderMonkey, WebKit (Safari + every iOS browser)=JavaScriptCore
+// ("jsc"). Derives rendering engine via engineFromUA (single source of
+// truth) → iOS under any FxiOS/CriOS token maps to JSC right. "" ⇒ can't
+// tell, don't fire.
 func jsEngineFromUA(ua string) string {
 	switch engineFromUA(ua) {
 	case "blink":
@@ -692,9 +654,9 @@ func jsEngineFromUA(ua string) string {
 	}
 }
 
-// ectRank orders the Network Information effectiveType values slowest→fastest
-// (slow-2g < 2g < 3g < 4g). 0 = an unknown/unsupplied value, which callers
-// treat as "can't tell", never a mismatch.
+// ectRank: orders Network Information effectiveType slowest→fastest
+// (slow-2g<2g<3g<4g). 0 = unknown/unsupplied → callers treat as can't tell,
+// never mismatch.
 func ectRank(ect string) int {
 	switch ect {
 	case "slow-2g":
@@ -710,7 +672,7 @@ func ectRank(ect string) int {
 	}
 }
 
-// ectName maps a rank back to its effectiveType string, for rule detail lines.
+// ectName: rank → effectiveType string, for rule detail lines.
 func ectName(rank int) string {
 	switch rank {
 	case 1:
@@ -724,12 +686,11 @@ func ectName(rank int) string {
 	}
 }
 
-// ectFromRTT maps a reported connection.rtt (ms) to the effectiveType the
-// Network Information spec's threshold table implies for it. Each threshold is
-// graced by the API's own reporting rounding (rtt is rounded to 50 ms before
-// the page sees it, while the browser computes effectiveType from the raw
-// estimate) so a real browser whose rounded report lands one step across a
-// boundary never contradicts its own claim.
+// ectFromRTT: maps connection.rtt (ms) → effectiveType per Network
+// Information spec threshold table. Each threshold graced by API's own
+// rounding (rtt rounds to 50ms before page sees it, browser computes
+// effectiveType from raw estimate) → real browser's rounded report landing
+// one step across a boundary never self-contradicts.
 func ectFromRTT(rtt int) int {
 	switch {
 	case rtt >= 2050: // spec: ≥ 2000 ⇒ slow-2g
@@ -743,9 +704,8 @@ func ectFromRTT(rtt int) int {
 	}
 }
 
-// ectFromDownlink maps a reported connection.downlink (Mbps) to the implied
-// effectiveType, with the same one-step rounding grace as ectFromRTT (downlink
-// is reported rounded to 0.05 Mbps).
+// ectFromDownlink: maps connection.downlink (Mbps) → implied effectiveType,
+// same rounding grace as ectFromRTT (downlink rounds to 0.05 Mbps).
 func ectFromDownlink(downlink float64) int {
 	switch {
 	case downlink < 0.10: // spec: < 0.05 ⇒ slow-2g
@@ -759,16 +719,15 @@ func ectFromDownlink(downlink float64) int {
 	}
 }
 
-// cgnatRange is the carrier-grade NAT shared address space (RFC 6598). A host
-// candidate in it differing from the egress IP is normal carrier NAT on real
-// mobile networks, not a proxy tell — same exclusion class as RFC1918.
+// cgnatRange: carrier-grade NAT shared space (RFC 6598). Host candidate in
+// it differing from egress IP = normal carrier NAT on mobile networks, not a
+// proxy tell — same exclusion class as RFC1918.
 var cgnatRange = netip.MustParsePrefix("100.64.0.0/10")
 
-// publicIP parses s as an IP and normalises it, reporting whether it is a public
-// (globally routable) address. webrtc_ip_mismatch compares only public candidates:
-// a host candidate behind NAT (RFC1918/ULA/loopback/link-local/CGNAT) differing
-// from the egress IP is normal and never a tell. IPv4-mapped IPv6 forms are
-// unmapped so the family comparison in the rule is apples-to-apples.
+// publicIP: parses s as IP, normalises, reports public (globally routable)?
+// webrtc_ip_mismatch compares only public candidates: NAT'd host candidate
+// (RFC1918/ULA/loopback/link-local/CGNAT) differing from egress IP = normal,
+// never a tell. IPv4-mapped IPv6 unmapped → family compare apples-to-apples.
 func publicIP(s string) (netip.Addr, bool) {
 	addr, err := netip.ParseAddr(strings.TrimSpace(s))
 	if err != nil {
@@ -782,8 +741,8 @@ func publicIP(s string) (netip.Addr, bool) {
 	return addr, true
 }
 
-// majorOf parses the leading integer of a dotted version ("125.0.6422.60" ⇒ 125).
-// 0 ⇒ no leading digits.
+// majorOf: leading integer of a dotted version ("125.0.6422.60" ⇒ 125). 0 ⇒
+// no leading digits.
 func majorOf(v string) int {
 	v = strings.TrimSpace(v)
 	i := 0
@@ -797,8 +756,8 @@ func majorOf(v string) int {
 	return n
 }
 
-// uaChromeMajor parses the Chromium major version from a UA's "Chrome/125.0.0.0"
-// token — the version Chrome/Edge/Opera all track. 0 ⇒ not a Chromium UA.
+// uaChromeMajor: parses Chromium major from UA's "Chrome/125.0.0.0" token —
+// version Chrome/Edge/Opera all track. 0 ⇒ not Chromium.
 func uaChromeMajor(ua string) int {
 	const tok = "Chrome/"
 	if i := strings.Index(ua, tok); i >= 0 {
@@ -807,13 +766,13 @@ func uaChromeMajor(ua string) int {
 	return 0
 }
 
-// chVersionMajor returns the Chromium engine major userAgentData reports — the
-// "Chromium" brand entry of fullVersionList (falling back to "Google Chrome"). That
-// is exactly the value the UA's "Chrome/NNN" token carries, so comparing the two is
-// valid for every Chromium browser: forks whose branded version diverges (Opera
-// 111, Vivaldi 7, Samsung 24 — all on Chromium ~125) still expose the true Chromium
-// major here and so don't false-positive. uaFullVersion is deliberately NOT read —
-// it carries the fork's branded version, not the engine's. 0 ⇒ not reported.
+// chVersionMajor: Chromium engine major userAgentData reports — "Chromium"
+// brand entry of fullVersionList (falls back to "Google Chrome"). Exactly
+// what UA's "Chrome/NNN" token carries → comparable for every Chromium
+// browser: forks w/ diverging branded version (Opera 111, Vivaldi 7, Samsung
+// 24 — all Chromium ~125) still expose true Chromium major here, no
+// false-positive. uaFullVersion deliberately NOT read — carries fork's
+// branded version, not engine's. 0 ⇒ not reported.
 func chVersionMajor(u UAData) int {
 	var googleChrome int
 	for _, bv := range u.FullVersionList {
@@ -831,7 +790,7 @@ func chVersionMajor(u UAData) int {
 	return googleChrome
 }
 
-// firstToken returns the first token that appears (case-insensitively) in ua.
+// firstToken: first token appearing (case-insensitive) in ua.
 func firstToken(ua string, tokens []string) string {
 	l := strings.ToLower(ua)
 	for _, t := range tokens {
@@ -842,15 +801,15 @@ func firstToken(ua string, tokens []string) string {
 	return ""
 }
 
-// offsetFormat reports whether s is a UTC offset like "+03:00" / "-08:00" — the
-// shape IP2Location returns for a timezone (as opposed to an IANA name).
+// offsetFormat: s a UTC offset like "+03:00"/"-08:00"? Shape IP2Location
+// returns for a tz (vs IANA name).
 func offsetFormat(s string) bool {
 	return len(s) > 0 && (s[0] == '+' || s[0] == '-')
 }
 
-// zoneOffsetSeconds resolves an IANA timezone name (e.g. "Europe/Moscow") to its
-// UTC offset in seconds east of UTC at time at (DST-aware). Returns false if the
-// zone can't be loaded or at is the zero time (can't tell).
+// zoneOffsetSeconds: resolves IANA tz name (e.g. "Europe/Moscow") → UTC
+// offset in seconds east, at time `at` (DST-aware). False if zone won't load
+// or `at` = zero time.
 func zoneOffsetSeconds(zone string, at time.Time) (int, bool) {
 	if at.IsZero() {
 		return 0, false
@@ -863,7 +822,7 @@ func zoneOffsetSeconds(zone string, at time.Time) (int, bool) {
 	return secs, true
 }
 
-// ianaOffset formats a zone's current offset like IP2Location's "+03:00".
+// ianaOffset: formats a zone's current offset like IP2Location's "+03:00".
 func ianaOffset(zone string, at time.Time) (string, bool) {
 	secs, ok := zoneOffsetSeconds(zone, at)
 	if !ok {
@@ -876,9 +835,9 @@ func ianaOffset(zone string, at time.Time) (string, bool) {
 	return fmt.Sprintf("%s%02d:%02d", sign, secs/3600, (secs%3600)/60), true
 }
 
-// chBrandNames extracts the brand names from a Sec-CH-UA structured header like
-// `"Chromium";v="125", "Google Chrome";v="125", "Not.A/Brand";v="24"` — the
-// first quoted token in each comma-separated entry.
+// chBrandNames: extracts brand names from Sec-CH-UA header like
+// `"Chromium";v="125", "Google Chrome";v="125", "Not.A/Brand";v="24"` —
+// first quoted token per comma-separated entry.
 func chBrandNames(header string) []string {
 	var out []string
 	for _, part := range strings.Split(header, ",") {
@@ -891,8 +850,8 @@ func chBrandNames(header string) []string {
 	return out
 }
 
-// realBrandSet lowercases brand names and drops the GREASE entry (the decoy brand
-// always contains "Brand", e.g. "Not.A/Brand"), leaving only genuine brands.
+// realBrandSet: lowercases brand names, drops GREASE entry (decoy always
+// contains "Brand", e.g. "Not.A/Brand") → genuine brands only.
 func realBrandSet(names []string) map[string]bool {
 	set := map[string]bool{}
 	for _, n := range names {
@@ -916,8 +875,8 @@ func sameStringSet(a, b map[string]bool) bool {
 	return true
 }
 
-// Group returns the checks in one tier, in rule order — used by the template to
-// render the breakdown in labelled groups.
+// Group: checks in one tier, rule order — template renders breakdown in
+// labelled groups.
 func (r Report) Group(tier string) []Check {
 	out := make([]Check, 0, len(r.Checks))
 	for _, c := range r.Checks {
@@ -928,8 +887,8 @@ func (r Report) Group(tier string) []Check {
 	return out
 }
 
-// Subgroup returns the checks in one tier + subgroup. Empty subgroup returns
-// nothing; this is only used by the consistency tier, which is split for display.
+// Subgroup: checks in one tier+subgroup. Empty subgroup = nothing; only
+// consistency tier uses this, split for display.
 func (r Report) Subgroup(tier, subgroup string) []Check {
 	out := make([]Check, 0, len(r.Checks))
 	for _, c := range r.Checks {
@@ -940,11 +899,11 @@ func (r Report) Subgroup(tier, subgroup string) []Check {
 	return out
 }
 
-// SoftFired reports how many soft-tier signals triggered. Soft signals never dock
-// points individually — they only cost the score once softComboThreshold of them
-// fire together (see Evaluate) — so the template shows each as "flagged" rather
-// than a per-row deduction and, when the cluster is active, adds a single line for
-// the real penalty. Keeps the displayed numbers matching what actually moved the score.
+// SoftFired: count of triggered soft-tier signals. Soft signals never dock
+// points alone — cost score once, only when softComboThreshold fire
+// together (see Evaluate) → template shows each as "flagged" not a per-row
+// deduction, adds one line for real penalty when cluster active. Keeps
+// displayed numbers matching what actually moved the score.
 func (r Report) SoftFired() int {
 	n := 0
 	for _, c := range r.Checks {
@@ -955,15 +914,15 @@ func (r Report) SoftFired() int {
 	return n
 }
 
-// SoftClusterActive reports whether enough soft signals fired to apply the cluster
-// penalty — the only case where soft signals move the score.
+// SoftClusterActive: enough soft signals fired for cluster penalty? Only
+// case soft signals move the score.
 func (r Report) SoftClusterActive() bool { return r.SoftFired() >= softComboThreshold }
 
-// SoftClusterPenalty is the score cost of an active soft cluster.
+// SoftClusterPenalty: score cost of an active soft cluster.
 func (r Report) SoftClusterPenalty() int { return softComboWeight }
 
-// primaryLang extracts the base language subtag from a languages list or an
-// Accept-Language header (e.g. "en-US,ru;q=0.9" → "en"). "" if none.
+// primaryLang: base language subtag from a languages list or Accept-Language
+// header (e.g. "en-US,ru;q=0.9" → "en"). "" if none.
 func primaryLang(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -11,17 +11,17 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestRealIPExtraction locks in the client-IP trust model wired by platform.NewApp
-// (cfIPExtractor). It is security-relevant — c.RealIP() feeds the request log and
-// the geo/reputation lookups — yet no other test builds an app via NewApp, so a
-// regression that dropped the CF branch, inverted precedence, or trusted an
-// X-Forwarded-For from an untrusted peer would otherwise pass the whole suite.
+// TestRealIPExtraction locks in client-IP trust model wired by platform.NewApp
+// (cfIPExtractor). Security-relevant → c.RealIP() feeds request log + geo/reputation
+// lookups. No other test builds app via NewApp → regression dropping CF branch,
+// inverting precedence, or trusting X-Forwarded-For from untrusted peer would
+// otherwise pass whole suite.
 func TestRealIPExtraction(t *testing.T) {
 	app := platform.NewApp(nil, fstest.MapFS{}, false, nil) // nil RequestLog: persistence off
 	app.GET("/ip", func(c *echo.Context) error { return c.String(http.StatusOK, c.RealIP()) })
 
-	// httptest's default RemoteAddr (192.0.2.1, TEST-NET-1) is neither loopback nor
-	// private, so it stands in for an untrusted direct peer.
+	// httptest default RemoteAddr (192.0.2.1, TEST-NET-1) neither loopback nor
+	// private → stands in for untrusted direct peer.
 	const untrustedPeer = "192.0.2.1:1234"
 
 	cases := []struct {
@@ -39,7 +39,7 @@ func TestRealIPExtraction(t *testing.T) {
 			name:       "XFF from an untrusted (public) peer is ignored",
 			remoteAddr: untrustedPeer,
 			headers:    map[string]string{"X-Forwarded-For": "198.51.100.7"},
-			want:       "192.0.2.1", // falls through to the socket address
+			want:       "192.0.2.1", // falls through to socket address
 		},
 		{
 			name:       "XFF from a loopback peer (nginx) is trusted",

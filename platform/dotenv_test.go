@@ -1,8 +1,7 @@
 package platform
 
-// White-box test (package platform): parseDotEnv and mergeEnv are unexported dev
-// helpers, so this sits beside the code per ARCHITECTURE §9 rather than in the
-// black-box tests/ package.
+// White-box test (pkg platform): parseDotEnv + mergeEnv are unexported dev
+// helpers → sits beside code per ARCHITECTURE §9, not black-box tests/ pkg.
 
 import (
 	"os"
@@ -25,9 +24,9 @@ PADDED =  spaced value
 	got := parseDotEnv(strings.NewReader(in))
 	want := map[string]string{
 		"APP_ENV":     "prod",
-		"LISTEN_ADDR": ":9090", // whitespace around key and value trimmed
+		"LISTEN_ADDR": ":9090", // whitespace around key+value trimmed
 		"BASE_DOMAIN": "corpberry.com",
-		"TOKEN":       "a=b=c", // only the first "=" splits; value may contain "="
+		"TOKEN":       "a=b=c", // only first "=" splits → value can contain "="
 		"PADDED":      "spaced value",
 	}
 	if len(got) != len(want) {
@@ -38,16 +37,16 @@ PADDED =  spaced value
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
 	}
-	// Blank lines, comments (incl. indented), and a line without "=" are all skipped.
+	// Blank lines, comments (incl. indented), line w/o "=" → all skipped.
 	if _, ok := got["NOT_A_PAIR"]; ok {
 		t.Errorf("a line without '=' must be skipped, got %q", got["NOT_A_PAIR"])
 	}
 }
 
 func TestMergeEnvNeverOverrides(t *testing.T) {
-	// A var already in the real environment must win over the .env value.
+	// Var already in real env must win over .env value.
 	t.Setenv("PLATFORM_DOTENV_EXISTING", "from-shell")
-	// A var not yet set should be filled from the pairs; clean it up after.
+	// Var not yet set → filled from pairs; clean up after.
 	const freshKey = "PLATFORM_DOTENV_FRESH"
 	os.Unsetenv(freshKey)
 	t.Cleanup(func() { os.Unsetenv(freshKey) })

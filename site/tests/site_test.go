@@ -1,4 +1,4 @@
-// Package tests holds the black-box tests for the site package.
+// Package tests: black-box tests for site package.
 package tests
 
 import (
@@ -48,8 +48,8 @@ func TestHomeHTML(t *testing.T) {
 }
 
 func TestHomeOmitsIP2LocationCredit(t *testing.T) {
-	// The apex uses none of the IP2Location data, so the license credit must not
-	// appear here — it is scoped to the IP tool via the .Attribution flag.
+	// Apex uses no IP2Location data → credit mustn't appear here; scoped to
+	// IP tool via .Attribution flag.
 	body := get(newTestApp(), "text/html").Body.String()
 	if strings.Contains(body, "lite.ip2location.com") || strings.Contains(body, "IP2Location LITE database") {
 		t.Errorf("apex must not show the IP2Location credit (it uses no such data), got:\n%s", body)

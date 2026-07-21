@@ -16,18 +16,18 @@
       many IPs. The check runs the moment this page loads.
     </p>
 
-    <!-- Controls first: the button sits where the other tools' form does, so "run"
-         is at the top and results flow beneath it. The vendored collector (no npm;
-         see shared/static/js/botcheck.js) gathers client signals, POSTs them to
-         /check, and swaps the returned fragment into #result. Plain fetch, not htmx:
-         collecting a fingerprint needs JS anyway, so the swap rides along (rule #4). -->
+    <!-- Controls first: button sits where other tools' form does → "run" up top,
+         results flow beneath. Vendored collector (no npm; shared/static/js/botcheck.js)
+         gathers client signals, POSTs to /check, swaps returned fragment into #result.
+         Plain fetch not htmx: fingerprint collection needs JS anyway → swap rides
+         along (rule #4). -->
     <div class="mt-6">
       <button type="button" onclick="runBotCheck()" class="btn-primary">Run again</button>
       <span id="botcheck-status" class="ml-2 text-sm text-faint"></span>
     </div>
 
-    <!-- Scope disclosure (G53): state plainly what the verdict is and isn't built
-         from, so the tool reads as an honest reference rather than a black box. -->
+    <!-- Scope disclosure (G53): state plainly what verdict is/isn't built from →
+         reads as honest reference, not black box. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">What this checks, and what it doesn't</summary>
       <div class="mt-3 space-y-3 text-muted">
@@ -54,9 +54,9 @@
       </div>
     </details>
 
-    <!-- Docs sit right under the button (mirrors the IP-lookup / CIDR pages). The
-         non-obvious part is the JSON/CLI interface: GET / negotiates content, so a
-         plain curl gets a server-only score; POST /check scores a fingerprint you supply. -->
+    <!-- Docs sit right under button (mirrors IP-lookup / CIDR pages). Non-obvious
+         part: JSON/CLI interface → GET / negotiates content, plain curl gets
+         server-only score; POST /check scores fingerprint you supply. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 space-y-3 text-muted">
@@ -72,7 +72,7 @@
       </div>
     </details>
 
-    <!-- Results land here — the analyzing placeholder until the collector's POST returns. -->
+    <!-- Results land here — analyzing placeholder till collector's POST returns. -->
     <div id="result" class="mt-6" aria-live="polite">
       <div class="card">
         <div class="eyebrow">analyzing</div>

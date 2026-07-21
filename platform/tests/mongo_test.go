@@ -10,9 +10,9 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestOpenMongoDisabled: an empty URI means "Mongo is off" — OpenMongo returns
-// ErrMongoUnavailable and no client, so the server can boot without a database
-// (the same non-fatal contract iptools.OpenService uses for absent BINs).
+// TestOpenMongoDisabled: empty URI = Mongo off → OpenMongo returns
+// ErrMongoUnavailable, no client → server boots w/o database. Same non-fatal
+// contract as iptools.OpenService w/ absent BINs.
 func TestOpenMongoDisabled(t *testing.T) {
 	m, err := platform.OpenMongo(context.Background(), "", "")
 	if !errors.Is(err, platform.ErrMongoUnavailable) {
@@ -23,9 +23,9 @@ func TestOpenMongoDisabled(t *testing.T) {
 	}
 }
 
-// TestNilMongoIsSafe: a nil *Mongo is a valid "disabled" value. Every method must
-// be nil-safe so callers can `defer m.Close(ctx)` and probe m.DB() without a nil
-// check, exactly like a nil *iptools.Service.
+// TestNilMongoIsSafe: nil *Mongo = valid "disabled" value. Every method must be
+// nil-safe → callers can `defer m.Close(ctx)` + probe m.DB() w/o nil check, same
+// as nil *iptools.Service.
 func TestNilMongoIsSafe(t *testing.T) {
 	var m *platform.Mongo
 	ctx := context.Background()
@@ -44,15 +44,15 @@ func TestNilMongoIsSafe(t *testing.T) {
 	}
 }
 
-// TestOpenMongoLive is an integration test: it runs only when MONGODB_TEST_URI is
-// set (and that server is reachable), and skips otherwise — so CI, fresh clones,
-// and a plain `make test` stay green. This mirrors the BIN-dependent tests that
-// skip when the databases are absent (ARCHITECTURE §9).
+// TestOpenMongoLive: integration test. Runs only when MONGODB_TEST_URI set (+
+// server reachable), skips otherwise → CI, fresh clones, plain `make test` stay
+// green. Mirrors BIN-dependent tests skipping w/ absent databases (ARCHITECTURE
+// §9).
 //
-// It intentionally reads MONGODB_TEST_URI, not the app's MONGODB_URI: `make test`
-// includes+exports .env, so keying off MONGODB_URI would fire a live network call
-// on every run. The dedicated var keeps the suite hermetic and makes hitting a
-// real server an explicit opt-in (`MONGODB_TEST_URI=… go test ./platform/...`).
+// Reads MONGODB_TEST_URI not app's MONGODB_URI on purpose: `make test` includes+
+// exports .env → keying off MONGODB_URI fires live network call every run.
+// Dedicated var keeps suite hermetic, makes hitting real server explicit opt-in
+// (`MONGODB_TEST_URI=… go test ./platform/...`).
 func TestOpenMongoLive(t *testing.T) {
 	uri := os.Getenv("MONGODB_TEST_URI")
 	if uri == "" {

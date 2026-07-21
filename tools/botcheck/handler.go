@@ -10,26 +10,26 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// Looker is the handler's dependency on IP intelligence: anything that resolves
-// an IP to geolocation + proxy facts. *iptools.Service satisfies it (a nil one
-// returns ErrUnavailable), and tests inject a fake — so this package needs no
-// databases to test the transport layer. The domain scorer (botcheck.go) never
-// sees this interface; the handler maps its result into plain Signals fields.
+// Looker is handler's dep on IP intel: anything that resolves an IP to
+// geolocation + proxy facts. *iptools.Service satisfies it (nil one returns
+// ErrUnavailable), tests inject fake → package needs no DBs to test
+// transport layer. Domain scorer (botcheck.go) never sees this interface;
+// handler maps its result into plain Signals fields.
 type Looker interface {
 	Lookup(ip string) (*iptools.Result, error)
 }
 
-// handler holds the transport-layer dependencies for botcheck.corpberry.com.
+// handler holds transport-layer deps for botcheck.corpberry.com.
 type handler struct {
 	svc    Looker
-	corpus *Corpus // nil-safe: a disabled Mongo turns the fingerprint corpus into a no-op
+	corpus *Corpus // nil-safe: disabled Mongo → fingerprint corpus no-ops
 }
 
-// Register wires the botcheck.corpberry.com routes onto e.
+// Register wires botcheck.corpberry.com routes onto e.
 //
-//	GET  /                  the check page (browser) — or a server-only score (curl/JSON)
-//	POST /check             accepts the collected client fingerprint, returns the full score
-//	GET  /botcheck-sw.js    the tiny Service Worker the collector registers (G03)
+//	GET  /                  check page (browser) — or server-only score (curl/JSON)
+//	POST /check             accepts collected client fingerprint, returns full score
+//	GET  /botcheck-sw.js    tiny Service Worker collector registers (G03)
 func Register(e *echo.Echo, svc Looker, corpus *Corpus) {
 	h := &handler{svc: svc, corpus: corpus}
 	e.GET("/", h.index)
@@ -37,14 +37,14 @@ func Register(e *echo.Echo, svc Looker, corpus *Corpus) {
 	e.GET("/botcheck-sw.js", h.serviceWorker)
 }
 
-// swScript is the Service Worker source the collector registers as a fourth JS
-// context for the cross-context checks (G03) plus the G14 additions: it reports
-// its navigator.webdriver (a top-frame-only webdriver patch forgets this context)
-// and runs the same CDP Error.stack trap the worker probe uses. It answers one
-// message (over the posted MessageChannel port) and has NO fetch handler —
-// deliberately, so it can never intercept or modify a single request on the
-// origin. Served as a constant: it reads nothing from the request and never
-// changes. The trap must NOT touch `.stack` itself, or it would self-trigger.
+// swScript: Service Worker source collector registers as 4th JS context for
+// cross-context checks (G03) plus G14 additions: reports its
+// navigator.webdriver (top-frame-only webdriver patch forgets this context)
+// and runs same CDP Error.stack trap the worker probe uses. Answers one
+// message (over posted MessageChannel port), has NO fetch handler —
+// deliberate, so it can never intercept or modify a single request on the
+// origin. Served as a constant: reads nothing from request, never changes.
+// Trap must NOT touch `.stack` itself, or it'd self-trigger.
 const swScript = `self.onmessage=(ev)=>{` +
 	`const p=ev.ports&&ev.ports[0];` +
 	`if(p){` +
@@ -61,43 +61,43 @@ const swScript = `self.onmessage=(ev)=>{` +
 	`cdp:c` +
 	`});}};`
 
-// serviceWorker serves swScript with a JavaScript MIME type (Service Worker
-// registration refuses anything else). It sits at the root so the registration
-// gets the widest default scope; the script never uses it.
+// serviceWorker serves swScript w/ JS MIME type (Service Worker registration
+// refuses anything else). Sits at root → registration gets widest default
+// scope; script never uses it.
 func (h *handler) serviceWorker(c *echo.Context) error {
 	return c.Blob(http.StatusOK, "application/javascript", []byte(swScript))
 }
 
-// index serves the page shell to browsers; the vendored collector then gathers
-// client signals and POSTs them to /check. A non-browser caller (curl, an API
-// client) gets an immediate JSON score built from server-only signals — the same
-// content-negotiation contract as the IP tool.
+// index serves page shell to browsers; vendored collector then gathers
+// client signals and POSTs them to /check. Non-browser caller (curl, API
+// client) gets immediate JSON score built from server-only signals — same
+// content-negotiation contract as IP tool.
 func (h *handler) index(c *echo.Context) error {
 	if platform.WantsJSON(c) {
 		var sig Signals
 		h.addServerSignals(c, &sig)
 		return c.JSON(http.StatusOK, Evaluate(sig))
 	}
-	// Opt in to Sec-CH-UA-Platform so the follow-up POST /check reliably carries the
-	// header side of the platform cross-check (a spoofing client keeps the header and
-	// the JS userAgentData.platform out of sync). It's a low-entropy hint Chromium
-	// already sends by default on secure origins; the explicit opt-in just makes the
-	// dependency clear. We request only what the scorer reads — nothing more.
+	// Opt in to Sec-CH-UA-Platform → follow-up POST /check reliably carries the
+	// header side of the platform cross-check (spoofing client keeps header +
+	// JS userAgentData.platform out of sync). Low-entropy hint Chromium already
+	// sends by default on secure origins; explicit opt-in just makes the
+	// dependency clear. Request only what scorer reads — nothing more.
 	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
-	// Attribution: IP2Location LITE's license requires the credit on any page that
+	// Attribution: IP2Location LITE's license requires credit on any page that
 	// uses or mentions the data — botcheck's IP reputation checks do (see iptools.Looker).
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
 		"Title": "Bot check", "Attribution": true,
 	})
 }
 
-// check fuses the POSTed client fingerprint with server-observed signals, scores
-// it, and replies with JSON (API/CLI) or an HTML results fragment (browser). It
-// has no full-page representation: the page is served by index and this only ever
-// fills the #result slot, so — unlike the IP tool's show — it never renders a page
+// check fuses POSTed client fingerprint w/ server-observed signals, scores
+// it, and replies w/ JSON (API/CLI) or an HTML results fragment (browser). It
+// has no full-page representation: page is served by index and this only ever
+// fills the #result slot, so — unlike IP tool's show — it never renders a page
 // template even when Accept says text/html.
 func (h *handler) check(c *echo.Context) error {
-	var sig Signals // client half binds straight from the JSON body (json tags on Signals)
+	var sig Signals // client half binds straight from JSON body (json tags on Signals)
 	if err := c.Bind(&sig); err != nil {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid fingerprint payload"})
@@ -107,25 +107,24 @@ func (h *handler) check(c *echo.Context) error {
 	}
 	sig.ClientCollected = true
 	connNet := h.addServerSignals(c, &sig)
-	// G41/G42: fold the fingerprint into the rolling corpus, then count how many
-	// distinct IPs presented this exact one — the scraping-farm tell. Best-effort:
-	// a disabled corpus or a Mongo error leaves FingerprintIPs 0 ("no corpus
-	// data"), the fingerprint_reuse rule stays silent, and the score is unchanged.
+	// G41/G42: fold fingerprint into rolling corpus, then count how many
+	// distinct IPs presented this exact one — scraping-farm tell. Best-effort:
+	// disabled corpus or Mongo error leaves FingerprintIPs 0 ("no corpus
+	// data"), fingerprint_reuse rule stays silent, score unchanged.
 	hash := sig.FingerprintHash()
 	_ = h.corpus.Record(c.Request().Context(), hash, c.RealIP())
 	if n, err := h.corpus.DistinctIPs(c.Request().Context(), hash); err == nil {
 		sig.FingerprintIPs = n
 	}
-	// G43: count how many distinct fingerprints this IP has cycled through in the
-	// churn window — the fingerprint-rotation tell. Same best-effort contract: a
-	// disabled corpus or a Mongo error leaves FingerprintChurn 0 ("no corpus
-	// data"), the ip_fingerprint_churn rule stays silent, and the score is
-	// unchanged.
+	// G43: count how many distinct fingerprints this IP has cycled through in
+	// churn window — fingerprint-rotation tell. Same best-effort contract:
+	// disabled corpus or Mongo error leaves FingerprintChurn 0 ("no corpus
+	// data"), ip_fingerprint_churn rule stays silent, score unchanged.
 	if n, err := h.corpus.DistinctHashesByIP(c.Request().Context(), c.RealIP(), churnWindow); err == nil {
 		sig.FingerprintChurn = n
 	}
 	report := Evaluate(sig)
-	report.ClientPayload = &sig // G54: echo the raw fingerprint for the dump + JSON API
+	report.ClientPayload = &sig // G54: echo raw fingerprint for dump + JSON API
 
 	if platform.WantsJSON(c) {
 		return c.JSON(http.StatusOK, report)
@@ -136,25 +135,25 @@ func (h *handler) check(c *echo.Context) error {
 	})
 }
 
-// addServerSignals fills the half of Signals that Go sees without any JS: request
-// headers plus IP reputation/geo from the shared iptools service. The IP lookup
-// is best-effort — a missing/failed database just leaves those fields zero (the
-// scorer treats that as "no server IP signal"), exactly as the IP tool degrades.
-// It returns the conn-card network attribution from the same lookup so the check
-// handler can enrich the "your request" pane without a second IP lookup.
+// addServerSignals fills the half of Signals Go sees w/o any JS: request
+// headers plus IP reputation/geo from shared iptools service. IP lookup is
+// best-effort — a missing/failed database just leaves those fields zero (the
+// scorer treats that as "no server IP signal"), same as IP tool degrades.
+// Returns the conn-card network attribution from the same lookup so the check
+// handler can enrich the "your request" pane w/o a second IP lookup.
 func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnNetwork {
 	var net platform.ConnNetwork
 	r := c.Request()
 	sig.Now = time.Now()
 	sig.HTTPUserAgent = r.UserAgent()
-	sig.EgressIP = c.RealIP() // G09: the server-observed IP the WebRTC candidates are compared against
+	sig.EgressIP = c.RealIP() // G09: server-observed IP the WebRTC candidates are compared against
 	sig.SecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
 	sig.SecCHUA = r.Header.Get("Sec-CH-UA")
 	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")
 	sig.AcceptLanguage = r.Header.Get("Accept-Language")
-	// G06: the content-negotiation headers the header-consistency rules read. All
+	// G06: content-negotiation headers the header-consistency rules read. All
 	// three are soft signals only — a proxy (CF/nginx) on the path can strip or
-	// rewrite them, the same caveat that made sec_fetch_missing soft.
+	// rewrite them, same caveat that made sec_fetch_missing soft.
 	sig.HTTPAccept = r.Header.Get("Accept")
 	sig.HTTPAcceptEncoding = r.Header.Get("Accept-Encoding")
 	// Collected for completeness but deliberately UNUSED in rules: Safari never
@@ -169,7 +168,7 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnN
 	if err != nil || res == nil {
 		return net
 	}
-	// "-" is IP2Location's unknown placeholder (e.g. localhost); treat it as no
+	// "-" is IP2Location's unknown placeholder (e.g. localhost); treat as no
 	// signal so the timezone cross-check doesn't fire against it.
 	sig.IPTimezone = cleanPlaceholder(res.Timezone)
 	sig.ASN = cleanPlaceholder(res.ASN) // egress ASN number, for good-bot corroboration
@@ -187,11 +186,11 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnN
 	return res.ConnNetwork()
 }
 
-// cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to an
-// empty string, so an unknown IP timezone/country is treated as "no signal"
-// rather than a real value the cross-checks could spuriously trip on. It lives
-// here with its caller (addServerSignals) — the domain scorer never uses it.
-// (The conn-card enrichment uses the shared mapping on iptools.Result instead.)
+// cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to
+// an empty string, so an unknown IP timezone/country is treated as "no
+// signal" rather than a real value the cross-checks could spuriously trip
+// on. Lives here w/ its caller (addServerSignals) — domain scorer never uses
+// it. (Conn-card enrichment uses the shared mapping on iptools.Result instead.)
 func cleanPlaceholder(s string) string {
 	if s == "-" {
 		return ""

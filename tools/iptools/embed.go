@@ -2,7 +2,7 @@ package iptools
 
 import "embed"
 
-// Templates holds this tool's templates (the lookup page + result fragment).
+// Templates: this tool's templates (lookup page + result fragment).
 //
 //go:embed templates
 var Templates embed.FS

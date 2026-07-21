@@ -1,14 +1,14 @@
 //go:build ignore
 
-// Command mongo-init provisions the application database on the shared MongoDB
-// server. MongoDB creates databases lazily, so an untouched "site-of-tools" never
-// appears in `show dbs`; this connects with MONGODB_URI (from the environment or
-// .env), creates the database explicitly via platform.Mongo.EnsureDatabase, then
-// prints the server's database + collection listing to confirm.
+// Command mongo-init provisions app DB on shared MongoDB server. Mongo
+// creates DBs lazily → untouched "site-of-tools" never shows in `show dbs`;
+// connects w/ MONGODB_URI (env or .env), creates DB explicitly via
+// platform.Mongo.EnsureDatabase, then prints server's DB + collection
+// listing to confirm.
 //
-// It is NOT part of the app build — the //go:build ignore tag excludes it from
-// `go build ./...`, `go vet ./...`, and the test gate. Run it once from a host
-// that can reach the server (optional now that the app writes on first request):
+// NOT part of app build — //go:build ignore tag excludes it from
+// `go build ./...`, `go vet ./...`, test gate. Run once from host that can
+// reach server (optional now, app writes on first request):
 //
 //	make mongo-init          # loads .env, then runs: go run mongoinit.go
 //	# or directly:
@@ -44,7 +44,7 @@ func main() {
 	}
 	fmt.Printf("ensured database %q\n", cfg.MongoDatabase)
 
-	// Confirm by listing what the server now reports. An empty filter (bson doc)
+	// Confirm by listing what server now reports. Empty filter (bson doc)
 	// matches everything.
 	empty := map[string]any{}
 	dbs, err := m.Client.ListDatabaseNames(ctx, empty)

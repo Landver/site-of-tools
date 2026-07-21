@@ -5,22 +5,20 @@ import (
 	"strings"
 )
 
-// report.go holds the presentation helpers the result template renders on top
-// of the scored Report — per-signal explanations (G55) and the detected-environment
-// line (G56). Nothing here changes scoring: these are pure read-only views over
-// what Evaluate already computed.
+// report.go: presentation helpers template renders on top of scored Report —
+// per-signal explanations (G55) + detected-environment line (G56). Nothing here
+// changes scoring → pure read-only views over what Evaluate already computed.
 
-// Explanation is the G55 per-signal write-up: what the check looks at, why it
-// fires, and its known limitation — the candor that makes a transparency tool
-// trustworthy. "" for an unknown rule ID (e.g. a check added without a map
-// entry); the template hides the "why" expander then.
+// Explanation: G55 per-signal write-up — what check looks at, why it fires,
+// known limitation. Candor = what makes transparency tool trustworthy. "" for
+// unknown rule ID (e.g. check added w/o map entry) → template hides "why" expander.
 func (c Check) Explanation() string { return ruleExplanations[c.ID] }
 
-// ruleExplanations maps every rule ID to one or two plain sentences. It covers
-// the full current rule set plus IDs reserved for rules being built in parallel
-// (their entries are inert until those rules land). Kept as a map beside the
-// template-facing accessor rather than a field on rule, so the write-ups live
-// in one reviewable block; report_internal_test.go asserts no rule lacks one.
+// ruleExplanations maps every rule ID → one or two plain sentences. Covers full
+// current rule set + IDs reserved for rules being built in parallel (inert till
+// those rules land). Kept as map beside template-facing accessor, not field on
+// rule → write-ups live in one reviewable block; report_internal_test.go asserts
+// no rule lacks one.
 var ruleExplanations = map[string]string{
 	// ── Hard tells ────────────────────────────────────────────────────────────
 	"webdriver":         "navigator.webdriver is the W3C-standard flag a browser sets when it is driven by automation (Selenium, Puppeteer, Playwright). A human's browser never sets it — but a well-patched bot can delete the property, so a clean value proves nothing.",
@@ -99,13 +97,13 @@ var ruleExplanations = map[string]string{
 	"zero_outer_height":            "window.outerHeight is exactly 0 — no real browser window has zero outer height, but a headless environment that never creates a visible window reports it.",
 }
 
-// Environment names the detected browsing environment in one short human line
+// Environment names detected browsing environment in one short human line
 // (G56) — the credibility flex: "Chrome 125 · macOS · Blink", "Firefox 128 ·
-// Windows · Gecko", "Electron 32.1.1 (embedded Chromium)". It parses only the
-// client-reported UA (NavMainUA), reusing the same osFromUA/engineFromUA
-// vocabulary the rules use, and returns "" when it can't tell — the template
-// hides the line then. Every part is independently omittable: an unparseable OS
-// or engine just drops its segment rather than guessing.
+// Windows · Gecko", "Electron 32.1.1 (embedded Chromium)". Parses only
+// client-reported UA (NavMainUA), reuses same osFromUA/engineFromUA vocab rules
+// use, returns "" when can't tell → template hides line then. Every part
+// independently omittable: unparseable OS or engine just drops its segment,
+// never guesses.
 func (s Signals) Environment() string {
 	ua := s.NavMainUA
 	if ua == "" {
@@ -128,11 +126,10 @@ func (s Signals) Environment() string {
 	return strings.Join(parts, " · ")
 }
 
-// embeddedEnvironment names an embedded runtime from its UA token, with the
-// version when the UA carries one ("Electron/32.1.1" → "Electron 32.1.1") —
-// the Fingerprint-style environment naming. All embedded runtimes we recognise
-// wrap a Chromium engine, hence the uniform suffix. "" when the UA holds no
-// embedded-runtime token.
+// embeddedEnvironment names embedded runtime from its UA token, w/ version
+// when UA carries one ("Electron/32.1.1" → "Electron 32.1.1") — Fingerprint-
+// style naming. All embedded runtimes we recognise wrap Chromium engine, hence
+// uniform suffix. "" when UA holds no embedded-runtime token.
 func embeddedEnvironment(ua string) string {
 	tok := embeddedRuntimeToken(ua)
 	if tok == "" {
@@ -155,11 +152,11 @@ func embeddedEnvironment(ua string) string {
 	return name + " (embedded Chromium)"
 }
 
-// browserNameVersion extracts "Chrome 125"-style name + major version from a
-// UA. Order matters: Edge/Opera UAs also carry "Chrome/", iOS browsers carry
-// "Safari/", and a real Safari version lives in the "Version/" token, not
-// "Safari/" (which is the engine build). ok=false when no known browser token
-// appears — callers treat that as "can't tell".
+// browserNameVersion extracts "Chrome 125"-style name + major version from UA.
+// Order matters: Edge/Opera UAs also carry "Chrome/", iOS browsers carry
+// "Safari/", real Safari version lives in "Version/" token, not "Safari/"
+// (engine build). ok=false when no known browser token appears → callers treat
+// as "can't tell".
 func browserNameVersion(ua string) (string, bool) {
 	for _, b := range []struct{ token, name string }{
 		{"Edg/", "Edge"},
@@ -186,8 +183,8 @@ func browserNameVersion(ua string) (string, bool) {
 	return "", false
 }
 
-// engineDisplay maps the internal engine vocabulary to display names. "" for
-// the unknown case, so the segment simply drops out of the environment line.
+// engineDisplay maps internal engine vocab → display names. "" for unknown
+// case → segment just drops out of environment line.
 func engineDisplay(engine string) string {
 	switch engine {
 	case "blink":
@@ -201,8 +198,8 @@ func engineDisplay(engine string) string {
 	}
 }
 
-// uaTokenMajor parses the major version of a UA token ("Firefox/128.0" ⇒ 128).
-// 0 ⇒ token absent or no leading digits.
+// uaTokenMajor parses major version of UA token ("Firefox/128.0" ⇒ 128). 0 ⇒
+// token absent or no leading digits.
 func uaTokenMajor(ua, token string) int {
 	if i := strings.Index(ua, token); i >= 0 {
 		return majorOf(ua[i+len(token):])
@@ -210,9 +207,9 @@ func uaTokenMajor(ua, token string) int {
 	return 0
 }
 
-// uaTokenVersion parses the full dotted version of a UA token, case-insensitively
-// ("Electron/32.1.1" ⇒ "32.1.1"). "" ⇒ absent. Used for embedded runtimes, where
-// the whole version string is the credibility flex, not just the major.
+// uaTokenVersion parses full dotted version of UA token, case-insensitive
+// ("Electron/32.1.1" ⇒ "32.1.1"). "" ⇒ absent. Used for embedded runtimes,
+// where whole version string is credibility flex, not just major.
 func uaTokenVersion(ua, token string) string {
 	i := strings.Index(strings.ToLower(ua), strings.ToLower(token)+"/")
 	if i < 0 {

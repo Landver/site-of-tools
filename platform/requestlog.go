@@ -8,20 +8,20 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-// requestLogTTL bounds how long request-log documents live. The corpus is for
-// recent-traffic observability, not a permanent archive, so it self-prunes via a
-// TTL index — no manual cleanup, no unbounded growth.
+// requestLogTTL bounds doc lifetime. Corpus = recent-traffic observability, not
+// permanent archive → self-prunes via TTL index, no manual cleanup, no unbounded
+// growth.
 const requestLogTTL = 30 * 24 * time.Hour
 
-// requestLogBuffer caps how many pending writes we hold before dropping. One
-// goroutine drains sequentially; if Mongo stalls, we drop rather than block a
-// request or grow memory without bound. This is a personal site's traffic log,
-// not an audit trail — losing a few rows under pressure is the right trade.
+// requestLogBuffer caps pending writes before drop. One goroutine drains
+// sequentially → Mongo stall drops rather than blocks request or grows memory
+// unbounded. Personal site's traffic log, not audit trail — losing rows under
+// pressure = right trade.
 const requestLogBuffer = 1024
 
-// RequestEntry is one recorded request: the fields that make a useful traffic
-// corpus and nothing more. The client IP is intentional (DEPLOYMENT §4); Cookie
-// and Authorization are never captured (mirroring the ConnInfo inspector).
+// RequestEntry is one recorded request: only fields that make useful traffic
+// corpus, nothing more. Client IP intentional (DEPLOYMENT §4); Cookie +
+// Authorization never captured (mirrors ConnInfo inspector).
 type RequestEntry struct {
 	Method    string    `bson:"method"`
 	Host      string    `bson:"host"`
@@ -34,25 +34,25 @@ type RequestEntry struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// RequestLog persists a rolling corpus of requests to MongoDB, off the request
-// path. It is the first shared, engine-level Mongo consumer; feature repositories
-// (e.g. iptools.History) follow the same nil-safe shape — a nil *RequestLog is a
-// valid "disabled" store whose methods no-op, so a Mongo-less boot needs no
-// special-casing anywhere.
+// RequestLog persists a rolling corpus of requests to MongoDB, off request path.
+// First shared, engine-level Mongo consumer; feature repositories (e.g.
+// iptools.History) follow same nil-safe shape — nil *RequestLog = valid
+// "disabled" store, methods no-op → Mongo-less boot needs no special-casing
+// anywhere.
 //
-// Writes are asynchronous: Record does a non-blocking send to a buffered channel
-// that a single background goroutine drains, so a slow or absent database never
-// adds latency to (or fails) a request. Overflow is dropped, by design.
+// Writes async: Record does non-blocking send to buffered channel, single
+// background goroutine drains → slow/absent database never adds latency to (or
+// fails) a request. Overflow dropped, by design.
 type RequestLog struct {
 	coll *mongo.Collection
 	ch   chan RequestEntry
 	done chan struct{}
 }
 
-// NewRequestLog builds the store from an application database handle and starts
-// its writer. A nil db (Mongo disabled) returns nil — a valid no-op store. The
-// TTL index is best-effort: a failure only forfeits auto-expiry, never writes, so
-// it is intentionally non-fatal and unlogged here.
+// NewRequestLog builds store from app database handle, starts its writer. Nil db
+// (Mongo disabled) → returns nil, a valid no-op store. TTL index best-effort:
+// failure only forfeits auto-expiry, never writes → intentionally non-fatal,
+// unlogged here.
 func NewRequestLog(ctx context.Context, db *mongo.Database) *RequestLog {
 	if db == nil {
 		return nil
@@ -68,20 +68,20 @@ func NewRequestLog(ctx context.Context, db *mongo.Database) *RequestLog {
 	return rl
 }
 
-// Record queues one entry. Nil-safe and non-blocking: if the store is disabled or
-// the buffer is full, the entry is dropped rather than delaying the caller.
+// Record queues one entry. Nil-safe + non-blocking: store disabled or buffer
+// full → entry dropped, never delays caller.
 func (rl *RequestLog) Record(e RequestEntry) {
 	if rl == nil {
 		return
 	}
 	select {
 	case rl.ch <- e:
-	default: // buffer full: drop, never block the request path
+	default: // buffer full: drop, never block request path
 	}
 }
 
-// run drains the queue, inserting each entry with its own bounded context so one
-// slow write can't wedge the writer.
+// run drains queue, inserts each entry w/ own bounded context → one slow write
+// can't wedge writer.
 func (rl *RequestLog) run() {
 	defer close(rl.done)
 	for e := range rl.ch {
@@ -91,11 +91,10 @@ func (rl *RequestLog) run() {
 	}
 }
 
-// Close stops the writer and waits (bounded by ctx) for the queue to drain, so a
-// graceful shutdown doesn't lose buffered entries. Nil-safe. It must be called
-// only after the HTTP server has stopped accepting requests (no concurrent
-// Record), which is the natural ordering in main: the defer runs after Start
-// returns.
+// Close stops writer, waits (bounded by ctx) for queue to drain → graceful
+// shutdown doesn't lose buffered entries. Nil-safe. Must be called only after
+// HTTP server stopped accepting requests (no concurrent Record) — natural
+// ordering in main: defer runs after Start returns.
 func (rl *RequestLog) Close(ctx context.Context) error {
 	if rl == nil {
 		return nil
@@ -109,8 +108,8 @@ func (rl *RequestLog) Close(ctx context.Context) error {
 }
 
 // ShouldRecord reports whether a request path is worth persisting. Static assets
-// are skipped: high-volume and carrying no analytic value the page requests don't
-// already. Exported so the one caller (the request-logger middleware) reads clearly.
+// skipped: high-volume, no analytic value beyond page requests. Exported so the
+// one caller (request-logger middleware) reads clearly.
 func ShouldRecord(path string) bool {
 	return !strings.HasPrefix(path, "/static/")
 }

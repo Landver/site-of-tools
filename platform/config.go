@@ -8,33 +8,33 @@ import (
 	"strings"
 )
 
-// Config is all runtime configuration, loaded from environment variables
-// (12-factor). In dev a .env file at the repo root is loaded first.
+// Config: all runtime config, loaded from env vars (12-factor). Dev loads
+// .env at repo root first.
 type Config struct {
 	Env        string // "dev" | "prod"
 	ListenAddr string // e.g. ":8080"
 	BaseDomain string // "localhost" (dev) | "corpberry.com" (prod)
 
-	// IP2Location LITE database file paths.
+	// IP2Location LITE DB file paths.
 	DB11V4 string
 	DB11V6 string
 	ASNV4  string
 	ASNV6  string
 
-	// IP2Proxy PX12 (proxy/VPN/threat). Optional — empty disables the proxy section.
+	// IP2Proxy PX12 (proxy/VPN/threat). Optional — empty → proxy section disabled.
 	PX12 string
 
-	// MongoDB connection. Optional — an empty MongoURI disables Mongo entirely
-	// (platform.OpenMongo returns ErrMongoUnavailable and callers degrade, exactly
-	// like the missing-BIN path). MongoDatabase is the app database name on the
-	// shared server; it defaults to platform.DefaultMongoDatabase ("site-of-tools").
-	// Used by the IP-tool lookup history and the request-log corpus; an empty
-	// MongoURI disables both (they no-op) so the app still boots (ARCHITECTURE §10).
+	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
+	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
+	// missing-BIN path). MongoDatabase = app DB name on shared server,
+	// defaults to DefaultMongoDatabase ("site-of-tools"). Used by IP-tool
+	// lookup history + request-log corpus; empty MongoURI → both no-op, app
+	// still boots (ARCHITECTURE §10).
 	MongoURI      string
 	MongoDatabase string
 }
 
-// Load reads config from the environment (after loading .env if present).
+// Load reads config from env (after loading .env if present).
 func Load() Config {
 	loadDotEnv()
 	return Config{
@@ -47,16 +47,16 @@ func Load() Config {
 		ASNV6:      os.Getenv("IP2LOCATION_ASN_V6"),
 		PX12:       os.Getenv("IP2PROXY_PX12"),
 		MongoURI:   os.Getenv("MONGODB_URI"),
-		// Default the app database name so only MONGODB_URI is mandatory to enable Mongo.
+		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
 		MongoDatabase: getenv("MONGODB_DATABASE", DefaultMongoDatabase),
 	}
 }
 
 func (c Config) IsDev() bool { return c.Env != "prod" }
 
-// VHost builds the Host key used by echo.NewVirtualHostHandler. sub == "" is the
-// apex. In dev the browser sends the port in the Host header (e.g.
-// "ip.localhost:8080"), so it is included; in prod nginx forwards a bare host.
+// VHost builds Host key for echo.NewVirtualHostHandler. sub == "" = apex. Dev
+// browser sends port in Host header (e.g. "ip.localhost:8080") → included;
+// prod nginx forwards bare host.
 func (c Config) VHost(sub string) string {
 	host := c.BaseDomain
 	if sub != "" {
@@ -68,7 +68,7 @@ func (c Config) VHost(sub string) string {
 	return host
 }
 
-// URL returns a full origin (scheme + host) for a subdomain, e.g. for links.
+// URL returns full origin (scheme + host) for a subdomain, e.g. for links.
 func (c Config) URL(sub string) string {
 	scheme := "https://"
 	if c.IsDev() {
@@ -89,10 +89,10 @@ func getenv(k, def string) string {
 	return cmp.Or(os.Getenv(k), def)
 }
 
-// loadDotEnv reads KEY=VALUE lines from ./.env and applies them to the process
-// environment, never overriding a var already set. No dependency; dev convenience
-// only. The parse and merge steps are split out (parseDotEnv/mergeEnv) so both are
-// unit-testable without touching a real .env file or the ambient environment.
+// loadDotEnv reads KEY=VALUE lines from ./.env → applies to process env,
+// never overriding a var already set. No dependency; dev convenience only.
+// Parse/merge split out (parseDotEnv/mergeEnv) → both unit-testable w/o real
+// .env file or ambient env.
 func loadDotEnv() {
 	f, err := os.Open(".env")
 	if err != nil {
@@ -102,10 +102,9 @@ func loadDotEnv() {
 	mergeEnv(parseDotEnv(f))
 }
 
-// parseDotEnv parses KEY=VALUE lines from r into a map. Blank lines, "#" comments,
-// and lines without "=" are skipped; the key and value are whitespace-trimmed (a
-// value may itself contain "="). Pure — no environment access — so it is directly
-// unit-testable.
+// parseDotEnv parses KEY=VALUE lines from r into a map. Blank lines, "#"
+// comments, lines w/o "=" skipped; key+value whitespace-trimmed (value may
+// itself contain "="). Pure — no env access → directly unit-testable.
 func parseDotEnv(r io.Reader) map[string]string {
 	out := map[string]string{}
 	sc := bufio.NewScanner(r)
@@ -123,9 +122,9 @@ func parseDotEnv(r io.Reader) map[string]string {
 	return out
 }
 
-// mergeEnv sets each pair in the process environment, skipping any key already
-// present so the real environment always wins over .env (and .env.prod layered on
-// top in prod). Split from loadDotEnv so the no-override rule can be tested.
+// mergeEnv sets each pair in process env, skipping keys already present →
+// real env always wins over .env (and .env.prod layered on top in prod).
+// Split from loadDotEnv so no-override rule is testable.
 func mergeEnv(pairs map[string]string) {
 	for k, v := range pairs {
 		if _, exists := os.LookupEnv(k); !exists {

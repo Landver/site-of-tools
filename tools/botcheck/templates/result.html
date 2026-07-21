@@ -5,9 +5,9 @@
   <span class="flex-1 min-w-0">
     <span class="{{if and .Triggered (not .Suppressed)}}text-strong{{else}}text-muted{{end}}">{{.Label}}</span>
     {{if .Detail}}<span class="text-faint"> — {{.Detail}}</span>{{end}}
-    {{/* G55: the per-signal "why" — what the check looks at and its known
-         limitation, collapsed behind a subtle summary so the row stays compact.
-         Hidden when the rule has no explanation (unknown/new ID). */}}
+    {{/* G55: per-signal why — what check looks at + known limit, behind
+         summary → row stays compact. Hidden when rule has no explanation
+         (unknown/new ID). */}}
     {{with .Explanation}}
     <details class="mt-0.5">
       <summary class="cursor-pointer text-xs text-faint hover:text-muted">why</summary>

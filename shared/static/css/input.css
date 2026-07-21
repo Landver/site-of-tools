@@ -1,27 +1,27 @@
 /* Tailwind v4 — CSS-first config, no tailwind.config.js.
-   Built by the standalone binary: `make css` (or --watch). */
+   Built by standalone binary: `make css` (or --watch). */
 @import "tailwindcss";
 
 /* Scan every project's Go html/template files for class names.
-   Paths are relative to THIS file (shared/static/css/). */
+   Paths relative to THIS file (shared/static/css/). */
 @source "../../templates/**/*.html";
 @source "../../../site/templates/**/*.html";
 @source "../../../tools/iptools/templates/**/*.html";
 @source "../../../tools/botcheck/templates/**/*.html";
 
-/* Dark mode is driven by a data-theme attribute (set before paint by the head
-   script), not the OS media query directly, so the manual toggle can override
-   the OS default. This variant is only used for the sun/moon icon swap; colors
-   use the semantic tokens below, which theme themselves. */
+/* Dark mode driven by data-theme attribute (set before paint by head script),
+   not OS media query directly → manual toggle can override OS default. This
+   variant only used for sun/moon icon swap; colors use semantic tokens
+   below, which theme themselves. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
   /* Accent — corpberry magenta (identical in both themes). */
   --color-brand: #b83266;
 
-  /* Semantic tokens — LIGHT values (the default). Markup only ever names these
-     (bg-canvas, text-body, border-line, …); switching theme flips the variable
-     values, so there is no per-element dark: duplication anywhere. */
+  /* Semantic tokens — LIGHT values (default). Markup only ever names these
+     (bg-canvas, text-body, border-line, …); switching theme flips variable
+     values → no per-element dark: duplication anywhere. */
   --color-canvas:  #ffffff; /* page background          */
   --color-surface: #f4f4f5; /* raised bg: cards, inputs */
   --color-line:    #e4e4e7; /* borders, dividers        */
@@ -34,8 +34,8 @@
   --color-warn:    #d97706; /* suspicious (bot-check band) */
 }
 
-/* DARK theme — override the same tokens. Utilities compile to var(--color-*),
-   so re-pointing the variables re-themes the entire site with zero markup churn. */
+/* DARK theme — override same tokens. Utilities compile to var(--color-*) →
+   re-pointing variables re-themes entire site w/ zero markup churn. */
 :root[data-theme="dark"] {
   --color-canvas:  #0a0a0a;
   --color-surface: #171717;
@@ -50,9 +50,9 @@
 }
 
 @layer base {
-  /* Page shell — every page renders the same flex-column body so the footer
-     (mt-auto) sticks to the bottom. Centralised here, so markup keeps a bare
-     <body> on all pages instead of repeating the cluster. */
+  /* Page shell — every page renders same flex-column body → footer (mt-auto)
+     sticks to bottom. Centralised here → markup keeps bare <body> on all
+     pages instead of repeating the cluster. */
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
   }
@@ -63,10 +63,10 @@
 }
 
 @layer components {
-  /* Reusable info card, used across the tools (lookup results, IPv6, verdicts,
-     empty states). One definition keeps the repeated styling DRY; basis-80 is a
-     comfortable min width so cards wrap to the next line rather than cramming,
-     and grow fills the row. */
+  /* Reusable info card, used across tools (lookup results, IPv6, verdicts,
+     empty states). One definition keeps repeated styling DRY; basis-80 =
+     comfortable min width → cards wrap to next line rather than cramming;
+     grow fills the row. */
   .card {
     @apply grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5;
   }
@@ -74,12 +74,12 @@
   .eyebrow {
     @apply font-mono text-xs uppercase tracking-widest text-brand;
   }
-  /* …and as a card title it always gets the same bottom margin — baked in so
-     call sites stay a bare `eyebrow` (same precedent as .spec > dt). */
+  /* …and as card title always gets same bottom margin — baked in → call
+     sites stay bare `eyebrow` (same precedent as .spec > dt). */
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by the lookup and CIDR forms. */
+  /* Text input + primary button, shared by lookup and CIDR forms. */
   .field {
     @apply flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus:border-brand focus:outline-none;
   }
@@ -90,18 +90,18 @@
   .alert-error {
     @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger;
   }
-  /* Two-column label/value grid for result cards' <dl>. Override the column width
+  /* Two-column label/value grid for result cards' <dl>. Override column width
      inline where needed, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */
   .spec {
     @apply grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm;
   }
-  /* Every <dt> in a spec list is a faint label — baked in so rows stay bare <dt>. */
+  /* Every <dt> in spec list is faint label — baked in → rows stay bare <dt>. */
   .spec > dt {
     @apply text-faint;
   }
 
   /* Page scaffolding shared by every page: centred column, capped width,
-     vertical rhythm. The apex narrows it inline (`page-main max-w-2xl`). */
+     vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */
   .page-main {
     @apply mx-auto w-full max-w-4xl px-6 py-12 flex-1;
   }

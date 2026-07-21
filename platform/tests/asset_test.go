@@ -23,7 +23,7 @@ func TestAssetVersioner(t *testing.T) {
 		t.Errorf("hash = %q, want 8 hex chars", ver)
 	}
 
-	// Memoised + deterministic: repeat and leading-slash forms resolve identically.
+	// Memoised + deterministic → repeat & leading-slash forms resolve same.
 	if again := asset("js/app.js"); again != app {
 		t.Errorf("second call = %q, want stable %q", again, app)
 	}
@@ -36,7 +36,7 @@ func TestAssetVersioner(t *testing.T) {
 		t.Errorf("css url = %q, want a distinct versioned url", css)
 	}
 
-	// A missing file degrades to the unversioned URL rather than failing the render.
+	// Missing file degrades to unversioned URL, doesn't fail render.
 	if miss := asset("js/nope.js"); miss != "/static/js/nope.js" {
 		t.Errorf("missing-file url = %q, want unversioned /static/js/nope.js", miss)
 	}

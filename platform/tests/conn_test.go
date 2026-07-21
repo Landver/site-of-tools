@@ -13,9 +13,9 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 )
 
-// conn_test.go covers the G38/G44 conn-inspector enrichment: the additive
-// ConnInfo network fields, the IP2Proxy type-code mapping, and the partial's
-// rendering guards (empty ⇒ unchanged output for every existing tool).
+// conn_test.go: G38/G44 conn-inspector enrichment — additive ConnInfo net
+// fields, IP2Proxy type-code map, partial's render guards (empty →
+// unchanged output for every existing tool).
 
 func TestConnTransportFields(t *testing.T) {
 	e := echo.New()
@@ -48,8 +48,8 @@ func TestWithNetworkMapsProxyTypes(t *testing.T) {
 		{"DCH", "datacenter / hosting"},
 		{"RES", "residential proxy"},
 		{"AIC", "AI crawler"},
-		{"", ""},             // no proxy data ⇒ no row
-		{"FUTURE", "FUTURE"}, // an unknown code surfaces verbatim, never hidden
+		{"", ""},             // no proxy data → no row
+		{"FUTURE", "FUTURE"}, // unknown code surfaces verbatim, never hidden
 	}
 	for _, tt := range tests {
 		if got := platform.ProxyKindLabel(tt.code); got != tt.want {
@@ -63,8 +63,8 @@ func TestWithNetworkMapsProxyTypes(t *testing.T) {
 	if ci.ASN != "12345" || ci.ASName != "Example ISP" || ci.ProxyKind != "VPN" || ci.ProxyProvider != "NordVPN" {
 		t.Errorf("WithNetwork = %+v, want the enrichment carried through with the mapped kind", ci)
 	}
-	// An empty enrichment must leave every field empty — the unchanged-render
-	// guarantee for tools that never resolve the IP.
+	// Empty enrichment → every field empty — unchanged-render guarantee for
+	// tools that never resolve IP.
 	if ci := (platform.ConnInfo{}).WithNetwork(platform.ConnNetwork{}); ci.ASN != "" || ci.ProxyKind != "" {
 		t.Errorf("WithNetwork(empty) = %+v, want all network fields empty", ci)
 	}
@@ -83,8 +83,8 @@ func renderConn(t *testing.T, ci platform.ConnInfo) string {
 }
 
 func TestConnPartialUnenrichedRendersUnchanged(t *testing.T) {
-	// Every tool today renders the partial with transport fields only — the
-	// G38/G44 rows must not appear (not even their labels) when empty.
+	// Every tool today renders partial w/ transport fields only → G38/G44
+	// rows mustn't appear (not even labels) when empty.
 	body := renderConn(t, platform.ConnInfo{
 		IP: "203.0.113.7", Via: "direct", Scheme: "https",
 		Host: "ip.corpberry.com", Browser: "TestBrowser/1.0", Language: "en-US",
@@ -114,8 +114,8 @@ func TestConnPartialRendersNetworkRows(t *testing.T) {
 		}
 	}
 
-	// Partial enrichment: an ASN without a name, and no proxy data at all —
-	// only what's really there renders.
+	// Partial enrichment: ASN w/o name, no proxy data at all → only what's
+	// really there renders.
 	body = renderConn(t, platform.ConnInfo{IP: "203.0.113.7"}.WithNetwork(platform.ConnNetwork{ASN: "714"}))
 	if !strings.Contains(body, "AS714") {
 		t.Errorf("a bare ASN should render without a name:\n%s", body)

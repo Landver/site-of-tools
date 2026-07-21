@@ -11,17 +11,17 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// historyTTL bounds how long a recorded lookup is kept: long enough to be a
-// useful "recent lookups" list, short enough that the tool never becomes a
-// permanent registry of who-looked-up-what. Self-prunes via a TTL index.
+// historyTTL: how long a recorded lookup stays. Long enough for useful
+// "recent lookups" list, short enough tool never becomes permanent
+// who-looked-up-what registry. Self-prunes via TTL index.
 const historyTTL = 90 * 24 * time.Hour
 
-// historyCollection is the collection in the site-of-tools database.
+// historyCollection: collection name in site-of-tools database.
 const historyCollection = "ip_lookups"
 
-// HistoryEntry is one recorded lookup — the queried IP, the salient facts, and
-// when it happened. Deliberately a projection of Result, not the whole struct:
-// enough to show and to replay (click the IP to re-run), no more.
+// HistoryEntry is one recorded lookup: queried IP, salient facts, when it
+// happened. Deliberately a projection of Result, not whole struct → enough
+// to show + replay (click IP to re-run), no more.
 type HistoryEntry struct {
 	IP          string    `bson:"ip" json:"ip"`
 	CountryCode string    `bson:"country_code,omitempty" json:"country_code,omitempty"`
@@ -32,17 +32,17 @@ type HistoryEntry struct {
 	CreatedAt   time.Time `bson:"created_at" json:"created_at"`
 }
 
-// History is the persistence layer for IP-lookup history — a repository below the
-// domain, per CLAUDE.md rule #5. A nil *History is a valid "disabled" value (Mongo
-// off): Record no-ops and Recent returns nothing, so the handler needs no guards,
-// exactly like a nil *Service or a nil *platform.RequestLog.
+// History is the persistence layer for IP-lookup history: a repository below
+// domain, per CLAUDE.md rule #5. Nil *History = valid "disabled" value (Mongo
+// off) → Record no-ops, Recent returns nothing → handler needs no guards,
+// same as nil *Service or nil *platform.RequestLog.
 type History struct {
 	coll *mongo.Collection
 }
 
-// NewHistory builds the repository from the application database handle. A nil db
-// (Mongo disabled) returns nil — the nil-safe disabled store. The TTL index is
-// best-effort; a failure only forfeits auto-expiry, so it is non-fatal.
+// NewHistory builds repository from application database handle. Nil db
+// (Mongo disabled) → returns nil, the nil-safe disabled store. TTL index is
+// best-effort: failure only forfeits auto-expiry → non-fatal.
 func NewHistory(ctx context.Context, db *mongo.Database) *History {
 	if db == nil {
 		return nil
@@ -52,12 +52,11 @@ func NewHistory(ctx context.Context, db *mongo.Database) *History {
 	return &History{coll: coll}
 }
 
-// Record persists one successful lookup. Nil-safe. It writes off the request path
-// (a background goroutine with its own bounded context) so recording never adds
-// latency to — or fails — the lookup the visitor is waiting on: a lost record is
-// acceptable, a slowed lookup is not. Volume is low (user-initiated lookups
-// only), so a plain goroutine is enough; the higher-volume request log uses a
-// bounded queue instead.
+// Record persists one successful lookup. Nil-safe. Writes off request path
+// (background goroutine, own bounded context) → recording never adds
+// latency to, or fails, the lookup visitor's waiting on: lost record OK,
+// slowed lookup not. Volume low (user-initiated lookups only) → plain
+// goroutine enough; higher-volume request log uses bounded queue instead.
 func (h *History) Record(res *Result) {
 	if h == nil || res == nil {
 		return
@@ -73,10 +72,10 @@ func (h *History) Record(res *Result) {
 	}()
 }
 
-// Recent returns the most recent n lookups, newest first. Nil-safe: a disabled
-// store returns an empty result and no error, so the handler renders an empty
-// history without special-casing Mongo being off. The created_at TTL index also
-// serves this descending sort (Mongo scans it in reverse), so no second index.
+// Recent returns most recent n lookups, newest first. Nil-safe: disabled
+// store returns empty result + no error → handler renders empty history, no
+// special-casing Mongo off. created_at TTL index also serves this
+// descending sort (Mongo scans it in reverse) → no second index.
 func (h *History) Recent(ctx context.Context, n int64) ([]HistoryEntry, error) {
 	if h == nil {
 		return nil, nil

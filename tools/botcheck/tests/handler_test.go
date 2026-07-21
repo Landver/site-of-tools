@@ -16,8 +16,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// fakeLooker implements botcheck.Looker so the handler is tested without the real
-// IP databases. It ignores the IP and returns a canned result.
+// fakeLooker implements botcheck.Looker → tests run w/o real IP databases.
+// Ignores the IP, returns canned result.
 type fakeLooker struct {
 	res *iptools.Result
 	err error
@@ -25,9 +25,9 @@ type fakeLooker struct {
 
 func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
 
-// newTestApp builds a bare echo with the real (embedded) templates and the given
-// Looker. Embedded FS is used so it works regardless of the test's cwd. The
-// corpus is nil (Mongo off) — the corpus tests live in corpus_test.go.
+// newTestApp builds bare echo w/ real (embedded) templates + given Looker.
+// Embedded FS → works regardless of test's cwd. Corpus nil (Mongo off) —
+// corpus tests live in corpus_test.go.
 func newTestApp(svc botcheck.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
@@ -125,9 +125,9 @@ func TestIndexBrowserGetsFullPage(t *testing.T) {
 }
 
 func TestIndexShowsIP2LocationCredit(t *testing.T) {
-	// IP2Location LITE's license requires its exact acknowledgment on any page
-	// that uses the data. botcheck's IP reputation checks do (via Looker), so the
-	// full page must carry it — see iptools' TestFullPageShowsIP2LocationCredit.
+	// IP2Location LITE license requires exact acknowledgment on any page using
+	// the data. botcheck's IP reputation checks do (via Looker) → full page
+	// must carry it — see iptools' TestFullPageShowsIP2LocationCredit.
 	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "uses the IP2Location LITE database") || !strings.Contains(body, "lite.ip2location.com") {
@@ -155,7 +155,7 @@ func TestCheckFragmentEnrichesConnCard(t *testing.T) {
 			t.Errorf("enriched conn card missing %q:\n%s", want, frag)
 		}
 	}
-	// A lookup without network data renders no ASN/proxy rows (unchanged card).
+	// Lookup w/ no network data → no ASN/proxy rows (unchanged card).
 	rec = post(newTestApp(fakeLooker{}), "/check", `{}`, map[string]string{"Accept": "text/html"})
 	if frag := rec.Body.String(); strings.Contains(frag, "<dt>ASN</dt>") || strings.Contains(frag, "<dt>Proxy</dt>") {
 		t.Errorf("an empty lookup must render no network rows:\n%s", frag)
@@ -176,13 +176,13 @@ func TestCheckFragmentRendersHistoryCard(t *testing.T) {
 }
 
 func TestIndexCurlGetsServerOnlyScore(t *testing.T) {
-	// A datacenter IP should surface in the server-only score, even with no client
-	// fingerprint. A normal browser UA avoids the empty-UA bot signal so we isolate
-	// the datacenter check. The request carries the headers a real browser always
-	// sends (Accept-Encoding, Accept-Language, Sec-Fetch-Mode) so the G06 presence
-	// checks stay quiet too; Accept must stay application/json (the JSON path),
-	// which accept_nav_mismatch still flags — a single soft signal, under the
-	// cluster threshold, so it costs nothing.
+	// Datacenter IP should surface in server-only score, even w/ no client
+	// fingerprint. Normal browser UA avoids empty-UA bot signal → isolates
+	// datacenter check. Request carries headers a real browser always sends
+	// (Accept-Encoding, Accept-Language, Sec-Fetch-Mode) → G06 presence
+	// checks stay quiet too; Accept stays application/json (JSON path),
+	// still flags accept_nav_mismatch — single soft signal, under cluster
+	// threshold, costs nothing.
 	looker := fakeLooker{res: &iptools.Result{
 		CountryCode: "TR", Timezone: "Europe/Istanbul",
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "DCH"},
@@ -208,7 +208,7 @@ func TestIndexCurlGetsServerOnlyScore(t *testing.T) {
 	if !dc.Triggered {
 		t.Errorf("datacenter_ip should fire for a DCH proxy IP:\n%s", rec.Body.String())
 	}
-	// Client checks must be skipped on a server-only request.
+	// Client checks must skip on server-only request.
 	for _, c := range rep.Checks {
 		if c.ID == "webdriver" && !c.Skipped {
 			t.Errorf("webdriver should be skipped on server-only GET /")
@@ -217,8 +217,8 @@ func TestIndexCurlGetsServerOnlyScore(t *testing.T) {
 }
 
 func TestPlaceholderTimezoneCleanedThroughHandler(t *testing.T) {
-	// A localhost/unknown IP yields IP2Location's "-" timezone; the handler must
-	// clean it so a real browser timezone doesn't spuriously trip tz_mismatch.
+	// localhost/unknown IP yields IP2Location's "-" timezone; handler must
+	// clean it → real browser timezone doesn't spuriously trip tz_mismatch.
 	looker := fakeLooker{res: &iptools.Result{CountryCode: "-", Timezone: "-"}}
 	body := `{"browserTZ":"Europe/Moscow","navMainUA":"` + chromeMacUA + `"}`
 	rec := post(newTestApp(looker), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
@@ -234,11 +234,11 @@ func TestPlaceholderTimezoneCleanedThroughHandler(t *testing.T) {
 }
 
 func TestCheckTimezoneMismatchFiresThroughHandler(t *testing.T) {
-	// Positive end-to-end counterpart to TestPlaceholderTimezoneCleaned: proves the
-	// handler actually wires res.Timezone -> sig.IPTimezone AND stamps sig.Now (a
-	// zero Now would make ianaOffset return ok=false and silently suppress the check).
-	// America/Los_Angeles is UTC-8/-7 year-round, never +03:00, so this is DST- and
-	// wall-clock-independent despite addServerSignals using a live time.Now().
+	// Positive end-to-end counterpart to TestPlaceholderTimezoneCleaned: proves
+	// handler wires res.Timezone -> sig.IPTimezone AND stamps sig.Now (zero Now →
+	// ianaOffset returns ok=false → silently suppresses check). America/Los_Angeles
+	// is UTC-8/-7 year-round, never +03:00 → DST- and wall-clock-independent
+	// despite addServerSignals using live time.Now().
 	looker := fakeLooker{res: &iptools.Result{Timezone: "+03:00"}}
 	body := `{"browserTZ":"America/Los_Angeles"}`
 	rec := post(newTestApp(looker), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
@@ -258,10 +258,10 @@ func TestCheckTimezoneMismatchFiresThroughHandler(t *testing.T) {
 }
 
 func TestCheckSoftSignalsRenderAsFlagged(t *testing.T) {
-	// Soft signals never dock points on their own, so each renders as "flagged"
-	// (no misleading per-row "−8"), and the single cluster deduction line shows
-	// only once enough of them fire. This body trips several soft signals but no
-	// hard/consistency ones, so the fragment must carry both.
+	// Soft signals never dock points alone → each renders as "flagged" (no
+	// misleading per-row "−8"); single cluster deduction line shows only once
+	// enough fire. Body trips several soft signals but no hard/consistency
+	// ones → fragment must carry both.
 	body := `{"navMainUA":"` + chromeMacUA + `","plugins":0,"screenW":800,"screenH":600,"availW":800,"availH":600}`
 	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "text/html", "User-Agent": chromeMacUA})
 	frag := rec.Body.String()
@@ -274,10 +274,10 @@ func TestCheckSoftSignalsRenderAsFlagged(t *testing.T) {
 }
 
 func TestCheckQuickWinSignalsThroughHandler(t *testing.T) {
-	// A Chrome UA whose feature-detected engine is gecko, whose productSub is Gecko's
-	// constant, and whose userAgentData Chromium version disagrees with the UA. Proves
-	// the new client fields — including the nested uaData.fullVersionList array — bind
-	// from JSON and their rules fire end-to-end through the real handler.
+	// Chrome UA whose feature-detected engine is gecko, whose productSub is
+	// Gecko's constant, whose userAgentData Chromium version disagrees w/ UA.
+	// Proves new client fields — incl. nested uaData.fullVersionList array —
+	// bind from JSON, rules fire end-to-end through real handler.
 	body := `{"navMainUA":"` + chromeMacUA + `","engine":"gecko","productSub":"20100101",` +
 		`"uaData":{"platform":"macOS","fullVersionList":[{"brand":"Chromium","version":"120.0.0.0"}]}}`
 	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
@@ -299,9 +299,9 @@ func TestCheckQuickWinSignalsThroughHandler(t *testing.T) {
 }
 
 func TestCheckGoodBotThroughHandler(t *testing.T) {
-	// G36 end-to-end: a verified crawler (Applebot from Apple's AS714) → "good-bot"
-	// verdict + a Bot identity in the JSON. Proves addServerSignals wires res.ASN
-	// through to the corroboration. GET / is the server-only path a real crawler hits.
+	// G36 end-to-end: verified crawler (Applebot from Apple's AS714) → "good-bot"
+	// verdict + Bot identity in JSON. Proves addServerSignals wires res.ASN
+	// through to corroboration. GET / = server-only path a real crawler hits.
 	const applebot = "Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)"
 	looker := fakeLooker{res: &iptools.Result{ASN: "714", ASName: "Apple Inc."}}
 	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "application/json", "User-Agent": applebot})
@@ -318,8 +318,8 @@ func TestCheckGoodBotThroughHandler(t *testing.T) {
 }
 
 func TestCheckSpoofedGoodBotThroughHandler(t *testing.T) {
-	// The same Applebot UA from a NON-Apple network is recognised but NOT verified, so
-	// it stays a bot — the no-evasion property, proven end-to-end through the handler.
+	// Same Applebot UA from NON-Apple network recognised but NOT verified →
+	// stays bot — no-evasion property, proven end-to-end through handler.
 	const applebot = "Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)"
 	looker := fakeLooker{res: &iptools.Result{ASN: "14061", ASName: "DigitalOcean, LLC"}}
 	rec := get(newTestApp(looker), "/", map[string]string{"Accept": "application/json", "User-Agent": applebot})
@@ -336,7 +336,7 @@ func TestCheckSpoofedGoodBotThroughHandler(t *testing.T) {
 }
 
 func TestGoodBotResultTemplateRenders(t *testing.T) {
-	// The good-bot verdict branch + the "expected" suppressed-row rendering must work.
+	// good-bot verdict branch + "expected" suppressed-row rendering must work.
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
@@ -362,7 +362,7 @@ func TestGoodBotResultTemplateRenders(t *testing.T) {
 }
 
 func TestCheckDatacenterPlusHeadlessIsBot(t *testing.T) {
-	// End-to-end: a headless fingerprint from a datacenter IP → bot, in JSON.
+	// End-to-end: headless fingerprint from datacenter IP → bot, in JSON.
 	looker := fakeLooker{res: &iptools.Result{Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "DCH"}}}
 	body := `{"webdriver":true,"cdpMainThread":true,"cdpWorker":true,"webglRenderer":"Google SwiftShader"}`
 	rec := post(newTestApp(looker), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
@@ -376,11 +376,10 @@ func TestCheckDatacenterPlusHeadlessIsBot(t *testing.T) {
 }
 
 func TestCheckGPUCoherenceThroughHandler(t *testing.T) {
-	// G07/G08 end-to-end: an Apple GPU reported on a Windows Chrome UA. The
-	// vendor/renderer pair is internally consistent (G07 stays silent) but the
-	// GPU is impossible for the claimed OS (G08 fires) — and it proves the new
-	// webglVendor field binds from JSON alongside webglRenderer through the real
-	// handler.
+	// G07/G08 end-to-end: Apple GPU reported on Windows Chrome UA. Vendor/
+	// renderer pair internally consistent (G07 stays silent) but GPU
+	// impossible for claimed OS (G08 fires) — proves new webglVendor field
+	// binds from JSON alongside webglRenderer through real handler.
 	const winUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 	body := `{"navMainUA":"` + winUA + `","webglVendor":"Google Inc. (Apple)",` +
 		`"webglRenderer":"ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"}`
@@ -407,11 +406,11 @@ func TestCheckGPUCoherenceThroughHandler(t *testing.T) {
 }
 
 func TestServiceWorkerScriptServed(t *testing.T) {
-	// G03+G14: the collector registers /botcheck-sw.js as a Service Worker, so the app
-	// must serve it with a JavaScript MIME type (registration refuses anything
-	// else), answering messages with its navigator values + webdriver + the CDP
-	// trap, and — critically — with NO fetch handler, so it can never intercept a
-	// request on the origin.
+	// G03+G14: collector registers /botcheck-sw.js as Service Worker → app must
+	// serve it w/ JavaScript MIME type (registration refuses anything else),
+	// answering messages w/ its navigator values + webdriver + CDP trap, and —
+	// critically — w/ NO fetch handler, so it can never intercept a request on
+	// the origin.
 	rec := get(newTestApp(fakeLooker{}), "/botcheck-sw.js", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -431,9 +430,9 @@ func TestServiceWorkerScriptServed(t *testing.T) {
 }
 
 func TestCheckCrossContextSignalsThroughHandler(t *testing.T) {
-	// G03 end-to-end: the new cross-context fields bind from the POSTed JSON and
-	// their rules fire — here a Service Worker leaking a Linux UA, platform, and
-	// core count while the top frame claims macOS (the Bright Data scenario).
+	// G03 end-to-end: new cross-context fields bind from POSTed JSON, rules
+	// fire — here a Service Worker leaking Linux UA, platform, core count
+	// while top frame claims macOS (the Bright Data scenario).
 	body := `{"navMainUA":"` + chromeMacUA + `","hardwareCores":8,"uaData":{"platform":"macOS"},` +
 		`"swUA":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",` +
 		`"swPlatform":"Linux","swCores":4}`
@@ -456,10 +455,10 @@ func TestCheckCrossContextSignalsThroughHandler(t *testing.T) {
 }
 
 func TestCheckDeepTamperSignalsThroughHandler(t *testing.T) {
-	// G04 end-to-end: the three deep-tamper fields bind from the POSTed JSON and
-	// their rules fire through the real handler. nativeToStringProxied is inverted
-	// (true = bad); nativeToStringOK stays true because a stealth proxy's purpose
-	// is to keep the shallow check green.
+	// G04 end-to-end: three deep-tamper fields bind from POSTed JSON, rules
+	// fire through real handler. nativeToStringProxied inverted (true = bad);
+	// nativeToStringOK stays true — stealth proxy's purpose is keeping shallow
+	// check green.
 	body := `{"v":2,"nativeToStringOK":true,"nativeDescriptorsOK":false,"nativeCallNewOK":false,"nativeToStringProxied":true}`
 	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
 	var rep botcheck.Report
@@ -484,11 +483,11 @@ func TestCheckDeepTamperSignalsThroughHandler(t *testing.T) {
 	}
 }
 
-// cleanClientBody is the JSON twin of cleanChrome (botcheck_test.go): a fully
-// consistent client fingerprint, so the G06 handler tests isolate the server-side
-// header rules — nothing in the body trips a client rule. Europe/Moscow is used
-// because it keeps UTC+3 year-round (no DST), so tzOffset -180 stays consistent
-// with the handler's live time.Now() stamp whatever the wall clock says.
+// cleanClientBody = JSON twin of cleanChrome (botcheck_test.go): fully
+// consistent client fingerprint → G06 handler tests isolate server-side
+// header rules — nothing in body trips client rule. Europe/Moscow used bc it
+// keeps UTC+3 year-round (no DST) → tzOffset -180 stays consistent w/
+// handler's live time.Now() stamp whatever wall clock says.
 var cleanClientBody = `{"v":4,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
 	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
@@ -511,26 +510,26 @@ var cleanClientBody = `{"v":4,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"mimeTypes":2,"outerH":900,"innerH":800` +
 	cleanClientEnv
 
-// cleanClientEnv is the v4 collector's additive env section for the clean
-// desktop-Chrome fingerprint (leading comma, and it closes the outer object).
-// Chrome exposes no GPC property, so the key is absent — fail-to-absent.
+// cleanClientEnv = v4 collector's additive env section for clean
+// desktop-Chrome fingerprint (leading comma, closes outer object). Chrome
+// exposes no GPC property → key absent — fail-to-absent.
 const cleanClientEnv = `,"env":{"matchMedia":true,"dpr":2,"colorScheme":"light","forcedColors":false,` +
 	`"reducedMotion":false,"dynamicRange":"standard","gamut":"p3",` +
 	`"connection":{"effectiveType":"4g","downlink":10,"rtt":50,"saveData":false},` +
 	`"storageQuotaMB":285000,"permissions":{"notifications":"default","geolocation":"prompt"},` +
 	`"emeClearKey":true}}`
 
-// staleV3ClientBody is cleanClientBody as a stale cached v3 collector would
-// POST it: the same clean fingerprint but v:3 and no env section (the v4 batch
-// didn't exist for it). The v4-gated rules must skip rather than read the
-// absent env keys as evidence.
+// staleV3ClientBody = cleanClientBody as stale cached v3 collector would
+// POST it: same clean fingerprint but v:3, no env section (v4 batch didn't
+// exist for it). v4-gated rules must skip, not read absent env keys as
+// evidence.
 var staleV3ClientBody = strings.Replace(
 	strings.TrimSuffix(cleanClientBody, cleanClientEnv)+"}",
 	`"v":4`, `"v":3`, 1)
 
-// staleV2ClientBody is the same clean fingerprint as a stale cached v2 collector
-// would POST it: no v3 keys at all. The v3-gated rules must skip rather than
-// read the missing (damning-when-false/zero) fields as tampering.
+// staleV2ClientBody = same clean fingerprint as stale cached v2 collector
+// would POST it: no v3 keys at all. v3-gated rules must skip, not read
+// missing (damning-when-false/zero) fields as tampering.
 var staleV2ClientBody = `{"v":2,"nativeToStringOK":true,"hasChromeObject":true,` +
 	`"nativeDescriptorsOK":true,"nativeCallNewOK":true,"nativeToStringProxied":false,` +
 	`"navMainUA":"` + chromeMacUA + `","navWorkerUA":"` + chromeMacUA + `","navIframeUA":"` + chromeMacUA + `",` +
@@ -549,10 +548,10 @@ var staleV2ClientBody = `{"v":2,"nativeToStringOK":true,"hasChromeObject":true,`
 	`"codecH264":true,"codecAAC":true,"fontCount":8,"productSub":"20030107","engine":"blink"}`
 
 func TestCheckHeaderClusterThroughHandler(t *testing.T) {
-	// G06 end-to-end: a browser-UA POST with no Accept-Encoding, no Accept-Language,
-	// and a scripted-client Accept (*/*) trips exactly the three new soft header
-	// checks — a full cluster, so the single -25 deduction applies (100 → 75).
-	// Sec-Fetch-Mode is sent so sec_fetch_missing stays out of the count.
+	// G06 end-to-end: browser-UA POST w/ no Accept-Encoding, no Accept-Language,
+	// scripted-client Accept (*/*) trips exactly the three new soft header
+	// checks — full cluster → single -25 deduction applies (100 → 75).
+	// Sec-Fetch-Mode sent so sec_fetch_missing stays out of count.
 	rec := post(newTestApp(fakeLooker{}), "/check", cleanClientBody, map[string]string{
 		"Accept": "*/*", "User-Agent": chromeMacUA, "Sec-Fetch-Mode": "cors",
 	})
@@ -589,11 +588,11 @@ func TestCheckHeaderClusterThroughHandler(t *testing.T) {
 }
 
 func TestCheckFullBrowserHeadersFlagNone(t *testing.T) {
-	// The same clean fingerprint with the complete header set a real browser sends
-	// (an Accept that includes text/html, Accept-Encoding, Accept-Language,
-	// Sec-Fetch-Mode, Upgrade-Insecure-Requests) must flag NOTHING. Accept says
-	// text/html, so the answer is the HTML fragment: a 100 score with no "flagged"
-	// soft rows and no cluster deduction.
+	// Same clean fingerprint w/ complete header set a real browser sends
+	// (Accept incl. text/html, Accept-Encoding, Accept-Language,
+	// Sec-Fetch-Mode, Upgrade-Insecure-Requests) must flag NOTHING. Accept
+	// says text/html → answer is HTML fragment: 100 score, no "flagged" soft
+	// rows, no cluster deduction.
 	rec := post(newTestApp(fakeLooker{}), "/check", cleanClientBody, map[string]string{
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
 		"Accept-Encoding":           "gzip, deflate, br, zstd",
@@ -606,10 +605,10 @@ func TestCheckFullBrowserHeadersFlagNone(t *testing.T) {
 	if !strings.Contains(frag, "100<span") {
 		t.Errorf("a full-header clean browser should score 100:\n%s", frag)
 	}
-	// A triggered soft row renders "flagged" as its status. The word also appears
-	// once in the static explanatory copy ("Each flagged check subtracts…"), so a
-	// fully clean fragment contains it exactly once — any triggered soft row adds
-	// another.
+	// Triggered soft row renders "flagged" as its status. Word also appears
+	// once in static explanatory copy ("Each flagged check subtracts…") →
+	// fully clean fragment contains it exactly once — any triggered soft row
+	// adds another.
 	if n := strings.Count(frag, "flagged"); n != 1 {
 		t.Errorf("a full-header clean browser should have no flagged soft rows (found %d extra):\n%s", n-1, frag)
 	}
@@ -619,11 +618,11 @@ func TestCheckFullBrowserHeadersFlagNone(t *testing.T) {
 }
 
 func TestCheckV3SignalsThroughHandler(t *testing.T) {
-	// v3 end-to-end: the new client fields bind from the POSTed JSON and their
-	// rules fire through the real handler — here a stealth browser whose iframe
-	// and Service Worker leak webdriver, whose Navigator.prototype descriptors and
-	// chrome.runtime fail integrity, whose chrome object was injected late, and
-	// whose Error stack betrays SpiderMonkey under a Chrome UA.
+	// v3 end-to-end: new client fields bind from POSTed JSON, rules fire
+	// through real handler — here stealth browser whose iframe and Service
+	// Worker leak webdriver, whose Navigator.prototype descriptors and
+	// chrome.runtime fail integrity, whose chrome object injected late, whose
+	// Error stack betrays SpiderMonkey under Chrome UA.
 	body := `{"v":3,"navMainUA":"` + chromeMacUA + `",` +
 		`"iframeWebdriver":true,"swWebdriver":true,` +
 		`"navProtoDescriptorsOK":false,"chromeRuntimeOK":false,` +
@@ -650,9 +649,9 @@ func TestCheckV3SignalsThroughHandler(t *testing.T) {
 }
 
 func TestCheckWebRTCMismatchThroughHandler(t *testing.T) {
-	// G09 end-to-end: httptest's RemoteAddr (192.0.2.1) is the egress the handler
-	// wires into Signals.EgressIP; a PUBLIC WebRTC candidate that differs pierces
-	// the proxy claim, while a private host candidate (normal NAT) must not.
+	// G09 end-to-end: httptest's RemoteAddr (192.0.2.1) = egress handler wires
+	// into Signals.EgressIP; PUBLIC WebRTC candidate that differs pierces
+	// proxy claim, private host candidate (normal NAT) must not.
 	postIPs := func(ips string) botcheck.Report {
 		body := `{"v":3,"navMainUA":"` + chromeMacUA + `","webrtcIPs":[` + ips + `]}`
 		rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
@@ -679,10 +678,10 @@ func TestCheckWebRTCMismatchThroughHandler(t *testing.T) {
 }
 
 func TestCheckStaleV2PayloadScores100ThroughHandler(t *testing.T) {
-	// A returning visitor whose browser still runs the cached v2 collector POSTs a
-	// payload with no v3 keys; the v3-gated rules must skip and the ungated ones
-	// bind safe, so the score stays 100 with full browser headers — the
-	// deploy-time cache-staleness contract, end to end.
+	// Returning visitor whose browser still runs cached v2 collector POSTs
+	// payload w/ no v3 keys; v3-gated rules must skip, ungated ones bind
+	// safe → score stays 100 w/ full browser headers — deploy-time
+	// cache-staleness contract, end to end.
 	rec := post(newTestApp(fakeLooker{}), "/check", staleV2ClientBody, map[string]string{
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
 		"Accept-Encoding":           "gzip, deflate, br, zstd",
@@ -695,11 +694,11 @@ func TestCheckStaleV2PayloadScores100ThroughHandler(t *testing.T) {
 	if !strings.Contains(frag, "100<span") {
 		t.Errorf("a stale v2 payload from a clean browser should score 100:\n%s", frag)
 	}
-	// No v3 rule may read the missing fields as tampering — check the JSON view
-	// for exact rule state rather than scraping the fragment. The request carries
-	// the headers a real browser always sends so the header-presence soft checks
-	// stay quiet; Accept: application/json still trips accept_nav_mismatch alone,
-	// a single soft signal under the cluster threshold, so it costs nothing.
+	// No v3 rule may read missing fields as tampering — check JSON view for
+	// exact rule state rather than scraping fragment. Request carries headers
+	// a real browser always sends → header-presence soft checks stay quiet;
+	// Accept: application/json still trips accept_nav_mismatch alone, single
+	// soft signal under cluster threshold, costs nothing.
 	rec = post(newTestApp(fakeLooker{}), "/check", staleV2ClientBody, map[string]string{
 		"Accept": "application/json", "User-Agent": chromeMacUA,
 		"Accept-Encoding": "gzip, deflate, br, zstd", "Accept-Language": "en-US,en;q=0.9",
@@ -728,10 +727,10 @@ func TestCheckStaleV2PayloadScores100ThroughHandler(t *testing.T) {
 }
 
 func TestCheckV4SignalsThroughHandler(t *testing.T) {
-	// v4 end-to-end: the nested env section binds from the POSTed JSON and its
-	// rules fire through the real handler — here a spoofed browser whose
-	// environment lacks window.matchMedia and whose connection claims '4g' while
-	// reporting a 2000ms rtt (which implies at most 2g by the spec's own table).
+	// v4 end-to-end: nested env section binds from POSTed JSON, rules fire
+	// through real handler — here spoofed browser whose environment lacks
+	// window.matchMedia, whose connection claims '4g' while reporting 2000ms
+	// rtt (implies at most 2g by spec's own table).
 	body := `{"v":4,"navMainUA":"` + chromeMacUA + `",` +
 		`"env":{"matchMedia":false,"dpr":2,"colorScheme":"dark",` +
 		`"connection":{"effectiveType":"4g","downlink":10,"rtt":2000,"saveData":false},` +
@@ -753,8 +752,8 @@ func TestCheckV4SignalsThroughHandler(t *testing.T) {
 			t.Errorf("%s should fire through the handler:\n%s", id, rec.Body.String())
 		}
 	}
-	// The entropy half of the env section echoes into the raw-dump payload
-	// (G54) — never scored, but visible in the report.
+	// Entropy half of env section echoes into raw-dump payload (G54) — never
+	// scored, visible in report.
 	if rep.ClientPayload == nil || rep.ClientPayload.Env.GPC == nil || !*rep.ClientPayload.Env.GPC ||
 		rep.ClientPayload.Env.StorageQuotaMB != 285000 || rep.ClientPayload.Env.Permissions.Geolocation != "prompt" {
 		t.Errorf("env entropy fields should bind into the echoed payload: %+v", rep.ClientPayload.Env)
@@ -762,10 +761,10 @@ func TestCheckV4SignalsThroughHandler(t *testing.T) {
 }
 
 func TestCheckStaleV3PayloadSkipsV4Rules(t *testing.T) {
-	// A returning visitor whose browser still runs the cached v3 collector POSTs
-	// a payload with no env section at all; the v4-gated rules must skip rather
-	// than read the missing keys as evidence — the deploy-time cache-staleness
-	// contract, one version up from TestCheckStaleV2PayloadScores100ThroughHandler.
+	// Returning visitor whose browser still runs cached v3 collector POSTs
+	// payload w/ no env section at all; v4-gated rules must skip, not read
+	// missing keys as evidence — deploy-time cache-staleness contract, one
+	// version up from TestCheckStaleV2PayloadScores100ThroughHandler.
 	rec := post(newTestApp(fakeLooker{}), "/check", staleV3ClientBody, map[string]string{
 		"Accept": "application/json", "User-Agent": chromeMacUA,
 		"Accept-Encoding": "gzip, deflate, br, zstd", "Accept-Language": "en-US,en;q=0.9",
@@ -783,8 +782,8 @@ func TestCheckStaleV3PayloadSkipsV4Rules(t *testing.T) {
 			}
 		}
 	}
-	// Only accept_nav_mismatch fires (the JSON Accept) — a single soft signal
-	// under the cluster threshold — so the score stays 100.
+	// Only accept_nav_mismatch fires (JSON Accept) — single soft signal under
+	// cluster threshold — score stays 100.
 	if rep.Score != 100 {
 		t.Errorf("stale v3 payload: score=%d, want 100", rep.Score)
 	}

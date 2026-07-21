@@ -38,8 +38,8 @@ func TestParseSubnetIPv4Edges(t *testing.T) {
 	if s, _ := iptools.ParseSubnet("1.1.1.1"); s.CIDR != "1.1.1.1/32" || s.Prefix != 32 {
 		t.Errorf("bare IP not treated as /32: %+v", s)
 	}
-	// /0 — the shift-by-zero / full-range extreme: host mask is all ones, so netmask
-	// is 0.0.0.0, wildcard 255.255.255.255, and the 2^32 count math must not overflow.
+	// /0 — shift-by-zero/full-range extreme: host mask all ones → netmask
+	// 0.0.0.0, wildcard 255.255.255.255; 2^32 count math mustn't overflow.
 	if s, _ := iptools.ParseSubnet("0.0.0.0/0"); s.Netmask != "0.0.0.0" || s.Wildcard != "255.255.255.255" ||
 		s.Broadcast != "255.255.255.255" || s.FirstHost != "0.0.0.1" || s.LastHost != "255.255.255.254" ||
 		s.Total != "4294967296" || s.Usable != "4294967294" {
@@ -48,7 +48,7 @@ func TestParseSubnetIPv4Edges(t *testing.T) {
 }
 
 func TestParseSubnetIPv6Edges(t *testing.T) {
-	// /128 — single host: hostBits==0, so total 1 and first==last==network.
+	// /128 — single host: hostBits==0 → total 1, first==last==network.
 	if s, _ := iptools.ParseSubnet("2001:db8::1/128"); s.Total != "1" || s.Usable != "1" ||
 		s.Network != "2001:db8::1" || s.FirstHost != "2001:db8::1" || s.LastHost != "2001:db8::1" ||
 		s.Broadcast != "" || s.Netmask != "" {

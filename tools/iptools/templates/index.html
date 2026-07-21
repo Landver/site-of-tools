@@ -13,8 +13,8 @@
       Leave the box empty to inspect your own connection.
     </p>
 
-    <!-- Pure htmx: submits to "/" with ?ip=…; an empty box is valid and looks up the
-         visitor's own IP. value="{{.Query}}" keeps the box in sync after a lookup. -->
+    <!-- Pure htmx: submits to "/" w/ ?ip=… → empty box valid, looks up visitor's own
+         IP. value="{{.Query}}" keeps box in sync after lookup. -->
     <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
           class="mt-6 flex gap-2">
       <input name="ip" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
@@ -25,8 +25,8 @@
       <span class="htmx-indicator self-center text-sm text-faint">…</span>
     </form>
 
-    <!-- Docs: the non-obvious part is the CLI/JSON interface (the cards are
-         self-labelling). Same <details> pattern as the other tools' docs blocks. -->
+    <!-- Docs: non-obvious part = CLI/JSON interface (cards self-labelling). Same
+         <details> pattern as other tools' docs blocks. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 space-y-3 text-muted">
@@ -40,16 +40,16 @@
       </div>
     </details>
 
-    <!-- Every result card — the looked-up IP (location + proxy) and your IPv6 —
-         shares ONE flex-wrap flow, so they pack dynamically by available width
-         instead of fixed rows. #result is display:contents, so the cards it holds
-         flow as siblings of the IPv6 card while htmx still swaps only #result. -->
+    <!-- Every result card — looked-up IP (location + proxy) + your IPv6 — shares
+         ONE flex-wrap flow → packs dynamically by avail width, not fixed rows.
+         #result = display:contents → cards inside flow as siblings of IPv6 card,
+         htmx still swaps only #result. -->
     <div class="mt-6 flex flex-wrap gap-4 items-start">
       <div id="result" class="contents">
         {{template "ip/result" .}}
       </div>
-      <!-- Your IPv6: detected client-side (only the browser can prove it has
-           working IPv6), then detailed from our own lookup. Component below. -->
+      <!-- Your IPv6: detected client-side (only browser can prove working IPv6) →
+           detailed from our own lookup. Component below. -->
       <div x-data="ipv6probe" class="card">
         <div class="eyebrow">your ipv6</div>
         <p x-show="state === 'loading'" class="text-sm text-faint">Checking your connection…</p>
@@ -64,8 +64,8 @@
       </div>
 
       <!-- Your request: server-rendered request metadata (platform.Conn). Shared
-           inspector body lives in partials/conn; the wrapper stays here for spacing.
-           Guarded so a render without .Conn drops the card. -->
+           inspector body lives in partials/conn, wrapper stays here for spacing.
+           Guarded → render w/o .Conn drops card. -->
       {{with .Conn}}
       <div class="card">{{template "partials/conn" .}}</div>
       {{end}}
@@ -75,9 +75,9 @@
   {{template "partials/footer" .}}
 
   <script>
-    // A bad IP comes back as HTTP 400 with an error fragment (same alert the CIDR
-    // page shows). htmx won't swap 4xx by default, so without this the box would
-    // silently keep the previous result; tell it to render our validation error.
+    // Bad IP → HTTP 400 w/ error fragment (same alert CIDR page shows). htmx
+    // won't swap 4xx by default → w/o this, box silently keeps previous result;
+    // tell it to render our validation error.
     document.body.addEventListener('htmx:beforeSwap', (e) => {
       if (e.detail.xhr.status === 400) {
         e.detail.shouldSwap = true
@@ -85,10 +85,10 @@
       }
     })
 
-    // IPv6 support probe (Alpine, hybrid). Step 1: hit an IPv6-only echo — it
-    // resolves only if this browser has working IPv6. Step 2: pull the address
-    // details from our own content-negotiated JSON endpoint, so nothing but the
-    // detection ping (of your own IP) ever leaves the box.
+    // IPv6 support probe (Alpine, hybrid). Step 1: hit IPv6-only echo — resolves
+    // only if browser has working IPv6. Step 2: pull address details from our own
+    // content-negotiated JSON endpoint → nothing but detection ping (of your own
+    // IP) ever leaves box.
     document.addEventListener('alpine:init', () => {
       Alpine.data('ipv6probe', () => ({
         state: 'loading',
@@ -100,8 +100,8 @@
             const probe = await fetch('https://api6.ipify.org?format=json', { signal: AbortSignal.timeout(4000) })
             if (!probe.ok) throw new Error('probe failed')
             this.ip = (await probe.json()).ip
-            // Same content-negotiated endpoint the form uses (?ip=); the address is
-            // re-validated server-side. Encoded because the colons go in a query value.
+            // Same content-negotiated endpoint form uses (?ip=); address re-validated
+            // server-side. Encoded → colons go in query value.
             const res = await fetch('/?ip=' + encodeURIComponent(this.ip), { headers: { Accept: 'application/json' } })
             if (res.ok) {
               const d = await res.json()

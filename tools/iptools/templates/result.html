@@ -4,8 +4,8 @@
     {{.Error}}
   </div>
 {{else if .Result}}
-  {{/* Cards are emitted without a wrapper: the parent in ip/index is the flex-wrap
-       flow, and #result is display:contents, so these become flow items directly. */}}
+  {{/* Cards emit w/o wrapper: parent in ip/index = flex-wrap flow, #result =
+       display:contents → cards become flow items directly. */}}
   {{with .Result}}
   <div class="card">
     <div class="eyebrow">{{if $.Self}}your location{{else}}location{{end}}</div>

@@ -1,5 +1,5 @@
-// Package iptools is the ip.corpberry.com tool: IP -> geolocation + ASN,
-// plus optional proxy/VPN detection. geoip.go is the domain layer — pure Go, no HTTP.
+// Package iptools: ip.corpberry.com tool — IP -> geo + ASN, optional
+// proxy/VPN detect. geoip.go = domain layer: pure Go, no HTTP.
 package iptools
 
 import (
@@ -12,7 +12,7 @@ import (
 	ip2proxy "github.com/ip2location/ip2proxy-go/v4"
 )
 
-// Result is the plain struct the transport layer renders as HTML or JSON.
+// Result: plain struct transport layer renders as HTML or JSON.
 type Result struct {
 	IP          string  `json:"ip"`
 	CountryCode string  `json:"country_code"`
@@ -28,8 +28,8 @@ type Result struct {
 	Proxy       *Proxy  `json:"proxy,omitempty"`
 }
 
-// Proxy is the IP2Proxy view (VPN / proxy / threat). Populated only when the
-// PX12 database is loaded and the lookup succeeds.
+// Proxy: IP2Proxy view (VPN / proxy / threat). Populated only when PX12
+// database loaded + lookup succeeds.
 type Proxy struct {
 	IsProxy    bool   `json:"is_proxy"`
 	ProxyType  string `json:"proxy_type,omitempty"`
@@ -42,31 +42,31 @@ type Proxy struct {
 	LastSeen   string `json:"last_seen,omitempty"`
 }
 
-// Service wraps the IP2Location + IP2Proxy readers. Handles are opened once at
-// startup and shared across request goroutines (all reads are positional
-// ReadAt — goroutine-safe, no full load into RAM). The v6 geo BINs also answer
-// v4, but we keep both to route by address family; the single PX12 BIN answers
-// both families.
+// Service wraps IP2Location + IP2Proxy readers. Handles opened once at
+// startup, shared across request goroutines (reads are positional ReadAt →
+// goroutine-safe, no full load into RAM). v6 geo BINs also answer v4, but
+// keep both → route by address family; single PX12 BIN answers both
+// families.
 type Service struct {
 	db4, db6   *ip2location.DB
 	asn4, asn6 *ip2location.DB
 	proxy      *ip2proxy.DB // optional; nil disables the proxy section
 }
 
-// ErrUnavailable is returned when the geolocation databases were not loaded.
+// ErrUnavailable: returned when geolocation databases weren't loaded.
 var ErrUnavailable = errors.New("geolocation databases are not loaded")
 
-// OpenService opens DB11 (v4+v6) and ASN (v4+v6). px12 is optional: when
-// non-empty it also opens the IP2Proxy database. Missing geo paths are not fatal
-// to the caller — it returns (nil, ErrUnavailable) so the server can still start.
+// OpenService opens DB11 (v4+v6) + ASN (v4+v6). px12 optional: non-empty →
+// also opens IP2Proxy database. Missing geo paths not fatal to caller —
+// returns (nil, ErrUnavailable) so server can still start.
 func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 	if slices.Contains([]string{db11v4, db11v6, asnv4, asnv6}, "") {
 		return nil, ErrUnavailable
 	}
 	s := &Service{}
-	// A failure partway through the open sequence must close the handles already
-	// opened: the caller discards the service and runs on with the tool disabled,
-	// so a leaked handle would stay open for the process's lifetime.
+	// Failure partway thru open sequence must close handles already opened:
+	// caller discards service, runs on w/ tool disabled → leaked handle else
+	// stays open for process's lifetime.
 	ok := false
 	defer func() {
 		if !ok {
@@ -98,9 +98,9 @@ func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 	return s, nil
 }
 
-// closeAll releases every open database handle. It exists for OpenService's
-// failure path (see the defer there); a successfully opened Service keeps its
-// handles for the process's lifetime, exactly like the shared Mongo client.
+// closeAll releases every open database handle. Exists for OpenService's
+// failure path (see defer there); a successfully opened Service keeps its
+// handles for process's lifetime, same as shared Mongo client.
 func (s *Service) closeAll() {
 	for _, db := range []*ip2location.DB{s.db4, s.db6, s.asn4, s.asn6} {
 		if db != nil {
@@ -112,8 +112,8 @@ func (s *Service) closeAll() {
 	}
 }
 
-// Lookup resolves geolocation (DB11) + ASN, and proxy info (PX12, if loaded),
-// for an IP string. A nil receiver yields ErrUnavailable.
+// Lookup resolves geolocation (DB11) + ASN + proxy info (PX12, if loaded)
+// for an IP string. nil receiver → ErrUnavailable.
 func (s *Service) Lookup(ipStr string) (*Result, error) {
 	if s == nil {
 		return nil, ErrUnavailable
@@ -137,9 +137,9 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		return nil, err
 	}
 
-	// clean() blanks IP2Location's "-" placeholder (reserved/private ranges and
-	// records with no city/zip come back as "-"), matching how lookupProxy already
-	// treats the proxy fields — so "-" never leaks into the JSON or HTML.
+	// clean() blanks IP2Location's "-" placeholder (reserved/private ranges +
+	// records w/ no city/zip come back as "-"), matching how lookupProxy
+	// already treats proxy fields → "-" never leaks into JSON or HTML.
 	return &Result{
 		IP:          ipStr,
 		CountryCode: clean(geo.Country_short),
@@ -156,8 +156,8 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 	}, nil
 }
 
-// lookupProxy is best-effort: nil if the proxy DB is off or the lookup errors
-// (e.g. an address family the BIN doesn't cover), so it never breaks the geo result.
+// lookupProxy is best-effort: nil if proxy DB off or lookup errors (e.g. an
+// address family the BIN doesn't cover) → never breaks geo result.
 func (s *Service) lookupProxy(ipStr string) *Proxy {
 	if s.proxy == nil {
 		return nil
@@ -179,9 +179,9 @@ func (s *Service) lookupProxy(ipStr string) *Proxy {
 	}
 }
 
-// clean blanks IP2Location/IP2Proxy's "-" placeholder for cleaner output. Both
-// databases use "-" to mean "no value"; this maps it to "" so callers and
-// templates render an empty field rather than a literal dash.
+// clean blanks IP2Location/IP2Proxy's "-" placeholder for cleaner output.
+// Both databases use "-" for "no value" → maps to "" so callers/templates
+// render empty field, not literal dash.
 func clean(s string) string {
 	if s == "-" {
 		return ""

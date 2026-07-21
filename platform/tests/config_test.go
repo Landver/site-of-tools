@@ -1,6 +1,6 @@
-// Package tests holds the black-box tests for the platform package. It lives in
-// its own folder so tests never sit among the code they exercise; the tradeoff
-// is that it can only use platform's exported API.
+// Package tests: black-box tests for platform package. Own folder → tests
+// never sit among code they exercise; tradeoff: only platform's exported API
+// usable.
 package tests
 
 import (

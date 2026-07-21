@@ -1,6 +1,6 @@
-// Package platform holds the shared engine: the app factory, the template
-// renderer + content negotiation, and the embedded/disk asset toggle. It knows
-// nothing about individual tools.
+// Package platform: shared engine — app factory, template renderer + content
+// negotiation, embedded/disk asset toggle. Knows nothing about individual
+// tools.
 package platform
 
 import (
@@ -17,14 +17,14 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
-// NewApp builds a fresh *echo.Echo with the shared setup every subdomain uses:
-// renderer, middleware, Cloudflare-aware IP extraction, and static serving. reqlog
-// is the shared request-log corpus (one store across all subdomains); pass nil to
-// disable persistence — the middleware then only logs to slog, as before.
+// NewApp builds fresh *echo.Echo w/ shared setup every subdomain uses:
+// renderer, middleware, Cloudflare-aware IP extraction, static serving. reqlog
+// = shared request-log corpus (one store across all subdomains); nil disables
+// persistence → middleware then just logs to slog, as before.
 func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Echo {
 	e := echo.New()
 	e.Renderer = r
-	// Feeds c.RealIP(), so RequestLogger records the real client IP, not nginx's.
+	// Feeds c.RealIP() → RequestLogger records real client IP, not nginx's.
 	e.IPExtractor = cfIPExtractor()
 
 	e.Use(middleware.Recover())
@@ -32,8 +32,8 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	e.Use(middleware.Gzip())
 
 	if dev {
-		// Don't cache static assets in dev, so CSS/JS edits show on refresh
-		// (no stale-stylesheet surprises).
+		// Don't cache static assets in dev → CSS/JS edits show on refresh, no
+		// stale-stylesheet surprises.
 		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 			return func(c *echo.Context) error {
 				if strings.HasPrefix(c.Request().URL.Path, "/static/") {
@@ -48,8 +48,8 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	return e
 }
 
-// SubFS returns a filesystem rooted at sub: live disk (devDir) in dev, else the
-// embedded tree with the sub prefix stripped.
+// SubFS returns filesystem rooted at sub: live disk (devDir) in dev, else
+// embedded tree w/ sub prefix stripped.
 func SubFS(embedded fs.FS, sub, devDir string, dev bool) fs.FS {
 	if dev {
 		return os.DirFS(devDir)
@@ -61,14 +61,14 @@ func SubFS(embedded fs.FS, sub, devDir string, dev bool) fs.FS {
 	return s
 }
 
-// cfIPExtractor prefers Cloudflare's CF-Connecting-IP, then a trusted
-// X-Forwarded-For chain, then the socket address. CF-Connecting-IP is trusted
-// unconditionally: ingress trust is enforced at the network layer (the app is
-// published only behind nginx, which sits behind Cloudflare — see DEPLOYMENT.md
-// §4), so no in-process peer check is needed and a direct client can't reach it
-// to forge the header. The X-Forwarded-For chain, by contrast, is peer-verified
-// here via TrustLoopback/TrustPrivateNet. In dev there is no proxy, so both fall
-// through to RemoteAddr.
+// cfIPExtractor prefers Cloudflare's CF-Connecting-IP, then trusted
+// X-Forwarded-For chain, then socket address. CF-Connecting-IP trusted
+// unconditionally: ingress trust enforced at network layer (app published
+// only behind nginx, which sits behind Cloudflare — see DEPLOYMENT.md §4) →
+// no in-process peer check needed, direct client can't reach it to forge
+// header. X-Forwarded-For chain, by contrast, peer-verified here via
+// TrustLoopback/TrustPrivateNet. In dev no proxy exists → both fall through
+// to RemoteAddr.
 func cfIPExtractor() echo.IPExtractor {
 	xff := echo.ExtractIPFromXFFHeader(
 		echo.TrustLoopback(true),
@@ -86,13 +86,13 @@ func cfIPExtractor() echo.IPExtractor {
 	}
 }
 
-// requestLogger is the built-in v5 RequestLogger trimmed to the fields we care
-// about: the slog line drops user_agent and request_id and puts status before uri
-// (slog still prepends time/level/msg). One attribute list serves both the success
-// and error cases (error appends its own field). When reqlog is non-nil it also
-// persists each request (minus static assets) to the Mongo corpus — reusing the
-// values this middleware already captures rather than adding a second pass; the
-// corpus does keep user_agent even though the slog line omits it.
+// requestLogger is built-in v5 RequestLogger trimmed to fields we care about:
+// slog line drops user_agent + request_id, puts status before uri (slog still
+// prepends time/level/msg). One attribute list serves both success + error
+// cases (error appends its own field). When reqlog non-nil, also persists
+// each request (minus static assets) to Mongo corpus — reuses values this
+// middleware already captures rather than adding 2nd pass; corpus does keep
+// user_agent even though slog line omits it.
 func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 	return middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogLatency:       true,
@@ -103,7 +103,7 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 		LogStatus:        true,
 		LogContentLength: true,
 		LogResponseSize:  true,
-		HandleError:      true, // forward errors to the global handler for the right status
+		HandleError:      true, // forward errors to global handler for right status
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
 			level, msg := slog.LevelInfo, "REQUEST"
 			attrs := []slog.Attr{
@@ -122,8 +122,8 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 			}
 			c.Logger().LogAttrs(context.Background(), level, msg, attrs...)
 
-			// Persist to the corpus off the request path (Record is non-blocking and
-			// nil-safe). Skip static assets — high volume, no analytic value.
+			// Persist to corpus off request path (Record non-blocking + nil-safe).
+			// Skip static assets — high volume, no analytic value.
 			if ShouldRecord(c.Request().URL.Path) {
 				reqlog.Record(RequestEntry{
 					Method:    v.Method,

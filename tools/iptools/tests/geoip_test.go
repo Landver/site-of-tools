@@ -1,4 +1,4 @@
-// Package tests holds the black-box tests for the iptools package.
+// Package tests: black-box tests for iptools.
 package tests
 
 import (
@@ -19,15 +19,15 @@ func TestLookupNilService(t *testing.T) {
 }
 
 func TestLookupBadIP(t *testing.T) {
-	// A non-nil Service validates the IP before touching any DB handle.
+	// Non-nil Service validates IP before touching any DB handle.
 	s := &iptools.Service{}
 	if _, err := s.Lookup("not-an-ip"); err == nil {
 		t.Fatal("expected an error for a malformed IP")
 	}
 }
 
-// resolveDB returns p if it exists, else tries it relative to the repo root
-// (this test file lives in <root>/iptools/tests/). "" if not found.
+// resolveDB returns p if exists, else tries rel to repo root
+// (test file lives in <root>/iptools/tests/). "" if not found.
 func resolveDB(p string) string {
 	if p == "" {
 		return ""
@@ -44,9 +44,9 @@ func resolveDB(p string) string {
 	return ""
 }
 
-// TestLookupIntegration exercises the real databases; it skips unless the
-// IP2LOCATION_* env vars resolve to existing BINs, so CI/fresh clones stay green
-// (the BINs are gitignored). To run locally:
+// TestLookupIntegration exercises real DBs; skips unless IP2LOCATION_* env
+// vars resolve to existing BINs → CI/fresh clones stay green (BINs
+// gitignored). Run locally:
 //
 //	set -a; . ./.env; set +a; go test ./iptools/tests -run Integration
 func TestLookupIntegration(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// Subnet is the calculated view of a CIDR block, rendered as HTML or JSON. Counts
-// are strings because an IPv6 block's address count overflows uint64.
+// Subnet: calculated view of a CIDR block, rendered as HTML or JSON. Counts
+// = strings → IPv6 block's address count overflows uint64.
 type Subnet struct {
 	CIDR      string `json:"cidr"`                // canonical network, e.g. 192.168.1.0/24
 	Family    string `json:"family"`              // "IPv4" or "IPv6"
@@ -24,14 +24,14 @@ type Subnet struct {
 	Total     string `json:"total_addresses"` // total addresses in the block
 }
 
-// ParseSubnet parses a CIDR (or a bare IP, treated as /32 or /128) and computes
-// its network properties. Pure and offline — no databases, no network.
+// ParseSubnet parses a CIDR (or bare IP, treated as /32 or /128) → computes
+// network properties. Pure, offline — no DB, no network.
 func ParseSubnet(s string) (*Subnet, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, fmt.Errorf("enter a CIDR, e.g. 192.168.1.0/24 or 2001:db8::/32")
 	}
-	// Be lenient: a bare address is its own single-host network.
+	// Lenient: bare address = its own single-host network.
 	if !strings.Contains(s, "/") {
 		if a, err := netip.ParseAddr(s); err == nil {
 			s = fmt.Sprintf("%s/%d", a, a.BitLen())
@@ -71,18 +71,18 @@ func ParseSubnet(s string) (*Subnet, error) {
 		}
 	} else {
 		sub.Family = "IPv6"
-		// IPv6 has no broadcast/netmask/wildcard convention; treat all as usable.
+		// IPv6 has no broadcast/netmask/wildcard convention → treat all as usable.
 		sub.FirstHost, sub.LastHost, sub.Usable = network.String(), last.String(), total.String()
 	}
 	return sub, nil
 }
 
-// v4HostMask returns the trailing host-bit mask for an IPv4 prefix length: the low
-// (32-bits) bits set. Go zeroes a shift by the full width, so /32 correctly yields
-// 0. Shared by lastAddr and v4Masks so the /32 edge case lives in one place.
+// v4HostMask returns trailing host-bit mask for IPv4 prefix length: low
+// (32-bits) bits set. Go zeroes shift by full width → /32 correctly yields 0.
+// Shared by lastAddr + v4Masks → /32 edge case lives in one place.
 func v4HostMask(bits int) uint32 { return uint32(0xffffffff) >> uint(bits) }
 
-// lastAddr returns the highest address in the prefix (all host bits set to 1).
+// lastAddr returns highest address in prefix (all host bits set to 1).
 func lastAddr(pfx netip.Prefix) netip.Addr {
 	if pfx.Addr().Is4() {
 		v := pfx.Addr().As4()
@@ -97,13 +97,13 @@ func lastAddr(pfx netip.Prefix) netip.Addr {
 		if n > 8 {
 			n = 8
 		}
-		v[i] |= byte(0xff) >> (8 - n) // set the low n bits of this byte
+		v[i] |= byte(0xff) >> (8 - n) // set low n bits of this byte
 		host -= n
 	}
 	return netip.AddrFrom16(v)
 }
 
-// v4Masks returns the dotted netmask and wildcard mask for an IPv4 prefix length.
+// v4Masks returns dotted netmask + wildcard mask for IPv4 prefix length.
 func v4Masks(bits int) (netmask, wildcard string) {
 	host := v4HostMask(bits)
 	var nm, wc [4]byte

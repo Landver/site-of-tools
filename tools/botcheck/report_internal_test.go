@@ -2,11 +2,10 @@ package botcheck
 
 import "testing"
 
-// TestEveryRuleHasAnExplanation is the G55 coverage guard: it lives white-box
-// because the rule list is unexported. It fails the moment a rule lands without
-// a ruleExplanations entry — including the 14 rules being built in parallel on
-// the sibling branch, whose entries are pre-seeded here and must survive the
-// merge (the second loop pins those reserved IDs by name).
+// TestEveryRuleHasAnExplanation = G55 coverage guard. Lives white-box → rule
+// list unexported. Fails moment rule lands w/o ruleExplanations entry — incl.
+// 14 rules built in parallel on sibling branch, entries pre-seeded here, must
+// survive merge (2nd loop pins those reserved IDs by name).
 func TestEveryConsistencyRuleHasSubgroup(t *testing.T) {
 	for _, r := range rules {
 		if r.tier == TierConsistency && r.subgroup == "" {

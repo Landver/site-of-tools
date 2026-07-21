@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-// rule is one detection signal. eval reports whether the anomaly fired and a
-// short human detail for the table. needsClient marks rules that read a
-// client-collected field, so Evaluate can skip (not fail) them on a server-only
-// request. Weights are a starting proposal, tuned against botcheck/tests — not
-// gospel; adjust there, with fixtures, rather than by feel.
+// rule is one detection signal. eval reports whether anomaly fired + short
+// human detail for table. needsClient marks rules reading client-collected
+// field → Evaluate can skip (not fail) them on server-only request. Weights =
+// starting proposal, tuned against botcheck/tests — not gospel; adjust there,
+// w/ fixtures, not by feel.
 type rule struct {
 	id          string
 	label       string
@@ -20,13 +20,13 @@ type rule struct {
 	eval        func(Signals) (bool, string)
 }
 
-// gpuOSImpossible is the exhaustive list of GPU-family/OS pairs gpu_os_mismatch
-// may ever fire on — combinations no shipping hardware produces: an Apple GPU
-// off macOS/iOS, a desktop discrete GPU (NVIDIA GeForce / AMD Radeon) on a phone
-// OS, a mobile Adreno/Mali on an Apple desktop OS. Everything not listed here is
-// deliberately silent, because real machines exist: AMD Radeon + macOS (Intel
-// Macs), NVIDIA + macOS (pre-2014 Macs), Adreno + Windows (Snapdragon ARM
-// laptops), Intel + Android (old Atom phones), anything + Chrome OS.
+// gpuOSImpossible = exhaustive list of GPU-family/OS pairs gpu_os_mismatch may
+// fire on — combos no shipping hardware produces: Apple GPU off macOS/iOS,
+// desktop discrete GPU (NVIDIA GeForce / AMD Radeon) on phone OS, mobile
+// Adreno/Mali on Apple desktop OS. Everything else deliberately silent → real
+// machines exist: AMD Radeon+macOS (Intel Macs), NVIDIA+macOS (pre-2014 Macs),
+// Adreno+Windows (Snapdragon ARM laptops), Intel+Android (old Atom phones),
+// anything+Chrome OS.
 var gpuOSImpossible = map[string]map[string]bool{
 	"apple":  {"Windows": true, "Linux": true, "Android": true},
 	"nvidia": {"iOS": true, "Android": true},
@@ -35,10 +35,10 @@ var gpuOSImpossible = map[string]map[string]bool{
 	"mali":   {"macOS": true, "iOS": true},
 }
 
-// rules is the full ordered signal set. Hard tells first (each near-standalone),
+// rules = full ordered signal set. Hard tells first (each near-standalone),
 // then cross-layer/cross-context consistency checks (the load-bearing ones),
-// then soft heuristics (only counted as a cluster — see Evaluate). The score is
-// the sum of triggered weights subtracted from 100.
+// then soft heuristics (only counted as cluster — see Evaluate). Score = sum
+// of triggered weights subtracted from 100.
 var rules = []rule{
 	// ── Hard tells ────────────────────────────────────────────────────────────
 	{
@@ -62,9 +62,9 @@ var rules = []rule{
 			}
 			// Recognise every good-bot/AI-agent token too: several (Meta-ExternalAgent,
 			// Claude-User, ChatGPT-User, …) carry no generic bot/spider/crawler substring
-			// and would otherwise escape this penalty. Check both the header and any
-			// posted navigator UA. A *verified* good bot has this deduction suppressed in
-			// Evaluate; an unverified one keeps it — recognition is not leniency.
+			// → would otherwise escape this penalty. Check both header + any posted
+			// navigator UA. *Verified* good bot has this deduction suppressed in
+			// Evaluate; unverified one keeps it — recognition ≠ leniency.
 			if b := matchGoodBot(s.HTTPUserAgent); b != nil {
 				return true, "recognized " + b.name
 			}
@@ -79,11 +79,11 @@ var rules = []rule{
 		eval: func(s Signals) (bool, string) { return !s.NativeToStringOK, "" },
 	},
 	{
-		// Proxying Function.prototype.toString is the puppeteer-extra-stealth hallmark:
-		// it exists precisely to defeat the shallow native_tamper check, and no
-		// legitimate software does it — privacy extensions patch the DOM leak-surface
-		// APIs (canvas/WebGL), never toString itself. That is why this one is hard
-		// while the G04 descriptor/call-new probes below stay consistency-tier.
+		// Proxying Function.prototype.toString = puppeteer-extra-stealth hallmark:
+		// exists precisely to defeat shallow native_tamper check, no legit software
+		// does it — privacy extensions patch DOM leak-surface APIs (canvas/WebGL),
+		// never toString itself. Why this one's hard while G04 descriptor/call-new
+		// probes below stay consistency-tier.
 		id: "tostring_proxy", label: "Function.prototype.toString is proxied or replaced (stealth hallmark)", tier: TierHard, weight: 45, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Skip pre-v2 payloads: the key didn't exist, false would be a lie.
@@ -103,15 +103,15 @@ var rules = []rule{
 		},
 	},
 	{
-		// G11: navigator.webdriver re-read inside the iframe's fresh JS context.
-		// Stealth toolkits patch the top frame's navigator (even its prototype);
-		// the iframe realm has its own Navigator.prototype and leaks the truth.
+		// G11: navigator.webdriver re-read inside iframe's fresh JS context. Stealth
+		// toolkits patch top frame's navigator (even its prototype); iframe realm
+		// has own Navigator.prototype → leaks truth.
 		id: "iframe_webdriver", label: "navigator.webdriver is true inside the iframe", tier: TierHard, weight: 60, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.IframeWebdriver, "" },
 	},
 	{
-		// G14: navigator.webdriver read inside the Service Worker — a third
-		// context a top-frame-only webdriver patch forgets (the incolumitas
+		// G14: navigator.webdriver read inside Service Worker — third context a
+		// top-frame-only webdriver patch forgets (incolumitas
 		// inconsistentServiceWorkerNavigatorPropery catch).
 		id: "webdriver_sw", label: "navigator.webdriver is true in the Service Worker", tier: TierHard, weight: 60, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.SWWebdriver, "" },
@@ -147,10 +147,10 @@ var rules = []rule{
 	},
 	{
 		// G03: navigator.languages re-read in each secondary context. Anti-detect
-		// tools patch the top frame's navigator only, so a worker/iframe/SW still
-		// shows the real list. Compare primary subtags only (en-US vs en is the
-		// same language), and only when both sides answered — an empty context
-		// list means the API is unsupported there, not a mismatch.
+		// tools patch top frame's navigator only → worker/iframe/SW still shows
+		// real list. Compare primary subtags only (en-US vs en = same language),
+		// only when both sides answered — empty context list means API unsupported
+		// there, not mismatch.
 		id: "context_language_mismatch", label: "Worker/iframe/Service-Worker language ≠ main-thread language", tier: TierConsistency, subgroup: subgroupContext, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if len(s.Languages) == 0 {
@@ -177,11 +177,11 @@ var rules = []rule{
 	},
 	{
 		// G03: hardwareConcurrency re-read in each secondary context. Assumption
-		// (false-positive guard): anti-fingerprint throttling caps the value
-		// GLOBALLY, not per-context — Firefox resistFingerprinting and Brave's
-		// farbling report the same capped number in every context of the origin,
-		// so a real privacy browser still agrees with itself. Only a spoof that
-		// patched one context and forgot the others disagrees.
+		// (false-positive guard): anti-fingerprint throttling caps value GLOBALLY,
+		// not per-context — Firefox resistFingerprinting + Brave farbling report
+		// same capped number in every context of origin → real privacy browser
+		// still agrees w/ itself. Only spoof that patched one context and forgot
+		// others disagrees.
 		id: "context_cores_mismatch", label: "Worker/iframe/Service-Worker hardwareConcurrency ≠ main thread", tier: TierConsistency, subgroup: subgroupContext, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.HardwareCores == 0 {
@@ -204,8 +204,8 @@ var rules = []rule{
 	},
 	{
 		// G03: userAgentData.platform re-read in each secondary context (empty on
-		// Safari/Firefox, which simply skip). normPlatform on both sides so
-		// "macOS" vs "Mac OS X" style spelling variants can't false-fire.
+		// Safari/Firefox → simply skip). normPlatform both sides → "macOS" vs
+		// "Mac OS X" spelling variants can't false-fire.
 		id: "context_platform_mismatch", label: "Worker/iframe/Service-Worker platform ≠ main-thread platform", tier: TierConsistency, subgroup: subgroupContext, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			main := normPlatform(s.UAData.Platform)
@@ -225,11 +225,11 @@ var rules = []rule{
 		},
 	},
 	{
-		// G03: the worker's WebGL unmasked renderer (read via OffscreenCanvas) vs
-		// the main thread's — the CreepJS hasBadWebGL diff. Same browser, same
-		// GPU ⇒ same renderer string; a spoofed top-frame WebGL read disagrees.
-		// Fires only when both reads succeeded (OffscreenCanvas WebGL is often
-		// unsupported, which just leaves the worker side empty).
+		// G03: worker's WebGL unmasked renderer (read via OffscreenCanvas) vs main
+		// thread's — CreepJS hasBadWebGL diff. Same browser, same GPU ⇒ same
+		// renderer string; spoofed top-frame WebGL read disagrees. Fires only when
+		// both reads succeed (OffscreenCanvas WebGL often unsupported → leaves
+		// worker side empty).
 		id: "context_webgl_mismatch", label: "Worker WebGL renderer ≠ main-thread WebGL renderer", tier: TierConsistency, subgroup: subgroupContext, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.WebGLRenderer == "" || s.WorkerWebGLRenderer == "" || s.WebGLRenderer == s.WorkerWebGLRenderer {
@@ -263,10 +263,10 @@ var rules = []rule{
 		},
 	},
 	{
-		// Feature-detect the real rendering engine (Blink/Gecko/WebKit) client-side
-		// and compare to the engine the UA claims. Robust against a spoofed UA string:
-		// the engine probes read capabilities the UA can't fake. Only fires on a
-		// confident disagreement (both sides known and different).
+		// Feature-detect real rendering engine (Blink/Gecko/WebKit) client-side,
+		// compare to engine UA claims. Robust against spoofed UA string: engine
+		// probes read capabilities UA can't fake. Fires only on confident
+		// disagreement (both sides known + different).
 		id: "engine_ua_mismatch", label: "Feature-detected engine ≠ engine the User-Agent claims", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			want := engineFromUA(clientUA(s))
@@ -277,9 +277,9 @@ var rules = []rule{
 		},
 	},
 	{
-		// A UA-string spoof that edits "Chrome/NNN" but leaves userAgentData intact
-		// disagrees here: the UA's Chromium major must equal the "Chromium" brand entry
-		// of fullVersionList (see chVersionMajor). The CreepJS/Electron frozen-UA catch.
+		// UA-string spoof editing "Chrome/NNN" but leaving userAgentData intact
+		// disagrees here: UA's Chromium major must equal "Chromium" brand entry of
+		// fullVersionList (see chVersionMajor). CreepJS/Electron frozen-UA catch.
 		id: "ua_chrome_version_mismatch", label: "User-Agent Chrome version ≠ userAgentData version", tier: TierConsistency, subgroup: subgroupUA, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			uaM, chM := uaChromeMajor(clientUA(s)), chVersionMajor(s.UAData)
@@ -308,9 +308,9 @@ var rules = []rule{
 			if s.BrowserTZ == "" || s.IPTimezone == "" {
 				return false, ""
 			}
-			// IP2Location gives a UTC offset ("+03:00"); the browser gives an IANA
-			// name ("Europe/Moscow"). Compare offset-to-offset — a plain string
-			// compare would fire for every real visitor (formats never match).
+			// IP2Location gives UTC offset ("+03:00"); browser gives IANA name
+			// ("Europe/Moscow"). Compare offset-to-offset — plain string compare
+			// would fire for every real visitor (formats never match).
 			if offsetFormat(s.IPTimezone) {
 				bo, ok := ianaOffset(s.BrowserTZ, s.Now)
 				if !ok || bo == s.IPTimezone {
@@ -318,7 +318,7 @@ var rules = []rule{
 				}
 				return true, fmt.Sprintf("browser %s (%s) vs IP %s", s.BrowserTZ, bo, s.IPTimezone)
 			}
-			// Both look like IANA names (other IP DB formats) — name compare.
+			// Both look like IANA names (other IP DB formats) → name compare.
 			if strings.EqualFold(s.BrowserTZ, s.IPTimezone) {
 				return false, ""
 			}
@@ -338,9 +338,9 @@ var rules = []rule{
 		},
 	},
 	{
-		// Mutually exclusive with datacenter_ip: IP2Proxy marks datacenters/Tor as
-		// proxies too, so only fire here for a VPN or an otherwise-uncategorised
-		// proxy — never double-count an address the datacenter rule already caught.
+		// Mutually exclusive w/ datacenter_ip: IP2Proxy marks datacenters/Tor as
+		// proxies too → only fire here for VPN or otherwise-uncategorised proxy —
+		// never double-count address the datacenter rule already caught.
 		id: "proxy_ip", label: "Egress IP is a proxy / VPN", tier: TierConsistency, subgroup: subgroupNetwork, weight: 20,
 		eval: func(s Signals) (bool, string) {
 			if s.IsVPN {
@@ -373,16 +373,16 @@ var rules = []rule{
 		},
 	},
 	{
-		// Self-consistency (no IP needed): the browser's own IANA timezone must
-		// agree with its own Date().getTimezoneOffset(). Spoofers commonly change
-		// one and forget the other.
+		// Self-consistency (no IP needed): browser's own IANA timezone must agree
+		// w/ own Date().getTimezoneOffset(). Spoofers commonly change one, forget
+		// other.
 		id: "tz_self_inconsistent", label: "Timezone name disagrees with getTimezoneOffset()", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			secs, ok := zoneOffsetSeconds(s.BrowserTZ, s.Now)
 			if s.BrowserTZ == "" || !ok {
 				return false, ""
 			}
-			expected := -secs / 60 // getTimezoneOffset is minutes west of UTC
+			expected := -secs / 60 // getTimezoneOffset = minutes west of UTC
 			if expected == s.TZOffset {
 				return false, ""
 			}
@@ -390,15 +390,15 @@ var rules = []rule{
 		},
 	},
 	{
-		// Randomised canvas output (two identical draws hashing differently) is a
+		// Randomised canvas output (two identical draws hashing differently) =
 		// noise-injecting anti-fingerprint / stealth tool.
 		id: "canvas_unstable", label: "Canvas output is randomised between draws", tier: TierConsistency, subgroup: subgroupInternals, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CanvasSupported && !s.CanvasStable, "" },
 	},
 	{
-		// Parse the Sec-CH-UA header brand list (server) and compare to the JS
-		// userAgentData.brands (client); a spoofed User-Agent that forgets to keep
-		// the two in sync is caught here. GREASE decoy brand is ignored.
+		// Parse Sec-CH-UA header brand list (server), compare to JS
+		// userAgentData.brands (client); spoofed User-Agent forgetting to keep
+		// the two in sync caught here. GREASE decoy brand ignored.
 		id: "ch_brands_mismatch", label: "Sec-CH-UA header brands ≠ userAgentData.brands", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			hdr, js := realBrandSet(chBrandNames(s.SecCHUA)), realBrandSet(s.Brands)
@@ -421,7 +421,7 @@ var rules = []rule{
 	{
 		id: "app_version_mismatch", label: "navigator.appVersion inconsistent with User-Agent", tier: TierConsistency, subgroup: subgroupUA, weight: 15, needsClient: true,
 		eval: func(s Signals) (bool, string) {
-			// Every mainstream browser reports appVersion as the UA minus "Mozilla/".
+			// Every mainstream browser reports appVersion as UA minus "Mozilla/".
 			if s.NavMainUA == "" || s.AppVersion == "" || !strings.HasPrefix(s.NavMainUA, "Mozilla/") {
 				return false, ""
 			}
@@ -429,9 +429,9 @@ var rules = []rule{
 		},
 	},
 	{
-		// navigator.productSub is a fixed per-engine constant ("20030107" on every
-		// WebKit/Blink browser, "20100101" on Gecko). A value that doesn't match the
-		// engine the UA claims is a classic spoof/patched-runtime tell.
+		// navigator.productSub = fixed per-engine constant ("20030107" on every
+		// WebKit/Blink browser, "20100101" on Gecko). Value not matching engine UA
+		// claims = classic spoof/patched-runtime tell.
 		id: "productsub_mismatch", label: "navigator.productSub not the engine's constant", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			want := expectedProductSub(clientUA(s))
@@ -454,15 +454,15 @@ var rules = []rule{
 		},
 	},
 	{
-		// G07: the unmasked WebGL VENDOR and RENDERER both come from the same GPU
-		// driver, so a real browser never reports them in different vendor families —
-		// Chrome's ANGLE pair is internally consistent ("Google Inc. (NVIDIA)" /
-		// "ANGLE (NVIDIA, ...)") and modern Safari generalises both to "Apple Inc." /
-		// "Apple GPU". A cross-family pair (vendor says Apple, renderer says NVIDIA)
-		// is a hand-edited spoof. Fires only when BOTH sides parse to a confident
-		// family AND differ: an empty or unparseable string (VM, software rasteriser,
-		// masked) is no signal, so e.g. an "ARM" vendor beside a "Mali" renderer
-		// (normal on Android) stays silent.
+		// G07: unmasked WebGL VENDOR + RENDERER both come from same GPU driver →
+		// real browser never reports different vendor families — Chrome's ANGLE
+		// pair internally consistent ("Google Inc. (NVIDIA)" / "ANGLE (NVIDIA,
+		// ...)"), modern Safari generalises both to "Apple Inc." / "Apple GPU".
+		// Cross-family pair (vendor says Apple, renderer says NVIDIA) = hand-edited
+		// spoof. Fires only when BOTH sides parse to confident family AND differ:
+		// empty/unparseable string (VM, software rasteriser, masked) = no signal →
+		// e.g. "ARM" vendor beside "Mali" renderer (normal on Android) stays
+		// silent.
 		id: "webgl_vendor_mismatch", label: "WebGL vendor and renderer disagree", tier: TierConsistency, subgroup: subgroupInternals, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			vf, rf := gpuVendorFamily(s.WebGLVendor, ""), gpuVendorFamily("", s.WebGLRenderer)
@@ -473,16 +473,16 @@ var rules = []rule{
 		},
 	},
 	{
-		// G08: the GPU family must be plausible for the OS the UA claims — the catch
-		// is an anti-detect browser that rewrites its OS in the UA but can't change
-		// the real GPU WebGL reports. Fires ONLY on the enumerated impossible pairs
-		// (gpuOSImpossible): Apple GPU on Windows/Linux/Android, desktop NVIDIA/AMD
-		// on iOS/Android, mobile Adreno/Mali on macOS/iOS. Deliberately silent on
-		// every ambiguous combination — AMD Radeon + macOS (Intel Macs exist),
-		// Adreno + Windows (Snapdragon ARM laptops), Intel anywhere, any GPU +
-		// Chrome OS, Mesa/unknown GPU, unparseable UA. The GPU family is read from
-		// vendor and renderer together, so Firefox ("NVIDIA Corporation") and
-		// Safari ("Apple Inc." / "Apple GPU") are classified as confidently as ANGLE.
+		// G08: GPU family must be plausible for OS UA claims — catch is anti-detect
+		// browser rewriting OS in UA but can't change real GPU WebGL reports. Fires
+		// ONLY on enumerated impossible pairs (gpuOSImpossible): Apple GPU on
+		// Windows/Linux/Android, desktop NVIDIA/AMD on iOS/Android, mobile
+		// Adreno/Mali on macOS/iOS. Deliberately silent on every ambiguous combo —
+		// AMD Radeon+macOS (Intel Macs exist), Adreno+Windows (Snapdragon ARM
+		// laptops), Intel anywhere, any GPU+Chrome OS, Mesa/unknown GPU,
+		// unparseable UA. GPU family read from vendor+renderer together → Firefox
+		// ("NVIDIA Corporation") + Safari ("Apple Inc." / "Apple GPU") classified
+		// as confidently as ANGLE.
 		id: "gpu_os_mismatch", label: "WebGL GPU impossible on the claimed OS", tier: TierConsistency, subgroup: subgroupInternals, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			fam, os := gpuVendorFamily(s.WebGLVendor, s.WebGLRenderer), osFromUA(clientUA(s))
@@ -493,26 +493,24 @@ var rules = []rule{
 		},
 	},
 	{
-		// Downgraded consistency → soft (2026-07-21). This probe, and the four
-		// other deep-tamper siblings below (native_callnew_tamper,
-		// navigator_proto_tamper, chrome_runtime_tamper, chrome_late_injection),
-		// were built to catch puppeteer-extra-stealth's signature. The 2026-07-19
-		// audit established two things about that whole class: (1) current stealth
-		// EVADES all of them cleanly (its shared _utils spreads the original
-		// descriptor, so nothing looks off) — so they add nothing against the
-		// adversary they targeted; (2) the only things that DO trip them are a
-		// legitimate privacy extension patching a DOM API (a real human) or a naive
-		// hand-patch, and at consistency/25 two of them firing on a privacy-tool
-		// user dropped a genuine human to 50/"suspicious" — a false positive the
-		// tool shouldn't manufacture. Soft (cluster-only, 8) keeps them as
-		// corroboration when several fire together with other soft tells, but no
-		// single one can dock a human on its own again. Same handling and precedent
-		// as the CDP-trap trio (see cdp_both). Full rationale:
-		// docs/testing/findings/2026-07-21-internals-tamper-downgraded-to-soft.md.
+		// Downgraded consistency → soft (2026-07-21). This probe + four other
+		// deep-tamper siblings below (native_callnew_tamper, navigator_proto_tamper,
+		// chrome_runtime_tamper, chrome_late_injection) built to catch
+		// puppeteer-extra-stealth's signature. 2026-07-19 audit established two
+		// things about whole class: (1) current stealth EVADES all of them cleanly
+		// (shared _utils spreads original descriptor → nothing looks off) → adds
+		// nothing against adversary they targeted; (2) only things that DO trip
+		// them = legit privacy extension patching DOM API (real human) or naive
+		// hand-patch, and at consistency/25 two firing on privacy-tool user dropped
+		// genuine human to 50/"suspicious" — false positive tool shouldn't
+		// manufacture. Soft (cluster-only, 8) keeps them as corroboration when
+		// several fire w/ other soft tells, but no single one can dock human alone
+		// again. Same handling + precedent as CDP-trap trio (see cdp_both). Full
+		// rationale: docs/testing/findings/2026-07-21-internals-tamper-downgraded-to-soft.md.
 		id: "native_descriptor_tamper", label: "Native function has an impossible property descriptor", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
-			// Skip pre-v2 payloads (stale collector): false would mean "field
-			// didn't exist yet", not tampering — see collectorVDeepTamper.
+			// Skip pre-v2 payloads (stale collector): false would mean "field didn't
+			// exist yet", not tampering — see collectorVDeepTamper.
 			if s.CollectorV < collectorVDeepTamper {
 				return false, ""
 			}
@@ -520,10 +518,10 @@ var rules = []rule{
 		},
 	},
 	{
-		// Downgraded consistency → soft (2026-07-21); same reasoning and precedent
-		// as native_descriptor_tamper above — evaded by current stealth, real
-		// false-positive risk against a privacy extension's DOM-API override, so it
-		// only bites as part of a soft cluster now.
+		// Downgraded consistency → soft (2026-07-21); same reasoning + precedent as
+		// native_descriptor_tamper above — evaded by current stealth, real
+		// false-positive risk against privacy extension's DOM-API override → only
+		// bites as part of soft cluster now.
 		id: "native_callnew_tamper", label: "Native function misses its call/new TypeError traps", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			// Skip pre-v2 payloads, same as native_descriptor_tamper.
@@ -534,19 +532,19 @@ var rules = []rule{
 		},
 	},
 	{
-		// G11: the iframe's contentWindow is a Proxy — the puppeteer-extra-stealth
-		// iframe.contentWindow patch wrapping the fresh context to inject spoofs
-		// (CreepJS hasIframeProxy). True only when the patched getter verifiably
-		// throws; a genuine engine never does.
+		// G11: iframe's contentWindow is a Proxy — puppeteer-extra-stealth
+		// iframe.contentWindow patch wrapping fresh context to inject spoofs
+		// (CreepJS hasIframeProxy). True only when patched getter verifiably
+		// throws; genuine engine never does.
 		id: "iframe_proxy", label: "iframe contentWindow is proxied (stealth iframe patch)", tier: TierConsistency, subgroup: subgroupInternals, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.IframeProxied, "" },
 	},
 	{
-		// G12: a phone UA reporting zero touch points. Real Android/iOS devices
-		// always report maxTouchPoints > 0; a desktop browser wearing a mobile UA
-		// reports 0. v3-gated: the field is damning when zero on a stale payload
-		// that never sent it. Deliberately no reverse direction (desktop UA +
-		// touch): touch-screen Windows laptops would false-fire constantly.
+		// G12: phone UA reporting zero touch points. Real Android/iOS devices
+		// always report maxTouchPoints > 0; desktop browser wearing mobile UA
+		// reports 0. v3-gated: field damning when zero on stale payload that never
+		// sent it. Deliberately no reverse direction (desktop UA + touch):
+		// touch-screen Windows laptops would false-fire constantly.
 		id: "mobile_no_touch", label: "Mobile User-Agent reports zero touch points", tier: TierConsistency, subgroup: subgroupInternals, weight: 20, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
@@ -560,16 +558,15 @@ var rules = []rule{
 		},
 	},
 	{
-		// G17: per WebIDL, webdriver/plugins/languages are accessor (getter-only)
+		// G17: per WebIDL, webdriver/plugins/languages = accessor (getter-only)
 		// properties — enumerable, configurable, living on Navigator.prototype,
-		// never own data properties on the navigator instance. A spoof installed
-		// via defineProperty/assignment breaks at least one of those. Downgraded
-		// consistency → soft (2026-07-21), same reasoning and precedent as
-		// native_descriptor_tamper above: modern stealth doesn't patch
-		// navigator.webdriver in JS at all (it uses a launch flag), so this only
-		// catches a naive hand-patch or a legit privacy extension — cluster-only
-		// now. v3-gated: the OK bool is damning when false on a stale payload that
-		// never sent it.
+		// never own data properties on navigator instance. Spoof installed via
+		// defineProperty/assignment breaks at least one. Downgraded consistency →
+		// soft (2026-07-21), same reasoning + precedent as native_descriptor_tamper
+		// above: modern stealth doesn't patch navigator.webdriver in JS at all
+		// (uses launch flag) → only catches naive hand-patch or legit privacy
+		// extension — cluster-only now. v3-gated: OK bool damning when false on
+		// stale payload that never sent it.
 		id: "navigator_proto_tamper", label: "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
@@ -579,15 +576,15 @@ var rules = []rule{
 		},
 	},
 	{
-		// G22: a genuine window.chrome on Chrome carries chrome.runtime with native
-		// non-constructor connect/sendMessage (no own prototype, `new fn()` throws a
-		// TypeError); a stealth-bolted fake gets the shape or the error constructor
-		// wrong (CreepJS hasBadChromeRuntime). Downgraded consistency → soft
-		// (2026-07-21): the most-evaded of the group — current stealth fakes
-		// chrome.runtime perfectly, AND the official Chrome-for-Testing binary lacks
-		// chrome.runtime entirely (so a tightened version risked flagging real
-		// visitors), leaving this able to catch only a naive fake. Cluster-only now.
-		// Chrome UA only; v3-gated like the other fail-to-pass OK bools.
+		// G22: genuine window.chrome on Chrome carries chrome.runtime w/ native
+		// non-constructor connect/sendMessage (no own prototype, `new fn()` throws
+		// a TypeError); stealth-bolted fake gets shape or error constructor wrong
+		// (CreepJS hasBadChromeRuntime). Downgraded consistency → soft
+		// (2026-07-21): most-evaded of group — current stealth fakes chrome.runtime
+		// perfectly, AND official Chrome-for-Testing binary lacks chrome.runtime
+		// entirely (tightened version risked flagging real visitors) → catches only
+		// naive fake now. Cluster-only. Chrome UA only; v3-gated like other
+		// fail-to-pass OK bools.
 		id: "chrome_runtime_tamper", label: "window.chrome.runtime fails the integrity probe", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
@@ -597,24 +594,24 @@ var rules = []rule{
 		},
 	},
 	{
-		// G22: genuine Chrome creates window.chrome during page setup, so it sits
-		// early among window keys; a stealth patch bolting on a fake chrome object
-		// appends it late — 'chrome' in the last ~50 window keys (CreepJS
-		// hasHighChromeIndex). Downgraded consistency → soft (2026-07-21), same
-		// group as chrome_runtime_tamper above: current stealth fakes chrome.runtime
-		// in place rather than late-injecting, so this catches only a naive
-		// bolt-on — cluster-only now. Chrome UA only.
+		// G22: genuine Chrome creates window.chrome during page setup → sits early
+		// among window keys; stealth patch bolting on fake chrome object appends it
+		// late — 'chrome' in last ~50 window keys (CreepJS hasHighChromeIndex).
+		// Downgraded consistency → soft (2026-07-21), same group as
+		// chrome_runtime_tamper above: current stealth fakes chrome.runtime in
+		// place rather than late-injecting → catches only naive bolt-on —
+		// cluster-only now. Chrome UA only.
 		id: "chrome_late_injection", label: "window.chrome was injected late (stealth bolt-on)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			return strings.Contains(clientUA(s), "Chrome") && s.ChromeLateInjection, ""
 		},
 	},
 	{
-		// G23: the JS engine detected from the Error-stack format (V8 " at "
-		// frames, SpiderMonkey fileName/lineNumber, JSC otherwise) vs the engine
-		// the UA claims — a second engine check, independent of the CSS/capability
-		// probes engine_ua_mismatch uses, and robust against a spoofed UA string.
-		// Both sides confident or no fire.
+		// G23: JS engine detected from Error-stack format (V8 " at " frames,
+		// SpiderMonkey fileName/lineNumber, JSC otherwise) vs engine UA claims —
+		// second engine check, independent of CSS/capability probes
+		// engine_ua_mismatch uses, robust against spoofed UA string. Both sides
+		// confident or no fire.
 		id: "jsengine_ua_mismatch", label: "Feature-detected JS engine ≠ engine the User-Agent claims", tier: TierConsistency, subgroup: subgroupUA, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			want := jsEngineFromUA(clientUA(s))
@@ -625,13 +622,13 @@ var rules = []rule{
 		},
 	},
 	{
-		// G09: a PUBLIC WebRTC candidate IP that isn't the connection's egress IP —
-		// the classic VPN/proxy pierce: the browser leaks the real address over
-		// STUN while HTTP traffic egresses through the proxy. Private/link-local/
-		// loopback/ULA/CGNAT candidates are excluded (a host candidate ≠ egress is
-		// normal NAT, never a tell), and only same-family candidates are compared
-		// (dual-stack IPv6-vs-IPv4 would false-fire real browsers). An empty
-		// candidate list or an unknown egress means "not supplied" ⇒ no signal.
+		// G09: PUBLIC WebRTC candidate IP that isn't connection's egress IP —
+		// classic VPN/proxy pierce: browser leaks real address over STUN while
+		// HTTP traffic egresses through proxy. Private/link-local/loopback/
+		// ULA/CGNAT candidates excluded (host candidate ≠ egress is normal NAT,
+		// never a tell), only same-family candidates compared (dual-stack
+		// IPv6-vs-IPv4 would false-fire real browsers). Empty candidate list or
+		// unknown egress means "not supplied" ⇒ no signal.
 		id: "webrtc_ip_mismatch", label: "Public WebRTC candidate IP ≠ egress IP", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			egress, ok := publicIP(s.EgressIP)
@@ -641,7 +638,7 @@ var rules = []rule{
 			for _, cand := range s.WebRTCIPs {
 				ip, ok := publicIP(cand)
 				if !ok || ip.Is4() != egress.Is4() {
-					continue // private/loopback/etc., or a different address family
+					continue // private/loopback/etc., or different address family
 				}
 				if ip != egress {
 					return true, fmt.Sprintf("WebRTC candidate %s ≠ egress %s", ip, egress)
@@ -652,15 +649,14 @@ var rules = []rule{
 	},
 
 	{
-		// G41/G42: this exact stable fingerprint (UA, screen, GPU, timezone, …)
-		// was recorded from many distinct IPs in the rolling 30-day Mongo
-		// corpus — the scraping-farm tell (a farm locks one fingerprint and
-		// rotates its proxy pool; the incolumitas ScrapingBee catch).
-		// FingerprintIPs is 0 ("no corpus data") whenever Mongo is off or the
-		// count failed, which never fires; one person roaming networks reaches
-		// a couple of IPs honestly, hence the five-IP floor. Verified crawler
-		// fleets legitimately share one fingerprint across many IPs, so this
-		// deduction is suppressed for them (suppressedForGoodBot).
+		// G41/G42: exact stable fingerprint (UA, screen, GPU, timezone, …)
+		// recorded from many distinct IPs in rolling 30-day Mongo corpus —
+		// scraping-farm tell (farm locks one fingerprint, rotates proxy pool;
+		// incolumitas ScrapingBee catch). FingerprintIPs = 0 ("no corpus data")
+		// whenever Mongo off or count failed → never fires; one person roaming
+		// networks reaches couple IPs honestly, hence five-IP floor. Verified
+		// crawler fleets legitimately share one fingerprint across many IPs →
+		// deduction suppressed for them (suppressedForGoodBot).
 		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintIPs < fingerprintReuseMinIPs {
@@ -724,9 +720,9 @@ var rules = []rule{
 		},
 	},
 	{
-		// Real browsers send Sec-Fetch-* on every navigation and fetch; a scripted
-		// client wearing a browser User-Agent usually omits them. Soft, because a
-		// proxy could in theory strip them.
+		// Real browsers send Sec-Fetch-* on every navigation+fetch; scripted
+		// client wearing browser User-Agent usually omits them. Soft: proxy could
+		// in theory strip them.
 		id: "sec_fetch_missing", label: "Browser User-Agent but no Sec-Fetch-* headers", tier: TierSoft, weight: 8,
 		eval: func(s Signals) (bool, string) {
 			if s.SecFetchMode == "" && looksLikeBrowser(s.HTTPUserAgent) {
@@ -736,11 +732,11 @@ var rules = []rule{
 		},
 	},
 	{
-		// Real browsers send Accept-Encoding on every request (they all support at
-		// least gzip); a browser User-Agent without one is a scripted client that
-		// didn't bother. Soft, not consistency: a proxy (CF/nginx) on the path can
-		// strip or rewrite these headers — the exact caveat that made
-		// sec_fetch_missing soft.
+		// Real browsers send Accept-Encoding on every request (all support at
+		// least gzip); browser User-Agent without one = scripted client that
+		// didn't bother. Soft, not consistency: proxy (CF/nginx) on path can strip
+		// or rewrite these headers — exact caveat that made sec_fetch_missing
+		// soft.
 		id: "accept_encoding_missing", label: "Browser User-Agent but no Accept-Encoding header", tier: TierSoft, weight: 8,
 		eval: func(s Signals) (bool, string) {
 			if looksLikeBrowser(s.HTTPUserAgent) && s.HTTPAcceptEncoding == "" {
@@ -750,11 +746,10 @@ var rules = []rule{
 		},
 	},
 	{
-		// Same shape: every real browser sends Accept-Language. Complements the
+		// Same shape: every real browser sends Accept-Language. Complements
 		// lang_mismatch consistency rule, which needs BOTH sides (navigator.languages
-		// and the header) to compare values — this one catches the header's total
-		// absence. Soft for the same proxy-strips-headers caveat as
-		// sec_fetch_missing.
+		// + header) to compare values — this one catches header's total absence.
+		// Soft for same proxy-strips-headers caveat as sec_fetch_missing.
 		id: "accept_language_missing", label: "Browser User-Agent but no Accept-Language header", tier: TierSoft, weight: 8,
 		eval: func(s Signals) (bool, string) {
 			if looksLikeBrowser(s.HTTPUserAgent) && s.AcceptLanguage == "" {
@@ -764,15 +759,15 @@ var rules = []rule{
 		},
 	},
 	{
-		// A real browser's navigation/fetch Accept always includes text/html; a
-		// scripted client wearing a browser User-Agent sends */* (bare curl) or
-		// application/json. POST /check arrives from fetch() and the vendored
-		// collector explicitly sets "Accept: text/html", so the genuine browser
-		// flow never trips this — but JSON API consumers (Accept: application/json)
-		// do. That's acceptable precisely because the rule is soft: it only bites
-		// inside a >=3 soft cluster, and a proxy can rewrite the header anyway (the
-		// caveat that made sec_fetch_missing soft). An EMPTY Accept means "not
-		// supplied" and never fires.
+		// Real browser's navigation/fetch Accept always includes text/html;
+		// scripted client wearing browser User-Agent sends */* (bare curl) or
+		// application/json. POST /check arrives from fetch() and vendored
+		// collector explicitly sets "Accept: text/html" → genuine browser flow
+		// never trips this — but JSON API consumers (Accept: application/json)
+		// do. Acceptable precisely because rule is soft: only bites inside >=3
+		// soft cluster, proxy can rewrite header anyway (caveat that made
+		// sec_fetch_missing soft). EMPTY Accept means "not supplied", never
+		// fires.
 		id: "accept_nav_mismatch", label: "Browser User-Agent but Accept doesn't include text/html", tier: TierSoft, weight: 8,
 		eval: func(s Signals) (bool, string) {
 			if looksLikeBrowser(s.HTTPUserAgent) && s.HTTPAccept != "" &&
@@ -783,12 +778,12 @@ var rules = []rule{
 		},
 	},
 	{
-		// A canvas that renders nothing (all transparent) is blocked or headless.
+		// Canvas rendering nothing (all transparent) = blocked or headless.
 		id: "canvas_blank", label: "Canvas renders blank (blocked / headless)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CanvasSupported && s.CanvasBlank, "" },
 	},
 	{
-		// Stock desktop Chrome/Edge/Safari ship H.264 + AAC; a stripped/Chromium
+		// Stock desktop Chrome/Edge/Safari ship H.264+AAC; stripped/Chromium
 		// headless build often supports neither.
 		id: "missing_proprietary_codecs", label: "Browser lacks H.264 and AAC (stripped/headless build)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
@@ -796,23 +791,23 @@ var rules = []rule{
 		},
 	},
 	{
-		// No detectable fonts at all points to a neutralised font-enumeration
-		// surface or a font-less headless/VM environment.
+		// No detectable fonts at all → neutralised font-enumeration surface or
+		// font-less headless/VM environment.
 		id: "no_fonts", label: "No system fonts detectable", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.FontCount == 0, "" },
 	},
 	{
-		// G10: a 1×1 data-URI image that MUST load in any real browser reported
-		// naturalWidth == 0 or errored — images stripped/blocked, a headless tell.
-		// Soft: an image-blocking extension is a user choice, so it only bites in
-		// a cluster. true = bad keeps stale (pre-v3) payloads safe.
+		// G10: 1×1 data-URI image that MUST load in any real browser reported
+		// naturalWidth == 0 or errored — images stripped/blocked, headless tell.
+		// Soft: image-blocking extension is user choice → only bites in cluster.
+		// true = bad keeps stale (pre-v3) payloads safe.
 		id: "image_broken", label: "A guaranteed-loadable image failed (images stripped)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.ImageBroken, "" },
 	},
 	{
-		// A faked navigator.plugins array that forgot its paired mimeTypes: plugins
-		// present but zero mimeTypes. v3-gated: mimeTypes is damning when zero on
-		// a stale payload that never sent it.
+		// Faked navigator.plugins array that forgot paired mimeTypes: plugins
+		// present but zero mimeTypes. v3-gated: mimeTypes damning when zero on
+		// stale payload that never sent it.
 		id: "plugins_mimetypes_incoherent", label: "Plugins present but no mimeTypes (incoherent fake)", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV3 {
@@ -822,19 +817,19 @@ var rules = []rule{
 		},
 	},
 	{
-		// A zero window.outerHeight while innerHeight is positive — a headless
-		// window tell. The InnerH > 0 guard makes stale pre-v3 payloads (where
-		// both bind 0) skip instead of firing.
+		// Zero window.outerHeight while innerHeight positive — headless window
+		// tell. InnerH > 0 guard makes stale pre-v3 payloads (where both bind 0)
+		// skip instead of firing.
 		id: "zero_outer_height", label: "window.outerHeight is zero", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.OuterH == 0 && s.InnerH > 0, "" },
 	},
 	{
-		// G15: window.matchMedia is a function in every real browser, desktop and
-		// mobile, since the CSS2 era — a browser-claimed UA without it is a
-		// stripped JS environment (jsdom-style) wearing a browser UA. Soft, not
-		// hard: an exotic embedded webview could conceivably lack it. v4-gated:
-		// a stale collector never sent the env section, so a missing value would
-		// bind false and read as evidence on a pre-v4 payload.
+		// G15: window.matchMedia is a function in every real browser, desktop+
+		// mobile, since CSS2 era — browser-claimed UA without it = stripped JS
+		// environment (jsdom-style) wearing browser UA. Soft, not hard: exotic
+		// embedded webview could conceivably lack it. v4-gated: stale collector
+		// never sent env section → missing value would bind false and read as
+		// evidence on pre-v4 payload.
 		id: "matchmedia_missing", label: "Browser User-Agent but window.matchMedia is missing", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV4 {
@@ -844,18 +839,16 @@ var rules = []rule{
 		},
 	},
 	{
-		// G21: navigator.connection derives its effectiveType from the very
-		// rtt/downlink estimates it reports (the worst of the two, per the spec's
-		// threshold table), so the type can never be FASTER than its own numbers
-		// imply — a '4g' claim beside rtt 2000 is a spoofed override. The
-		// thresholds are graced by the API's own reporting rounding (see
-		// ectFromRTT) so a real browser's rounded values never contradict its
-		// claim, and only a strictly-faster claim fires: a slower claim is
-		// conceivable from a mid-update estimate and never counts. Silent when
-		// connection is absent (most Firefox/Safari) — that absence is normal,
-		// never a signal. Soft: network estimates update asynchronously, so a
-		// live change mid-read could briefly disagree — it only bites in a
-		// cluster.
+		// G21: navigator.connection derives effectiveType from the very
+		// rtt/downlink estimates it reports (worst of the two, per spec's
+		// threshold table) → type can never be FASTER than its own numbers imply —
+		// a '4g' claim beside rtt 2000 = spoofed override. Thresholds graced by
+		// API's own reporting rounding (see ectFromRTT) → real browser's rounded
+		// values never contradict its claim, only strictly-faster claim fires: a
+		// slower claim is conceivable from a mid-update estimate, never counts.
+		// Silent when connection absent (most Firefox/Safari) — that absence is
+		// normal, never a signal. Soft: network estimates update asynchronously →
+		// live change mid-read could briefly disagree — only bites in cluster.
 		id: "netinfo_incoherent", label: "navigator.connection effectiveType contradicts its own rtt/downlink", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.CollectorV < collectorVTamperV4 {
@@ -864,7 +857,7 @@ var rules = []rule{
 			c := s.Env.Connection
 			claimed := ectRank(c.EffectiveType)
 			if claimed == 0 {
-				return false, "" // API absent or a future/unknown type ⇒ can't compare
+				return false, "" // API absent or future/unknown type ⇒ can't compare
 			}
 			worst, seen := 4, false
 			if c.RTT > 0 {
@@ -874,23 +867,23 @@ var rules = []rule{
 				worst, seen = min(worst, ectFromDownlink(c.Downlink)), true
 			}
 			if !seen || claimed <= worst {
-				return false, "" // no metrics to check, or the claim isn't faster than implied
+				return false, "" // no metrics to check, or claim isn't faster than implied
 			}
 			return true, fmt.Sprintf("effectiveType %q but rtt %dms / downlink %.2fMbps imply at most %s",
 				c.EffectiveType, c.RTT, c.Downlink, ectName(worst))
 		},
 	},
 	{
-		// G43: this egress IP presented many DISTINCT fingerprints inside the
-		// rolling churn window — the fingerprint-rotation tell, the temporal
-		// inverse of fingerprint_reuse (reuse is one fingerprint from many IPs;
-		// churn is many fingerprints from one IP). FingerprintChurn is 0 ("no
-		// corpus data") whenever Mongo is off or the count failed, which never
-		// fires; a household's few devices or a person re-checking after browser
-		// tweaks stays under the floor. Soft, NOT consistency: a large corporate
-		// NAT can legitimately present many browsers from one address, so this
-		// only bites as part of a cluster and never docks a lone visitor. Backed
-		// by the same Mongo corpus as fingerprint_reuse (see corpus.go).
+		// G43: this egress IP presented many DISTINCT fingerprints inside rolling
+		// churn window — fingerprint-rotation tell, temporal inverse of
+		// fingerprint_reuse (reuse = one fingerprint from many IPs; churn = many
+		// fingerprints from one IP). FingerprintChurn = 0 ("no corpus data")
+		// whenever Mongo off or count failed → never fires; household's few
+		// devices or person re-checking after browser tweaks stays under floor.
+		// Soft, NOT consistency: large corporate NAT can legitimately present
+		// many browsers from one address → only bites as part of cluster, never
+		// docks lone visitor. Backed by same Mongo corpus as fingerprint_reuse
+		// (see corpus.go).
 		id: "ip_fingerprint_churn", label: "This IP presented many different fingerprints in a short window", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintChurn < fingerprintChurnMinHashes {
@@ -900,30 +893,30 @@ var rules = []rule{
 		},
 	},
 	{
-		// Downgraded from hard/weight-40 (2026-07-19): an audit tested this trap
-		// (an Error.stack getter read during a console.debug call — see
-		// cdpTrap() in shared/static/js/botcheck.js) against five genuinely
-		// CDP-driven sessions — Puppeteer (headless + headful), Playwright,
-		// Selenium/chromedriver, a hand-rolled CDP client with Runtime.enable
-		// active and no --enable-automation, and puppeteer-extra-stealth — and it
-		// fired zero times across all of them. The premise (a CDP client's
-		// object-preview generation invokes property getters) doesn't hold on
-		// current Chromium regardless of transport; it isn't one browser evading
-		// it. Left running (harmless when silent, and free in case a future
-		// Chromium regression or an older engine revives it) rather than deleted
-		// — see tools/botcheck/docs/testing/findings/2026-07-19-cdp-trap-family-confirmed-dead.md for the full writeup.
+		// Downgraded from hard/weight-40 (2026-07-19): audit tested this trap
+		// (Error.stack getter read during console.debug call — see cdpTrap() in
+		// shared/static/js/botcheck.js) against five genuinely CDP-driven
+		// sessions — Puppeteer (headless + headful), Playwright,
+		// Selenium/chromedriver, hand-rolled CDP client w/ Runtime.enable active
+		// + no --enable-automation, puppeteer-extra-stealth — fired zero times
+		// across all of them. Premise (CDP client's object-preview generation
+		// invokes property getters) doesn't hold on current Chromium regardless
+		// of transport; not one browser evading it. Left running (harmless when
+		// silent, free in case future Chromium regression or older engine
+		// revives it) rather than deleted — see
+		// tools/botcheck/docs/testing/findings/2026-07-19-cdp-trap-family-confirmed-dead.md for full writeup.
 		id: "cdp_both", label: "CDP automation detected in main thread and Worker", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && s.CDPWorker, "" },
 	},
 	{
-		// Same downgrade and same reasoning as cdp_both above.
+		// Same downgrade + reasoning as cdp_both above.
 		id: "cdp_main_only", label: "CDP automation detected in main thread only", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.CDPMainThread && !s.CDPWorker, "" },
 	},
 	{
-		// Same downgrade and same reasoning as cdp_both above. Still guarded
-		// against the main/worker flags so one observation never double-counts
-		// with cdp_both / cdp_main_only in the soft-signal cluster count.
+		// Same downgrade + reasoning as cdp_both above. Still guarded against
+		// main/worker flags so one observation never double-counts w/ cdp_both /
+		// cdp_main_only in the soft-signal cluster count.
 		id: "cdp_sw_only", label: "CDP automation detected in the Service Worker only", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.SWCDP && !s.CDPMainThread && !s.CDPWorker, "" },
 	},

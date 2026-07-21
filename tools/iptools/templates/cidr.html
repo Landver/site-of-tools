@@ -13,8 +13,8 @@
       A bare address is treated as a single host (/32 or /128).
     </p>
 
-    <!-- Plain GET form: a calculator is stateless input → output, so a full-page
-         render is enough (no htmx needed — see CLAUDE.md rule 4). -->
+    <!-- Plain GET form: calculator = stateless input → output → full-page
+         render enough, no htmx needed (CLAUDE.md rule 4). -->
     <form method="get" action="/cidr" class="mt-6 flex gap-2">
       <input name="cidr" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
              aria-label="Network in CIDR notation"
@@ -23,7 +23,7 @@
       <button type="submit" class="btn-primary">Calculate</button>
     </form>
 
-    <!-- Docs sit right under the form (mirrors the IP-lookup page), above the result. -->
+    <!-- Docs sit under form (mirrors IP-lookup page), above result. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">From the terminal</summary>
       <div class="mt-3 space-y-1 font-mono text-xs">

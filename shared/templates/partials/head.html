@@ -4,15 +4,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Title}}</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='%23b83266'/%3E%3C/svg%3E">
-  <!-- Set the theme before first paint (saved choice, else the OS preference) to
-       avoid a flash; also expose toggleTheme() for the header button. -->
+  <!-- Set theme before first paint (saved choice, else OS pref) → avoids flash.
+       Also exposes toggleTheme() for header button. -->
   <script>
     (function () {
       var el = document.documentElement;
       var saved = localStorage.getItem("theme");
-      // typeof-guard: a stripped/hardened JS environment without matchMedia (see
-      // botcheck's matchmedia_missing check) would otherwise throw here, before
-      // toggleTheme() below is even defined.
+      // typeof-guard: stripped/hardened JS env w/o matchMedia (see botcheck's
+      // matchmedia_missing check) → throws here otherwise, before toggleTheme()
+      // below even defined.
       var prefersDark = typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
       el.setAttribute("data-theme", saved || (prefersDark ? "dark" : "light"));
       window.toggleTheme = function () {

@@ -1,20 +1,17 @@
-{{/* Shared "your request" connection-inspector body: the eyebrow + the spec
-     list over a platform.ConnInfo (the dot). The six transport rows always
-     render; the ASN/proxy rows (G38/G44) appear only when a tool enriched the
-     ConnInfo via WithNetwork. Every tool's page renders it inside its own .card
-     wrapper, so page-specific spacing stays at the call site and the rows/labels
-     live in exactly one place. Guard with {{with .Conn}} at the call site so a
-     render without .Conn drops the card entirely. TLS and the visitor's HTTP
-     version terminate upstream so they're omitted; Cookie and Authorization are
-     never read. */}}
+{{/* Shared "your request" body: eyebrow + spec list over platform.ConnInfo
+     (the dot). Six transport rows always render; ASN/proxy rows (G38/G44)
+     appear only if tool enriched ConnInfo via WithNetwork. Each tool's page
+     renders it inside own .card wrapper → page-specific spacing stays at call
+     site, rows/labels live in exactly one place. Guard w/ {{with .Conn}} at
+     call site → render w/o .Conn drops card entirely. TLS + visitor's HTTP
+     version terminate upstream → omitted; Cookie + Authorization never read. */}}
 {{define "partials/conn"}}
 <div class="eyebrow">your request</div>
 <dl class="spec">
   <dt>Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
   {{/* G38/G44: optional network attribution (ASN/ISP, proxy kind + provider).
-       Each row renders only when its value is non-empty, so a tool that never
-       enriches the ConnInfo — or a lookup without proxy data — renders exactly
-       the rows it always did. */}}
+       Each row renders only if value non-empty → tool that never enriches
+       ConnInfo, or lookup w/o proxy data, renders exactly rows it always did. */}}
   {{if .ASN}}<dt>ASN</dt>         <dd>AS{{.ASN}}{{with .ASName}} ({{.}}){{end}}</dd>{{end}}
   {{if .ProxyKind}}<dt>Proxy</dt> <dd>{{.ProxyKind}}{{with .ProxyProvider}} — {{.}}{{end}}</dd>{{end}}
   <dt>Detected via</dt> <dd>{{.Via}}</dd>
