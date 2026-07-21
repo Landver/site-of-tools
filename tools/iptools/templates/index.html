@@ -50,7 +50,7 @@
       </div>
       <!-- Your IPv6: detected client-side (only browser can prove working IPv6) →
            detailed from our own lookup. Component below. -->
-      <div x-data="ipv6probe" class="card">
+      <div x-data="ipv6probe" class="card order-3">
         <div class="eyebrow">your ipv6</div>
         <p x-show="state === 'loading'" class="text-sm text-faint">Checking your connection…</p>
         <dl x-show="state === 'ok'" x-cloak class="spec">
@@ -67,7 +67,7 @@
            inspector body lives in partials/conn, wrapper stays here for spacing.
            Guarded → render w/o .Conn drops card. -->
       {{with .Conn}}
-      <div class="card">{{template "partials/conn" .}}</div>
+      <div class="card order-1">{{template "partials/conn" .}}</div>
       {{end}}
     </div>
   </main>

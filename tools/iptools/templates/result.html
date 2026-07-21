@@ -7,7 +7,7 @@
   {{/* Cards emit w/o wrapper: parent in ip/index = flex-wrap flow, #result =
        display:contents → cards become flow items directly. */}}
   {{with .Result}}
-  <div class="card">
+  <div class="card order-2">
     <div class="eyebrow">{{if $.Self}}your location{{else}}location{{end}}</div>
     <dl class="spec">
       <dt>Country</dt>   <dd>{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</dd>
@@ -20,7 +20,7 @@
     </dl>
   </div>
   {{with .Proxy}}
-  <div class="card">
+  <div class="card order-4">
     <div class="eyebrow">proxy / network</div>
     <dl class="spec">
       <dt>Proxy</dt>
