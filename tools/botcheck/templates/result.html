@@ -109,14 +109,14 @@
           </div>
           {{end}}
         </div>
+      </div>
+      <div class="grid gap-4">
         <div class="card">
           <div class="eyebrow">IP &amp; network cross-checks</div>
           <ul class="flex flex-col divide-y divide-line text-sm">
             {{range .Report.Subgroup "consistency" "network"}}{{template "botcheck/check" .}}{{end}}
           </ul>
         </div>
-      </div>
-      <div class="grid gap-4">
         <div class="card">
           <div class="eyebrow">User-Agent cross-checks</div>
           <ul class="flex flex-col divide-y divide-line text-sm">
