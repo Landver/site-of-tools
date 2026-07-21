@@ -124,6 +124,17 @@ func TestIndexBrowserGetsFullPage(t *testing.T) {
 	}
 }
 
+func TestIndexShowsIP2LocationCredit(t *testing.T) {
+	// IP2Location LITE's license requires its exact acknowledgment on any page
+	// that uses the data. botcheck's IP reputation checks do (via Looker), so the
+	// full page must carry it — see iptools' TestFullPageShowsIP2LocationCredit.
+	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	if !strings.Contains(body, "uses the IP2Location LITE database") || !strings.Contains(body, "lite.ip2location.com") {
+		t.Errorf("full botcheck page must carry the IP2Location LITE credit, got:\n%s", body)
+	}
+}
+
 func TestIndexSetsAcceptCH(t *testing.T) {
 	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
 	if ch := rec.Header().Get("Accept-CH"); !strings.Contains(ch, "Sec-CH-UA-Platform") {

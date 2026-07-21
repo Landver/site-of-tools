@@ -84,8 +84,10 @@ func (h *handler) index(c *echo.Context) error {
 	// already sends by default on secure origins; the explicit opt-in just makes the
 	// dependency clear. We request only what the scorer reads — nothing more.
 	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
+	// Attribution: IP2Location LITE's license requires the credit on any page that
+	// uses or mentions the data — botcheck's IP reputation checks do (see iptools.Looker).
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
-		"Title": "Bot check",
+		"Title": "Bot check", "Attribution": true,
 	})
 }
 
