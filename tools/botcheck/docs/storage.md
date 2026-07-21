@@ -83,7 +83,7 @@ alive against the TTL; an IP that drops off the feed stops being refreshed and
 ages out after the 60-day window. A non-200 download is an error that aborts the
 sync (retried next tick), so a GitHub outage can never parse as an empty feed.
 
-**Reading it — botcheck.** On `POST /check` the handler calls
+**Reading it — botcheck + the IP tool.** botcheck reads it on `POST /check`; the IP tool ([`iptools`](../../iptools/handler.go)) also reads it, keyed on the looked-up IP (any address, not just the egress), and renders it in the "proxy / blocklist / network" result card + the JSON `blocklist` field. botcheck: the handler calls
 `BlockList.Check(egressIP)` and fills three server-observed `Signals` fields
 (`IPBlocklistSources`, `IPBlocklistCount`, `IPBlocklistDeliberate`). Same
 nil-safety as the fingerprint corpus: disabled Mongo → nil `BlockList` → `Check`

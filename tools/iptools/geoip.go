@@ -26,6 +26,10 @@ type Result struct {
 	ASN         string  `json:"asn"`
 	ASName      string  `json:"as_name"`
 	Proxy       *Proxy  `json:"proxy,omitempty"`
+	// Blocklist: abuse/threat reputation from the shared ip_blocklist corpus
+	// (G37), handler-populated (NOT by Lookup — a separate repository). nil =
+	// not checked (corpus off); non-nil = checked, Listed() false when clean.
+	Blocklist *BlockLookup `json:"blocklist,omitempty"`
 }
 
 // Proxy: IP2Proxy view (VPN / proxy / threat). Populated only when PX12

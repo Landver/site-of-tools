@@ -19,10 +19,11 @@
       <dt>ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
     </dl>
   </div>
-  {{with .Proxy}}
+  {{if or .Proxy .Blocklist}}
   <div class="card order-4">
-    <div class="eyebrow">proxy / network</div>
+    <div class="eyebrow">proxy / blocklist / network</div>
     <dl class="spec">
+      {{with .Proxy}}
       <dt>Proxy</dt>
       <dd>{{if .IsProxy}}<span class="text-danger">Yes</span>{{if .ProxyType}} · {{.ProxyType}}{{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not in any known proxy or VPN list</span>{{end}}</dd>
       {{if .UsageType}}<dt>Usage</dt>     <dd>{{.UsageType}}</dd>{{end}}
@@ -32,6 +33,11 @@
       {{if .Threat}}<dt>Threat</dt>    <dd class="text-danger">{{.Threat}}</dd>{{end}}
       {{if .FraudScore}}<dt>Fraud</dt>     <dd>{{.FraudScore}}/99</dd>{{end}}
       {{if .LastSeen}}<dt>Last seen</dt> <dd>{{.LastSeen}} days ago</dd>{{end}}
+      {{end}}
+      {{with .Blocklist}}
+      <dt>Blocklist</dt>
+      <dd>{{if .Listed}}<span class="text-danger">Yes</span>{{with .SourcesLabel}} — {{.}}{{end}}{{if gt .MaxCount 0}} ({{.MaxCount}} lists){{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not on any threat / abuse blocklist</span>{{end}}</dd>
+      {{end}}
     </dl>
   </div>
   {{end}}

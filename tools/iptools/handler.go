@@ -21,7 +21,8 @@ type Looker interface {
 // handler: transport-layer deps for the ip.corpberry.com routes.
 type handler struct {
 	svc  Looker
-	hist *History // nil when Mongo disabled — Record/Recent are nil-safe
+	hist *History   // nil when Mongo disabled — Record/Recent are nil-safe
+	bl   *BlockList // nil when Mongo disabled — Check is nil-safe (G37)
 }
 
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
@@ -31,8 +32,8 @@ type handler struct {
 //	GET /         an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
 //	GET /history  the most recent user-initiated lookups
-func Register(e *echo.Echo, svc Looker, hist *History) {
-	h := &handler{svc: svc, hist: hist}
+func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList) {
+	h := &handler{svc: svc, hist: hist, bl: bl}
 	e.GET("/", h.index)
 	e.GET("/cidr", h.cidr)
 	e.GET("/history", h.history)
@@ -135,6 +136,17 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// when Mongo off.
 	if err == nil && !self && !wantsJSON {
 		h.hist.Record(res)
+	}
+
+	// Enrich w/ abuse/threat reputation from the shared blocklist corpus (G37)
+	// when configured — same corpus botcheck reads, here keyed on the LOOKED-UP
+	// ip so any address can be inspected. Best-effort: a Mongo error leaves
+	// Blocklist nil (row omitted). nil bl (Mongo off) → skip, so the card never
+	// implies "clean" when we couldn't actually check.
+	if err == nil && h.bl != nil {
+		if lk, e := h.bl.Check(c.Request().Context(), ip); e == nil {
+			res.Blocklist = &lk
+		}
 	}
 
 	// API / CLI: raw JSON — geolocation result, or error.

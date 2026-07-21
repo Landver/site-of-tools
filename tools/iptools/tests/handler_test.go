@@ -33,7 +33,7 @@ func newTestApp(svc iptools.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc, nil) // nil History: persistence off in handler tests
+	iptools.Register(e, svc, nil, nil) // nil History + nil BlockList: persistence off in handler tests
 	return e
 }
 
@@ -267,7 +267,7 @@ func TestHandlerShowsProxySection(t *testing.T) {
 	// HTML renders proxy section.
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=1.2.3.4", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
-	if !strings.Contains(body, "proxy / network") || !strings.Contains(body, "VPN") {
+	if !strings.Contains(body, "proxy / blocklist / network") || !strings.Contains(body, "VPN") {
 		t.Errorf("expected a proxy section with VPN, got:\n%s", body)
 	}
 	// JSON includes nested proxy object.

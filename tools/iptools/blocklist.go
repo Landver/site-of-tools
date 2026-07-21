@@ -3,6 +3,7 @@ package iptools
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -15,7 +16,8 @@ import (
 // blocklistCollection: shared IP blocklist in site-of-tools db. Name NOT
 // tool-scoped on purpose — common corpus any service/script/workflow (n8n,
 // rate limiter, manual ban list, ipsum sync below) writes flagged IPs into,
-// any consumer reads. botcheck = first reader (ip_blocklisted, G37), not owner.
+// any consumer reads. botcheck (ip_blocklisted rule) + the IP tool
+// (proxy/blocklist/network card) read it, G37; neither owns it.
 const blocklistCollection = "ip_blocklist"
 
 // blocklistTTL: entry not refreshed within window self-prunes (TTL index on
@@ -51,12 +53,15 @@ type BlockEntry struct {
 // BlockLookup: reader's view of all records for one IP, folded to the two facts
 // a consumer scores on — which sources flagged it, highest count any carried.
 type BlockLookup struct {
-	Sources  []string // distinct sources with this IP listed
-	MaxCount int      // highest Count across those records (0 if none carry one)
+	Sources  []string `json:"sources,omitempty"`   // distinct sources with this IP listed
+	MaxCount int      `json:"max_count,omitempty"` // highest Count across those records (0 if none carry one)
 }
 
 // Listed: IP in the corpus at all?
 func (l BlockLookup) Listed() bool { return len(l.Sources) > 0 }
+
+// SourcesLabel joins the sources for display ("ipsum, rate-limiter").
+func (l BlockLookup) SourcesLabel() string { return strings.Join(l.Sources, ", ") }
 
 // BlockList: repository for the shared IP blocklist corpus — persistence below
 // domain (CLAUDE.md rule #5), same nil-safe shape as iptools.History /

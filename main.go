@@ -99,7 +99,7 @@ func main() {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	iptools.Register(ipApp, geo, lookupHistory)
+	iptools.Register(ipApp, geo, lookupHistory, blocklist)
 
 	// botcheck.corpberry.com — reuses same IP service for server-side
 	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo

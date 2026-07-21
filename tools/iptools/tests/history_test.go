@@ -164,7 +164,7 @@ func TestHistoryLiveViaHandler(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: "198.51.100.23", Country: "United States", ASN: "64500"}}, hist)
+	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: "198.51.100.23", Country: "United States", ASN: "64500"}}, hist, nil)
 
 	do(e, "/?ip=198.51.100.23", map[string]string{"Accept": "text/html"})  // recorded
 	do(e, "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"}) // NOT recorded (JSON)

@@ -193,3 +193,14 @@ license/maintenance verification — see [ip-reputation.md](ip-reputation.md) (G
 [storage.md](../storage.md). Spamhaus DROP/EDROP is the intended second writer
 (pending a ToU §3.1 confirmation the owner emailed about); CINS Army a later
 maybe (pending written bundling permission).
+
+**IP tool surfaces the blocklist too (2026-07-21, follow-up to G37).** The
+`iptools` IP-lookup tool now reads the same `ip_blocklist` corpus and renders it
+in a renamed "proxy / blocklist / network" result card (+ a JSON `blocklist`
+field), keyed on the LOOKED-UP IP so any address can be inspected (botcheck only
+checks the visitor's own egress). DRY: one handler-enriched `Result` feeds both
+HTML and JSON, reusing `BlockList.Check`; a nil `Blocklist` means "not checked"
+(corpus off → row omitted), a non-nil empty one means "checked, clean". The three
+existing type-classification checks (`iptools` proxy section, botcheck
+`datacenter_ip`/`proxy_ip`) are unchanged — still IP2Proxy-only; the blocklist is
+an additive reputation axis, not a merge.
