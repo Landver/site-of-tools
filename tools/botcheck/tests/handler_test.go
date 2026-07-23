@@ -135,6 +135,17 @@ func TestIndexShowsIP2LocationCredit(t *testing.T) {
 	}
 }
 
+func TestIndexShowsSpamhausCredit(t *testing.T) {
+	// Same Attribution-gated footer as IP2Location: ip_blocklisted (G37) can
+	// surface Spamhaus DROP data, so the same page must credit them — see
+	// iptools' TestFullPageShowsSpamhausCredit.
+	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	if !strings.Contains(body, "The Spamhaus Project") || !strings.Contains(body, "spamhaus.org/blocklists/do-not-route-or-peer") {
+		t.Errorf("full botcheck page must carry the Spamhaus DROP credit, got:\n%s", body)
+	}
+}
+
 func TestIndexSetsAcceptCH(t *testing.T) {
 	rec := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"})
 	if ch := rec.Header().Get("Accept-CH"); !strings.Contains(ch, "Sec-CH-UA-Platform") {

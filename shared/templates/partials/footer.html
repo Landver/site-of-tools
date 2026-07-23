@@ -2,14 +2,22 @@
 <footer class="border-t border-line mt-auto">
   <div class="w-full px-6 py-6 text-xs text-faint flex flex-col gap-1">
     <span>© 2026 corpberry.com</span>
-    {{/* IP2Location LITE license requires this exact acknowledgment on any page
-         using/mentioning the data. Scoped via VM's .Attribution flag → shows only
-         on IP tool (uses the DBs), never apex. */}}
+    {{/* IP2Location LITE license requires this exact acknowledgment; Spamhaus
+         asked only for credit + keeping their © notice with the data (which the
+         ip_blocklist corpus itself does, per record — see iptools/spamhaus.go).
+         Both scoped via VM's .Attribution flag → show only on IP tool + botcheck
+         (the pages using this data), never apex. */}}
     {{if .Attribution}}
     <span>
       corpberry.com uses the IP2Location LITE database for
       <a href="https://lite.ip2location.com" target="_blank" rel="noopener"
          class="underline hover:text-muted">IP geolocation</a>.
+    </span>
+    <span>
+      corpberry.com uses © The Spamhaus Project's
+      <a href="https://www.spamhaus.org/blocklists/do-not-route-or-peer/" target="_blank" rel="noopener"
+         class="underline hover:text-muted">DROP list</a>
+      for network abuse detection.
     </span>
     {{end}}
   </div>

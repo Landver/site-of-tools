@@ -217,3 +217,90 @@ func TestSyncIPsumSkipsWhenFresh(t *testing.T) {
 		t.Errorf("SyncIPsum on a fresh corpus = %+v, want Skipped with no download", res)
 	}
 }
+
+// TestBlockListLiveRangeContainment: a Spamhaus-DROP-style netblock entry
+// (RangeStart/RangeEnd, IP field holding the CIDR string) is found by Check
+// for any address inside it, and correctly absent for one just outside — the
+// containment branch Check's Mongo query added alongside its original
+// exact-match one.
+func TestBlockListLiveRangeContainment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	bl, _ := liveBlockListDB(t, ctx)
+
+	// 203.0.113.0/24: a fixed fixture, so its bounds are just literal test data
+	// (203.0.113.0 = 0xCB007100, 203.0.113.255 = 0xCB0071FF) — no need to
+	// import production's CIDR math (now unexported, see cidr_internal_test.go)
+	// just to recompute a constant.
+	const (
+		cidr                        = "203.0.113.0/24" // 203.0.113.0 .. 203.0.113.255
+		rangeStart, rangeEnd uint32 = 0xCB007100, 0xCB0071FF
+	)
+	entry := iptools.BlockEntry{
+		IP: cidr, Source: iptools.BlocklistSourceSpamhausDROP,
+		RangeStart: rangeStart, RangeEnd: rangeEnd, Reason: "test netblock",
+	}
+	if err := bl.Upsert(ctx, entry); err != nil {
+		t.Fatalf("seed range entry: %v", err)
+	}
+
+	// Inside the block, including both edges.
+	for _, ip := range []string{"203.0.113.1", "203.0.113.0", "203.0.113.255", "203.0.113.200"} {
+		if lk, err := bl.Check(ctx, ip); err != nil || !lk.Listed() || lk.Sources[0] != iptools.BlocklistSourceSpamhausDROP {
+			t.Errorf("Check(%s) = %+v, err=%v — want listed by spamhaus-drop", ip, lk, err)
+		}
+	}
+	// Just outside the block on both sides.
+	for _, ip := range []string{"203.0.112.255", "203.0.114.0"} {
+		if lk, err := bl.Check(ctx, ip); err != nil || lk.Listed() {
+			t.Errorf("Check(%s) = %+v, err=%v — want NOT listed (outside the range)", ip, lk, err)
+		}
+	}
+
+	// A single-IP entry from a different source and a range entry coexist for
+	// an address that happens to fall in both — both surface as distinct
+	// sources, exactly like two single-IP sources already do.
+	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: "203.0.113.50", Source: iptools.BlocklistSourceIPsum, Count: 5}); err != nil {
+		t.Fatalf("seed single-ip entry: %v", err)
+	}
+	lk, err := bl.Check(ctx, "203.0.113.50")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if diff := cmp.Diff([]string{iptools.BlocklistSourceIPsum, iptools.BlocklistSourceSpamhausDROP}, lk.Sources); diff != "" {
+		t.Errorf("Sources for an IP matched by both a single-IP entry and a containing range (-want +got):\n%s", diff)
+	}
+}
+
+// TestSyncSpamhausDROPNilRepo: nil repo (Mongo off) → zero result, no error,
+// no download attempted. Offline, needs no DB.
+func TestSyncSpamhausDROPNilRepo(t *testing.T) {
+	res, err := iptools.SyncSpamhausDROP(context.Background(), nil)
+	if err != nil {
+		t.Errorf("SyncSpamhausDROP(nil) err = %v, want nil", err)
+	}
+	if res.Parsed != 0 || res.Written != 0 || res.Skipped || !res.LastSync.IsZero() {
+		t.Errorf("SyncSpamhausDROP(nil) = %+v, want zero result", res)
+	}
+}
+
+// TestSyncSpamhausDROPSkipsWhenFresh: mirrors TestSyncIPsumSkipsWhenFresh —
+// a fresh spamhaus-drop record makes the shared ShouldSync guard return
+// BEFORE any network fetch. Gated on MONGODB_TEST_URI.
+func TestSyncSpamhausDROPSkipsWhenFresh(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	bl, _ := liveBlockListDB(t, ctx)
+	if err := bl.Upsert(ctx, iptools.BlockEntry{
+		IP: "198.51.100.0/24", Source: iptools.BlocklistSourceSpamhausDROP, RangeStart: 1, RangeEnd: 2,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res, err := iptools.SyncSpamhausDROP(ctx, bl)
+	if err != nil {
+		t.Fatalf("SyncSpamhausDROP: %v", err)
+	}
+	if !res.Skipped || res.Written != 0 || res.Parsed != 0 {
+		t.Errorf("SyncSpamhausDROP on a fresh corpus = %+v, want Skipped with no download", res)
+	}
+}

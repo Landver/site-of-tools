@@ -201,6 +201,17 @@ func TestFullPageShowsIP2LocationCredit(t *testing.T) {
 	}
 }
 
+func TestFullPageShowsSpamhausCredit(t *testing.T) {
+	// Spamhaus's permission to use DROP came with one condition: credit them
+	// on any page using the data (they specifically asked for the © mark).
+	// Same Attribution-gated footer as IP2Location → carried on the same pages.
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
+	body := rec.Body.String()
+	if !strings.Contains(body, "© The Spamhaus Project") || !strings.Contains(body, "spamhaus.org/blocklists/do-not-route-or-peer") {
+		t.Errorf("full IP-tool page must carry the © Spamhaus DROP credit, got:\n%s", body)
+	}
+}
+
 func TestConnectionInspectorCard(t *testing.T) {
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
 	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)

@@ -204,3 +204,57 @@ HTML and JSON, reusing `BlockList.Check`; a nil `Blocklist` means "not checked"
 existing type-classification checks (`iptools` proxy section, botcheck
 `datacenter_ip`/`proxy_ip`) are unchanged — still IP2Proxy-only; the blocklist is
 an additive reputation axis, not a merge.
+
+**Spamhaus DROP added as a second blocklist feed (2026-07-22, extends G37).**
+Spamhaus gave written permission to use their DROP list, on condition of
+crediting them and keeping their copyright notice + date "with the file and
+data." Added [`iptools/spamhaus.go`](../../../iptools/spamhaus.go)
+(`SyncSpamhausDROP`/`RunSpamhausDROPSync`, wired in `main.go` alongside
+`RunIPsumSync`), downloading `drop_v4.json` daily under a shared staleness
+guard (`BlockList.ShouldSync`, factored out of the ipsum sync's old inline
+guard — DRY, since both feeds want the identical 24h-minus-slack cadence).
+DROP is CIDR **netblocks**, not individual IPs — its ~1,669 human-curated,
+high-confidence blocks cover ~15 million addresses, ruling out one document
+per address. `ip_blocklist` gained `RangeStart`/`RangeEnd` fields (a new
+sparse compound index) computed via a new package-internal `ipv4RangeBounds` helper in
+[`cidr.go`](../../../iptools/cidr.go) (reuses `ParseSubnet`'s existing network/broadcast math); `Check`'s
+Mongo query now does exact-IP-match OR range-containment via one `$or`, so
+every existing caller (botcheck, the IP tool) gets DROP coverage for free with
+zero call-site changes. Spamhaus's condition is met two ways: every ingested
+record's `meta` carries their copyright notice + timestamp + terms URL +
+its own `sblid`/`rir` (the data literally keeps "the date and copy text"
+attached), and the site footer now credits "© The Spamhaus Project" with a
+link, gated on the same `.Attribution` flag as the existing IP2Location
+credit. IPv6 (`drop_v6.json`) is a deliberate non-goal — a 128-bit range
+representation isn't worth the complexity right now. Tests: offline parse
+(`spamhaus_internal_test.go`), offline range-math (`TestIPv4RangeBounds`),
+live nil/skip/containment round-trips (`blocklist_test.go`), and footer-credit
+assertions on both the IP tool and botcheck pages. Full detail:
+[checks/ip_blocklisted.md](../testing/checks/ip_blocklisted.md),
+[storage.md](../storage.md), [ip-reputation.md](ip-reputation.md) (G37).
+
+**DRY/KISS/YAGNI/no-paranoia pass over the G37 blocklist code (2026-07-22).**
+A 4-lens review swarm (one agent per lens, every finding adversarially
+verified — 14 raised, 0 refuted) found real duplication between the ipsum and
+Spamhaus DROP syncs that had grown once a second feed existed. Fixed:
+`ipsum.go`'s and `spamhaus.go`'s near-identical sync/fetch scaffolding
+(`IPsumSyncResult`/`DROPSyncResult`, the skip/fetch/parse/chunked-upsert body,
+the ticker/timeout/log runner, the GET-with-status-check fetch) consolidated
+into shared `BlockSyncResult`/`syncFeed`/`fetchFeed`/`runDailySync` in
+`blocklist.go`; `SyncIPsum`/`SyncSpamhausDROP`/`RunIPsumSync`/
+`RunSpamhausDROPSync` are now thin wrappers. `parseDROP` decoded every line
+twice (a classifier probe, then a second parse); collapsed to one unified
+`dropRecord` struct, one decode per line. Dropped `dropMeta.Records` — parsed
+off the feed's metadata line but never read by anything. Unexported
+`IPv4RangeBounds` → `ipv4RangeBounds` (no caller outside package iptools;
+its test moved to a new white-box `cidr_internal_test.go`, trimming one
+redundant assertion in the same move). Reviewed and explicitly kept as-is:
+`Upsert` as a real public entry point for external writers, `Meta` as
+`map[string]any` (ipsum and DROP already need different key sets),
+`BlockLookup.SourcesLabel()` (used by the result template), and the explicit
+`h.bl != nil` check in the IP-tool handler (load-bearing, not redundant with
+`Check`'s own nil-safety). Deliberately NOT done: unifying the `liveXDB` test
+helper across `iptools/tests`, `botcheck/tests` — real duplication, but
+touches stable pre-existing test infra from before this feature for a
+test-only, zero-production-risk win; left as a known, documented deferral
+rather than churn for its own sake.

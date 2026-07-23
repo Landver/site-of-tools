@@ -48,11 +48,14 @@ func TestHomeHTML(t *testing.T) {
 }
 
 func TestHomeOmitsIP2LocationCredit(t *testing.T) {
-	// Apex uses no IP2Location data → credit mustn't appear here; scoped to
-	// IP tool via .Attribution flag.
+	// Apex uses no IP2Location or blocklist data → neither credit must appear
+	// here; both scoped to IP tool + botcheck via .Attribution flag.
 	body := get(newTestApp(), "text/html").Body.String()
 	if strings.Contains(body, "lite.ip2location.com") || strings.Contains(body, "IP2Location LITE database") {
 		t.Errorf("apex must not show the IP2Location credit (it uses no such data), got:\n%s", body)
+	}
+	if strings.Contains(body, "Spamhaus") {
+		t.Errorf("apex must not show the Spamhaus credit (it uses no such data), got:\n%s", body)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -18,25 +17,14 @@ import (
 // `IP<TAB>count` file (count = how many lists flag the IP), Unlicense (public
 // domain). Download once a day, upsert every listed IP as source "ipsum". One
 // writer among many into ip_blocklist — not privileged over a manual/service
-// ban.
+// ban. Shared sync/fetch scaffolding (BlockSyncResult, syncFeed, fetchFeed,
+// runDailySync) lives in blocklist.go, reused by spamhaus.go's identical shape.
 
 const (
 	// ipsumURL: raw aggregate feed. count column = ipsum's finest published
 	// granularity (no per-feed attribution) → count is the most we preserve
 	// per IP.
 	ipsumURL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
-
-	// ipsumRefreshInterval: feed regenerates daily. Enforced in SyncIPsum (via
-	// LastSync), not just the ticker → a restart within the window doesn't
-	// re-download.
-	ipsumRefreshInterval = 24 * time.Hour
-
-	// ipsumRefreshSlack: guard skips re-download only if the last sync was <
-	// (interval - slack) ago. Slack must exceed a sync's own duration so an
-	// on-schedule 24h tick — whose completion write lands seconds AFTER the
-	// tick — still clears the guard; guarding on the bare interval skips every
-	// other tick (→ ~48h cadence). Ample vs a seconds-scale sync.
-	ipsumRefreshSlack = 1 * time.Hour
 
 	// ipsumHTTPTimeout bounds the download; feed ~1.8 MB.
 	ipsumHTTPTimeout = 60 * time.Second
@@ -50,116 +38,27 @@ const (
 // not mutable by other code sharing the default.
 var ipsumHTTPClient = &http.Client{Timeout: ipsumHTTPTimeout}
 
-// IPsumSyncResult reports one sync's outcome for logging/tests.
-type IPsumSyncResult struct {
-	Parsed   int       // valid IP lines parsed
-	Written  int       // docs inserted or modified
-	Skipped  bool      // corpus fresh (< ipsumRefreshInterval) → no download
-	LastSync time.Time // when the corpus was last refreshed (set when Skipped)
-}
-
 // SyncIPsum downloads the ipsum feed + upserts every listed IP under source
-// "ipsum". Nil-safe (nil bl → zero result, no download). Skips the download
-// when the corpus was refreshed within ipsumRefreshInterval → "once a day"
-// holds across restarts. Each refresh advances updated_at, keeping still-listed
-// IPs alive vs the TTL; an IP that falls off the feed stops being refreshed →
-// ages out after blocklistTTL.
-func SyncIPsum(ctx context.Context, bl *BlockList) (IPsumSyncResult, error) {
-	if bl == nil {
-		return IPsumSyncResult{}, nil
-	}
-
-	// Staleness guard: skip re-download only if the last sync was recent —
-	// threshold is interval MINUS slack, not the bare interval (see
-	// ipsumRefreshSlack: guarding on the bare interval skips every other tick).
-	// Reads LastSync = newest updated_at, so a PARTIAL prior write (some chunks
-	// succeeded, then an error) can read as complete here → a restart inside the
-	// window then skips, leaving un-written IPs absent till the next proceeding
-	// tick. Accepted: needs a rare mid-batch Mongo failure AND an in-window
-	// restart, self-heals next tick, and the 60-day TTL means nothing expires
-	// meanwhile — not worth a persisted completion marker.
-	if last, err := bl.LastSync(ctx, BlocklistSourceIPsum); err == nil &&
-		!last.IsZero() && time.Since(last) < ipsumRefreshInterval-ipsumRefreshSlack {
-		return IPsumSyncResult{Skipped: true, LastSync: last}, nil
-	}
-
-	body, err := fetchIPsum(ctx)
-	if err != nil {
-		return IPsumSyncResult{}, err
-	}
-	defer body.Close()
-
-	entries, _, err := parseIPsum(body)
-	if err != nil {
-		return IPsumSyncResult{}, err
-	}
-
-	res := IPsumSyncResult{Parsed: len(entries)}
-	for start := 0; start < len(entries); start += ipsumUpsertChunk {
-		end := min(start+ipsumUpsertChunk, len(entries))
-		n, err := bl.UpsertMany(ctx, entries[start:end])
-		res.Written += n
-		if err != nil {
-			return res, err
-		}
-	}
-	return res, nil
+// "ipsum" — a thin wrapper supplying ipsum's fetch/parse to BlockList.syncFeed
+// (blocklist.go), which owns the shared skip/nil/chunking/partial-write
+// behavior every feed sync shares.
+func SyncIPsum(ctx context.Context, bl *BlockList) (BlockSyncResult, error) {
+	return bl.syncFeed(ctx, BlocklistSourceIPsum, ipsumUpsertChunk,
+		func(ctx context.Context) (io.ReadCloser, error) {
+			return fetchFeed(ctx, ipsumHTTPClient, ipsumURL, "ipsum feed")
+		},
+		func(r io.Reader) ([]BlockEntry, error) {
+			entries, _, err := parseIPsum(r) // feed timestamp already folded into each entry's Meta
+			return entries, err
+		},
+	)
 }
 
 // RunIPsumSync runs SyncIPsum once now (self-skips if fresh), then on a daily
-// ticker till ctx is cancelled. Launch as a background goroutine from main. Nil
-// bl (Mongo off) → returns at once, nothing spins, feed never fetched.
-// Best-effort: a failed fetch/write logs + retries next tick.
+// ticker until ctx is cancelled — a thin wrapper over the shared runDailySync
+// (blocklist.go). Launch as a background goroutine from main.
 func RunIPsumSync(ctx context.Context, bl *BlockList) {
-	if bl == nil {
-		log.Printf("ipsum blocklist: disabled (no Mongo); skipping periodic sync")
-		return
-	}
-
-	syncOnce := func() {
-		c, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
-		switch res, err := SyncIPsum(c, bl); {
-		case err != nil:
-			log.Printf("ipsum blocklist: sync failed: %v", err)
-		case res.Skipped:
-			log.Printf("ipsum blocklist: corpus fresh (last synced %s), skipped download", res.LastSync.Format(time.RFC3339))
-		default:
-			log.Printf("ipsum blocklist: synced %d IPs (%d written)", res.Parsed, res.Written)
-		}
-	}
-
-	syncOnce()
-	ticker := time.NewTicker(ipsumRefreshInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			syncOnce()
-		}
-	}
-}
-
-// fetchIPsum GETs the feed body. Caller closes it. Non-200 = error (body
-// drained + closed) → a GitHub outage/redirect never parses as an empty feed +
-// wipes nothing; SyncIPsum retries next tick.
-func fetchIPsum(ctx context.Context) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ipsumURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := ipsumHTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("fetch ipsum feed: unexpected status %s", resp.Status)
-	}
-	return resp.Body, nil
+	runDailySync(ctx, bl, "ipsum", "IPs", SyncIPsum)
 }
 
 // parseIPsum turns the feed body into entries. Pure (no Mongo, no network) →

@@ -197,8 +197,12 @@ func statusFor(err error) int {
 // mapping, shared by iptools' own handler + botcheck's (whose conn card
 // enriches from same lookup) → two tools can't drift apart.
 // Lookup already blanks databases' "-" placeholders via clean(); runs again
-// here so a hand-built Result (tests, fakes) maps same way. nil Result →
-// zero value — no enrichment, card renders plain transport rows.
+// here so a hand-built Result (tests, fakes) maps same way. Exported method on
+// an exported type, so nil-safe on principle even though neither current
+// caller (this file, botcheck's handler) ever passes nil: nil Result → zero
+// value, no enrichment, card renders plain transport rows — not a live path
+// today, just the same public-API nil-safety this package's other exported
+// methods keep.
 func (r *Result) ConnNetwork() platform.ConnNetwork {
 	if r == nil {
 		return platform.ConnNetwork{}

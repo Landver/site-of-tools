@@ -111,3 +111,26 @@ func v4Masks(bits int) (netmask, wildcard string) {
 	binary.BigEndian.PutUint32(wc[:], host)
 	return netip.AddrFrom4(nm).String(), netip.AddrFrom4(wc).String()
 }
+
+// ipv4RangeBounds parses cidr → inclusive [start, end] IPv4 address bounds as
+// uint32, reusing the same network/lastAddr math ParseSubnet does. ok=false for
+// unparseable input or an IPv6 prefix. Feeds BlockEntry.RangeStart/RangeEnd
+// (blocklist.go) — a whole flagged netblock (e.g. a Spamhaus DROP entry) stored
+// as one range instead of one document per address. Unexported: only
+// spamhaus.go (same package) needs it today — no external caller, so it stays
+// off the package's public surface until one actually shows up.
+func ipv4RangeBounds(cidr string) (start, end uint32, ok bool) {
+	pfx, err := netip.ParsePrefix(strings.TrimSpace(cidr))
+	if err != nil || !pfx.Addr().Is4() {
+		return 0, 0, false
+	}
+	pfx = pfx.Masked()
+	return ipv4Uint32(pfx.Addr()), ipv4Uint32(lastAddr(pfx)), true
+}
+
+// ipv4Uint32 converts an IPv4 netip.Addr to its big-endian uint32 form —
+// comparable, sortable, indexable, unlike the address string.
+func ipv4Uint32(a netip.Addr) uint32 {
+	v := a.As4()
+	return binary.BigEndian.Uint32(v[:])
+}
