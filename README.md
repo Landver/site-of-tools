@@ -1,11 +1,40 @@
 # corpberry.com — site-of-tools
 
-Personal playground: portfolio landing page + growing collection small tools
-and experiments. One Go server powers apex site + every simple tool; each tool
-grown big enough gets own subdomain.
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 
-- **corpberry.com** — portfolio + tool index
-- **ip.corpberry.com** — IP tools: geolocation/ASN/proxy lookups, connection inspector, subnet/CIDR calculator
+My personal site plus a growing collection of small, self-built tools, all
+served by **one Go binary** that routes by subdomain: server-rendered HTML with
+htmx and Alpine, zero Node, and every endpoint is also a JSON API. All open
+source.
+
+**Live now:**
+
+- 🤖 **[Bot check](https://botcheck.corpberry.com)** — a live, transparent score of how human vs. automated your browser looks: a client-side fingerprint fused with server headers + IP reputation, cross-checked, with all 68 signals shown. *(the flagship)*
+- 🌍 **[IP tools](https://ip.corpberry.com)** — IP geolocation / ASN / proxy-VPN lookup, a "your connection" inspector, and a subnet/CIDR calculator.
+- 🏠 **[corpberry.com](https://corpberry.com)** — portfolio + tool index.
+
+<p align="center">
+  <img src="docs/assets/botcheck-demo.gif" alt="Bot check scoring a browser in real time, with a per-signal breakdown" width="820">
+</p>
+
+## Bot check — the flagship
+
+A free, open-source bot-detection **self-test** (not a WAF: it blocks nothing).
+Open the page and it scores your browser 0–100 on how human vs. automated it
+looks, with a verdict (human / suspicious / bot, or *good-bot* for a verified
+crawler) and a transparent, per-signal breakdown. The idea: any browser can
+*claim* to be Chrome on Windows, so it cross-checks that claim against the HTTP
+headers and IP reputation (datacenter / VPN / proxy / Tor) the server actually
+sees, and shows where they disagree. Tested against real Puppeteer, Playwright,
+and puppeteer-extra-stealth.
+
+```bash
+curl https://botcheck.corpberry.com -H "Accept: application/json"
+```
+
+More detail and my firsthand research on 12 commercial detectors live in
+[tools/botcheck/docs/](tools/botcheck/docs/README.md).
 
 ## Stack
 
