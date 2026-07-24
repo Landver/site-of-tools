@@ -81,7 +81,7 @@ func TestHandlerEnrichesBlocklistLive(t *testing.T) {
 	e.Renderer = r
 	// fakeLooker returns a bare Result for ip; the handler enriches Blocklist
 	// from the live corpus, keyed on that same ip.
-	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: ip}}, nil, bl)
+	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: ip}}, nil, bl, nil)
 
 	rec := do(e, "/?ip="+ip, map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusOK {

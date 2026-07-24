@@ -30,6 +30,11 @@ type Result struct {
 	// (G37), handler-populated (NOT by Lookup — a separate repository). nil =
 	// not checked (corpus off); non-nil = checked, Listed() false when clean.
 	Blocklist *BlockLookup `json:"blocklist,omitempty"`
+	// Shodan: open-port intel for the looked-up IP from Shodan's free InternetDB
+	// (handler-populated, best-effort — NOT by Lookup, same shape as Blocklist).
+	// nil = not checked (disabled / private IP / lookup errored); see ShodanInfo
+	// for the Found semantics. Attribution to Shodan is shown in the result card.
+	Shodan *ShodanInfo `json:"shodan,omitempty"`
 }
 
 // Proxy: IP2Proxy view (VPN / proxy / threat). Populated only when PX12

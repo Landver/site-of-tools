@@ -1,3 +1,7 @@
+{{/* commaList joins a slice ([]int or []string) as "a, b, c". Go templates have
+     no join builtin; this sub-template is the one place that idiom lives, so the
+     Shodan card's rows don't each repeat it. */}}
+{{define "ip/commaList"}}{{range $i, $e := .}}{{if $i}}, {{end}}{{$e}}{{end}}{{end}}
 {{define "ip/result"}}
 {{if .Error}}
   <div class="alert-error w-full">
@@ -39,6 +43,37 @@
       <dd>{{if .Listed}}<span class="text-danger">Yes</span>{{with .SourcesLabel}} — {{.}}{{end}}{{if gt .MaxCount 0}} ({{.MaxCount}} lists){{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not on any threat / abuse blocklist</span>{{end}}</dd>
       {{end}}
     </dl>
+  </div>
+  {{end}}
+  {{/* Shodan InternetDB: what the internet already knows is open on this IP —
+       last-seen (≈weekly), NOT a live scan. Handler-populated best-effort; the
+       card renders only when we actually checked (.Shodan non-nil). Attribution
+       to Shodan is mandatory + kept inline with the data (their terms). */}}
+  {{with .Shodan}}
+  <div class="card order-5">
+    <div class="eyebrow">open ports · shodan</div>
+    {{if .Found}}
+      {{if .Ports}}
+      <dl class="spec">
+        <dt>Ports</dt>
+        <dd class="font-mono text-strong">{{template "ip/commaList" .Ports}}</dd>
+        {{if .Hostnames}}<dt>Hostnames</dt> <dd class="break-all">{{template "ip/commaList" .Hostnames}}</dd>{{end}}
+        {{if .Tags}}<dt>Tags</dt> <dd>{{template "ip/commaList" .Tags}}</dd>{{end}}
+        {{if .CPEs}}<dt>Software</dt> <dd class="break-all text-muted">{{template "ip/commaList" .CPEs}}</dd>{{end}}
+        {{if .Vulns}}<dt>CVEs</dt> <dd class="text-danger">{{template "ip/commaList" .Vulns}}</dd>{{end}}
+      </dl>
+      {{else}}
+      <p class="text-sm text-muted">Shodan has a record for this IP but lists no open ports.</p>
+      {{end}}
+    {{else}}
+      <p class="text-sm"><span class="text-ok">No open ports on record</span>
+         <span class="text-faint">— Shodan hasn't seen this IP exposing services (normal for most home connections).</span></p>
+    {{end}}
+    <p class="mt-3 text-xs text-faint">
+      Last seen by <a href="https://internetdb.shodan.io" target="_blank" rel="noopener"
+         class="underline hover:text-muted">Shodan InternetDB</a>, updated ~weekly.
+      CVEs are version-inferred, not confirmed.
+    </p>
   </div>
   {{end}}
   {{end}}

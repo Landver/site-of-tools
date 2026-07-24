@@ -24,6 +24,10 @@ type Config struct {
 	// IP2Proxy PX12 (proxy/VPN/threat). Optional — empty → proxy section disabled.
 	PX12 string
 
+	// Shodan InternetDB base URL (free, keyless open-port lookups). Defaults to
+	// the live endpoint; blank disables the enrichment (NewShodan → nil no-op).
+	ShodanURL string
+
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
 	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
 	// missing-BIN path). MongoDatabase = app DB name on shared server,
@@ -46,6 +50,7 @@ func Load() Config {
 		ASNV4:      os.Getenv("IP2LOCATION_ASN_V4"),
 		ASNV6:      os.Getenv("IP2LOCATION_ASN_V6"),
 		PX12:       os.Getenv("IP2PROXY_PX12"),
+		ShodanURL:  getenv("SHODAN_INTERNETDB_URL", "https://internetdb.shodan.io"),
 		MongoURI:   os.Getenv("MONGODB_URI"),
 		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
 		MongoDatabase: getenv("MONGODB_DATABASE", DefaultMongoDatabase),

@@ -20,6 +20,19 @@
       for network abuse detection.
     </span>
     {{end}}
+    {{/* Shodan's ToS requires a visible credit wherever their data appears.
+         Gated on its OWN flag, not .Attribution: only the IP-lookup page that
+         actually consulted InternetDB sets it (see iptools handler.show), so it
+         never shows on botcheck — which sets .Attribution but does NOT use
+         Shodan. */}}
+    {{if .ShodanAttribution}}
+    <span>
+      corpberry.com uses © Shodan's
+      <a href="https://internetdb.shodan.io" target="_blank" rel="noopener"
+         class="underline hover:text-muted">InternetDB</a>
+      for open-port data.
+    </span>
+    {{end}}
   </div>
 </footer>
 {{end}}

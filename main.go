@@ -102,8 +102,13 @@ func main() {
 	if err != nil {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
+	// Shodan InternetDB enrichment (free, keyless, non-commercial): open-port
+	// intel for the looked-up IP, fetched live per request and never stored
+	// (Shodan's terms). Blank SHODAN_INTERNETDB_URL disables it (nil → no-op).
+	// See tools/iptools/docs/reports/shodan-internetdb-feasibility.md.
+	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	iptools.Register(ipApp, geo, lookupHistory, blocklist)
+	iptools.Register(ipApp, geo, lookupHistory, blocklist, shodan)
 
 	// botcheck.corpberry.com — reuses same IP service for server-side
 	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo

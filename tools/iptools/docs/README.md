@@ -138,6 +138,42 @@ today, so requests arrive via nginx's `X-Forwarded-For`.
 working IPv6 path (by fetching IPv6-only host), so it isn't in JSON — by
 nature, not omission.
 
+## Shodan InternetDB (open ports)
+
+A best-effort enrichment card showing what the internet **already knows** is open
+on the looked-up IP, from Shodan's free **InternetDB** endpoint
+(`https://internetdb.shodan.io/<ip>`). This is *not* a scanner: it's a
+last-seen snapshot Shodan refreshes ~weekly, so the card is framed as
+"last seen by Shodan", never a live probe. Full feasibility/ToS/limits writeup:
+[`reports/shodan-internetdb-feasibility.md`](reports/shodan-internetdb-feasibility.md).
+
+- **Client** (`shodan.go`, `Shodan` type): keyless GET, no account. Same nil-safe
+  shape as `History`/`BlockList` — a nil `*Shodan` (blank `SHODAN_INTERNETDB_URL`)
+  makes `Lookup` a no-op. Config: `SHODAN_INTERNETDB_URL` (default the live
+  endpoint; blank disables).
+- **Wiring** mirrors the G37 blocklist enrichment: `handler.show` populates
+  `Result.Shodan` for the LOOKED-UP ip (public addresses only — private/loopback
+  have no InternetDB data), best-effort. `Lookup` returns the enrichment; **it is
+  never set by the domain `Lookup`** (the geo/ASN path), so it's a transport-layer
+  concern like `Blocklist`.
+- **Three states**, like the blocklist row: `Result.Shodan == nil` = not checked
+  (disabled / private IP / API error → card omitted, never implies "clean");
+  `Found == false` = checked, Shodan has no record (HTTP 404 → "no open ports on
+  record"); `Found == true` = ports + hostnames/CPEs/tags/CVEs.
+- **Called server-side, live per request, payload never stored** — deliberately:
+  Shodan's terms restrict redistributing/caching their Content, and a 5-day
+  Cloudflare cache upstream makes repeat lookups cheap. Do **not** extend the
+  Mongo lookup history to persist InternetDB responses.
+- **Attribution** (required by Shodan's ToS): the shared footer carries a
+  © Shodan credit — like the IP2Location LITE and Spamhaus credits — gated on a
+  Shodan-specific `.ShodanAttribution` flag `handler.show` sets when a lookup
+  actually consulted InternetDB, so it never shows on botcheck (which sets
+  `.Attribution` but doesn't use Shodan). The card additionally names Shodan as
+  the source with a freshness note. Text-only, no logo. Non-commercial use only.
+- **Caveats surfaced in the UI:** data is ~weekly-stale, most home/residential IPs
+  return nothing (404), and `vulns` are version-INFERRED CVEs (not confirmed
+  exploitable).
+
 ## Lookup history
 
 `GET /history` lists most recent lookups run from tool. First MongoDB-backed
@@ -195,4 +231,5 @@ credit covers both.
 - Rate limiting on public endpoint, now that storage wired.
 
 *(Done since v1: proxy/VPN detection, IPv6 check, connection inspector,
-subnet/CIDR calculator, Mongo-backed lookup history.)*
+subnet/CIDR calculator, Mongo-backed lookup history, Shodan InternetDB
+open-port card.)*

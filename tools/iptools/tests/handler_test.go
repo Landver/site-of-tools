@@ -33,7 +33,7 @@ func newTestApp(svc iptools.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc, nil, nil) // nil History + nil BlockList: persistence off in handler tests
+	iptools.Register(e, svc, nil, nil, nil) // nil History/BlockList/Shodan: enrichment off in handler tests
 	return e
 }
 

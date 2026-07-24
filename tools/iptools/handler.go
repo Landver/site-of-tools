@@ -23,6 +23,7 @@ type handler struct {
 	svc  Looker
 	hist *History   // nil when Mongo disabled — Record/Recent are nil-safe
 	bl   *BlockList // nil when Mongo disabled — Check is nil-safe (G37)
+	sh   *Shodan    // nil when disabled — Lookup is nil-safe (Shodan InternetDB)
 }
 
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
@@ -32,8 +33,8 @@ type handler struct {
 //	GET /         an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
 //	GET /history  the most recent user-initiated lookups
-func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList) {
-	h := &handler{svc: svc, hist: hist, bl: bl}
+func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList, sh *Shodan) {
+	h := &handler{svc: svc, hist: hist, bl: bl, sh: sh}
 	e.GET("/", h.index)
 	e.GET("/cidr", h.cidr)
 	e.GET("/history", h.history)
@@ -149,6 +150,19 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		}
 	}
 
+	// Enrich w/ Shodan InternetDB open-port intel for the LOOKED-UP ip when
+	// configured (free, keyless, non-commercial) — best-effort, live per request,
+	// payload never stored (Shodan's terms; see
+	// docs/reports/shodan-internetdb-feasibility.md). Public addresses only:
+	// InternetDB has nothing for private/loopback, so skip the pointless call. A
+	// network/API error leaves Shodan nil → card omitted, never implying "no open
+	// ports" when we couldn't actually check (same contract as the blocklist row).
+	if err == nil && h.sh != nil && routable(ip) {
+		if si, e := h.sh.Lookup(c.Request().Context(), ip); e == nil {
+			res.Shodan = si
+		}
+	}
+
 	// API / CLI: raw JSON — geolocation result, or error.
 	if wantsJSON {
 		if err != nil {
@@ -168,6 +182,11 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		code = statusFor(err)
 	} else {
 		vm["Result"] = res
+		// Shodan's ToS wants a visible credit wherever their data appears. Gate the
+		// footer credit on this Shodan-specific flag (NOT the shared .Attribution,
+		// which botcheck also sets but doesn't use Shodan). True whenever we
+		// consulted InternetDB for this lookup — data found or a clean 404.
+		vm["ShodanAttribution"] = res.Shodan != nil
 	}
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
