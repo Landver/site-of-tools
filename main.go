@@ -1,6 +1,6 @@
-// Command site-of-tools is the single binary, powers corpberry.com + every
-// simple tool. Builds one *echo.Echo per subdomain from shared factory →
-// dispatches by Host header. See docs/ARCHITECTURE.md.
+// Command site-of-tools = single binary, powers corpberry.com + every simple
+// tool. Builds one *echo.Echo per subdomain from shared factory -> dispatches
+// by Host header. See docs/ARCHITECTURE.md.
 package main
 
 import (
@@ -24,8 +24,8 @@ func main() {
 	cfg := platform.Load()
 
 	// Open shared MongoDB client once at startup, share across features.
-	// Disabled (empty MONGODB_URI) or unreachable server → non-fatal: Mongo nil,
-	// every repo built from it no-ops, app runs stateless — same contract as IP
+	// Disabled (empty MONGODB_URI) or unreachable server -> non-fatal: Mongo nil,
+	// every repo built from it no-ops, app runs stateless. Same contract as IP
 	// tool's missing-BIN case. Feature repos take *mongo.Database from mdb.DB()
 	// (nil-safe).
 	mongoCtx, cancelMongo := context.WithTimeout(context.Background(), 12*time.Second)
@@ -37,7 +37,7 @@ func main() {
 	// Close on shutdown. LIFO: reqlog drains (below) before client closes.
 	defer mdb.Close(context.Background())
 
-	// Mongo-backed features. Index creation bounded + best-effort; nil db →
+	// Mongo-backed features. Index creation bounded + best-effort; nil db ->
 	// nil stores (disabled). Request log = engine-level, shared by every
 	// subdomain; lookup history belongs to IP tool, fingerprint corpus to
 	// botcheck.
@@ -47,32 +47,32 @@ func main() {
 	corpus := botcheck.NewCorpus(mdb.DB())
 	// Shared IP blocklist corpus (G37): ipsum + Spamhaus DROP feeds, plus any
 	// other service writing flagged IPs/netblocks. Read by botcheck's
-	// ip_blocklisted rule and the IP tool's result card, fed by the daily syncs
-	// below. Nil-safe when Mongo off.
+	// ip_blocklisted rule & IP tool's result card, fed by daily syncs below.
+	// Nil-safe when Mongo off.
 	blocklist := iptools.NewBlockList(mdb.DB())
 	// Best-effort, same as history TTL index in NewHistory: failure only
-	// forfeits auto-expiry → non-fatal.
+	// forfeits auto-expiry -> non-fatal.
 	_ = corpus.EnsureIndexes(idxCtx)
 	_ = blocklist.EnsureIndexes(idxCtx)
 	cancelIdx()
 	defer reqlog.Close(context.Background())
 
-	// Refresh the ipsum + Spamhaus DROP blocklist feeds daily in the background
-	// (nil-safe: no Mongo → each returns at once). Both self-skip the download
-	// if their corpus was refreshed within the last day → redeploys don't
-	// re-fetch. DROP: free for all use per Spamhaus, credited in the site
-	// footer (shared/templates/partials/footer.html).
+	// Refresh ipsum + Spamhaus DROP blocklist feeds daily in background
+	// (nil-safe: no Mongo -> each returns at once). Both self-skip download if
+	// corpus refreshed within last day -> redeploys don't re-fetch. DROP: free
+	// for all use per Spamhaus, credited in site footer
+	// (shared/templates/partials/footer.html).
 	go iptools.RunIPsumSync(context.Background(), blocklist)
 	go iptools.RunSpamhausDROPSync(context.Background(), blocklist)
 
 	// Template funcs available to every template: shared header uses these for
 	// logo link (always apex) + Tools dropdown. Tools come from one catalog
-	// (site.Tools) → nav + apex index render same list.
+	// (site.Tools) -> nav + apex index render same list.
 	staticFS := platform.SubFS(shared.Static, "static", "shared/static", cfg.IsDev())
 
 	// Prod: version static URLs by content hash ({{asset "js/botcheck.js"}} ->
-	// /static/js/botcheck.js?v=<hash>) → deploy busts CDN/browser cache for
-	// exactly the changed files. Dev: static served no-store → keep URLs clean.
+	// /static/js/botcheck.js?v=<hash>) -> deploy busts CDN/browser cache for
+	// exactly changed files. Dev: static served no-store -> keep URLs clean.
 	// platform.StaticURL = shared prefix logic both paths use.
 	asset := platform.StaticURL
 	if !cfg.IsDev() {
@@ -103,9 +103,9 @@ func main() {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
 	// Shodan InternetDB enrichment (free, keyless, non-commercial): open-port
-	// intel for the looked-up IP, fetched live per request and never stored
-	// (Shodan's terms). Blank SHODAN_INTERNETDB_URL disables it (nil → no-op).
-	// See tools/iptools/docs/reports/shodan-internetdb-feasibility.md.
+	// intel for looked-up IP, fetched live per request, never stored (Shodan's
+	// terms). Blank SHODAN_INTERNETDB_URL disables it (nil -> no-op). See
+	// tools/iptools/docs/reports/shodan-internetdb-feasibility.md.
 	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	iptools.Register(ipApp, geo, lookupHistory, blocklist, shodan)

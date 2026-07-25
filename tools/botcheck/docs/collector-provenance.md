@@ -2,9 +2,9 @@
 
 *(part of the [botcheck docs index](README.md))*
 
-Per golden rule #3, **no npm and no `node_modules`** in shipped product —
+Per golden rule #3, **no npm & no `node_modules`** in shipped product —
 collector vendored by hand into `shared/static/js/botcheck.js`, same way
-`htmx.min.js` and `alpine.min.js` are. We read following for technique and port
+`htmx.min.js` & `alpine.min.js` are. We read following for technique & port
 specific probes; do **not** add them as dependencies or build step:
 
 | Project | License | What we take |
@@ -16,7 +16,7 @@ specific probes; do **not** add them as dependencies or build step:
 | **MixVisit `@mix-visit/lite`** | MIT | Engine-vs-UA consistency reference (the engine behind iphey.com) + WebRTC leak |
 
 Collection-surface references (uniqueness tools, not bot detectors — we don't
-copy their scoring): **AmIUnique** and **EFF Cover Your Tracks** (latter AGPLv3,
+copy their scoring): **AmIUnique** & **EFF Cover Your Tracks** (latter AGPLv3,
 so read-only, never vendored). Server scorer is our own — none of these ship one
 we'd want.
 
@@ -24,5 +24,5 @@ we'd want.
 > gitignored, npm-based *test* harness (not shipped, not committed) driving real
 > automation frameworks against live tool to check detection actually works. See
 > [testing/README.md](testing/README.md). Deliberate, scoped exception to "no
-> npm" rule for disposable local verification tooling, not a contradiction of
+> npm" rule for disposable local verification tooling, not contradiction of
 > this page.

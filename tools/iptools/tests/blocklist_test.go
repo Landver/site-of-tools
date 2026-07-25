@@ -13,18 +13,17 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-const blocklistColl = "ip_blocklist" // matches the unexported name in blocklist.go
+const blocklistColl = "ip_blocklist" // matches unexported name in blocklist.go
 
-// TestNewBlockListDisabled: nil db (Mongo off) → nil repo, the nil-safe
-// disabled store.
+// TestNewBlockListDisabled: nil db (Mongo off) -> nil repo, nil-safe disabled store.
 func TestNewBlockListDisabled(t *testing.T) {
 	if b := iptools.NewBlockList(nil); b != nil {
 		t.Fatalf("NewBlockList(nil db) = %v, want nil (disabled)", b)
 	}
 }
 
-// TestNilBlockListIsSafe: every method no-ops / returns zero on a nil repo, so
-// a Mongo-less boot needs no guards in callers.
+// TestNilBlockListIsSafe: every method no-ops / returns zero on nil repo ->
+// Mongo-less boot needs no guards in callers.
 func TestNilBlockListIsSafe(t *testing.T) {
 	var b *iptools.BlockList
 	ctx := context.Background()
@@ -46,9 +45,9 @@ func TestNilBlockListIsSafe(t *testing.T) {
 	}
 }
 
-// liveBlockListDB opens the dedicated test DB, drops the collection, returns a
-// fresh repo. Skips unless MONGODB_TEST_URI is set (keeps `make test`/CI
-// hermetic), mirroring liveHistoryDB.
+// liveBlockListDB opens dedicated test DB, drops collection, returns fresh
+// repo. Skips unless MONGODB_TEST_URI set (keeps `make test`/CI hermetic),
+// mirrors liveHistoryDB.
 func liveBlockListDB(t *testing.T, ctx context.Context) (*iptools.BlockList, *platform.Mongo) {
 	t.Helper()
 	uri := os.Getenv("MONGODB_TEST_URI")
@@ -71,9 +70,9 @@ func liveBlockListDB(t *testing.T, ctx context.Context) (*iptools.BlockList, *pl
 	return bl, m
 }
 
-// TestBlockListLiveRoundTrip: exercises the corpus against real Mongo — the
-// upsert/created-at-immutability contract, multi-source independence, and
-// LastSync — the behaviour the offline nil-safe tests can't reach.
+// TestBlockListLiveRoundTrip: exercises corpus against real Mongo -
+// upsert/created-at-immutability contract, multi-source independence, LastSync
+// - behaviour offline nil-safe tests can't reach.
 func TestBlockListLiveRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -81,7 +80,7 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 	bl, m := liveBlockListDB(t, ctx)
 	const ip = "203.0.113.9"
 
-	// First insert from the ipsum feed.
+	// First insert from ipsum feed.
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ip, Source: iptools.BlocklistSourceIPsum, Count: 3, Reason: "seed"}); err != nil {
 		t.Fatalf("Upsert #1: %v", err)
 	}
@@ -90,8 +89,8 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 		t.Fatalf("timestamps not set on insert: created=%v updated=%v", created, updated1)
 	}
 
-	// Re-upsert the same (ip, source) with a higher count: created_at must stay
-	// put, updated_at must advance, count must update.
+	// Re-upsert same (ip, source) w/ higher count: created_at must stay put,
+	// updated_at must advance, count must update.
 	time.Sleep(5 * time.Millisecond) // clear a Mongo millisecond so updated_at strictly advances
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ip, Source: iptools.BlocklistSourceIPsum, Count: 7, Reason: "refresh"}); err != nil {
 		t.Fatalf("Upsert #2: %v", err)
@@ -104,8 +103,8 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 		t.Errorf("updated_at did not advance on refresh: %v → %v", updated1, updated2)
 	}
 
-	// A second, deliberate source for the same IP is an independent record —
-	// the ipsum refresh above never clobbered it, and it never clobbers ipsum.
+	// Second deliberate source for same IP is independent record - ipsum
+	// refresh above never clobbered it, & it never clobbers ipsum.
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ip, Source: "rate-limiter", Reason: "too many requests"}); err != nil {
 		t.Fatalf("Upsert manual: %v", err)
 	}
@@ -120,9 +119,9 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 		t.Errorf("Check MaxCount = %d, want 7 (highest across records)", lk.MaxCount)
 	}
 
-	// Sort is by source NAME, not insertion order: add a third source that
-	// sorts before the earlier two, then assert the exact ordered slice — this
-	// guards the deterministic sort in Check (would pass on insertion order alone
+	// Sort by source NAME, not insertion order: add third source that sorts
+	// before earlier two, then assert exact ordered slice - guards
+	// deterministic sort in Check (would pass on insertion order alone
 	// otherwise, since ipsum<rate-limiter already).
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ip, Source: "aaa-scanner"}); err != nil {
 		t.Fatalf("Upsert third source: %v", err)
@@ -135,7 +134,7 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 		t.Errorf("Sources not sorted by source name (-want +got):\n%s", diff)
 	}
 
-	// LastSync sees the ipsum refresh we just made.
+	// LastSync sees ipsum refresh we just made.
 	last, err := bl.LastSync(ctx, iptools.BlocklistSourceIPsum)
 	if err != nil {
 		t.Fatalf("LastSync: %v", err)
@@ -161,7 +160,7 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 		t.Errorf("batch member 198.51.100.7 = %+v, want listed with count 4", lk)
 	}
 
-	// Nil and all-skipped batches return (0, nil) without a write.
+	// Nil & all-skipped batches return (0, nil) w/o a write.
 	for _, empty := range [][]iptools.BlockEntry{
 		nil,
 		{{IP: "", Source: "ipsum"}, {IP: "9.9.9.9", Source: ""}},
@@ -173,8 +172,8 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 }
 
 // readTimes fetches created_at / updated_at for one (ip, source) record
-// straight from the collection — the repo's Check intentionally doesn't expose
-// timestamps, so the immutability assertions read the raw doc.
+// straight from collection - repo's Check intentionally doesn't expose
+// timestamps, so immutability assertions read raw doc.
 func readTimes(t *testing.T, ctx context.Context, m *platform.Mongo, ip, source string) (created, updated time.Time) {
 	t.Helper()
 	var e iptools.BlockEntry
@@ -187,7 +186,7 @@ func readTimes(t *testing.T, ctx context.Context, m *platform.Mongo, ip, source 
 	return e.CreatedAt, e.UpdatedAt
 }
 
-// TestSyncIPsumNilRepo: nil repo (Mongo off) → zero result, no error, no
+// TestSyncIPsumNilRepo: nil repo (Mongo off) -> zero result, no error, no
 // download attempted. Offline, needs no DB.
 func TestSyncIPsumNilRepo(t *testing.T) {
 	res, err := iptools.SyncIPsum(context.Background(), nil)
@@ -199,9 +198,9 @@ func TestSyncIPsumNilRepo(t *testing.T) {
 	}
 }
 
-// TestSyncIPsumSkipsWhenFresh: a fresh ipsum record makes the staleness guard
-// return BEFORE any network fetch — exercises the interval-slack guard (the
-// prior-pass cadence fix) without hitting GitHub. Gated on MONGODB_TEST_URI.
+// TestSyncIPsumSkipsWhenFresh: fresh ipsum record makes staleness guard return
+// BEFORE any network fetch - exercises interval-slack guard (prior-pass cadence
+// fix) w/o hitting GitHub. Gated on MONGODB_TEST_URI.
 func TestSyncIPsumSkipsWhenFresh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -218,20 +217,19 @@ func TestSyncIPsumSkipsWhenFresh(t *testing.T) {
 	}
 }
 
-// TestBlockListLiveRangeContainment: a Spamhaus-DROP-style netblock entry
-// (RangeStart/RangeEnd, IP field holding the CIDR string) is found by Check
-// for any address inside it, and correctly absent for one just outside — the
-// containment branch Check's Mongo query added alongside its original
-// exact-match one.
+// TestBlockListLiveRangeContainment: Spamhaus-DROP-style netblock entry
+// (RangeStart/RangeEnd, IP field holding CIDR string) found by Check for any
+// address inside it, & correctly absent for one just outside - containment
+// branch Check's Mongo query added alongside its original exact-match one.
 func TestBlockListLiveRangeContainment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	bl, _ := liveBlockListDB(t, ctx)
 
-	// 203.0.113.0/24: a fixed fixture, so its bounds are just literal test data
-	// (203.0.113.0 = 0xCB007100, 203.0.113.255 = 0xCB0071FF) — no need to
+	// 203.0.113.0/24: fixed fixture, so its bounds are literal test data
+	// (203.0.113.0 = 0xCB007100, 203.0.113.255 = 0xCB0071FF) - no need to
 	// import production's CIDR math (now unexported, see cidr_internal_test.go)
-	// just to recompute a constant.
+	// to recompute a constant.
 	const (
 		cidr                        = "203.0.113.0/24" // 203.0.113.0 .. 203.0.113.255
 		rangeStart, rangeEnd uint32 = 0xCB007100, 0xCB0071FF
@@ -244,22 +242,22 @@ func TestBlockListLiveRangeContainment(t *testing.T) {
 		t.Fatalf("seed range entry: %v", err)
 	}
 
-	// Inside the block, including both edges.
+	// Inside block, incl. both edges.
 	for _, ip := range []string{"203.0.113.1", "203.0.113.0", "203.0.113.255", "203.0.113.200"} {
 		if lk, err := bl.Check(ctx, ip); err != nil || !lk.Listed() || lk.Sources[0] != iptools.BlocklistSourceSpamhausDROP {
 			t.Errorf("Check(%s) = %+v, err=%v — want listed by spamhaus-drop", ip, lk, err)
 		}
 	}
-	// Just outside the block on both sides.
+	// Just outside block on both sides.
 	for _, ip := range []string{"203.0.112.255", "203.0.114.0"} {
 		if lk, err := bl.Check(ctx, ip); err != nil || lk.Listed() {
 			t.Errorf("Check(%s) = %+v, err=%v — want NOT listed (outside the range)", ip, lk, err)
 		}
 	}
 
-	// A single-IP entry from a different source and a range entry coexist for
-	// an address that happens to fall in both — both surface as distinct
-	// sources, exactly like two single-IP sources already do.
+	// Single-IP entry from a different source & a range entry coexist for an
+	// address that falls in both - both surface as distinct sources, exactly
+	// like two single-IP sources already do.
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: "203.0.113.50", Source: iptools.BlocklistSourceIPsum, Count: 5}); err != nil {
 		t.Fatalf("seed single-ip entry: %v", err)
 	}
@@ -272,7 +270,7 @@ func TestBlockListLiveRangeContainment(t *testing.T) {
 	}
 }
 
-// TestSyncSpamhausDROPNilRepo: nil repo (Mongo off) → zero result, no error,
+// TestSyncSpamhausDROPNilRepo: nil repo (Mongo off) -> zero result, no error,
 // no download attempted. Offline, needs no DB.
 func TestSyncSpamhausDROPNilRepo(t *testing.T) {
 	res, err := iptools.SyncSpamhausDROP(context.Background(), nil)
@@ -284,9 +282,9 @@ func TestSyncSpamhausDROPNilRepo(t *testing.T) {
 	}
 }
 
-// TestSyncSpamhausDROPSkipsWhenFresh: mirrors TestSyncIPsumSkipsWhenFresh —
-// a fresh spamhaus-drop record makes the shared ShouldSync guard return
-// BEFORE any network fetch. Gated on MONGODB_TEST_URI.
+// TestSyncSpamhausDROPSkipsWhenFresh: mirrors TestSyncIPsumSkipsWhenFresh -
+// fresh spamhaus-drop record makes shared ShouldSync guard return BEFORE any
+// network fetch. Gated on MONGODB_TEST_URI.
 func TestSyncSpamhausDROPSkipsWhenFresh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

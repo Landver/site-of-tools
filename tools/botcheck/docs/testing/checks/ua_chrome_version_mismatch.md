@@ -6,15 +6,15 @@
 
 ## What it checks
 
-The Chrome major version in the UA string must equal the Chromium version userAgentData reports — even forks like Opera or Vivaldi expose the true engine version there. A mismatch means the UA was hand-edited or frozen, as anti-detect and older Electron setups do.
+Chrome major version in UA string must equal Chromium version userAgentData reports — even forks like Opera/Vivaldi expose true engine version there. Mismatch means UA hand-edited or frozen, as anti-detect & older Electron setups do.
 
 ## Origin & history
 
-**G01**, shipped 2026-07-17, trimmed same day: compares the UA's `Chrome/NNN` major version against the `Chromium` entry of `navigator.userAgentData.getHighEntropyValues(['fullVersionList'])` (not the fork's own branded entry — comparing against Opera's/Vivaldi's own version would false-positive real users of those browsers). A same-day review fixed exactly that false positive (Opera/Vivaldi/Yandex/Samsung scoring "suspicious") by re-anchoring on the `Chromium` entry specifically. `platformVersion`/`uaFullVersion`/`architecture`/`bitness`/`model` were requested briefly then dropped as unused (YAGNI) — no rule ended up needing them.
+**G01**, shipped 2026-07-17, trimmed same day: compares UA's `Chrome/NNN` major version against `Chromium` entry of `navigator.userAgentData.getHighEntropyValues(['fullVersionList'])` (not fork's own branded entry — comparing against Opera's/Vivaldi's own version would false-positive real users of those browsers). Same-day review fixed exactly that false positive (Opera/Vivaldi/Yandex/Samsung scoring "suspicious") by re-anchoring on `Chromium` entry specifically. `platformVersion`/`uaFullVersion`/`architecture`/`bitness`/`model` requested briefly then dropped as unused (YAGNI) — no rule needed them.
 
 ## Test status: Verified — fires correctly
 
-Curl `POST /check`: client JSON claiming `Chrome/999` vs `uaData` claiming real Chromium `125` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Curl `POST /check`: client JSON claiming `Chrome/999` vs `uaData` claiming real Chromium `125` -> fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Curl `POST /check`: client JSON claiming `Chrome/999` vs `uaData` claiming real 
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["ua_chrome_version_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["ua_chrome_version_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

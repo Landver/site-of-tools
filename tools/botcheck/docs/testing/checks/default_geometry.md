@@ -6,11 +6,11 @@
 
 ## What it checks
 
-The screen is exactly 800×600, the default of headless images and fresh VMs. Real displays that size are rare but exist (old machines, embedded panels), so it's a soft hint only.
+Screen exactly 800×600, default of headless images & fresh VMs. Real displays that size rare but exist (old machines, embedded panels), so soft hint only.
 
 ## Origin & history
 
-Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
+Original rule — predates 2026-07-17 competitor-gap audit (G01+), so no G-item shipment story to move here; part of first working scorer.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Fired on stock, unmodified Selenium/Puppeteer/raw-CDP — headless Chromium's re
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["default_geometry"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["default_geometry"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

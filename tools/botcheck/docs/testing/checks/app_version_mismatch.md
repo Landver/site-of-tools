@@ -6,15 +6,15 @@
 
 ## What it checks
 
-navigator.appVersion is always the User-Agent minus its 'Mozilla/' prefix on every mainstream browser. A hand-built spoof that sets the two values independently usually forgets this coupling.
+navigator.appVersion = UA minus 'Mozilla/' prefix on every mainstream browser. Hand-built spoof setting two values independently usually forgets this coupling.
 
 ## Origin & history
 
-Internal-backlog Layer 1 item, shipped: `navigator.appVersion` is always the UA string minus its `Mozilla/` prefix on every mainstream browser; a hand-built spoof that sets the two independently usually forgets the coupling.
+Internal-backlog Layer 1 item, shipped: `navigator.appVersion` = UA string minus `Mozilla/` prefix on every mainstream browser; hand-built spoof setting two independently usually forgets coupling.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.appVersion` alone → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.appVersion` alone -> fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.appVersion` al
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["app_version_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["app_version_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

@@ -6,15 +6,15 @@
 
 ## What it checks
 
-Built-in JavaScript functions stringify as '[native code]'; automation stealth patches that replace them (usually to hide webdriver) often fail this check. It only catches shallow patches — a Proxy-based replacement fakes the string, which is what the toString-proxy probe is for.
+Built-in JS fns stringify as '[native code]'; automation stealth patches that replace them (usually to hide webdriver) often fail this check. Only catches shallow patches — Proxy-based replacement fakes the string, which is what toString-proxy probe is for.
 
 ## Origin & history
 
-Original day-1 rule — the shallow `[native code]` `toString()` check on a handful of natives. **G04** (shipped 2026-07-17) added the deeper probes that became `tostring_proxy`, `native_descriptor_tamper`, and `native_callnew_tamper` as separate rules, specifically because this shallow check alone doesn't catch a Proxy-based replacement that fakes the native string.
+Original day-1 rule — shallow `[native code]` `toString()` check on handful of natives. **G04** (shipped 2026-07-17) added deeper probes that became `tostring_proxy`, `native_descriptor_tamper`, & `native_callnew_tamper` as separate rules, specifically because this shallow check alone doesn't catch Proxy-based replacement that fakes native string.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`fire-branch-probe.mjs`): crude non-Proxy `Function.prototype.toString` replacement → fired, confirming the shallow/deep split vs `tostring_proxy` (which catches the Proxy-based version stealth actually uses). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): crude non-Proxy `Function.prototype.toString` replacement → fired, confirming shallow/deep split vs `tostring_proxy` (which catches Proxy-based version stealth actually uses). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): crude non-Proxy `Function.prototyp
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["native_tamper"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["native_tamper"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

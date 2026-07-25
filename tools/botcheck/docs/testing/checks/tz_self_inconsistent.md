@@ -6,15 +6,15 @@
 
 ## What it checks
 
-The browser's IANA timezone name implies a different UTC offset than Date().getTimezoneOffset() reports — spoofers commonly change one and forget the other. Needs no IP lookup at all; a genuinely misconfigured machine could trip it, which is why it weighs less than a hard tell.
+Browser IANA timezone name implies different UTC offset than Date().getTimezoneOffset() reports — spoofers commonly change one & forget other. Needs no IP lookup; genuinely misconfigured machine could trip it -> weighs less than a hard tell.
 
 ## Origin & history
 
-Internal-backlog Layer 2 item, shipped: compares `Intl.DateTimeFormat().resolvedOptions().timeZone` (IANA name) against `getTimezoneOffset()` — Go resolves the zone with `time.LoadLocation` (embedding `time/tzdata`) at request time, threaded in as `Signals.Now` to keep `Evaluate` pure. IP-independent, unlike `tz_mismatch`.
+Internal-backlog Layer 2 item, shipped: compares `Intl.DateTimeFormat().resolvedOptions().timeZone` (IANA name) against `getTimezoneOffset()` — Go resolves zone w/ `time.LoadLocation` (embedding `time/tzdata`) at request time, threaded in as `Signals.Now` to keep `Evaluate` pure. IP-independent, unlike `tz_mismatch`.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`fire-branch-probe.mjs`): overrode `getTimezoneOffset()`, real IANA zone name untouched → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `getTimezoneOffset()`, real IANA zone name untouched -> fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): overrode `getTimezoneOffset()`, re
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["tz_self_inconsistent"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["tz_self_inconsistent"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

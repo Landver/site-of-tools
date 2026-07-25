@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseSubnetIPv4(t *testing.T) {
-	got, err := iptools.ParseSubnet("192.168.1.42/24") // host bits set → normalized
+	got, err := iptools.ParseSubnet("192.168.1.42/24") // host bits set -> normalized
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -24,21 +24,21 @@ func TestParseSubnetIPv4(t *testing.T) {
 }
 
 func TestParseSubnetIPv4Edges(t *testing.T) {
-	// /31 — RFC 3021 point-to-point: 2 usable, no broadcast.
+	// /31 RFC 3021 point-to-point: 2 usable, no broadcast.
 	if s, _ := iptools.ParseSubnet("10.0.0.0/31"); s.Usable != "2" || s.Broadcast != "" ||
 		s.FirstHost != "10.0.0.0" || s.LastHost != "10.0.0.1" {
 		t.Errorf("/31 wrong: %+v", s)
 	}
-	// /32 — single host.
+	// /32 single host.
 	if s, _ := iptools.ParseSubnet("8.8.8.8/32"); s.Usable != "1" ||
 		s.Netmask != "255.255.255.255" || s.FirstHost != "8.8.8.8" {
 		t.Errorf("/32 wrong: %+v", s)
 	}
-	// bare IP → /32.
+	// bare IP -> /32.
 	if s, _ := iptools.ParseSubnet("1.1.1.1"); s.CIDR != "1.1.1.1/32" || s.Prefix != 32 {
 		t.Errorf("bare IP not treated as /32: %+v", s)
 	}
-	// /0 — shift-by-zero/full-range extreme: host mask all ones → netmask
+	// /0 shift-by-zero/full-range extreme: host mask all ones -> netmask
 	// 0.0.0.0, wildcard 255.255.255.255; 2^32 count math mustn't overflow.
 	if s, _ := iptools.ParseSubnet("0.0.0.0/0"); s.Netmask != "0.0.0.0" || s.Wildcard != "255.255.255.255" ||
 		s.Broadcast != "255.255.255.255" || s.FirstHost != "0.0.0.1" || s.LastHost != "255.255.255.254" ||
@@ -48,13 +48,13 @@ func TestParseSubnetIPv4Edges(t *testing.T) {
 }
 
 func TestParseSubnetIPv6Edges(t *testing.T) {
-	// /128 — single host: hostBits==0 → total 1, first==last==network.
+	// /128 single host: hostBits==0 -> total 1, first==last==network.
 	if s, _ := iptools.ParseSubnet("2001:db8::1/128"); s.Total != "1" || s.Usable != "1" ||
 		s.Network != "2001:db8::1" || s.FirstHost != "2001:db8::1" || s.LastHost != "2001:db8::1" ||
 		s.Broadcast != "" || s.Netmask != "" {
 		t.Errorf("/128 wrong: %+v", s)
 	}
-	// /127 — two addresses, both usable (IPv6 has no broadcast), last == network+1.
+	// /127 two addresses, both usable (IPv6 no broadcast), last == network+1.
 	if s, _ := iptools.ParseSubnet("2001:db8::/127"); s.Total != "2" || s.Usable != "2" ||
 		s.FirstHost != "2001:db8::" || s.LastHost != "2001:db8::1" {
 		t.Errorf("/127 wrong: %+v", s)

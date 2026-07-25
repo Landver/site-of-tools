@@ -6,11 +6,11 @@
 
 ## What it checks
 
-navigator.language must equal navigator.languages[0] — the same preference exposed twice. Spoofers that patch the single field but not the array disagree here.
+navigator.language must equal navigator.languages[0] — same preference exposed twice. Spoofers that patch single field but not array disagree here.
 
 ## Origin & history
 
-Internal-backlog Layer 1 item, shipped: `navigator.language` must equal `navigator.languages[0]` — the same preference exposed twice; spoofers that patch the single field but not the array disagree here.
+Internal-backlog Layer 1 item, shipped: `navigator.language` must equal `navigator.languages[0]` — same preference exposed twice; spoofers that patch single field but not array disagree here.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.language` alon
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["language_primary_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go) `ruleExplanations["language_primary_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

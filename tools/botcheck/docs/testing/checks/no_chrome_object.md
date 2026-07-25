@@ -6,11 +6,11 @@
 
 ## What it checks
 
-A Chrome User-Agent but no window.chrome object, which real desktop Chrome always exposes. Some Chromium forks drop it honestly, so it only counts in a cluster.
+Chrome User-Agent but no window.chrome object, which real desktop Chrome always exposes. Some Chromium forks drop it honestly, so counts only in a cluster.
 
 ## Origin & history
 
-Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
+Original rule — predates 2026-07-17 competitor-gap audit (G01+), so no G-item shipment story to move here; part of first working scorer.
 
 ## Test status: Verified — fires correctly
 
@@ -18,8 +18,8 @@ Real-browser probe (`fire-branch-probe.mjs`): `window.chrome = undefined` → fi
 
 ## Go scorer coverage
 
-No test references this rule ID directly — coverage, if any, is incidental to a broader table-driven test, not a dedicated assertion.
+No test references this rule ID directly — coverage, if any, incidental to broader table-driven test, not a dedicated assertion.
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["no_chrome_object"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["no_chrome_object"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

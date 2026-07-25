@@ -2,9 +2,9 @@
 
 *(part of [testing index](../README.md), see [botcheck docs index](../../README.md))*
 
-One file per implemented check (`tools/botcheck/scoring.go`'s `rules`, 68 total — verified by counting the `why` expander on the live result page, one per rendered check, not the historic per-rule-ID reserved-slot count in `report.go`). Each file is the single place for everything about that one check: **what it checks** (the logic, mirrored from `report.go`), **origin & history** (which `G##` roadmap item shipped it, when, why, what was tried and rejected), **test status** (verified/evaded/fixed/untested against real automation), and **Go scorer coverage** (which unit tests exercise it). Everywhere else that used to carry this per-check — `roadmap/*.md`, `changelog.md`, `findings/*.md`, `next-steps.md` — now points here instead of restating it; those files keep only what's genuinely cross-cutting (competitor comparisons, cross-framework audits, items with no shipped check yet).
+One file per impl check (`tools/botcheck/scoring.go` `rules`, 68 total — counted via `why` expander on live result page, one per rendered check, not historic per-rule-ID reserved-slot count in `report.go`). Each file = single place for all re that check: **what it checks** (logic, mirrored from `report.go`), **origin & history** (which `G##` roadmap item shipped it, when, why, tried & rejected), **test status** (verified/evaded/fixed/untested vs real automation), **Go scorer coverage** (which unit tests exercise it). Elsewhere that used to carry per-check — `roadmap/*.md`, `changelog.md`, `findings/*.md`, `next-steps.md` — now points here, not restating; those keep only cross-cutting (competitor comparisons, cross-framework audits, items w/ no shipped check yet).
 
-One reserved rule ID with no active check yet, `system_color_headless` (see [go-test-suite.md](../../go-test-suite.md)), has no file here — nothing to report on until it lands.
+One reserved rule ID, no active check yet: `system_color_headless` (see [go-test-suite.md](../../go-test-suite.md)); no file here til it lands.
 
 ## Fixed via the 2026-07-19 audit (7)
 
@@ -29,7 +29,7 @@ One reserved rule ID with no active check yet, `system_color_headless` (see [go-
 
 ## Verified against real automation — fires correctly (45)
 
-41 of these closed in the [2026-07-19 full-check sweep](../findings/2026-07-19-remaining-43-checks-sweep.md): a mix of stock off-the-shelf automation (no override needed), and two new Puppeteer-based probe scripts under `automation-harness/` (`ua-mismatch-probe.mjs`, `fire-branch-probe.mjs`) that construct the exact condition each rule targets through the real `botcheck.js` collector, not a Go-side `Signals{}` literal.
+41 closed in [2026-07-19 full-check sweep](../findings/2026-07-19-remaining-43-checks-sweep.md): mix of stock off-the-shelf automation (no override) & 2 new Puppeteer probe scripts under `automation-harness/` (`ua-mismatch-probe.mjs`, `fire-branch-probe.mjs`) constructing each rule's exact target condition thru real `botcheck.js` collector, not Go-side `Signals{}` literal.
 
 | Check | Tier | Weight |
 |---|---|---|
@@ -81,7 +81,7 @@ One reserved rule ID with no active check yet, `system_color_headless` (see [go-
 
 ## Evaded by stealth → downgraded to soft (2026-07-21) (5)
 
-All five were built to catch `puppeteer-extra-plugin-stealth`, evaded by current stealth, and false-positive-prone against privacy extensions — so they moved consistency → soft (cluster-only), the same handling as the CDP-trap trio. The *detection* gap (sharpening ideas) stays open; the *scoring-honesty* gap is closed. See [the downgrade finding](../findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
+All 5 built to catch `puppeteer-extra-plugin-stealth`, evaded by current stealth, & FP-prone vs privacy extensions — so moved consistency → soft (cluster-only), same as CDP-trap trio. *Detection* gap (sharpening ideas) stays open; *scoring-honesty* gap closed. See [downgrade finding](../findings/2026-07-21-internals-tamper-downgraded-to-soft.md).
 
 | Check | Tier | Weight |
 |---|---|---|
@@ -106,7 +106,7 @@ All five were built to catch `puppeteer-extra-plugin-stealth`, evaded by current
 
 ## Investigated — local dataset can't confirm (2)
 
-Rule logic is a straight passthrough (already exercised by Go fixtures); this local IP2Proxy LITE PX12 snapshot just doesn't classify any of the ~30 known datacenter/VPN/Tor IPs tried as a proxy. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Rule logic = straight passthrough (already exercised by Go fixtures); this local IP2Proxy LITE PX12 snapshot classifies none of ~30 known datacenter/VPN/Tor IPs tried as proxy. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 | Check | Tier | Weight |
 |---|---|---|
@@ -115,7 +115,7 @@ Rule logic is a straight passthrough (already exercised by Go fixtures); this lo
 
 ## Server-side corpus rule — no browser-observable trigger (2)
 
-`ip_fingerprint_churn` (G43, shipped 2026-07-21) and `ip_blocklisted` (G37, shipped 2026-07-21) both fire from a Mongo corpus keyed on the connecting IP, not from anything a browser emits, so real-automation testing doesn't apply the way it does to client checks. They're covered by Go domain fixtures and live-Mongo integration round-trips instead — see their files.
+`ip_fingerprint_churn` (G43, shipped 2026-07-21) & `ip_blocklisted` (G37, shipped 2026-07-21) both fire from Mongo corpus keyed on connecting IP, not anything browser emits, so real-automation testing doesn't apply as it does to client checks. Covered by Go domain fixtures & live-Mongo integration round-trips instead — see their files.
 
 | Check | Tier | Weight |
 |---|---|---|
@@ -124,4 +124,4 @@ Rule logic is a straight passthrough (already exercised by Go fixtures); this lo
 
 ## Not yet tested against real automation (0)
 
-Every client-observable check has at least one real-automation or constructed-fire-branch data point as of 2026-07-19 — see the [full sweep finding](../findings/2026-07-19-remaining-43-checks-sweep.md). This section is kept (empty) as the place a newly-added, untested check lands.
+Every client-observable check has at least one real-automation or constructed-fire-branch data point as of 2026-07-19 — see [full sweep finding](../findings/2026-07-19-remaining-43-checks-sweep.md). Section kept (empty) as place a newly-added, untested check lands.

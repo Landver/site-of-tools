@@ -6,15 +6,15 @@
 
 ## What it checks
 
-hardwareConcurrency re-read in a secondary context disagrees with the main thread. Real anti-fingerprint throttling (Firefox resistFingerprinting, Brave's farbling) caps the value globally, so only a spoof that patched one context and forgot the others fires this.
+hardwareConcurrency re-read in secondary context disagrees w/ main thread. Real anti-fingerprint throttling (Firefox resistFingerprinting, Brave's farbling) caps value globally, so only a spoof that patched one context & forgot others fires this.
 
 ## Origin & history
 
-**G03**, shipped 2026-07-18, same four-rule batch as `context_language_mismatch`: diffs `hardwareConcurrency` across contexts. Real anti-fingerprint throttling (Firefox `resistFingerprinting`, Brave's farbling) caps the value globally, so only a spoof that patched one context and forgot the others fires this — which is exactly what caught `puppeteer-extra-plugin-stealth` in the 2026-07-19 audit (see test status above).
+**G03**, shipped 2026-07-18, same four-rule batch as `context_language_mismatch`: diffs `hardwareConcurrency` across contexts. Real anti-fingerprint throttling (Firefox `resistFingerprinting`, Brave's farbling) caps value globally, so only a spoof that patched one context & forgot others fires this — exactly what caught `puppeteer-extra-plugin-stealth` in 2026-07-19 audit (see test status above).
 
 ## Test status: Verified — fires correctly
 
-Caught `puppeteer-extra-plugin-stealth`: main thread `hardwareConcurrency` was spoofed to `4`, but the Worker and Service Worker both leaked the real value (`10`). Fired `-20`, one of three cross-context checks that caught stealth after its six purpose-built detectors missed.
+Caught `puppeteer-extra-plugin-stealth`: main thread `hardwareConcurrency` spoofed to `4`, but Worker & Service Worker both leaked real value (`10`). Fired `-20`, one of three cross-context checks that caught stealth after its six purpose-built detectors missed.
 
 See [finding](../findings/2026-07-19-multi-framework-matrix-results.md).
 
@@ -24,4 +24,4 @@ See [finding](../findings/2026-07-19-multi-framework-matrix-results.md).
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["context_cores_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["context_cores_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

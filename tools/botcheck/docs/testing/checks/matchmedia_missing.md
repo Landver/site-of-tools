@@ -6,15 +6,15 @@
 
 ## What it checks
 
-window.matchMedia is part of every real browser's CSS support, desktop and mobile alike, so a browser-claimed User-Agent without it is a stripped JavaScript environment (jsdom-style) wearing a browser UA. An exotic embedded webview could conceivably lack it too, which is why this only counts inside a soft cluster.
+window.matchMedia part of every real browser's CSS support, desktop & mobile alike -> browser-claimed UA w/o it = stripped JS env (jsdom-style) wearing browser UA. Exotic embedded webview could lack it too -> only counts inside soft cluster.
 
 ## Origin & history
 
-**G15**, shipped 2026-07-18 (wave-2 probes batch, collector payload bumped to `v: 4` with an additive `env` section): a browser-claimed UA missing `window.matchMedia` entirely is a stripped JavaScript environment (jsdom-style) wearing a browser UA. A devicePixelRatio-vs-screen consistency rule from the same G15 batch was **deliberately not built**: zoom legitimately changes DPR and inner-window sizes while `screen.*` stays zoom-invariant in Chrome, so a zoomed-out real window would false-fire it. CSS system colors were also dropped from this batch (see `image_broken`'s G10 note — same dated-tell problem).
+**G15**, shipped 2026-07-18 (wave-2 probes batch, collector payload bumped to `v: 4` w/ additive `env` section): browser-claimed UA missing `window.matchMedia` entirely = stripped JS env (jsdom-style) wearing browser UA. devicePixelRatio-vs-screen consistency rule from same G15 batch **deliberately not built**: zoom legitimately changes DPR & inner-window sizes while `screen.*` stays zoom-invariant in Chrome -> zoomed-out real window would false-fire it. CSS system colors also dropped from this batch (see `image_broken`'s G10 note — same dated-tell problem).
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`fire-branch-probe.mjs`): deleted `window.matchMedia` → fired. Side effect: uncovered a real bug in `shared/templates/partials/head.html`'s unguarded theme-detector, fixed same session. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): deleted `window.matchMedia` → fired. Side effect: uncovered real bug in `shared/templates/partials/head.html`'s unguarded theme-detector, fixed same session. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): deleted `window.matchMedia` → fi
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["matchmedia_missing"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["matchmedia_missing"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

@@ -6,11 +6,11 @@
 
 ## What it checks
 
-A browser-claimed User-Agent but no Sec-Fetch-* headers, which real browsers send on every navigation and fetch. Scripted clients usually don't bother — but a proxy in the path can strip headers too, the caveat that keeps this soft.
+Browser-claimed User-Agent but no Sec-Fetch-* headers, which real browsers send on every navigation & fetch. Scripted clients usually don't bother — but proxy in path can strip headers too, caveat that keeps this soft.
 
 ## Origin & history
 
-Internal-backlog Layer 1 item, shipped: a browser-claimed UA sending no `Sec-Fetch-*` headers, which real browsers send on every navigation/fetch. Kept soft rather than hard for the same reason as the **G06** header rules — a proxy in the path can strip headers too.
+Internal-backlog Layer 1 item, shipped: browser-claimed UA sending no `Sec-Fetch-*` headers, which real browsers send on every navigation/fetch. Kept soft not hard for same reason as **G06** header rules — proxy in path can strip headers too.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Curl-verified both directions vs local dev: fires w/ browser UA + no `Sec-Fetch-
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["sec_fetch_missing"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["sec_fetch_missing"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

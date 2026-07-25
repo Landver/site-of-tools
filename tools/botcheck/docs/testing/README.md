@@ -6,13 +6,13 @@ Companion to [`../RESEARCH.md`](../RESEARCH.md) (how competitor services
 work) and [`../roadmap/README.md`](../roadmap/README.md) (feature/signal gap
 audit). Narrower scope: **does botcheck catch real, off-the-shelf automation
 tools** — verified by running them for real, not reasoning about them. See
-[findings-log.md](findings-log.md) for the dated, chronological account of
+[findings-log.md](findings-log.md) for dated, chronological account of
 what testing found, [next-steps.md](next-steps.md) for what's left to fix
 that isn't specific to one check, and **[checks/](checks/README.md) as the
 single per-check reference** — one file per rule in
-[`scoring.go`](../../scoring.go) covering what it checks, its origin/history,
-its real-automation test status, and its Go scorer coverage, so "what does
-this check do, why does it exist, and is it actually verified" all answer
+[`scoring.go`](../../scoring.go) covering what it checks, origin/history,
+real-automation test status, and Go scorer coverage, so "what does
+this check do, why does it exist, is it verified" all answer
 from one file instead of a grep across `roadmap/`, `changelog.md`,
 `findings/`, and `report.go` comments.
 
@@ -41,7 +41,7 @@ scoped exception to CLAUDE.md rule #3 ("No Node/npm. Ever."): rule protects
 *shipped binary and frontend* from JS toolchain dependency; says nothing
 about disposable local verification tooling that never ships. If that
 changes (repo decides to track these tests for real), un-gitignore folder,
-promote it properly — flagged here rather than decided unilaterally. (Named
+promote it properly — flagged here, not decided unilaterally. (Named
 `automation-harness`, not `verify-cdp` — outgrew that name once it started
 covering Playwright, Selenium, puppeteer-extra-stealth, and raw CDP, not
 just CDP trap.)
@@ -91,5 +91,5 @@ extensions). Treat every "confirmed dead" finding in
 [findings-log.md](findings-log.md) as "dead against modern Chromium via
 npm-distributed tooling," not "dead everywhere, forever." **2026-07-19:**
 considered a dedicated Python-based pass against the non-npm tools above,
-decided not worth the infra spend right now — revisit only if this class of
+decided not worth infra spend right now — revisit only if this class of
 tool becomes a real, active concern.

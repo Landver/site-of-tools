@@ -1,25 +1,25 @@
 # Bot check (`botcheck.corpberry.com`) — docs index
 
-Live score of how much visitor's browser looks human vs bot. Fuses **client-side signals**
-(vendored JS collector) with **server-observed signals** (HTTP headers + IP reputation),
+Live score of how human vs bot visitor's browser looks. Fuses **client-side signals**
+(vendored JS collector) w/ **server-observed signals** (HTTP headers + IP reputation),
 cross-checks both — disagreements give automation away. Output: 0–100 authenticity score,
 verdict band (`human` / `suspicious` / `bot`, plus `good-bot` for verified crawler/AI agent),
 transparent per-signal breakdown.
 
 **Thesis:** client signals all spoofable, so detection power lives in server cross-checking
 what browser *claims* vs what connection *actually shows*. Tool reuses entire server-observed
-IP layer from [`iptools`](../../iptools/docs/README.md) (IP2Proxy PX12 + IP2Location) for free —
-essentially "a JS collector + a deterministic server scorer."
+IP layer from [`iptools`](../../iptools/docs/README.md) (IP2Proxy PX12 + IP2Location) free —
+essentially "JS collector + deterministic server scorer."
 
-> **Naming:** tool is **Bot check** (display name) / `botcheck` (Go package, routes,
+> **Naming:** tool = **Bot check** (display name) / `botcheck` (Go package, routes,
 > `botcheck.corpberry.com` subdomain). "Bot-or-not" refers only to competitor research
 > ([RESEARCH.md](RESEARCH.md) + [reports/](reports/)), never this tool.
 
 ## How this folder is organized
 
-An **index, not a document** — every topic lives in own file so reader (human or AI) opens
+An **index, not a document** — every topic in own file so reader (human or AI) opens
 only what current task needs, not one multi-thousand-line dump. About to grep across every
-file here to answer one question? Stop, check table first — almost certainly one file already
+file here for one question? Stop, check table first — almost certainly one file already
 answers it.
 
 ### Design & reference (how the tool works today)
@@ -61,11 +61,11 @@ answers it.
 
 `GET /` renders page shell (short explainer, "your request" server card like iptools connection
 inspector, vendored collector script); collector gathers client signals, POSTs to `POST /check`,
-which fuses with server signals, runs scorer, returns HTML fragment (browser) or JSON (API/CLI)
+which fuses w/ server signals, runs scorer, returns HTML fragment (browser) or JSON (API/CLI)
 by content negotiation. Full detail in [architecture.md](architecture.md).
 
 **Non-goals:** self-test/inspection tool, **not inline WAF**. Doesn't block requests, set
-verdict cookie, or protect other endpoints — returns score for *the person looking at the page*.
-("Enforcement mode" other tools could call is possible later bolt-on — see
-[roadmap/enforcement.md](roadmap/enforcement.md).) Full list of deferred items and explicit
-non-goals lives in [roadmap/deferred-nongoals.md](roadmap/deferred-nongoals.md).
+verdict cookie, or protect other endpoints — returns score for *person looking at page*.
+("Enforcement mode" other tools could call = possible later bolt-on — see
+[roadmap/enforcement.md](roadmap/enforcement.md).) Full list of deferred items & explicit
+non-goals in [roadmap/deferred-nongoals.md](roadmap/deferred-nongoals.md).

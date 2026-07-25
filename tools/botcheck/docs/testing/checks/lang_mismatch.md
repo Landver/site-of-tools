@@ -6,11 +6,11 @@
 
 ## What it checks
 
-navigator.languages and the Accept-Language header are set from the same browser preference, so a spoofed locale that changed only one side disagrees here. Either side missing counts as 'can't tell'.
+navigator.languages & Accept-Language header set from same browser preference, so spoofed locale that changed only one side disagrees here. Either side missing = 'can't tell'.
 
 ## Origin & history
 
-Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
+Original rule — predates 2026-07-17 competitor-gap audit (G01+), so no G-item shipment story to move here; part of first working scorer.
 
 ## Test status: Verified — fires correctly
 
@@ -18,8 +18,8 @@ Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.languages`, re
 
 ## Go scorer coverage
 
-No test references this rule ID directly — coverage, if any, is incidental to a broader table-driven test, not a dedicated assertion.
+No test references this rule ID directly — coverage, if any, incidental to broader table-driven test, not a dedicated assertion.
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["lang_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go) `ruleExplanations["lang_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

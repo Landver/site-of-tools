@@ -6,15 +6,15 @@
 
 ## What it checks
 
-The OS named in the User-Agent string disagrees with userAgentData.platform — the classic sign of a hand-edited UA. Either side being unreadable (an unusual UA, a non-Chromium browser) counts as 'can't tell', not as a mismatch.
+OS named in User-Agent string disagrees w/ userAgentData.platform — classic sign of hand-edited UA. Either side unreadable (unusual UA, non-Chromium browser) counts as 'can't tell', not mismatch.
 
 ## Origin & history
 
-Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
+Original rule — predates 2026-07-17 competitor-gap audit (G01+), so no G-item shipment story to move here; part of first working scorer.
 
 ## Test status: Verified — fires correctly
 
-Curl `POST /check`: client JSON claiming a Windows UA vs `uaData.platform: macOS` → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Curl `POST /check`: client JSON claiming Windows UA vs `uaData.platform: macOS` -> fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Curl `POST /check`: client JSON claiming a Windows UA vs `uaData.platform: macOS
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["ua_os_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["ua_os_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

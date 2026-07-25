@@ -6,20 +6,20 @@
 
 ## What it checks
 
-hardwareConcurrency or deviceMemory sits outside any plausible range (negative, or above 128). Values like that come from careless spoofing, not from real hardware.
+hardwareConcurrency or deviceMemory outside any plausible range (negative, or above 128). Such values come from careless spoofing, not real hardware.
 
 ## Origin & history
 
-Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
+Original rule — predates 2026-07-17 competitor-gap audit (G01+), so no G-item shipment story to move here; part of first working scorer.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`fire-branch-probe.mjs`): overrode `hardwareConcurrency` to `999` → fired (plus bonus `context_cores_mismatch`, override only reaching the main thread). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): overrode `hardwareConcurrency` to `999` → fired (plus bonus `context_cores_mismatch`, override only reaching main thread). See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
-No test references this rule ID directly — coverage, if any, is incidental to a broader table-driven test, not a dedicated assertion.
+No test references this rule ID directly — coverage, if any, incidental to a broader table-driven test, not a dedicated assertion.
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["implausible_hardware"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["implausible_hardware"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

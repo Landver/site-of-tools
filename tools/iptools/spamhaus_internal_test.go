@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// White-box (package iptools) because parseDROP and its helpers are
-// unexported — same CLAUDE.md-sanctioned exception as ipsum_internal_test.go.
-// Keeps the network-free parse logic covered without hitting spamhaus.org.
+// White-box (package iptools): parseDROP & helpers unexported — same
+// CLAUDE.md-sanctioned exception as ipsum_internal_test.go. Covers
+// network-free parse logic w/o hitting spamhaus.org.
 
 func TestParseDROP(t *testing.T) {
 	feed := strings.Join([]string{
@@ -16,10 +16,10 @@ func TestParseDROP(t *testing.T) {
 		`{"cidr":"1.19.0.0/16","sblid":"SBL434604","rir":"apnic"}`,
 		``,                                     // blank line skipped
 		`not json at all`,                      // malformed line skipped
-		`{"cidr":"2001:db8::/32","sblid":"x"}`, // IPv6 CIDR: parses as JSON but ipv4RangeBounds rejects it
+		`{"cidr":"2001:db8::/32","sblid":"x"}`, // IPv6 CIDR: valid JSON but ipv4RangeBounds rejects
 		`{"sblid":"no-cidr-field"}`,            // missing cidr skipped
-		// metadata trails the data rows in the real feed — must still apply to
-		// every entry above it, not just ones that come after.
+		// metadata trails data rows in real feed — must apply to every entry
+		// above it, not only ones after.
 		`{"type":"metadata","timestamp":1784708042,"size":101809,"records":1669,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`,
 	}, "\n")
 
@@ -45,10 +45,10 @@ func TestParseDROP(t *testing.T) {
 		t.Errorf("entry[0] Count = %d, want 0 (DROP is presence-only, no confidence count)", e.Count)
 	}
 
-	// Meta: the record's own sblid/rir, PLUS the feed-level copyright/terms/
-	// timestamp — even though metadata trails every data row in the file, it
-	// must still reach entry[0] (this is the "date and copy text remain with
-	// the file and data" requirement Spamhaus's terms ask for).
+	// Meta: record's own sblid/rir PLUS feed-level copyright/terms/timestamp —
+	// though metadata trails every data row in file, must still reach entry[0]
+	// ("date and copy text remain with the file and data" requirement from
+	// Spamhaus terms).
 	if e.Meta["sblid"] != "SBL256894" || e.Meta["rir"] != "apnic" {
 		t.Errorf("entry[0] missing its own sblid/rir: %+v", e.Meta)
 	}
@@ -71,8 +71,8 @@ func TestParseDROP(t *testing.T) {
 	}
 }
 
-// TestParseDROPNoMetadata: a feed with no trailing metadata record still
-// parses the CIDR rows; entries just carry no feed-level copyright/terms/time.
+// TestParseDROPNoMetadata: feed w/ no trailing metadata record still parses
+// CIDR rows; entries carry no feed-level copyright/terms/time.
 func TestParseDROPNoMetadata(t *testing.T) {
 	entries, err := parseDROP(strings.NewReader(`{"cidr":"203.0.113.0/24","sblid":"SBL1","rir":"arin"}` + "\n"))
 	if err != nil {

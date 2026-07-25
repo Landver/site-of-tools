@@ -6,11 +6,11 @@
 
 ## What it checks
 
-A mobile (Android/iOS) User-Agent with no touch support, though every real phone browser reports touch points — a desktop spoofing a mobile UA usually forgets the touch surface. Desktop-mode edge cases are why it isn't a hard tell.
+Mobile (Android/iOS) UA w/ no touch support, though every real phone browser reports touch points — desktop spoofing mobile UA usually forgets touch surface. Desktop-mode edge cases -> not a hard tell.
 
 ## Origin & history
 
-**G12**, shipped 2026-07-18: an Android/iOS UA reporting zero `maxTouchPoints`, which no real phone browser does. The reverse direction (desktop UA plus touch support) was deliberately never built as a rule — touch-screen Windows laptops would false-fire it constantly.
+**G12**, shipped 2026-07-18: Android/iOS UA reporting zero `maxTouchPoints`, which no real phone browser does. Reverse direction (desktop UA + touch support) deliberately never built as rule — touch-screen Windows laptops would false-fire it constantly.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Real-browser probe (`ua-mismatch-probe.mjs`): Android UA + real desktop `maxTouc
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["mobile_no_touch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["mobile_no_touch"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

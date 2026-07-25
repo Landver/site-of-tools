@@ -15,21 +15,21 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// blocklist_handler_test.go covers the IP tool's G37 enrichment: the "proxy /
-// blocklist / network" card + the JSON blocklist field, and the handler wiring
-// that queries the shared corpus for the LOOKED-UP ip.
+// blocklist_handler_test.go covers IP tool G37 enrichment: "proxy /
+// blocklist / network" card + JSON blocklist field, & handler wiring
+// querying shared corpus for LOOKED-UP ip.
 
-// TestHandlerShowsBlocklistSection is offline: a fakeLooker returns a Result
-// with Blocklist pre-set (the handler leaves it untouched when bl is nil, as
-// newTestApp registers), so this exercises the template + JSON marshal without
-// Mongo — the main risk surface.
+// TestHandlerShowsBlocklistSection offline: fakeLooker returns Result
+// w/ Blocklist pre-set (handler leaves untouched when bl nil, as
+// newTestApp registers), so exercises template + JSON marshal w/o
+// Mongo — main risk surface.
 func TestHandlerShowsBlocklistSection(t *testing.T) {
 	res := &iptools.Result{
 		IP:        "1.2.3.4",
 		Blocklist: &iptools.BlockLookup{Sources: []string{"ipsum", "rate-limiter"}, MaxCount: 8},
 	}
 
-	// HTML: renamed card + a blocklist row naming the sources and count.
+	// HTML: renamed card + blocklist row naming sources & count.
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=1.2.3.4", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	for _, want := range []string{"proxy / blocklist / network", "Blocklist", "ipsum, rate-limiter", "8 lists"} {
@@ -46,9 +46,9 @@ func TestHandlerShowsBlocklistSection(t *testing.T) {
 	}
 }
 
-// TestHandlerCleanIPShowsBlocklistNo: a Result with a checked-but-empty
-// Blocklist (non-nil, no sources) renders the card with a "No" row — the
-// "we checked, it's clean" state, distinct from "not checked" (nil → no row).
+// TestHandlerCleanIPShowsBlocklistNo: Result w/ checked-but-empty
+// Blocklist (non-nil, no sources) renders card w/ "No" row — the
+// "checked, clean" state, distinct from "not checked" (nil -> no row).
 func TestHandlerCleanIPShowsBlocklistNo(t *testing.T) {
 	res := &iptools.Result{IP: "8.8.8.8", Blocklist: &iptools.BlockLookup{}}
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
@@ -59,8 +59,8 @@ func TestHandlerCleanIPShowsBlocklistNo(t *testing.T) {
 	}
 }
 
-// TestHandlerEnrichesBlocklistLive drives the real handler against real Mongo:
-// a seeded IP flows through addServerSignals-equivalent enrichment (Check on the
+// TestHandlerEnrichesBlocklistLive drives real handler against real Mongo:
+// seeded IP flows through addServerSignals-equivalent enrichment (Check on
 // looked-up ip) into Result.Blocklist. Gated on MONGODB_TEST_URI. Reuses
 // liveBlockListDB from blocklist_test.go (same package).
 func TestHandlerEnrichesBlocklistLive(t *testing.T) {
@@ -79,8 +79,8 @@ func TestHandlerEnrichesBlocklistLive(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	// fakeLooker returns a bare Result for ip; the handler enriches Blocklist
-	// from the live corpus, keyed on that same ip.
+	// fakeLooker returns bare Result for ip; handler enriches Blocklist
+	// from live corpus, keyed on same ip.
 	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: ip}}, nil, bl, nil)
 
 	rec := do(e, "/?ip="+ip, map[string]string{"Accept": "application/json"})
@@ -95,7 +95,7 @@ func TestHandlerEnrichesBlocklistLive(t *testing.T) {
 		t.Errorf("handler should enrich Blocklist from the corpus for the looked-up IP, got %+v", got.Blocklist)
 	}
 
-	// An unlisted IP is checked and comes back clean (non-nil, not listed).
+	// Unlisted IP checked, comes back clean (non-nil, not listed).
 	rec = do(e, "/?ip=198.51.100.222", map[string]string{"Accept": "application/json"})
 	var clean iptools.Result
 	if err := json.Unmarshal(rec.Body.Bytes(), &clean); err != nil {

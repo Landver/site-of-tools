@@ -6,7 +6,7 @@
 
 ## What it checks
 
-The screen reports a colour depth below 16 bits. No real modern display looks like that; minimal headless or VM environments sometimes do.
+Screen reports colour depth below 16 bits. No real modern display looks like that; minimal headless or VM environments sometimes do.
 
 ## Origin & history
 
@@ -18,8 +18,8 @@ Real-browser probe (`fire-branch-probe.mjs`): overrode `screen.colorDepth` to `8
 
 ## Go scorer coverage
 
-No test references this rule ID directly — coverage, if any, is incidental to a broader table-driven test, not a dedicated assertion.
+No test references this rule ID directly — coverage, if any, incidental to broader table-driven test, not a dedicated assertion.
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["low_color_depth"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go) `ruleExplanations["low_color_depth"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

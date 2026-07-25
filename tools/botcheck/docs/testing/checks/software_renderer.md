@@ -6,15 +6,15 @@
 
 ## What it checks
 
-The WebGL renderer is a software rasteriser (SwiftShader, llvmpipe, …) — what a headless browser without a GPU reports. It also appears on real machines inside VMs or with disabled GPU drivers, so it is strong but not absolute proof.
+WebGL renderer = software rasteriser (SwiftShader, llvmpipe, …) — what headless browser without GPU reports. Also appears on real machines inside VMs or w/ disabled GPU drivers, so strong but not absolute proof.
 
 ## Origin & history
 
-Original day-1 rule (a software WebGL renderer — SwiftShader/llvmpipe/Mesa — is a classic headless tell). Silently neutered for its entire lifetime by the `webglGPU()` collector bug until the 2026-07-19 audit found and fixed it — see the test status above.
+Original day-1 rule (software WebGL renderer — SwiftShader/llvmpipe/Mesa — classic headless tell). Silently neutered its entire lifetime by `webglGPU()` collector bug until 2026-07-19 audit found & fixed it — see test status above.
 
 ## Test status: Fixed
 
-**Was completely dead for every visitor, then fixed.** `webglGPU()`'s undefined-variable bug threw a `ReferenceError` on every request (swallowed by `safe()`), so `webglVendor`/`webglRenderer` came back empty for bot and human alike since launch — this rule never evaluated a single real fingerprint. Fixed same day (2026-07-19) and confirmed live: Playwright's SwiftShader software renderer correctly fired `-40` in the post-fix multi-framework audit.
+**Was completely dead for every visitor, then fixed.** `webglGPU()`'s undefined-variable bug threw `ReferenceError` on every request (swallowed by `safe()`), so `webglVendor`/`webglRenderer` came back empty for bot & human alike since launch — this rule never evaluated a single real fingerprint. Fixed same day (2026-07-19) & confirmed live: Playwright's SwiftShader software renderer correctly fired `-40` in post-fix multi-framework audit.
 
 See findings: [1](../findings/2026-07-19-webglgpu-bug-fixed.md), [2](../findings/2026-07-19-multi-framework-matrix-results.md).
 
@@ -24,4 +24,4 @@ See findings: [1](../findings/2026-07-19-webglgpu-bug-fixed.md), [2](../findings
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["software_renderer"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["software_renderer"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

@@ -17,7 +17,7 @@ import (
 )
 
 // TestHistoryTemplateWithEntries: renders populated ip/history branch direct
-// (Renderer ignores context arg) → catches {{range}} template errs here, not
+// (Renderer ignores context arg) -> catches {{range}} template errs here, not
 // first in prod. Disabled-state tests never hit this branch; no data locally
 // w/o BINs.
 func TestHistoryTemplateWithEntries(t *testing.T) {
@@ -43,7 +43,7 @@ func TestHistoryTemplateWithEntries(t *testing.T) {
 	}
 }
 
-// liveHistoryDB opens dedicated test DB → returns fresh History repo,
+// liveHistoryDB opens dedicated test DB -> returns fresh History repo,
 // registers cleanup so collection never lingers. Skips test if
 // MONGODB_TEST_URI unset (keeps `make test`/CI hermetic).
 func liveHistoryDB(t *testing.T, ctx context.Context) (*iptools.History, *platform.Mongo) {
@@ -64,7 +64,7 @@ func liveHistoryDB(t *testing.T, ctx context.Context) (*iptools.History, *platfo
 	return iptools.NewHistory(ctx, db), m
 }
 
-// waitForRecent polls Recent (Record async) till ≥1 entry lands.
+// waitForRecent polls Recent (Record async) till >=1 entry lands.
 func waitForRecent(t *testing.T, ctx context.Context, h *iptools.History) []iptools.HistoryEntry {
 	t.Helper()
 	for range 40 {
@@ -80,8 +80,8 @@ func waitForRecent(t *testing.T, ctx context.Context, h *iptools.History) []ipto
 	return nil
 }
 
-// TestNewHistoryDisabled: nil db (Mongo off) → nil repo, the nil-safe
-// disabled store → handler needs no Mongo guards.
+// TestNewHistoryDisabled: nil db (Mongo off) -> nil repo, nil-safe
+// disabled store -> handler needs no Mongo guards.
 func TestNewHistoryDisabled(t *testing.T) {
 	if h := iptools.NewHistory(context.Background(), nil); h != nil {
 		t.Fatalf("NewHistory(nil db) = %v, want nil (disabled)", h)
@@ -101,8 +101,8 @@ func TestNilHistoryIsSafe(t *testing.T) {
 	}
 }
 
-// TestHistoryPageDisabled: history off → page renders "off" state; still
-// shows geo/ASN data → carries required IP2Location credit.
+// TestHistoryPageDisabled: history off -> page renders "off" state; still
+// shows geo/ASN data -> carries required IP2Location credit.
 func TestHistoryPageDisabled(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{}), "/history", map[string]string{"Accept": "text/html"})
 	if rec.Code != http.StatusOK {
@@ -129,9 +129,9 @@ func TestHistoryJSONDisabled(t *testing.T) {
 }
 
 // TestHistoryLiveRoundTrip: integration test, runs only if MONGODB_TEST_URI
-// set, else skips → `make test`/CI/fresh clones stay green (mirrors
+// set, else skips -> `make test`/CI/fresh clones stay green (mirrors
 // platform's TestOpenMongoLive). Uses dedicated "site-of-tools-test" DB (see
-// liveHistoryDB) → never touches app's real history, reruns deterministic.
+// liveHistoryDB) -> never touches app's real history, reruns deterministic.
 func TestHistoryLiveRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -148,10 +148,10 @@ func TestHistoryLiveRoundTrip(t *testing.T) {
 	}
 }
 
-// TestHistoryLiveViaHandler: drives real handler vs real Mongo → proves
+// TestHistoryLiveViaHandler: drives real handler vs real Mongo -> proves
 // end-to-end recording gate: browser lookup (text/html, explicit ?ip)
 // persisted, JSON/CLI lookup not. Fake Looker returns same result for any IP
-// → exactly one recorded entry (HTML call) proves JSON path skipped.
+// -> exactly one recorded entry (HTML call) proves JSON path skipped.
 func TestHistoryLiveViaHandler(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

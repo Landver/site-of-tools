@@ -10,20 +10,20 @@ import (
 	"time"
 )
 
-// shodanUserAgent politely identifies our lookups to Shodan / Cloudflare.
+// shodanUserAgent IDs our lookups to Shodan / Cloudflare.
 const shodanUserAgent = "corpberry-iptools/1.0 (+https://ip.corpberry.com)"
 
-// ShodanInfo is what Shodan's free InternetDB knows about one IP: a last-seen
-// snapshot (refreshed ~weekly) of open ports plus light metadata. It is
-// handler-populated on Result — best-effort, NOT set by Lookup — the same shape
-// as Blocklist. Three states a consumer can tell apart:
+// ShodanInfo = what Shodan's free InternetDB knows about one IP: last-seen
+// snapshot (refreshed ~weekly) of open ports + light metadata. Handler-populated
+// on Result — best-effort, NOT set by Lookup — same shape as Blocklist. Three
+// states consumer can tell apart:
 //   - absent on Result (nil)   → not checked (disabled / private IP / errored)
 //   - Found == false           → checked, Shodan has no record (HTTP 404)
 //   - Found == true            → Shodan has data for this IP
 //
-// InternetDB never returns banners or versions, and Vulns are version-INFERRED
-// CVEs (a fingerprinted version is known-affected — NOT confirmed exploitable),
-// so present everything as "last seen by Shodan", not ground truth.
+// InternetDB never returns banners/versions; Vulns are version-INFERRED CVEs
+// (fingerprinted version known-affected — NOT confirmed exploitable), so present
+// everything as "last seen by Shodan", not ground truth.
 type ShodanInfo struct {
 	Found     bool     `json:"found"`
 	Ports     []int    `json:"ports,omitempty"`
@@ -33,24 +33,23 @@ type ShodanInfo struct {
 	Vulns     []string `json:"vulns,omitempty"`
 }
 
-// Shodan is a minimal client for Shodan's free, keyless InternetDB endpoint
+// Shodan = minimal client for Shodan's free, keyless InternetDB endpoint
 // (https://internetdb.shodan.io/<ip>). No API key; free for NON-COMMERCIAL use;
-// attribution required wherever the data is shown (the result card carries it).
-// We call it server-side, live per request, and never store the returned
-// payload — a deliberately compliant posture; see
-// docs/reports/shodan-internetdb-feasibility.md.
+// attribution required wherever data shown (result card carries it). Called
+// server-side, live per req, payload never stored — deliberately compliant
+// posture; see docs/reports/shodan-internetdb-feasibility.md.
 //
-// Nil-safe: a nil *Shodan (disabled — blank SHODAN_INTERNETDB_URL) makes Lookup
-// a no-op returning (nil, nil), so callers need no guard — same shape as a nil
+// Nil-safe: nil *Shodan (disabled — blank SHODAN_INTERNETDB_URL) makes Lookup
+// no-op returning (nil, nil), so callers need no guard — same shape as nil
 // *BlockList / *History.
 type Shodan struct {
 	client  *http.Client
 	baseURL string
 }
 
-// NewShodan builds the InternetDB client. baseURL == "" disables it (returns
-// nil → nil-safe no-op). timeout bounds each lookup so a slow upstream never
-// stalls the page (InternetDB is fast and Cloudflare-cached ~5 days).
+// NewShodan builds InternetDB client. baseURL == "" disables it (returns nil →
+// nil-safe no-op). timeout bounds each lookup so slow upstream never stalls page
+// (InternetDB fast & Cloudflare-cached ~5 days).
 func NewShodan(baseURL string, timeout time.Duration) *Shodan {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -65,8 +64,8 @@ func NewShodan(baseURL string, timeout time.Duration) *Shodan {
 //   - nil receiver (disabled)                  → (nil, nil)
 //   - other status / network / decode error    → (nil, err)
 //
-// The last case returns nil (not a zero ShodanInfo) so the caller OMITS the
-// card rather than implying "no open ports" when we could not actually check.
+// Last case returns nil (not zero ShodanInfo) so caller OMITS card rather than
+// implying "no open ports" when we couldn't actually check.
 func (s *Shodan) Lookup(ctx context.Context, ip string) (*ShodanInfo, error) {
 	if s == nil {
 		return nil, nil
@@ -89,9 +88,9 @@ func (s *Shodan) Lookup(ctx context.Context, ip string) (*ShodanInfo, error) {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		// InternetDB's JSON fields line up 1:1 with ShodanInfo, so decode straight
-		// into it (omitempty affects marshal only, not unmarshal); Found isn't in
-		// the body, so set it. The extra "ip" key is ignored.
+		// InternetDB JSON fields line up 1:1 w/ ShodanInfo, so decode straight into
+		// it (omitempty affects marshal only, not unmarshal); Found not in body, so
+		// set it. Extra "ip" key ignored.
 		var info ShodanInfo
 		if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 			return nil, err

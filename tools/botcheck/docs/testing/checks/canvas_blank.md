@@ -6,15 +6,15 @@
 
 ## What it checks
 
-A canvas draw produced a fully transparent, empty image — the canvas API is blocked or the environment renders nothing. Some privacy tools block canvas reads openly, so it's a soft signal.
+Canvas draw produced fully transparent, empty image — canvas API blocked or environment renders nothing. Some privacy tools block canvas reads openly, so soft signal.
 
 ## Origin & history
 
-Original rule — predates the 2026-07-17 competitor-gap audit (G01+), so there's no G-item shipment story to move here; it was part of the first working scorer.
+Original rule — predates 2026-07-17 competitor-gap audit (G01+), so no G-item shipment story to move here; part of first working scorer.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`fire-branch-probe.mjs`): patched `getImageData` to return an all-zero buffer → fired. Genuine automation with a working canvas stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`fire-branch-probe.mjs`): patched `getImageData` to return all-zero buffer -> fired. Genuine automation w/ working canvas stays `ok`. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): patched `getImageData` to return a
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["canvas_blank"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["canvas_blank"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

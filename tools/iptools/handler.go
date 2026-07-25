@@ -11,28 +11,27 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Looker: handler's dependency, anything that can resolve an IP. *Service
-// satisfies it; tests inject a fake. (nil *Service = valid Looker → returns
-// ErrUnavailable.)
+// Looker: handler dependency, anything resolving IP. *Service satisfies;
+// tests inject fake. (nil *Service = valid Looker → returns ErrUnavailable.)
 type Looker interface {
 	Lookup(ip string) (*Result, error)
 }
 
-// handler: transport-layer deps for the ip.corpberry.com routes.
+// handler: transport-layer deps for ip.corpberry.com routes.
 type handler struct {
 	svc  Looker
-	hist *History   // nil when Mongo disabled — Record/Recent are nil-safe
-	bl   *BlockList // nil when Mongo disabled — Check is nil-safe (G37)
-	sh   *Shodan    // nil when disabled — Lookup is nil-safe (Shodan InternetDB)
+	hist *History   // nil when Mongo disabled — Record/Recent nil-safe
+	bl   *BlockList // nil when Mongo disabled — Check nil-safe (G37)
+	sh   *Shodan    // nil when disabled — Lookup nil-safe (Shodan InternetDB)
 }
 
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
 // (?ip=…), consistent w/ /cidr?cidr=… — no /:ip pretty route. hist may be nil
-// (Mongo off) → /history view simply empty.
+// (Mongo off) → /history view empty.
 //
-//	GET /         an IP's geo/ASN/proxy — the caller's own by default, or ?ip= to look one up
+//	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
-//	GET /history  the most recent user-initiated lookups
+//	GET /history  most recent user-initiated lookups
 func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList, sh *Shodan) {
 	h := &handler{svc: svc, hist: hist, bl: bl, sh: sh}
 	e.GET("/", h.index)
@@ -40,15 +39,15 @@ func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList, sh *Shodan
 	e.GET("/history", h.history)
 }
 
-// index serves the visitor's own IP by default, or ?ip= to look one up. Bare
-// hit w/ no resolvable IP renders empty lookup page to browser, (empty) result
-// fragment to htmx — never a full page into #result slot — and 400 to JSON
-// caller (same contract /cidr follows).
+// index serves visitor's own IP by default, or ?ip= to look one up. Bare hit
+// w/ no resolvable IP renders empty lookup page to browser, (empty) result
+// fragment to htmx — never full page into #result slot — & 400 to JSON caller
+// (same contract /cidr follows).
 func (h *handler) index(c *echo.Context) error {
 	ip := strings.TrimSpace(c.QueryParam("ip"))
 	self := false
 	if ip == "" {
-		// Default to caller's own IP when it's a routable public address
+		// Default to caller's own IP when routable public address
 		// (skips 127.0.0.1 in dev, private ranges, etc.).
 		if own := c.RealIP(); routable(own) {
 			ip, self = own, true
@@ -68,7 +67,7 @@ func (h *handler) index(c *echo.Context) error {
 	return h.show(c, ip, self)
 }
 
-// cidr serves the subnet / CIDR calculator (GET /cidr, ?cidr=…). Pure math, no
+// cidr serves subnet / CIDR calculator (GET /cidr, ?cidr=…). Pure math, no
 // databases → no IP2Location attribution on this page.
 func (h *handler) cidr(c *echo.Context) error {
 	input := strings.TrimSpace(c.QueryParam("cidr"))
@@ -96,10 +95,10 @@ func (h *handler) cidr(c *echo.Context) error {
 	return c.Render(code, "ip/cidr", vm)
 }
 
-// history lists the most recent user-initiated lookups. Content-negotiated like
+// history lists most recent user-initiated lookups. Content-negotiated like
 // rest of tool: JSON for API/CLI, page for browsers. Mongo disabled → repo nil
-// → simply shows empty history. HTML view carries IP2Location credit (displays
-// geo/ASN data from the databases).
+// → shows empty history. HTML view carries IP2Location credit (displays
+// geo/ASN data from databases).
 func (h *handler) history(c *echo.Context) error {
 	const limit = 50
 	entries, err := h.hist.Recent(c.Request().Context(), limit)
@@ -124,25 +123,25 @@ func (h *handler) history(c *echo.Context) error {
 	return c.Render(http.StatusOK, "ip/history", vm)
 }
 
-// show looks up ip and responds in the caller's preferred format. self marks
-// result as visitor's own IP (small label in HTML view).
+// show looks up ip & responds in caller's preferred format. self marks result
+// as visitor's own IP (small label in HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.svc.Lookup(ip)
 	wantsJSON := platform.WantsJSON(c)
 
-	// Record real, user-initiated web lookups for /history view: successful,
+	// Record real user-initiated web lookups for /history view: successful,
 	// not visitor's own auto-looked-up IP (self), from browser UI not JSON
 	// caller — also excludes page's own IPv6 self-probe (requests JSON) + CLI
-	// calls. Record is fire-and-forget + nil-safe → no added latency, no-ops
-	// when Mongo off.
+	// calls. Record fire-and-forget + nil-safe → no added latency, no-ops when
+	// Mongo off.
 	if err == nil && !self && !wantsJSON {
 		h.hist.Record(res)
 	}
 
-	// Enrich w/ abuse/threat reputation from the shared blocklist corpus (G37)
-	// when configured — same corpus botcheck reads, here keyed on the LOOKED-UP
-	// ip so any address can be inspected. Best-effort: a Mongo error leaves
-	// Blocklist nil (row omitted). nil bl (Mongo off) → skip, so the card never
+	// Enrich w/ abuse/threat reputation from shared blocklist corpus (G37)
+	// when configured — same corpus botcheck reads, here keyed on LOOKED-UP ip
+	// so any address can be inspected. Best-effort: Mongo error leaves
+	// Blocklist nil (row omitted). nil bl (Mongo off) → skip, so card never
 	// implies "clean" when we couldn't actually check.
 	if err == nil && h.bl != nil {
 		if lk, e := h.bl.Check(c.Request().Context(), ip); e == nil {
@@ -150,20 +149,20 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		}
 	}
 
-	// Enrich w/ Shodan InternetDB open-port intel for the LOOKED-UP ip when
+	// Enrich w/ Shodan InternetDB open-port intel for LOOKED-UP ip when
 	// configured (free, keyless, non-commercial) — best-effort, live per request,
 	// payload never stored (Shodan's terms; see
 	// docs/reports/shodan-internetdb-feasibility.md). Public addresses only:
-	// InternetDB has nothing for private/loopback, so skip the pointless call. A
-	// network/API error leaves Shodan nil → card omitted, never implying "no open
-	// ports" when we couldn't actually check (same contract as the blocklist row).
+	// InternetDB has nothing for private/loopback, so skip pointless call.
+	// Network/API error leaves Shodan nil → card omitted, never implying "no open
+	// ports" when we couldn't actually check (same contract as blocklist row).
 	if err == nil && h.sh != nil && routable(ip) {
 		if si, e := h.sh.Lookup(c.Request().Context(), ip); e == nil {
 			res.Shodan = si
 		}
 	}
 
-	// API / CLI: raw JSON — geolocation result, or error.
+	// API / CLI: raw JSON — geolocation result or error.
 	if wantsJSON {
 		if err != nil {
 			return c.JSON(statusFor(err), map[string]string{"ip": ip, "error": err.Error()})
@@ -172,8 +171,8 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	}
 
 	// Browser / htmx: view model rendered as full page or fragment.
-	// Attribution: IP2Location LITE's license requires credit on any page using
-	// the databases (see shared/templates/partials/footer.html). Scoped to this
+	// Attribution: IP2Location LITE license requires credit on any page using
+	// databases (see shared/templates/partials/footer.html). Scoped to this
 	// tool via VM flag → apex (no such data) omits it.
 	vm := map[string]any{"Title": "IP Tools", "Active": "lookup", "Query": ip, "Self": self, "Attribution": true}
 	code := http.StatusOK
@@ -182,17 +181,17 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		code = statusFor(err)
 	} else {
 		vm["Result"] = res
-		// Shodan's ToS wants a visible credit wherever their data appears. Gate the
-		// footer credit on this Shodan-specific flag (NOT the shared .Attribution,
+		// Shodan ToS wants visible credit wherever their data appears. Gate
+		// footer credit on this Shodan-specific flag (NOT shared .Attribution,
 		// which botcheck also sets but doesn't use Shodan). True whenever we
-		// consulted InternetDB for this lookup — data found or a clean 404.
+		// consulted InternetDB for this lookup — data found or clean 404.
 		vm["ShodanAttribution"] = res.Shodan != nil
 	}
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
 	}
-	// Full page only — the "your request" card. G38/G44: when visitor looked at
-	// OWN IP, same lookup also enriches card w/ ASN/proxy attribution the shared
+	// Full page only — "your request" card. G38/G44: when visitor looked at
+	// OWN IP, same lookup also enriches card w/ ASN/proxy attribution shared
 	// conn partial renders (lookup of someone else's IP says nothing about this
 	// connection → only self-lookups enrich).
 	conn := platform.Conn(c)
@@ -210,18 +209,17 @@ func statusFor(err error) int {
 	return http.StatusBadRequest
 }
 
-// ConnNetwork maps a lookup result into the shared conn-card network
-// attribution (G38/G44): ASN/AS-name plus proxy type/provider, as the plain
-// strings platform.ConnInfo.WithNetwork expects. THE Result → ConnNetwork
-// mapping, shared by iptools' own handler + botcheck's (whose conn card
-// enriches from same lookup) → two tools can't drift apart.
+// ConnNetwork maps lookup result into shared conn-card network attribution
+// (G38/G44): ASN/AS-name plus proxy type/provider, as plain strings
+// platform.ConnInfo.WithNetwork expects. THE Result → ConnNetwork mapping,
+// shared by iptools' own handler + botcheck's (whose conn card enriches from
+// same lookup) → two tools can't drift apart.
 // Lookup already blanks databases' "-" placeholders via clean(); runs again
-// here so a hand-built Result (tests, fakes) maps same way. Exported method on
-// an exported type, so nil-safe on principle even though neither current
-// caller (this file, botcheck's handler) ever passes nil: nil Result → zero
-// value, no enrichment, card renders plain transport rows — not a live path
-// today, just the same public-API nil-safety this package's other exported
-// methods keep.
+// here so hand-built Result (tests, fakes) maps same way. Exported method on
+// exported type, so nil-safe on principle even though neither current caller
+// (this file, botcheck's handler) ever passes nil: nil Result → zero value, no
+// enrichment, card renders plain transport rows — not a live path today, just
+// same public-API nil-safety this package's other exported methods keep.
 func (r *Result) ConnNetwork() platform.ConnNetwork {
 	if r == nil {
 		return platform.ConnNetwork{}

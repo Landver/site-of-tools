@@ -11,7 +11,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestRealIPExtraction locks in client-IP trust model wired by platform.NewApp
+// TestRealIPExtraction locks client-IP trust model wired by platform.NewApp
 // (cfIPExtractor). Security-relevant → c.RealIP() feeds request log + geo/reputation
 // lookups. No other test builds app via NewApp → regression dropping CF branch,
 // inverting precedence, or trusting X-Forwarded-For from untrusted peer would

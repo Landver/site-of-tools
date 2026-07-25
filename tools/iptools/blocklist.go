@@ -20,90 +20,88 @@ import (
 
 // blocklistCollection: shared IP blocklist in site-of-tools db. Name NOT
 // tool-scoped on purpose — common corpus any service/script/workflow (n8n,
-// rate limiter, manual ban list, the ipsum + Spamhaus DROP syncs below) writes
+// rate limiter, manual ban list, ipsum + Spamhaus DROP syncs below) writes
 // flagged IPs/netblocks into, any consumer reads. botcheck (ip_blocklisted
-// rule) + the IP tool (proxy/blocklist/network card) read it, G37; neither
-// owns it.
+// rule) + IP tool (proxy/blocklist/network card) read it, G37; neither owns it.
 const blocklistCollection = "ip_blocklist"
 
 // blocklistTTL: entry not refreshed within window self-prunes (TTL index on
-// updated_at). Two months per owner spec — long enough a still-listed IP the
-// daily feed syncs keep touching never expires, short enough reputation
-// decays once IP falls off every feed / a one-off ban goes stale. Not a
-// permanent record.
+// updated_at). Two months per owner spec — long enough still-listed IP daily
+// feed syncs keep touching never expires, short enough reputation decays once
+// IP falls off every feed / one-off ban goes stale. Not permanent record.
 const blocklistTTL = 60 * 24 * time.Hour
 
-// blocklistSyncInterval / blocklistSyncSlack: the shared daily-feed cadence
-// every corpus-feeding sync (ipsum.go, spamhaus.go) uses via ShouldSync below.
-// Slack exists because a sync's completion write always lands slightly AFTER
-// the tick that triggered it — guarding on the bare interval skips every
-// other scheduled tick (real cadence ~48h, not 24h). One shared pair, not
-// duplicated per feed, since both feeds want the identical daily cadence.
+// blocklistSyncInterval / blocklistSyncSlack: shared daily-feed cadence every
+// corpus-feeding sync (ipsum.go, spamhaus.go) uses via ShouldSync below. Slack
+// exists b/c sync's completion write always lands slightly AFTER tick that
+// triggered it — guarding on bare interval skips every other scheduled tick
+// (real cadence ~48h, not 24h). One shared pair, not duplicated per feed,
+// since both feeds want identical daily cadence.
 const (
 	blocklistSyncInterval = 24 * time.Hour
 	blocklistSyncSlack    = 1 * time.Hour
 )
 
-// BlocklistSourceIPsum: `source` value the ipsum sync (ipsum.go) stamps.
-// BlocklistSourceSpamhausDROP: `source` value the Spamhaus DROP sync
-// (spamhaus.go) stamps. Both exported — part of the corpus contract: a
-// reader (botcheck) tells the automatic feeds apart from a deliberate ban
-// another service wrote (see botcheck's IPBlocklistDeliberate).
+// BlocklistSourceIPsum: `source` value ipsum sync (ipsum.go) stamps.
+// BlocklistSourceSpamhausDROP: `source` value Spamhaus DROP sync (spamhaus.go)
+// stamps. Both exported — part of corpus contract: reader (botcheck) tells
+// automatic feeds apart from deliberate ban another service wrote (see
+// botcheck's IPBlocklistDeliberate).
 const (
 	BlocklistSourceIPsum        = "ipsum"
 	BlocklistSourceSpamhausDROP = "spamhaus-drop"
 )
 
-// BlockEntry: one row — an IP (or IPv4 netblock) flagged by some source for
-// some reason, immutable created_at + rolling updated_at. Field names = corpus
+// BlockEntry: one row — IP (or IPv4 netblock) flagged by some source for some
+// reason, immutable created_at + rolling updated_at. Field names = corpus
 // public schema: external writers match them (snake_case bson) + use
 // $setOnInsert for created_at so it stays set-once, like Upsert below.
 type BlockEntry struct {
-	// IP: the flagged address for a single-IP entry (ipsum, manual bans, …),
-	// or the CIDR string itself for a netblock entry (Spamhaus DROP) — the
-	// CIDR IS that record's identity, keeping the (ip, source) unique index
-	// meaningful either way. Range-type entries also set RangeStart/RangeEnd;
-	// Check matches them by containment, not by this string.
+	// IP: flagged address for single-IP entry (ipsum, manual bans, …), or the
+	// CIDR string itself for netblock entry (Spamhaus DROP) — CIDR IS that
+	// record's identity, keeping (ip, source) unique index meaningful either
+	// way. Range-type entries also set RangeStart/RangeEnd; Check matches them
+	// by containment, not by this string.
 	IP     string `bson:"ip" json:"ip"`
 	Source string `bson:"source" json:"source"` // what flagged it: "ipsum", "spamhaus-drop", "rate-limiter", "manual", …
 	Reason string `bson:"reason,omitempty" json:"reason,omitempty"`
 	// Count: optional confidence/occurrence count (ipsum: how many of its 30+
 	// lists flag this IP). 0 = source carries no numeric strength — true for
-	// Spamhaus DROP, which is binary presence on a high-confidence curated
-	// list, not a count.
+	// Spamhaus DROP, binary presence on high-confidence curated list, not a
+	// count.
 	Count int `bson:"count,omitempty" json:"count,omitempty"`
-	// RangeStart/RangeEnd: inclusive IPv4 bounds (see IPv4RangeBounds) for a
-	// netblock entry — one document covers a whole CIDR instead of one row per
+	// RangeStart/RangeEnd: inclusive IPv4 bounds (see IPv4RangeBounds) for
+	// netblock entry — one document covers whole CIDR instead of one row per
 	// address (Spamhaus DROP's ~1,669 blocks cover ~15M individual addresses;
-	// expanding to per-IP rows isn't an option). Zero/omitted for a plain
+	// expanding to per-IP rows isn't an option). Zero/omitted for plain
 	// single-IP entry. IPv6 netblocks unsupported — Check's range branch is
 	// IPv4-only.
 	RangeStart uint32 `bson:"range_start,omitempty" json:"range_start,omitempty"`
 	RangeEnd   uint32 `bson:"range_end,omitempty" json:"range_end,omitempty"`
-	// Meta: source-specific extras, so no data lost when a richer feed is
-	// ingested (ipsum stashes its feed timestamp + URL; Spamhaus DROP stashes
-	// its copyright notice + timestamp + terms URL + per-record sblid/rir —
-	// their license requires "the date and copy text remain with the file and
-	// data", which this satisfies literally).
+	// Meta: source-specific extras, so no data lost when richer feed ingested
+	// (ipsum stashes its feed timestamp + URL; Spamhaus DROP stashes its
+	// copyright notice + timestamp + terms URL + per-record sblid/rir — their
+	// license requires "the date and copy text remain with the file and data",
+	// which this satisfies literally).
 	Meta      map[string]any `bson:"meta,omitempty" json:"meta,omitempty"`
 	CreatedAt time.Time      `bson:"created_at" json:"created_at"` // set once, first insert
 	UpdatedAt time.Time      `bson:"updated_at" json:"updated_at"` // refreshed every touch; drives TTL
 }
 
-// BlockLookup: reader's view of all records for one IP, folded to the two facts
-// a consumer scores on — which sources flagged it, highest count any carried.
+// BlockLookup: reader's view of all records for one IP, folded to two facts a
+// consumer scores on — which sources flagged it, highest count any carried.
 type BlockLookup struct {
 	Sources  []string `json:"sources,omitempty"`   // distinct sources with this IP listed
 	MaxCount int      `json:"max_count,omitempty"` // highest Count across those records (0 if none carry one)
 }
 
-// Listed: IP in the corpus at all?
+// Listed: IP in corpus at all?
 func (l BlockLookup) Listed() bool { return len(l.Sources) > 0 }
 
 // SourcesLabel joins the sources for display ("ipsum, rate-limiter").
 func (l BlockLookup) SourcesLabel() string { return strings.Join(l.Sources, ", ") }
 
-// BlockList: repository for the shared IP blocklist corpus — persistence below
+// BlockList: repository for shared IP blocklist corpus — persistence below
 // domain (CLAUDE.md rule #5), same nil-safe shape as iptools.History /
 // botcheck.Corpus / platform.RequestLog. Nil *BlockList = disabled store
 // (Mongo off): every method no-ops / returns zero → callers need no guards.
@@ -111,8 +109,8 @@ type BlockList struct {
 	coll *mongo.Collection
 }
 
-// NewBlockList builds the repo from the app db handle. Nil db (Mongo off) →
-// nil, the nil-safe disabled store.
+// NewBlockList builds the repo from app db handle. Nil db (Mongo off) → nil,
+// the nil-safe disabled store.
 func NewBlockList(db *mongo.Database) *BlockList {
 	if db == nil {
 		return nil
@@ -123,16 +121,16 @@ func NewBlockList(db *mongo.Database) *BlockList {
 // EnsureIndexes creates the three indexes, best-effort + idempotent (safe every
 // startup). Nil-safe.
 //
-//   - TTL on updated_at: the self-prune owner asked for (entries older than
-//     blocklistTTL dropped). First — the load-bearing one.
-//   - unique (ip, source): each source keeps its OWN record per IP/CIDR → the
-//     daily feed syncs never clobber a manual/other-service ban + vice versa
-//     (the "don't lose data" guarantee). Its ip-prefix also serves Check's
+//   - TTL on updated_at: self-prune owner asked for (entries older than
+//     blocklistTTL dropped). First — load-bearing one.
+//   - unique (ip, source): each source keeps its OWN record per IP/CIDR →
+//     daily feed syncs never clobber manual/other-service ban + vice versa
+//     ("don't lose data" guarantee). Its ip-prefix also serves Check's
 //     exact-match branch → no separate ip index.
 //   - sparse (range_start, range_end): serves Check's containment branch.
-//     Sparse because only netblock entries (Spamhaus DROP) carry these fields
-//     — the vast majority (ipsum's ~100k single-IP rows) would otherwise
-//     bloat a non-sparse index for nothing.
+//     Sparse b/c only netblock entries (Spamhaus DROP) carry these fields —
+//     vast majority (ipsum's ~100k single-IP rows) would otherwise bloat a
+//     non-sparse index for nothing.
 func (b *BlockList) EnsureIndexes(ctx context.Context) error {
 	if b == nil {
 		return nil
@@ -157,8 +155,7 @@ func (b *BlockList) EnsureIndexes(ctx context.Context) error {
 // ip/source = "not supplied" → records nothing. created_at written only on
 // first insert ($setOnInsert) → immutable across refreshes; updated_at +
 // mutable fields (reason/count/range/meta) rewritten every call, which also
-// keeps the entry alive vs the TTL. Entry point other Go services call to
-// flag an IP.
+// keeps entry alive vs TTL. Entry point other Go services call to flag an IP.
 func (b *BlockList) Upsert(ctx context.Context, e BlockEntry) error {
 	if b == nil || e.IP == "" || e.Source == "" {
 		return nil
@@ -172,10 +169,10 @@ func (b *BlockList) Upsert(ctx context.Context, e BlockEntry) error {
 }
 
 // UpsertMany applies Upsert semantics to a batch in one unordered BulkWrite —
-// the feed syncs' bulk path. Nil-safe; empty ip/source entries skipped.
-// Returns docs inserted or modified. Driver splits an oversized batch itself,
-// but callers still chunk (see ipsum.go/spamhaus.go) to bound memory + keep
-// one slow write from stalling all.
+// feed syncs' bulk path. Nil-safe; empty ip/source entries skipped. Returns
+// docs inserted or modified. Driver splits oversized batch itself, but callers
+// still chunk (see ipsum.go/spamhaus.go) to bound memory + keep one slow write
+// from stalling all.
 func (b *BlockList) UpsertMany(ctx context.Context, entries []BlockEntry) (int, error) {
 	if b == nil || len(entries) == 0 {
 		return 0, nil
@@ -201,12 +198,12 @@ func (b *BlockList) UpsertMany(ctx context.Context, entries []BlockEntry) (int, 
 	return int(res.UpsertedCount + res.ModifiedCount), err
 }
 
-// Check returns every source with this IP listed + the highest count among
-// them — matching either an exact single-IP entry, or (for a parseable IPv4
-// address) a netblock entry whose [RangeStart, RangeEnd] contains it, so a
+// Check returns every source with this IP listed + highest count among them —
+// matching either exact single-IP entry, or (for parseable IPv4 address) a
+// netblock entry whose [RangeStart, RangeEnd] contains it, so a
 // Spamhaus-DROP-style whole-netblock ban catches every address inside it
-// without one document per address. Nil-safe + empty-ip-safe: both return a
-// zero BlockLookup + nil err → a reader treats "corpus off" + "IP not listed"
+// without one document per address. Nil-safe + empty-ip-safe: both return zero
+// BlockLookup + nil err → reader treats "corpus off" + "IP not listed"
 // identically, never evidence.
 func (b *BlockList) Check(ctx context.Context, ip string) (BlockLookup, error) {
 	if b == nil || ip == "" {
@@ -223,8 +220,8 @@ func (b *BlockList) Check(ctx context.Context, ip string) (BlockLookup, error) {
 			},
 		}}}
 	}
-	// Sort by source so BlockLookup.Sources (and the detail string built from
-	// it) is deterministic across requests, not MongoDB natural order.
+	// Sort by source so BlockLookup.Sources (& detail string built from it) is
+	// deterministic across requests, not MongoDB natural order.
 	cur, err := b.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "source", Value: 1}}))
 	if err != nil {
 		return BlockLookup{}, err
@@ -241,9 +238,9 @@ func (b *BlockList) Check(ctx context.Context, ip string) (BlockLookup, error) {
 	return lk, nil
 }
 
-// LastSync returns the newest updated_at among records from source, or zero
-// time if none. ShouldSync builds on this; call it directly only for a raw
-// read. Nil-safe.
+// LastSync returns newest updated_at among records from source, or zero time
+// if none. ShouldSync builds on this; call it directly only for raw read.
+// Nil-safe.
 func (b *BlockList) LastSync(ctx context.Context, source string) (time.Time, error) {
 	if b == nil {
 		return time.Time{}, nil
@@ -263,14 +260,13 @@ func (b *BlockList) LastSync(ctx context.Context, source string) (time.Time, err
 }
 
 // ShouldSync is the shared staleness guard every daily feed sync (ipsum,
-// Spamhaus DROP, …) calls before downloading: skip only if the last record
-// from source was touched within (blocklistSyncInterval - blocklistSyncSlack)
-// — see that constant's doc for why the slack, not the bare interval, is the
-// threshold. err != nil ⇒ skip=false (caller falls through and tries the
-// download rather than getting stuck never syncing on a transient read
-// error). Nil-safe: never skips on a nil repo (moot in practice — callers
-// return before reaching here on a nil *BlockList — but keeps the method
-// itself safe to call directly).
+// Spamhaus DROP, …) calls before downloading: skip only if last record from
+// source was touched within (blocklistSyncInterval - blocklistSyncSlack) — see
+// that constant's doc for why the slack, not the bare interval, is the
+// threshold. err != nil ⇒ skip=false (caller falls through and tries download
+// rather than getting stuck never syncing on transient read error). Nil-safe:
+// never skips on nil repo (moot in practice — callers return before reaching
+// here on nil *BlockList — but keeps method itself safe to call directly).
 func (b *BlockList) ShouldSync(ctx context.Context, source string) (skip bool, last time.Time, err error) {
 	if b == nil {
 		return false, time.Time{}, nil
@@ -285,26 +281,25 @@ func (b *BlockList) ShouldSync(ctx context.Context, source string) (skip bool, l
 // BlockSyncResult reports one feed sync's outcome (ipsum, Spamhaus DROP, …),
 // for logging/tests. Shared by every feed via syncFeed below — the two feeds
 // this corpus has today, ipsum and Spamhaus DROP, need identical fields, so
-// one type rather than a same-shape type per feed.
+// one type rather than same-shape type per feed.
 type BlockSyncResult struct {
-	Parsed   int       // valid records parsed from the feed
+	Parsed   int       // valid records parsed from feed
 	Written  int       // docs inserted or modified
 	Skipped  bool      // corpus fresh (see ShouldSync) → no download
-	LastSync time.Time // when the corpus was last refreshed (set when Skipped)
+	LastSync time.Time // when corpus was last refreshed (set when Skipped)
 }
 
 // syncFeed is the shared body every daily feed sync runs: skip per ShouldSync
-// if the corpus is fresh, else fetch, parse, and upsert in chunks of
-// chunkSize. fetch and parse are the only feed-specific parts (SyncIPsum/
-// SyncSpamhausDROP are thin wrappers supplying their own). Nil-safe (nil b →
-// zero result, no download — callers never need their own nil check).
+// if corpus fresh, else fetch, parse, and upsert in chunks of chunkSize. fetch
+// and parse are the only feed-specific parts (SyncIPsum/SyncSpamhausDROP are
+// thin wrappers supplying their own). Nil-safe (nil b → zero result, no
+// download — callers never need their own nil check).
 //
-// A PARTIAL prior write (some chunks succeeded, then an error) can read as
-// complete by ShouldSync, so a restart inside the window then skips, leaving
-// un-written entries absent till the next proceeding tick. Accepted: needs a
-// rare mid-batch Mongo failure AND an in-window restart, self-heals next
-// tick, and the 60-day TTL means nothing expires meanwhile — not worth a
-// persisted completion marker.
+// PARTIAL prior write (some chunks succeeded, then error) can read as complete
+// by ShouldSync, so restart inside window then skips, leaving un-written
+// entries absent till next proceeding tick. Accepted: needs rare mid-batch
+// Mongo failure AND in-window restart, self-heals next tick, & 60-day TTL
+// means nothing expires meanwhile — not worth persisted completion marker.
 func (b *BlockList) syncFeed(
 	ctx context.Context, source string, chunkSize int,
 	fetch func(context.Context) (io.ReadCloser, error),
@@ -341,9 +336,9 @@ func (b *BlockList) syncFeed(
 }
 
 // fetchFeed GETs url's body via client. Caller closes it. Non-200 = error
-// (body drained + closed) → an outage never parses as an empty feed + wipes
-// nothing; the caller's next scheduled tick retries. what names the feed in
-// the wrapped error message.
+// (body drained + closed) → outage never parses as empty feed + wipes nothing;
+// caller's next scheduled tick retries. what names the feed in wrapped error
+// message.
 func fetchFeed(ctx context.Context, client *http.Client, url, what string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -363,10 +358,10 @@ func fetchFeed(ctx context.Context, client *http.Client, url, what string) (io.R
 
 // runDailySync runs sync once now (self-skips via ShouldSync if fresh), then
 // on a daily ticker until ctx is cancelled — the shared body every daily feed
-// sync (RunIPsumSync, RunSpamhausDROPSync) uses. Launch as a background
-// goroutine from main. Nil bl (Mongo off) → returns at once, nothing spins.
-// label names the feed in log lines; unit names what Written counts ("IPs",
-// "netblocks"). Best-effort: a failed fetch/write logs + retries next tick.
+// sync (RunIPsumSync, RunSpamhausDROPSync) uses. Launch as background goroutine
+// from main. Nil bl (Mongo off) → returns at once, nothing spins. label names
+// the feed in log lines; unit names what Written counts ("IPs", "netblocks").
+// Best-effort: failed fetch/write logs + retries next tick.
 func runDailySync(ctx context.Context, bl *BlockList, label, unit string, sync func(context.Context, *BlockList) (BlockSyncResult, error)) {
 	if bl == nil {
 		log.Printf("%s blocklist: disabled (no Mongo); skipping periodic sync", label)
@@ -401,8 +396,8 @@ func runDailySync(ctx context.Context, bl *BlockList, label, unit string, sync f
 
 // blocklistUpdate builds the upsert doc shared by Upsert + UpsertMany:
 // created_at only on insert (immutable), everything mutable set every time
-// (refreshes the TTL clock). count/range/meta omitted from $set when empty →
-// a source carrying none of them stamps no nulls.
+// (refreshes TTL clock). count/range/meta omitted from $set when empty →
+// source carrying none of them stamps no nulls.
 func blocklistUpdate(e BlockEntry, now time.Time) bson.D {
 	set := bson.D{
 		{Key: "reason", Value: e.Reason},

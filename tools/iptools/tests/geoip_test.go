@@ -19,7 +19,7 @@ func TestLookupNilService(t *testing.T) {
 }
 
 func TestLookupBadIP(t *testing.T) {
-	// Non-nil Service validates IP before touching any DB handle.
+	// Non-nil Service validates IP before touching DB handle.
 	s := &iptools.Service{}
 	if _, err := s.Lookup("not-an-ip"); err == nil {
 		t.Fatal("expected an error for a malformed IP")
@@ -27,7 +27,7 @@ func TestLookupBadIP(t *testing.T) {
 }
 
 // resolveDB returns p if exists, else tries rel to repo root
-// (test file lives in <root>/iptools/tests/). "" if not found.
+// (test file at <root>/iptools/tests/). "" if not found.
 func resolveDB(p string) string {
 	if p == "" {
 		return ""
@@ -45,7 +45,7 @@ func resolveDB(p string) string {
 }
 
 // TestLookupIntegration exercises real DBs; skips unless IP2LOCATION_* env
-// vars resolve to existing BINs → CI/fresh clones stay green (BINs
+// vars resolve to existing BINs -> CI/fresh clones stay green (BINs
 // gitignored). Run locally:
 //
 //	set -a; . ./.env; set +a; go test ./iptools/tests -run Integration

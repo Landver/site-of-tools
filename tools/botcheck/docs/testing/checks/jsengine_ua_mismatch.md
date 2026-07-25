@@ -6,11 +6,11 @@
 
 ## What it checks
 
-JavaScript engine behaviour (error formats and other V8/SpiderMonkey/JavaScriptCore quirks) disagrees with the engine family the User-Agent claims — the UA lies about the browser, but the JS VM underneath can't.
+JS engine behaviour (error formats & other V8/SpiderMonkey/JavaScriptCore quirks) disagrees w/ engine family the User-Agent claims — UA lies about browser, JS VM underneath can't.
 
 ## Origin & history
 
-**G23**, shipped 2026-07-18 (error-stack half only; Math-result and window/HTMLElement key-set fingerprinting stay deferred, needing per-engine reference tables): fingerprints the JS engine from `Error` stack format (V8's ` at ` frames, SpiderMonkey's proprietary `fileName`/`lineNumber` plus `fn@url` frames, JSC otherwise), compared against the engine the UA claims via the same `engineFromUA` mapping `engine_ua_mismatch` and `productsub_mismatch` use.
+**G23**, shipped 2026-07-18 (error-stack half only; Math-result & window/HTMLElement key-set fingerprinting stay deferred, need per-engine reference tables): fingerprints JS engine from `Error` stack format (V8 ` at ` frames, SpiderMonkey proprietary `fileName`/`lineNumber` plus `fn@url` frames, JSC otherwise), compared vs engine UA claims via same `engineFromUA` mapping `engine_ua_mismatch` & `productsub_mismatch` use.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Real-browser probe (`ua-mismatch-probe.mjs`): UA claimed Firefox, real JS engine
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["jsengine_ua_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go) `ruleExplanations["jsengine_ua_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

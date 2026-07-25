@@ -1,4 +1,4 @@
-// Package botcheck: scores human vs bot look of a visitor's browser, w/
+// Package botcheck: scores human vs bot look of visitor's browser, w/
 // transparent per-signal breakdown, for botcheck.corpberry.com.
 //
 // botcheck.go = domain layer: pure Go, no HTTP, no iptools import. Handler
@@ -47,7 +47,7 @@ type BrandVersion struct {
 
 // ConnectionInfo: v4 navigator.connection sample (G21) — browser's own
 // net-quality estimate. API absent on most Firefox/Safari → zero struct;
-// EffectiveType "" = not supplied, never a signal. netinfo_incoherent
+// EffectiveType "" = not supplied, never signal. netinfo_incoherent
 // cross-checks effectiveType vs rtt/downlink, SAME object (browser derives
 // type from those estimates → spoofed override self-contradicts).
 type ConnectionInfo struct {
@@ -69,7 +69,7 @@ type PermissionSample struct {
 // EnvInfo: v4 collector's additive "env" section (G15/G21) — CSS
 // media-query/display-capability + net/storage API surface. Every field
 // fails-to-absent, zero = not supplied, never evidence. matchmedia_missing +
-// netinfo_incoherent are v4-gated (collectorVTamperV4) → stale v3 collector
+// netinfo_incoherent v4-gated (collectorVTamperV4) → stale v3 collector
 // skips them; rest = entropy in raw dump, never scored — user prefs (colour
 // scheme, forced colours, GPC) + hw caps (gamut, EME) ≠ bot tells.
 type EnvInfo struct {
@@ -149,7 +149,7 @@ type Signals struct {
 	// ── cross-context client signals (G03) ───────────────────────────────────
 	// Navigator values re-read in Web Worker, display:none iframe, Service
 	// Worker — 3 extra JS contexts. Anti-detect tools mostly spoof only top
-	// frame's navigator → context reporting something different = strong
+	// frame's navigator → context reporting differently = strong
 	// consistency tell (Bright Data catch: worker says Linux, top UA says
 	// macOS). Rules need BOTH sides present: ""/0/nil = context silent
 	// (unsupported API, probe timeout), never evidence → skip, don't fire.
@@ -231,14 +231,14 @@ type Signals struct {
 	// FingerprintIPs. Handler-filled from Mongo on POST /check only; 0 = no
 	// corpus data → ip_fingerprint_churn treats as no signal, never evidence.
 	FingerprintChurn int `json:"-"`
-	// IP blocklist (G37), handler-filled from the shared ip_blocklist corpus
+	// IP blocklist (G37), handler-filled from shared ip_blocklist corpus
 	// (ipsum feed + any other service writing flagged IPs). Sources = distinct
-	// sources with this egress IP listed; empty = not listed / corpus off →
+	// sources w/ this egress IP listed; empty = not listed / corpus off →
 	// ip_blocklisted never fires. Count = highest ipsum-style occurrence count
 	// (how many feeds list it), 0 = no counted source. Deliberate = ≥1 source
-	// is a deliberate ban (anything but the ipsum feed) → trusted regardless of
-	// count. Handler computes it (owns the iptools source-name vocab) so the
-	// pure scorer needs no import.
+	// is deliberate ban (anything but ipsum feed) → trusted regardless of
+	// count. Handler computes it (owns iptools source-name vocab) so pure
+	// scorer needs no import.
 	IPBlocklistSources    []string `json:"-"`
 	IPBlocklistCount      int      `json:"-"`
 	IPBlocklistDeliberate bool     `json:"-"`
@@ -322,10 +322,10 @@ func (s Signals) RawJSON() string {
 // FingerprintHash: G41/G42 stable identity of fingerprint's client half —
 // sha256 over canonical stable-field subset: UA, languages,
 // userAgentData.platform, cores, memory, screen+colour depth, timezone,
-// WebGL vendor+renderer, productSub, engine, font count. Subset = what a
+// WebGL vendor+renderer, productSub, engine, font count. Subset = what
 // scraping farm locks cloning one profile: volatile surfaces (window
 // geometry, canvas/audio probes) + server-observed fields excluded → one
-// browser = one hash across visits, two different browsers ≠ collide.
+// browser = one hash across visits, two diff browsers ≠ collide.
 // Pure/deterministic — same Signals in, same hash out — corpus counts
 // distinct IPs/hash. Fields joined w/ unit separator none can contain → no
 // collision by concat.

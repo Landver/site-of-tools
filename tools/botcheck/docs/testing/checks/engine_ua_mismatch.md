@@ -6,15 +6,15 @@
 
 ## What it checks
 
-The page feature-detects the real rendering engine (Blink/Gecko/WebKit) and compares it to the engine the User-Agent claims — a UA string cannot change what the engine actually supports. Only a confident disagreement fires; an engine that can't be identified is no signal.
+Page feature-detects real rendering engine (Blink/Gecko/WebKit) & compares to engine UA claims — UA string cannot change what engine actually supports. Only confident disagreement fires; engine that can't be identified is no signal.
 
 ## Origin & history
 
-**G05**, shipped 2026-07-17: `engineFamily()` feature-detects the real rendering engine independent of the UA string (`-moz-appearance` ⇒ Gecko, `GestureEvent` ⇒ WebKit, `-webkit-app-region`/`webkitRequestFileSystem` ⇒ Blink), compared against the engine `engineFromUA` infers from the claimed User-Agent — robust against a spoofed UA string a parse would otherwise trust.
+**G05**, shipped 2026-07-17: `engineFamily()` feature-detects real rendering engine independent of UA string (`-moz-appearance` ⇒ Gecko, `GestureEvent` ⇒ WebKit, `-webkit-app-region`/`webkitRequestFileSystem` ⇒ Blink), compared against engine `engineFromUA` infers from claimed UA — robust against spoofed UA string a parse would otherwise trust.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`ua-mismatch-probe.mjs`): UA claimed Firefox, real engine stayed Blink → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): UA claimed Firefox, real engine stayed Blink -> fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`ua-mismatch-probe.mjs`): UA claimed Firefox, real engine st
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["engine_ua_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["engine_ua_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

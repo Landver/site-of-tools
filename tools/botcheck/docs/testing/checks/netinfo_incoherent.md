@@ -6,11 +6,11 @@
 
 ## What it checks
 
-navigator.connection derives its effectiveType from the very rtt/downlink estimates it reports, so claiming a faster type than its own numbers imply means the object was overridden by a spoof. Firefox and Safari usually lack this API entirely — a normal absence that reads as no signal here, and a network change mid-read can briefly disagree, so it only counts in a cluster.
+navigator.connection derives effectiveType from the very rtt/downlink estimates it reports -> claiming faster type than its own numbers imply means object overridden by spoof. Firefox & Safari usually lack this API entirely — normal absence, reads as no signal here; network change mid-read can briefly disagree, so counts only in a cluster.
 
 ## Origin & history
 
-**G21**, shipped 2026-07-18 (wave-2, same v4 `env` section as `matchmedia_missing`): `navigator.connection`'s `effectiveType` is derived by the browser from its own `rtt`/`downlink` numbers, so claiming a faster type than those numbers imply means the object was overridden by a spoof — thresholds are graced to tolerate the API's own rounding. Firefox and Safari usually lack this API entirely, a normal absence read as no signal. Deliberately **not** built from the same G21 batch: incognito detection via storage quota (that's G19, separately skipped as unreliable), an rtt-vs-IP-geo cross-check (client RTT measures the same egress path the IP geolocation already describes, so an ordinary VPN user would false-fire it), full Permissions-state enumeration (a two-name sample already carries the entropy at no extra cost), and MediaCapabilities beyond EME ClearKey.
+**G21**, shipped 2026-07-18 (wave-2, same v4 `env` section as `matchmedia_missing`): `navigator.connection`'s `effectiveType` derived by browser from its own `rtt`/`downlink` numbers -> claiming faster type than those numbers imply means object overridden by spoof — thresholds graced to tolerate API's own rounding. Firefox & Safari usually lack this API entirely, normal absence read as no signal. Deliberately **not** built from same G21 batch: incognito detection via storage quota (G19, separately skipped as unreliable); rtt-vs-IP-geo cross-check (client RTT measures same egress path IP geolocation already describes -> ordinary VPN user would false-fire it); full Permissions-state enumeration (two-name sample already carries entropy at no extra cost); MediaCapabilities beyond EME ClearKey.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): `connection` claiming 4g w/ slow-2
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["netinfo_incoherent"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["netinfo_incoherent"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

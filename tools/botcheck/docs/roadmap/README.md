@@ -3,15 +3,15 @@
 "What's next" doc set for `botcheck`, split so reader (human or AI) opens only
 file relevant to question, not one 465-line monolith. Two halves:
 
-1. **Competitor-gap audit** — every capability, signal, technique, and
+1. **Competitor-gap audit** — every capability, signal, technique, &
    reporting feature one+ of twelve researched services provide that our own
    [`botcheck`](../README.md) tool does **not** (or weaker), each rated by
-   value-to-us, effort, and status. Split by category — see table below.
+   value-to-us, effort, & status. Split by category — see table below.
 2. **Internal backlog** ([internal-backlog.md](internal-backlog.md)):
    effort-layered features we want regardless of competitor.
 
-For how tool works today and why designed this way, see
-[`../README.md`](../README.md); for how competitor services work and how our
+For how tool works today & why designed this way, see
+[`../README.md`](../README.md); for how competitor services work & how our
 test browser scored against them, see [`../RESEARCH.md`](../RESEARCH.md).
 
 ## Start here
@@ -48,7 +48,7 @@ Each row in category files carries **`Sev · Effort · Status`**:
   signal we forgot rates higher than DataDome-scale behavioral ML, near-
   worthless at our scale.
 - **Effort** = `trivial` → `low` → `medium` → `high-infra` (needs edge/TLS/packet
-  access) → `ml-or-db` (needs persistence in MongoDB or a trained model).
+  access) → `ml-or-db` (needs persistence in MongoDB or trained model).
 - **Status** = **Not built** (true blind spot) · **Partial** (weaker version) ·
   **Shipped** · **Deferred (documented)** (acknowledged gap, not oversight).
 
@@ -60,18 +60,18 @@ Each row in category files carries **`Sev · Effort · Status`**:
   `datadome`) — see [`../RESEARCH.md`](../RESEARCH.md) for cross-service
   summary.
 - Our **shipped** implementation, read as ground truth (not design doc):
-  [`../../scoring.go`](../../scoring.go) (the 68 detection rules),
-  [`../../botcheck.go`](../../botcheck.go) (the `Signals` struct + scorer),
-  [`../../handler.go`](../../handler.go) (server signals), and
+  [`../../scoring.go`](../../scoring.go) (68 detection rules),
+  [`../../botcheck.go`](../../botcheck.go) (`Signals` struct + scorer),
+  [`../../handler.go`](../../handler.go) (server signals), &
   [`shared/static/js/botcheck.js`](../../../../shared/static/js/botcheck.js)
-  (the vendored collector).
+  (vendored collector).
 
-Each competitor capability compared against that code, and **every claimed gap
+Each competitor capability compared against that code, & **every claimed gap
 verified against real source** to kill false "we don't do X" entries at time
 this audit was written. Snapshot has since moved on as more items shipped
 (recount as of 2026-07-21, after G37 shipped): of 62 items, 31 now
 **Shipped**, 18 genuine blind spots (**Not built**), 13 already acknowledged
-in design docs as **Deferred** (the network-layer four, G26/G27/G29/G30 + G48,
+in design docs as **Deferred** (network-layer four, G26/G27/G29/G30 + G48,
 now confirmed dead ends rather than open infra — see
 [network-layer.md](network-layer.md)), 0 currently carry **Partial** status
 (rows that used to be narrower-form implementations since updated to Shipped as
@@ -79,11 +79,11 @@ work landed — see [changelog.md](changelog.md)).
 
 ## Note on method & confidence
 
-Produced by fan-out over twelve reports (one extractor each), a synthesis pass
-against shipped code, and two independent verification passes: an adversarial
+Produced by fan-out over twelve reports (one extractor each), synthesis pass
+against shipped code, & two independent verification passes: adversarial
 code-verifier that re-read `botcheck/*.go` + collector to reject any false gap
-(rejected none), and a completeness critic that surfaced 13 capabilities first
+(rejected none), & completeness critic that surfaced 13 capabilities first
 pass missed (folded into category files). Severity/effort/status reflect our
 stack's constraints as of this writing; re-check code before acting on any
-single row, since collector and rule set evolve — see
+single row, since collector & rule set evolve — see
 [changelog.md](changelog.md) for what's shipped since.

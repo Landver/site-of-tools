@@ -6,15 +6,15 @@
 
 ## What it checks
 
-A Chromium-family User-Agent whose navigator.vendor isn't 'Google Inc.' — real Chrome, Edge, and Opera all report it. Only fires when a vendor string is present and wrong; forks that drop the field entirely yield no signal.
+Chromium-family User-Agent whose navigator.vendor isn't 'Google Inc.' — real Chrome, Edge, Opera all report it. Fires only when vendor string present & wrong; forks that drop field entirely yield no signal.
 
 ## Origin & history
 
-Internal-backlog Layer 1 item, shipped: a Chromium-family UA whose `navigator.vendor` isn't `"Google Inc."` — real Chrome, Edge, and Opera all report it; forks that drop the field entirely yield no signal rather than a false mismatch.
+Internal-backlog Layer 1 item, shipped: Chromium-family UA whose `navigator.vendor` isn't `"Google Inc."` — real Chrome, Edge, Opera all report it; forks that drop field entirely yield no signal rather than false mismatch.
 
 ## Test status: Verified — fires correctly
 
-Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.vendor` on a Chrome-claiming UA → fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.vendor` on Chrome-claiming UA -> fired. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Real-browser probe (`ua-mismatch-probe.mjs`): overrode `navigator.vendor` on a C
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["vendor_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["vendor_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check behavior changes.

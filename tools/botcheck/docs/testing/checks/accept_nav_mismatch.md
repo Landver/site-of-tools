@@ -6,7 +6,7 @@
 
 ## What it checks
 
-A real browser's navigation/fetch Accept includes text/html; bare API clients send */* or application/json. Legitimate JSON consumers of this tool trip it too — harmless, because one soft signal alone never moves the score.
+A real browser's navigation/fetch Accept includes text/html; bare API clients send */* or application/json. Legitimate JSON consumers of this tool trip it too — harmless, one soft signal alone never moves the score.
 
 ## Origin & history
 
@@ -22,4 +22,4 @@ Curl-verified: `Accept: application/json` fires (expected — JSON callers trip 
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["accept_nav_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["accept_nav_mismatch"]` — same text the live result page shows under this check's "why" expander. Update both together if check behavior changes.

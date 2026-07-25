@@ -10,18 +10,17 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// corpusTTL bounds how long a fingerprint sighting stays: long enough →
-// catch scraping farm rotating proxies within a month, short enough → tool
-// never becomes permanent registry of who visited. Self-prunes via TTL index.
+// corpusTTL bounds how long fingerprint sighting stays: long enough → catch
+// scraping farm rotating proxies within month, short enough → tool never
+// becomes permanent registry of who visited. Self-prunes via TTL index.
 const corpusTTL = 30 * 24 * time.Hour
 
 // corpusCollection: collection in site-of-tools database.
 const corpusCollection = "botcheck_fingerprints"
 
 // corpusEntry: one recorded sighting — this exact fingerprint hash presented
-// from this IP at this time. Deliberately minimal: hash one-way (sha256 over
-// stable client fields; raw fingerprint never stored), IP feeds distinct
-// count, ts drives TTL.
+// from this IP at this time. Minimal: hash one-way (sha256 over stable client
+// fields; raw fingerprint never stored), IP feeds distinct count, ts drives TTL.
 type corpusEntry struct {
 	Hash string    `bson:"hash"`
 	IP   string    `bson:"ip"`
@@ -38,7 +37,7 @@ type Corpus struct {
 }
 
 // NewCorpus builds repository from app database handle. Nil db (Mongo
-// disabled) → returns nil, the nil-safe disabled store.
+// disabled) → returns nil, nil-safe disabled store.
 func NewCorpus(db *mongo.Database) *Corpus {
 	if db == nil {
 		return nil
@@ -59,9 +58,9 @@ func (c *Corpus) EnsureIndexes(ctx context.Context) error {
 // Record persists one fingerprint sighting. Nil-safe; empty hash or IP =
 // "not supplied" → records nothing. Runs on request path (synchronous):
 // handler counts right after recording — pair must stay ordered or current
-// request could miss its own sighting. Volume low (one POST per page view)
-// → single insert fine; error is for tests + callers who care, handler
-// treats a lost record as acceptable.
+// request could miss its own sighting. Volume low (one POST per page view) →
+// single insert fine; error is for tests + callers who care, handler treats
+// lost record as acceptable.
 func (c *Corpus) Record(ctx context.Context, hash, ip string) error {
 	if c == nil || hash == "" || ip == "" {
 		return nil
@@ -71,9 +70,8 @@ func (c *Corpus) Record(ctx context.Context, hash, ip string) error {
 }
 
 // DistinctIPs counts how many different IPs presented this exact fingerprint
-// within retention window — fingerprint_reuse rule's input. Nil-safe:
-// disabled store returns (0, nil), rule treats as "no corpus data", never
-// evidence.
+// within retention window — fingerprint_reuse rule's input. Nil-safe: disabled
+// store returns (0, nil), rule treats as "no corpus data", never evidence.
 func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
 	if c == nil {
 		return 0, nil
@@ -89,7 +87,7 @@ func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
 // presented within given rolling window — ip_fingerprint_churn rule's input,
 // temporal inverse of DistinctIPs (reuse = one fingerprint from many IPs;
 // churn = many fingerprints from one IP). Normal address shows one or few
-// (household's devices); single address cycling many distinct fingerprints in
+// (household devices); single address cycling many distinct fingerprints in
 // minutes = randomising automation client or busy shared egress. Nil-safe +
 // empty-ip-safe: both return (0, nil), rule treats as "no corpus data", never
 // evidence. Window passed in (not package constant) → domain layer owns churn

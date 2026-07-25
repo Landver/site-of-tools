@@ -1,7 +1,7 @@
 # IP tools (`ip.corpberry.com`)
 
-Small suite of IP-related tools on one subdomain, `ip.corpberry.com`. Three
-pages today, switched by sub-nav:
+Suite of IP tools on one subdomain, `ip.corpberry.com`. Three pages today,
+switched by sub-nav:
 
 - **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; bare visit
   also inspects *your own* connection (see [Endpoints](#endpoints)).
@@ -10,8 +10,7 @@ pages today, switched by sub-nav:
   MongoDB (see [Lookup history](#lookup-history)); degrades to empty page when
   Mongo off.
 
-This is tool's design + reference doc. Straight application of layered request
-pattern in
+Tool's design + reference doc. Layered request pattern from
 [ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
 sibling that [`botcheck`](../../botcheck/docs/README.md) borrows its
 server-side IP layer from.
@@ -50,16 +49,16 @@ RSS observed), not full in-memory load.
 `ip2location-go/v9` reads **both** DB11 and ASN BINs (no separate ASN module);
 IP2Proxy is **separate** package, `ip2proxy-go/v4`. Key facts (verified):
 
-- **Open once at startup, share the handle.** `*DB` is goroutine-safe (reads go
+- **Open once at startup, share the handle.** `*DB` goroutine-safe (reads go
   through positional `ReadAt`, no shared offset, no globals). Never open per
   request; never use deprecated package-level `Open()/Close()` — use `OpenDB()`.
 - **No mmap, no full load into RAM.** `OpenDB` reads on demand via `ReadAt`;
   200 MB+ BIN costs ~no Go heap (served from OS page cache).
-- **IPv4 vs IPv6:** v4 BIN answers v4 only; v6 BIN answers **both**. We open all
-  four geo handles and route by address family.
-- **Proxy is optional + best-effort.** When `IP2PROXY_PX12` set, `OpenService`
+- **IPv4 vs IPv6:** v4 BIN answers v4 only; v6 BIN answers **both**. Open all
+  four geo handles, route by address family.
+- **Proxy optional + best-effort.** When `IP2PROXY_PX12` set, `OpenService`
   also opens single PX12 BIN (answers v4 + v6, same `ReadAt`, ~9 MB RSS); failed
-  proxy lookup returns `nil`, simply omits section.
+  proxy lookup returns `nil`, omits section.
 
 ```go
 // iptools/geoip.go — pure domain, no HTTP.
@@ -81,7 +80,7 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 }
 ```
 
-`Result` is plain struct transport layer renders as HTML or JSON. Missing DBs
+`Result` = plain struct transport layer renders as HTML or JSON. Missing DBs
 non-fatal: `OpenService` returns `ErrUnavailable`, server still boots, tool
 shows friendly message. Handler depends on small `Looker` interface
 (`Lookup(string) (*Result, error)`) so tests inject a fake — no BINs needed.
@@ -98,8 +97,8 @@ under `proxy` in JSON, shown as separate "proxy / network" card in HTML.
 
 Every view content-negotiated
 ([ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this)):
-browsers and htmx get HTML, everyone else gets JSON. Lookups are **query-param
-only** (`?ip=…`), consistent with `/cidr?cidr=…` — no `/:ip` pretty route.
+browsers & htmx get HTML, everyone else JSON. Lookups **query-param only**
+(`?ip=…`), consistent w/ `/cidr?cidr=…` — no `/:ip` pretty route.
 
 | Request | Response |
 |---------|----------|
@@ -122,76 +121,76 @@ $ curl 'https://ip.corpberry.com/cidr?cidr=192.168.1.0/24'
 ```
 
 IP-lookup form uses `hx-get="/"` (→ `GET /?ip=…`, `hx-target="#result"`) for
-partial swap; subnet calculator is plain GET form — calculator is stateless
+partial swap; subnet calculator = plain GET form — calculator stateless
 input → output, full render enough (no htmx, per CLAUDE.md rule 4).
 
 **Connection inspector** (the "your request" card): server-computed request
-facts — resolved IP and how derived (Cloudflare / X-Forwarded-For / direct),
-scheme, host, User-Agent, language. TLS and HTTP version omitted (terminate
+facts — resolved IP & how derived (Cloudflare / X-Forwarded-For / direct),
+scheme, host, User-Agent, language. TLS & HTTP version omitted (terminate
 upstream); `Cookie`/`Authorization` never read. When visitor looks at own IP
-(bare visit), same lookup also enriches card with ASN and proxy/VPN
-attribution (`Result.ConnNetwork()` → `platform.ConnInfo.WithNetwork` —
-mapping botcheck's card shares). `ip.corpberry.com` is DNS-only in Cloudflare
-today, so requests arrive via nginx's `X-Forwarded-For`.
+(bare visit), same lookup also enriches card w/ ASN & proxy/VPN attribution
+(`Result.ConnNetwork()` → `platform.ConnInfo.WithNetwork` — mapping botcheck's
+card shares). `ip.corpberry.com` DNS-only in Cloudflare today, so requests
+arrive via nginx's `X-Forwarded-For`.
 
-**IPv6 check** is the one genuinely client-side piece: only browser can prove
-working IPv6 path (by fetching IPv6-only host), so it isn't in JSON — by
-nature, not omission.
+**IPv6 check** = the one genuinely client-side piece: only browser can prove
+working IPv6 path (by fetching IPv6-only host), so not in JSON — by nature,
+not omission.
 
 ## Shodan InternetDB (open ports)
 
-A best-effort enrichment card showing what the internet **already knows** is open
-on the looked-up IP, from Shodan's free **InternetDB** endpoint
-(`https://internetdb.shodan.io/<ip>`). This is *not* a scanner: it's a
-last-seen snapshot Shodan refreshes ~weekly, so the card is framed as
-"last seen by Shodan", never a live probe. Full feasibility/ToS/limits writeup:
+Best-effort enrichment card showing what internet **already knows** is open
+on looked-up IP, from Shodan's free **InternetDB** endpoint
+(`https://internetdb.shodan.io/<ip>`). *Not* a scanner: last-seen snapshot
+Shodan refreshes ~weekly, so card framed as "last seen by Shodan", never a
+live probe. Full feasibility/ToS/limits writeup:
 [`reports/shodan-internetdb-feasibility.md`](reports/shodan-internetdb-feasibility.md).
 
 - **Client** (`shodan.go`, `Shodan` type): keyless GET, no account. Same nil-safe
-  shape as `History`/`BlockList` — a nil `*Shodan` (blank `SHODAN_INTERNETDB_URL`)
-  makes `Lookup` a no-op. Config: `SHODAN_INTERNETDB_URL` (default the live
+  shape as `History`/`BlockList` — nil `*Shodan` (blank `SHODAN_INTERNETDB_URL`)
+  makes `Lookup` a no-op. Config: `SHODAN_INTERNETDB_URL` (default live
   endpoint; blank disables).
-- **Wiring** mirrors the G37 blocklist enrichment: `handler.show` populates
-  `Result.Shodan` for the LOOKED-UP ip (public addresses only — private/loopback
-  have no InternetDB data), best-effort. `Lookup` returns the enrichment; **it is
-  never set by the domain `Lookup`** (the geo/ASN path), so it's a transport-layer
-  concern like `Blocklist`.
-- **Three states**, like the blocklist row: `Result.Shodan == nil` = not checked
+- **Wiring** mirrors G37 blocklist enrichment: `handler.show` populates
+  `Result.Shodan` for LOOKED-UP ip (public addresses only — private/loopback
+  have no InternetDB data), best-effort. `Lookup` returns the enrichment; **never
+  set by domain `Lookup`** (geo/ASN path), so transport-layer concern like
+  `Blocklist`.
+- **Three states**, like blocklist row: `Result.Shodan == nil` = not checked
   (disabled / private IP / API error → card omitted, never implies "clean");
   `Found == false` = checked, Shodan has no record (HTTP 404 → "no open ports on
   record"); `Found == true` = ports + hostnames/CPEs/tags/CVEs.
 - **Called server-side, live per request, payload never stored** — deliberately:
-  Shodan's terms restrict redistributing/caching their Content, and a 5-day
+  Shodan's terms restrict redistributing/caching their Content, & 5-day
   Cloudflare cache upstream makes repeat lookups cheap. Do **not** extend the
   Mongo lookup history to persist InternetDB responses.
-- **Attribution** (required by Shodan's ToS): the shared footer carries a
-  © Shodan credit — like the IP2Location LITE and Spamhaus credits — gated on a
+- **Attribution** (required by Shodan's ToS): shared footer carries a
+  © Shodan credit — like IP2Location LITE & Spamhaus credits — gated on a
   Shodan-specific `.ShodanAttribution` flag `handler.show` sets when a lookup
-  actually consulted InternetDB, so it never shows on botcheck (which sets
-  `.Attribution` but doesn't use Shodan). The card additionally names Shodan as
-  the source with a freshness note. Text-only, no logo. Non-commercial use only.
-- **Caveats surfaced in the UI:** data is ~weekly-stale, most home/residential IPs
-  return nothing (404), and `vulns` are version-INFERRED CVEs (not confirmed
+  actually consulted InternetDB, so never shows on botcheck (which sets
+  `.Attribution` but doesn't use Shodan). Card additionally names Shodan as
+  source w/ freshness note. Text-only, no logo. Non-commercial use only.
+- **Caveats surfaced in UI:** data ~weekly-stale, most home/residential IPs
+  return nothing (404), `vulns` are version-INFERRED CVEs (not confirmed
   exploitable).
 
 ## Lookup history
 
 `GET /history` lists most recent lookups run from tool. First MongoDB-backed
-feature here, straight application of rule #5: persistence lives *below*
-domain in a repository (`history.go`, `History` type), not in handler.
+feature here, application of rule #5: persistence lives *below* domain in a
+repository (`history.go`, `History` type), not in handler.
 
 - **Storage.** One document per lookup in `ip_lookups` collection: queried IP,
   its country/city/ASN, `created_at`. TTL index (via
-  `platform.EnsureTTLIndex`, 90 days) self-prunes, so never grows unbounded,
+  `platform.EnsureTTLIndex`, 90 days) self-prunes, so never grows unbounded;
   same index serves newest-first sort — no second index.
 - **What gets recorded.** Only *user-initiated web* lookups: successful,
   explicit `?ip=` query from browser UI. Deliberately excludes visitor's own
-  auto-lookup (bare `/` visit and IPv6 self-probe, which requests JSON) and
+  auto-lookup (bare `/` visit & IPv6 self-probe, which requests JSON) &
   CLI/JSON callers — so `/history` shows what people chose to look up, not
   everyone's own address.
 - **Off the request path.** `Record` writes in background goroutine, so
-  recording never adds latency to (or can fail) lookup visitor is waiting on.
-- **Degrades to nothing.** With Mongo disabled repository is `nil`;
+  recording never adds latency to (or can fail) lookup visitor waits on.
+- **Degrades to nothing.** With Mongo disabled repository = `nil`;
   `/history` renders empty "history is off" state, JSON returns
   `{"lookups":[]}` — same nil-safe contract as absent geo database.
 - **Replay.** Each row's IP links back to `/?ip=…`, past lookup re-runs in one
@@ -203,11 +202,11 @@ part of this tool. See [ARCHITECTURE §10](../../../docs/ARCHITECTURE.md#10-out-
 
 ## Abuse protection
 
-None in v1. Rate limiting deferred with other stateful concerns: **MongoDB now
+None in v1. Rate limiting deferred w/ other stateful concerns: **MongoDB now
 wired** (shared client in `platform/`, now used by this tool for lookup
 history), so build-it call rather than blocked one — public endpoint, revisit
 rate limiting when worth it. `IPExtractor` already wired, so both request logs
-and request-log corpus show real client IP.
+& request-log corpus show real client IP.
 
 ## Attribution (required)
 
@@ -218,7 +217,7 @@ of this database"*. Exact acknowledgment it mandates:
 > [site or product name] uses the IP2Location LITE database for
 > [IP geolocation](https://lite.ip2location.com).
 
-We render that verbatim in shared footer, but **gated on `.Attribution`
+Rendered verbatim in shared footer, but **gated on `.Attribution`
 view-model flag** set only by this tool's handler — shows on IP tool pages
 (which use databases), omitted on apex, which doesn't use or mention data,
 falls outside clause. IP2Proxy LITE carries same acknowledgment wording, one

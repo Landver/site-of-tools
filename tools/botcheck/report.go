@@ -7,18 +7,18 @@ import (
 
 // report.go: presentation helpers template renders on top of scored Report —
 // per-signal explanations (G55) + detected-environment line (G56). Nothing here
-// changes scoring → pure read-only views over what Evaluate already computed.
+// changes scoring → read-only views over what Evaluate computed.
 
-// Explanation: G55 per-signal write-up — what check looks at, why it fires,
-// known limitation. Candor = what makes transparency tool trustworthy. "" for
-// unknown rule ID (e.g. check added w/o map entry) → template hides "why" expander.
+// Explanation: G55 per-signal write-up — what check looks at, why fires, known
+// limitation. Candor = what makes transparency tool trustworthy. "" for unknown
+// rule ID (e.g. check added w/o map entry) → template hides "why" expander.
 func (c Check) Explanation() string { return ruleExplanations[c.ID] }
 
-// ruleExplanations maps every rule ID → one or two plain sentences. Covers full
-// current rule set + IDs reserved for rules being built in parallel (inert till
-// those rules land). Kept as map beside template-facing accessor, not field on
-// rule → write-ups live in one reviewable block; report_internal_test.go asserts
-// no rule lacks one.
+// ruleExplanations maps every rule ID → one/two plain sentences. Covers full
+// current rule set + IDs reserved for rules built in parallel (inert till those
+// rules land). Map beside template-facing accessor, not field on rule →
+// write-ups in one reviewable block; report_internal_test.go asserts no rule
+// lacks one.
 var ruleExplanations = map[string]string{
 	// ── Hard tells ────────────────────────────────────────────────────────────
 	"webdriver":         "navigator.webdriver is the W3C-standard flag a browser sets when it is driven by automation (Selenium, Puppeteer, Playwright). A human's browser never sets it — but a well-patched bot can delete the property, so a clean value proves nothing.",
@@ -99,12 +99,12 @@ var ruleExplanations = map[string]string{
 }
 
 // Environment names detected browsing environment in one short human line
-// (G56) — the credibility flex: "Chrome 125 · macOS · Blink", "Firefox 128 ·
+// (G56) — credibility flex: "Chrome 125 · macOS · Blink", "Firefox 128 ·
 // Windows · Gecko", "Electron 32.1.1 (embedded Chromium)". Parses only
 // client-reported UA (NavMainUA), reuses same osFromUA/engineFromUA vocab rules
-// use, returns "" when can't tell → template hides line then. Every part
-// independently omittable: unparseable OS or engine just drops its segment,
-// never guesses.
+// use, returns "" when can't tell → template hides line. Every part
+// independently omittable: unparseable OS or engine drops its segment, never
+// guesses.
 func (s Signals) Environment() string {
 	ua := s.NavMainUA
 	if ua == "" {
@@ -129,7 +129,7 @@ func (s Signals) Environment() string {
 
 // embeddedEnvironment names embedded runtime from its UA token, w/ version
 // when UA carries one ("Electron/32.1.1" → "Electron 32.1.1") — Fingerprint-
-// style naming. All embedded runtimes we recognise wrap Chromium engine, hence
+// style naming. All recognised embedded runtimes wrap Chromium engine, hence
 // uniform suffix. "" when UA holds no embedded-runtime token.
 func embeddedEnvironment(ua string) string {
 	tok := embeddedRuntimeToken(ua)
@@ -145,7 +145,7 @@ func embeddedEnvironment(ua string) string {
 		"nwjs":        "NW.js",
 	}[strings.ToLower(tok)]
 	if !ok {
-		return "" // a token with no display name: can't tell, don't guess
+		return "" // token w/ no display name: can't tell, don't guess
 	}
 	if v := uaTokenVersion(ua, tok); v != "" {
 		name += " " + v
@@ -157,12 +157,12 @@ func embeddedEnvironment(ua string) string {
 // Order matters: Edge/Opera UAs also carry "Chrome/", iOS browsers carry
 // "Safari/", real Safari version lives in "Version/" token, not "Safari/"
 // (engine build). ok=false when no known browser token appears → callers treat
-// as "can't tell".
+// as can't tell.
 func browserNameVersion(ua string) (string, bool) {
 	for _, b := range []struct{ token, name string }{
 		{"Edg/", "Edge"},
 		{"OPR/", "Opera"},
-		{"CriOS/", "Chrome"},  // iOS Chrome (WebKit under the hood — the engine segment says so)
+		{"CriOS/", "Chrome"},  // iOS Chrome (WebKit under hood — engine segment says so)
 		{"FxiOS/", "Firefox"}, // iOS Firefox, same
 		{"Firefox/", "Firefox"},
 		{"Chromium/", "Chromium"},
@@ -185,7 +185,7 @@ func browserNameVersion(ua string) (string, bool) {
 }
 
 // engineDisplay maps internal engine vocab → display names. "" for unknown
-// case → segment just drops out of environment line.
+// case → segment drops out of environment line.
 func engineDisplay(engine string) string {
 	switch engine {
 	case "blink":
@@ -210,7 +210,7 @@ func uaTokenMajor(ua, token string) int {
 
 // uaTokenVersion parses full dotted version of UA token, case-insensitive
 // ("Electron/32.1.1" ⇒ "32.1.1"). "" ⇒ absent. Used for embedded runtimes,
-// where whole version string is credibility flex, not just major.
+// where whole version string is credibility flex, not major alone.
 func uaTokenVersion(ua, token string) string {
 	i := strings.Index(strings.ToLower(ua), strings.ToLower(token)+"/")
 	if i < 0 {

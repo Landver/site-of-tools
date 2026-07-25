@@ -2,13 +2,12 @@
 
 *(part of the [roadmap index](README.md))*
 
-The `Not built` / `Partial` items at `trivial`/`low` effort with real value to
-a self-test tool — **all ten are shipped as of 2026-07-17** (quick-win program
-complete; open work starts at the medium-effort / infra / DB-backed rows in
-the [category files](README.md#category-files-the-gap-audit-by-section)).
-This table was the original "why it's cheap" plan; each item's actual
-implementation now lives in its check file instead of being restated here
-twice.
+`Not built` / `Partial` items at `trivial`/`low` effort w/ real value to
+self-test tool — **all ten shipped as of 2026-07-17** (quick-win program
+complete; open work starts at medium-effort / infra / DB-backed rows in
+[category files](README.md#category-files-the-gap-audit-by-section)).
+This table = original "why it's cheap" plan; each item's actual
+impl now lives in its check file, not restated here twice.
 
 | # | Quick win | Effort | Check(s) |
 |---|---|---|---|

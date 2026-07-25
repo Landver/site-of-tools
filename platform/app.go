@@ -1,6 +1,5 @@
 // Package platform: shared engine — app factory, template renderer + content
-// negotiation, embedded/disk asset toggle. Knows nothing about individual
-// tools.
+// negotiation, embedded/disk asset toggle. Knows nothing about individual tools.
 package platform
 
 import (
@@ -20,7 +19,7 @@ import (
 // NewApp builds fresh *echo.Echo w/ shared setup every subdomain uses:
 // renderer, middleware, Cloudflare-aware IP extraction, static serving. reqlog
 // = shared request-log corpus (one store across all subdomains); nil disables
-// persistence → middleware then just logs to slog, as before.
+// persistence → middleware then logs to slog only, as before.
 func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Echo {
 	e := echo.New()
 	e.Renderer = r
@@ -48,8 +47,8 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	return e
 }
 
-// SubFS returns filesystem rooted at sub: live disk (devDir) in dev, else
-// embedded tree w/ sub prefix stripped.
+// SubFS returns FS rooted at sub: live disk (devDir) in dev, else embedded tree
+// w/ sub prefix stripped.
 func SubFS(embedded fs.FS, sub, devDir string, dev bool) fs.FS {
 	if dev {
 		return os.DirFS(devDir)
@@ -62,13 +61,13 @@ func SubFS(embedded fs.FS, sub, devDir string, dev bool) fs.FS {
 }
 
 // cfIPExtractor prefers Cloudflare's CF-Connecting-IP, then trusted
-// X-Forwarded-For chain, then socket address. CF-Connecting-IP trusted
-// unconditionally: ingress trust enforced at network layer (app published
-// only behind nginx, which sits behind Cloudflare — see DEPLOYMENT.md §4) →
-// no in-process peer check needed, direct client can't reach it to forge
-// header. X-Forwarded-For chain, by contrast, peer-verified here via
-// TrustLoopback/TrustPrivateNet. In dev no proxy exists → both fall through
-// to RemoteAddr.
+// X-Forwarded-For chain, then socket addr. CF-Connecting-IP trusted
+// unconditionally: ingress trust enforced at network layer (app published only
+// behind nginx, which sits behind Cloudflare — see DEPLOYMENT.md §4) → no
+// in-process peer check needed, direct client can't reach it to forge header.
+// X-Forwarded-For chain, by contrast, peer-verified here via
+// TrustLoopback/TrustPrivateNet. In dev no proxy exists → both fall through to
+// RemoteAddr.
 func cfIPExtractor() echo.IPExtractor {
 	xff := echo.ExtractIPFromXFFHeader(
 		echo.TrustLoopback(true),
@@ -89,10 +88,10 @@ func cfIPExtractor() echo.IPExtractor {
 // requestLogger is built-in v5 RequestLogger trimmed to fields we care about:
 // slog line drops user_agent + request_id, puts status before uri (slog still
 // prepends time/level/msg). One attribute list serves both success + error
-// cases (error appends its own field). When reqlog non-nil, also persists
-// each request (minus static assets) to Mongo corpus — reuses values this
-// middleware already captures rather than adding 2nd pass; corpus does keep
-// user_agent even though slog line omits it.
+// cases (error appends its own field). When reqlog non-nil, also persists each
+// request (minus static assets) to Mongo corpus — reuses values this middleware
+// already captures rather than adding 2nd pass; corpus keeps user_agent even
+// though slog line omits it.
 func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 	return middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogLatency:       true,

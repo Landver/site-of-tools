@@ -7,7 +7,7 @@ Per next-steps.md item 3, fetched current source of
 `berstend/puppeteer-extra`'s `packages/puppeteer-extra-plugin-stealth/evasions/`
 from GitHub (plugin version tested in
 [multi-framework matrix results](2026-07-19-multi-framework-matrix-results.md),
-2.11.2). `_utils/index.js` is shared helper nearly every evasion module
+2.11.2). `_utils/index.js` = shared helper nearly every evasion module
 builds on, explains all four dead probes at once — none of it
 stealth-specific cleverness anymore, just small, generic, well-tested
 utility library:
@@ -15,11 +15,11 @@ utility library:
 - **`stripProxyFromErrors`** wraps every Proxy trap in try/catch, rewrites
   any thrown error's `.stack` to strip Proxy's own frames, anchored on
   hardcoded V8 stack-frame string
-  (`` at Object.newHandler.<computed> [as ${trap}]  ``, with blacklist
+  (`` at Object.newHandler.<computed> [as ${trap}]  ``, w/ blacklist
   fallback). Defeats stack-trace-based Proxy detection — presumably
   mechanism behind now-dead `native_callnew_tamper`.
-- **`patchToString`/`redirectToString`** make every patched function's
-  `.toString()` report `[native code]` correctly, including
+- **`patchToString`/`redirectToString`** make every patched fn's
+  `.toString()` report `[native code]` correctly, incl.
   self-referential edge case (calling `.toString()` on
   `Function.prototype.toString` itself resolves via dedicated branch).
   Defeats `tostring_proxy`.
@@ -35,24 +35,24 @@ utility library:
   plugin's `beforeLaunch` hook just appends
   `--disable-blink-features=AutomationControlled` to launch args. Nothing
   at JS layer for prototype-walk probe to catch in modern Chrome; whole
-  evasion happens before page ever loads.
+  evasion happens before page loads.
 - **`chrome.runtime`**'s evasion (`evasions/chrome.runtime/index.js`) only
   activates when `'runtime' in window.chrome` already false *and* origin
   secure (HTTPS) — meaning presence/absence of `chrome.runtime` was never
   a reliable signal even in principle: stealth fakes it perfectly (real
   captured `STATIC_DATA`, correctly-erroring `sendMessage`/`connect`
-  mocks) exactly when it would otherwise be missing, no-op when it's
-  already there. Reframes the `chrome_runtime_tamper` question (full
+  mocks) exactly when it would otherwise be missing, no-op when
+  already there. Reframes `chrome_runtime_tamper` question (full
   investigation: [checks/chrome_runtime_tamper.md](../checks/chrome_runtime_tamper.md)):
-  even a fully organic sample resolving "absent on real Chrome too" wouldn't
-  make presence-checking safe against a stealth-equipped adversary, only
-  against a naive one.
+  even fully organic sample resolving "absent on real Chrome too" wouldn't
+  make presence-checking safe vs stealth-equipped adversary, only
+  vs naive one.
 
 **One concrete, untested idea for sharper probe:** `stripProxyFromErrors`
 does single anchor-based splice per stack trace — finds one anchor line,
 removes everything above it. Probe triggering *two* nested proxy-trap
 throws in one call (trap that, while throwing, itself touches second
-patched property) could plausibly produce stack with proxy artifacts on
+patched property) could plausibly produce stack w/ proxy artifacts on
 both sides of single anchor, which current single-pass stripping wouldn't
-fully clean. Not yet built or verified against live stealth session —
+fully clean. Not yet built or verified vs live stealth session —
 next-steps.md item 3 still open.

@@ -6,18 +6,18 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// ConnInfo is "your request" inspector's view of current request — pure
-// transport metadata, no domain lookup. TLS + visitor's HTTP version absent:
-// terminate at Cloudflare/nginx, unknowable here. Cookie + Authorization
-// never read, on purpose. Shared by every tool's page → inspector renders
-// identical across subdomains (see partials/conn).
+// ConnInfo = "your request" inspector's view of current req — pure transport
+// metadata, no domain lookup. TLS + visitor's HTTP version absent: terminate
+// at Cloudflare/nginx, unknowable here. Cookie + Authorization never read, on
+// purpose. Shared by every tool's page → inspector renders identical across
+// subdomains (see partials/conn).
 //
 // Last four fields = G38/G44 network attribution: optional, filled via
-// WithNetwork by tool that also ran IP lookup (iptools always does;
-// botcheck when its service up). platform never imports tool's domain
-// package → enrichment arrives as plain strings. Zero values render
-// nothing → tools that never call WithNetwork, or whose lookup lacks
-// data, render same six transport rows as always.
+// WithNetwork by tool that also ran IP lookup (iptools always does; botcheck
+// when its service up). platform never imports tool's domain package →
+// enrichment arrives as plain strings. Zero values render nothing → tools that
+// never call WithNetwork, or whose lookup lacks data, render same six transport
+// rows as always.
 type ConnInfo struct {
 	IP       string // resolved client IP (c.RealIP())
 	Via      string // how the IP was derived: Cloudflare / X-Forwarded-For / direct
@@ -34,8 +34,8 @@ type ConnInfo struct {
 
 // ConnNetwork carries lookup-derived half of inspector (G38/G44) as plain
 // strings → platform stays decoupled from iptools (imports platform, never
-// reverse). ProxyType = raw IP2Proxy type code; WithNetwork maps it to
-// readable ProxyKind.
+// reverse). ProxyType = raw IP2Proxy type code; WithNetwork maps to readable
+// ProxyKind.
 type ConnNetwork struct {
 	ASN       string // IP2Location ASN number ("12345"); blank when unresolved
 	ASName    string // IP2Location AS name / ISP; blank when unresolved
@@ -57,9 +57,8 @@ func (ci ConnInfo) WithNetwork(n ConnNetwork) ConnInfo {
 
 // ProxyKindLabel maps IP2Proxy proxy-type code to readable name. Code
 // vocabulary fixed by PX12 database project bundles (see ip2proxy-go binding
-// docs); unfamiliar code surfaced verbatim rather than hidden → future PX
-// build w/ new type still shows *something*. "" stays "" — no proxy data,
-// no row.
+// docs); unfamiliar code surfaced verbatim, not hidden → future PX build w/ new
+// type still shows *something*. "" stays "" — no proxy data, no row.
 func ProxyKindLabel(code string) string {
 	if label, ok := proxyKindLabels[code]; ok {
 		return label
@@ -67,10 +66,9 @@ func ProxyKindLabel(code string) string {
 	return code
 }
 
-// proxyKindLabels covers every proxy type the bundled PX12 BIN can return
-// (verified against ip2proxy-go v4 binding's type table). RES = residential-
-// proxy classification G44 surfaces; SES/AIC = search-engine + AI-crawler
-// ranges.
+// proxyKindLabels covers every proxy type bundled PX12 BIN can return (verified
+// against ip2proxy-go v4 binding's type table). RES = residential-proxy
+// classification G44 surfaces; SES/AIC = search-engine + AI-crawler ranges.
 var proxyKindLabels = map[string]string{
 	"VPN": "VPN",
 	"TOR": "Tor exit node",
@@ -84,9 +82,9 @@ var proxyKindLabels = map[string]string{
 	"AIC": "AI crawler",
 }
 
-// Conn builds connection inspector's data from current request. Lives in
-// platform (shared transport engine) so iptools, botcheck, future tools
-// share one implementation, not each keeping own copy.
+// Conn builds connection inspector's data from current req. Lives in platform
+// (shared transport engine) so iptools, botcheck, future tools share one impl,
+// not each keeping own copy.
 func Conn(c *echo.Context) ConnInfo {
 	r := c.Request()
 
@@ -98,7 +96,7 @@ func Conn(c *echo.Context) ConnInfo {
 		via = "X-Forwarded-For"
 	}
 
-	// Browser-facing scheme: X-Forwarded-Proto is reliable signal (TLS
+	// Browser-facing scheme: X-Forwarded-Proto = reliable signal (TLS
 	// terminates upstream); fall back to local conn in dev.
 	scheme := r.Header.Get("X-Forwarded-Proto")
 	if scheme == "" {

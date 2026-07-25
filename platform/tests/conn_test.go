@@ -14,8 +14,8 @@ import (
 )
 
 // conn_test.go: G38/G44 conn-inspector enrichment — additive ConnInfo net
-// fields, IP2Proxy type-code map, partial's render guards (empty →
-// unchanged output for every existing tool).
+// fields, IP2Proxy type-code map, partial render guards (empty → unchanged
+// output for every existing tool).
 
 func TestConnTransportFields(t *testing.T) {
 	e := echo.New()
@@ -83,8 +83,8 @@ func renderConn(t *testing.T, ci platform.ConnInfo) string {
 }
 
 func TestConnPartialUnenrichedRendersUnchanged(t *testing.T) {
-	// Every tool today renders partial w/ transport fields only → G38/G44
-	// rows mustn't appear (not even labels) when empty.
+	// Every tool today renders partial w/ transport fields only → G38/G44 rows
+	// mustn't appear (not even labels) when empty.
 	body := renderConn(t, platform.ConnInfo{
 		IP: "203.0.113.7", Via: "direct", Scheme: "https",
 		Host: "ip.corpberry.com", Browser: "TestBrowser/1.0", Language: "en-US",
@@ -114,8 +114,8 @@ func TestConnPartialRendersNetworkRows(t *testing.T) {
 		}
 	}
 
-	// Partial enrichment: ASN w/o name, no proxy data at all → only what's
-	// really there renders.
+	// Partial enrichment: ASN w/o name, no proxy data → only what's really
+	// there renders.
 	body = renderConn(t, platform.ConnInfo{IP: "203.0.113.7"}.WithNetwork(platform.ConnNetwork{ASN: "714"}))
 	if !strings.Contains(body, "AS714") {
 		t.Errorf("a bare ASN should render without a name:\n%s", body)

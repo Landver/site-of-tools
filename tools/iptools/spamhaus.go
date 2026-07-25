@@ -10,52 +10,45 @@ import (
 	"time"
 )
 
-// spamhaus.go: periodic ingest of the Spamhaus DROP/EDROP list into the shared
-// blocklist corpus (blocklist.go). DROP lists whole IPv4 netblocks "hijacked or
-// leased by professional spam/cyber-crime operations" — a small (~1,669),
-// high-confidence, human-curated set, unlike ipsum's crowd-sourced per-IP
-// occurrence counting. Free for all use including commercial, per Spamhaus's
-// own terms — see docs/roadmap/ip-reputation.md (G37) for the research. Their
-// one condition: credit The Spamhaus Project, and keep the copyright notice +
-// date attached to the file and data — this file's Meta stamping on every
-// ingested record satisfies that literally (see dropEntry), and the site
-// footer credits them too (shared/templates/partials/footer.html).
+// spamhaus.go: periodic ingest of Spamhaus DROP/EDROP list → shared blocklist
+// corpus (blocklist.go). DROP = whole IPv4 netblocks "hijacked or leased by
+// professional spam/cyber-crime operations": small (~1,669), high-confidence,
+// human-curated — unlike ipsum's crowd-sourced per-IP counting. Free incl.
+// commercial per Spamhaus terms; research: docs/roadmap/ip-reputation.md (G37).
+// Condition: credit The Spamhaus Project + keep copyright notice + date with
+// file/data — Meta stamping on every record satisfies this literally (see
+// dropEntry); site footer credits too (shared/templates/partials/footer.html).
 //
-// DROP is CIDR *ranges*, not individual IPs (unlike ipsum): its ~1,669 blocks
-// cover ~15 MILLION addresses, so one document per address is not an option —
-// entries are stored as netblocks via RangeStart/RangeEnd (blocklist.go), and
-// Check matches by containment. Scoped to IPv4 only (drop_v4.json): DROP's
-// IPv6 counterpart would need 128-bit range bounds our uint32 representation
-// doesn't support — a deliberate, documented non-goal, not silently dropped.
+// DROP = CIDR *ranges*, not per-IP (unlike ipsum): ~1,669 blocks cover ~15M
+// addresses → no per-address doc; stored as netblocks via RangeStart/RangeEnd
+// (blocklist.go), Check matches by containment. IPv4 only (drop_v4.json): IPv6
+// needs 128-bit bounds our uint32 can't hold — deliberate documented non-goal.
 //
 // Shared sync/fetch scaffolding (BlockSyncResult, syncFeed, fetchFeed,
-// runDailySync) lives in blocklist.go, shared with ipsum.go's identical shape.
+// runDailySync) in blocklist.go, shared w/ ipsum.go's identical shape.
 
 const (
-	// dropURL: IPv4 DROP+EDROP feed (merged into one list since 2024), JSON
-	// Lines format — one CIDR record per line, a trailing {"type":"metadata",…}
-	// record carries the copyright/timestamp/terms Spamhaus requires kept with
-	// the data.
+	// dropURL: IPv4 DROP+EDROP feed (merged since 2024), JSON Lines — one CIDR
+	// record/line; trailing {"type":"metadata",…} row carries copyright/
+	// timestamp/terms Spamhaus requires kept with data.
 	dropURL = "https://www.spamhaus.org/drop/drop_v4.json"
 
-	// dropHTTPTimeout bounds the download; feed is tiny (~100 KB).
+	// dropHTTPTimeout bounds download; feed tiny (~100 KB).
 	dropHTTPTimeout = 60 * time.Second
 
-	// dropUpsertChunk bounds entries per BulkWrite — same reasoning as ipsum's,
-	// though DROP's ~1,669 records would fit in one batch anyway.
+	// dropUpsertChunk bounds entries/BulkWrite — same as ipsum's, though DROP's
+	// ~1,669 records fit one batch anyway.
 	dropUpsertChunk = 5000
 )
 
-// dropHTTPClient dedicated (not http.DefaultClient), same reasoning as
-// ipsumHTTPClient.
+// dropHTTPClient dedicated (not http.DefaultClient), same as ipsumHTTPClient.
 var dropHTTPClient = &http.Client{Timeout: dropHTTPTimeout}
 
-// dropRecord unifies both JSON-line shapes the DROP feed uses — a CIDR data
-// row and the trailing metadata row — so each line needs exactly ONE
-// unmarshal, discriminated after the fact by Type/CIDR being set or empty.
-// Whichever shape a given line isn't just decodes its fields to zero values.
+// dropRecord unifies both DROP JSON-line shapes — CIDR data row + trailing
+// metadata row — so each line needs ONE unmarshal, discriminated after by
+// Type/CIDR set-or-empty. Fields of the non-matching shape decode to zero.
 type dropRecord struct {
-	Type      string `json:"type"` // "metadata" on the one trailing record; "" on every CIDR row
+	Type      string `json:"type"` // "metadata" on trailing record; "" on CIDR rows
 	CIDR      string `json:"cidr"`
 	SBLID     string `json:"sblid"`
 	RIR       string `json:"rir"`
@@ -64,19 +57,18 @@ type dropRecord struct {
 	Terms     string `json:"terms"`
 }
 
-// dropMeta: the feed-level facts carried by the trailing metadata record —
-// exactly what Spamhaus's terms require travels with the data (copyright +
-// date), plus the terms URL.
+// dropMeta: feed-level facts from trailing metadata record — what Spamhaus
+// terms require travel with data (copyright + date) + terms URL.
 type dropMeta struct {
 	Copyright string
 	Terms     string
 	Timestamp time.Time
 }
 
-// SyncSpamhausDROP downloads the DROP feed + upserts every netblock under
-// source "spamhaus-drop" — a thin wrapper supplying DROP's fetch/parse to
-// BlockList.syncFeed (blocklist.go), which owns the shared skip/nil/chunking/
-// partial-write behavior every feed sync shares.
+// SyncSpamhausDROP downloads DROP feed + upserts every netblock under source
+// "spamhaus-drop". Thin wrapper: supplies DROP's fetch/parse to
+// BlockList.syncFeed (blocklist.go), which owns shared skip/nil/chunking/
+// partial-write behavior.
 func SyncSpamhausDROP(ctx context.Context, bl *BlockList) (BlockSyncResult, error) {
 	return bl.syncFeed(ctx, BlocklistSourceSpamhausDROP, dropUpsertChunk,
 		func(ctx context.Context) (io.ReadCloser, error) {
@@ -87,23 +79,21 @@ func SyncSpamhausDROP(ctx context.Context, bl *BlockList) (BlockSyncResult, erro
 }
 
 // RunSpamhausDROPSync runs SyncSpamhausDROP once now (self-skips if fresh),
-// then on a daily ticker until ctx is cancelled — a thin wrapper over the
-// shared runDailySync (blocklist.go). Launch as a background goroutine from
-// main, alongside RunIPsumSync.
+// then daily ticker until ctx cancelled. Thin wrapper over shared runDailySync
+// (blocklist.go). Launch as background goroutine from main, alongside
+// RunIPsumSync.
 func RunSpamhausDROPSync(ctx context.Context, bl *BlockList) {
 	runDailySync(ctx, bl, "spamhaus DROP", "netblocks", SyncSpamhausDROP)
 }
 
-// parseDROP turns the feed body into range-bound entries. Pure (no Mongo, no
-// network) → unit-testable offline. JSON Lines format, not one JSON array —
-// each line decoded independently, once, into the unified dropRecord shape.
-// Two passes: the metadata record (copyright/timestamp/terms) can appear
-// anywhere but in practice trails every CIDR record, so entries are only
-// built once the whole file is read and every record can carry it. A line
-// that's neither a valid CIDR record nor the metadata record is skipped, not
-// fatal — one stray row mustn't abort the sync. An IPv6 CIDR (not expected in
-// drop_v4.json, but not trusted blindly) is likewise skipped by
-// ipv4RangeBounds' ok=false.
+// parseDROP turns feed body into range-bound entries. Pure (no Mongo/network)
+// → unit-testable offline. JSON Lines, not one array — each line decoded once
+// into unified dropRecord. Two passes: metadata record can appear anywhere but
+// trails every CIDR row in practice, so entries built only after whole file
+// read + every record can carry it. Line that's neither valid CIDR nor
+// metadata → skipped, not fatal (one stray row mustn't abort sync). IPv6 CIDR
+// (not expected in drop_v4.json, not trusted blindly) → skipped via
+// ipv4RangeBounds ok=false.
 func parseDROP(r io.Reader) ([]BlockEntry, error) {
 	var (
 		raw  []dropRecord // CIDR data rows only
@@ -127,7 +117,7 @@ func parseDROP(r io.Reader) ([]BlockEntry, error) {
 			continue
 		}
 		if rec.CIDR == "" {
-			continue // not a CIDR row (e.g. missing the cidr field)
+			continue // not a CIDR row (missing cidr field)
 		}
 		raw = append(raw, rec)
 	}
@@ -146,10 +136,9 @@ func parseDROP(r io.Reader) ([]BlockEntry, error) {
 	return entries, nil
 }
 
-// dropEntry builds the corpus record for one netblock, stashing everything
-// Spamhaus's terms require kept "with the file and data": the feed-level
-// copyright notice + timestamp + terms URL (meta, shared across every record
-// in this sync), plus the record's own sblid/rir.
+// dropEntry builds corpus record for one netblock, stashing everything
+// Spamhaus terms require kept "with file and data": feed-level copyright +
+// timestamp + terms URL (meta, shared across sync) + record's own sblid/rir.
 func dropEntry(rec dropRecord, start, end uint32, meta dropMeta) BlockEntry {
 	m := map[string]any{"feed_url": dropURL}
 	if rec.SBLID != "" {

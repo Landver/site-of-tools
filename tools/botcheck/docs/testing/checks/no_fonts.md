@@ -6,11 +6,11 @@
 
 ## What it checks
 
-No probe fonts could be detected at all — a neutralised font-enumeration surface or a font-less headless/VM environment. Aggressive anti-fingerprint settings suppress fonts too, so it's a soft cluster signal.
+No probe fonts detectable at all — neutralised font-enumeration surface or font-less headless/VM environment. Aggressive anti-fingerprint settings suppress fonts too, so soft cluster signal.
 
 ## Origin & history
 
-Internal-backlog Layer 2 item, shipped: zero probe fonts detectable via the `measureText` width technique — a neutralised font-enumeration surface or a genuinely font-less headless/VM environment. Aggressive anti-fingerprint settings suppress fonts too, kept soft for that reason.
+Internal-backlog Layer 2 item, shipped: zero probe fonts detectable via `measureText` width technique — neutralised font-enumeration surface or genuinely font-less headless/VM environment. Aggressive anti-fingerprint settings suppress fonts too, kept soft for that reason.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): patched `measureText` so every pro
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["no_fonts"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["no_fonts"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

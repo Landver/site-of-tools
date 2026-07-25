@@ -11,8 +11,8 @@ import (
 )
 
 // report_test.go covers presentation helpers (report.go: G55 explanations,
-// G56 environment line) + rendering in result.html. Like domain tests → no
-// HTTP, no DB: Reports built by hand, fragment rendered straight thru real
+// G56 environment line) + rendering in result.html. Like domain tests: no
+// HTTP, no DB. Reports built by hand, fragment rendered straight thru real
 // templates.
 
 func TestSubgroup(t *testing.T) {
@@ -77,7 +77,7 @@ func TestExplanation(t *testing.T) {
 	if got := (botcheck.Check{ID: "no_such_rule"}).Explanation(); got != "" {
 		t.Errorf("an unknown rule ID must have no explanation, got %q", got)
 	}
-	// Reserved IDs for in-flight rules must already carry theirs → go live
+	// Reserved IDs for in-flight rules must already carry theirs -> go live
 	// at merge time, not follow-up.
 	for _, id := range []string{"iframe_webdriver", "webrtc_ip_mismatch", "zero_outer_height"} {
 		if got := (botcheck.Check{ID: id}).Explanation(); got == "" {
@@ -113,9 +113,9 @@ func TestResultTemplateShowsNewSections(t *testing.T) {
 	body := renderResult(t, rep)
 	for _, want := range []string{
 		"Detected environment:",      // G56 line
-		"Chrome 125 · macOS · Blink", // …naming the environment
+		"Chrome 125 · macOS · Blink", // names environment
 		"raw fingerprint",            // G54 dump card
-		"webdriver",                  // …with the POSTed values inside
+		"webdriver",                  // POSTed values inside
 		">why</summary>",             // G55 per-signal expander
 	} {
 		if !strings.Contains(body, want) {
@@ -126,8 +126,8 @@ func TestResultTemplateShowsNewSections(t *testing.T) {
 
 func TestCheckFragmentShowsReportingSections(t *testing.T) {
 	// Handler-level proof: POST /check wires fingerprint into new reporting
-	// sections — raw dump, detected-environment line, per-tier sub-scores,
-	// per-signal "why" expanders — all render in swapped-in fragment.
+	// sections (raw dump, detected-environment line, per-tier sub-scores,
+	// per-signal "why" expanders) all render in swapped-in fragment.
 	body := `{"navMainUA":"` + chromeMacUA + `","webdriver":true,"nativeToStringOK":true}`
 	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "text/html", "User-Agent": chromeMacUA})
 	frag := rec.Body.String()
@@ -144,7 +144,7 @@ func TestCheckFragmentShowsReportingSections(t *testing.T) {
 }
 
 func TestResultTemplateWithoutPayloadHidesNewSections(t *testing.T) {
-	// Server-only GET view (+ error path) has no client payload → raw dump +
+	// Server-only GET view (+ error path) has no client payload -> raw dump +
 	// environment line must not render.
 	rep := botcheck.Report{
 		Score: 100, Verdict: "human",

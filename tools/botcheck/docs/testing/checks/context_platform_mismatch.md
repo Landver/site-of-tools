@@ -6,15 +6,15 @@
 
 ## What it checks
 
-userAgentData.platform re-read in a worker, iframe, or Service Worker disagrees with the top frame — a platform spoof that didn't reach every JavaScript context. Empty values (unsupported API, probe timeout) are never treated as a mismatch.
+userAgentData.platform re-read in worker, iframe, or Service Worker disagrees w/ top frame — platform spoof that didn't reach every JS context. Empty values (unsupported API, probe timeout) never treated as mismatch.
 
 ## Origin & history
 
-**G03**, shipped 2026-07-18, same four-rule batch: diffs `userAgentData.platform` across contexts. Empty values (unsupported API, probe timeout) are never treated as a mismatch.
+**G03**, shipped 2026-07-18, same four-rule batch: diffs `userAgentData.platform` across contexts. Empty values (unsupported API, probe timeout) never treated as mismatch.
 
 ## Test status: Verified — fires correctly
 
-Fired as a bonus of the `ch_platform_mismatch` probe scenario — a Worker's separate realm still reported the real platform. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
+Fired as bonus of `ch_platform_mismatch` probe scenario — Worker's separate realm still reported real platform. See [finding](../findings/2026-07-19-remaining-43-checks-sweep.md).
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ Fired as a bonus of the `ch_platform_mismatch` probe scenario — a Worker's sep
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["context_platform_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["context_platform_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

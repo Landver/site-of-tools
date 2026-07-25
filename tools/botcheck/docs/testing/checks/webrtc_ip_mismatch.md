@@ -6,15 +6,15 @@
 
 ## What it checks
 
-The address WebRTC reports disagrees with the connection's egress IP — the shape of a proxy or VPN that tunnels HTTP but leaks the real path over WebRTC. Browsers with WebRTC disabled or mDNS-masked candidates simply yield no signal.
+Address WebRTC reports disagrees w/ connection's egress IP — shape of proxy or VPN that tunnels HTTP but leaks real path over WebRTC. Browsers w/ WebRTC disabled or mDNS-masked candidates yield no signal.
 
 ## Origin & history
 
-**G09**, shipped 2026-07-18: harvests ICE candidate IPs over a public STUN server (~1.5s, mDNS `.local` candidates skipped), fires only when a **public** candidate differs from the server-observed egress IP — private/loopback/link-local/ULA/CGNAT candidates are excluded as normal NAT, only the egress address's own family is compared so dual-stack connections stay silent. Later investigated for an unrelated false-positive concern (sandbox network topology, not the rule itself) and closed — see the test status above.
+**G09**, shipped 2026-07-18: harvests ICE candidate IPs over public STUN server (~1.5s, mDNS `.local` candidates skipped), fires only when a **public** candidate differs from server-observed egress IP — private/loopback/link-local/ULA/CGNAT candidates excluded as normal NAT, only egress address's own family compared so dual-stack connections stay silent. Later investigated for unrelated false-positive concern (sandbox network topology, not rule itself) & closed — see test status above.
 
 ## Test status: Investigated and closed
 
-**False-positive concern raised and closed**, same incident as `tz_mismatch`: a genuine, non-automated Claude-in-Chrome session scored `50/100 Suspicious` on production, `-25` from this check (WebRTC-leaked candidate IP didn't match the HTTP egress IP) plus `-25` from `tz_mismatch`. Traced to that session's own network egress path, not a real false-positive risk — the repo owner's ordinary Chrome session (no extension, no proxy) read clean, WebRTC candidate and egress IP agreeing. No scoring change needed.
+**False-positive concern raised & closed**, same incident as `tz_mismatch`: genuine, non-automated Claude-in-Chrome session scored `50/100 Suspicious` on production, `-25` from this check (WebRTC-leaked candidate IP didn't match HTTP egress IP) plus `-25` from `tz_mismatch`. Traced to that session's own network egress path, not real false-positive risk — repo owner's ordinary Chrome session (no extension, no proxy) read clean, WebRTC candidate & egress IP agreeing. No scoring change needed.
 
 ## Go scorer coverage
 
@@ -22,4 +22,4 @@ The address WebRTC reports disagrees with the connection's egress IP — the sha
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["webrtc_ip_mismatch"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["webrtc_ip_mismatch"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.

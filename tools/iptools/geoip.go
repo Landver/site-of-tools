@@ -12,7 +12,7 @@ import (
 	ip2proxy "github.com/ip2location/ip2proxy-go/v4"
 )
 
-// Result: plain struct transport layer renders as HTML or JSON.
+// Result: plain struct, transport layer renders as HTML or JSON.
 type Result struct {
 	IP          string  `json:"ip"`
 	CountryCode string  `json:"country_code"`
@@ -26,14 +26,14 @@ type Result struct {
 	ASN         string  `json:"asn"`
 	ASName      string  `json:"as_name"`
 	Proxy       *Proxy  `json:"proxy,omitempty"`
-	// Blocklist: abuse/threat reputation from the shared ip_blocklist corpus
-	// (G37), handler-populated (NOT by Lookup — a separate repository). nil =
+	// Blocklist: abuse/threat reputation from shared ip_blocklist corpus
+	// (G37), handler-populated (NOT by Lookup — separate repository). nil =
 	// not checked (corpus off); non-nil = checked, Listed() false when clean.
 	Blocklist *BlockLookup `json:"blocklist,omitempty"`
-	// Shodan: open-port intel for the looked-up IP from Shodan's free InternetDB
+	// Shodan: open-port intel for looked-up IP from Shodan free InternetDB
 	// (handler-populated, best-effort — NOT by Lookup, same shape as Blocklist).
 	// nil = not checked (disabled / private IP / lookup errored); see ShodanInfo
-	// for the Found semantics. Attribution to Shodan is shown in the result card.
+	// for Found semantics. Attribution to Shodan shown in result card.
 	Shodan *ShodanInfo `json:"shodan,omitempty"`
 }
 
@@ -52,17 +52,17 @@ type Proxy struct {
 }
 
 // Service wraps IP2Location + IP2Proxy readers. Handles opened once at
-// startup, shared across request goroutines (reads are positional ReadAt →
+// startup, shared across request goroutines (reads positional ReadAt →
 // goroutine-safe, no full load into RAM). v6 geo BINs also answer v4, but
 // keep both → route by address family; single PX12 BIN answers both
 // families.
 type Service struct {
 	db4, db6   *ip2location.DB
 	asn4, asn6 *ip2location.DB
-	proxy      *ip2proxy.DB // optional; nil disables the proxy section
+	proxy      *ip2proxy.DB // optional; nil disables proxy section
 }
 
-// ErrUnavailable: returned when geolocation databases weren't loaded.
+// ErrUnavailable: returned when geolocation databases not loaded.
 var ErrUnavailable = errors.New("geolocation databases are not loaded")
 
 // OpenService opens DB11 (v4+v6) + ASN (v4+v6). px12 optional: non-empty →
@@ -74,8 +74,8 @@ func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 	}
 	s := &Service{}
 	// Failure partway thru open sequence must close handles already opened:
-	// caller discards service, runs on w/ tool disabled → leaked handle else
-	// stays open for process's lifetime.
+	// caller discards service, runs on w/ tool disabled → else leaked handle
+	// stays open for process lifetime.
 	ok := false
 	defer func() {
 		if !ok {
@@ -108,8 +108,8 @@ func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) {
 }
 
 // closeAll releases every open database handle. Exists for OpenService's
-// failure path (see defer there); a successfully opened Service keeps its
-// handles for process's lifetime, same as shared Mongo client.
+// failure path (see defer there); successfully opened Service keeps its
+// handles for process lifetime, same as shared Mongo client.
 func (s *Service) closeAll() {
 	for _, db := range []*ip2location.DB{s.db4, s.db6, s.asn4, s.asn6} {
 		if db != nil {
@@ -146,7 +146,7 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		return nil, err
 	}
 
-	// clean() blanks IP2Location's "-" placeholder (reserved/private ranges +
+	// clean() blanks IP2Location "-" placeholder (reserved/private ranges +
 	// records w/ no city/zip come back as "-"), matching how lookupProxy
 	// already treats proxy fields → "-" never leaks into JSON or HTML.
 	return &Result{
@@ -165,8 +165,8 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 	}, nil
 }
 
-// lookupProxy is best-effort: nil if proxy DB off or lookup errors (e.g. an
-// address family the BIN doesn't cover) → never breaks geo result.
+// lookupProxy is best-effort: nil if proxy DB off or lookup errors (e.g.
+// address family BIN doesn't cover) → never breaks geo result.
 func (s *Service) lookupProxy(ipStr string) *Proxy {
 	if s.proxy == nil {
 		return nil
@@ -188,7 +188,7 @@ func (s *Service) lookupProxy(ipStr string) *Proxy {
 	}
 }
 
-// clean blanks IP2Location/IP2Proxy's "-" placeholder for cleaner output.
+// clean blanks IP2Location/IP2Proxy "-" placeholder for cleaner output.
 // Both databases use "-" for "no value" → maps to "" so callers/templates
 // render empty field, not literal dash.
 func clean(s string) string {

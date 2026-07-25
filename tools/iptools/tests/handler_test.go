@@ -16,7 +16,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// fakeLooker implements iptools.Looker → tests handler w/o real databases.
+// fakeLooker impl iptools.Looker → test handler w/o real databases.
 type fakeLooker struct {
 	res *iptools.Result
 	err error
@@ -25,7 +25,7 @@ type fakeLooker struct {
 func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
 
 // newTestApp builds bare echo w/ real (embedded) templates + given Looker.
-// Embedded FS → works regardless of test's cwd.
+// Embedded FS → works regardless of test cwd.
 func newTestApp(svc iptools.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
@@ -94,8 +94,8 @@ func TestHandlerHTMXGetsFragment(t *testing.T) {
 func TestHandlerBadIPRendersErrorFragment(t *testing.T) {
 	// Malformed IP → domain Lookup fails w/ validation error (not ErrUnavailable).
 	// htmx path must return 400 + error-alert fragment → box shows "not a valid
-	// IP" instead of silently keeping previous result. (Client swaps this 400 in
-	// via htmx:beforeSwap — see ip/index.html; htmx otherwise drops 4xx response.)
+	// IP" instead of silently keeping prev result. (Client swaps this 400 in via
+	// htmx:beforeSwap — see ip/index.html; htmx otherwise drops 4xx response.)
 	app := newTestApp(fakeLooker{err: errors.New(`"104.253.63." is not a valid IP address`)})
 	rec := do(app, "/?ip=104.253.63.", map[string]string{"HX-Request": "true"})
 	if rec.Code != http.StatusBadRequest {
@@ -115,7 +115,7 @@ func TestHandlerErrorStatus(t *testing.T) {
 }
 
 func TestHandlerDefaultsToVisitorIP(t *testing.T) {
-	// Bare "/" w/ no ?ip → looks up caller's own (routable) IP.
+	// Bare "/" w/ no ?ip → look up caller's own (routable) IP.
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "203.0.113.7", CountryCode: "US"}})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "application/json")
@@ -134,7 +134,7 @@ func TestHandlerDefaultsToVisitorIP(t *testing.T) {
 func TestHandlerJSONWithoutResolvableIPGetsError(t *testing.T) {
 	// JSON caller w/ no ?ip + non-routable own address (loopback, as in dev) has
 	// nothing to look up: must get JSON error, not HTML page — same
-	// content-negotiation contract /cidr already follows.
+	// content-negotiation contract /cidr follows.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "application/json")
@@ -154,8 +154,8 @@ func TestHandlerJSONWithoutResolvableIPGetsError(t *testing.T) {
 }
 
 func TestHandlerBrowserWithoutResolvableIPGetsPage(t *testing.T) {
-	// Same situation as above but from browser: empty lookup page (form + connection
-	// inspector) is the right response — only JSON callers get the 400.
+	// Same as above but from browser: empty lookup page (form + connection
+	// inspector) is right response — only JSON callers get 400.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/html")
@@ -173,7 +173,7 @@ func TestHandlerBrowserWithoutResolvableIPGetsPage(t *testing.T) {
 
 func TestHandlerHTMXWithoutResolvableIPGetsFragment(t *testing.T) {
 	// htmx submit w/ empty box from non-routable own IP (dev on loopback) must
-	// get the (empty) result fragment — swapping full page into #result would
+	// get (empty) result fragment — swapping full page into #result would
 	// nest whole document inside it.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -191,7 +191,7 @@ func TestHandlerHTMXWithoutResolvableIPGetsFragment(t *testing.T) {
 }
 
 func TestFullPageShowsIP2LocationCredit(t *testing.T) {
-	// IP2Location LITE's license requires exact acknowledgment on any page using
+	// IP2Location LITE license requires exact acknowledgment on any page using
 	// the data. Full IP-tool page must carry it (apex must not — see site
 	// package's TestHomeOmitsIP2LocationCredit).
 	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
@@ -202,9 +202,9 @@ func TestFullPageShowsIP2LocationCredit(t *testing.T) {
 }
 
 func TestFullPageShowsSpamhausCredit(t *testing.T) {
-	// Spamhaus's permission to use DROP came with one condition: credit them
-	// on any page using the data (they specifically asked for the © mark).
-	// Same Attribution-gated footer as IP2Location → carried on the same pages.
+	// Spamhaus permission to use DROP came w/ one condition: credit them on
+	// any page using the data (specifically asked for © mark). Same
+	// Attribution-gated footer as IP2Location → carried on same pages.
 	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "© The Spamhaus Project") || !strings.Contains(body, "spamhaus.org/blocklists/do-not-route-or-peer") {
@@ -216,7 +216,7 @@ func TestConnectionInspectorCard(t *testing.T) {
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
 	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)
 	req.Header.Set("Accept", "text/html")
-	req.Header.Set("X-Forwarded-For", "198.51.100.7") // drives the default RealIP
+	req.Header.Set("X-Forwarded-For", "198.51.100.7") // drives default RealIP
 	req.Header.Set("CF-Connecting-IP", "198.51.100.7")
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, req)
@@ -289,9 +289,9 @@ func TestHandlerShowsProxySection(t *testing.T) {
 }
 
 func TestConnectionInspectorEnrichedForOwnIP(t *testing.T) {
-	// G38/G44 wiring: when visitor looks at their OWN IP, same lookup also
-	// enriches "your request" card w/ ASN/proxy rows (shared conn partial
-	// renders them only when enriched via WithNetwork).
+	// G38/G44 wiring: when visitor looks at own IP, same lookup also enriches
+	// "your request" card w/ ASN/proxy rows (shared conn partial renders them
+	// only when enriched via WithNetwork).
 	res := &iptools.Result{
 		IP: "203.0.113.7", ASN: "14061", ASName: "DigitalOcean, LLC",
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"},
@@ -311,7 +311,7 @@ func TestConnectionInspectorEnrichedForOwnIP(t *testing.T) {
 
 	// ?ip= lookup of SOMEONE ELSE's IP must not enrich conn card: their ASN
 	// says nothing about this connection. (Lookup result itself shows own
-	// ASN/proxy section — asserted here are conn card's formats.)
+	// ASN/proxy section — asserted here = conn card's formats.)
 	rec = do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body = rec.Body.String()
 	for _, absent := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {

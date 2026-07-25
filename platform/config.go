@@ -25,7 +25,7 @@ type Config struct {
 	PX12 string
 
 	// Shodan InternetDB base URL (free, keyless open-port lookups). Defaults to
-	// the live endpoint; blank disables the enrichment (NewShodan → nil no-op).
+	// live endpoint; blank disables enrichment (NewShodan → nil no-op).
 	ShodanURL string
 
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
@@ -73,7 +73,7 @@ func (c Config) VHost(sub string) string {
 	return host
 }
 
-// URL returns full origin (scheme + host) for a subdomain, e.g. for links.
+// URL returns full origin (scheme + host) for subdomain, e.g. for links.
 func (c Config) URL(sub string) string {
 	scheme := "https://"
 	if c.IsDev() {
@@ -95,7 +95,7 @@ func getenv(k, def string) string {
 }
 
 // loadDotEnv reads KEY=VALUE lines from ./.env → applies to process env,
-// never overriding a var already set. No dependency; dev convenience only.
+// never overriding var already set. No dependency; dev convenience only.
 // Parse/merge split out (parseDotEnv/mergeEnv) → both unit-testable w/o real
 // .env file or ambient env.
 func loadDotEnv() {
@@ -107,9 +107,9 @@ func loadDotEnv() {
 	mergeEnv(parseDotEnv(f))
 }
 
-// parseDotEnv parses KEY=VALUE lines from r into a map. Blank lines, "#"
+// parseDotEnv parses KEY=VALUE lines from r into map. Blank lines, "#"
 // comments, lines w/o "=" skipped; key+value whitespace-trimmed (value may
-// itself contain "="). Pure — no env access → directly unit-testable.
+// contain "="). Pure — no env access → directly unit-testable.
 func parseDotEnv(r io.Reader) map[string]string {
 	out := map[string]string{}
 	sc := bufio.NewScanner(r)
@@ -128,8 +128,8 @@ func parseDotEnv(r io.Reader) map[string]string {
 }
 
 // mergeEnv sets each pair in process env, skipping keys already present →
-// real env always wins over .env (and .env.prod layered on top in prod).
-// Split from loadDotEnv so no-override rule is testable.
+// real env always wins over .env (& .env.prod layered on top in prod).
+// Split from loadDotEnv so no-override rule testable.
 func mergeEnv(pairs map[string]string) {
 	for k, v := range pairs {
 		if _, exists := os.LookupEnv(k); !exists {

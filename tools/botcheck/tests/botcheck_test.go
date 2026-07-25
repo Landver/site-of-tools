@@ -1,5 +1,5 @@
-// Package tests: black-box tests for botcheck package. Domain scorer = pure fn
-// of Signals struct → no HTTP, no DB needed — build Signals directly.
+// Package tests: black-box tests for botcheck pkg. Domain scorer = pure fn
+// of Signals struct → no HTTP/DB needed — build Signals directly.
 package tests
 
 import (
@@ -15,7 +15,7 @@ import (
 
 const chromeMacUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
-// boolPtr returns *bool — v4 env section's fail-to-absent booleans (GPC, EME
+// boolPtr returns *bool — v4 env section's fail-to-absent bools (GPC, EME
 // ClearKey) are pointers → "not supplied" never reads as determined false.
 func boolPtr(b bool) *bool { return &b }
 
@@ -78,7 +78,7 @@ func cleanChrome() botcheck.Signals {
 		ProductSub: "20030107", // WebKit/Blink constant
 		Engine:     "blink",    // feature-detected engine matches Chrome UA
 		// G03 cross-context signals: worker/iframe/Service Worker all mirror main
-		// thread, exactly as real browser's extra contexts do.
+		// thread, as real browser's extra contexts do.
 		SWUA:                chromeMacUA,
 		WorkerLanguages:     []string{"en-US", "en"},
 		IframeLanguages:     []string{"en-US", "en"},
@@ -159,14 +159,14 @@ func TestCleanChromeScoresHuman(t *testing.T) {
 }
 
 // ruleFirePaths maps every scoring rule ID → fixture that makes exactly that
-// rule fire. Source of truth for TestEveryRuleCanFire, completeness guard
+// rule fire. Source of truth for TestEveryRuleCanFire; completeness guard
 // added 2026-07-21 after webglGPU collector bug (undefined var silently
 // zeroed WebGL fields → software_renderer/webgl_vendor_mismatch/
-// gpu_os_mismatch — 85 pts of logic — never fired for anyone, undetected
-// tool's whole life). Domain-level fire-path can't see into JS collector (bug
-// lived in botcheck.js, no-npm rule keeps it out of Go tests → real-automation
-// testing stays necessary), but guarantees every Go predicate reachable + no
-// rule ships w/o proven way to trip it.
+// gpu_os_mismatch — 85 pts of logic — never fired, undetected tool's whole
+// life). Domain fire-path can't see into JS collector (bug lived in
+// botcheck.js; no-npm rule keeps it out of Go tests → real-automation testing
+// stays necessary), but guarantees every Go predicate reachable + no rule
+// ships w/o proven way to trip it.
 var ruleFirePaths = map[string]func() botcheck.Signals{
 	// ── Hard tells ──────────────────────────────────────────────────────────────
 	"webdriver":         func() botcheck.Signals { s := cleanChrome(); s.Webdriver = true; return s },
@@ -288,9 +288,9 @@ var ruleFirePaths = map[string]func() botcheck.Signals{
 
 // TestEveryRuleCanFire: fire-path completeness guard. Asserts (1) every rule
 // Evaluate emits has entry in ruleFirePaths — new rule can't ship w/o proven
-// way to trip it — and (2) each fixture actually fires its rule while clean
-// fixture doesn't. Dead predicate (rule that can never fire, like ones
-// webglGPU bug neutered) fails this test loudly instead of rotting silently.
+// way to trip it — and (2) each fixture fires its rule while clean fixture
+// doesn't. Dead predicate (rule that can never fire, like ones webglGPU bug
+// neutered) fails this test loudly instead of rotting silently.
 func TestEveryRuleCanFire(t *testing.T) {
 	// (1) Coverage: every scored rule needs a fire-path fixture.
 	for _, c := range botcheck.Evaluate(cleanChrome()).Checks {
@@ -452,11 +452,11 @@ func TestEmptyUserAgentFlags(t *testing.T) {
 }
 
 func TestElectronUAIsSuspiciousNotHardBot(t *testing.T) {
-	// Electron browser (like the in-app one) should read suspicious via
-	// dedicated embedded-runtime signal, NOT definitive curl-class bot.
-	// Fixture sends headers any real browser sends (Sec-Fetch-Mode,
-	// Accept-Language, Accept-Encoding) so header-presence soft checks stay
-	// quiet and the score isolates the embedded-runtime deduction.
+	// Electron browser (like in-app one) reads suspicious via embedded-runtime
+	// signal, NOT definitive curl-class bot. Fixture sends headers any real
+	// browser sends (Sec-Fetch-Mode, Accept-Language, Accept-Encoding) so
+	// header-presence soft checks stay quiet & score isolates embedded-runtime
+	// deduction.
 	const electronUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.2 Chrome/148.0.0.0 Electron/42.5.1 Safari/537.36"
 	r := botcheck.Evaluate(botcheck.Signals{
 		HTTPUserAgent:      electronUA,
@@ -513,11 +513,11 @@ func TestSecFetchMissingFlagsScriptedBrowserUA(t *testing.T) {
 	}
 }
 
-// TestHeaderPresenceSignals covers G06 header checks: each soft (a proxy can
-// strip/rewrite headers), guarded by looksLikeBrowser, must fire ONLY when a
+// TestHeaderPresenceSignals covers G06 header checks: each soft (proxy can
+// strip/rewrite headers), guarded by looksLikeBrowser, fires ONLY when a
 // claimed browser omits a header every real browser sends (Accept-Encoding,
-// Accept-Language) or sends an Accept with no text/html — never on absent
-// data, a curl UA, or an empty UA.
+// Accept-Language) or sends an Accept w/ no text/html — never on absent data,
+// curl UA, or empty UA.
 func TestHeaderPresenceSignals(t *testing.T) {
 	browserNoEnc := cleanChrome()
 	browserNoEnc.HTTPAcceptEncoding = ""
@@ -562,8 +562,8 @@ func TestHeaderPresenceSignals(t *testing.T) {
 
 func TestSingleHeaderSoftSignalStaysHuman(t *testing.T) {
 	// One missing header = ONE soft signal — under cluster threshold, flagged
-	// but costs nothing, else a single header-rewriting proxy would condemn a
-	// real user.
+	// but costs nothing, else a header-rewriting proxy would condemn a real
+	// user.
 	s := cleanChrome()
 	s.HTTPAcceptEncoding = ""
 
@@ -582,7 +582,7 @@ func TestSingleHeaderSoftSignalStaysHuman(t *testing.T) {
 func TestTimezoneOffsetComparedNotStringMatched(t *testing.T) {
 	// IP2Location returns UTC offset; browser returns IANA name. Same-offset
 	// pair must NOT fire (real prod false positive: Europe/Moscow = +03:00,
-	// so "Europe/Moscow" vs "+03:00" is a match, not a mismatch).
+	// so "Europe/Moscow" vs "+03:00" is match, not mismatch).
 	same := cleanChrome()
 	same.BrowserTZ, same.TZOffset, same.IPTimezone = "Europe/Moscow", -180, "+03:00"
 	if check(t, botcheck.Evaluate(same), "tz_mismatch").Triggered {
@@ -630,7 +630,7 @@ func TestCleanBrowserPassesLayer2(t *testing.T) {
 }
 
 func TestUnknownIPTimezoneDoesNotTripCrossCheck(t *testing.T) {
-	// Cleaned/empty IP timezone (localhost, unknown IP) must not make the tz
+	// Cleaned/empty IP timezone (localhost, unknown IP) must not make tz
 	// cross-check fire against a real browser timezone.
 	s := cleanChrome()
 	s.BrowserTZ, s.TZOffset = "Europe/Moscow", -180 // self-consistent Moscow
@@ -653,12 +653,11 @@ func crawler(ua, asn string) botcheck.Signals {
 }
 
 // TestGoodBotClassification is G36 core: recognised crawlers / AI agents are
-// named, but the "good-bot" downgrade is granted ONLY when the egress ASN
-// NUMBER is the operator's single-tenant crawler ASN — which an outsider
-// can't originate from, including the operator's own rentable public cloud
-// (a different ASN). Multi-tenant crawlers (Googlebot) and cloud-hosted
-// agents (GPTBot) are recognised-but-unverified and still penalised:
-// recognition ≠ leniency.
+// named, but "good-bot" downgrade granted ONLY when egress ASN NUMBER is
+// operator's single-tenant crawler ASN — which outsider can't originate from,
+// including operator's own rentable public cloud (different ASN). Multi-tenant
+// crawlers (Googlebot) & cloud-hosted agents (GPTBot) are
+// recognised-but-unverified & still penalised: recognition ≠ leniency.
 func TestGoodBotClassification(t *testing.T) {
 	const (
 		yandex     = "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"
@@ -737,8 +736,8 @@ func TestGoodBotClassification(t *testing.T) {
 			if r.Verdict != tc.verdict {
 				t.Errorf("Verdict = %q, want %q (score %d)", r.Verdict, tc.verdict, r.Score)
 			}
-			// No-evasion invariant: every recognised bot trips bot_user_agent, and that
-			// deduction is suppressed IFF the bot is verified (never for a UA-only claim).
+			// No-evasion invariant: every recognised bot trips bot_user_agent, & that
+			// deduction suppressed IFF bot is verified (never for UA-only claim).
 			bua := check(t, r, "bot_user_agent")
 			if !bua.Triggered {
 				t.Errorf("bot_user_agent must fire for recognised bot %q (no silent escape)", tc.botName)
@@ -750,16 +749,15 @@ func TestGoodBotClassification(t *testing.T) {
 	}
 }
 
-// TestCurlAndHumanAreNotGoodBots: classifier only ever activates on a
-// recognised token — a plain HTTP client stays a bot w/ no identity, and a
-// real human is never touched even from an operator's corporate network
-// (the ASN is not consulted).
+// TestCurlAndHumanAreNotGoodBots: classifier only activates on a recognised
+// token — plain HTTP client stays bot w/ no identity, & real human never
+// touched even from operator's corporate network (ASN not consulted).
 func TestCurlAndHumanAreNotGoodBots(t *testing.T) {
 	if r := botcheck.Evaluate(crawler("curl/8.4.0", "24940")); r.Bot != nil || r.Verdict != "bot" {
 		t.Errorf("curl: Bot=%+v verdict=%q, want nil / bot", r.Bot, r.Verdict)
 	}
-	// Human on Apple's corporate network (ASN 714, a verifiable crawler ASN) with a
-	// normal Chrome UA: no bot token ⇒ ASN never consulted ⇒ normal human verdict, no Bot.
+	// Human on Apple's corporate network (ASN 714, verifiable crawler ASN) w/
+	// normal Chrome UA: no bot token ⇒ ASN never consulted ⇒ human verdict, no Bot.
 	h := cleanChrome()
 	h.ASN = "714"
 	if r := botcheck.Evaluate(h); r.Bot != nil || r.Verdict != "human" {
@@ -767,10 +765,10 @@ func TestCurlAndHumanAreNotGoodBots(t *testing.T) {
 	}
 }
 
-// TestIPBlocklistedRule covers the G37 ip_blocklisted confidence-floor logic:
-// an ipsum-only listing must clear the auto-ban floor before it fires, while a
+// TestIPBlocklistedRule covers G37 ip_blocklisted confidence-floor logic:
+// ipsum-only listing must clear auto-ban floor before firing, while a
 // deliberate ban from another source fires regardless of count, and an
-// unlisted IP (or Mongo off, which the handler surfaces as empty sources) is
+// unlisted IP (or Mongo off, which handler surfaces as empty sources) is
 // silent.
 func TestIPBlocklistedRule(t *testing.T) {
 	cases := []struct {
@@ -806,8 +804,8 @@ func TestIPBlocklistedRule(t *testing.T) {
 }
 
 // TestIPBlocklistedSuppressedForVerifiedGoodBot: a verified crawler whose
-// egress landed on a blocklist trips the rule but the deduction is recorded,
-// not counted — same treatment as its datacenter/proxy reputation hits.
+// egress landed on a blocklist trips the rule but deduction is recorded, not
+// counted — same treatment as its datacenter/proxy reputation hits.
 func TestIPBlocklistedSuppressedForVerifiedGoodBot(t *testing.T) {
 	s := crawler("Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)", "714") // verified from Apple's ASN
 	s.IPBlocklistSources, s.IPBlocklistCount = []string{"ipsum"}, 8
@@ -822,7 +820,7 @@ func TestIPBlocklistedSuppressedForVerifiedGoodBot(t *testing.T) {
 }
 
 // TestQuickWinSignals covers G01/G02/G05 rules: each mutation makes a single
-// new cross-check fire against an otherwise-clean Chrome fixture.
+// new cross-check fire against otherwise-clean Chrome fixture.
 func TestQuickWinSignals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -854,10 +852,9 @@ func TestQuickWinSignals(t *testing.T) {
 }
 
 // realBrowserUAs: genuine non-Chrome browsers whose engine-aware cross-checks
-// must NOT false-positive — exact real-world cases the review flagged: a
-// Chromium fork whose branded version diverges from the Chromium engine
-// (Opera), desktop WebKit (Safari), and iOS browsers (WebKit under any brand
-// token).
+// must NOT false-positive — exact real-world cases review flagged: Chromium
+// fork whose branded version diverges from Chromium engine (Opera), desktop
+// WebKit (Safari), and iOS browsers (WebKit under any brand token).
 const (
 	operaUA     = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 OPR/111.0.0.0"
 	safariUA    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
@@ -867,8 +864,8 @@ const (
 	firefoxUA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0"
 )
 
-// v3RuleIDs: rules added in the v3 batch — asserted to fire on crafted
-// signals and to stay silent on every real-browser fixture.
+// v3RuleIDs: rules added in v3 batch — asserted to fire on crafted signals
+// and stay silent on every real-browser fixture.
 var v3RuleIDs = []string{
 	"iframe_webdriver", "webdriver_sw", // hard (G11/G14)
 	"iframe_proxy", "mobile_no_touch", "jsengine_ua_mismatch", "webrtc_ip_mismatch", // consistency
@@ -877,26 +874,25 @@ var v3RuleIDs = []string{
 	"image_broken", "plugins_mimetypes_incoherent", "zero_outer_height",
 }
 
-// v4RuleIDs: rules added in the v4 batch (G15/G21) — same assertion contract
-// as v3RuleIDs.
+// v4RuleIDs: rules added in v4 batch (G15/G21) — same assertion contract as
+// v3RuleIDs.
 var v4RuleIDs = []string{"matchmedia_missing", "netinfo_incoherent"}
 
-// mirrorUA switches a fixture's browser: the UA in every context the
-// collector reports from, plus appVersion, so the fixture stays internally
-// consistent.
+// mirrorUA switches a fixture's browser: UA in every context collector
+// reports from, plus appVersion, so fixture stays internally consistent.
 func mirrorUA(s *botcheck.Signals, ua string) {
 	s.NavMainUA, s.NavWorkerUA, s.NavIframeUA, s.SWUA, s.HTTPUserAgent = ua, ua, ua, ua, ua
 	s.AppVersion = strings.TrimPrefix(ua, "Mozilla/")
 }
 
 // The real* builders below are full v3 fingerprints derived from cleanChrome
-// by targeted mutation — every field internally consistent, so a score of
-// exactly 100 is the regression guard for every cross-check, old and new.
+// by targeted mutation — every field internally consistent, so score of
+// exactly 100 is regression guard for every cross-check, old and new.
 
-// realOpera: desktop Opera, a Chromium fork whose branded version (111)
-// diverges from the Chromium engine major (125) — the version check must
-// compare against the Chromium fullVersionList entry, and its Sec-CH-UA
-// brands carry "Opera" instead of "Google Chrome".
+// realOpera: desktop Opera, Chromium fork whose branded version (111) diverges
+// from Chromium engine major (125) — version check must compare against
+// Chromium fullVersionList entry, and its Sec-CH-UA brands carry "Opera"
+// instead of "Google Chrome".
 func realOpera() botcheck.Signals {
 	s := cleanChrome()
 	mirrorUA(&s, operaUA)
@@ -910,8 +906,8 @@ func realOpera() botcheck.Signals {
 	return s
 }
 
-// realSafari: desktop Safari — WebKit, no userAgentData (so no Sec-CH-UA
-// hints either), Apple's vendor string, and no window.chrome.
+// realSafari: desktop Safari — WebKit, no userAgentData (so no Sec-CH-UA hints
+// either), Apple's vendor string, no window.chrome.
 func realSafari() botcheck.Signals {
 	s := cleanChrome()
 	mirrorUA(&s, safariUA)
@@ -932,7 +928,7 @@ func realSafari() botcheck.Signals {
 }
 
 // realFirefox: desktop Firefox on Windows — Gecko engine constants, empty
-// navigator.vendor, no userAgentData, and no plugins (modern Firefox ships none).
+// navigator.vendor, no userAgentData, no plugins (modern Firefox ships none).
 func realFirefox() botcheck.Signals {
 	s := cleanChrome()
 	mirrorUA(&s, firefoxUA)
@@ -956,7 +952,7 @@ func realFirefox() botcheck.Signals {
 
 // realIPhone: iPhone browser — WebKit under any brand token (Apple mandates
 // it), no userAgentData, no window.chrome (WKWebView), real touch points,
-// and phone geometry (outer == inner, avail == screen).
+// phone geometry (outer == inner, avail == screen).
 func realIPhone(ua string) botcheck.Signals {
 	s := cleanChrome()
 	mirrorUA(&s, ua)
@@ -975,14 +971,13 @@ func realIPhone(ua string) botcheck.Signals {
 	s.WebGLVendor, s.WebGLRenderer = "Apple Inc.", "Apple GPU"
 	s.WorkerWebGLRenderer = "Apple GPU"
 	// Every iOS browser is WebKit: no Network Information API (CriOS/FxiOS
-	// included — the API is Chromium-only).
+	// included — API is Chromium-only).
 	s.Env.Connection = botcheck.ConnectionInfo{}
 	return s
 }
 
 // realAndroid: Chrome on a Pixel phone — mobile UA w/ touch, Android platform
-// hints everywhere, the phone's Adreno GPU, and no plugins (Android Chrome
-// ships none).
+// hints everywhere, phone's Adreno GPU, no plugins (Android Chrome ships none).
 func realAndroid() botcheck.Signals {
 	s := cleanChrome()
 	mirrorUA(&s, chromeAndroidGPUUA)
@@ -1010,11 +1005,11 @@ func realAndroid() botcheck.Signals {
 	return s
 }
 
-// TestRealBrowsersDoNotFalsePositive: regression guard for the whole rule
-// set — genuine human browsers, including the tricky cases (a Chromium fork
-// whose branded version diverges, WebKit with no userAgentData, iOS browsers
-// that are WebKit under any brand token, phones with touch), must score 100
-// with zero false fires from the v3 and v4 batches.
+// TestRealBrowsersDoNotFalsePositive: regression guard for whole rule set —
+// genuine human browsers, incl tricky cases (Chromium fork whose branded
+// version diverges, WebKit w/ no userAgentData, iOS browsers that are WebKit
+// under any brand token, phones w/ touch), must score 100 w/ zero false fires
+// from v3 and v4 batches.
 func TestRealBrowsersDoNotFalsePositive(t *testing.T) {
 	cases := []struct {
 		name string
@@ -1059,8 +1054,8 @@ const (
 )
 
 // Realistic WebGL unmasked vendor/renderer pairs, one per reporting style:
-// Chrome's ANGLE shim, Safari's generalised Apple pair, Firefox's plain
-// driver strings, and Android's mobile GPUs.
+// Chrome's ANGLE shim, Safari's generalised Apple pair, Firefox's plain driver
+// strings, and Android's mobile GPUs.
 const (
 	angleAppleVendor   = "Google Inc. (Apple)"
 	angleAppleRenderer = "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"
@@ -1077,8 +1072,8 @@ const (
 )
 
 // gpuSignals builds a minimal client-collected fixture carrying just a UA and
-// a WebGL vendor/renderer pair. Assertions below target only the two GPU
-// rules → other fields stay zero (their rules covered elsewhere).
+// a WebGL vendor/renderer pair. Assertions below target only the two GPU rules
+// → other fields stay zero (their rules covered elsewhere).
 func gpuSignals(ua, vendor, renderer string) botcheck.Signals {
 	return botcheck.Signals{
 		ClientCollected:  true,
@@ -1090,10 +1085,10 @@ func gpuSignals(ua, vendor, renderer string) botcheck.Signals {
 	}
 }
 
-// TestWebGLVendorMismatch covers G07: the unmasked VENDOR and RENDERER come
-// from the same driver, so a confident cross-family pair is a hand-edited
-// spoof. It must fire only when BOTH sides parse to a known family AND
-// disagree — any absent or unparseable string means no signal.
+// TestWebGLVendorMismatch covers G07: unmasked VENDOR and RENDERER come from
+// same driver, so a confident cross-family pair is a hand-edited spoof. Fires
+// only when BOTH sides parse to a known family AND disagree — any absent or
+// unparseable string means no signal.
 func TestWebGLVendorMismatch(t *testing.T) {
 	fires := []struct{ name, vendor, renderer string }{
 		{"Apple vendor vs NVIDIA renderer", "Apple Inc.", angleNVRenderer},
@@ -1132,7 +1127,7 @@ func TestWebGLVendorMismatch(t *testing.T) {
 
 // TestCrossContextSignals covers G03 rules: each mutation makes one
 // secondary-context value (Web Worker / iframe / Service Worker) contradict
-// the main thread, which must fire exactly the rule watching that pair.
+// main thread, which must fire exactly the rule watching that pair.
 func TestCrossContextSignals(t *testing.T) {
 	const linuxChromeUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 	cases := []struct {
@@ -1170,10 +1165,10 @@ func TestCrossContextSignals(t *testing.T) {
 	}
 }
 
-// TestDeepTamperSignals covers the G04 rules in both directions plus the skip
-// contract: each rule fires on its bad value, stays silent on the clean
-// fixture, and Skips (rather than reading as a pass) when no client
-// fingerprint was collected at all.
+// TestDeepTamperSignals covers G04 rules in both directions plus skip
+// contract: each rule fires on its bad value, stays silent on clean fixture,
+// and Skips (rather than reading as a pass) when no client fingerprint
+// collected at all.
 func TestDeepTamperSignals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1209,11 +1204,11 @@ func TestDeepTamperSignals(t *testing.T) {
 	}
 }
 
-// TestDeepTamperSkipsStalePayload: a fingerprint from a stale cached
-// collector (payload version before the G04 fields existed) must never trip
-// the deep-tamper rules — missing keys bind false, which'd otherwise read as
-// confirmed tampering and cost a real human 95 points (the deploy-time
-// cache-staleness guard).
+// TestDeepTamperSkipsStalePayload: a fingerprint from a stale cached collector
+// (payload version before G04 fields existed) must never trip deep-tamper
+// rules — missing keys bind false, which'd otherwise read as confirmed
+// tampering and cost a real human 95 points (deploy-time cache-staleness
+// guard).
 func TestDeepTamperSkipsStalePayload(t *testing.T) {
 	s := cleanChrome()
 	s.CollectorV = 0 // pre-G04 collector: none of the deep-tamper keys were sent
@@ -1232,11 +1227,11 @@ func TestDeepTamperSkipsStalePayload(t *testing.T) {
 	}
 }
 
-// TestGPUOSMismatch covers G08: the GPU vendor family must be plausible for
-// the OS the UA claims. Only the enumerated impossible pairs may fire; every
-// real-world combination (including the odd-but-real ones the adversarial
-// review taught: AMD on an Intel Mac, Adreno on a Snapdragon Windows laptop)
-// stays silent, as do unknown GPUs and unparseable UAs.
+// TestGPUOSMismatch covers G08: GPU vendor family must be plausible for the OS
+// the UA claims. Only enumerated impossible pairs may fire; every real-world
+// combination (incl odd-but-real ones adversarial review taught: AMD on an
+// Intel Mac, Adreno on a Snapdragon Windows laptop) stays silent, as do
+// unknown GPUs and unparseable UAs.
 func TestGPUOSMismatch(t *testing.T) {
 	fires := []struct{ name, ua, vendor, renderer string }{
 		{"Apple GPU + Windows UA", chromeWinGPUUA, angleAppleVendor, angleAppleRenderer},
@@ -1294,9 +1289,8 @@ func TestGPUOSMismatch(t *testing.T) {
 }
 
 // TestCrossContextSignalsDoNotFalsePositive: real browsers report consistent
-// values across contexts — and where a spelling variant is legitimate (a
-// region variant of the same language, a platform alias), the rules must
-// stay quiet.
+// values across contexts — and where a spelling variant is legitimate (region
+// variant of same language, a platform alias), rules must stay quiet.
 func TestCrossContextSignalsDoNotFalsePositive(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1325,9 +1319,9 @@ func TestCrossContextSignalsDoNotFalsePositive(t *testing.T) {
 }
 
 // TestCrossContextAbsentDataNeverFires: every context probe failing or timing
-// out (empty values) is "no signal", never "mismatch" — in both directions:
-// the context side absent while the main thread reports, and the main side
-// absent while a context reports.
+// out (empty values) is "no signal", never "mismatch" — both directions:
+// context side absent while main thread reports, and main side absent while
+// a context reports.
 func TestCrossContextAbsentDataNeverFires(t *testing.T) {
 	ids := []string{
 		"context_ua_mismatch", "context_language_mismatch", "context_cores_mismatch",
@@ -1366,9 +1360,9 @@ func TestCrossContextAbsentDataNeverFires(t *testing.T) {
 }
 
 // TestBrightDataStyleWorkerSpoof is the G03 scenario from the roadmap: an
-// anti-detect setup (Bright Data was caught exactly this way) patches the top
-// frame to claim macOS, but the Web Worker leaks the real Linux underneath —
-// through its User-Agent, its userAgentData.platform, and its core count.
+// anti-detect setup (Bright Data was caught exactly this way) patches top frame
+// to claim macOS, but Web Worker leaks real Linux underneath — through its
+// User-Agent, its userAgentData.platform, and its core count.
 func TestBrightDataStyleWorkerSpoof(t *testing.T) {
 	s := cleanChrome() // top frame claims macOS
 	s.NavWorkerUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -1386,13 +1380,13 @@ func TestBrightDataStyleWorkerSpoof(t *testing.T) {
 	}
 }
 
-// TestStealthCaughtByCrossContextChecks encodes the headline finding of the
+// TestStealthCaughtByCrossContextChecks encodes headline finding of the
 // 2026-07-19 audit: current puppeteer-extra-stealth EVADES every deep
-// internals tamper probe (they read clean) → cross-context consistency
-// checks are what catch it now. A stealth browser patches only its top
-// frame, so its Web Worker leaks the real OS underneath, and that alone
-// scores it a bot. Why the internals probes were downgraded to soft on
-// 2026-07-21: they weren't carrying the verdict against real stealth anyway.
+// internals tamper probe (they read clean) → cross-context consistency checks
+// are what catch it now. A stealth browser patches only its top frame, so its
+// Web Worker leaks real OS underneath, and that alone scores it a bot. Why
+// internals probes were downgraded to soft on 2026-07-21: they weren't
+// carrying the verdict against real stealth anyway.
 func TestStealthCaughtByCrossContextChecks(t *testing.T) {
 	s := cleanChrome() // top frame claims macOS/Chrome, all internals probes clean
 	// The stealth patch didn't reach the Web Worker context — it leaks Linux.
@@ -1401,8 +1395,8 @@ func TestStealthCaughtByCrossContextChecks(t *testing.T) {
 	s.WorkerCores = 4
 
 	r := botcheck.Evaluate(s)
-	// Every deep internals probe (and the toString-proxy hard tell) reads clean —
-	// modern stealth defeats all of them — so the verdict rests entirely on the
+	// Every deep internals probe (and toString-proxy hard tell) reads clean —
+	// modern stealth defeats all of them — so verdict rests entirely on
 	// cross-context checks.
 	for _, id := range []string{
 		"tostring_proxy", "native_descriptor_tamper", "native_callnew_tamper",
@@ -1423,11 +1417,11 @@ func TestStealthCaughtByCrossContextChecks(t *testing.T) {
 	}
 }
 
-// TestInternalsTamperDowngradedToSoft pins the 2026-07-21 honesty change: the
-// five deep internals tamper probes moved from consistency (individual
-// deductions) to soft (cluster-only). Current stealth evades them and a
-// privacy extension can trip them, so no single one may dock a genuine human
-// again — they only bite when three or more soft signals fire together.
+// TestInternalsTamperDowngradedToSoft pins 2026-07-21 honesty change: the five
+// deep internals tamper probes moved from consistency (individual deductions)
+// to soft (cluster-only). Current stealth evades them and a privacy extension
+// can trip them, so no single one may dock a genuine human again — they only
+// bite when three or more soft signals fire together.
 func TestInternalsTamperDowngradedToSoft(t *testing.T) {
 	fire := map[string]func(*botcheck.Signals){
 		"native_descriptor_tamper": func(s *botcheck.Signals) { s.NativeDescriptorsOK = false },
@@ -1436,9 +1430,8 @@ func TestInternalsTamperDowngradedToSoft(t *testing.T) {
 		"chrome_runtime_tamper":    func(s *botcheck.Signals) { s.ChromeRuntimeOK = false },
 		"chrome_late_injection":    func(s *botcheck.Signals) { s.ChromeLateInjection = true },
 	}
-	// Each one, firing ALONE on an otherwise-clean browser, is soft-tier,
-	// still fires, and costs nothing — a privacy-extension human keeps a
-	// perfect score.
+	// Each one, firing ALONE on an otherwise-clean browser, is soft-tier, still
+	// fires, and costs nothing — a privacy-extension human keeps a perfect score.
 	for id, mut := range fire {
 		s := cleanChrome()
 		mut(&s)
@@ -1454,8 +1447,7 @@ func TestInternalsTamperDowngradedToSoft(t *testing.T) {
 			t.Errorf("%s alone: score=%d verdict=%q, want 100/human — a soft signal must never dock on its own", id, r.Score, r.Verdict)
 		}
 	}
-	// Three together cross the soft-cluster threshold: one 25-point
-	// deduction, not 3×25.
+	// Three together cross soft-cluster threshold: one 25-point deduction, not 3×25.
 	s := cleanChrome()
 	s.NativeDescriptorsOK = false
 	s.NativeCallNewOK = false
@@ -1471,10 +1463,10 @@ func TestInternalsTamperDowngradedToSoft(t *testing.T) {
 
 // ── v3 batch signals (G09–G14, G17, G22, G23 + Layer-1 backlog) ───────────────
 
-// TestV3Signals covers the v3-batch rules in the fires direction: each
-// mutation makes exactly one new rule fire against an otherwise-clean Chrome
-// fixture. The guard directions (stale payload, both-sides-present, address
-// family, exact value) are covered per-rule below.
+// TestV3Signals covers v3-batch rules in fires direction: each mutation makes
+// exactly one new rule fire against an otherwise-clean Chrome fixture. Guard
+// directions (stale payload, both-sides-present, address family, exact value)
+// covered per-rule below.
 func TestV3Signals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1516,9 +1508,9 @@ func TestV3Signals(t *testing.T) {
 }
 
 // TestCDPSWOnlyDoesNotDoubleCount: cdp_sw_only exists precisely to add the
-// Service-Worker-only observation without double-counting it with cdp_both /
-// cdp_main_only — when the main thread or worker also tripped the trap, the
-// older rules own the observation.
+// Service-Worker-only observation without double-counting it w/ cdp_both /
+// cdp_main_only — when main thread or worker also tripped the trap, older
+// rules own the observation.
 func TestCDPSWOnlyDoesNotDoubleCount(t *testing.T) {
 	s := cleanChrome()
 	s.SWCDP, s.CDPMainThread = true, true
@@ -1542,9 +1534,9 @@ func TestCDPSWOnlyDoesNotDoubleCount(t *testing.T) {
 }
 
 // TestV3GateSkipsStalePayload: a fingerprint from a stale cached v2 collector
-// lacks every v3 key, so the damning-when-false/zero v3 fields bind bad — the
-// gated rules must skip rather than read that as tampering (the same
-// contract TestDeepTamperSkipsStalePayload proved for the v2 gate).
+// lacks every v3 key, so damning-when-false/zero v3 fields bind bad — gated
+// rules must skip rather than read that as tampering (same contract
+// TestDeepTamperSkipsStalePayload proved for the v2 gate).
 func TestV3GateSkipsStalePayload(t *testing.T) {
 	v2 := func(mut func(*botcheck.Signals)) botcheck.Signals {
 		s := cleanChrome()
@@ -1573,8 +1565,8 @@ func TestV3GateSkipsStalePayload(t *testing.T) {
 		})
 	}
 
-	// The same stale payload scores clean overall: every ungated v3 rule is
-	// true=bad or a value comparison, so missing keys bind safe by construction.
+	// Same stale payload scores clean overall: every ungated v3 rule is true=bad
+	// or a value comparison, so missing keys bind safe by construction.
 	stale := cleanChrome()
 	stale.CollectorV = 2
 	stale.NavProtoDescriptorsOK = false
@@ -1586,8 +1578,8 @@ func TestV3GateSkipsStalePayload(t *testing.T) {
 		t.Errorf("stale v2 payload: score=%d verdict=%q, want 100/human (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
 	}
 
-	// zero_outer_height needs no version gate: the InnerH > 0 guard makes a
-	// stale payload (both fields bind 0) skip by construction.
+	// zero_outer_height needs no version gate: InnerH > 0 guard makes a stale
+	// payload (both fields bind 0) skip by construction.
 	zero := cleanChrome()
 	zero.CollectorV = 2
 	zero.OuterH, zero.InnerH = 0, 0
@@ -1597,11 +1589,10 @@ func TestV3GateSkipsStalePayload(t *testing.T) {
 }
 
 // TestMobileNoTouch covers G12: a desktop browser wearing a mobile UA reports
-// maxTouchPoints == 0, which no real phone does. Real iPhone/Android
-// fixtures (touch > 0) must NOT fire, a desktop UA must NOT fire (the
-// reverse direction is deliberately not a rule — touch-screen Windows
-// laptops), and a stale v2 payload must skip (the field is damning when
-// zero).
+// maxTouchPoints == 0, which no real phone does. Real iPhone/Android fixtures
+// (touch > 0) must NOT fire, a desktop UA must NOT fire (reverse direction
+// deliberately not a rule — touch-screen Windows laptops), and a stale v2
+// payload must skip (field is damning when zero).
 func TestMobileNoTouch(t *testing.T) {
 	// Positive: mobile UA w/ zero touch points, per OS.
 	for _, mk := range []func() botcheck.Signals{
@@ -1631,10 +1622,10 @@ func TestMobileNoTouch(t *testing.T) {
 	}
 }
 
-// TestJSEngineUAMismatch covers G23: the Error-stack JS engine vs the engine
-// the UA claims, mapped through engineFromUA (blink→v8, gecko→spidermonkey,
-// webkit→jsc — iOS browsers included). Both sides must be confident: an
-// empty detection or an unparseable UA is no signal.
+// TestJSEngineUAMismatch covers G23: Error-stack JS engine vs engine the UA
+// claims, mapped through engineFromUA (blink→v8, gecko→spidermonkey,
+// webkit→jsc — iOS browsers included). Both sides must be confident: an empty
+// detection or an unparseable UA is no signal.
 func TestJSEngineUAMismatch(t *testing.T) {
 	fires := []struct{ name, ua, detected string }{
 		{"Chrome UA on SpiderMonkey", chromeMacUA, "spidermonkey"},
@@ -1674,9 +1665,9 @@ func TestJSEngineUAMismatch(t *testing.T) {
 	}
 }
 
-// TestChromeRulesNeedAChromeUA: the G22 chrome-object rules key on a Chrome
-// UA — a non-Chrome browser never has its (absent or differently-shaped)
-// chrome object held against it.
+// TestChromeRulesNeedAChromeUA: G22 chrome-object rules key on a Chrome UA — a
+// non-Chrome browser never has its (absent or differently-shaped) chrome
+// object held against it.
 func TestChromeRulesNeedAChromeUA(t *testing.T) {
 	s := realSafari()
 	s.ChromeRuntimeOK = false
@@ -1689,11 +1680,11 @@ func TestChromeRulesNeedAChromeUA(t *testing.T) {
 	}
 }
 
-// TestWebRTCIPMismatch covers G09: a PUBLIC WebRTC candidate that differs
-// from the egress IP pierces a VPN/proxy. Private/loopback/link-local/ULA/
-// CGNAT candidates are excluded (a host candidate ≠ egress is normal NAT),
-// only the egress's own address family is compared (dual-stack stays
-// silent), and absent data on either side is no signal.
+// TestWebRTCIPMismatch covers G09: a PUBLIC WebRTC candidate that differs from
+// egress IP pierces a VPN/proxy. Private/loopback/link-local/ULA/CGNAT
+// candidates excluded (host candidate ≠ egress is normal NAT), only egress's
+// own address family compared (dual-stack stays silent), and absent data on
+// either side is no signal.
 func TestWebRTCIPMismatch(t *testing.T) {
 	const (
 		egressV4 = "85.105.22.17"
@@ -1747,10 +1738,10 @@ func TestWebRTCIPMismatch(t *testing.T) {
 
 // ── v4 batch signals (G15/G21) ───────────────────────────────────────────────
 
-// TestV4Signals covers the v4-batch rules in the fires direction: each
-// mutation makes exactly one new rule fire against an otherwise-clean Chrome
-// fixture. The guard directions (stale payload, absent API, unknown type,
-// rounding boundary) are covered per-rule below.
+// TestV4Signals covers v4-batch rules in fires direction: each mutation makes
+// exactly one new rule fire against an otherwise-clean Chrome fixture. Guard
+// directions (stale payload, absent API, unknown type, rounding boundary)
+// covered per-rule below.
 func TestV4Signals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1779,10 +1770,10 @@ func TestV4Signals(t *testing.T) {
 	}
 }
 
-// TestMatchMediaMissing: matchmedia_missing fires only on a browser-claimed
-// UA (looksLikeBrowser) — a self-declared bot or HTTP client is already
-// caught by the hard rules and must not double-count here — and it Skips
-// (rather than reading as a pass) on a server-only request.
+// TestMatchMediaMissing: matchmedia_missing fires only on a browser-claimed UA
+// (looksLikeBrowser) — a self-declared bot or HTTP client is already caught by
+// hard rules and must not double-count here — and it Skips (rather than
+// reading as a pass) on a server-only request.
 func TestMatchMediaMissing(t *testing.T) {
 	fires := cleanChrome()
 	fires.Env.MatchMedia = false
@@ -1790,7 +1781,7 @@ func TestMatchMediaMissing(t *testing.T) {
 		t.Errorf("matchmedia_missing should fire for a browser UA without matchMedia")
 	}
 
-	// A non-browser UA never fires: the rule asks "a real browser would have
+	// A non-browser UA never fires: rule asks "a real browser would have
 	// matchMedia", which doesn't apply to a declared bot / HTTP client.
 	for name, ua := range map[string]string{
 		"curl":           "curl/8.4.0",
@@ -1813,12 +1804,12 @@ func TestMatchMediaMissing(t *testing.T) {
 	}
 }
 
-// TestNetinfoIncoherent covers the effectiveType-vs-own-metrics cross-check:
-// the browser derives effectiveType from exactly the rtt/downlink it reports
-// (the worst of the two, per the spec's threshold table), so a claim FASTER
-// than its own numbers implies is a spoofed override. Thresholds are graced
-// by the API's reporting rounding, a slower-than-implied claim never fires,
-// and absent/unknown values are no signal.
+// TestNetinfoIncoherent covers effectiveType-vs-own-metrics cross-check:
+// browser derives effectiveType from exactly the rtt/downlink it reports
+// (worst of the two, per spec's threshold table), so a claim FASTER than its
+// own numbers implies is a spoofed override. Thresholds graced by API's
+// reporting rounding, a slower-than-implied claim never fires, and
+// absent/unknown values are no signal.
 func TestNetinfoIncoherent(t *testing.T) {
 	conn := func(ect string, rtt int, downlink float64) botcheck.Signals {
 		s := cleanChrome()
@@ -1872,13 +1863,12 @@ func TestNetinfoIncoherent(t *testing.T) {
 }
 
 // TestV4GateSkipsStalePayload: a fingerprint from a stale cached v3 collector
-// carries no env section, so the v4 fields bind zero — the v4-gated rules
-// must skip rather than read that as evidence (the same contract
-// TestV3GateSkipsStalePayload proved for the v3 gate). A crafted v3-stamped
-// payload that smuggles bad v4-shaped values must be skipped too: the
-// version stamp, not the keys, decides.
+// carries no env section, so v4 fields bind zero — v4-gated rules must skip
+// rather than read that as evidence (same contract TestV3GateSkipsStalePayload
+// proved for the v3 gate). A crafted v3-stamped payload that smuggles bad
+// v4-shaped values must be skipped too: version stamp, not the keys, decides.
 func TestV4GateSkipsStalePayload(t *testing.T) {
-	// A genuine stale v3 payload: no env keys at all, everything binds zero.
+	// Genuine stale v3 payload: no env keys at all, everything binds zero.
 	absent := cleanChrome()
 	absent.CollectorV = 3
 	absent.Env = botcheck.EnvInfo{}
@@ -1892,7 +1882,7 @@ func TestV4GateSkipsStalePayload(t *testing.T) {
 		t.Errorf("stale v3 payload (no env): score=%d verdict=%q, want 100/human", r.Score, r.Verdict)
 	}
 
-	// A crafted v3-stamped payload with bad v4-shaped values: still skipped.
+	// Crafted v3-stamped payload w/ bad v4-shaped values: still skipped.
 	crafted := cleanChrome()
 	crafted.CollectorV = 3
 	crafted.Env.MatchMedia = false

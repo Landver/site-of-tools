@@ -1,120 +1,120 @@
 # AmIUnique.org
 
-Academic browser-fingerprint **uniqueness/trackability** tool — **not a bot detector.** Shows how rare/re-identifiable your browser fingerprint is vs research corpus. No bot-or-human call made.
+Academic browser-FP **uniqueness/trackability** tool — **not bot detector.** Shows how rare/re-identifiable browser FP vs research corpus. No bot-or-human call.
 
-- **URL:** https://amiunique.org/ · **Category:** privacy/fingerprint tool (open-source academic research test page) · **Requires registration:** No (free, no account; optional ~4-month cookie just lets you revisit own fingerprint history).
-- **Firsthand verdict for test browser** (in-app browser reports as `Claude/… Chrome/148 Electron/42.5.1`, macOS, egress IP `87.249.139.226` = NordVPN/DataCamp datacenter, Istanbul): **No bot verdict produced, by design.** AmIUnique collected fingerprint (HTTP headers + client-side JS attribute set POSTed to backend), reports per-attribute uniqueness + overall "are you unique?" answer. Renders no bot/not-bot output, does **not** check egress IP at all — datacenter/VPN address invisible to it. Sharp contrast with every real detector in this set.
+- **URL:** https://amiunique.org/ · **Category:** privacy/FP tool (open-source academic research page) · **Registration:** No (free, no account; optional ~4-month cookie -> revisit own FP history).
+- **Firsthand, test browser** (in-app browser = `Claude/… Chrome/148 Electron/42.5.1`, macOS, egress IP `87.249.139.226` = NordVPN/DataCamp datacenter, Istanbul): **No bot verdict, by design.** Collected FP (HTTP headers + client-side JS attrs POSTed to backend), reports per-attr uniqueness + overall "are you unique?". No bot/not-bot output, **no** egress-IP check -> datacenter/VPN addr invisible. Sharp contrast w/ every real detector in set.
 
 ## What it is — common info
 
-AmIUnique.org: non-commercial research project studying **diversity/uniqueness of browser fingerprints**, built to raise public awareness of fingerprint-based tracking and give public corpus for anti-tracking research. Run by academics affiliated with **Inria and CNRS in France** (FAQ contact `browser-fingerprinting@univ-lille.fr`, Université de Lille), grew out of DiverSE team / DIVERSIFY project. Underpins peer-reviewed paper *"Beauty and the Beast: Diverting Modern Web Browsers to Build Unique Browser Fingerprints"* (Laperdrix, Rudametkin, Baudry — IEEE S&P 2016, CNIL-Inria award). Audience: end users (tracking awareness) + researchers/developers building fingerprinting defenses. Running test voluntarily adds one data point to research dataset.
+Non-commercial research project studying **diversity/uniqueness of browser FPs**; raises FP-tracking awareness + gives public corpus for anti-tracking research. Run by academics @ **Inria + CNRS, France** (FAQ contact `browser-fingerprinting@univ-lille.fr`, Université de Lille), from DiverSE team / DIVERSIFY project. Underpins peer-reviewed paper *"Beauty and the Beast: Diverting Modern Web Browsers to Build Unique Browser Fingerprints"* (Laperdrix, Rudametkin, Baudry — IEEE S&P 2016, CNIL-Inria award). Audience: end users (tracking awareness) + researchers/devs building FP defenses. Voluntary test adds 1 data point.
 
-Separate, distinct domain `amiunique.io` exists in broader fingerprinting ecosystem; this doc strictly covers `.org` academic project. (See Verification notes — claimed attribution of `.io` to a specific researcher's "fork" couldn't be confirmed, not repeated here.)
+Separate distinct domain `amiunique.io` exists in broader FP ecosystem; this doc = `.org` project only. (See Verification notes — claimed `.io` = researcher's "fork" unconfirmed, not repeated.)
 
 ## Registration / access
 
-None. Load page, fingerprinted immediately. Fingerprinting stateless — no cookie needed to compute fingerprint. Only stored state: optional persistent cookie so returning visitor can view own fingerprint history over time; contributing fingerprint to research corpus voluntary.
+None. Load page -> fingerprinted immediately. FP stateless — no cookie needed to compute. Only stored state: optional persistent cookie -> returning visitor views own FP history over time; contributing FP to corpus voluntary.
 
 ## How it decides bot-or-not
 
-**Doesn't.** Tool answers different question: *how unique/identifiable is this browser?* Collects fingerprint, then per attribute reports **similarity ratio** (share of fingerprints in DB with same value) + overall verdict on whether combined fingerprint is unique in dataset. Never classifies visitor bot or human, runs no automation-trace checks as verdict, applies no risk score.
+**Doesn't.** Answers different question: *how unique/identifiable is this browser?* Collects FP, per attr reports **similarity ratio** (share of DB FPs w/ same value) + overall verdict on whether combined FP unique in dataset. Never classifies bot vs human, no automation-trace verdict, no risk score.
 
-For anti-bot engineer, value is indirect but real: AmIUnique is canonical **checklist of what to collect** and reference for **entropy/uniqueness angle** (Panopticlick lineage) — which attributes carry most identifying info. Automation artifacts (e.g. `HeadlessChrome` UA, empty plugin list, `SwiftShader` WebGL renderer) show up only incidentally in raw attribute values for human to eyeball; AmIUnique draws no conclusion from them.
+For anti-bot engineer, value indirect but real: canonical **checklist of what to collect** + reference for **entropy/uniqueness angle** (Panopticlick lineage) — which attrs carry most identifying info. Automation artifacts (e.g. `HeadlessChrome` UA, empty plugin list, `SwiftShader` WebGL renderer) appear only incidentally in raw values for human eyeball; AmIUnique draws no conclusion.
 
 ## Detection approaches
 
-Reframed as **fingerprint-collection** approaches (no detection/verdict layer):
+Reframed as **FP-collection** approaches (no detection/verdict layer):
 
-- **Active fingerprinting** — client-side JavaScript / Web-API attribute collection (canvas, WebGL, audio, fonts, navigator props, screen, storage, permissions).
-- **Passive fingerprinting** — server-side reading of browser's HTTP request headers.
-- **Statistical uniqueness / entropy analysis** — comparing attribute values against research database to compute similarity ratios and overall uniqueness.
-- **Not used:** headless/automation detection as verdict (no `navigator.webdriver`/CDP-trace bot check), no behavioral/mouse analysis, no TLS/JA3 or HTTP/2 (h2) frame-settings or header-order fingerprinting, no IP/proxy/VPN reputation, no WebRTC leak test, no CAPTCHA/challenge, no ML bot classifier.
+- **Active FP** — client-side JS / Web-API attr collection (canvas, WebGL, audio, fonts, navigator props, screen, storage, permissions).
+- **Passive FP** — server-side read of browser HTTP request headers.
+- **Statistical uniqueness / entropy** — compare attr values vs research DB -> similarity ratios + overall uniqueness.
+- **Not used:** headless/automation detection as verdict (no `navigator.webdriver`/CDP-trace check), no behavioral/mouse analysis, no TLS/JA3 or HTTP/2 (h2) frame-settings or header-order FP, no IP/proxy/VPN reputation, no WebRTC leak test, no CAPTCHA/challenge, no ML bot classifier.
 
 ## Areas / signals scanned
 
-Grouped as AmIUnique presents them. (Firsthand-observed grouping/counts take precedence over research list.)
+Grouped as AmIUnique presents. (Firsthand grouping/counts override research list.)
 
 **Server-side (HTTP request headers, passive)**
 - User-Agent
 - Accept
-- Accept-Encoding (labeled "Content encoding" in UI)
-- Accept-Language (labeled "Content language" in UI)
+- Accept-Encoding (UI label "Content encoding")
+- Accept-Language (UI label "Content language")
 - Upgrade-Insecure-Requests
-- (FAQ also lists Referer, Do-Not-Track, Connection, Cache-Control.)
+- (FAQ also: Referer, Do-Not-Track, Connection, Cache-Control.)
 
-**Client-side (JavaScript, POSTed to backend)**
+**Client-side (JS, POSTed to backend)**
 - User-Agent (JS view), `navigator.platform`, product / productSub / vendor, `buildID`
-- Full `navigator` property dump (~80 properties observed), `hardwareConcurrency`, `deviceMemory`
+- Full `navigator` dump (~80 props observed), `hardwareConcurrency`, `deviceMemory`
 - Plugin list
 - Timezone
 - Screen resolution + available resolution + color depth
 - Browser language(s)
 - Installed/available fonts (enumeration)
-- Canvas fingerprint (hidden 2D-rendered image hash)
+- Canvas FP (hidden 2D-rendered image hash)
 - WebGL: vendor / renderer strings + rendered-image data
-- AudioContext (audio) fingerprint
+- AudioContext (audio) FP
 - Cookies-enabled flag
-- Local/session storage availability + storage usage
+- Local/session storage availability + usage
 - Ad blocker (AdBlock) presence
 - Permissions API per-API state
 - Do-Not-Track flag, video/audio codec support, touch/device-class hints
 
-Roughly ~50 parameters total. **Notably absent** (exactly what real detectors add): User-Agent Client Hints (`Sec-CH-UA*`), WebRTC IP leak, IP/ASN reputation, TLS/JA3-JA4, HTTP/2 frame-settings and header-order/case analysis, any cross-session identity linkage.
+~50 params total. **Notably absent** (exactly what real detectors add): User-Agent Client Hints (`Sec-CH-UA*`), WebRTC IP leak, IP/ASN reputation, TLS/JA3-JA4, HTTP/2 frame-settings & header-order/case analysis, any cross-session identity linkage.
 
 ## How it scans (architecture)
 
-**Hybrid collection, no decision layer.** Two layers feed one stored fingerprint:
+**Hybrid collection, no decision layer.** Two layers -> one stored FP:
 
-1. **Client-side JS** runs in visitor's browser, gathers active attributes (canvas, WebGL, audio, fonts, screen, plugins, `navigator` props, storage, permissions), **POSTs** them to backend.
-2. **Server-side**, backend reads passive attributes directly from incoming HTTP request headers.
+1. **Client-side JS** in visitor browser gathers active attrs (canvas, WebGL, audio, fonts, screen, plugins, `navigator` props, storage, permissions), **POSTs** to backend.
+2. **Server-side** backend reads passive attrs from HTTP request headers.
 
-Combined attribute set stored in and compared against server-side database to compute uniqueness statistics. Original open-source implementation: **Play Framework 2.3 (JDK8) backend with MySQL fingerprint store**. No server-side TLS/JA3 or IP-reputation analysis — "decision" purely statistical similarity/uniqueness computation over stored corpus, not client-vs-server coherence cross-check.
+Combined set stored + compared vs server-side DB -> uniqueness stats. Original open-source impl: **Play Framework 2.3 (JDK8) + MySQL FP store**. No server-side TLS/JA3 or IP-reputation — "decision" = pure statistical similarity/uniqueness over corpus, not client-vs-server coherence check.
 
 ## Scoring / output
 
 **No bot score.** Output = uniqueness/trackability measure:
 
-- **Per-attribute similarity ratio** — percentage of database fingerprints sharing your exact value for that attribute. High ratio = common/anonymous; low ratio = rare/identifying.
-- **Overall verdict** — whether full combined fingerprint is unique in dataset (e.g. "you are unique among N fingerprints"), selectable over timeline (today / 7 / 15 / 30 / 90 days / all).
+- **Per-attr similarity ratio** — % of DB FPs sharing your exact value. High = common/anonymous; low = rare/identifying.
+- **Overall verdict** — whether combined FP unique in dataset (e.g. "unique among N fingerprints"), selectable over timeline (today / 7 / 15 / 30 / 90 days / all).
 
-In underlying research, identifying power of each attribute quantified with **Shannon entropy (bits)**, most discriminating attributes typically plugin list, canvas, User-Agent, fonts. (Exact entropy-normalization details medium-confidence — see Verification notes.) Number means "how rare/re-identifiable is this browser," proxy for trackability — explicitly **not** a probability visitor is bot.
+In research, identifying power per attr quantified w/ **Shannon entropy (bits)**; most discriminating: plugin list, canvas, User-Agent, fonts. (Exact entropy-normalization medium-confidence — see Verification notes.) Number = "how rare/re-identifiable," proxy for trackability — **not** probability visitor is bot.
 
 ## Notable techniques
 
-- **Canvas fingerprinting** — 2016 paper's headline contribution: render hidden image, hash GPU/driver-specific pixel differences into highly discriminating signal.
-- **WebGL fingerprinting**, including unmasked GPU vendor/renderer strings.
-- **AudioContext fingerprinting** of audio stack.
-- **Font enumeration** to detect installed font set (JavaScript-based; historical Flash method retired — see Verification notes).
-- **Per-attribute entropy quantification** to rank which signals carry most identifying info — reusable insight for weighting signals in real detector.
-- **Combining active JS attributes with passive HTTP headers** into one stateless snapshot.
-- **Key caveat (from AmIUnique-lineage researcher Antoine Vastel, now at Castle):** these pages measure *uniqueness*, not automation. AmIUnique deliberately captures single stateless snapshot with **no cross-session stability, no cross-signal coherence/consistency check, no scale/velocity, no cross-layer identity linkage, no server-side/behavioral signals** — exact things real anti-bot systems rely on. Real detector flags fingerprint *inconsistencies* (e.g. UA claims Windows Chrome but WebGL renderer is SwiftShader) as automation; AmIUnique surfaces raw values but draws no such conclusion. That absence of cross-session/cross-signal linkage is precisely why it can't function as detector.
+- **Canvas FP** — 2016 paper headline: render hidden image, hash GPU/driver-specific pixel diffs into highly discriminating signal.
+- **WebGL FP**, incl unmasked GPU vendor/renderer strings.
+- **AudioContext FP** of audio stack.
+- **Font enumeration** for installed set (JS-based; historical Flash method retired — see Verification notes).
+- **Per-attr entropy quantification** ranking which signals carry most identifying info — reusable for weighting signals in real detector.
+- **Combines active JS attrs + passive HTTP headers** into 1 stateless snapshot.
+- **Key caveat (AmIUnique-lineage researcher Antoine Vastel, now @ Castle):** pages measure *uniqueness*, not automation. Single stateless snapshot w/ **no cross-session stability, no cross-signal coherence check, no scale/velocity, no cross-layer identity linkage, no server-side/behavioral signals** — exactly what real anti-bot relies on. Real detector flags FP *inconsistencies* (e.g. UA claims Windows Chrome but WebGL renderer = SwiftShader) as automation; AmIUnique surfaces raw values, draws no conclusion. Missing cross-session/cross-signal linkage = why it can't detect.
 
 ## What we observed firsthand
 
-- Confirmed **not a bot detector**: no bot/human verdict of any kind. Tool collected fingerprint, reported uniqueness.
-- **Two attribute groups** as documented: server-side HTTP-header attributes (User-Agent, Accept, "Content encoding" = Accept-Encoding, "Content language" = Accept-Language, Upgrade-Insecure-Requests) and large client-side JS attribute set (canvas, fonts, WebGL vendor/renderer + data, audio, ~80 `navigator` props, plugins, screen, timezone, permissions per-API state, storage usage, adblock, DNT, buildID, product/productSub/vendor, hardwareConcurrency, deviceMemory, more).
-- **Network:** client-side JS attribute set POSTed to AmIUnique backend; header attributes read server-side from request. (No specific per-request endpoint path captured in recon.)
-- **Egress IP not used** — AmIUnique doesn't check IP or WebRTC, so NordVPN/DataCamp Istanbul address (`87.249.139.226`) had no effect on output. Other tools in this set flagged that IP heavily; AmIUnique blind to it by design.
+- Confirmed **not a bot detector**: no bot/human verdict. Collected FP, reported uniqueness.
+- **Two attr groups** as documented: server-side HTTP-header attrs (User-Agent, Accept, "Content encoding" = Accept-Encoding, "Content language" = Accept-Language, Upgrade-Insecure-Requests) + large client-side JS set (canvas, fonts, WebGL vendor/renderer + data, audio, ~80 `navigator` props, plugins, screen, timezone, permissions per-API state, storage usage, adblock, DNT, buildID, product/productSub/vendor, hardwareConcurrency, deviceMemory, more).
+- **Network:** client-side JS set POSTed to backend; header attrs read server-side. (No per-request endpoint path captured.)
+- **Egress IP not used** — no IP/WebRTC check, so NordVPN/DataCamp Istanbul addr (`87.249.139.226`) had no effect. Other tools flagged that IP heavily; AmIUnique blind to it by design.
 
-Firsthand recon didn't record specific unique/not-unique result for test browser; takeaway is architectural, not a verdict.
+Recon didn't record specific unique/not-unique result; takeaway architectural, not a verdict.
 
 ## Verification notes
 
 Corrections folded in from adversarial review of research (stated so rest is trustworthy):
 
-- **`amiunique.io` "fork" attribution — dropped.** Research's claim `amiunique.io` is specific researcher's fork of `.org` project couldn't be confirmed by any cited source, risks conflating two distinct services. This doc doesn't repeat it, only notes `.io` is separate domain.
-- **89.4%-unique figure — sourcing corrected.** Figure belongs to **2016 "Beauty and the Beast" paper's own AmIUnique dataset (~118,934 fingerprints)**. Cited softwarediversity abstract page doesn't actually state number, one secondary citation mis-dates it as "2018 study," so number mentioned only with that caveat rather than relied on.
-- **Flash font enumeration — anachronistic, corrected.** Flash reached end-of-life (Dec 2020), gone from browsers; current AmIUnique font (and former plugin) detection is **JavaScript-only**. Flash-based method is 2016-era paper history, not how live site works.
-- **Header names — de-garbled.** Research listed "Accept/Content-Encoding, Accept/Content-Language"; actual HTTP request headers are **Accept-Encoding** and **Accept-Language** (AmIUnique's UI labels them "Content encoding"/"Content language"). FAQ also lists Connection and Cache-Control, which research omitted.
-- **Entropy specifics — flagged medium-confidence.** Exact Shannon/normalized-entropy formulas and precise attribute count (~50) medium-confidence in research (full paper PDF behind access wall). "~50 parameters" figure corroborated by secondary source; normalization math not independently confirmed.
-- **Missing modern surfaces (added above).** Research's header inventory entirely legacy UA-string era; anti-bot engineer should note AmIUnique collects **no User-Agent Client Hints** (`Sec-CH-UA*`), does **no HTTP/2 / header-order fingerprinting**, underspecifies some active surfaces (hardwareConcurrency, deviceMemory, mediaDevices enumeration, full WebGL extension/parameter list). Called out in relevant sections.
+- **`amiunique.io` "fork" attribution — dropped.** Claim `.io` = researcher's fork of `.org` unconfirmed by any cited source, risks conflating two distinct services. Not repeated; only notes `.io` = separate domain.
+- **89.4%-unique figure — sourcing corrected.** Belongs to **2016 "Beauty and the Beast" paper's own AmIUnique dataset (~118,934 FPs)**. Cited softwarediversity abstract doesn't state it; one secondary citation mis-dates as "2018 study" -> mentioned only w/ caveat, not relied on.
+- **Flash font enumeration — anachronistic, corrected.** Flash EOL (Dec 2020), gone from browsers; current AmIUnique font (& former plugin) detection = **JS-only**. Flash method = 2016-era history, not live site.
+- **Header names — de-garbled.** Research listed "Accept/Content-Encoding, Accept/Content-Language"; actual = **Accept-Encoding** + **Accept-Language** (UI labels "Content encoding"/"Content language"). FAQ also lists Connection + Cache-Control, omitted by research.
+- **Entropy specifics — medium-confidence.** Exact Shannon/normalized-entropy formulas + precise attr count (~50) medium-confidence (full paper PDF behind access wall). "~50 params" corroborated by secondary source; normalization math not independently confirmed.
+- **Missing modern surfaces (added above).** Research header inventory all legacy UA-string era; note: AmIUnique collects **no User-Agent Client Hints** (`Sec-CH-UA*`), does **no HTTP/2 / header-order FP**, underspecifies some active surfaces (hardwareConcurrency, deviceMemory, mediaDevices enumeration, full WebGL extension/parameter list). Called out in relevant sections.
 
-Everything else (open-source Inria/CNRS academic project, no registration, client-side JS + passive HTTP-header collection, similarity-ratio/entropy uniqueness metric, not a bot detector) corroborated across site's own pages, GitHub repo, paper, independent write-ups.
+Everything else (open-source Inria/CNRS project, no registration, client-side JS + passive HTTP-header collection, similarity-ratio/entropy metric, not a bot detector) corroborated across site pages, GitHub repo, paper, independent write-ups.
 
 ## Open source / reusable
 
-- **DIVERSIFY-project/amiunique** — site's own open-source code (Play Framework 2.3 + MySQL backend): https://github.com/DIVERSIFY-project/amiunique
-- Reusable ideas for builder: **attribute checklist** (what to collect), **passive-header + active-JS split**, **per-attribute entropy weighting** to decide which signals matter. Note: *collection/uniqueness* codebase, not detection engine — you'd add coherence, stability, cross-layer, IP/TLS, behavioral layers yourself.
+- **DIVERSIFY-project/amiunique** — site's own open-source code (Play 2.3 + MySQL): https://github.com/DIVERSIFY-project/amiunique
+- Reusable for builder: **attr checklist** (what to collect), **passive-header + active-JS split**, **per-attr entropy weighting** (which signals matter). Note: *collection/uniqueness* codebase, not detection engine — add coherence, stability, cross-layer, IP/TLS, behavioral layers yourself.
 
 ## Sources
 

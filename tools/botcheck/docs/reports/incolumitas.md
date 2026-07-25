@@ -1,39 +1,39 @@
 # bot.incolumitas.com (BotOrNot)
 
-Independent researcher's constantly-evolving testbed for headless-browser and automation detection: runs broadest publicly available battery of bot signals — client-side JS fingerprinting, live behavioral classifier, server-side TCP/IP + TLS + IP-reputation analysis of the very connection you arrived on — shows each raw result.
+Independent researcher's ever-evolving headless-browser & automation-detection testbed: broadest public bot-signal battery — client-side JS FP, live behavioral classifier, server-side TCP/IP + TLS + IP-reputation of arrival connection — shows each raw result.
 
-- **URL:** https://bot.incolumitas.com/ · **Category:** open-source-style test page run by independent security researcher (educational demo; *not* commercial vendor demo, *not* privacy tool) · **Requires registration:** No. Free, no account; tests run automatically on load. Optional interactive "challenge" needs no signup either.
+- **URL:** https://bot.incolumitas.com/ · **Category:** open-source-style test page by independent security researcher (educational demo; *not* commercial vendor demo, *not* privacy tool) · **Requires registration:** No. Free, no account; tests auto-run on load. Optional interactive "challenge" also unauthenticated.
 - **Version observed:** v0.6.3.
-- **Firsthand verdict for test browser** (in-app browser reporting as `Claude/… Chrome/148 Electron/42.5.1`, macOS, egress IP `87.249.139.226` = NordVPN / DataCamp datacenter, Istanbul): Behavioral score never resolved off `...` (synthetic hovers alone never produced organic-enough trajectory to score). Multiple discrete tests fired red: **WEBDRIVER** failed, **HEADCHR_IFRAME** failed in old battery; **inconsistentServiceWorkerNavigatorProperty** failed in new battery. Server-side IP API correctly unmasked egress as **VPN = NordVPN**, **datacenter = CDN77/DataCamp**, geolocated **Istanbul, TR** — saw straight through datacenter proxy in-app browser egresses through.
+- **Firsthand verdict, test browser** (in-app browser as `Claude/… Chrome/148 Electron/42.5.1`, macOS, egress `87.249.139.226` = NordVPN / DataCamp datacenter, Istanbul): Behavioral score never left `...` (synthetic hovers -> no organic-enough trajectory). Red: **WEBDRIVER** fail, **HEADCHR_IFRAME** fail (old battery); **inconsistentServiceWorkerNavigatorProperty** fail (new battery). Server IP API unmasked egress: **VPN = NordVPN**, **datacenter = CDN77/DataCamp**, geo **Istanbul, TR** — saw straight through datacenter proxy.
 
 ## What it is — common info
 
-Built and maintained by **Nikolai Tschacher**, independent security researcher who blogs at incolumitas.com about scraping, browser fingerprinting, and "cat-and-mouse game" between bot authors and anti-bot vendors. Page self-labels as *BotOrNot* / "Bot & Headless Chrome Detection Tests," versioned, explicitly a moving target: "implements widely known bot detection tests and is constantly under development." Tschacher also used it as honeypot to benchmark commercial scraping services (ScrapingBee, Bright Data/Luminati, etc.), expose their fingerprint/TLS/TCP-IP tells.
+By **Nikolai Tschacher**, independent security researcher, blogs at incolumitas.com re scraping, browser FP, bot-vs-vendor "cat-and-mouse." Page self-labels *BotOrNot* / "Bot & Headless Chrome Detection Tests," versioned, explicit moving target: "implements widely known bot detection tests and is constantly under development." Tschacher also used it as honeypot to benchmark commercial scrapers (ScrapingBee, Bright Data/Luminati, etc.), expose their FP/TLS/TCP-IP tells.
 
-Not commercial product, no paid tier or API-key gate — exists so bot authors and defenders can see, in one place, which of their evasions hold up. Audience: scraper developers, anti-bot engineers, fingerprinting researchers.
+Not commercial, no paid tier / API-key gate — exists so bot authors & defenders see in one place which evasions hold up. Audience: scraper devs, anti-bot engineers, FP researchers.
 
 ## Registration / access
 
-None. Load page, every test runs. Interactive challenge (fill form → confirm JS dialog → edit price table → scrape it) optional, also unauthenticated; purpose: generate real human-like interaction telemetry for behavioral classifier.
+None. Load page -> every test runs. Interactive challenge (fill form -> confirm JS dialog -> edit price table -> scrape) optional, unauthenticated; purpose: real human-like interaction telemetry for behavioral classifier.
 
 ## How it decides bot-or-not
 
-**No single unified verdict number.** Page produces two kinds of output side by side:
+**No single unified verdict number.** Two output kinds side by side:
 
-1. Continuous **`behavioralClassificationScore`**, float from `0` (bot) to `1` (human), where **< 0.5 = "most likely a bot."** Computed after ~1.5 s of interaction, re-computed at 4 s, 7 s, 10 s, 15 s as more telemetry accumulates (later passes use more data to trim false positives).
-2. Large set of **discrete pass/fail tests** — webdriver present?, headless tells?, worker/iframe navigator consistency?, UA-vs-OS match?, datacenter IP?, timezone match?, etc. — plus rich IP-reputation JSON blob.
+1. Continuous **`behavioralClassificationScore`**, float `0` (bot) to `1` (human), **< 0.5 = "most likely a bot."** Computed after ~1.5 s interaction, re-computed at 4/7/10/15 s as telemetry accumulates (later passes -> trim false positives).
+2. Large set of **discrete pass/fail tests** — webdriver?, headless tells?, worker/iframe navigator consistency?, UA-vs-OS match?, datacenter IP?, timezone match?, etc. — + rich IP-reputation JSON blob.
 
-Human (or integrating engineer) reads behavioral score together with individual red flags to reach conclusion. Tschacher explicit that false positives are expected, whole exercise "raises the transaction cost" of automation rather than being infallible — and **client-side signals are all spoofable, so server-observed signals (IP, TCP/IP, TLS) are the ones that can't be forged** if operator understands the logic.
+Human (or integrating engineer) reads score w/ individual red flags -> conclusion. Tschacher explicit: false positives expected, exercise "raises the transaction cost" vs being infallible — & **client-side signals all spoofable, so server-observed signals (IP, TCP/IP, TLS) can't be forged** if operator understands logic.
 
 ## Detection approaches
 
-- **Browser fingerprinting** — navigator / canvas / WebGL / audio / font entropy via JS, including FingerprintJS-style hash (page loads `fp.min.js`).
-- **Headless / automation-trace detection** — `navigator.webdriver`, headless-Chrome tells, `puppeteer-extra-stealth` patch detection, automation-framework signatures; reuses Intoli and fp-scanner test batteries.
-- **Behavioral analysis** — mouse / key / scroll / timing telemetry fed to 30+ classifier ensemble producing 0–1 score (client-side).
-- **Network fingerprinting (server-side)** — passive TCP/IP OS fingerprinting from SYN packet, plus JA3-style TLS fingerprint, cross-checked against claimed User-Agent OS.
-- **HTTP-layer analysis (server-side)** — header dump; proxy-header and User-Agent inspection.
-- **IP / proxy / VPN / datacenter reputation & geolocation** — dedicated server-side IP API, plus DNS-leak and open-port checks on proxy/VPN sub-page.
-- **Cross-signal consistency correlation** — browser vs IP timezone, main-thread navigator vs Web Worker / Service Worker / iframe navigator, claimed OS vs TCP/IP-inferred OS.
+- **Browser FP** — navigator / canvas / WebGL / audio / font entropy via JS, incl FingerprintJS-style hash (loads `fp.min.js`).
+- **Headless / automation-trace detection** — `navigator.webdriver`, headless-Chrome tells, `puppeteer-extra-stealth` patch detection, automation-framework sigs; reuses Intoli & fp-scanner batteries.
+- **Behavioral analysis** — mouse/key/scroll/timing telemetry -> 30+ classifier ensemble -> 0–1 score (client-side).
+- **Network FP (server-side)** — passive TCP/IP OS FP from SYN packet + JA3-style TLS FP, cross-checked vs claimed UA OS.
+- **HTTP-layer (server-side)** — header dump; proxy-header & UA inspection.
+- **IP / proxy / VPN / datacenter reputation & geo** — dedicated server-side IP API + DNS-leak & open-port checks on proxy/VPN sub-page.
+- **Cross-signal consistency** — browser vs IP timezone, main-thread navigator vs Web Worker / Service Worker / iframe navigator, claimed OS vs TCP/IP-inferred OS.
 
 ## Areas / signals scanned
 
@@ -42,74 +42,74 @@ Human (or integrating engineer) reads behavioral score together with individual 
 Collected by same-origin scripts (`hc2.js` main, `ua-parser.min.js`, `fpCollect.min.js`, `fpScanner.js`, `usage.js`, `fp.min.js` = FingerprintJS, `fingerprints.js`, `newTests.js`, `webworker2.js`):
 
 - **New Detection Tests:** `puppeteerEvaluationScript`, `webdriverPresent`, `connectionRTT`, `refMatch`, `overrideTest`, `overflowTest`, `puppeteerExtraStealthUsed`, `inconsistentWebWorkerNavigatorPropery`, `inconsistentServiceWorkerNavigatorPropery`.
-- **Old Detection Tests (Intoli + fp-scanner battery, same family as bot.sannysoft.com):** User-Agent, WebDriver (+ advanced), `window.chrome` object presence, permissions, plugins, languages, WebGL vendor/renderer, `HEADCHR_*` headless-Chrome checks, `HEADCHR_IFRAME`, Selenium driver artefacts, battery/memory, video codecs, etc.
+- **Old Detection Tests (Intoli + fp-scanner battery, same family as bot.sannysoft.com):** UA, WebDriver (+ advanced), `window.chrome` object presence, permissions, plugins, languages, WebGL vendor/renderer, `HEADCHR_*` headless-Chrome checks, `HEADCHR_IFRAME`, Selenium driver artefacts, battery/memory, video codecs, etc.
 - **Fingerprints:** FingerprintJS hash, Canvas fp, WebGL fp, AudioContext, enumerable fonts, screen/window geometry, permissions state, WebRTC leak, full "Browser Data" navigator dump.
 - **Behavioral events:** `mousemove/down/up`, `keydown/up`, `scroll`, touch, `visibilitychange`, load/DOMContentLoaded — each timestamped.
 
 ### Server-side (IP / TLS / TCP / HTTP)
 
-- **IP Address API** — JSON with booleans `is_bogon`, `is_mobile`, `is_satellite`, `is_crawler`, `is_datacenter`, `is_tor`, `is_proxy`, `is_vpn`, `is_abuser`, plus `vpn.service`, `datacenter`, `company` (with `abuser_score`), `asn` (with `abuser_score`), `location` (timezone, accuracy).
-- **TCP/IP fingerprint** — passive analysis of SYN packet (TCP options, window size, IP fragmentation flag → OS guess), performed by tool named `zardaxt.py` in app.
-- **TLS fingerprint API** — JA3-style handshake fingerprint.
+- **IP Address API** — JSON w/ booleans `is_bogon`, `is_mobile`, `is_satellite`, `is_crawler`, `is_datacenter`, `is_tor`, `is_proxy`, `is_vpn`, `is_abuser`, + `vpn.service`, `datacenter`, `company` (w/ `abuser_score`), `asn` (w/ `abuser_score`), `location` (timezone, accuracy).
+- **TCP/IP fingerprint** — passive SYN-packet analysis (TCP options, window size, IP fragmentation flag -> OS guess), by in-app tool `zardaxt.py`.
+- **TLS fingerprint API** — JA3-style handshake FP.
 - **HTTP headers dump** — full header set as server received it.
-- **Proxy/VPN sub-page** — latency test (browser→server RTT vs server→client-IP RTT), WebRTC leak, TCP/IP-OS-vs-UA-OS mismatch, open-ports scan, datacenter-IP check, DNS-leak test, IP-timezone-vs-browser-timezone check, HTTP proxy-header inspection.
+- **Proxy/VPN sub-page** — latency test (browser->server RTT vs server->client-IP RTT), WebRTC leak, TCP/IP-OS-vs-UA-OS mismatch, open-ports scan, datacenter-IP check, DNS-leak test, IP-timezone-vs-browser-timezone check, HTTP proxy-header inspection.
 
 ### Behavioral
 
-Interactive challenge (form + confirm dialog + editable price table + scrape) engineered to elicit organic mouse/keyboard/scroll trajectories feeding 0–1 classifier. Purely synthetic pointer events didn't move our score off initial state.
+Interactive challenge (form + confirm dialog + editable price table + scrape) engineered to elicit organic mouse/keyboard/scroll trajectories feeding 0–1 classifier. Synthetic pointer events alone didn't move our score off initial state.
 
 ## How it scans (architecture)
 
 **Hybrid, decision split across two independent vantage points.**
 
-- **Client side:** same-origin JS bundle harvests full browser fingerprint and continuous behavioral event stream, and — based on firsthand observation — computes `behavioralClassificationScore` **in the browser** (no fingerprint/behavioral POST to backend captured during recon; score updated locally at 1.5/4/7/10/15 s marks). Treat behavioral scorer as client-resident unless builder confirms otherwise.
-- **Server side:** moment TCP connection established, backend independently derives signals client can't edit — TCP/IP OS fingerprint from SYN, JA3-style TLS fingerprint, HTTP header order/UA, IP/proxy/VPN/datacenter reputation via IP API. Served back as own JSON/report sections.
+- **Client side:** same-origin JS bundle harvests full browser FP + continuous behavioral event stream, and — per firsthand observation — computes `behavioralClassificationScore` **in browser** (no FP/behavioral POST to backend captured during recon; score updated locally at 1.5/4/7/10/15 s). Treat scorer as client-resident unless builder confirms otherwise.
+- **Server side:** on TCP connect, backend independently derives client-uneditable signals — TCP/IP OS FP from SYN, JA3-style TLS FP, HTTP header order/UA, IP/proxy/VPN/datacenter reputation via IP API. Served back as own JSON/report sections.
 
-Detection power is in the **cross-check**: server-observed reality (real OS from TCP/IP, real IP timezone, real datacenter status) compared against client-declared claims (navigator UA/OS, browser timezone), main-thread navigator values compared against Web Worker / Service Worker / iframe recomputations. Spoof internally consistent in JS still collapses when SYN packet or egress IP disagrees with it.
+Detection power = **cross-check**: server-observed reality (real OS from TCP/IP, real IP timezone, real datacenter status) vs client claims (navigator UA/OS, browser timezone), main-thread navigator vs Web Worker / Service Worker / iframe recomputations. Spoof internally consistent in JS still collapses when SYN packet or egress IP disagrees.
 
 ## Scoring / output
 
-- Behavioral: single `behavioralClassificationScore` float in `[0,1]`, ensemble of 30+ classifiers, `< 0.5` = likely bot, refined over 1.5–15 s.
-- Everything else: per-test `OK`/`FAIL` booleans plus rich IP-reputation JSON. No aggregate 0–100 risk number — unlike commercial scorer, deliberately exposes each raw signal rather than collapsing them.
+- Behavioral: single `behavioralClassificationScore` float `[0,1]`, 30+ classifier ensemble, `< 0.5` = likely bot, refined over 1.5–15 s.
+- Everything else: per-test `OK`/`FAIL` booleans + rich IP-reputation JSON. No aggregate 0–100 risk number — unlike commercial scorers, deliberately exposes each raw signal vs collapsing.
 
 ## Notable techniques
 
-- **Cross-layer consistency:** claimed UA/OS vs TCP/IP-inferred OS vs TLS fingerprint vs IP-geolocated timezone — catches spoofed User-Agents that look fine in isolation.
-- **Cross-context navigator re-checks:** recompute `navigator.*` inside Web Worker, Service Worker, iframe, compare to main thread (historically caught Bright Data returning `Linux x86_64` in worker while top-level UA claimed Windows). Exactly the signal that flagged our browser (`inconsistentServiceWorkerNavigatorProperty` FAIL).
-- **Fingerprint-reuse detection:** spotting identical canvas/WebGL fingerprints repeated across many requests to unmask scraping-farm infrastructure (caught ScrapingBee returning constant fingerprint).
-- **Stealth-patch detection:** `puppeteerExtraStealthUsed` / `overrideTest` target artefacts left by `puppeteer-extra-stealth`.
+- **Cross-layer consistency:** claimed UA/OS vs TCP/IP-inferred OS vs TLS FP vs IP-geo timezone — catches spoofed UAs that look fine in isolation.
+- **Cross-context navigator re-checks:** recompute `navigator.*` in Web Worker, Service Worker, iframe, compare to main thread (historically caught Bright Data returning `Linux x86_64` in worker while top-level UA claimed Windows). Exactly the signal that flagged our browser (`inconsistentServiceWorkerNavigatorProperty` FAIL).
+- **Fingerprint-reuse detection:** spotting identical canvas/WebGL FPs repeated across many requests -> unmask scraping-farm infra (caught ScrapingBee returning constant FP).
+- **Stealth-patch detection:** `puppeteerExtraStealthUsed` / `overrideTest` target `puppeteer-extra-stealth` artefacts.
 - **Impossible-geometry / overflow checks** (`overflowTest`) as headless tells.
-- **Passive TCP/IP fingerprinting** via `zardaxt.py` — no active probing of client needed.
-- **Latency triangulation** on proxy page: comparing browser→server RTT against server→client-IP RTT to expose proxy hop.
-- **Time-staggered re-scoring** to cut false positives as interaction data grows.
+- **Passive TCP/IP fingerprinting** via `zardaxt.py` — no active client probing needed.
+- **Latency triangulation** on proxy page: browser->server RTT vs server->client-IP RTT -> expose proxy hop.
+- **Time-staggered re-scoring** -> cut false positives as interaction data grows.
 
 ## What we observed firsthand
 
 - Behavioral score stayed unresolved (`...`) under synthetic input — classifier genuinely needs organic trajectories.
-- Old battery: **WEBDRIVER FAIL**, **HEADCHR_IFRAME FAIL**. New battery: **inconsistentServiceWorkerNavigatorProperty FAIL**. (Electron/CDP-driven test browser leaks worker-context inconsistencies and iframe tells even though `navigator.webdriver` itself absent and `window.chrome` present.)
-- IP API output for egress `87.249.139.226`: `is_vpn = true` (service **NordVPN**), `is_datacenter = true` (**CDN77/DataCamp**), geolocated **Istanbul, TR** — datacenter egress fully unmasked server-side.
-- All detection scripts served from **same origin**; collectors client-side JS. **No fingerprint or behavioral POST to scoring backend observed** during recon — consistent with client-side behavioral scoring plus independent server-side connection analysis. (Cloudflare RUM-style analytics beacons, if any, aren't detection traffic.)
+- Old battery: **WEBDRIVER FAIL**, **HEADCHR_IFRAME FAIL**. New battery: **inconsistentServiceWorkerNavigatorProperty FAIL**. (Electron/CDP-driven test browser leaks worker-context inconsistencies & iframe tells even though `navigator.webdriver` absent and `window.chrome` present.)
+- IP API for egress `87.249.139.226`: `is_vpn = true` (service **NordVPN**), `is_datacenter = true` (**CDN77/DataCamp**), geo **Istanbul, TR** — datacenter egress fully unmasked server-side.
+- All detection scripts served from **same origin**; collectors client-side JS. **No FP or behavioral POST to scoring backend observed** during recon — consistent w/ client-side behavioral scoring + independent server-side connection analysis. (Cloudflare RUM-style analytics beacons, if any, aren't detection traffic.)
 
 ## Verification notes
 
 Adversarial review upheld core findings but corrected several points, folded into sections above:
 
-- **Authorship:** tool by **Nikolai Tschacher**, *not* Antoine Vastel. Some automated summaries misattributed it to Vastel since page **reuses / credits Vastel's open-source fp-scanner and fp-collect** — Vastel (ex-DataDome Head of Research) is a *source*, not the author.
-- **Scoring specifics** (0–1 range, "30+ classifiers," 1.5/4/7/10/15 s cadence) come from **live page and firsthand observation**, not from 2021 "Behavioral Analysis" blog post, which is only conceptual. Treated here as confirmed by firsthand recon, not by blog.
-- **CDP detection** shouldn't be reduced to open-ports / remote-debugging-port scan (real but weak — client's debug port rarely reachable from server). Dominant in-page CDP tell an engineer should implement is `Runtime.enable` / `Error.stack` serialization leak firing when DevTools Protocol client attached; research under-weighted it, so don't over-rely on port-scan vector.
-- **Network fingerprinting scope:** observed TLS fingerprint is **JA3-style**, now somewhat dated. Modern builder should add **HTTP/2 fingerprinting** (Akamai h2: SETTINGS / WINDOW_UPDATE / priority-frame order) and **JA4/JA4+** alongside TCP/IP + JA3.
-- **Unverified negative:** whether detector's *own* bot-detection code is open-source couldn't be confirmed either way — no public repo found, but absence isn't proof. Third-party libraries it loads (fp-scanner, fp-collect, FingerprintJS) *are* open source; bespoke scoring logic isn't published.
-- **Weakly-corroborated client signals:** finer tells like `window.outerWidth < innerWidth` "impossible geometry," `Notification.permission`-vs-Permissions-API mismatch, Service-Worker data reads were only indirectly supported by research. Plausible, firsthand recon confirmed worker/iframe consistency checks and geometry/overflow tests exist, but treat exact sub-checks as reasonable rather than byte-verified.
-- **Missing-angle reminders for builder** (not present or not emphasized on page as researched): JS lie/tamper detection via `Function.prototype.toString` `[native code]` checks and monkey-patch/Proxy detection; explicit `window.chrome.{runtime,loadTimes,csi,app}` consistency; User-Agent Client Hints consistency (`Sec-CH-UA` / `Sec-CH-UA-Platform` vs `navigator.userAgentData`) beyond legacy `navigator.userAgent` vs HTTP `User-Agent` check.
+- **Authorship:** tool by **Nikolai Tschacher**, *not* Antoine Vastel. Auto-summaries misattribute to Vastel since page **reuses / credits Vastel's open-source fp-scanner & fp-collect** — Vastel (ex-DataDome Head of Research) = *source*, not author.
+- **Scoring specifics** (0–1 range, "30+ classifiers," 1.5/4/7/10/15 s cadence) from **live page & firsthand observation**, not 2021 "Behavioral Analysis" blog (only conceptual). Confirmed by recon, not blog.
+- **CDP detection** ≠ open-ports / remote-debugging-port scan (real but weak — client debug port rarely reachable from server). Dominant in-page CDP tell to implement: `Runtime.enable` / `Error.stack` serialization leak firing when DevTools Protocol client attached; research under-weighted it, don't over-rely on port-scan vector.
+- **Network FP scope:** observed TLS FP = **JA3-style**, now dated. Modern builder should add **HTTP/2 fingerprinting** (Akamai h2: SETTINGS / WINDOW_UPDATE / priority-frame order) & **JA4/JA4+** alongside TCP/IP + JA3.
+- **Unverified negative:** whether detector's *own* code is open-source unconfirmed either way — no public repo found, absence isn't proof. Third-party libs (fp-scanner, fp-collect, FingerprintJS) *are* open source; bespoke scoring logic isn't published.
+- **Weakly-corroborated client signals:** finer tells — `window.outerWidth < innerWidth` "impossible geometry," `Notification.permission`-vs-Permissions-API mismatch, Service-Worker data reads — only indirectly supported by research. Firsthand recon confirmed worker/iframe consistency & geometry/overflow tests exist, but treat exact sub-checks as reasonable vs byte-verified.
+- **Missing-angle reminders for builder** (not present/emphasized on page): JS lie/tamper detection via `Function.prototype.toString` `[native code]` checks & monkey-patch/Proxy detection; explicit `window.chrome.{runtime,loadTimes,csi,app}` consistency; UA Client Hints consistency (`Sec-CH-UA` / `Sec-CH-UA-Platform` vs `navigator.userAgentData`) beyond legacy `navigator.userAgent` vs HTTP `User-Agent`.
 
 ## Open source / reusable
 
-Bespoke BotOrNot detection/scoring code **not published as repo**. What *is* reusable:
+Bespoke BotOrNot detection/scoring code **not published as repo**. Reusable parts:
 
-- **fp-scanner** and **fp-collect** (Antoine Vastel) — headless/automation test battery, loaded here as `fpScanner.js` / `fpCollect.min.js`.
-- **FingerprintJS** (open-source tier) — device fingerprint hash, loaded as `fp.min.js`.
-- **`zardaxt.py`** — TCP/IP (SYN-packet) OS-fingerprinting approach used server-side, named in-app.
-- **Intoli headless-Chrome detection tests** — lineage of "old" battery, shared with bot.sannysoft.com.
+- **fp-scanner** & **fp-collect** (Antoine Vastel) — headless/automation battery, loaded as `fpScanner.js` / `fpCollect.min.js`.
+- **FingerprintJS** (open-source tier) — device FP hash, loaded as `fp.min.js`.
+- **`zardaxt.py`** — TCP/IP (SYN-packet) OS-FP approach used server-side, named in-app.
+- **Intoli headless-Chrome detection tests** — lineage of "old" battery, shared w/ bot.sannysoft.com.
 
 ## Sources
 

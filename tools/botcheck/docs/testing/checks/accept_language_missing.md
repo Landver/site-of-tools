@@ -6,7 +6,7 @@
 
 ## What it checks
 
-Every real browser sends Accept-Language. Its total absence suggests a scripted client; kept soft because a proxy can strip the header in transit.
+Every real browser sends Accept-Language. Total absence suggests a scripted client; kept soft because a proxy can strip the header in transit.
 
 ## Origin & history
 
@@ -22,4 +22,4 @@ Curl-verified both directions vs local dev: fires w/ browser UA + no header, sta
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["accept_language_missing"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["accept_language_missing"]` — same text the live result page shows under this check's "why" expander. Update both together if check behavior changes.

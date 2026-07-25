@@ -18,12 +18,12 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// blocklist_handler_test.go covers the ONE seam the domain-rule tests can't
-// reach: addServerSignals' BlockLookup→Signals mapping, especially the
-// "any non-ipsum source ⇒ IPBlocklistDeliberate" loop that bypasses the ipsum
-// confidence floor. blocklist is a concrete *iptools.BlockList (not a fakeable
-// interface like Looker), so this drives a live corpus end-to-end through the
-// real handler — gated on MONGODB_TEST_URI, mirroring TestCorpusLiveViaHandler.
+// blocklist_handler_test.go covers ONE seam domain-rule tests can't reach:
+// addServerSignals' BlockLookup→Signals mapping, esp. "any non-ipsum source ⇒
+// IPBlocklistDeliberate" loop bypassing ipsum confidence floor. blocklist is
+// concrete *iptools.BlockList (not fakeable interface like Looker), so drives
+// live corpus end-to-end through real handler — gated on MONGODB_TEST_URI,
+// mirrors TestCorpusLiveViaHandler.
 
 func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	t.Helper()
@@ -31,10 +31,10 @@ func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	if uri == "" {
 		t.Skip("MONGODB_TEST_URI not set; skipping live blocklist handler test")
 	}
-	// Distinct DB from iptools/tests' "site-of-tools-test": the ip_blocklist
-	// collection is now exercised by both packages, and `go test ./...` runs
-	// package binaries in parallel — a shared DB would let them drop/seed each
-	// other's rows mid-test. Own DB = no cross-package collision.
+	// Distinct DB from iptools/tests' "site-of-tools-test": ip_blocklist
+	// collection now exercised by both packages, & `go test ./...` runs package
+	// binaries in parallel — shared DB would let them drop/seed each other's
+	// rows mid-test. Own DB = no cross-package collision.
 	m, err := platform.OpenMongo(ctx, uri, "site-of-tools-test-botcheck")
 	if err != nil {
 		t.Fatalf("open mongo: %v", err)
@@ -51,22 +51,22 @@ func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	return bl
 }
 
-// TestBlocklistLiveViaHandler proves the handler mapping end-to-end: an
-// ipsum-only IP at the floor fires ip_blocklisted (floor path), a deliberate
-// non-ipsum ban fires regardless of count (the Deliberate loop bypassing the
-// floor), and an unlisted IP stays silent.
+// TestBlocklistLiveViaHandler proves handler mapping end-to-end: ipsum-only IP
+// at floor fires ip_blocklisted (floor path), deliberate non-ipsum ban fires
+// regardless of count (Deliberate loop bypassing floor), unlisted IP stays
+// silent.
 func TestBlocklistLiveViaHandler(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	bl := liveBlockList(t, ctx)
 
 	const ipsumIP, deliberateIP, cleanIP = "203.0.113.77", "203.0.113.78", "198.51.100.200"
-	// ipsum-only at the floor (count 3 == ipsumBlocklistFloor).
+	// ipsum-only at floor (count 3 == ipsumBlocklistFloor).
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ipsumIP, Source: iptools.BlocklistSourceIPsum, Count: 3}); err != nil {
 		t.Fatalf("seed ipsum: %v", err)
 	}
-	// A deliberate, non-ipsum ban with NO count — fires only if the Deliberate
-	// mapping set the bypass; a floor check alone would keep it silent.
+	// Deliberate, non-ipsum ban w/ NO count — fires only if Deliberate mapping
+	// set bypass; floor check alone would keep it silent.
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: deliberateIP, Source: "rate-limiter", Reason: "too many requests"}); err != nil {
 		t.Fatalf("seed deliberate: %v", err)
 	}

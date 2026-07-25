@@ -1,44 +1,44 @@
 # Shodan & Censys (internet-wide scanning services)
-> The two dominant "search engines for internet-connected devices": server-side scanners that continuously crawl the public internet and sell searchable results, host dossiers, monitoring, and APIs.
+> Two dominant "search engines for internet-connected devices": server-side scanners continuously crawling public internet, selling searchable results, host dossiers, monitoring, APIs.
 
 ## Overview
 
-Shodan and Censys are the reference products in this space. Neither is a client-side or on-demand scanner in the sense we are building — they run massive **server-side, internet-wide scan infrastructure** on a schedule, cache everything, and sell access to the resulting database. We study them purely for **product / UX / monetization ideas**, especially how they present a host's open ports, "services detected", banners, and CVEs, and how they use freemium gating.
+Reference products in space. Neither client-side/on-demand scanner like we're building — they run massive **server-side, internet-wide scan infra** on schedule, cache everything, sell access to resulting database. Study them purely for **product / UX / monetization ideas**: how they present host's open ports, "services detected", banners, CVEs, & freemium gating.
 
-- **Shodan** bills itself as "the world's first search engine for Internet-connected devices" and claims 3M+ users, including 89% of the Fortune 100. It scans the internet weekly (the paid API updates closer to real time). [shodan.io](https://www.shodan.io/)
-- **Censys** is the main competitor, marketed as the "Shodan alternative for internet-wide scanning", with a heavier enterprise/threat-intel and attack-surface-management (ASM) tilt. [censys.com/resources/pricing](https://censys.com/resources/pricing/)
+- **Shodan** bills as "the world's first search engine for Internet-connected devices"; claims 3M+ users incl 89% of Fortune 100. Scans internet weekly (paid API closer to real time). [shodan.io](https://www.shodan.io/)
+- **Censys** main competitor, marketed as "Shodan alternative for internet-wide scanning", heavier enterprise/threat-intel & attack-surface-management (ASM) tilt. [censys.com/resources/pricing](https://censys.com/resources/pricing/)
 
 ## Port scanning / network probing — how it works
 
-**Architecture (both): server-side, continuous, cached — the opposite of our design.**
-- They operate their own distributed scanner fleet that sweeps the entire IPv4 space (and known IPv6/hostnames) on a recurring cadence, grabbing service banners and storing them. A user "search" queries that cached database; it does **not** trigger a fresh probe of the target (except paid "on-demand rescan" features). [shodan.io](https://www.shodan.io/), [censys.com/resources/pricing](https://censys.com/resources/pricing/)
-- Freshness is a paid axis: Shodan's free/InternetDB data updates **weekly**; the paid Shodan API is real-time. [internetdb.shodan.io](https://internetdb.shodan.io/)
+**Architecture (both): server-side, continuous, cached — opposite of our design.**
+- Operate own distributed scanner fleet sweeping entire IPv4 space (& known IPv6/hostnames) on recurring cadence, grabbing & storing service banners. User "search" queries cached database; does **not** trigger fresh probe of target (except paid "on-demand rescan" features). [shodan.io](https://www.shodan.io/), [censys.com/resources/pricing](https://censys.com/resources/pricing/)
+- Freshness = paid axis: Shodan's free/InternetDB data updates **weekly**; paid Shodan API real-time. [internetdb.shodan.io](https://internetdb.shodan.io/)
 
-**What a host record contains.** Per IP, Shodan returns open ports, the service/protocol on each, banner text with software **product + version**, CPEs, hostnames, org/ISP/ASN, geolocation, descriptive **tags** (e.g. `vpn`, `cloud`, `self-signed`), optional **web screenshots**, and known **CVEs/vulns**. [shodan.io](https://www.shodan.io/), [internetdb.shodan.io](https://internetdb.shodan.io/)
+**What a host record contains.** Per IP, Shodan returns open ports, service/protocol on each, banner text w/ software **product + version**, CPEs, hostnames, org/ISP/ASN, geolocation, descriptive **tags** (e.g. `vpn`, `cloud`, `self-signed`), optional **web screenshots**, known **CVEs/vulns**. [shodan.io](https://www.shodan.io/), [internetdb.shodan.io](https://internetdb.shodan.io/)
 
-**Result "states".** Because these are cache-of-what-was-found engines, they effectively only report the **open/observed** state — an open port with a captured banner. They do not surface a live open/closed/filtered trichotomy the way an on-demand scanner (nmap, or our browser tool) must. This is a meaningful gap we can differentiate on.
+**Result "states".** Being cache-of-what-was-found engines, effectively only report **open/observed** state — open port w/ captured banner. Don't surface live open/closed/filtered trichotomy like on-demand scanner (nmap, or our browser tool) must. Meaningful gap we can differentiate on.
 
-**InternetDB (Shodan's free, no-auth endpoint) — the most directly relevant piece for us.** `https://internetdb.shodan.io/<ip>` returns a compact JSON for an IP: `ports[]`, `cpes[]`, `hostnames[]`, `tags[]`, and `vulns[]`. It is free for non-commercial use, needs no account or API key, and updates weekly (no banner text — lighter than the full API). [internetdb.shodan.io](https://internetdb.shodan.io/) This is a clean model of the exact "given an IP, list its ports + label services + flag known CVEs" shape our IP tool already lives near.
+**InternetDB (Shodan's free, no-auth endpoint) — most directly relevant piece for us.** `https://internetdb.shodan.io/<ip>` returns compact JSON for IP: `ports[]`, `cpes[]`, `hostnames[]`, `tags[]`, `vulns[]`. Free for non-commercial use, no account/API key, updates weekly (no banner text — lighter than full API). [internetdb.shodan.io](https://internetdb.shodan.io/) Clean model of exact "given IP, list ports + label services + flag known CVEs" shape our IP tool already lives near.
 
-**Ports covered.** Shodan tracks a large, published set of ports/protocols (its data-status site lists per-port protocol, service, banner count, risk level, top product, and associated CVEs). Censys documents "41 protocols total" on Free/Starter, with the full protocol set searchable only on higher tiers. [data-status.shodan.io/ports](https://data-status.shodan.io/ports.html), [docs.censys.com data-access-tiers](https://docs.censys.com/docs/data-access-tiers-entitlements)
+**Ports covered.** Shodan tracks large published set of ports/protocols (data-status site lists per-port protocol, service, banner count, risk level, top product, associated CVEs). Censys documents "41 protocols total" on Free/Starter; full protocol set searchable only on higher tiers. [data-status.shodan.io/ports](https://data-status.shodan.io/ports.html), [docs.censys.com data-access-tiers](https://docs.censys.com/docs/data-access-tiers-entitlements)
 
 ## UX & result presentation
 
-**Host detail page (Shodan).** A single IP page leads with a summary header (IP, org/ISP, ASN, geolocation, hostnames, last-seen), then a **list of open ports** where each port expands to its service banner (product, version, CPE) and any CVEs. Tags render as pills; a web service may show a screenshot thumbnail. [shodan.io](https://www.shodan.io/), [internetdb.shodan.io](https://internetdb.shodan.io/)
+**Host detail page (Shodan).** Single IP page leads w/ summary header (IP, org/ISP, ASN, geolocation, hostnames, last-seen), then **list of open ports** where each expands to service banner (product, version, CPE) & any CVEs. Tags render as pills; web service may show screenshot thumbnail. [shodan.io](https://www.shodan.io/), [internetdb.shodan.io](https://internetdb.shodan.io/)
 
-**Search filters / facets.** A query language with `filter:value` syntax (`port:`, `country:`, `org:`, `product:`, `vuln:`, `tag:`, `has_screenshot:` …) plus **facets** that summarize a result set (top ports, top products, top countries). Note which filters are gated (see monetization). [shodan.io](https://www.shodan.io/), [stationx.net how-to-use-shodan](https://www.stationx.net/how-to-use-shodan/)
+**Search filters / facets.** Query language w/ `filter:value` syntax (`port:`, `country:`, `org:`, `product:`, `vuln:`, `tag:`, `has_screenshot:` …) plus **facets** summarizing result set (top ports, top products, top countries). Note which filters gated (see monetization). [shodan.io](https://www.shodan.io/), [stationx.net how-to-use-shodan](https://www.stationx.net/how-to-use-shodan/)
 
-**Maps.** Geographic plot of results, up to ~1,000 at a time; zooming re-runs the query for the visible area. [stationx.net](https://www.stationx.net/how-to-use-shodan/)
+**Maps.** Geographic plot of results, up to ~1,000 at a time; zooming re-runs query for visible area. [stationx.net](https://www.stationx.net/how-to-use-shodan/)
 
-**Images.** A friendly UI wrapper around the `has_screenshot` filter — a gallery of captured device/web screenshots. [stationx.net](https://www.stationx.net/how-to-use-shodan/)
+**Images.** UI wrapper around `has_screenshot` filter — gallery of captured device/web screenshots. [stationx.net](https://www.stationx.net/how-to-use-shodan/)
 
-**Monitor (Shodan) — alerts UX.** You register your IP ranges and get "real-time notifications when something unexpected shows up" (new open port, exposed database, data leak, phishing lookalike) within ~5 minutes of setup, delivered via email, Slack, Microsoft Teams, Discord, Telegram, Gitter, PagerDuty, or custom **webhooks**. Explicitly markets "actionable insights, not cluttered dashboards filled with noise." [monitor.shodan.io](https://monitor.shodan.io/)
+**Monitor (Shodan) — alerts UX.** Register your IP ranges, get "real-time notifications when something unexpected shows up" (new open port, exposed database, data leak, phishing lookalike) within ~5 min of setup, via email, Slack, Microsoft Teams, Discord, Telegram, Gitter, PagerDuty, or custom **webhooks**. Markets "actionable insights, not cluttered dashboards filled with noise." [monitor.shodan.io](https://monitor.shodan.io/)
 
-**Censys presentation.** Similar host/service dossier plus **Collections** (saved searches/segments), host & DNS **history** timelines, adversary **dashboards**, `CensEye`, and certificate history on higher tiers. Notably exposes **API + MCP access** on every paid tier — i.e. an official model-context-protocol endpoint for AI agents. [censys.com/resources/pricing](https://censys.com/resources/pricing/), [docs.censys.com data-access-tiers](https://docs.censys.com/docs/data-access-tiers-entitlements)
+**Censys presentation.** Similar host/service dossier plus **Collections** (saved searches/segments), host & DNS **history** timelines, adversary **dashboards**, `CensEye`, certificate history on higher tiers. Notably exposes **API + MCP access** on every paid tier — official model-context-protocol endpoint for AI agents. [censys.com/resources/pricing](https://censys.com/resources/pricing/), [docs.censys.com data-access-tiers](https://docs.censys.com/docs/data-access-tiers-entitlements)
 
 ## Other tools & services offered
 
-**Shodan:** Search engine · Monitor (network alerts) · Maps · Images · Trends (historical query analytics) · Developer **API** (REST + Streaming/firehose + Trends) · **Bulk Data** / enterprise firehose · **InternetDB** (free per-IP lookup) · **CVEDB** (open vulnerability DB API: CVE lookups, CPE-keyed search, KEV filtering, EPSS ordering, date-range queries) · Chrome/Firefox browser plugins · CLI · Snippets. [shodan.io](https://www.shodan.io/), [internetdb.shodan.io](https://internetdb.shodan.io/), [developer.shodan.io/api](https://developer.shodan.io/api)
+**Shodan:** Search engine · Monitor (network alerts) · Maps · Images · Trends (historical query analytics) · Developer **API** (REST + Streaming/firehose + Trends) · **Bulk Data** / enterprise firehose · **InternetDB** (free per-IP lookup) · **CVEDB** (open vuln DB API: CVE lookups, CPE-keyed search, KEV filtering, EPSS ordering, date-range queries) · Chrome/Firefox browser plugins · CLI · Snippets. [shodan.io](https://www.shodan.io/), [internetdb.shodan.io](https://internetdb.shodan.io/), [developer.shodan.io/api](https://developer.shodan.io/api)
 
 **Censys:** Search (host / web property / certificate) · Collections · Enrichment API · deep app scan / live re-scan · web screenshots · Adversary Investigation module (threat data, CensEye, adversary dashboards) · Critical Infrastructure Monitoring add-on · API + MCP access on all paid tiers. [censys.com/resources/pricing](https://censys.com/resources/pricing/), [docs.censys.com](https://docs.censys.com/docs/data-access-tiers-entitlements)
 
@@ -46,12 +46,12 @@ Shodan and Censys are the reference products in this space. Neither is a client-
 
 **Shodan — credits + subscription + one lifetime hook.** [account.shodan.io/billing](https://account.shodan.io/billing)
 - **Free:** $0 — 100 query credits/mo, 100 scan credits/mo, 16 monitored IPs, most filters but **no `vuln` or `tag`**, basic API.
-- **Membership:** **one-time $49** lifetime upgrade (same 100/100 credits + 16 IPs, most filters) — a famous conversion hook: cheap, permanent, removes the paywall wall.
+- **Membership:** **one-time $49** lifetime upgrade (same 100/100 credits + 16 IPs, most filters) — famous conversion hook: cheap, permanent, removes paywall wall.
 - **Freelancer $69/mo:** 10,000 query credits, 5,120 scan credits, 5,120 monitored IPs.
 - **Small Business $359/mo:** 200,000 query, 65,536 scan, 65,536 IPs.
 - **Corporate $1,099/mo:** unlimited query credits, 327,680 scan/IPs, batch IP lookups, `tag` filter, premium support.
 - **Enterprise:** custom — bulk data, real-time firehose, unlimited.
-- Two currencies (**query credits** = searches beyond page 1; **scan credits** = on-demand scans), refreshed monthly; 1 request/sec rate limit; "grandfathered pricing" retention perk.
+- Two currencies (**query credits** = searches beyond page 1; **scan credits** = on-demand scans), refreshed monthly; 1 req/sec rate limit; "grandfathered pricing" retention perk.
 
 **Censys — credits + tiers, enterprise-heavy.** [censys.com/resources/pricing](https://censys.com/resources/pricing/), [docs.censys.com](https://docs.censys.com/docs/data-access-tiers-entitlements)
 - **Free:** $0 — 1 page (100 results max), 1 concurrent action, **lookup endpoints only**, no history, basic protocols, **no CPE/version, no CVE**.
@@ -60,28 +60,28 @@ Shodan and Censys are the reference products in this space. Neither is a client-
 - **Adversary Investigation:** contact sales — all Core plus searchable threat data, CensEye, adversary dashboards, 3+ month history, certificate history.
 - **Credits model:** packages start at $100, consumed per query, export, dataset purchase, or collection use; enterprise add-ons (Gold Support, Critical Infrastructure Monitoring).
 
-**Pattern:** free tier for discovery → gate the *valuable* fields (CVEs, versions, screenshots, `vuln`/`tag` filters) and *volume* (result pagination, history depth, concurrency, API credits) behind paid tiers. The data is the same; access to depth/breadth/freshness is what's sold.
+**Pattern:** free tier for discovery → gate *valuable* fields (CVEs, versions, screenshots, `vuln`/`tag` filters) & *volume* (result pagination, history depth, concurrency, API credits) behind paid tiers. Data same; access to depth/breadth/freshness is what's sold.
 
 ## Ideas to steal (for OUR client-side port scanner)
 
-- **"Services detected" framing.** Don't just print "port 443 open" — map each open port to a service name and, where possible, a likely product ("443 · HTTPS · nginx?"). This is Shodan's whole value proposition compressed into one label. Our tool can do the mapping from a static port→service table client-side; product guesses stay soft ("likely"/"unverified").
-- **Host summary header, then port cards.** Copy the host-page layout: a header (IP, reverse-DNS hostname, org/ASN, geo — which our IP tool already resolves) followed by a vertical list of **open-port cards**, each expandable to details. Reads instantly and scales from 1 to many ports.
-- **Report a real open/closed/filtered trichotomy — our differentiator.** Shodan/Censys only show "found/open". A live browser scan can distinguish **open** (connected), **closed** (refused fast), and **filtered/timeout** (no response). Show all three with distinct color/iconography; it's information their cached model literally cannot give.
-- **Tags as pills + a "risk" hint per port.** Cheap, skimmable signal (e.g. `database`, `remote-access`, `plaintext`). Shodan's per-port "risk level" column is a good model for a subtle severity badge.
-- **Enrich with InternetDB (free, no key).** For a resolved IP, consider fetching `https://internetdb.shodan.io/<ip>` to label services and surface known `vulns[]`/`tags[]`/`cpes[]`. Verify CORS from the browser first; if blocked, a tiny server-side proxy is one option, though it reintroduces server outbound traffic — weigh against the client-side design goal. Data is weekly-stale, so frame it as "last known (Shodan)" alongside our live result.
-- **Facet-style summary.** Above the port list, a one-line rollup: "6 open · 3 filtered · top: HTTPS, SSH". Mirrors Shodan facets and orients the reader.
-- **CVE presentation conventions worth echoing** (from Shodan CVEDB): list CVEs with CVSS severity, order by **EPSS** (exploit-likelihood), and flag **KEV** (known-exploited) entries. Even a static badge for "known-exploited" adds credibility.
-- **Freemium hooks a hobby tool can echo (without charging money).** The mechanics translate to soft product tiers, not paywalls: gate a **full 65k-port deep scan** behind an explicit opt-in (default = fast top-100 preset); offer **scan history** of *your own* prior scans (we already have Mongo lookup history in the IP tool — reuse it); a lightweight **"monitor this host"** idea (re-run + diff) echoes Shodan Monitor without infrastructure.
-- **Scan-mode presets.** Shodan sells volume; for an on-demand tool the useful analog is nmap-style presets — "Top 100 (fast)", "Common services", "Full range (slow)" — as a segmented control, defaulting to fast.
-- **Copy/wording to borrow.** Plain, benefit-first, low-noise: "see what you have exposed", "real-time results, no account needed", "actionable insights, not a cluttered dashboard." Fits the CLAUDE.md copy rules (stronger, minimal em dashes).
+- **"Services detected" framing.** Don't just print "port 443 open" — map each open port to service name &, where possible, likely product ("443 · HTTPS · nginx?"). Shodan's whole value prop compressed into one label. Our tool can map from static port→service table client-side; product guesses stay soft ("likely"/"unverified").
+- **Host summary header, then port cards.** Copy host-page layout: header (IP, reverse-DNS hostname, org/ASN, geo — which our IP tool already resolves) followed by vertical list of **open-port cards**, each expandable to details. Reads instantly, scales from 1 to many ports.
+- **Report real open/closed/filtered trichotomy — our differentiator.** Shodan/Censys only show "found/open". Live browser scan can distinguish **open** (connected), **closed** (refused fast), **filtered/timeout** (no response). Show all three w/ distinct color/iconography; info their cached model literally cannot give.
+- **Tags as pills + "risk" hint per port.** Cheap, skimmable signal (e.g. `database`, `remote-access`, `plaintext`). Shodan's per-port "risk level" column = good model for subtle severity badge.
+- **Enrich w/ InternetDB (free, no key).** For resolved IP, consider fetching `https://internetdb.shodan.io/<ip>` to label services & surface known `vulns[]`/`tags[]`/`cpes[]`. Verify CORS from browser first; if blocked, tiny server-side proxy one option, though reintroduces server outbound traffic — weigh against client-side design goal. Data weekly-stale, so frame as "last known (Shodan)" alongside our live result.
+- **Facet-style summary.** Above port list, one-line rollup: "6 open · 3 filtered · top: HTTPS, SSH". Mirrors Shodan facets, orients reader.
+- **CVE presentation conventions worth echoing** (from Shodan CVEDB): list CVEs w/ CVSS severity, order by **EPSS** (exploit-likelihood), flag **KEV** (known-exploited) entries. Even static badge for "known-exploited" adds credibility.
+- **Freemium hooks a hobby tool can echo (without charging money).** Mechanics translate to soft product tiers, not paywalls: gate **full 65k-port deep scan** behind explicit opt-in (default = fast top-100 preset); offer **scan history** of *your own* prior scans (we already have Mongo lookup history in IP tool — reuse it); lightweight **"monitor this host"** idea (re-run + diff) echoes Shodan Monitor without infra.
+- **Scan-mode presets.** Shodan sells volume; for on-demand tool useful analog = nmap-style presets — "Top 100 (fast)", "Common services", "Full range (slow)" — as segmented control, defaulting to fast.
+- **Copy/wording to borrow.** Plain, benefit-first, low-noise: "see what you have exposed", "real-time results, no account needed", "actionable insights, not a cluttered dashboard." Fits CLAUDE.md copy rules (stronger, minimal em dashes).
 
 ## Limitations & caveats
 
-- **Fundamentally different model.** Both are server-side, continuously-scanning, cache-and-sell databases; we are on-demand and client-side. Their *presentation* ideas transfer; their *architecture* does not, and copying it would recreate exactly the outbound-scan/blocklist problem the client-side design avoids.
-- **Staleness.** Free Shodan and InternetDB refresh weekly; a cached result can be wrong for a live host. Any InternetDB enrichment must be labeled "last known", not "live".
-- **CORS / commercial-use limits.** InternetDB is free only for **non-commercial** use and may not permit browser cross-origin fetches; confirm before relying on it. Full Shodan/Censys data is paid and rate-limited (Shodan 1 req/sec).
-- **Authorization framing.** Their monitoring products are scoped to "your own infrastructure." A browser tool that scans arbitrary targets should carry a clear "only scan hosts you're authorized to" notice.
-- **Exact host-page field lists** for the full paid Shodan UI were inferred from the homepage, InternetDB schema, and secondary guides rather than a logged-in page capture; treat granular layout specifics as directional, not pixel-exact (unverified where noted).
+- **Fundamentally different model.** Both server-side, continuously-scanning, cache-and-sell databases; we're on-demand & client-side. Their *presentation* ideas transfer; *architecture* doesn't — copying it would recreate exactly the outbound-scan/blocklist problem client-side design avoids.
+- **Staleness.** Free Shodan & InternetDB refresh weekly; cached result can be wrong for live host. Any InternetDB enrichment must be labeled "last known", not "live".
+- **CORS / commercial-use limits.** InternetDB free only for **non-commercial** use, may not permit browser cross-origin fetches; confirm before relying on it. Full Shodan/Censys data paid & rate-limited (Shodan 1 req/sec).
+- **Authorization framing.** Their monitoring products scoped to "your own infrastructure." Browser tool scanning arbitrary targets should carry clear "only scan hosts you're authorized to" notice.
+- **Exact host-page field lists** for full paid Shodan UI inferred from homepage, InternetDB schema, & secondary guides rather than logged-in page capture; treat granular layout specifics as directional, not pixel-exact (unverified where noted).
 
 ## Sources
 - https://www.shodan.io/

@@ -14,8 +14,7 @@ import (
 
 // Tool: one entry in site's tool catalog — rendered in apex tools index +
 // header's Tools dropdown. Lives here (base package everyone imports) →
-// renderer + each feature share one type. Actual catalog: single func,
-// site.Tools.
+// renderer + each feature share one type. Catalog: single func, site.Tools.
 type Tool struct {
 	Name string
 	Desc string
@@ -33,19 +32,19 @@ var navBaseFuncs = template.FuncMap{
 	"asset": StaticURL,
 }
 
-// StaticURL maps a static asset path (relative to static root, e.g.
-// "js/botcheck.js") to its public URL under /static, tolerating an optional
-// leading slash. Single place "/static/" prefix gets applied — shared by
+// StaticURL maps static asset path (relative to static root, e.g.
+// "js/botcheck.js") to public URL under /static, tolerating optional
+// leading slash. Single place "/static/" prefix applied — shared by
 // nil-funcs fallback above, dev asset helper in main, AssetVersioner's
 // fallback → dev + prod can't diverge on prefix.
 func StaticURL(p string) string { return "/static/" + strings.TrimPrefix(p, "/") }
 
-// AssetVersioner returns a template helper mapping a static asset path
-// (relative to static root, e.g. "js/botcheck.js") to its public URL w/
+// AssetVersioner returns template helper mapping static asset path
+// (relative to static root, e.g. "js/botcheck.js") to public URL w/
 // content-hash cache-buster, e.g. "/static/js/botcheck.js?v=1a2b3c4d". Hash
 // changes only when file bytes change → deploy invalidates CDN/browser
-// cache for exactly the assets that changed — no stale max-age wait, no
-// manual purge. Results memoised; read error falls back to unversioned URL.
+// cache for exactly changed assets — no stale max-age wait, no manual
+// purge. Results memoised; read error falls back to unversioned URL.
 func AssetVersioner(static fs.FS) func(string) string {
 	var mu sync.Mutex
 	cache := map[string]string{}
@@ -67,7 +66,7 @@ func AssetVersioner(static fs.FS) func(string) string {
 }
 
 // TemplateSource describes one package's templates: embedded FS (always
-// contains a "templates" dir) + disk dir to read in dev.
+// contains "templates" dir) + disk dir to read in dev.
 type TemplateSource struct {
 	Embed  fs.FS  // e.g. shared.Templates (embeds a "templates" dir)
 	DevDir string // disk dir for dev, e.g. "shared/templates"
@@ -85,7 +84,7 @@ type Renderer struct {
 	tmpl    *template.Template
 }
 
-// NewRenderer builds the renderer. funcs: template functions available to
+// NewRenderer builds renderer. funcs: template functions available to
 // every template (e.g. shared header's apexURL/navTools). Pass nil for
 // none → shared nav funcs fall back to safe defaults (see navBaseFuncs).
 func NewRenderer(dev bool, funcs template.FuncMap, sources ...TemplateSource) *Renderer {
@@ -97,7 +96,7 @@ func NewRenderer(dev bool, funcs template.FuncMap, sources ...TemplateSource) *R
 }
 
 func (r *Renderer) parse() *template.Template {
-	// Base nav funcs first, then caller overrides (Funcs additive; nil = no-op).
+	// Base nav funcs first, then caller overrides (Funcs additive; nil=no-op).
 	t := template.New("").Funcs(navBaseFuncs).Funcs(r.funcs)
 	for _, s := range r.sources {
 		t = parseAll(t, s.fsys(r.dev))
@@ -106,7 +105,7 @@ func (r *Renderer) parse() *template.Template {
 }
 
 // parseAll walks fsys, parses every .html file (any depth) into t. Templates
-// addressed by their {{define "name"}} names → must be unique across all
+// addressed by {{define "name"}} names → must be unique across all
 // sources (e.g. "site/home", "ip/index", "partials/head").
 func parseAll(t *template.Template, fsys fs.FS) *template.Template {
 	var files []string
@@ -141,8 +140,8 @@ func IsHTMX(c *echo.Context) bool {
 	return c.Request().Header.Get("HX-Request") == "true"
 }
 
-// prefersHTML reports whether the caller wants HTML: htmx always does,
-// browsers send an Accept header containing text/html. Everything else
+// prefersHTML reports whether caller wants HTML: htmx always does,
+// browsers send Accept header containing text/html. Everything else
 // (curl's default */*, explicit application/json, API clients) gets JSON.
 func prefersHTML(c *echo.Context) bool {
 	if IsHTMX(c) {
@@ -154,9 +153,9 @@ func prefersHTML(c *echo.Context) bool {
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.
 func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 
-// Respond renders one domain result in the representation the caller wants:
-// JSON (API/CLI), an HTML fragment (htmx), or a full HTML page (browser).
-// Pass same template name for page + fragment when a feature has no fragment.
+// Respond renders one domain result in representation caller wants:
+// JSON (API/CLI), HTML fragment (htmx), or full HTML page (browser).
+// Pass same template name for page + fragment when feature has no fragment.
 func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) error {
 	switch {
 	case WantsJSON(c):

@@ -6,11 +6,11 @@
 
 ## What it checks
 
-navigator.plugins and navigator.mimeTypes must cross-reference each other; a spoofed plugin list that isn't wired both ways is internally incoherent.
+navigator.plugins & navigator.mimeTypes must cross-reference each other; spoofed plugin list not wired both ways is internally incoherent.
 
 ## Origin & history
 
-Internal-backlog item, shipped 2026-07-18 (v3-gated): `navigator.plugins` and `navigator.mimeTypes` must cross-reference each other in a real browser; a spoofed plugin list that isn't wired both ways is internally incoherent.
+Internal-backlog item, shipped 2026-07-18 (v3-gated): `navigator.plugins` & `navigator.mimeTypes` must cross-reference each other in a real browser; spoofed plugin list not wired both ways is internally incoherent.
 
 ## Test status: Verified — fires correctly
 
@@ -22,4 +22,4 @@ Real-browser probe (`fire-branch-probe.mjs`): zeroed `mimeTypes` while `plugins`
 
 ---
 
-"What it checks" is sourced from [`report.go`](../../../report.go)'s `ruleExplanations["plugins_mimetypes_incoherent"]` — the same text the live result page shows under this check's "why" expander. Update both together if the check's behavior changes.
+"What it checks" sourced from [`report.go`](../../../report.go)'s `ruleExplanations["plugins_mimetypes_incoherent"]` — same text live result page shows under this check's "why" expander. Update both together if check's behavior changes.
