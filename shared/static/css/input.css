@@ -110,4 +110,46 @@
   .link-brand {
     @apply border-b border-brand text-strong hover:text-brand;
   }
+
+  /* Rendered blog markdown body — bare tags straight from goldmark, so all
+     styling hangs off the wrapper (same precedent as .spec > dt). */
+  .post-body {
+    @apply mt-8 leading-relaxed text-body;
+  }
+  .post-body > * + * {
+    @apply mt-5;
+  }
+  .post-body h2 {
+    @apply mt-10 text-2xl font-semibold text-strong;
+  }
+  .post-body h3 {
+    @apply mt-8 text-xl font-semibold text-strong;
+  }
+  .post-body a {
+    @apply border-b border-brand text-strong hover:text-brand;
+  }
+  .post-body ul {
+    @apply list-disc pl-6;
+  }
+  .post-body ol {
+    @apply list-decimal pl-6;
+  }
+  .post-body li + li {
+    @apply mt-2;
+  }
+  .post-body code {
+    @apply rounded bg-surface px-1 py-0.5 font-mono text-sm text-strong;
+  }
+  .post-body pre {
+    @apply overflow-x-auto rounded-lg border border-line bg-surface p-4;
+  }
+  .post-body pre code {
+    @apply bg-transparent p-0;
+  }
+  .post-body blockquote {
+    @apply border-l-2 border-brand pl-4 text-muted;
+  }
+  .post-body strong {
+    @apply text-strong;
+  }
 }

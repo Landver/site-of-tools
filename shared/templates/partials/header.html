@@ -8,6 +8,9 @@
     </a>
 
     <nav class="ml-auto flex items-center gap-5 text-sm">
+      <!-- Blog lives on apex only → absolute apex URL, like the logo. -->
+      <a href="{{apexURL}}/blog" class="text-muted hover:text-strong">Blog</a>
+
       <!-- Tools: dropdown of tool catalog (single source: site.Tools). -->
       <div class="relative" x-data="{ open: false }"
            @click.outside="open = false" @keydown.escape.window="open = false">
