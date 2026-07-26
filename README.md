@@ -13,6 +13,7 @@ source.
 - 🤖 **[Bot check](https://botcheck.corpberry.com)** — a live, transparent score of how human vs. automated your browser looks: a client-side fingerprint fused with server headers + IP reputation, cross-checked, with all 68 signals shown. *(the flagship)*
 - 🌍 **[IP tools](https://ip.corpberry.com)** — IP geolocation / ASN / proxy-VPN lookup, a "your connection" inspector, and a subnet/CIDR calculator.
 - 🏠 **[corpberry.com](https://corpberry.com)** — portfolio + tool index.
+- ✍️ **[Blog](https://corpberry.com/blog)** — occasional technical writeups ([Atom feed](https://corpberry.com/blog/feed.xml)); launch post: reverse-engineering 12 commercial bot detectors.
 
 <p align="center">
   <img src="docs/assets/botcheck-demo.gif" alt="Bot check scoring a browser in real time, with a per-signal breakdown" width="820">
@@ -107,7 +108,7 @@ nginx blocks live in [deploy/nginx/](deploy/nginx/); full steps in
 main.go            entrypoint (single binary)
 platform/          shared engine: config · app factory · renderer + negotiation · mongo client
 shared/            shared front-end: base partials + htmx/alpine/tailwind css
-site/              apex project (corpberry.com)
+site/              apex project (corpberry.com): landing + tools index + blog (posts/ markdown)
 tools/             self-contained tool subdomains (code + docs co-located):
                      iptools/   IP tools: code · templates · assets (.BIN) · README
                      botcheck/  Bot check: code · templates · README · RESEARCH · roadmap/ · testing/ · reports/

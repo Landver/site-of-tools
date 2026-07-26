@@ -47,7 +47,8 @@ Go 1.26.x · Echo **v5** (`github.com/labstack/echo/v5`) · htmx 2.0.x · Alpine
 `github.com/ip2location/ip2location-go/v9` v9.8.x · `github.com/ip2location/ip2proxy-go/v4`
 v4.2.x · `go.mongodb.org/mongo-driver/v2` v2.8.x (use **/v2**, not v1) ·
 `github.com/google/go-cmp`
-v0.7.x · base `gcr.io/distroless/static-debian12:nonroot`.
+v0.7.x · `github.com/yuin/goldmark` v1.8.4 · `github.com/yuin/goldmark-meta` v1.1.0 ·
+base `gcr.io/distroless/static-debian12:nonroot`.
 
 ## Echo v5, not v4 (important)
 
@@ -69,7 +70,11 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
   `conn.go`, `mongo.go` (shared Mongo client; used by request log, IP-tool lookup history, botcheck fingerprint corpus — see rule #5).
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); own
   package so it can `go:embed` those files.
-- `site/` — apex corpberry.com project (own package, same embed reason).
+- `site/` — apex corpberry.com project (own package, same embed reason):
+  landing, tools index, and the blog (markdown posts in `site/posts/`,
+  frontmatter: `title`, `description`, `date: "YYYY-MM-DD"` (quoted),
+  optional `draft: true`; slug = filename minus date prefix; publishing =
+  commit + deploy, drafts never render).
 - `tools/<tool>/` — each tool subdomain, self-contained (e.g. `tools/iptools/`,
   `tools/botcheck/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
   + `tests/` sub-package + `docs/` folder holding tool's markdown
