@@ -98,3 +98,23 @@ Body.
 		t.Fatal("want error for post with unparseable date")
 	}
 }
+
+func TestLoadPostsAutolinksBareURLs(t *testing.T) {
+	fsys := fstest.MapFS{
+		"2026-07-20-links.md": &fstest.MapFile{Data: []byte(`---
+title: "Links"
+date: "2026-07-20"
+---
+
+See https://example.com for details.
+`)},
+	}
+	posts, err := site.LoadPosts(fsys)
+	if err != nil {
+		t.Fatalf("LoadPosts: %v", err)
+	}
+	want := `<a href="https://example.com">https://example.com</a>`
+	if !strings.Contains(string(posts[0].HTML), want) {
+		t.Errorf("bare URL not autolinked, want %q in %q", want, posts[0].HTML)
+	}
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/yuin/goldmark"
 	meta "github.com/yuin/goldmark-meta"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 )
 
@@ -30,8 +31,9 @@ type Post struct {
 // ("2026-07-28") — unquoted dates (YAML hands us a time.Time) are a load error.
 const DateLayout = "2006-01-02"
 
-// md renders every post body; goldmark-meta parses the YAML frontmatter.
-var md = goldmark.New(goldmark.WithExtensions(meta.Meta))
+// md renders every post body; goldmark-meta parses the YAML frontmatter,
+// Linkify turns bare https:// URLs into links (posts cite them constantly).
+var md = goldmark.New(goldmark.WithExtensions(meta.Meta, extension.Linkify))
 
 // LoadPosts parses every *.md at fsys root into Posts: frontmatter → fields,
 // body → HTML, slug from filename. Drafts filtered, rest sorted by date
