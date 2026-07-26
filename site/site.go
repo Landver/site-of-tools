@@ -1,7 +1,9 @@
-// Package site: serves apex host corpberry.com — portfolio landing page + tools index.
+// Package site: serves apex host corpberry.com — portfolio landing page,
+// tools index, and the blog (posts embedded from site/posts/).
 package site
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -27,8 +29,16 @@ func Tools(cfg platform.Config) []platform.Tool {
 	}
 }
 
-// Register wires apex routes onto e.
-func Register(e *echo.Echo, cfg platform.Config) {
+// Register wires apex routes onto e. blogFS = posts filesystem (embedded in
+// prod, disk dir in dev — caller builds it via platform.SubFS). A malformed
+// post fails Register in prod → main treats it as fatal, refusing to boot a
+// broken blog.
+func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) error {
+	blog, err := NewBlog(blogFS, cfg.IsDev())
+	if err != nil {
+		return err
+	}
+
 	e.GET("/", func(c *echo.Context) error {
 		data := map[string]any{
 			"Title": "Stas — corpberry.com",
@@ -38,4 +48,7 @@ func Register(e *echo.Echo, cfg platform.Config) {
 		// No htmx fragment on apex -> same template for page + fragment.
 		return platform.Respond(c, http.StatusOK, data, "site/home", "site/home")
 	})
+
+	blog.registerRoutes(e, cfg.URL(""))
+	return nil
 }

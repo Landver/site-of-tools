@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"html/template"
 	"log"
 	"maps"
@@ -93,9 +94,12 @@ func main() {
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 	)
 
-	// apex: corpberry.com
+	// apex: corpberry.com — posts FS is an empty placeholder for now; the real
+	// embedded site/posts FS lands together with the posts themselves.
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	site.Register(apex, cfg)
+	if err := site.Register(apex, cfg, embed.FS{}); err != nil {
+		log.Fatalf("apex: %v", err)
+	}
 
 	// ip.corpberry.com — missing databases non-fatal; tool reports it.
 	geo, err := iptools.OpenService(cfg.DB11V4, cfg.DB11V6, cfg.ASNV4, cfg.ASNV6, cfg.PX12)

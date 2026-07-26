@@ -21,7 +21,10 @@ func newTestApp() *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	site.Register(e, platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"})
+	cfg := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
+	if err := site.Register(e, cfg, testPostsFS()); err != nil {
+		panic(err)
+	}
 	return e
 }
 

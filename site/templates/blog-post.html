@@ -1,0 +1,20 @@
+{{define "site/blog-post"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main max-w-2xl">
+    <article>
+      <p><a href="/blog" class="font-mono text-sm text-faint hover:text-brand">← all posts</a></p>
+      <h1 class="mt-4 text-3xl font-bold tracking-tight text-strong">{{.Post.Title}}</h1>
+      <time class="mt-2 block font-mono text-sm text-faint" datetime="{{.Post.Date.Format "2006-01-02"}}">{{.Post.Date.Format "January 2, 2006"}}</time>
+      <div class="post-body">{{.Post.HTML}}</div>
+    </article>
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

@@ -1,0 +1,33 @@
+{{define "site/blog-index"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main max-w-2xl">
+    <h1 class="text-4xl font-bold tracking-tight text-strong">Blog</h1>
+    <p class="mt-4 text-muted">
+      Occasional technical writeups about the tools on this site.
+      <a href="/blog/feed.xml" class="link-brand">Atom feed</a>
+    </p>
+
+    <div class="mt-10 space-y-8">
+      {{range .Posts}}
+      <article>
+        <a href="/blog/{{.Slug}}" class="block">
+          <time class="font-mono text-sm text-faint" datetime="{{.Date.Format "2006-01-02"}}">{{.Date.Format "January 2, 2006"}}</time>
+          <h2 class="mt-1 text-xl font-semibold text-strong hover:text-brand">{{.Title}}</h2>
+          <p class="mt-1 text-sm text-muted">{{.Desc}}</p>
+        </a>
+      </article>
+      {{else}}
+      <p class="text-faint">No posts yet.</p>
+      {{end}}
+    </div>
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
