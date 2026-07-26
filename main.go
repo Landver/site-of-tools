@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"html/template"
 	"log"
 	"maps"
@@ -94,10 +93,10 @@ func main() {
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 	)
 
-	// apex: corpberry.com — posts FS is an empty placeholder for now; the real
-	// embedded site/posts FS lands together with the posts themselves.
+	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
+	// malformed post fails boot here rather than serving a broken page.
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	if err := site.Register(apex, cfg, embed.FS{}); err != nil {
+	if err := site.Register(apex, cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev())); err != nil {
 		log.Fatalf("apex: %v", err)
 	}
 
