@@ -32,6 +32,7 @@ func Register(e *echo.Echo, cfg platform.Config) {
 	e.GET("/", func(c *echo.Context) error {
 		data := map[string]any{
 			"Title": "Stas — corpberry.com",
+			"Desc":  "Open-source web tools by Stas: Bot check (transparent 68-signal bot-detection self-test) and IP Tools (lookup, reputation, subnet calculator). One Go binary, no tracking.",
 			"Tools": Tools(cfg),
 		}
 		// No htmx fragment on apex -> same template for page + fragment.

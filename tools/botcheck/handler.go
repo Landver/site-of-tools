@@ -88,7 +88,9 @@ func (h *handler) index(c *echo.Context) error {
 	// Attribution: IP2Location LITE license requires credit on any page that
 	// uses or mentions data — botcheck's IP reputation checks do (see iptools.Looker).
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
-		"Title": "Bot check", "Attribution": true,
+		"Title":       "Bot check",
+		"Desc":        "Open-source bot-detection self-test: see which of 68 signals give your browser away. Client fingerprint, HTTP headers, and IP reputation, cross-checked. Every signal shown, nothing blocked.",
+		"Attribution": true,
 	})
 }
 

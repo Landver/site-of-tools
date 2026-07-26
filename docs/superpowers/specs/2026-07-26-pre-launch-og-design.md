@@ -57,9 +57,10 @@ Tags added:
   `og:image` (apex URL above), `og:site_name=corpberry.com`
 - `twitter:card=summary_large_image`, `twitter:title`, `twitter:description`, `twitter:image`
 
-Per-page descriptions come from a new `"Desc"` key in the five page-handler maps:
-`site/site.go:34` (apex home), `tools/botcheck/handler.go:91` (botcheck index),
-`tools/iptools/handler.go:64` (ip index), `:87`/`:117` (cidr, history). Head partial uses
+Per-page descriptions come from a new `"Desc"` key added to every handler map that
+renders a full page: `site/site.go` (apex home), `tools/botcheck/handler.go` (botcheck
+index), and `tools/iptools/handler.go` (ip index, both cidr renders, history, and the
+lookup-result render when it produces a full page). Head partial uses
 `{{or .Desc "<generic fallback>"}}` so fragment renders and tests that omit `Desc` still
 work.
 

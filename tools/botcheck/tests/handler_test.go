@@ -799,3 +799,18 @@ func TestCheckStaleV3PayloadSkipsV4Rules(t *testing.T) {
 		t.Errorf("stale v3 payload: score=%d, want 100", rep.Score)
 	}
 }
+
+func TestIndexOGTags(t *testing.T) {
+	body := get(newTestApp(fakeLooker{}), "/", map[string]string{"Accept": "text/html"}).Body.String()
+	for _, want := range []string{
+		`<meta property="og:type" content="website">`,
+		`<meta property="og:title" content="Bot check">`,
+		`<meta property="og:image" content="https://corpberry.com/static/img/og-cover.png">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+		`content="Open-source bot-detection self-test`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("botcheck index <head> missing %q", want)
+		}
+	}
+}

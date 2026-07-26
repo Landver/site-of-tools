@@ -68,3 +68,19 @@ func TestHomeJSON(t *testing.T) {
 		t.Errorf("json should list the tool, got:\n%s", rec.Body.String())
 	}
 }
+
+func TestHomeOGTags(t *testing.T) {
+	body := get(newTestApp(), "text/html").Body.String()
+	for _, want := range []string{
+		`<meta property="og:type" content="website">`,
+		`<meta property="og:site_name" content="corpberry.com">`,
+		`<meta property="og:title" content="Stas — corpberry.com">`,
+		`<meta property="og:image" content="https://corpberry.com/static/img/og-cover.png">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+		`content="Open-source web tools by Stas`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("home <head> missing %q", want)
+		}
+	}
+}

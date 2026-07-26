@@ -320,3 +320,25 @@ func TestConnectionInspectorEnrichedForOwnIP(t *testing.T) {
 		}
 	}
 }
+
+func TestOGTags(t *testing.T) {
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}})
+	for _, tc := range []struct{ target, desc string }{
+		{"/", "Look up any IP"},
+		{"/?ip=8.8.8.8", "Look up any IP"},
+		{"/cidr", "CIDR subnet calculator"},
+		{"/history", "Recent IP lookups"},
+	} {
+		body := do(app, tc.target, map[string]string{"Accept": "text/html"}).Body.String()
+		for _, want := range []string{
+			`<meta property="og:type" content="website">`,
+			`<meta property="og:image" content="https://corpberry.com/static/img/og-cover.png">`,
+			`<meta name="twitter:card" content="summary_large_image">`,
+			`content="` + tc.desc,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("GET %s <head> missing %q", tc.target, want)
+			}
+		}
+	}
+}

@@ -11,6 +11,14 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
+// Page descriptions, surfaced as <meta name="description"> + og:description by
+// shared/templates/partials/head.html via the "Desc" VM key.
+const (
+	lookupDesc  = "Look up any IP: geolocation, ASN, VPN/proxy/Tor and blocklist reputation, and open ports. Or inspect your own connection. Free, open source, with a curl-able JSON API."
+	cidrDesc    = "CIDR subnet calculator: network range, broadcast address, netmask, and host counts for any CIDR. Free, open source, JSON API included."
+	historyDesc = "Recent IP lookups made from this browser."
+)
+
 // Looker: handler dependency, anything resolving IP. *Service satisfies;
 // tests inject fake. (nil *Service = valid Looker → returns ErrUnavailable.)
 type Looker interface {
@@ -61,7 +69,7 @@ func (h *handler) index(c *echo.Context) error {
 			return c.Render(http.StatusOK, "ip/result", map[string]any{})
 		}
 		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Active": "lookup", "Query": "", "Attribution": true, "Conn": platform.Conn(c),
+			"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": "", "Attribution": true, "Conn": platform.Conn(c),
 		})
 	}
 	return h.show(c, ip, self)
@@ -75,7 +83,7 @@ func (h *handler) cidr(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "provide a CIDR, e.g. /cidr?cidr=192.168.1.0/24"})
 		}
-		return c.Render(http.StatusOK, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Active": "cidr", "Query": ""})
+		return c.Render(http.StatusOK, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": ""})
 	}
 	sub, err := ParseSubnet(input)
 	if platform.WantsJSON(c) {
@@ -84,7 +92,7 @@ func (h *handler) cidr(c *echo.Context) error {
 		}
 		return c.JSON(http.StatusOK, sub)
 	}
-	vm := map[string]any{"Title": "Subnet calculator", "Active": "cidr", "Query": input}
+	vm := map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": input}
 	code := http.StatusOK
 	if err != nil {
 		vm["Error"] = err.Error()
@@ -114,7 +122,7 @@ func (h *handler) history(c *echo.Context) error {
 	}
 
 	vm := map[string]any{
-		"Title": "Lookup history", "Active": "history",
+		"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
 		"Entries": entries, "Enabled": h.hist != nil, "Attribution": true,
 	}
 	if err != nil {
@@ -174,7 +182,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// Attribution: IP2Location LITE license requires credit on any page using
 	// databases (see shared/templates/partials/footer.html). Scoped to this
 	// tool via VM flag → apex (no such data) omits it.
-	vm := map[string]any{"Title": "IP Tools", "Active": "lookup", "Query": ip, "Self": self, "Attribution": true}
+	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true}
 	code := http.StatusOK
 	if err != nil {
 		vm["Error"] = err.Error()
