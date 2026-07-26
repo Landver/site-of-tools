@@ -4,6 +4,8 @@ description: "I studied 12 bot detectors firsthand and built Bot check — a fre
 date: "2026-07-28"
 ---
 
+![Bot check scoring a browser in real time, with a per-signal breakdown](/static/img/botcheck-demo.gif)
+
 I run a small collection of tools at corpberry.com. The one I've put the most
 into is Bot check: a live score of how much your browser looks like a human
 versus an automated bot. It's free, open source, and it shows every signal it

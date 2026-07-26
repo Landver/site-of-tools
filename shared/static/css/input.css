@@ -152,4 +152,8 @@
   .post-body strong {
     @apply text-strong;
   }
+  /* Images (e.g. the demo GIF): preflight caps width at column; frame them. */
+  .post-body img {
+    @apply rounded-lg border border-line;
+  }
 }
