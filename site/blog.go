@@ -26,8 +26,8 @@ type Post struct {
 	HTML  template.HTML
 }
 
-// DateLayout: frontmatter `date` format. Keep it quoted in frontmatter
-// ("2026-07-28") so YAML never hands us a time.Time — metaDate handles both.
+// DateLayout: frontmatter `date` format. Dates must be quoted in frontmatter
+// ("2026-07-28") — unquoted dates (YAML hands us a time.Time) are a load error.
 const DateLayout = "2006-01-02"
 
 // md renders every post body; goldmark-meta parses the YAML frontmatter.
@@ -109,14 +109,13 @@ func metaString(m map[string]any, key string) string {
 	return s
 }
 
-// metaDate accepts a quoted string ("2026-07-28") or a YAML-parsed time.Time.
+// metaDate requires the house format: quoted "YYYY-MM-DD" string.
+// Unquoted dates (YAML hands us a time.Time) fail fast like any other
+// malformed frontmatter.
 func metaDate(m map[string]any) (time.Time, error) {
-	switch v := m["date"].(type) {
-	case time.Time:
-		return v, nil
-	case string:
-		return time.Parse(DateLayout, v)
-	default:
+	v, ok := m["date"].(string)
+	if !ok {
 		return time.Time{}, fmt.Errorf("frontmatter missing or invalid date")
 	}
+	return time.Parse(DateLayout, v)
 }

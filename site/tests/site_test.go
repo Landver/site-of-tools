@@ -14,7 +14,8 @@ import (
 	"github.com/Landver/site-of-tools/site"
 )
 
-func newTestApp() *echo.Echo {
+func newTestApp(t *testing.T) *echo.Echo {
+	t.Helper()
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
@@ -23,13 +24,13 @@ func newTestApp() *echo.Echo {
 	e.Renderer = r
 	cfg := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
 	if err := site.Register(e, cfg, testPostsFS()); err != nil {
-		panic(err)
+		t.Fatalf("Register: %v", err)
 	}
 	return e
 }
 
-func get(app *echo.Echo, accept string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+func get(app *echo.Echo, path, accept string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Accept", accept)
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, req)
@@ -37,7 +38,7 @@ func get(app *echo.Echo, accept string) *httptest.ResponseRecorder {
 }
 
 func TestHomeHTML(t *testing.T) {
-	rec := get(newTestApp(), "text/html")
+	rec := get(newTestApp(t), "/", "text/html")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}
@@ -53,7 +54,7 @@ func TestHomeHTML(t *testing.T) {
 func TestHomeOmitsIP2LocationCredit(t *testing.T) {
 	// Apex uses no IP2Location or blocklist data → neither credit must appear
 	// here; both scoped to IP tool + botcheck via .Attribution flag.
-	body := get(newTestApp(), "text/html").Body.String()
+	body := get(newTestApp(t), "/", "text/html").Body.String()
 	if strings.Contains(body, "lite.ip2location.com") || strings.Contains(body, "IP2Location LITE database") {
 		t.Errorf("apex must not show the IP2Location credit (it uses no such data), got:\n%s", body)
 	}
@@ -63,7 +64,7 @@ func TestHomeOmitsIP2LocationCredit(t *testing.T) {
 }
 
 func TestHomeJSON(t *testing.T) {
-	rec := get(newTestApp(), "application/json")
+	rec := get(newTestApp(t), "/", "application/json")
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("content-type = %q, want application/json", ct)
 	}
@@ -73,7 +74,7 @@ func TestHomeJSON(t *testing.T) {
 }
 
 func TestHomeOGTags(t *testing.T) {
-	body := get(newTestApp(), "text/html").Body.String()
+	body := get(newTestApp(t), "/", "text/html").Body.String()
 	for _, want := range []string{
 		`<meta property="og:type" content="website">`,
 		`<meta property="og:site_name" content="corpberry.com">`,
@@ -89,7 +90,7 @@ func TestHomeOGTags(t *testing.T) {
 }
 
 func TestThemeScriptCookieSharedDarkDefault(t *testing.T) {
-	body := get(newTestApp(), "text/html").Body.String()
+	body := get(newTestApp(t), "/", "text/html").Body.String()
 	// Old per-origin / OS-preference logic must be gone entirely.
 	for _, gone := range []string{"localStorage", "matchMedia", "prefers-color-scheme"} {
 		if strings.Contains(body, gone) {

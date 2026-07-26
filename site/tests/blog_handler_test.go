@@ -3,44 +3,12 @@ package tests
 import (
 	"encoding/xml"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/labstack/echo/v5"
-
-	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
-	"github.com/Landver/site-of-tools/site"
 )
 
-// newBlogTestApp mirrors site/tests/site_test.go's newTestApp but with the
-// in-memory posts FS from blog_test.go.
-func newBlogTestApp(t *testing.T) *echo.Echo {
-	t.Helper()
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
-	)
-	e := echo.New()
-	e.Renderer = r
-	cfg := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
-	if err := site.Register(e, cfg, testPostsFS()); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-	return e
-}
-
-func blogGet(app *echo.Echo, path, accept string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("Accept", accept)
-	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, req)
-	return rec
-}
-
 func TestBlogIndexHTML(t *testing.T) {
-	rec := blogGet(newBlogTestApp(t), "/blog", "text/html")
+	rec := get(newTestApp(t), "/blog", "text/html")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}
@@ -61,7 +29,7 @@ func TestBlogIndexHTML(t *testing.T) {
 }
 
 func TestBlogIndexJSON(t *testing.T) {
-	rec := blogGet(newBlogTestApp(t), "/blog", "application/json")
+	rec := get(newTestApp(t), "/blog", "application/json")
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("content-type = %q, want application/json", ct)
 	}
@@ -71,7 +39,7 @@ func TestBlogIndexJSON(t *testing.T) {
 }
 
 func TestBlogPostHTML(t *testing.T) {
-	rec := blogGet(newBlogTestApp(t), "/blog/third-post", "text/html")
+	rec := get(newTestApp(t), "/blog/third-post", "text/html")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}
@@ -89,14 +57,14 @@ func TestBlogPostHTML(t *testing.T) {
 }
 
 func TestBlogPostNotFound(t *testing.T) {
-	rec := blogGet(newBlogTestApp(t), "/blog/no-such-post", "text/html")
+	rec := get(newTestApp(t), "/blog/no-such-post", "text/html")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("code = %d, want 404", rec.Code)
 	}
 }
 
 func TestBlogFeed(t *testing.T) {
-	rec := blogGet(newBlogTestApp(t), "/blog/feed.xml", "text/html")
+	rec := get(newTestApp(t), "/blog/feed.xml", "text/html")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}

@@ -22,7 +22,6 @@ type Blog struct {
 	fsys   fs.FS
 	dev    bool
 	loaded []Post
-	bySlug map[string]Post
 }
 
 // NewBlog builds the blog. Prod parses posts immediately → a malformed post
@@ -37,42 +36,46 @@ func NewBlog(fsys fs.FS, dev bool) (*Blog, error) {
 	return b, nil
 }
 
+// reload loads posts into b.loaded; called only from NewBlog (prod boot).
 func (b *Blog) reload() error {
 	posts, err := LoadPosts(b.fsys)
 	if err != nil {
 		return err
 	}
 	b.loaded = posts
-	b.bySlug = make(map[string]Post, len(posts))
-	for _, p := range posts {
-		b.bySlug[p.Slug] = p
-	}
 	return nil
 }
 
 func (b *Blog) posts() ([]Post, error) {
 	if b.dev {
-		if err := b.reload(); err != nil {
-			return nil, err
-		}
+		// Fresh slice per request — no shared mutation under parallel requests.
+		return LoadPosts(b.fsys)
 	}
 	return b.loaded, nil
 }
 
 func (b *Blog) post(slug string) (Post, error) {
-	if _, err := b.posts(); err != nil {
+	posts, err := b.posts()
+	if err != nil {
 		return Post{}, err
 	}
-	p, ok := b.bySlug[slug]
-	if !ok {
-		return Post{}, errPostNotFound
+	for _, p := range posts {
+		if p.Slug == slug {
+			return p, nil
+		}
 	}
-	return p, nil
+	return Post{}, errPostNotFound
 }
 
 // registerRoutes wires /blog, /blog/:slug, /blog/feed.xml onto the apex app.
 // base = full apex origin (cfg.URL("")) for absolute canonical + feed URLs.
 func (b *Blog) registerRoutes(e *echo.Echo, base string) {
+	// Single source for blog URLs — handlers' canonical URLs and the feed's
+	// self/entry URLs must match.
+	blogURL := base + "/blog"
+	feedURL := blogURL + "/feed.xml"
+	postURL := func(slug string) string { return blogURL + "/" + slug }
+
 	e.GET("/blog", func(c *echo.Context) error {
 		posts, err := b.posts()
 		if err != nil {
@@ -82,8 +85,8 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 			"Title":     "Blog — corpberry.com",
 			"Desc":      "Occasional technical writeups by Stas: bot detection, Go, and the tools on this site.",
 			"Posts":     posts,
-			"Canonical": base + "/blog",
-			"Feed":      base + "/blog/feed.xml",
+			"Canonical": blogURL,
+			"Feed":      feedURL,
 		}
 		return platform.Respond(c, http.StatusOK, data, "site/blog-index", "site/blog-index")
 	})
@@ -101,8 +104,8 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 			"Desc":      post.Desc,
 			"Post":      post,
 			"OGType":    "article",
-			"Canonical": base + "/blog/" + post.Slug,
-			"Feed":      base + "/blog/feed.xml",
+			"Canonical": postURL(post.Slug),
+			"Feed":      feedURL,
 		}
 		return platform.Respond(c, http.StatusOK, data, "site/blog-post", "site/blog-post")
 	})
@@ -113,7 +116,7 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 		if err != nil {
 			return err
 		}
-		out, err := xml.MarshalIndent(buildFeed(base, posts), "", "  ")
+		out, err := xml.MarshalIndent(buildFeed(blogURL, feedURL, posts), "", "  ")
 		if err != nil {
 			return err
 		}
@@ -147,9 +150,9 @@ type atomEntry struct {
 	Summary string   `xml:"summary"`
 }
 
-// buildFeed renders posts as an Atom feed. base = apex origin → every URL
-// absolute (feed readers require it). posts arrive newest-first from LoadPosts.
-func buildFeed(base string, posts []Post) atomFeed {
+// buildFeed renders posts as an Atom feed from the blog's canonical URLs
+// (derived in registerRoutes). posts arrive newest-first from LoadPosts.
+func buildFeed(blogURL, feedURL string, posts []Post) atomFeed {
 	updated := time.Now().UTC()
 	if len(posts) > 0 {
 		updated = posts[0].Date.UTC()
@@ -157,18 +160,19 @@ func buildFeed(base string, posts []Post) atomFeed {
 	feed := atomFeed{
 		Xmlns:   "http://www.w3.org/2005/Atom",
 		Title:   "corpberry.com — blog",
-		ID:      base + "/blog",
+		ID:      blogURL,
 		Updated: updated.Format(time.RFC3339),
 		Links: []atomLink{
-			{Rel: "self", Href: base + "/blog/feed.xml"},
-			{Rel: "alternate", Href: base + "/blog"},
+			{Rel: "self", Href: feedURL},
+			{Rel: "alternate", Href: blogURL},
 		},
 	}
 	for _, p := range posts {
+		entryURL := blogURL + "/" + p.Slug
 		feed.Entries = append(feed.Entries, atomEntry{
 			Title:   p.Title,
-			Link:    atomLink{Href: base + "/blog/" + p.Slug},
-			ID:      base + "/blog/" + p.Slug,
+			Link:    atomLink{Href: entryURL},
+			ID:      entryURL,
 			Updated: p.Date.UTC().Format(time.RFC3339),
 			Summary: p.Desc,
 		})
