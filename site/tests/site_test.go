@@ -84,3 +84,25 @@ func TestHomeOGTags(t *testing.T) {
 		}
 	}
 }
+
+func TestThemeScriptCookieSharedDarkDefault(t *testing.T) {
+	body := get(newTestApp(), "text/html").Body.String()
+	// Old per-origin / OS-preference logic must be gone entirely.
+	for _, gone := range []string{"localStorage", "matchMedia", "prefers-color-scheme"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("theme script must not reference %q anymore", gone)
+		}
+	}
+	// New contract: validated cookie read, unconditional dark default,
+	// parent-Domain write shared across subdomains.
+	for _, want := range []string{
+		`readTheme() || "dark"`, // no cookie → dark
+		`theme=(dark|light)`,    // cookie read validates value
+		`"; Domain="`,           // parent-domain scope
+		"window.toggleTheme",    // header button hook preserved
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("theme script should contain %q, got:\n%s", want, body)
+		}
+	}
+}
