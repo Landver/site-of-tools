@@ -16,6 +16,7 @@ func testPostsFS() fstest.MapFS {
 title: "First Post"
 description: "The first test post."
 date: "2026-07-20"
+image: "https://example.com/first-card.png"
 ---
 
 Hello **first** body.
@@ -33,6 +34,7 @@ Draft body.
 title: "Third Post"
 description: "The third test post."
 date: "2026-07-25"
+image: "/static/img/post-card.png"
 ---
 
 Third body with a [link](https://example.com).
@@ -59,6 +61,13 @@ func TestLoadPosts(t *testing.T) {
 	// Frontmatter fields.
 	if posts[1].Title != "First Post" || posts[1].Desc != "The first test post." {
 		t.Errorf("frontmatter = %q / %q", posts[1].Title, posts[1].Desc)
+	}
+	// Optional og:image frontmatter: site path and absolute URL both kept verbatim.
+	if posts[0].Image != "/static/img/post-card.png" {
+		t.Errorf("third-post image = %q, want site path", posts[0].Image)
+	}
+	if posts[1].Image != "https://example.com/first-card.png" {
+		t.Errorf("first-post image = %q, want absolute URL", posts[1].Image)
 	}
 	want := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	if !posts[1].Date.Equal(want) {

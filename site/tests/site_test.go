@@ -89,6 +89,30 @@ func TestHomeOGTags(t *testing.T) {
 	}
 }
 
+func TestBlogPostOGImage(t *testing.T) {
+	app := newTestApp(t)
+	// Frontmatter image as site path → expanded to absolute og:image + twitter:image.
+	body := get(app, "/blog/third-post", "text/html").Body.String()
+	for _, want := range []string{
+		`<meta property="og:image" content="https://corpberry.com/static/img/post-card.png">`,
+		`<meta name="twitter:image" content="https://corpberry.com/static/img/post-card.png">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("post <head> missing %q", want)
+		}
+	}
+	// Absolute frontmatter image passes through untouched.
+	body = get(app, "/blog/first-post", "text/html").Body.String()
+	if !strings.Contains(body, `<meta property="og:image" content="https://example.com/first-card.png">`) {
+		t.Errorf("absolute image should pass through, got:\n%s", body)
+	}
+	// Blog index sets no image → default cover.
+	body = get(app, "/blog", "text/html").Body.String()
+	if !strings.Contains(body, `<meta property="og:image" content="https://corpberry.com/static/img/og-cover.png">`) {
+		t.Errorf("index should keep default cover, got:\n%s", body)
+	}
+}
+
 func TestThemeScriptCookieSharedDarkDefault(t *testing.T) {
 	body := get(newTestApp(t), "/", "text/html").Body.String()
 	// Old per-origin / OS-preference logic must be gone entirely.

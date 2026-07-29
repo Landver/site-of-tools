@@ -18,11 +18,14 @@ import (
 
 // Post: one blog entry, rendered from a markdown file in posts/.
 // HTML is trusted — posts are our own committed content.
+// Image: optional frontmatter `image` — a site path ("/static/img/x.png")
+// or absolute URL used as the post's og:image instead of the default cover.
 type Post struct {
 	Slug  string
 	Title string
 	Date  time.Time
 	Desc  string
+	Image string
 	Draft bool
 	HTML  template.HTML
 }
@@ -89,6 +92,7 @@ func parsePost(fsys fs.FS, p string) (Post, error) {
 		Title: title,
 		Date:  date,
 		Desc:  metaString(m, "description"),
+		Image: metaString(m, "image"),
 		Draft: m["draft"] == true,
 		HTML:  template.HTML(buf.String()),
 	}, nil

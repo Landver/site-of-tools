@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -14,6 +15,15 @@ import (
 
 // errPostNotFound: slug has no published post → handler maps it to 404.
 var errPostNotFound = errors.New("blog: post not found")
+
+// absoluteURL expands a site path ("/static/img/x.png") against base;
+// already-absolute URLs pass through. og:image must be absolute.
+func absoluteURL(base, u string) string {
+	if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") {
+		return u
+	}
+	return base + u
+}
 
 // Blog serves posts loaded from fsys. Prod loads once at boot (NewBlog);
 // dev reloads per request so edits show without restart — same contract as
@@ -106,6 +116,9 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 			"OGType":    "article",
 			"Canonical": postURL(post.Slug),
 			"Feed":      feedURL,
+		}
+		if post.Image != "" {
+			data["OGImage"] = absoluteURL(base, post.Image)
 		}
 		return platform.Respond(c, http.StatusOK, data, "site/blog-post", "site/blog-post")
 	})
