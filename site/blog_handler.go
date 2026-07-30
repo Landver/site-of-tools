@@ -109,17 +109,29 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 		if err != nil {
 			return err
 		}
+		canonical := postURL(post.Slug)
 		data := map[string]any{
 			"Title":     post.Title + " — corpberry.com",
 			"Desc":      post.Desc,
 			"Post":      post,
 			"OGType":    "article",
-			"Canonical": postURL(post.Slug),
+			"Canonical": canonical,
 			"Feed":      feedURL,
+			// Authorship + publication date, for search engines and for AI
+			// answers that need someone to attribute the claims to.
+			"Author":    authorName,
+			"Published": post.Date.UTC().Format(time.RFC3339),
 		}
+		var ogImage string
 		if post.Image != "" {
-			data["OGImage"] = absoluteURL(base, post.Image)
+			ogImage = absoluteURL(base, post.Image)
+			data["OGImage"] = ogImage
 		}
+		ld, err := articleJSONLD(post, canonical, ogImage, base)
+		if err != nil {
+			return err
+		}
+		data["JSONLD"] = ld
 		return platform.Respond(c, http.StatusOK, data, "site/blog-post", "site/blog-post")
 	})
 

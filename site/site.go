@@ -50,5 +50,6 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) error {
 	})
 
 	blog.registerRoutes(e, cfg.URL(""))
+	registerSEO(e, cfg.URL(""), blog.posts)
 	return nil
 }
