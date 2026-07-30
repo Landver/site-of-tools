@@ -247,3 +247,10 @@ func routable(ipStr string) bool {
 	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&
 		!ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
 }
+
+// SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
+// Deliberately excludes /history — it lists recently looked-up IP addresses,
+// which is transient third-party data with no search value.
+func SitemapPages() ([]platform.Page, error) {
+	return []platform.Page{{Path: "/"}, {Path: "/cidr"}}, nil
+}

@@ -2,12 +2,10 @@ package site
 
 import (
 	"encoding/json"
-	"encoding/xml"
 	"html/template"
-	"net/http"
 	"time"
 
-	"github.com/labstack/echo/v5"
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // Author identity. Single source for the `author` meta tag and the JSON-LD
@@ -19,68 +17,30 @@ const (
 	authorProfile = "https://www.linkedin.com/in/stanislav-navarici/"
 )
 
-// registerSEO wires /sitemap.xml + /robots.txt. posts is the Blog's loader
-// (dev reloads per request, prod serves the boot-time slice), so the sitemap
-// tracks published posts without a second copy of the load logic.
+// sitemapPages lists the apex's indexable URLs: landing, blog index, and one
+// entry per published post. lastmod on the two static pages tracks the newest
+// post, so publishing re-dates the pages that link to it. Drafts never reach
+// here — LoadPosts filters them first.
 //
-// Note: Cloudflare can inject its own managed robots.txt at the edge, which
-// wins over this handler. Disable that in the dashboard for this one to serve.
-func registerSEO(e *echo.Echo, base string, posts func() ([]Post, error)) {
-	e.GET("/sitemap.xml", func(c *echo.Context) error {
-		all, err := posts()
-		if err != nil {
-			return err
-		}
-		out, err := xml.MarshalIndent(buildSitemap(base, all), "", "  ")
-		if err != nil {
-			return err
-		}
-		return c.Blob(http.StatusOK, "application/xml; charset=utf-8",
-			append([]byte(xml.Header), out...))
-	})
-
-	// Allow everything and point crawlers at the sitemap: this site exists to
-	// be indexed and cited, so no agent is excluded.
-	e.GET("/robots.txt", func(c *echo.Context) error {
-		return c.String(http.StatusOK,
-			"User-agent: *\nAllow: /\n\nSitemap: "+base+"/sitemap.xml\n")
-	})
-}
-
-// --- sitemap ----------------------------------------------------------------
-
-type urlSet struct {
-	XMLName xml.Name     `xml:"urlset"`
-	Xmlns   string       `xml:"xmlns,attr"`
-	URLs    []sitemapURL `xml:"url"`
-}
-
-type sitemapURL struct {
-	Loc     string `xml:"loc"`
-	LastMod string `xml:"lastmod,omitempty"`
-}
-
-// buildSitemap lists the apex's indexable pages: landing, blog index, and one
-// entry per published post. lastmod on the index tracks the newest post, so a
-// new post re-dates the page that links to it. Drafts never reach here —
-// LoadPosts filters them before this sees them.
-func buildSitemap(base string, posts []Post) urlSet {
-	set := urlSet{Xmlns: "http://www.sitemaps.org/schemas/sitemap/0.9"}
-	newest := ""
+// Method on Blog (not a package func) so platform.RegisterSEO can take it as
+// a per-request closure and pick up dev's live reload for free.
+func (b *Blog) sitemapPages() ([]platform.Page, error) {
+	posts, err := b.posts()
+	if err != nil {
+		return nil, err
+	}
+	var newest time.Time
 	if len(posts) > 0 {
-		newest = posts[0].Date.UTC().Format(DateLayout)
+		newest = posts[0].Date
 	}
-	set.URLs = append(set.URLs,
-		sitemapURL{Loc: base + "/", LastMod: newest},
-		sitemapURL{Loc: base + "/blog", LastMod: newest},
-	)
+	pages := []platform.Page{
+		{Path: "/", LastMod: newest},
+		{Path: "/blog", LastMod: newest},
+	}
 	for _, p := range posts {
-		set.URLs = append(set.URLs, sitemapURL{
-			Loc:     base + "/blog/" + p.Slug,
-			LastMod: p.Date.UTC().Format(DateLayout),
-		})
+		pages = append(pages, platform.Page{Path: "/blog/" + p.Slug, LastMod: p.Date})
 	}
-	return set
+	return pages, nil
 }
 
 // --- JSON-LD ----------------------------------------------------------------

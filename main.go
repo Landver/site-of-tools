@@ -119,6 +119,13 @@ func main() {
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	botcheck.Register(botApp, geo, corpus, blocklist)
 
+	// A sitemap only covers URLs on its own host (sitemaps.org), so each
+	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
+	// apex trying to list them all. Apex wires its own inside site.Register,
+	// where the blog's dynamic post list lives.
+	platform.RegisterSEO(ipApp, cfg.URL("ip"), iptools.SitemapPages)
+	platform.RegisterSEO(botApp, cfg.URL("botcheck"), botcheck.SitemapPages)
+
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):         apex,
 		cfg.VHost("ip"):       ipApp,

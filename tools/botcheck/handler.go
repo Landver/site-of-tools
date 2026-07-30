@@ -216,3 +216,10 @@ func cleanPlaceholder(s string) string {
 	}
 	return s
 }
+
+// SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
+// /check is POST-only and botcheck-sw.js is a service worker, so neither
+// belongs in a sitemap.
+func SitemapPages() ([]platform.Page, error) {
+	return []platform.Page{{Path: "/"}}, nil
+}

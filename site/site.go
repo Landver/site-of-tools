@@ -50,6 +50,9 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) error {
 	})
 
 	blog.registerRoutes(e, cfg.URL(""))
-	registerSEO(e, cfg.URL(""), blog.posts)
+	// Apex sitemap is dynamic (tracks published posts), so it's wired here
+	// where the Blog lives. The tool subdomains' page lists are static and
+	// get wired in main.go alongside the vhost map.
+	platform.RegisterSEO(e, cfg.URL(""), blog.sitemapPages)
 	return nil
 }
