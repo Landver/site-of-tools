@@ -27,17 +27,17 @@ because my English gets worse in proportion to my blood pressure:
 > me more work in the future to support those patches? Maybe do your job and
 > write the code properly, from zero, to decrease complexity?
 
-I'm 37. I've known for years that shouting at software fixes nothing. I did it
-anyway, at two in the morning, in a repo I write for fun on weekends, which is
-the part that annoys me most. Then I went to find out whether I was being unfair.
+I'm 37. I've known for years that shouting at software fixes nothing. I did it anyway, at
+two in the morning, in a repo I write for fun on weekends, which is the part that annoys
+me most. Then I went to check whether I was being unfair.
 
 I was, a bit. But less than I expected.
 
 Two claims are in play and I only get to keep one. The strong one, that AI makes
-repositories grow, I can't support, and I'll hand it back later. The narrow one is the
-title: around the line that caused this bug there is now more code than there was, and
-less chance anyone goes back and makes the four things one thing. A repo can shrink on
-net while every bug site quietly gets fatter.
+repositories grow, I can't support and will hand back later. The narrow one is the title:
+around the line that caused this bug there is now more code than there was, and less
+chance anyone makes the four things one thing. A repo can shrink on net while every bug
+site quietly gets fatter.
 
 My prompt was also garbage. A stack trace and one sentence, no invariant. Skill issue,
 and there's a number on how much of one further down. What kept me reading is that
@@ -49,9 +49,9 @@ In May a group at ETH Zurich published a benchmark that does something I'd never
 to do. It gives coding agents 200 tasks where the correct answer is to do nothing. The
 bug is already fixed. The code is fine. Go ahead.
 
-Five models across four frameworks changed the code anyway in 35 to 65% of those
-cases. Even the best of them touched code it should have left alone about a third of
-the time. The paper's diagnosis is the line I'd been looking for since Tuesday:
+Five models across four frameworks changed the code anyway in 35 to 65% of those cases.
+Even the best of them touched code it should have left alone about a third of the time.
+The diagnosis is the line I'd been looking for since Tuesday:
 
 > our results indicate that LLMs fall prey to an action bias: they choose to act
 > even if inaction would be appropriate
@@ -130,15 +130,14 @@ of the time against 13.7% for humans. Agents refactor. They rename.
 The number I want most is GitClear's "error-masking constructs, +47%," their name for
 defensive idioms: rescues, null checks, mock guards. I want it badly enough that I should
 say the rest out loud. GitClear sells code analytics and the definition sits behind a
-registration wall. So I have a number I love, from a vendor, that I can't check. Make of
-that what I did.
+registration wall. So I have a number I love, from a vendor, that I can't check.
 
 Addition isn't the vice, either. A guard is often right, and the repair tools before
 LLMs had the opposite bug, deleting whatever made the test fail. None of this is new:
 Hacker News has "afraid to delete code" comments going back a decade. What's new is
 that it's free, instant, and carries no memory of why. A human's band-aid has a person
-attached who remembers. An agent's has a commit message, and it lands in a review
-queue that was the first resource AI spent.
+attached who remembers. An agent's has a commit message, and it lands in a review queue that AI
+already spent.
 
 ## Ranked by whether there's any evidence
 
@@ -196,10 +195,10 @@ one everybody quotes and it holds: he can't read 2,000 lines of Go a day, he can
 doesn't. Mixed evidence though, because a bad plan measures worse than no plan at all. The model
 follows it off the cliff.
 
-**6. After two failed corrections, throw the session away.** The one piece of vendor
-advice with a mechanism under it: if refinement loops are what convert real fixes
-into swallowing `try`/`except`, then the loop is the hazard. I've never once
-regretted doing this and I still forget.
+**6. After two failed corrections, throw the session away.** The one piece of vendor advice
+with a mechanism under it: if refinement loops convert real fixes into swallowing
+`try`/`except`, the loop is the hazard. I've never once regretted doing this and I still
+forget.
 
 **7. Measure your own repo.** GitClear says churn rose. [A causal study of 151 Java
 repos](https://arxiv.org/abs/2606.13298) says it fell, while finding lines of code up
@@ -270,8 +269,8 @@ return true. The difference is that took a week and cost money, and I got it in 
 seconds from something that had just explained Go's memory model better than the book
 did.
 
-Twenty years of tooling, and the highest-leverage debugging technique available to
-me is still: get annoyed enough to ask why the code exists.
+Twenty years of tooling, and my best debugging technique is still: get annoyed enough to
+ask why the code exists.
 
 The essay about code bloat wanted to be five thousand words. Nothing deleted, net
 lines added means the design is wrong. Applies to prose.
