@@ -270,6 +270,3 @@ did.
 
 Twenty years of tooling, and my best debugging technique is still: get annoyed enough to
 ask why the code exists.
-
-The essay about code bloat wanted to be five thousand words. Nothing deleted, net
-lines added means the design is wrong. Applies to prose.
