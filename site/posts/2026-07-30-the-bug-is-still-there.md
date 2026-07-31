@@ -260,8 +260,7 @@ around a line it never questioned. Then I swore at it, and it said
 the correct thing, which was to ask whether the cache should exist at all.
 
 The capability was in there the whole time. What was missing was permission to delete
-something, and what granted it was a 37-year-old man losing his composure at two in the
-morning.
+something, and what granted it was a 37-year-old man losing his composure at 2am.
 
 The patches aren't new either. I've seen that exact shape in a PHP file from 2009,
 written by a contractor who is probably a director somewhere now. Retry, sleep, swallow,
