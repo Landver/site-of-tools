@@ -164,10 +164,13 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// InternetDB has nothing for private/loopback, so skip pointless call.
 	// Network/API error leaves Shodan nil → card omitted, never implying "no open
 	// ports" when we couldn't actually check (same contract as blocklist row).
-	if err == nil && h.sh != nil && routable(ip) {
+	if err == nil && res.Shodan == nil && h.sh != nil && routable(ip) {
 		if si, e := h.sh.Lookup(c.Request().Context(), ip); e == nil {
 			res.Shodan = si
 		}
+	}
+	if err == nil {
+		FuseShodanProxy(res)
 	}
 
 	// API / CLI: raw JSON — geolocation result or error.

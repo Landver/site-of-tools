@@ -110,6 +110,7 @@ func main() {
 	// terms). Blank SHODAN_INTERNETDB_URL disables it (nil -> no-op). See
 	// tools/iptools/docs/reports/shodan-internetdb-feasibility.md.
 	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
+	geo.WithShodan(shodan)
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	iptools.Register(ipApp, geo, lookupHistory, blocklist, shodan)
 

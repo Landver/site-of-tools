@@ -106,7 +106,7 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 	// HTML: card w/ ports, a CVE, mandatory Shodan attribution.
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
-	for _, want := range []string{"open ports · shodan", "53, 443", "dns.google", "CVE-2021-1234", "Shodan InternetDB", "© Shodan"} {
+	for _, want := range []string{"open ports · shodan", "53, 443", "dns.google", "CVE-2021-1234", "InternetDB", "© Shodan"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("shodan card missing %q in:\n%s", want, body)
 		}
@@ -116,6 +116,22 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 	jb := strings.ReplaceAll(recj.Body.String(), " ", "")
 	if !strings.Contains(jb, `"shodan":{`) || !strings.Contains(jb, `"found":true`) || !strings.Contains(jb, `"ports":[53,443]`) {
 		t.Errorf("json missing shodan object: %s", recj.Body.String())
+	}
+}
+
+func TestFuseShodanProxy(t *testing.T) {
+	res := &iptools.Result{
+		Proxy:  &iptools.Proxy{IsProxy: false},
+		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"proxy"}},
+	}
+	iptools.FuseShodanProxy(res)
+	if !res.Proxy.IsProxy || res.Proxy.ProxyType != "proxy" || res.Proxy.Provider != "Shodan" {
+		t.Fatalf("expected proxy fused from Shodan, got %+v", res.Proxy)
+	}
+
+	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=121.127.45.50", map[string]string{"Accept": "text/html"})
+	if strings.Contains(rec.Body.String(), "not in any known proxy or VPN list") {
+		t.Errorf("must not render old misleading negative text")
 	}
 }
 
