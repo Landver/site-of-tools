@@ -184,20 +184,33 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 }
 
 // FuseShodanProxy syncs Shodan proxy/VPN tags into res.Proxy if tagged.
+// Normalizes tag types to IP2Proxy standards (VPN, TOR, PUB) with priority VPN > TOR > PUB.
 func FuseShodanProxy(res *Result) {
 	if res == nil || res.Shodan == nil {
 		return
 	}
+	var tagType string
 	for _, tag := range res.Shodan.Tags {
 		switch strings.ToLower(tag) {
-		case "proxy", "vpn", "tor":
-			if res.Proxy == nil {
-				res.Proxy = &Proxy{IsProxy: true, ProxyType: strings.ToLower(tag), Provider: "Shodan"}
-			} else if !res.Proxy.IsProxy {
-				res.Proxy.IsProxy = true
-				res.Proxy.ProxyType = strings.ToLower(tag)
-				res.Proxy.Provider = "Shodan"
+		case "vpn":
+			tagType = "VPN"
+		case "tor":
+			if tagType != "VPN" {
+				tagType = "TOR"
 			}
+		case "proxy":
+			if tagType == "" {
+				tagType = "PUB"
+			}
+		}
+	}
+	if tagType != "" {
+		if res.Proxy == nil {
+			res.Proxy = &Proxy{IsProxy: true, ProxyType: tagType, Provider: "Shodan"}
+		} else if !res.Proxy.IsProxy {
+			res.Proxy.IsProxy = true
+			res.Proxy.ProxyType = tagType
+			res.Proxy.Provider = "Shodan"
 		}
 	}
 }
