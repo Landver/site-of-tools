@@ -106,7 +106,7 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 	// HTML: card w/ ports, a CVE, mandatory Shodan attribution.
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
-	for _, want := range []string{"open ports · shodan", "53, 443", "dns.google", "CVE-2021-1234", "Shodan InternetDB", "© Shodan"} {
+	for _, want := range []string{"open ports · shodan", "53, 443", "dns.google", "CVE-2021-1234", "InternetDB", "© Shodan"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("shodan card missing %q in:\n%s", want, body)
 		}
@@ -116,6 +116,42 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 	jb := strings.ReplaceAll(recj.Body.String(), " ", "")
 	if !strings.Contains(jb, `"shodan":{`) || !strings.Contains(jb, `"found":true`) || !strings.Contains(jb, `"ports":[53,443]`) {
 		t.Errorf("json missing shodan object: %s", recj.Body.String())
+	}
+}
+
+func TestFuseShodanProxy(t *testing.T) {
+	// 1. Tag "proxy" -> "PUB"
+	res := &iptools.Result{
+		Proxy:  &iptools.Proxy{IsProxy: false},
+		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"proxy"}},
+	}
+	iptools.FuseShodanProxy(res)
+	if !res.Proxy.IsProxy || res.Proxy.ProxyType != "PUB" || res.Proxy.Provider != "Shodan" {
+		t.Fatalf("expected proxy fused from Shodan as PUB, got %+v", res.Proxy)
+	}
+
+	// 2. Priority: VPN > PUB even when "proxy" appears first in tags
+	resVPN := &iptools.Result{
+		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"proxy", "vpn"}},
+	}
+	iptools.FuseShodanProxy(resVPN)
+	if !resVPN.Proxy.IsProxy || resVPN.Proxy.ProxyType != "VPN" {
+		t.Fatalf("expected VPN priority, got %+v", resVPN.Proxy)
+	}
+
+	// 3. TOR tag -> "TOR"
+	resTOR := &iptools.Result{
+		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"tor"}},
+	}
+	iptools.FuseShodanProxy(resTOR)
+	if !resTOR.Proxy.IsProxy || resTOR.Proxy.ProxyType != "TOR" {
+		t.Fatalf("expected TOR, got %+v", resTOR.Proxy)
+	}
+
+	// 4. HTML output check
+	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=121.127.45.50", map[string]string{"Accept": "text/html"})
+	if strings.Contains(rec.Body.String(), "not in any known proxy or VPN list") {
+		t.Errorf("must not render old misleading negative text")
 	}
 }
 

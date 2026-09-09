@@ -3,10 +3,12 @@
 package iptools
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 
 	ip2location "github.com/ip2location/ip2location-go/v9"
 	ip2proxy "github.com/ip2location/ip2proxy-go/v4"
@@ -60,6 +62,15 @@ type Service struct {
 	db4, db6   *ip2location.DB
 	asn4, asn6 *ip2location.DB
 	proxy      *ip2proxy.DB // optional; nil disables proxy section
+	shodan     *Shodan      // optional; nil disables Shodan enrichment
+}
+
+// WithShodan attaches Shodan InternetDB client for open-port and proxy-tag enrichment.
+func (s *Service) WithShodan(sh *Shodan) *Service {
+	if s != nil {
+		s.shodan = sh
+	}
+	return s
 }
 
 // ErrUnavailable: returned when geolocation databases not loaded.
@@ -149,7 +160,7 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 	// clean() blanks IP2Location "-" placeholder (reserved/private ranges +
 	// records w/ no city/zip come back as "-"), matching how lookupProxy
 	// already treats proxy fields → "-" never leaks into JSON or HTML.
-	return &Result{
+	res := &Result{
 		IP:          ipStr,
 		CountryCode: clean(geo.Country_short),
 		Country:     clean(geo.Country_long),
@@ -162,7 +173,46 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		ASN:         clean(as.Asn),
 		ASName:      clean(as.As),
 		Proxy:       s.lookupProxy(ipStr),
-	}, nil
+	}
+	if s.shodan != nil && routable(ipStr) {
+		if si, err := s.shodan.Lookup(context.Background(), ipStr); err == nil && si != nil {
+			res.Shodan = si
+			FuseShodanProxy(res)
+		}
+	}
+	return res, nil
+}
+
+// FuseShodanProxy syncs Shodan proxy/VPN tags into res.Proxy if tagged.
+// Normalizes tag types to IP2Proxy standards (VPN, TOR, PUB) with priority VPN > TOR > PUB.
+func FuseShodanProxy(res *Result) {
+	if res == nil || res.Shodan == nil {
+		return
+	}
+	var tagType string
+	for _, tag := range res.Shodan.Tags {
+		switch strings.ToLower(tag) {
+		case "vpn":
+			tagType = "VPN"
+		case "tor":
+			if tagType != "VPN" {
+				tagType = "TOR"
+			}
+		case "proxy":
+			if tagType == "" {
+				tagType = "PUB"
+			}
+		}
+	}
+	if tagType != "" {
+		if res.Proxy == nil {
+			res.Proxy = &Proxy{IsProxy: true, ProxyType: tagType, Provider: "Shodan"}
+		} else if !res.Proxy.IsProxy {
+			res.Proxy.IsProxy = true
+			res.Proxy.ProxyType = tagType
+			res.Proxy.Provider = "Shodan"
+		}
+	}
 }
 
 // lookupProxy is best-effort: nil if proxy DB off or lookup errors (e.g.
