@@ -12,7 +12,6 @@ import (
 
 // A repeat question inside the TTL must not reach the resolver again.
 func TestRepeatLookupIsCached(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(4 * time.Second)
 
@@ -41,7 +40,6 @@ func TestRepeatLookupIsCached(t *testing.T) {
 
 // Concurrent identical questions collapse into one upstream query.
 func TestConcurrentIdenticalLookupsCollapse(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(4 * time.Second)
 
@@ -78,7 +76,6 @@ func TestConcurrentIdenticalLookupsCollapse(t *testing.T) {
 
 // A different question is not served from another question's entry.
 func TestCacheKeyIsPerQuestion(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(4 * time.Second)
 

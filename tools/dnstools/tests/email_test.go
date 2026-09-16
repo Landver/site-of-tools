@@ -21,7 +21,6 @@ func note(e *dnstools.EmailAuth, level string) []string {
 // A domain with real mail must produce a real assessment, and the SPF lookup
 // count must stay inside the limit the spec sets.
 func TestEmailAuthOnARealMailDomain(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
@@ -58,7 +57,6 @@ func TestEmailAuthOnARealMailDomain(t *testing.T) {
 // whole list has been flattened it skips rather than failing, because that
 // would be the internet changing, not this code breaking.
 func TestSPFLookupCountFollowsIncludes(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
@@ -85,7 +83,6 @@ func TestSPFLookupCountFollowsIncludes(t *testing.T) {
 
 // A domain with no mail setup should be told so calmly, not scolded.
 func TestEmailAuthOnANonMailDomain(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
@@ -120,7 +117,6 @@ func TestEmailAuthRejectsBadInput(t *testing.T) {
 
 // Score counts findings by level and must agree with the notes themselves.
 func TestScoreMatchesNotes(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 

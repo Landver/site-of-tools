@@ -82,7 +82,6 @@ func TestResolversAllowlistIsAddressable(t *testing.T) {
 // which is exactly the open question tools/dnstools/docs/02-build-fit.md §5
 // flags for the production host.
 func TestLookupLive(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(4 * time.Second)
 
@@ -128,7 +127,6 @@ func TestTypesAreQueryable(t *testing.T) {
 // The default lookup asks for every type at once and sorts the answers into
 // found / empty / failed, so the UI never makes anyone click through types.
 func TestLookupSetFansOutOverAllTypes(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
@@ -198,7 +196,6 @@ func TestLookupSetSurvivesAPartialFailure(t *testing.T) {
 // A name that doesn't exist says so once, rather than reporting every type as
 // missing.
 func TestLookupSetNXDomainCollapses(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
@@ -218,7 +215,6 @@ func TestLookupSetNXDomainCollapses(t *testing.T) {
 
 // An IP literal has one meaningful question, so it must not fan out.
 func TestLookupSetIPLiteralDoesNotFanOut(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
@@ -237,7 +233,6 @@ func TestLookupSetIPLiteralDoesNotFanOut(t *testing.T) {
 
 // Narrowing to one type still works, so ?type= permalinks survive.
 func TestLookupSetHonoursAnExplicitType(t *testing.T) {
-	t.Parallel()
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
