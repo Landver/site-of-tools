@@ -1,0 +1,169 @@
+{{define "dns/domaininfo"}}
+{{/* A bad name or a switched-off dependency reaches this fragment with only
+     .Error set, so without this branch the page answers 400 and 503 with an
+     empty result slot. */}}
+{{if .Error}}
+  {{template "dns/error" .}}
+{{else}}
+{{if .Registration}}{{with .Registration}}
+{{/* Full width when the status card isn't there to pair with it: a span-2
+     card after a lone one-column card strands an empty half-row. */}}
+<div class="card {{if not .Statuses}}sm:col-span-2{{end}}">
+  <div class="eyebrow">registration</div>
+  <dl class="spec">
+    {{if .Registrar}}<dt>Registrar</dt> <dd class="text-strong">{{.Registrar}}</dd>{{end}}
+    {{if .Registered}}<dt>Registered</dt> <dd>{{.Registered}}</dd>{{end}}
+    {{if .Expires}}
+    <dt>Expires</dt>
+    <dd>
+      {{.Expires}}
+      {{/* The number people actually need, and the one a bare date hides.
+           Unknown, "expires today" and "already expired" are three answers. */}}
+      {{if .DaysKnown}}
+        {{if lt .Days 0}}<span class="text-danger"> — expired</span>
+        {{else}}<span class="{{if lt .Days 30}}text-danger{{else if lt .Days 90}}text-warn{{else}}text-faint{{end}}"> — {{.Days}} days</span>{{end}}
+      {{end}}
+    </dd>
+    {{end}}
+    {{if .Updated}}<dt>Last changed</dt> <dd>{{.Updated}}</dd>{{end}}
+    <dt>DNSSEC</dt>
+    <dd>{{if .SignedDelegation}}<span class="text-ok">Delegation signed</span> <span class="text-faint">— a DS record is published at the registry</span>
+        {{else}}<span class="text-faint">Not signed at the registry</span>{{end}}</dd>
+  </dl>
+  {{if .Nameservers}}
+  <div class="mt-3 border-t border-line pt-3">
+    <div class="text-xs text-faint">Nameservers on record at the registry</div>
+    <div class="mt-1 font-mono text-xs text-muted">{{range $i, $n := .Nameservers}}{{if $i}}<br>{{end}}{{$n}}{{end}}</div>
+  </div>
+  {{end}}
+</div>
+
+{{/* EPP codes decoded. Raw they are unreadable, and they are the answer to
+     "why can't I transfer this domain". */}}
+{{if .Statuses}}
+<div class="card">
+  <div class="eyebrow">registry status</div>
+  <dl class="spec grid-cols-[1fr]">
+    {{range .Statuses}}
+    <dt class="font-mono text-xs text-strong">{{.Code}}</dt>
+    <dd class="mb-2 text-xs text-muted">{{if .Meaning}}{{.Meaning}}{{else}}<span class="text-faint">No plain-language description for this code yet.</span>{{end}}</dd>
+    {{end}}
+  </dl>
+</div>
+{{end}}
+{{end}}
+{{else if .RegError}}
+<div class="card">
+  <div class="eyebrow">registration</div>
+  {{if .RegAbsent}}
+    {{/* The registry answered and holds no object for this name. Saying "we
+         couldn't look it up" here would contradict the answer we got. */}}
+    <p class="text-sm text-muted">The registry holds no record for this name.</p>
+    <p class="mt-1 text-xs text-faint">It is unregistered, it is a subdomain rather than a registrable domain, or its TLD publishes no RDAP service.</p>
+  {{else}}
+    <p class="text-sm text-muted">Couldn't read the registry record.</p>
+    <p class="mt-1 text-xs text-faint">{{.RegError}} — that's a failure to look it up, not evidence the domain is unregistered.</p>
+  {{end}}
+</div>
+{{end}}
+
+{{if .Certs}}{{with .Certs}}
+<div class="card sm:col-span-2">
+  <div class="flex items-baseline justify-between gap-4">
+    <div class="eyebrow">subdomains seen in certificate transparency</div>
+    <div class="text-sm text-muted">{{.Total}} found</div>
+  </div>
+  <p class="mb-3 text-xs text-faint">
+    Every name a public certificate was issued for. This is the working replacement for a zone transfer:
+    public, and it sends no packets at the domain itself. Currently-valid certificates only.
+  </p>
+  {{if .Names}}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-faint">
+        <th class="pb-2 pr-4 font-normal">Name</th>
+        <th class="pb-2 pr-4 font-normal">First seen</th>
+        <th class="pb-2 text-right font-normal">Certs</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Names}}
+      <tr class="border-t border-line">
+        <td class="py-1.5 pr-4 font-mono break-all text-strong">{{.Name}}</td>
+        <td class="py-1.5 pr-4 text-xs text-muted">{{.FirstSeen}}</td>
+        <td class="py-1.5 text-right text-xs text-muted">{{.Certs}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="text-sm text-muted">No certificates found for subdomains of this name.</p>
+  {{end}}
+  {{/* State the method's blind spot rather than letting the list imply
+       completeness. */}}
+  {{if .Truncated}}
+  <p class="mt-3 text-xs text-warn">Showing the first {{len .Names}} of {{.Total}} names.</p>
+  {{end}}
+  {{if .Wildcard}}
+  <p class="mt-2 text-xs text-faint">
+    A wildcard certificate covers this domain, so names issued under it never appear in CT. This list is a floor, not a complete inventory.
+  </p>
+  {{end}}
+</div>
+{{end}}
+{{else if .CertError}}
+<div class="card sm:col-span-2">
+  <div class="eyebrow">subdomains</div>
+  <p class="text-sm text-muted">Couldn't reach Certificate Transparency.</p>
+  <p class="mt-1 text-xs text-faint">{{.CertError}} — crt.sh is often slow or briefly down; this says nothing about the domain.</p>
+</div>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "dns/domain"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "dns/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      The two questions DNS itself can't answer: who registered this name and when it expires (RDAP),
+      and what subdomains exist under it (Certificate Transparency). Both public, both free, and neither
+      sends a packet at the domain.
+    </p>
+
+    <form hx-get="/domain" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6 flex flex-wrap gap-2">
+      <input name="name" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="Domain name" placeholder="example.com" class="field">
+      <button type="submit" class="btn-primary">Look up</button>
+      {{/* htmx toggles .htmx-request on the form while in flight: the button
+           dims and this says what is actually happening. A bare "…" reads as
+           decoration, not as "working". */}}
+      <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading the registry and certificate logs…</span>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 font-mono text-xs text-muted">
+        <p><span class="text-strong">curl 'https://dns.corpberry.com/domain?name=example.com'</span></p>
+      </div>
+    </details>
+
+    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2">
+      <div id="result" class="contents" aria-live="polite" aria-atomic="false">
+        {{template "dns/domaininfo" .}}
+      </div>
+    </div>
+  </main>
+
+  {{template "partials/footer" .}}
+  {{template "partials/htmx-errors" .}}
+</body>
+</html>
+{{end}}

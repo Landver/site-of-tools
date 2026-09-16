@@ -17,6 +17,7 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/site"
 	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
@@ -91,6 +92,7 @@ func main() {
 		platform.TemplateSource{Embed: site.Templates, DevDir: "site/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
+		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 	)
 
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
@@ -120,17 +122,31 @@ func main() {
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	botcheck.Register(botApp, geo, corpus, blocklist)
 
+	// dns.corpberry.com — DNS record lookup. Queries public resolvers directly
+	// over UDP/53 (no databases to load, so nothing to degrade), and reuses the
+	// SAME geo service the IP tool opened above to label resolved addresses with
+	// ASN/country — in-process, no new dependency (docs/tools/dnstools/02-build-fit.md §2).
+	// nil/unloaded geo just means records render without that annotation.
+	dnsApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+	// RDAP + Certificate Transparency: both free, keyless and public. Blank
+	// URLs disable that half (nil client -> the page says the lookup is off,
+	// never that the domain has no registration).
+	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second)
+	dnstools.Register(dnsApp, dnstools.NewService(5*time.Second), geo, domainClient)
+
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
 	// apex trying to list them all. Apex wires its own inside site.Register,
 	// where the blog's dynamic post list lives.
 	platform.RegisterSEO(ipApp, cfg.URL("ip"), iptools.SitemapPages)
 	platform.RegisterSEO(botApp, cfg.URL("botcheck"), botcheck.SitemapPages)
+	platform.RegisterSEO(dnsApp, cfg.URL("dns"), dnstools.SitemapPages)
 
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):         apex,
 		cfg.VHost("ip"):       ipApp,
 		cfg.VHost("botcheck"): botApp,
+		cfg.VHost("dns"):      dnsApp,
 	}
 	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 

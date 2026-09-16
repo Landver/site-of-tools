@@ -1,0 +1,19 @@
+{{/* One severity-tagged finding list, shared by the email checks and the
+     delegation-health panel so the two can't drift apart on markup or wording.
+     Call it with the note slice itself: {{template "dns/notes" .Notes}}.
+
+     The dot is the whole severity ranking, and a dot has no text, so without a
+     name on it the ranking exists for sighted users only (WCAG 1.4.1). */}}
+{{define "dns/notes"}}
+<ul class="flex flex-col divide-y divide-line text-sm">
+  {{range .}}
+  <li class="flex items-start gap-3 py-2">
+    <span role="img"
+          aria-label="{{if eq .Level "fail"}}failing{{else if eq .Level "warn"}}needs improvement{{else if eq .Level "ok"}}good{{else}}note{{end}}"
+          class="mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full
+          {{if eq .Level "fail"}}bg-danger{{else if eq .Level "warn"}}bg-warn{{else if eq .Level "ok"}}bg-ok{{else}}bg-line{{end}}"></span>
+    <span class="flex-1 min-w-0 {{if eq .Level "fail"}}text-strong{{else}}text-muted{{end}}">{{.Text}}</span>
+  </li>
+  {{end}}
+</ul>
+{{end}}

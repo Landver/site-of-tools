@@ -1,0 +1,14 @@
+{{/* htmx refuses to swap a non-2xx response by default, so without this a
+     validation error, an upstream failure or a 429 leaves the previous result
+     on screen and the page looks frozen. Shared so the four DNS pages can't
+     drift apart on it again. */}}
+{{define "partials/htmx-errors"}}
+<script>
+  document.body.addEventListener('htmx:beforeSwap', (e) => {
+    if ([400, 429, 502, 503].includes(e.detail.xhr.status)) {
+      e.detail.shouldSwap = true
+      e.detail.isError = false
+    }
+  })
+</script>
+{{end}}

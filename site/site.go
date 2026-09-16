@@ -22,6 +22,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			URL:  cfg.URL("ip"),
 		},
 		{
+			Name: "DNS Tools",
+			Desc: "A suite of DNS tools: look up every record type for a domain in one query (A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, and reverse PTR), against Cloudflare, Google or Quad9, with the TTL, rcode, header flags and query time behind every answer.",
+			URL:  cfg.URL("dns"),
+		},
+		{
 			Name: "Bot check",
 			Desc: "Score how much your browser looks like a human vs. an automated bot: client fingerprint signals cross-checked against your connection's headers and IP reputation, with a transparent per-signal breakdown.",
 			URL:  cfg.URL("botcheck"),

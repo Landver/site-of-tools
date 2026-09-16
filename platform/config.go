@@ -28,6 +28,11 @@ type Config struct {
 	// live endpoint; blank disables enrichment (NewShodan → nil no-op).
 	ShodanURL string
 
+	// RDAP bootstrap + Certificate Transparency endpoints for the DNS tool's
+	// domain page. Both free and keyless; blank disables that lookup.
+	RDAPURL  string
+	CrtShURL string
+
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
 	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
 	// missing-BIN path). MongoDatabase = app DB name on shared server,
@@ -51,6 +56,8 @@ func Load() Config {
 		ASNV6:      os.Getenv("IP2LOCATION_ASN_V6"),
 		PX12:       os.Getenv("IP2PROXY_PX12"),
 		ShodanURL:  getenv("SHODAN_INTERNETDB_URL", "https://internetdb.shodan.io"),
+		RDAPURL:    getenv("RDAP_URL", "https://rdap.org"),
+		CrtShURL:   getenv("CRTSH_URL", "https://crt.sh"),
 		MongoURI:   os.Getenv("MONGODB_URI"),
 		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
 		MongoDatabase: getenv("MONGODB_DATABASE", DefaultMongoDatabase),

@@ -1,0 +1,144 @@
+{{define "dns/emailauth"}}
+{{if .Error}}
+  {{template "dns/error" .}}
+{{else if .Email}}
+  {{with .Email}}
+
+  {{/* Findings first. Counts, not a grade out of 100: a single number invites
+       arguing with the number instead of fixing the finding. */}}
+  <div class="card sm:col-span-2">
+    <div class="flex items-baseline justify-between gap-4">
+      <div class="eyebrow">findings</div>
+      {{/* Each separator is behind a test of what precedes it, or a clean
+           domain opens with a dangling bullet. Nothing counts "info" notes,
+           so a findings list made only of those needs a line of its own. */}}
+      <div class="text-sm">
+        {{if $.Fail}}<span class="text-danger">{{$.Fail}} failing</span>{{end}}
+        {{if $.Warn}}{{if $.Fail}}<span class="text-faint"> · </span>{{end}}<span class="text-warn">{{$.Warn}} to improve</span>{{end}}
+        {{if $.OK}}{{if or $.Fail $.Warn}}<span class="text-faint"> · </span>{{end}}<span class="text-ok">{{$.OK}} good</span>{{end}}
+        {{if and (not (or $.Fail $.Warn $.OK)) .Notes}}<span class="text-muted">{{len .Notes}} note{{if ne (len .Notes) 1}}s{{end}}</span>{{end}}
+      </div>
+    </div>
+    {{if not .HasMX}}
+    <p class="mb-3 text-xs text-faint">This domain publishes no MX records, so it doesn't receive mail. It can still be spoofed as a sender, which is what SPF and DMARC prevent.</p>
+    {{end}}
+    {{template "dns/notes" .Notes}}
+  </div>
+
+  {{/* Two explicit columns, botcheck's pattern. With plain auto-placement a
+       long SPF card pushes the next card underneath it instead of filling the
+       short right-hand column. */}}
+  {{/* Each column wrapper is a grid item whether or not it holds a card, so
+       an unguarded one strands an empty half-row beside the other column — on
+       exactly the domain (no SPF at all) this page exists to catch. */}}
+  {{if .SPF}}
+  <div class="grid gap-4 content-start">
+  {{with .SPF}}
+  <div class="card">
+    <div class="eyebrow">spf</div>
+    <p class="font-mono text-xs break-all text-strong">{{.Record}}</p>
+    <dl class="spec mt-3">
+      <dt>DNS lookups</dt>
+      <dd class="{{if gt .Lookups $.Email.SPF.Limit}}text-danger{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
+      {{if .All}}<dt>Ends with</dt> <dd class="font-mono">{{.All}}</dd>{{end}}
+    </dl>
+    {{if .Chain}}
+    <div class="mt-3 border-t border-line pt-3">
+      <div class="text-xs text-faint">Expanded through</div>
+      <div class="mt-1 font-mono text-xs text-muted break-all">{{range $i, $c := .Chain}}{{if $i}}<br>{{end}}{{$c}}{{end}}</div>
+      {{if .Truncated}}<p class="mt-2 text-xs text-warn">Stopped expanding here: the record is already past the limit, so resolving further includes can't change the verdict.</p>{{end}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  </div>
+  {{end}}
+
+  {{if or .DMARC .DKIM .MTASTS .TLSRPT .BIMI}}
+  <div class="grid gap-4 content-start">
+  {{with .DMARC}}
+  <div class="card">
+    <div class="eyebrow">dmarc</div>
+    <p class="font-mono text-xs break-all text-strong">{{.Record}}</p>
+    <dl class="spec mt-3">
+      <dt>Policy</dt>
+      <dd class="font-mono {{if eq .Policy "none"}}text-warn{{else}}text-ok{{end}}">p={{.Policy}}</dd>
+      {{if .SubPolicy}}<dt>Subdomains</dt> <dd class="font-mono">sp={{.SubPolicy}}</dd>{{end}}
+      {{if .Percent}}<dt>Applies to</dt> <dd>{{.Percent}}% of mail</dd>{{end}}
+      {{if .Aggregate}}<dt>Reports to</dt> <dd class="break-all text-xs">{{.Aggregate}}</dd>{{end}}
+    </dl>
+  </div>
+  {{end}}
+
+  {{if or .DKIM .MTASTS .TLSRPT .BIMI}}
+  <div class="card">
+    <div class="eyebrow">the rest</div>
+    <dl class="spec">
+      {{if .DKIM}}
+      <dt>DKIM</dt>
+      <dd>{{range $i, $k := .DKIM}}{{if $i}}, {{end}}<span class="font-mono">{{$k.Selector}}</span>{{end}}
+        <span class="block text-xs text-faint">Found by guessing common selectors; DNS can't list them.</span></dd>
+      {{end}}
+      {{with .MTASTS}}
+      <dt>MTA-STS</dt>
+      <dd>
+        {{if .PolicyFound}}<span class="font-mono">{{.Mode}}</span>{{if .MaxAge}} <span class="text-faint">· max_age {{.MaxAge}}</span>{{end}}
+          {{if .MX}}<span class="block text-xs text-faint">policy MX: {{range $i, $m := .MX}}{{if $i}}, {{end}}{{$m}}{{end}}</span>{{end}}
+        {{else}}<span class="text-danger">policy unreachable</span>{{end}}
+      </dd>
+      {{end}}
+      {{if .TLSRPT}}<dt>TLS-RPT</dt> <dd class="break-all text-xs font-mono">{{.TLSRPT}}</dd>{{end}}
+      {{if .BIMI}}<dt>BIMI</dt> <dd class="break-all text-xs font-mono">{{.BIMI}}</dd>{{end}}
+    </dl>
+  </div>
+  {{end}}
+  </div>
+  {{end}}
+  {{end}}
+{{end}}
+{{end}}
+
+{{define "dns/email"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+  <main class="page-main">
+    {{template "dns/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Email authentication for a domain: SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI.
+      Including the check that matters most and is easiest to miss: whether your SPF record
+      stays under the 10 DNS lookups the spec allows, because over that it fails for everyone, silently.
+    </p>
+
+    <form hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6 flex flex-wrap gap-2">
+      <input name="name" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="Domain name" placeholder="example.com" class="field">
+      <button type="submit" class="btn-primary">Check</button>
+      {{/* htmx toggles .htmx-request on the form while in flight: the button
+           dims and this says what is actually happening. A bare "…" reads as
+           decoration, not as "working". */}}
+      <span role="status" class="htmx-indicator self-center text-sm text-muted">Checking SPF, DMARC, DKIM, MTA-STS…</span>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 font-mono text-xs text-muted">
+        <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com'</span></p>
+      </div>
+    </details>
+
+    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2">
+      <div id="result" class="contents" aria-live="polite" aria-atomic="false">
+        {{template "dns/emailauth" .}}
+      </div>
+    </div>
+  </main>
+  {{template "partials/footer" .}}
+  {{template "partials/htmx-errors" .}}
+</body>
+</html>
+{{end}}

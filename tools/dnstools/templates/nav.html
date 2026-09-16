@@ -1,0 +1,27 @@
+{{/* Sub-nav for the DNS Tools suite, styled as a segmented control so it reads
+     as a view switcher, not body text. .Active = the current page's key.
+     Links are relative → they stay on dns.corpberry.com.
+
+     Four pages ship today. Adding the next one (see
+     tools/dnstools/docs/01-feature-inventory.md) is a new route + one entry
+     here. Same shape as tools/iptools/templates/nav.html. */}}
+{{define "dns/nav"}}
+<div class="mb-8 inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <a href="/"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "lookup"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    DNS lookup
+  </a>
+  <a href="/consistency"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "consistency"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    Consistency
+  </a>
+  <a href="/domain"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "domain"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    Domain
+  </a>
+  <a href="/email"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "email"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    Email
+  </a>
+</div>
+{{end}}

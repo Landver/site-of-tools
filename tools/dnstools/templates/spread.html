@@ -1,0 +1,188 @@
+{{/* Result fragment for the consistency check. */}}
+{{define "dns/spread"}}
+{{if .Error}}
+  {{template "dns/error" .}}
+{{else if .Spread}}
+  {{with .Spread}}
+
+  {{/* The verdict, stated plainly, with the honest denominator beside it.
+       Never a percentage: healthy GeoDNS legitimately returns different
+       answers, so "17% propagated" would be a lie, not a measurement.
+
+       Every branch here states only what its own inputs establish. Naming one
+       cause ("a change is rolling out") when the data allows two is the
+       failure mode this whole feature exists to avoid. */}}
+  <div class="card sm:col-span-2">
+    <div class="eyebrow">verdict</div>
+    <p class="text-sm">
+      {{if eq .Answered 0}}
+        {{/* Nothing to be consistent about — but "doesn't exist", "exists and
+             publishes no such record" and "nobody answered" are three answers,
+             and the unanimous rcode is what tells them apart. */}}
+        {{if eq .Rcode "NXDOMAIN"}}
+          <span class="text-warn">This name does not exist.</span>
+          <span class="text-faint">Every server that responded returned NXDOMAIN, so no record of any type resolves here. {{.Asked}} were asked.</span>
+        {{else if eq .Rcode "NOERROR"}}
+          <span class="text-warn">No {{.Type}} record is published.</span>
+          <span class="text-faint">The name exists, and every server that responded agreed it publishes no {{.Type}} record. {{.Asked}} were asked.</span>
+        {{else}}
+          <span class="text-warn">No server returned a {{.Type}} record.</span>
+          <span class="text-faint">{{.Asked}} were asked{{if .Rcode}}, and those that responded all said {{.Rcode}}{{end}}. The servers may be unreachable — see the panels below.</span>
+        {{end}}
+      {{else if .Rotation}}
+        {{/* Different records, same zone version: one zone answering per
+             query, not a change in flight. Checked before the disagreement
+             branch because it is the same shape with a different cause. */}}
+        <span class="text-ok">Your nameservers are serving one zone version.</span>
+        <span class="text-faint">They return different {{.Type}} records while reporting the same SOA serial, so this zone varies its answer per query (round-robin, or steering by latency) rather than having a change part-way out.</span>
+      {{else if and (gt .AuthAnswered 1) (not .AuthConsistent)}}
+        <span class="text-warn">Your nameservers disagree.</span>
+        {{if and (gt .SerialsSeen 1) (not .SerialsAgree)}}
+          <span class="text-faint">The zone's own servers return different {{.Type}} records and report different SOA serials, so a change has not finished rolling out between them.</span>
+        {{else}}
+          <span class="text-faint">The zone's own servers return different {{.Type}} records. No serial separates them here, so this is either a change still rolling out or a zone that answers differently per query — the panels below show who said what.</span>
+        {{end}}
+      {{else if not .Consistent}}
+        {{if gt .AuthAnswered 1}}
+          <span class="text-ok">Your nameservers are in step.</span>
+          <span class="text-faint">All {{.AuthAnswered}} that answered return the same {{.Type}} records{{if and (gt .SerialsSeen 1) .SerialsAgree}} with matching serials{{end}}.
+          {{if .ResolversStale}}The public resolvers agree with each other and all of them hold a different answer, so the change has left your nameservers and is now waiting out a cache.
+          {{else if gt .ResolverGroups 1}}Public resolvers see {{.ResolverGroups}} different answers, which means this zone answers differently depending on who asks (anycast or geo steering) — not a change still rolling out.
+          {{else}}The public resolvers hold something else; compare the two panels below.{{end}}</span>
+        {{else if gt .ResolverGroups 1}}
+          {{/* Fewer than two of the zone's own servers answered, so there is no
+               authoritative baseline and neither steering nor a rollout can be
+               claimed from the resolver half alone. */}}
+          <span class="text-warn">The public resolvers don't agree.</span>
+          <span class="text-faint">They see {{.ResolverGroups}} different answers. Too few of the zone's own nameservers answered to say whether that is deliberate steering or a change still rolling out.</span>
+        {{else}}
+          <span class="text-warn">Not enough answers to judge.</span>
+          <span class="text-faint">The public resolvers agree with each other but not with the one authoritative answer this check got, and a single sample can't disagree with itself. The panels below are the whole of what was measured.</span>
+        {{end}}
+      {{else if not .SerialsAgree}}
+        <span class="text-warn">Same records, different zone versions.</span>
+        <span class="text-faint">Nameservers from the same provider report different SOA serials, so a change is still rolling out between them.</span>
+      {{else if .MultiProvider}}
+        <span class="text-ok">Consistent.</span>
+        <span class="text-faint">Every server returned the same {{.Type}} records. This zone is served by more than one DNS provider, so serials are only ever compared within a provider — independent providers keep independent serials by design.</span>
+      {{else}}
+        <span class="text-ok">Consistent.</span>
+        <span class="text-faint">Every server that answered returned the same {{.Type}} records{{if gt .SerialsSeen 1}}, and the {{.SerialsSeen}} nameservers that reported a serial agree on it{{else}}. No SOA serial was readable, so this says nothing about zone versions{{end}}.</span>
+      {{end}}
+    </p>
+    <p class="mt-2 text-xs text-faint">
+      {{.Answered}} of {{.Asked}} servers answered
+      {{if .StaleFor}}· a cached copy can survive up to {{.StaleFor}} longer{{end}}
+      · {{.QueryMS}} ms
+    </p>
+  </div>
+
+  {{/* Delegation health: findings about the nameservers themselves rather
+       than the records they serve. */}}
+  {{if .Health}}
+  <div class="card sm:col-span-2">
+    <div class="eyebrow">delegation health</div>
+    {{template "dns/notes" .Health}}
+  </div>
+  {{end}}
+
+  {{/* The authoritative half: the only signal that actually says whether the
+       change left the building. Recursion off, so no cache is in the way. */}}
+  <div class="card">
+    <div class="eyebrow">the zone's own nameservers</div>
+    <p class="mb-3 text-xs text-faint">Asked directly, recursion off. This is the source of truth.</p>
+    {{/* A verdict drawn from a sample must say it is a sample, or a zone whose
+         one disagreeing server was never asked reads as green. */}}
+    {{if .NSTruncated}}
+    <p class="mb-3 text-xs text-warn">
+      Asked {{len .Authoritative}} of the {{.NSTotal}} nameservers this zone delegates. A disagreement among the rest would not show here.
+    </p>
+    {{end}}
+    {{if .Authoritative}}
+    <dl class="spec grid-cols-[1fr_auto]">
+      {{range .Authoritative}}
+      <dt class="font-mono text-xs break-all {{if .Error}}text-faint{{else}}text-muted{{end}}">
+        {{.Label}}
+        {{if .Serial}}<span class="block text-faint">serial {{.Serial}}</span>{{end}}
+        {{if .OpenResolver}}<span class="block text-danger">open resolver</span>{{end}}
+        {{if .TCPFail}}<span class="block text-warn">no TCP/53</span>{{end}}
+      </dt>
+      <dd class="text-right">
+        {{if .Error}}<span class="text-danger">{{.Error}}</span>
+        {{else}}<span class="font-mono text-xs text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
+          {{/* An authoritative server can't chase an alias out of its own
+               zone, so a CNAME'd name answers with the alias and no values.
+               Printing nothing there reads as "this server said nothing". */}}
+          {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
+          <span class="block text-xs text-faint">{{.RTTMS}} ms</span>{{end}}
+      </dd>
+      {{end}}
+    </dl>
+    {{else}}
+    <p class="text-sm text-muted">No authoritative nameservers found for this name.</p>
+    {{end}}
+  </div>
+
+  {{/* The resolver half, with cache age rather than a raw TTL. A raw TTL is
+       not comparable across resolvers; how far it has counted down is. */}}
+  <div class="card">
+    <div class="eyebrow">public resolvers</div>
+    <p class="mb-3 text-xs text-faint">What the wider internet is currently being told, and how long it has held it.</p>
+    <dl class="spec grid-cols-[1fr_auto]">
+      {{range .Resolvers}}
+      <dt class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
+        {{.Label}}
+        {{if .CacheAge}}<span class="block text-faint">cached {{.CacheAge}} ago</span>{{end}}
+      </dt>
+      <dd class="text-right">
+        {{if .Error}}<span class="text-danger">{{.Error}}</span>
+        {{else}}<span class="font-mono text-xs text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
+          {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
+          <span class="block text-xs text-faint">{{.RTTMS}} ms</span>{{end}}
+      </dd>
+      {{end}}
+    </dl>
+  </div>
+
+  {{/* The action a stale answer leads to. Linking out beats reimplementing
+       three vendors' purge endpoints. */}}
+  {{/* One column when the groups card is there to pair with it, full width when
+       it would otherwise sit alone on a half-empty row. */}}
+  <div class="card {{if le (len .Groups) 1}}sm:col-span-2{{end}}">
+    <div class="eyebrow">stale answer?</div>
+    <p class="text-sm text-muted">
+      A resolver holding an old answer will keep serving it until its TTL runs out{{if .StaleFor}} (up to {{.StaleFor}} here){{end}}.
+      The big resolvers let you evict a name early:
+    </p>
+    <div class="mt-3 flex flex-wrap gap-2 text-sm">
+      <a class="rounded-md border border-line px-3 py-1.5 text-muted hover:text-strong"
+         href="https://one.one.one.one/purge-cache/?type={{.Type}}&domain={{.Name}}" target="_blank" rel="noopener">Cloudflare</a>
+      <a class="rounded-md border border-line px-3 py-1.5 text-muted hover:text-strong"
+         href="https://dns.google/cache?name={{.Name}}&type={{.Type}}" target="_blank" rel="noopener">Google</a>
+      <a class="rounded-md border border-line px-3 py-1.5 text-muted hover:text-strong"
+         href="https://cachecheck.opendns.com/" target="_blank" rel="noopener">OpenDNS</a>
+    </div>
+    <p class="mt-2 text-xs text-faint">Purging a public resolver does nothing for your own machine or router; flush those separately.</p>
+  </div>
+
+  {{/* Grouped by identical answer set — the structurally correct way to show
+       this, and what stops legitimate GeoDNS reading as a failure. */}}
+  {{if gt (len .Groups) 1}}
+  {{/* One column: short value lists plus a "served by" line wrap fine, and a
+       full-width card here strands the card before it on a half-empty row. */}}
+  <div class="card">
+    <div class="eyebrow">answers in circulation</div>
+    <p class="mb-3 text-xs text-faint">
+      Grouped by what was actually returned, across the zone's nameservers and the public resolvers together. More than one group means either a change still rolling out, or the zone deliberately answers differently per location.
+    </p>
+    {{range .Groups}}
+    <div class="mt-3 border-t border-line pt-3 first:mt-0 first:border-0 first:pt-0">
+      <div class="font-mono text-sm text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</div>
+      <div class="mt-1 text-xs text-faint">served by {{len .Servers}}: {{range $i, $s := .Servers}}{{if $i}}, {{end}}{{$s}}{{end}}</div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  {{end}}
+{{end}}
+{{end}}

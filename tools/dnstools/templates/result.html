@@ -1,0 +1,251 @@
+{{/* The receipt: what was actually asked, who answered, how fast. Naming the
+     answering server is what makes the result falsifiable. Its own template so
+     it can sit directly under the answer in both the found and NXDOMAIN cases
+     without duplicating the markup. */}}
+{{define "dns/querycard"}}
+{{/* A fan-out routinely mixes fresh and cached answers, so the set-wide flag
+     only ever speaks for the all-cached case. */}}
+{{$anyCached := false}}
+{{range .Found}}{{if .Cached}}{{$anyCached = true}}{{end}}{{end}}
+{{/* Full width whenever the "nothing published" card isn't there to pair with
+     it, so the span-2 card that follows doesn't strand an empty half-row. */}}
+<div class="card {{if not .Missing}}sm:col-span-2{{end}}">
+  <div class="eyebrow">the query</div>
+  <dl class="spec">
+    <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
+    <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
+    <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
+    <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
+    {{/* Three honest states, not a green tick: validated / signed but not
+         validated / unsigned. Most names are unsigned, which is not a fault. */}}
+    <dt>DNSSEC</dt>
+    <dd>
+      {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate</span>
+      {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures (AD)</span>
+      {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— this resolver didn't verify</span>
+      {{else}}<span class="text-faint">Unsigned</span>{{end}}
+    </dd>
+    {{if .NSID}}<dt>Answered by</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
+    {{/* Only claim parallelism when more than one type was actually asked. */}}
+    <dt>Took</dt>
+    <dd>
+      {{if .Cached}}<span class="text-ok">instant</span> <span class="text-faint">— every answer served from this server's cache, no upstream query</span>
+      {{else}}{{.QueryMS}} ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}
+        {{if $anyCached}}<span class="block text-xs text-faint">Some types were answered from this server's cache; those types are marked in the table.</span>{{end}}{{end}}
+    </dd>
+  </dl>
+  {{if .Reversed}}
+  <p class="mt-3 text-xs text-faint">
+    You pasted an IP, so this ran as a PTR lookup against its reverse name.
+  </p>
+  {{end}}
+</div>
+{{end}}
+
+{{define "dns/result"}}
+{{if .Error}}
+  {{template "dns/error" .}}
+{{else if .Result}}
+  {{with .Result}}
+  {{/* The records a CNAME'd query brings back are owned by the target, not by
+       the name asked for, and RFC 1034 forbids them sharing an owner. */}}
+  {{$qname := .QName}}
+
+  {{/* A name that doesn't exist gets said once, not repeated per type. */}}
+  {{if .NXDomain}}
+    <div class="card sm:col-span-2">
+      <div class="eyebrow">not found</div>
+      <p class="text-sm">
+        <span class="text-danger">This name does not exist.</span>
+        <span class="text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
+      </p>
+    </div>
+    {{template "dns/querycard" .}}
+    {{/* Types the resolver could not answer are shown here too: without this
+         a filtered name, or a mix of NXDOMAIN and SERVFAIL, was hidden behind
+         a sentence claiming the name simply does not exist. */}}
+    {{if .Failed}}
+    <div class="card sm:col-span-2">
+      <div class="eyebrow">no answer</div>
+      <dl class="spec">
+        {{range .Failed}}
+        <dt class="font-mono">{{.Type}}</dt>
+        <dd>
+          <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
+          {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
+        </dd>
+        {{end}}
+      </dl>
+      <p class="mt-2 text-xs text-faint">A resolver that blocks a name reports it this way. That is filtering, not absence.</p>
+    </div>
+    {{end}}
+{{else}}
+
+    {{/* Every answer in ONE table, spanning both columns. The type is a column,
+         not a card boundary: splitting a zone's records across eight cards
+         makes you reassemble them by eye. Record.Type is the actual RR type
+         returned, so a CNAME picked up while chasing an A shows as CNAME. */}}
+    {{if .Found}}
+    <div class="card sm:col-span-2">
+      <div class="flex items-baseline justify-between gap-4">
+        <div class="eyebrow">{{if .Reversed}}reverse lookup{{else}}records{{end}}</div>
+        {{/* Who runs this zone: the first thing anyone needs, and nothing in
+             the raw records says it. */}}
+        {{if .Provider}}<div class="text-sm text-muted">DNS hosted by <span class="font-medium text-strong">{{.Provider}}</span></div>{{end}}
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-faint">
+            <th class="pb-2 pr-4 font-normal">Type</th>
+            <th class="pb-2 pr-4 font-normal">Value</th>
+            <th class="pb-2 text-right font-normal">TTL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Found}}{{$cached := .Cached}}{{range $ri, $_ := .Records}}
+          <tr class="border-t border-line align-top">
+            {{/* The cache flag belongs to the type, not to each of its
+                 records, so it is said once at the head of the group. */}}
+            <td class="py-2 pr-4 font-mono text-xs text-brand whitespace-nowrap">{{.Type}}
+              {{if and $cached (eq $ri 0)}}<span class="block font-sans text-faint">cached</span>{{end}}
+            </td>
+            <td class="py-2 pr-4 font-mono break-all text-strong">
+              {{/* What this record is for, above the value it decorates: a wall
+                   of verification tokens reads as the integrations it is. */}}
+              {{if .Label}}<span class="block font-sans text-xs text-brand">{{.Label}}</span>{{end}}
+              {{if and .Owner (ne .Owner $qname)}}<span class="block font-sans text-xs text-warn">on {{.Owner}}</span>{{end}}
+              {{.Value}}
+              {{if or .ASN .Country}}
+              <span class="block font-sans text-xs text-faint">
+                {{if .ASN}}AS{{.ASN}}{{end}}{{if .ASName}} · {{.ASName}}{{end}}{{if .Country}} · {{.Country}}{{end}}
+              </span>
+              {{end}}
+              {{/* Packed values (SOA) decoded beneath, raw value kept above. */}}
+              {{if .Detail}}
+              <span class="mt-1 block font-sans text-xs text-faint">
+                {{range $i, $f := .Detail}}{{if $i}} · {{end}}{{$f.Name}}: <span class="text-muted">{{$f.Value}}</span>{{end}}
+              </span>
+              {{end}}
+            </td>
+            {{/* Raw seconds kept next to the human duration, never replaced. */}}
+            <td class="py-2 whitespace-nowrap text-right text-muted">
+              {{.TTLHuman}} <span class="text-faint">({{.TTL}}s)</span>
+            </td>
+          </tr>
+          {{end}}{{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+
+    {{/* An explicit ?type= filters the CNAME out as the wrong type, so the
+         address above looks like it belongs to the name asked for. A fan-out
+         already shows the alias under CNAME, so this is for the narrowed
+         query only. */}}
+    {{if and .Chain (eq .Asked 1)}}
+    <div class="card sm:col-span-2">
+      <div class="eyebrow">this name is an alias</div>
+      <p class="text-sm text-muted">
+        <span class="font-mono text-strong">{{$qname}}</span> is an alias. The answer above was reached by
+        following the CNAME below, and is published on the target rather than on the name you asked for.
+      </p>
+      <dl class="spec mt-3 grid-cols-[1fr_auto]">
+        {{range .Chain}}
+        <dt class="font-mono text-xs break-all text-muted">{{.Owner}}</dt>
+        <dd class="text-right font-mono text-xs break-all text-strong">
+          → {{.Value}} <span class="text-faint">({{.TTLHuman}})</span>
+        </dd>
+        {{end}}
+      </dl>
+    </div>
+    {{end}}
+
+    {{/* Directly under the answer. */}}
+    {{template "dns/querycard" .}}
+
+    {{/* Every empty type collapsed into one line, instead of a wall of empty
+         cards. Absence is still stated out loud, just once. */}}
+    {{if .Missing}}
+    <div class="card">
+      <div class="eyebrow">nothing published</div>
+      <p class="text-sm text-muted">
+        No records of {{if eq (len .Missing) 1}}this type{{else}}these types{{end}}:
+        <span class="font-mono text-strong">{{range $i, $t := .Missing}}{{if $i}}, {{end}}{{$t}}{{end}}</span>
+      </p>
+      <p class="mt-2 text-xs text-faint">
+        The name resolves, these types just aren't published on it.
+      </p>
+    </div>
+    {{end}}
+
+    {{/* A CNAME pointing at a name that doesn't resolve is the classic
+         subdomain-takeover shape, so it gets said loudly. */}}
+    {{if .Dangling}}
+    <div class="card sm:col-span-2">
+      <div class="eyebrow">dangling cname</div>
+      <p class="text-sm">
+        <span class="text-danger">This name points somewhere that doesn't resolve:</span>
+        <span class="font-mono text-strong">{{range $i, $d := .Dangling}}{{if $i}}, {{end}}{{$d}}{{end}}</span>
+      </p>
+      <p class="mt-2 text-xs text-faint">
+        If that target is a deprovisioned bucket, app slot or CDN property, whoever registers the name next
+        receives traffic meant for you. Either repoint the CNAME or remove it.
+      </p>
+    </div>
+    {{end}}
+
+    {{/* "Couldn't find out" is deliberately not folded in with "isn't there". */}}
+    {{if .Failed}}
+    <div class="card sm:col-span-2">
+      <div class="eyebrow">no answer</div>
+      <p class="text-sm text-muted">The resolver didn't give a usable answer for:</p>
+      <dl class="spec mt-2">
+        {{range .Failed}}
+        <dt class="font-mono">{{.Type}}</dt>
+        <dd>
+          <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
+          {{/* RFC 8914: the resolver's own machine-readable reason. Almost no
+               consumer tool shows this, and it is the difference between
+               "something broke" and "the signature expired". */}}
+          {{with .EDE}}
+          <span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>
+          {{end}}
+          {{if .Bogus}}
+          <span class="block text-xs text-warn">DNSSEC validation failure: the same query succeeds with checking disabled, so the zone is bogus, not down.</span>
+          {{end}}
+        </dd>
+        {{end}}
+      </dl>
+      <p class="mt-2 text-xs text-faint">
+        That's a failure to answer, not proof the records are missing.
+      </p>
+    </div>
+    {{end}}
+
+    {{/* The receipt made checkable: the exact commands that reproduce this,
+         and the answers in zone-file form. */}}
+    {{if .Dig}}
+    <details class="card sm:col-span-2">
+      <summary class="cursor-pointer text-sm text-muted hover:text-strong">
+        Show the <span class="font-mono text-strong">dig</span> commands that reproduce this, and the answers as a zone file
+      </summary>
+      <div class="mt-3 space-y-3">
+        <div>
+          <div class="text-xs text-faint">One command per type. `dig name A AAAA` would only query the last one.</div>
+          <pre class="mt-1 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{range .Dig}}{{.}}
+{{end}}</pre>
+        </div>
+        {{if .Zone}}
+        <div>
+          <div class="text-xs text-faint">Zone-file format</div>
+          <pre class="mt-1 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{.Zone}}</pre>
+        </div>
+        {{end}}
+      </div>
+    </details>
+    {{end}}
+
+  {{end}}
+  {{end}}
+{{end}}
+{{end}}

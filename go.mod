@@ -7,9 +7,12 @@ require (
 	github.com/ip2location/ip2location-go/v9 v9.8.0
 	github.com/ip2location/ip2proxy-go/v4 v4.2.0
 	github.com/labstack/echo/v5 v5.3.0
+	github.com/miekg/dns v1.1.73
 	github.com/yuin/goldmark v1.8.4
 	github.com/yuin/goldmark-meta v1.1.0
 	go.mongodb.org/mongo-driver/v2 v2.8.0
+	golang.org/x/net v0.57.0
+	golang.org/x/sync v0.22.0
 )
 
 require (
@@ -18,9 +21,9 @@ require (
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
