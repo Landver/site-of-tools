@@ -213,8 +213,15 @@ var Types = append(slices.Clone(FanoutTypes), "PTR")
 //
 // PTR is absent on purpose: it only means something for an IP literal, which
 // takes the reverse path instead of a fan-out.
-// maxTypesPerRequest bounds what one request can fan out to, so a longer type
-// list later can't quietly turn one click into unbounded upstream traffic.
+var FanoutTypes = []string{"A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "CAA", "HTTPS"}
+
+// maxTypesPerRequest bounds how wide one request may fan out, so a longer type
+// list later can't quietly turn one click into more concurrent queries than we
+// mean to send.
+//
+// It is not the request's query budget, and must not be read as one: a
+// SERVFAIL costs a second query on the CD=1 retry, and the dangling-CNAME scan
+// adds up to maxDanglingChecks more.
 const maxTypesPerRequest = 12
 
 // maxDanglingChecks bounds the follow-up probes the takeover scan may make.
@@ -222,8 +229,6 @@ const maxTypesPerRequest = 12
 // is the only fan-out here that used to have no ceiling — and a zone is free
 // to point as many names at as many targets as it likes.
 const maxDanglingChecks = 5
-
-var FanoutTypes = []string{"A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "CAA", "HTTPS"}
 
 // EDE: an RFC 8914 Extended DNS Error, i.e. the resolver's own machine-readable
 // reason a query failed ("Signature Expired", "Blocked", "Network Error").
@@ -664,9 +669,15 @@ func (s *Service) exchange(ctx context.Context, qname, qtype, addr string) (Resu
 	// Truncated UDP answer -> ask again over TCP rather than render a partial
 	// RRset (dns-concepts-and-query-modes.md: truncation + TCP fallback).
 	if err == nil && resp != nil && resp.Truncated {
-		if tcpResp, _, tcpErr := s.tcp.ExchangeContext(ctx, m, addr); tcpErr == nil {
-			resp = tcpResp
+		tcpResp, _, tcpErr := s.tcp.ExchangeContext(ctx, m, addr)
+		if tcpErr != nil {
+			// Falling through here would render the truncated RRset as a
+			// complete answer and cache it as one for its full lifetime, with
+			// the tc bit in Flags as the only trace. A partial RRset is
+			// "couldn't find out", so say so.
+			return Result{}, fmt.Errorf("truncated answer from %s, TCP retry failed: %w", addr, tcpErr)
 		}
+		resp = tcpResp
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("query %s: %w", addr, err)

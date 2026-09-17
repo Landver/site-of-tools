@@ -127,6 +127,7 @@ func TestSVCBFields(t *testing.T) {
 			rr:   `example.com. 300 IN HTTPS 1 cdn.example.net. alpn="h3,h2" port=8443 ipv4hint=192.0.2.1`,
 			want: []Field{
 				{"Priority", "1"},
+				{"Endpoint", "cdn.example.net"},
 				{"Protocols", "HTTP/3, HTTP/2"},
 				{"Port", "8443"},
 				{"IPv4 hint", "192.0.2.1"},
@@ -145,7 +146,7 @@ func TestSVCBFields(t *testing.T) {
 		{
 			name: "SVCB decodes the same way as HTTPS",
 			rr:   `_dns.example.com. 300 IN SVCB 1 dot.example.net. alpn="dot"`,
-			want: []Field{{"Priority", "1"}, {"Protocols", "DNS-over-TLS"}},
+			want: []Field{{"Priority", "1"}, {"Endpoint", "dot.example.net"}, {"Protocols", "DNS-over-TLS"}},
 		},
 	}
 

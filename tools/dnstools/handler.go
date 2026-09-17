@@ -73,6 +73,13 @@ const (
 //	GET /domain       registration (RDAP) + subdomains (Certificate Transparency)
 //	GET /email        SPF / DMARC / DKIM / MTA-STS / TLS-RPT / BIMI
 func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient) {
+	// Every other dependency here is optional and degrades to a 503 or to a
+	// thinner page. svc is not: a nil one can only be a wiring mistake, and
+	// left to be discovered per request it surfaces as a panic-recovered 500
+	// instead of an error at startup.
+	if svc == nil {
+		panic("dnstools.Register: svc is nil")
+	}
 	h := &handler{svc: svc, geo: geo, dom: dom}
 	// The same *Service satisfies both interfaces; a test can pass a fake that
 	// only implements one.

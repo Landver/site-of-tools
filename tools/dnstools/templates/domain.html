@@ -53,7 +53,10 @@
 {{end}}
 {{end}}
 {{else if .RegError}}
-<div class="card">
+{{/* Always full width: a notice has no second column of data to pair with,
+     and left at one column it strands an empty half-row before the span-2
+     subdomains card below. */}}
+<div class="card sm:col-span-2">
   <div class="eyebrow">registration</div>
   {{if .RegAbsent}}
     {{/* The registry answered and holds no object for this name. Saying "we

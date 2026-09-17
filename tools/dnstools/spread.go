@@ -2,12 +2,14 @@ package dnstools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/miekg/dns"
@@ -155,15 +157,20 @@ type ServerAnswer struct {
 	// Error: why this server produced nothing. Named, never hidden.
 	Error string `json:"error,omitempty"`
 
-	// OpenResolver: this nameserver answered a recursive query for a zone it
-	// is not authoritative for. That makes it usable as a DNS amplification
-	// reflector by anyone on the internet, and it is the single most serious
-	// misconfiguration a nameserver can have.
+	// OpenResolver: this nameserver recursed on our behalf for a zone it is
+	// not authoritative for. One vantage point cannot see whose queries it
+	// accepts, only that it accepted an unauthenticated stranger's, which is
+	// enough to make it usable as a DNS amplification reflector.
 	OpenResolver bool `json:"open_resolver,omitempty"`
-	// TCPFail: TCP/53 was refused. DNS requires it — any answer too big for
-	// UDP falls back to TCP, so blocking it breaks DNSSEC and large RRsets in
-	// ways that look intermittent and are miserable to diagnose.
+	// TCPFail: a TCP/53 query did not complete, after a retry if the first
+	// attempt timed out. DNS requires TCP — any answer too big for UDP falls
+	// back to it, so blocking it breaks DNSSEC and large RRsets in ways that
+	// look intermittent and are miserable to diagnose.
 	TCPFail bool `json:"tcp_fail,omitempty"`
+	// TCPRefused: the connection was actively refused or reset. A timeout
+	// could still be our own egress or a loaded server, so only this one
+	// earns the word "refused" in a finding that names the operator.
+	TCPRefused bool `json:"tcp_refused,omitempty"`
 }
 
 // AnswerGroup: one distinct answer set and who returned it.
@@ -322,21 +329,16 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 	a := ServerAnswer{Label: strings.TrimSuffix(nsName, ".")}
 
 	// Resolve the nameserver's own address first.
-	ipRec, err := s.lookup(ctx, dns.Fqdn(nsName), "A", viaAddr)
-	if err != nil || len(ipRec.Records) == 0 {
-		a.Error = "could not resolve this nameserver's address"
+	ip, found := s.nameserverAddress(ctx, nsName, viaAddr)
+	switch {
+	case !found:
+		a.Error = "could not resolve this nameserver's address (no A or AAAA record)"
 		return a
-	}
-	ip := ipRec.Records[0].Value
-	// The NS names come from a zone the caller chose, so this is the one place
-	// a request decides which address we send packets to. A name pointing at
-	// 127.0.0.1 or 169.254.169.254 turns the page into a port-53 probe of our
-	// own host, and the timings answer back.
-	if !routable(ip) {
+	case ip == "":
 		a.Error = "this nameserver resolves to a non-public address, so it was not probed"
 		return a
 	}
-	a.Addr = ip + ":53"
+	a.Addr = net.JoinHostPort(ip, "53")
 
 	start := time.Now()
 	// newQuery, not a hand-built message: it carries the 1232-byte EDNS0
@@ -362,20 +364,33 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 
 	// Open-recursion probe: ask this server to recurse for a name it does not
 	// serve. An authoritative-only server must refuse; one that answers is an
-	// open resolver and can be abused as an amplifier.
+	// open resolver and can be abused as an amplifier. The name is a real one
+	// on purpose — a random label returns NXDOMAIN from an open resolver too,
+	// so there would be no answer to tell the two apart — and AA is the guard
+	// that a server happening to serve the probe name is not accused of
+	// recursion it never did.
 	probe := new(dns.Msg)
 	probe.SetQuestion("a.root-servers.net.", dns.TypeA)
 	probe.RecursionDesired = true
 	if pr, _, err := s.udp.ExchangeContext(ctx, probe, a.Addr); err == nil {
-		a.OpenResolver = pr.RecursionAvailable && pr.Rcode == dns.RcodeSuccess && len(pr.Answer) > 0
+		a.OpenResolver = pr.RecursionAvailable && !pr.Authoritative &&
+			pr.Rcode == dns.RcodeSuccess && len(pr.Answer) > 0
 	}
 
-	// TCP/53 must work: anything too big for UDP falls back to it.
+	// TCP/53 must work: anything too big for UDP falls back to it. A timeout
+	// buys a second attempt, because one slow handshake among six concurrent
+	// probes is not evidence against an operator this finding names.
 	tcpProbe := new(dns.Msg)
 	tcpProbe.SetQuestion(qname, dns.TypeSOA)
 	tcpProbe.RecursionDesired = false
 	if _, _, err := s.tcp.ExchangeContext(ctx, tcpProbe, a.Addr); err != nil {
-		a.TCPFail = true
+		if isTimeout(err) {
+			_, _, err = s.tcp.ExchangeContext(ctx, tcpProbe, a.Addr)
+		}
+		if err != nil {
+			a.TCPFail = true
+			a.TCPRefused = errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
+		}
 	}
 
 	// Serial is a second, cheap question that says which version of the zone
@@ -392,6 +407,51 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 		}
 	}
 	return a
+}
+
+// nameserverAddress resolves one nameserver hostname to the single address it
+// will be probed on. A and AAAA both: an IPv6-only nameserver is a working
+// nameserver, and asking only for A reported it unresolvable and let health()
+// count it as dead. A wins when both exist, because one address per server is
+// the budget and v4 is the family the /24 and ASN findings can read.
+//
+// The NS names come from a zone the caller chose, so this is the one place a
+// request decides which address we send packets to. A name pointing at
+// 127.0.0.1 or 169.254.169.254 turns the page into a port-53 probe of our own
+// host, and the timings answer back. found separates "this name has no
+// address" from "it has one we refuse to send packets to", which are different
+// things to tell the user.
+func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string) (ip string, found bool) {
+	for _, t := range [...]string{"A", "AAAA"} {
+		r, err := s.lookup(ctx, dns.Fqdn(nsName), t, viaAddr)
+		if err != nil {
+			continue
+		}
+		for _, rec := range r.Records {
+			if rec.Type != t {
+				continue
+			}
+			found = true
+			// First routable rather than first: a zone that lists a private
+			// address ahead of the real one must not be able to use the guard
+			// below to hide the server that does answer.
+			if ip == "" && routable(rec.Value) {
+				ip = rec.Value
+			}
+		}
+		if ip != "" {
+			return ip, true
+		}
+	}
+	return "", found
+}
+
+// isTimeout separates "took too long" from every other transport failure. Only
+// the timeout is worth a retry, and only a non-timeout is worth reporting in
+// the operator's name.
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // askResolver queries a public resolver normally, so the answer reflects what
@@ -614,10 +674,14 @@ func (sp *Spread) health() {
 			live++
 		}
 		if a.OpenResolver {
-			add("fail", a.Label+" answers recursive queries for zones it doesn't serve. That makes it usable as a DNS amplification reflector by anyone on the internet. Restrict recursion to your own clients.")
+			add("fail", a.Label+" answered a recursive query from this checker for a zone it doesn't serve, so its recursion isn't restricted to its own clients. That makes it usable as a DNS amplification reflector. Restrict recursion, or refuse it.")
 		}
 		if a.TCPFail {
-			add("warn", a.Label+" refused TCP/53. DNS falls back to TCP for any answer too large for UDP, so blocking it breaks DNSSEC and large record sets in ways that look intermittent.")
+			what := " did not complete a TCP/53 query"
+			if a.TCPRefused {
+				what = " refused TCP/53"
+			}
+			add("warn", a.Label+what+". DNS falls back to TCP for any answer too large for UDP, so blocking it breaks DNSSEC and large record sets in ways that look intermittent.")
 		}
 	}
 
@@ -656,14 +720,17 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	// Diversity: nameservers sharing one network share one outage.
 	if asnOf != nil {
 		asns, nets := map[string]bool{}, map[string]bool{}
-		resolved := 0
+		resolved, v4 := 0, 0
 		for _, a := range sp.Authoritative {
-			ip, _, found := strings.Cut(a.Addr, ":")
-			if !found || a.Error != "" {
+			// SplitHostPort, not a cut at the first colon: an IPv6 address is
+			// bracketed and the naive split hands back "[2001".
+			ip, _, err := net.SplitHostPort(a.Addr)
+			if err != nil || a.Error != "" {
 				continue
 			}
 			resolved++
 			if i := strings.LastIndex(ip, "."); i > 0 {
+				v4++
 				nets[ip[:i]] = true // rough /24
 			}
 			if asn := asnOf(ip); asn != "" {
@@ -681,7 +748,9 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 				add("ok", fmt.Sprintf("Nameservers are spread across %d different networks.", len(asns)))
 				usedASN = true
 			}
-			if len(nets) == 1 && len(asns) <= 1 {
+			// Only when every probed address is IPv4: one /24 out of a
+			// mixed v4/v6 set says nothing about where the rest sit.
+			if len(nets) == 1 && v4 == resolved && len(asns) <= 1 {
 				add("warn", "All nameserver addresses are in the same /24, so they likely share a rack, a router and a fate.")
 			}
 		}

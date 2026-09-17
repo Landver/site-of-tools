@@ -29,8 +29,11 @@ Every page speaks HTML + JSON + an htmx fragment from the same URL, like every
 other tool here.
 
 **Build-fit status.** Built from the 37-report research corpus in
-[`RESEARCH.md`](RESEARCH.md) + [`reports/`](reports/), against
-[the build-fit filter](02-build-fit.md#4-tiered-build-proposal). What shipped is
+[`RESEARCH.md`](RESEARCH.md) + [`reports/`](reports/), narrowed in that order by
+[the landscape read](00-landscape-and-ideas.md) (what the market already does
+well, and where it doesn't), [the feature inventory](01-feature-inventory.md)
+(the menu) and [the build-fit filter](02-build-fit.md#4-tiered-build-proposal)
+(what this stack can honestly ship). What shipped is
 all of Tier 0 plus most of Tier 1's DNS surface: multi-resolver comparison, the
 DNSSEC panel (DO/AD/EDE/NSID), parent-vs-child NS diff and SOA-serial
 agreement, CT + RDAP, and the answer cache. Still unbuilt, and honestly so, in
@@ -43,8 +46,10 @@ agreement, CT + RDAP, and the answer cache. Still unbuilt, and honestly so, in
   interface. `Service` also carries an `*http.Client`, but nothing in this file
   uses it: the package's only outbound HTTPS is `email.go`'s MTA-STS policy
   fetch and `domain.go`'s two upstreams.
-- `cache.go` — TTL-respecting answer cache + single-flight, sitting *below* the
-  domain service (rule #5). In-process only, deliberately not Mongo-backed.
+- `cache.go` — the TTL-respecting answer cache, sitting *below* the domain
+  service (rule #5). In-process only, deliberately not Mongo-backed. The
+  single-flight that pairs with it is not here: it is `Service.inflight` in
+  `dns.go`, because it collapses in-flight *queries*, not cache entries.
 - `decode.go` — pure, network-free decoders: CAA, SVCB/HTTPS params, SOA,
   TXT purpose labels, and the nameserver-suffix → DNS-provider table.
 - `spread.go` — **domain**: `/consistency`. The zone-apex NS walk, the
@@ -182,7 +187,8 @@ calls non-negotiable are in place:
 - **Rate limit**, per client IP (`c.RealIP()`, Cloudflare-aware), 2/s with a
   burst of 10, in-process. 429s are content-negotiated like everything else.
   This is the first rate limiter in the repo.
-- **Answer cache + single-flight** (`cache.go`). Answers are held for the
+- **Answer cache** (`cache.go`) **+ single-flight** (`Service.inflight`, in
+  `dns.go`). Answers are held for the
   shortest TTL in them, clamped to 5s–5m, negatives for 30s, bounded at 4096
   keys; an answer with a zero TTL is not held at all. Concurrent identical
   questions collapse into one upstream query. Not Mongo-backed on purpose: a

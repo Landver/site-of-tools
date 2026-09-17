@@ -17,6 +17,15 @@ const (
 	// Bound on distinct keys held. A public endpoint sees unbounded distinct
 	// names, so the map needs a ceiling or it is a memory leak with extra steps.
 	cacheMaxEntries = 4096
+	// A key ceiling alone bounds nothing that matters: one TCP-fallback answer
+	// from a zone its owner controls can carry tens of KB, so 4096 fat slots is
+	// hundreds of MB. Capping what a single entry may hold is what turns the
+	// two into a real memory bound (~64 MB). An answer this big is also the one
+	// least worth holding — it is nobody's "is my change live yet" question.
+	cacheMaxCost = 16 << 10
+	// Flat per-record charge, because a thousand one-byte records cost far more
+	// than their bytes: each carries a Record's worth of string headers.
+	cacheRecordCost = 128
 )
 
 // cache: in-process answer cache keyed on the exact question asked.
@@ -72,21 +81,32 @@ func (c *cache) put(key string, e cacheEntry, now time.Time) {
 		// a slot out of the ceiling below for something we must not serve.
 		return
 	}
+	if answerCost(e.result) > cacheMaxCost {
+		return
+	}
 	e.stored, e.expires = now, now.Add(d)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Crude but adequate ceiling: once full, drop expired entries, and if that
-	// frees nothing, drop the map. Beats an LRU's bookkeeping for a cache whose
-	// entries all expire within minutes anyway.
+	// frees too little, evict live ones until there is headroom. Map order is
+	// randomised, so those are arbitrary rather than the popular keys a wipe
+	// would take with it. Beats an LRU's bookkeeping for a cache whose entries
+	// all expire within minutes anyway.
 	if len(c.m) >= cacheMaxEntries {
 		for k, v := range c.m {
 			if now.After(v.expires) {
 				delete(c.m, k)
 			}
 		}
-		if len(c.m) >= cacheMaxEntries {
-			c.m = make(map[string]cacheEntry, cacheMaxEntries)
+		// Freeing a batch rather than one slot keeps the scan above off the
+		// next few thousand puts.
+		const evictTo = cacheMaxEntries - cacheMaxEntries/8
+		for k := range c.m {
+			if len(c.m) <= evictTo {
+				break
+			}
+			delete(c.m, k)
 		}
 	}
 	c.m[key] = e
@@ -111,6 +131,20 @@ func lifetime(e cacheEntry) time.Duration {
 	}
 	d := time.Duration(min) * time.Second
 	return clamp(d, cacheMinTTL, cacheMaxTTL)
+}
+
+// answerCost estimates what holding an answer costs in memory. A proxy, not a
+// measurement: it only has to separate the ordinary answer from the one a zone
+// owner inflated on purpose.
+func answerCost(r Result) int {
+	n := 0
+	for _, rec := range r.Records {
+		n += cacheRecordCost + len(rec.Value) + len(rec.Label) + len(rec.Owner)
+		for _, d := range rec.Detail {
+			n += len(d.Name) + len(d.Value)
+		}
+	}
+	return n
 }
 
 func clamp(d, lo, hi time.Duration) time.Duration {

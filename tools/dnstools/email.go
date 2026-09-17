@@ -46,6 +46,11 @@ type EmailAuth struct {
 	// len(MailHosts) — the FCrDNS fan-out stops at maxMailHosts, and a verdict
 	// that says "every mail host" after checking five of eight is a lie.
 	MXCount int `json:"mx_count,omitempty"`
+	// NullMX: the zone's only MX is "0 ." (RFC 7505), which declares that this
+	// domain receives no mail. HasMX is still true — a record is published —
+	// so without this the page asserts the domain takes mail while the zone
+	// says the opposite.
+	NullMX bool `json:"null_mx,omitempty"`
 	// DKIMRevoked: selectors answering with an empty p=, i.e. a key that has
 	// been revoked (RFC 6376 §3.6.1). Published, and useless for signing.
 	DKIMRevoked []string `json:"dkim_revoked,omitempty"`
@@ -225,11 +230,11 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 	run(func() {
 		r, err := s.lookup(ctx, dnsFqdn(domain), "MX", addr)
 		mxErr = err
-		hosts := s.checkMailHosts(ctx, r.Records, addr)
+		hosts, nullMX := s.checkMailHosts(ctx, r.Records, addr)
 		mu.Lock()
 		out.HasMX = len(r.Records) > 0
 		out.MXCount = len(r.Records)
-		out.MailHosts = hosts
+		out.MailHosts, out.NullMX = hosts, nullMX
 		mu.Unlock()
 	})
 	run(func() {
@@ -481,20 +486,29 @@ func (s *Service) spfRecord(ctx context.Context, target, addr string) (rec strin
 
 // checkMailHosts resolves each MX host and confirms its reverse DNS closes the
 // loop: IP -> PTR -> forward -> same IP.
-func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) []MailHost {
-	var out []MailHost
-	for _, rec := range mx {
+//
+// Sorted by preference before the maxMailHosts cut, so the hosts checked are
+// the ones a sender actually tries first. Taking them in the order the
+// resolver happened to return made the five checked out of eight an arbitrary
+// subset that changed with every RRset rotation, and with it the verdict.
+func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) (out []MailHost, nullMX bool) {
+	byPref := slices.Clone(mx)
+	slices.SortStableFunc(byPref, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
+
+	for _, rec := range byPref {
 		if len(out) >= maxMailHosts {
 			break
 		}
-		// MX rdata is "priority host."; the host is the last field.
-		parts := strings.Fields(rec.Value)
-		if len(parts) == 0 {
+		host := mxHost(rec.Value)
+		switch host {
+		case "":
+			continue // no target at all: nothing to probe and nothing to say
+		case ".":
+			// The RFC 7505 null MX. Recorded rather than dropped: the zone
+			// stating that it receives no mail is an answer to the question
+			// this page asks, not an absence of one.
+			nullMX = true
 			continue
-		}
-		host := strings.TrimSuffix(parts[len(parts)-1], ".")
-		if host == "" || host == "." {
-			continue // null MX (RFC 7505): this domain sends/receives no mail
 		}
 		h := MailHost{Host: host}
 
@@ -540,7 +554,42 @@ func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) 
 		}
 		out = append(out, h)
 	}
-	return out
+	// RFC 7505 §3 requires the null MX to be the only record. Alongside real
+	// hosts it is a contradiction, not a declaration, so it is not reported as
+	// one.
+	return out, nullMX && len(mx) == 1
+}
+
+// maxMXPref sorts an MX record whose preference cannot be read behind every
+// record whose can, so a malformed one never displaces a host a sender would
+// really try first.
+const maxMXPref = 1 << 16
+
+// mxPref reads the preference from MX rdata ("10 mail.example.com.").
+func mxPref(rdata string) int {
+	f := strings.Fields(rdata)
+	if len(f) < 2 {
+		return maxMXPref
+	}
+	n, err := strconv.Atoi(f[0])
+	if err != nil || n < 0 {
+		return maxMXPref
+	}
+	return n
+}
+
+// mxHost reads the target from MX rdata ("10 mail.example.com."), returning
+// "." for the root target of a null MX and "" when there is no target at all.
+// Neither is a host that can be probed, and they mean opposite things.
+func mxHost(rdata string) string {
+	f := strings.Fields(rdata)
+	if len(f) == 0 {
+		return ""
+	}
+	if h := strings.TrimSuffix(f[len(f)-1], "."); h != "" {
+		return h
+	}
+	return "."
 }
 
 // checkDMARC finds the policy a receiver would actually apply to this name.
@@ -930,6 +979,10 @@ func (e *EmailAuth) judge() {
 		}
 	}
 
+	if e.NullMX {
+		add("info", "This domain publishes a null MX (RFC 7505), so it is telling every sender that it receives no mail. If it sends none either, the matching declarations are v=spf1 -all and DMARC p=reject.")
+	}
+
 	var badPTR, unresolved []string
 	for _, m := range e.MailHosts {
 		switch {
@@ -947,7 +1000,7 @@ func (e *EmailAuth) judge() {
 		// maxMailHosts, and "every mail host" after five of eight is a lie.
 		scope, partial := "every mail host", ""
 		if e.MXCount > len(e.MailHosts) {
-			scope = fmt.Sprintf("the first %d of %d mail hosts", len(e.MailHosts), e.MXCount)
+			scope = fmt.Sprintf("the %d of %d mail hosts a sender tries first", len(e.MailHosts), e.MXCount)
 			partial = fmt.Sprintf(" Only %s were checked.", scope)
 		}
 		if len(badPTR) > 0 {

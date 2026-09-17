@@ -10,9 +10,12 @@ import (
 // Decoding turns record values that are packed tuples or opaque conventions
 // into something readable, without hiding the raw value.
 //
-// Three features from the inventory live here, all pure static data, no API:
+// Everything here is pure static data, no API:
 //   - SOA timers decoded and humanised (a bare "10000 2400 604800 1800" is
 //     unreadable, and its last field is why a fixed record still says NXDOMAIN)
+//   - CAA read as the issuance policy it is, including the empty issuer that
+//     forbids rather than permits
+//   - SVCB/HTTPS SvcParams unpacked, ECH included
 //   - TXT strings labelled by their well-known prefix, so a wall of
 //     verification tokens reads as the integrations it actually is
 //   - the DNS provider named from the nameserver suffix
@@ -51,10 +54,15 @@ func caaFields(c *dns.CAA) []Field {
 			f = []Field{{"Certificates", forbids}}
 		}
 	}
-	// The critical flag means a CA that doesn't understand this tag must
-	// refuse to issue at all, so it's worth surfacing.
-	if c.Flag != 0 {
+	// Only bit 0 of the flags octet is Issuer Critical (RFC 8659 §4.1), the
+	// one that makes a CA which doesn't understand this tag refuse to issue at
+	// all. Every other bit is undefined, so it gets reported without a verdict
+	// attached to it.
+	switch {
+	case c.Flag&0x80 != 0:
 		f = append(f, Field{"Flag", fmt.Sprintf("%d (critical)", c.Flag)})
+	case c.Flag != 0:
+		f = append(f, Field{"Flag", fmt.Sprint(c.Flag)})
 	}
 	return f
 }
@@ -84,9 +92,21 @@ func svcbFields(rr dns.RR) []Field {
 	// Priority 0 is AliasMode: this record just points at another name, the
 	// modern way to do a CNAME at the apex.
 	if priority == 0 {
+		// A root target in AliasMode is how a zone publishes "this service is
+		// not here" (RFC 9460 §2.4.2). Stripping its dot leaves the sentence
+		// pointing at nothing.
+		if strings.TrimSuffix(target, ".") == "" {
+			return []Field{{"Mode", "alias with a root target: this service is explicitly not available here"}}
+		}
 		return []Field{{"Mode", "alias, pointing at " + strings.TrimSuffix(target, ".")}}
 	}
 	f = append(f, Field{"Priority", fmt.Sprint(priority)})
+	// The target is what a ServiceMode record exists to name; without it the
+	// params describe a host the reader never gets told. A root target is the
+	// owner name itself (RFC 9460 §2.5), so there is nothing to add.
+	if t := strings.TrimSuffix(target, "."); t != "" {
+		f = append(f, Field{"Endpoint", t})
+	}
 
 	for _, p := range params {
 		val := p.String()
@@ -142,17 +162,22 @@ func humanALPN(v string) string {
 // soaFields decodes a SOA into its named parts. The numbers are the reason
 // "why is my change not live yet" has an answer, so each gets a human duration.
 func soaFields(s *dns.SOA) []Field {
-	return []Field{
-		{"Primary NS", s.Ns},
-		// RNAME is an email with the first dot standing in for "@".
-		{"Hostmaster", mboxEmail(s.Mbox)},
+	f := []Field{{"Primary NS", s.Ns}}
+	// RNAME is an email with the first dot standing in for "@". A root RNAME
+	// encodes no address at all, and an empty row reads as a value we failed
+	// to render rather than one the zone never published.
+	if m := mboxEmail(s.Mbox); m != "" {
+		f = append(f, Field{"Hostmaster", m})
+	}
+	f = append(f, []Field{
 		{"Serial", fmt.Sprint(s.Serial)},
 		{"Refresh", humanizeTTL(s.Refresh)},
 		{"Retry", humanizeTTL(s.Retry)},
 		{"Expire", humanizeTTL(s.Expire)},
 		// The one people actually need: how long a "doesn't exist" is cached.
 		{"Negative TTL", humanizeTTL(s.Minttl)},
-	}
+	}...)
+	return f
 }
 
 // mboxEmail turns a SOA RNAME (dns.cloudflare.com.) into the address it

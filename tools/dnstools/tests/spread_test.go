@@ -47,16 +47,34 @@ func TestSpreadHealthyZoneIsConsistent(t *testing.T) {
 
 // A subdomain has no NS records of its own, so the check must walk up to the
 // zone that actually serves it rather than finding nothing.
+//
+// The name has to be picked carefully or the walk is never exercised: a name
+// that is itself a delegation (www.cloudflare.com publishes its own NS) and a
+// name that is an alias (the resolver chases the CNAME and hands back the
+// target zone's NS in the same answer) both return on the first iteration.
+// www.example.com is neither — a plain A record, NODATA for NS — so the loop
+// has to climb a label, and the zone it lands on is the assertion.
 func TestSpreadWalksUpToTheServingZone(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
+	ctx := context.Background()
 
-	sp, err := svc.Spread(context.Background(), "www.cloudflare.com", "A")
+	// Control question, asked the way the walk asks it. Skipping on this
+	// rather than on an empty result keeps the assertion below able to fail:
+	// a broken walk also returns no zone, and must not read as a bad network.
+	if ns, err := svc.LookupSet(ctx, "example.com", dnstools.DefaultResolver, []string{"NS"}); err != nil || len(ns.Found) == 0 {
+		t.Skipf("upstream did not answer NS for example.com (%v) — flaky network, not a code failure", err)
+	}
+
+	sp, err := svc.Spread(ctx, "www.example.com", "A")
 	if err != nil {
 		t.Fatalf("consistency check: %v", err)
 	}
+	if sp.Zone != "example.com." {
+		t.Errorf("Zone = %q, want the parent zone example.com. — the walk up from www. is what this checks", sp.Zone)
+	}
 	if len(sp.Authoritative) == 0 {
-		t.Error("should have walked up to cloudflare.com's nameservers")
+		t.Error("walked up to a zone but listed none of its nameservers")
 	}
 }
 
