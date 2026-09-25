@@ -12,7 +12,7 @@
        Every branch here states only what its own inputs establish. Naming one
        cause ("a change is rolling out") when the data allows two is the
        failure mode this whole feature exists to avoid. */}}
-  <div class="card sm:col-span-2">
+  <div class="card {{if not .Health}}sm:col-span-2{{end}}">
     <div class="eyebrow">verdict</div>
     <p class="text-sm">
       {{if eq .Answered 0}}
@@ -80,7 +80,7 @@
   {{/* Delegation health: findings about the nameservers themselves rather
        than the records they serve. */}}
   {{if .Health}}
-  <div class="card sm:col-span-2">
+  <div class="card">
     <div class="eyebrow">delegation health</div>
     {{template "dns/notes" .Health}}
   </div>
