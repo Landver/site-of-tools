@@ -49,10 +49,22 @@ type cacheEntry struct {
 type resolveCache struct {
 	mu      sync.Mutex
 	entries map[string]cacheEntry
+	// gen increments on every invalidate. A reader captures it BEFORE its
+	// database round trip and passes it back to putIfFresh, so a negative
+	// result computed before a create cannot land after that create's
+	// invalidate and 404 a brand-new alias for the rest of the TTL.
+	gen uint64
 }
 
 func newResolveCache() *resolveCache {
 	return &resolveCache{entries: make(map[string]cacheEntry)}
+}
+
+// generation reports the current invalidation counter, for putIfFresh.
+func (c *resolveCache) generation() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gen
 }
 
 func (c *resolveCache) get(code string) (*Link, bool) {
@@ -67,17 +79,35 @@ func (c *resolveCache) get(code string) (*Link, bool) {
 
 // put stores a hit or a miss. A nil link is a negative entry, which is the half
 // that actually defends the database.
-func (c *resolveCache) put(code string, l *Link) {
+func (c *resolveCache) put(code string, l *Link) { c.putIfFresh(code, l, c.generation()) }
+
+// putIfFresh stores an entry only if no invalidation happened since gen was
+// taken. See the comment on resolveCache.gen.
+func (c *resolveCache) putIfFresh(code string, l *Link, gen uint64) {
 	ttl := resolveCacheTTL
 	if l == nil {
 		ttl = resolveNegativeTTL
 	}
+	now := time.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.entries) >= resolveCacheMax {
-		clear(c.entries)
+	if c.gen != gen {
+		return // something was created or revoked under us; do not cache a stale answer
 	}
-	c.entries[code] = cacheEntry{link: l, expires: time.Now().Add(ttl)}
+	if len(c.entries) >= resolveCacheMax {
+		// Drop what has already expired before resorting to wiping live
+		// entries. A scanner walking random codes fills this with negatives,
+		// and clearing wholesale would evict every real link along with them.
+		for k, e := range c.entries {
+			if now.After(e.expires) {
+				delete(c.entries, k)
+			}
+		}
+		if len(c.entries) >= resolveCacheMax {
+			clear(c.entries)
+		}
+	}
+	c.entries[code] = cacheEntry{link: l, expires: now.Add(ttl)}
 }
 
 // invalidate drops a code, so a create or revoke is visible immediately rather
@@ -85,6 +115,7 @@ func (c *resolveCache) put(code string, l *Link) {
 func (c *resolveCache) invalidate(code string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.gen++
 	delete(c.entries, code)
 }
 

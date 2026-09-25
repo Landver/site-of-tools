@@ -3,18 +3,41 @@
   "name": "Corpberry Link",
   "version": "1.0.0",
   "description": "Copy a short or tracker-free version of any link straight from the right-click menu.",
-  "minimum_chrome_version": "116",
-  "permissions": ["contextMenus", "storage", "offscreen", "clipboardWrite", "alarms"],
-  "host_permissions": ["https://link.corpberry.com/*"],
+  "minimum_chrome_version": "121",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "offscreen",
+    "clipboardWrite",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://link.corpberry.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "background": {
     "service_worker": "sw.js",
     "type": "module",
-    "scripts": ["sw.js"]
+    "scripts": [
+      "sw.js"
+    ]
   },
   "browser_specific_settings": {
-    "gecko": { "id": "link@corpberry.com", "strict_min_version": "121.0" }
+    "gecko": {
+      "id": "link@corpberry.com",
+      "strict_min_version": "121.0"
+    }
   },
   "action": {},
-  "options_ui": { "page": "options.html", "open_in_tab": true },
-  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
 }

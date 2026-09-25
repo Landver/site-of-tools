@@ -96,11 +96,27 @@ async function ensureOffscreen() {
 }
 
 async function copyViaOffscreen(text) {
+  // Firefox has no chrome.offscreen and does not need it: its MV3 background is
+  // an event page WITH a DOM, so the clipboard API is reachable directly (the
+  // clipboardWrite permission covers it there, and also removes the
+  // transient-activation requirement). Feature-detect rather than sniffing the
+  // browser — this is the branch the docs promised and the first version did
+  // not actually have, so on Firefox it simply threw.
+  if (!chrome.offscreen) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   await ensureOffscreen();
-  // Await the acknowledgement before closing: closing from this side without
-  // waiting would race the write.
   const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'copy', text });
-  try { await chrome.offscreen.closeDocument(); } catch (_) { /* already gone */ }
+  // Do NOT close here. Two overlapping clicks would have the first one tear the
+  // document down while the second is still using it; the second then fails.
+  // The document is cheap, idle-safe, and torn down with the worker, so it is
+  // left open and reused instead.
   return !!(res && res.ok);
 }
 
@@ -119,6 +135,10 @@ async function shorten(url) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
     body: JSON.stringify({ url, clean: true }),
+    // fetch follows redirects by default and REPLAYS the headers, so a redirect
+    // off our origin would hand X-Api-Key to whoever it points at. There is no
+    // legitimate redirect on this endpoint, so treat one as an error.
+    redirect: 'error',
   });
   if (res.status === 401) throw new Error('Key rejected.');
   if (res.status === 503) throw new Error('Short links are switched off on the server.');
@@ -138,6 +158,7 @@ async function refreshRules() {
     const { baseUrl } = await chrome.storage.sync.get(['baseUrl']);
     const res = await fetch(resolveBase(baseUrl) + '/clean/rules', {
       headers: { Accept: 'application/json' },
+      redirect: 'error',
     });
     if (!res.ok) return;
     const rules = await res.json();
@@ -153,23 +174,73 @@ async function refreshRules() {
 const FALLBACK = [
   /^utm_/i, /^mtm_/i, /^pk_/i, /^ga_/i,
   'gclid', 'gbraid', 'wbraid', 'gclsrc', 'dclid', 'srsltid',
-  'fbclid', 'msclkid', 'ttclid', 'twclid', 'yclid', 'igshid',
+  'fbclid', 'msclkid', 'ttclid', 'twclid', 'yclid', 'igshid', 'igsh',
   'mc_cid', 'mc_eid', 'mkt_tok', '_hsenc', '_hsmi', 'vero_id', '_openstat',
 ];
 
+// hostMatches implements the server's two-tier scoping: a rule with no `hosts`
+// is global, otherwise it applies only on those registrable domains. "amazon."
+// must match amazon.co.uk without matching notamazon.com, so compare on a label
+// boundary rather than with a bare endsWith.
+function hostMatches(host, hosts) {
+  if (!hosts || !hosts.length) return true;
+  return hosts.some((h) => {
+    h = String(h).toLowerCase().replace(/\.$/, '');
+    return host === h || host.endsWith('.' + h);
+  });
+}
+
+function ruleHits(key, host, rules) {
+  // never_strip wins outright — these look like tracking and break things:
+  // redirect_uri, state, signature, and friends.
+  for (const d of rules.never_strip || []) {
+    const p = String(d.param || '').toLowerCase();
+    if (!hostMatches(host, d.hosts)) continue;
+    if (d.prefix ? key.startsWith(p) : key === p) return null;
+  }
+  for (const r of rules.tracking || []) {
+    const p = String(r.param || '').toLowerCase();
+    // Affiliate tags stay, matching the server's default: stripping a click ID
+    // costs an advertiser a data point, stripping an Associates tag takes money
+    // from whoever wrote the review you followed.
+    if (r.class === 'affiliate') continue;
+    if (!hostMatches(host, r.hosts)) continue;
+    if (r.prefix ? key.startsWith(p) : key === p) return r;
+  }
+  return null;
+}
+
+// cleanLocally strips tracking parameters without a network call.
+//
+// It does query-string surgery on the ORIGINAL bytes rather than rebuilding via
+// URL.searchParams: searchParams.toString() re-encodes every surviving
+// parameter, so a link with nothing to strip could still come back textually
+// different from the one the user right-clicked. The Go cleaner makes the same
+// promise — output equals input byte for byte when nothing was removed — and
+// the two must not disagree.
 async function cleanLocally(raw) {
   const { rules } = await chrome.storage.local.get(['rules']);
-  const names = new Set((rules?.params || []).map((r) => String(r.param || r).toLowerCase()));
-  const u = new URL(raw);
-  for (const key of [...u.searchParams.keys()]) {
-    const k = key.toLowerCase();
-    const hit = names.has(k) || FALLBACK.some((f) => (f instanceof RegExp ? f.test(k) : f === k));
-    if (hit) u.searchParams.delete(key);
-  }
-  // Drop a query that is now empty, so the result is not left with a bare "?".
-  let out = u.toString();
-  if (out.endsWith('?')) out = out.slice(0, -1);
-  return out;
+  const u = new URL(raw); // throws on garbage; the caller shows the error badge
+  const host = u.hostname.toLowerCase().replace(/\.$/, '');
+
+  const qStart = raw.indexOf('?');
+  if (qStart === -1) return raw; // no query, nothing to strip, nothing to touch
+  const hashAt = raw.indexOf('#', qStart);
+  const head = raw.slice(0, qStart);
+  const query = raw.slice(qStart + 1, hashAt === -1 ? undefined : hashAt);
+  const tail = hashAt === -1 ? '' : raw.slice(hashAt);
+
+  const kept = query.split('&').filter((pair) => {
+    if (!pair) return false;
+    const rawKey = pair.split('=')[0];
+    let key = rawKey;
+    try { key = decodeURIComponent(rawKey); } catch (e) { /* keep the raw form */ }
+    key = key.toLowerCase();
+    if (rules && (rules.tracking || rules.never_strip)) return !ruleHits(key, host, rules);
+    return !FALLBACK.some((f) => (f instanceof RegExp ? f.test(key) : f === key));
+  });
+
+  return kept.length ? head + '?' + kept.join('&') + tail : head + tail;
 }
 
 // --- feedback --------------------------------------------------------------

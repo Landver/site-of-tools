@@ -40,6 +40,15 @@ const (
 	// shortener that legitimately serves 200 redirects a second does not exist.
 	redirectGlobalPerSecond = 200
 	redirectGlobalBurst     = 400
+
+	// Per-IP as well as global. The global breaker alone lets ONE source drain
+	// the shared bucket and 503 every other visitor, and it does not bound the
+	// case the resolve cache was written for either: a scanner walking RANDOM
+	// codes misses the cache every time, so each request is still a database
+	// round trip. These numbers are far above any human — a person following
+	// links does about one a second — and far below a scanner.
+	redirectPerIPPerSecond = 20
+	redirectPerIPBurst     = 60
 )
 
 // recentLimit bounds the key-gated console list.
@@ -109,7 +118,15 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	// is the only unauthenticated route touching the shared database, so it
 	// carries a coarse global breaker as well as the resolve cache behind it
 	// (docs/04-short-links.md §7).
-	e.GET("/s/:code", h.redirect, globalLimiter(redirectGlobalPerSecond, redirectGlobalBurst))
+	e.GET("/s/:code", h.redirect,
+		rateLimiter(redirectPerIPPerSecond, redirectPerIPBurst),
+		globalLimiter(redirectGlobalPerSecond, redirectGlobalBurst))
+
+	// Revoking an alias. Without this Revoke had no caller at all, so the
+	// "kill switch" §10 promises did not exist: a leaked key's links could not
+	// be taken down by any means short of editing the database by hand.
+	// Soft-delete only — the document stays so the code is never reissued.
+	e.DELETE("/short/:code", h.shortRevoke, fetch)
 }
 
 // reply picks the representation, and is the only place in this file that does.
@@ -414,6 +431,29 @@ func consoleRows(links []Link) []consoleRow {
 	return out
 }
 
+// shortRevoke soft-deletes an alias. Key-gated like every other write.
+//
+// Soft, never hard: deleting the row frees the code, and a custom slug
+// re-registered to a different target silently changes where every existing
+// copy of that link goes (docs/04-short-links.md §4).
+func (h *handler) shortRevoke(c *echo.Context) error {
+	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	if h.short == nil {
+		return h.disabled(c, vm, "link/short", "Short links are not enabled on this server.")
+	}
+	if !h.short.Authorized(c.Request().Header.Get("X-Api-Key")) {
+		const msg = "Revoking a short link needs a valid API key."
+		return h.fail(c, vm, http.StatusUnauthorized, msg, "link/short")
+	}
+	if err := h.short.Revoke(c.Request().Context(), c.Param("code")); err != nil {
+		if errors.Is(err, ErrLinkNotFound) {
+			return h.fail(c, vm, http.StatusNotFound, "no such link", "link/short")
+		}
+		return h.storageError(c, vm, err, "link/short")
+	}
+	return reply(c, http.StatusOK, map[string]string{"status": "revoked"}, vm, "link/short", "link/created")
+}
+
 // redirect resolves an alias. Not content-negotiated: it is a redirect for every
 // caller, including one sending Accept: application/json, because an extension
 // resolving a link wants the behaviour and not a description of it.
@@ -425,6 +465,14 @@ func (h *handler) redirect(c *echo.Context) error {
 	// Set on every answer, hit or miss: a 404 that omits them is still a URL
 	// Googlebot crawled and an intermediary may cache.
 	hdr := c.Response().Header()
+	// The global breaker's own headers would publish the whole site's redirect
+	// volume to anyone who fetches one short link, which is a traffic figure
+	// nobody outside needs. The per-IP limiter's numbers are about the caller
+	// and are equally uninteresting to publish here.
+	hdr.Del("X-RateLimit-Limit")
+	hdr.Del("X-RateLimit-Remaining")
+	hdr.Del("X-RateLimit-Reset")
+	hdr.Del("Retry-After")
 	hdr.Set("Cache-Control", "no-store")
 	hdr.Set("X-Robots-Tag", "noindex, nofollow")
 	hdr.Set("Referrer-Policy", "no-referrer")
@@ -459,6 +507,11 @@ func (h *handler) curl(c *echo.Context) error {
 	cmd := strings.TrimSpace(c.QueryParam("curl"))
 	vm := h.vm("curl", "URL and curl — Link Tools", curlDesc, raw)
 	vm["Cmd"] = cmd
+	// Set before the empty-input branch below, not only on the ?u= path: the
+	// bare page renders the form too, and without these the "Ask as" select had
+	// nothing to list, so the persona feature was unreachable until after a
+	// first conversion.
+	vm["Personas"], vm["Persona"] = Personas(), c.QueryParam("ua")
 
 	if cmd != "" {
 		u, headers, err := h.svc.FromCurl(cmd)

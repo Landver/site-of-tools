@@ -185,17 +185,22 @@ func (s *LinkStore) ByCode(ctx context.Context, code string) (*Link, error) {
 		copied := *l
 		return &copied, nil
 	}
+	// Captured BEFORE the round trip: if a create or revoke lands while this
+	// query is in flight, the answer below is already stale and must not be
+	// cached over it.
+	gen := s.cache.generation()
+
 	var l Link
 	err := s.coll.FindOne(ctx, bson.D{{Key: "code", Value: code}}).Decode(&l)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		s.cache.put(code, nil)
+		s.cache.putIfFresh(code, nil, gen)
 		return nil, ErrLinkNotFound
 	}
 	if err != nil {
 		// A transport failure is not evidence of absence, so it is never cached.
 		return nil, err
 	}
-	s.cache.put(code, &l)
+	s.cache.putIfFresh(code, &l, gen)
 	copied := l
 	return &copied, nil
 }

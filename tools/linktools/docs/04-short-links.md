@@ -254,8 +254,12 @@ console applies the same rendering rules as Inspect
 ([06 §8](06-security-and-abuse.md#8-rendering-hostile-urls)), since `note` and
 `target` are attacker-influenced strings.
 
-Deleting an alias is not in scope for v1. When it is: soft-delete via
-`RevokedAt`, never reissuing the code.
+Revoking an alias is `DELETE /short/:code`, key-gated like every other write.
+Soft-delete only: `RevokedAt` is set, the document stays, and the code is never
+reissued — freeing it would let a re-registered custom slug silently change
+where every existing copy of that link goes. `Resolve` refuses a revoked link
+from the moment of the write, because the store invalidates its cache entry
+rather than waiting out a TTL.
 
 ## 9. API contract
 

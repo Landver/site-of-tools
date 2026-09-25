@@ -175,6 +175,7 @@ GET  /utm              Campaign URL builder                           [p1]
 GET  /encode           Encode / decode playground                     [p1]
 GET  /short            Short-link console                [X-Api-Key]  [p2]
 POST /short            Create an alias                   [X-Api-Key]  [p2]
+DEL  /short/:code      Revoke an alias (soft)            [X-Api-Key]  [p2]
 GET  /s/:code          The redirect itself                            [p2]
 GET  /trace            Trace                ?u=<url>&ua=<persona>     [p3]
 GET  /extract          URLs out of pasted text

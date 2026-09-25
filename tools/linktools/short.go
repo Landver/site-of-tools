@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"golang.org/x/net/idna"
 	"time"
 
 	"github.com/Landver/site-of-tools/platform"
@@ -314,6 +316,27 @@ func (s *Shortener) RecordHit(code string) {
 	s.store.RecordHit(code)
 }
 
+// Revoke soft-deletes one alias: the document stays, RevokedAt is set, and
+// Resolve refuses it from that moment. No cache TTL to wait out — the store
+// invalidates the cached entry on write.
+//
+// Never a hard delete. Deleting frees the code, and a custom slug someone
+// re-registers to a different target silently changes the destination of every
+// copy of that link already sitting in other people's notes
+// (docs/04-short-links.md §4). Until this existed Revoke had no caller at all,
+// so the kill switch §10 promises was not reachable by any route.
+func (s *Shortener) Revoke(ctx context.Context, code string) error {
+	if s == nil {
+		return ErrDisabled
+	}
+	// Validated before it reaches a Mongo filter, like every other code path.
+	clean, err := validateCode(code)
+	if err != nil {
+		return ErrLinkNotFound
+	}
+	return s.store.Revoke(ctx, clean, time.Now())
+}
+
 // Recent lists the newest aliases for the key-gated console (§8). The console
 // is key-gated precisely because this list defeats §3's entropy argument
 // outright and turns hits/last_hit_at into a read-receipt oracle.
@@ -381,6 +404,21 @@ func validateTarget(raw string) (*url.URL, error) {
 	if host == "" {
 		return nil, fmt.Errorf("%w: no host", ErrInvalidTarget)
 	}
+	// Normalise through IDNA *before* any check below, because the resolver
+	// does. Verified: the system resolver maps "１２７.０.０.１" (fullwidth),
+	// "127.０.0.1" (mixed) and even "①②⑦.0.0.1" (circled digits) all to
+	// 127.0.0.1. An ASCII-only digit test therefore sees a "hostname" where the
+	// operating system sees loopback, which is precisely the router-CSRF target
+	// the literal check exists to refuse. idna.Lookup applies the same NFKC-ish
+	// mapping, so validating the normalised form closes the whole class rather
+	// than the three spellings someone happened to think of.
+	normalised, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		// A host the IDNA profile refuses is not one we should be storing a
+		// redirect to, whatever it would have resolved to.
+		return nil, fmt.Errorf("%w: %q is not a usable hostname (%v)", ErrInvalidTarget, host, err)
+	}
+	host = normalised
 	// localhost resolves to loopback on a normal machine, but a hostile
 	// resolver need not agree, so it is refused by name as well as by address.
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {

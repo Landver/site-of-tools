@@ -316,7 +316,12 @@ One line each, all currently missing:
 - **`X-Robots-Tag: noindex` on `/s/:code`.** Googlebot follows short links and
   will otherwise associate `corpberry.com` with whatever they point at — threat
   #5 arriving by a route the API key does not cover.
-- **A kill switch**: revoke everything created by a leaked key, in one command.
+- ~~**A kill switch**~~ — `DELETE /short/:code` now exists, key-gated, soft-delete
+  only, and it takes effect immediately because the store invalidates the cached
+  entry on write. Until it was wired, `LinkStore.Revoke` had **no caller at all**,
+  so nothing on this list was reachable by any route. Revoking *everything* a
+  leaked key created still needs a per-key identifier on `Link`, which is not
+  there yet.
 - **A per-key total-link cap**, so a leak is bounded before anyone notices.
 - **A stated response body and `Content-Type` for the 302.**
 
