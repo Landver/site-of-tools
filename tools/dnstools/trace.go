@@ -680,6 +680,13 @@ const (
 	traceDSBogus traceDSStatus = "bogus"
 	// traceDSNoAnswer: the parent's servers did not answer the DS query.
 	traceDSNoAnswer traceDSStatus = "no-answer"
+	// traceDSUnreadable: the parent's servers answered and the answer is not
+	// one to reason from — a truncated reply whose TCP retry did not complete,
+	// or an rcode instead of records. Distinct from traceDSAbsent on purpose:
+	// absent means "asked, and this parent publishes no DS", which declares a
+	// zone unsigned and everything under it unverifiable. Saying that on the
+	// strength of a lost packet is a false verdict in the quiet direction.
+	traceDSUnreadable traceDSStatus = "unreadable"
 )
 
 // traceDS: the parent's word on a child zone, plus how that word held up.
@@ -689,6 +696,38 @@ type traceDS struct {
 	// unanswered: which of the parent's servers would not answer, when that is
 	// why there is nothing here.
 	unanswered []string
+	// why: for traceDSUnreadable, the sentence explaining what did arrive.
+	why string
+}
+
+// traceUnreadable reports, in the page's own words, why a response that DID
+// arrive is not something to draw a conclusion from — and "" when it is.
+//
+// Both conditions look exactly like a broken zone if all you do is count
+// records. A reply still marked TC=1 after ask()'s TCP retry is a FRAGMENT:
+// the records in it are real and the ones that did not fit are invisible, so a
+// missing DNSKEY, a DS no key matches and an RRSIG that will not verify are
+// all things a blocked TCP retry produces against a perfectly healthy zone.
+// And a server answering with an rcode instead of records has told us nothing
+// at all about what it publishes.
+//
+// nxdomainIsAnswer: at the end of the walk NXDOMAIN is a real and final answer
+// from the zone that owns the name. While fetching that zone's own DNSKEY set,
+// or the DS above it, it is not — it is a server contradicting the delegation
+// that sent us to it, which is a fact about the server, not evidence about
+// anybody's keys.
+func traceUnreadable(resp *dns.Msg, nxdomainIsAnswer bool) string {
+	switch {
+	case resp == nil:
+		return "no response came back at all"
+	case resp.Truncated:
+		return "the answer came back truncated and the retry over TCP did not complete, so what arrived is a fragment of the real record set rather than all of it"
+	case resp.Rcode == dns.RcodeNameError && nxdomainIsAnswer:
+		return ""
+	case resp.Rcode != dns.RcodeSuccess:
+		return "the server answered " + dns.RcodeToString[resp.Rcode] + " rather than returning records"
+	}
+	return ""
 }
 
 // validateZone checks one zone's DNSKEY set against the DS its parent
@@ -718,6 +757,14 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 		link.Status, link.Unanswered = traceUnknown, ds.unanswered
 		link.Detail = "The parent's servers did not answer when asked what DS record they publish for this zone, so the chain could not be followed past here. That is a failure on the way to them, not a finding about this zone."
 		return link, nil
+	case ds.status == traceDSUnreadable:
+		// The parent's servers did answer, and what came back is not something
+		// to reason from. Reading it as "no DS here" would print "this zone is
+		// unsigned" about a signed one and drag every zone below it down with
+		// it; reading it as a DS that failed would be worse still.
+		link.Status, link.Unanswered = traceUnknown, ds.unanswered
+		link.Detail = "The parent's answer about what DS record it publishes for this zone could not be read: " + ds.why + ". That is a statement about the path to the parent's servers, not a finding about either zone."
+		return link, nil
 	case ds.status == traceDSUnsigned:
 		link.Status = traceUnknown
 		link.Detail = "The parent returned a DS record for this zone but no signature over it, so the parent's word could not be checked. A signature that never arrived is not a signature that failed: this is usually something on the path stripping EDNS, and says nothing about either zone."
@@ -729,21 +776,10 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 	}
 
 	r := w.query(servers, zone, "DNSKEY")
-	if r.msg == nil {
-		// Three different reasons to have no key set, and exactly one of them
-		// is the zone's fault. Collapsing them into "bogus" is how a few lost
-		// UDP packets turn into a confident cryptographic accusation about a
-		// perfectly healthy zone.
-		switch {
-		case w.ctx.Err() != nil || w.out.Truncated:
-			link.Status = traceInsecure
-			link.Detail = "This walk stopped before it could fetch this zone's keys, so the chain is unfinished rather than broken. Nothing here says anything about the zone itself."
-		case !r.answered:
-			link.Status, link.Unanswered = traceUnknown, r.skipped
-			link.Detail = "None of this zone's nameservers answered the query for its DNSKEY set, so the chain could not be checked here. Lost packets or a blocked TCP retry look exactly like this, and neither is a fault in the zone."
-		default:
-			link.Status, link.Unanswered = traceBogus, r.skipped
-			link.Detail = "The parent publishes a DS record for this zone, but the zone's servers answered the DNSKEY query with an error rather than a key set, so the chain cannot be completed. A validating resolver gets the same answer."
+	if status, detail, usable := traceKeySetVerdict(r, w.ctx.Err() != nil || w.out.Truncated); !usable {
+		link.Status, link.Detail = status, detail
+		if status != traceInsecure {
+			link.Unanswered = r.skipped
 		}
 		return link, nil
 	}
@@ -751,6 +787,8 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 
 	keys := traceKeys(resp.Answer, zone)
 	if len(keys) == 0 {
+		// Reached only on a whole NOERROR message, so this really is a zone
+		// answering "I publish no keys" while its parent says it is signed.
 		link.Status = traceBogus
 		link.Detail = "The parent publishes a DS record for this zone, but the zone serves no DNSKEY records. A signed delegation pointing at no key is broken."
 		return link, nil
@@ -782,6 +820,42 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 		link.Algorithm = dns.AlgorithmToString[matched.Algorithm]
 	}
 	return link, keys
+}
+
+// traceKeySetVerdict decides what one DNSKEY fetch is entitled to conclude.
+//
+// Every way of ending up without a usable key set arrives here, and exactly
+// one of them is the zone's fault. Lifted out of validateZone on purpose: the
+// walk cannot be pointed at a nameserver on loopback (traceServer.addr()
+// refuses it, deliberately), so this is the seam that lets a test drive each
+// branch — and this is the decision that, got wrong, printed "this name's
+// chain of trust is broken" about the root zone on a healthy network.
+//
+// usable == true means a whole NOERROR message is in hand and the caller may
+// read its key set; the empty key set it then finds really is the zone saying
+// it publishes none. Otherwise status and detail are the link's, and no
+// further conclusion is available.
+func traceKeySetVerdict(r traceReply, walkStopped bool) (status, detail string, usable bool) {
+	switch {
+	case r.msg != nil:
+		// A message came back. That is still not the same as having seen the
+		// key set: a reply that is a fragment, or an rcode instead of records,
+		// leaves traceKeys() with nothing to find and looks identical to a
+		// zone that publishes no keys.
+		if why := traceUnreadable(r.msg, false); why != "" {
+			return traceUnknown, "This zone's DNSKEY set could not be read: " + why +
+				". Nothing here is a finding about the zone; the chain simply could not be followed from here.", false
+		}
+		return "", "", true
+	case walkStopped:
+		return traceInsecure, "This walk stopped before it could fetch this zone's keys, so the chain is unfinished rather than broken. Nothing here says anything about the zone itself.", false
+	case !r.answered:
+		return traceUnknown, "None of this zone's nameservers answered the query for its DNSKEY set, so the chain could not be checked here. Lost packets or a blocked TCP retry look exactly like this, and neither is a fault in the zone.", false
+	case r.unreadable != "":
+		return traceUnknown, "This zone's servers answered the DNSKEY query with a truncated message and the retry over TCP did not complete, so only a fragment of the key set ever arrived. A fragment is not evidence about the zone: the key the parent's DS points at may be sitting in the part that never got here.", false
+	default:
+		return traceBogus, "The parent publishes a DS record for this zone, but the zone's servers answered the DNSKEY query with an error rather than a key set, so the chain cannot be completed. A validating resolver gets the same answer.", false
+	}
 }
 
 // traceMaxKeys caps how many of a zone's DNSKEY records are considered. Real
@@ -861,9 +935,21 @@ func (w *traceWalk) fetchDS(child string, parentServers []traceServer, parentKey
 	}
 	r := w.query(parentServers, child, "DS")
 	if r.msg == nil {
+		if r.unreadable != "" {
+			return traceDS{status: traceDSUnreadable, unanswered: r.skipped,
+				why: "every server that replied sent a truncated message and the retry over TCP did not complete"}
+		}
 		return traceDS{status: traceDSNoAnswer, unanswered: r.skipped}
 	}
 	resp := r.msg
+	// Same reasoning as the DNSKEY side: a fragment or an rcode is not an
+	// answer about what this parent publishes. Without this a truncated DS
+	// reply reads as "no DS record" and marks a signed zone unsigned, and one
+	// that does carry part of the RRset fails its own signature check and
+	// lands on traceDSBogus at the bottom of this function.
+	if why := traceUnreadable(resp, false); why != "" {
+		return traceDS{status: traceDSUnreadable, unanswered: r.skipped, why: why}
+	}
 
 	// Answer section for an authoritative DS query; some servers put the same
 	// RRset in the authority section instead, so read both.
@@ -913,6 +999,9 @@ func (w *traceWalk) askZone(zone string, servers []traceServer, qname, qtype str
 	hop.Skipped = r.skipped
 	if r.msg == nil {
 		hop.Error = "no server for this zone answered"
+		if r.unreadable != "" {
+			hop.Error = "every server that replied sent a truncated answer and the retry over TCP did not complete"
+		}
 		if w.out.Truncated {
 			hop.Error = "the walk ran out of its query budget before this zone answered"
 		}
@@ -958,6 +1047,12 @@ type traceReply struct {
 	skipped []string
 	// answered: at least one server sent back a DNS response, even a refusal.
 	answered bool
+	// unreadable: a server did send a message and it was not something to draw
+	// a conclusion from — a fragment left by a truncated answer whose TCP
+	// retry did not complete. Separate from skipped because the CALLER has to
+	// know: "no key set came back" and "a piece of the key set came back" are
+	// both an empty result, and only the first can ever be the zone's fault.
+	unreadable string
 }
 
 // query sends one question to the first server in the list that will answer
@@ -1003,6 +1098,17 @@ func (w *traceWalk) query(servers []traceServer, qname, qtype string) traceReply
 		case r.Rcode == dns.RcodeServerFailure, r.Rcode == dns.RcodeRefused, r.Rcode == dns.RcodeNotAuth:
 			out.answered = true
 			out.skipped = append(out.skipped, strings.TrimSuffix(srv.Name, ".")+": answered "+dns.RcodeToString[r.Rcode])
+		case r.Truncated:
+			// ask() already retried this over TCP; a reply still carrying TC=1
+			// is what is left when that retry was blocked or timed out, and it
+			// holds a PREFIX of the real RRset. Reading it as the whole thing
+			// is how a lost packet becomes a missing DNSKEY, a DS nothing
+			// matches, or a signature that will not verify — three sentences
+			// this page would print as the zone's own fault. The root DNSKEY
+			// set is the routine case, so move to the next server instead of
+			// giving up: the root has thirteen and one has to get through.
+			out.answered, out.unreadable = true, "truncated"
+			out.skipped = append(out.skipped, strings.TrimSuffix(srv.Name, ".")+": answer truncated and the TCP retry did not complete")
 		default:
 			out.msg, out.srv, out.rttMS, out.answered = r, srv, rtt, true
 			return out
@@ -1189,6 +1295,13 @@ func (w *traceWalk) finish(zone, qname, qtype string, resp *dns.Msg, keys []*dns
 		covered, owners = dns.TypeCNAME, []string{qname}
 	}
 	switch {
+	case traceUnreadable(resp, true) != "":
+		// Checked before the absence case, because a fragment and an rcode
+		// both arrive looking like "this zone published nothing". Verifying a
+		// signature over a fragment cannot succeed, and traceAnswerFailed is
+		// the one answer state that verdict() turns into the word "broken".
+		w.worsen(traceAnswerUnchecked)
+		return
 	case len(owners) == 0:
 		// NXDOMAIN or NODATA. Nothing is displayed, so there is nothing to
 		// verify — and the proof that the absence is genuine is an NSEC or

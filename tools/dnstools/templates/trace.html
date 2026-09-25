@@ -227,8 +227,12 @@
       <li class="py-3 first:pt-0 last:pb-0">
         <div class="flex flex-wrap items-baseline gap-x-2">
           <span class="font-mono text-sm text-strong">{{if eq .Zone "."}}. (root){{else}}{{.Zone}}{{end}}</span>
+          {{/* The badge says what happened, not what the JSON field is called.
+               "indeterminate" is the status a reader is least equipped to
+               place, and it is also the one a lost packet produces, so it
+               reads as "not checked" — which is the whole claim. */}}
           <span class="text-xs
-                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if eq .Status "indeterminate"}}text-warn{{else}}text-muted{{end}}">{{.Status}}</span>
+                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if eq .Status "indeterminate"}}text-warn{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else}}{{.Status}}{{end}}</span>
           <span class="text-xs text-faint">vouched for by {{.Parent}}</span>
         </div>
         <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>

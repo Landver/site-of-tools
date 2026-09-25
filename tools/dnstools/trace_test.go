@@ -771,3 +771,218 @@ func TestVerdictIsNotAlsoAppendedToNotes(t *testing.T) {
 		}
 	}
 }
+
+// A response that arrived is not the same thing as an answer. This is the
+// predicate the DNSKEY, DS and answer sites all consult, and getting it wrong
+// is what printed "this name's chain of trust is broken" about the root zone,
+// live, several times an hour, on a healthy network.
+func TestTraceUnreadableSeparatesAFragmentFromAnAnswer(t *testing.T) {
+	t.Parallel()
+
+	whole := new(dns.Msg)
+	if why := traceUnreadable(whole, false); why != "" {
+		t.Errorf("a whole NOERROR message was called unreadable: %q", why)
+	}
+
+	// TC=1 survives only when ask()'s TCP retry did not complete, and what is
+	// left is a PREFIX of the RRset: the DNSKEY the parent's DS points at may
+	// be in the part that never arrived.
+	frag := new(dns.Msg)
+	frag.Truncated = true
+	if traceUnreadable(frag, false) == "" {
+		t.Error("a truncated reply was accepted as the zone's whole answer")
+	}
+	if traceUnreadable(frag, true) == "" {
+		t.Error("a truncated reply was accepted as a final answer even at the end of the walk")
+	}
+
+	// An rcode instead of records tells us nothing about what the zone
+	// publishes, so it cannot be evidence either way.
+	for _, rcode := range []int{dns.RcodeServerFailure, dns.RcodeRefused, dns.RcodeFormatError, dns.RcodeNotImplemented} {
+		m := new(dns.Msg)
+		m.Rcode = rcode
+		if traceUnreadable(m, false) == "" {
+			t.Errorf("%s was read as an answer about the zone's records", dns.RcodeToString[rcode])
+		}
+	}
+
+	// NXDOMAIN is the one that depends on where we are standing. At the end of
+	// the walk it is the zone's real and final word; while fetching that same
+	// zone's keys it is a server contradicting the delegation that sent us to
+	// it, which is a fact about the server.
+	nx := new(dns.Msg)
+	nx.Rcode = dns.RcodeNameError
+	if why := traceUnreadable(nx, true); why != "" {
+		t.Errorf("NXDOMAIN as the walk's answer was called unreadable: %q", why)
+	}
+	if traceUnreadable(nx, false) == "" {
+		t.Error("NXDOMAIN for a zone's own DNSKEY set was taken as evidence about its keys")
+	}
+}
+
+// The bug this whole guard exists for. A DNSKEY fetch that came back empty has
+// several possible causes and exactly one of them is the zone's fault; the
+// code used to reach traceBogus for all of them, and the user-facing sentence
+// that produced told domain owners their name was broken for every validating
+// resolver on the strength of one lost UDP packet.
+func TestTraceKeySetVerdictWillNotCallALostPacketBroken(t *testing.T) {
+	t.Parallel()
+
+	accuses := func(t *testing.T, detail string) {
+		t.Helper()
+		for _, word := range []string{"broken", "bogus", "does not verify", "do not back it up"} {
+			if strings.Contains(strings.ToLower(detail), word) {
+				t.Errorf("detail %q accuses the zone of %q on the strength of a transport failure", detail, word)
+			}
+		}
+	}
+
+	// A truncated reply whose TCP retry did not complete. The root's DNSKEY
+	// set is well over 512 bytes, so this is the common case, not an exotic
+	// one.
+	frag := new(dns.Msg)
+	frag.Truncated = true
+	status, detail, usable := traceKeySetVerdict(traceReply{msg: frag, answered: true}, false)
+	if usable {
+		t.Fatal("a truncated DNSKEY reply was handed on as a key set to read")
+	}
+	if status != traceUnknown {
+		t.Errorf("a truncated DNSKEY reply gave %q, want %q", status, traceUnknown)
+	}
+	accuses(t, detail)
+
+	// Every server that replied sent a fragment, so query() moved past them
+	// all and there is no message at the end of it.
+	status, detail, usable = traceKeySetVerdict(traceReply{answered: true, unreadable: "truncated"}, false)
+	if usable || status != traceUnknown {
+		t.Errorf("fragments from every server gave %q (usable=%v), want %q", status, usable, traceUnknown)
+	}
+	accuses(t, detail)
+
+	// An rcode in place of a key set.
+	bad := new(dns.Msg)
+	bad.Rcode = dns.RcodeFormatError
+	if status, detail, usable = traceKeySetVerdict(traceReply{msg: bad, answered: true}, false); usable || status != traceUnknown {
+		t.Errorf("a FORMERR DNSKEY reply gave %q (usable=%v), want %q", status, usable, traceUnknown)
+	}
+	accuses(t, detail)
+
+	// Nobody answered at all, and the walk running out of budget: both already
+	// behaved, and both stay that way.
+	if status, _, _ = traceKeySetVerdict(traceReply{}, false); status != traceUnknown {
+		t.Errorf("an unanswered DNSKEY query gave %q, want %q", status, traceUnknown)
+	}
+	if status, _, _ = traceKeySetVerdict(traceReply{}, true); status != traceInsecure {
+		t.Errorf("a walk that stopped gave %q, want %q", status, traceInsecure)
+	}
+
+	// The verifier must not have become a no-op. A server that answered with
+	// SERVFAIL or REFUSED is still the zone's own servers failing to serve the
+	// keys its parent's DS promises...
+	if status, _, _ = traceKeySetVerdict(traceReply{answered: true}, false); status != traceBogus {
+		t.Errorf("servers answering the DNSKEY query with an error gave %q, want %q", status, traceBogus)
+	}
+	// ...and a whole NOERROR message is still read, so a zone that genuinely
+	// serves no keys under a DS is still caught.
+	if _, _, usable = traceKeySetVerdict(traceReply{msg: new(dns.Msg), answered: true}, false); !usable {
+		t.Error("a whole NOERROR reply was not read as a key set")
+	}
+}
+
+// The DS side of the same mistake, and the quieter one. Reading an unreadable
+// DS reply as "this parent publishes no DS" marks a signed zone unsigned and
+// drags everything below it down with it, without ever printing a word that
+// looks like an error.
+func TestValidateZoneWillNotCallAnUnreadableDSAbsentOrBroken(t *testing.T) {
+	t.Parallel()
+	servers := []traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}}
+
+	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
+	link, keys := w.validateZone("example.test.", "test.", servers,
+		traceDS{status: traceDSUnreadable, unanswered: []string{"ns.test.: answer truncated"},
+			why: "the answer came back truncated"}, true)
+
+	if link.Status != traceUnknown {
+		t.Fatalf("status = %q (%s), want %q", link.Status, link.Detail, traceUnknown)
+	}
+	if link.Status == traceInsecure {
+		t.Error("an unreadable DS was reported as an unsigned delegation")
+	}
+	if keys != nil {
+		t.Errorf("keys = %v, want none", keys)
+	}
+	if len(link.Unanswered) == 0 {
+		t.Error("a link that could not be checked must name the servers it could not read")
+	}
+	if !strings.Contains(link.Detail, "truncated") {
+		t.Errorf("detail %q does not say what actually arrived", link.Detail)
+	}
+	for _, word := range []string{"unsigned", "broken", "bogus"} {
+		if strings.Contains(strings.ToLower(link.Detail), word) {
+			t.Errorf("detail %q calls the zone %q on the strength of a transport failure", link.Detail, word)
+		}
+	}
+}
+
+// A signature cannot verify over a fragment of the RRset it covers, and
+// traceAnswerFailed is the one answer state verdict() turns into the word
+// "broken". So a truncated answer must never reach the verifier at all.
+func TestFinishWillNotJudgeASignatureOverAFragment(t *testing.T) {
+	t.Parallel()
+	key, signer := traceTestKey(t, "example.test")
+	now := time.Now()
+
+	a := &dns.A{
+		Hdr: dns.RR_Header{Name: "www.example.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+		A:   net.ParseIP("1.2.3.4"),
+	}
+	// A signature over a record set that is not the one being shown: exactly
+	// what a dropped A record out of a larger RRset leaves behind.
+	other := &dns.A{
+		Hdr: dns.RR_Header{Name: "www.example.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+		A:   net.ParseIP("5.6.7.8"),
+	}
+	sig := traceTestSign(t, key, signer, []dns.RR{a, other}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+
+	resp := new(dns.Msg)
+	resp.Truncated = true
+	resp.Answer = []dns.RR{a, sig}
+
+	w := &traceWalk{ctx: context.Background(), out: &Trace{
+		Answer: []string{}, Notes: []Note{}, AnswerZone: "example.test.",
+		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "example.test.", Status: traceSecure}},
+	}}
+	w.finish("example.test.", "www.example.test.", "A", resp, []*dns.DNSKEY{key}, true)
+	w.verdict()
+
+	if w.answer == traceAnswerFailed {
+		t.Fatal("a signature checked over a fragment of its own RRset was reported as a failed signature")
+	}
+	if w.answer != traceAnswerUnchecked {
+		t.Errorf("answer state = %q, want %q", w.answer, traceAnswerUnchecked)
+	}
+	if w.out.DNSSEC == traceBogus {
+		t.Errorf("verdict = bogus on a truncated answer: %q", w.out.Verdict.Text)
+	}
+	if w.out.AnswerVerified {
+		t.Error("AnswerVerified is true for records the walk never saw in full")
+	}
+	if strings.Contains(strings.ToLower(w.out.Verdict.Text), "servfail") {
+		t.Errorf("verdict %q threatens SERVFAIL over an answer it never read in full", w.out.Verdict.Text)
+	}
+
+	// The same records, whole, still verify — so the guard is a guard and not
+	// a way of never checking anything.
+	good := traceTestSign(t, key, signer, []dns.RR{a}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	whole := new(dns.Msg)
+	whole.Answer = []dns.RR{a, good}
+	w2 := &traceWalk{ctx: context.Background(), out: &Trace{
+		Answer: []string{}, Notes: []Note{}, AnswerZone: "example.test.",
+		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "example.test.", Status: traceSecure}},
+	}}
+	w2.finish("example.test.", "www.example.test.", "A", whole, []*dns.DNSKEY{key}, true)
+	w2.verdict()
+	if !w2.out.AnswerVerified || w2.out.DNSSEC != traceSecure {
+		t.Errorf("a whole signed answer gave verified=%v dnssec=%q, want true/secure", w2.out.AnswerVerified, w2.out.DNSSEC)
+	}
+}

@@ -10,6 +10,24 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
+// uncheckedLinks names the zones whose link the walk could not establish
+// either way, with the reason it gives.
+//
+// This is the shape upstream trouble takes here. A lost DNSKEY packet used to
+// surface as "bogus", which failed these tests loudly and told visitors their
+// domain was broken; it is now "indeterminate", which is honest and is also
+// nothing to assert against. A test that read a chain in that state would
+// fail on the network's bad days, and the push gate runs these.
+func uncheckedLinks(tr *dnstools.Trace) []string {
+	var out []string
+	for _, l := range tr.Chain {
+		if l.Status == "indeterminate" {
+			out = append(out, l.Zone+": "+l.Detail)
+		}
+	}
+	return out
+}
+
 // Live tests here deliberately do NOT call t.Parallel(). The whole suite
 // queries the same handful of public servers, and running these concurrently
 // got the box rate-limited into random timeouts — a flaky deploy gate caused
@@ -88,6 +106,9 @@ func TestTraceVerifiesASignedChainItself(t *testing.T) {
 	if tr.Truncated || tr.AnswerZone == "" {
 		t.Skip("the walk did not finish — upstream trouble, not a code failure")
 	}
+	if bad := uncheckedLinks(tr); len(bad) > 0 {
+		t.Skipf("a link of the chain could not be checked from here (%s) — upstream trouble, not a code failure", strings.Join(bad, "; "))
+	}
 	if tr.DNSSEC != "secure" {
 		t.Fatalf("DNSSEC = %q for a signed zone, want secure. Chain: %+v", tr.DNSSEC, tr.Chain)
 	}
@@ -135,6 +156,9 @@ func TestTraceCallsABrokenChainBogus(t *testing.T) {
 	if tr.Truncated || tr.AnswerZone == "" {
 		t.Skip("the walk did not finish — upstream trouble, not a code failure")
 	}
+	if bad := uncheckedLinks(tr); len(bad) > 0 {
+		t.Skipf("a link of the chain could not be checked from here (%s) — upstream trouble, not a code failure", strings.Join(bad, "; "))
+	}
 	if tr.DNSSEC != "bogus" {
 		t.Fatalf("DNSSEC = %q for a deliberately-broken zone, want bogus. Chain: %+v", tr.DNSSEC, tr.Chain)
 	}
@@ -181,6 +205,9 @@ func TestTraceCrossesAZoneCutTheDelegationNeverAnnounced(t *testing.T) {
 	}
 	if tr.DNSSEC == "bogus" {
 		t.Fatalf("a correctly signed name was reported bogus: %q. Chain: %+v", tr.Verdict.Text, tr.Chain)
+	}
+	if bad := uncheckedLinks(tr); len(bad) > 0 {
+		t.Skipf("a link of the chain could not be checked from here (%s) — upstream trouble, not a code failure", strings.Join(bad, "; "))
 	}
 	if tr.DNSSEC != "secure" {
 		t.Fatalf("DNSSEC = %q, want secure. Chain: %+v", tr.DNSSEC, tr.Chain)
@@ -259,6 +286,9 @@ func TestTraceTreatsAnUnsignedZoneAsNormalRatherThanBroken(t *testing.T) {
 	}
 	if tr.Truncated || tr.AnswerZone == "" {
 		t.Skip("the walk did not finish — upstream trouble, not a code failure")
+	}
+	if bad := uncheckedLinks(tr); len(bad) > 0 {
+		t.Skipf("a link of the chain could not be checked from here (%s) — upstream trouble, not a code failure", strings.Join(bad, "; "))
 	}
 	if tr.DNSSEC != "insecure" {
 		t.Skipf("github.com now reports %q, so there is no unsigned zone here to check the tone of", tr.DNSSEC)

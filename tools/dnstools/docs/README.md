@@ -351,6 +351,20 @@ Resolved from [02-build-fit.md §5](02-build-fit.md#5-open-questions-for-the-own
 - **No lookup history.** A DNS history row is domain + requester IP, i.e. closer
   to "who looked up what" than iptools' IP history. Not worth the liability for
   a feature nobody asked for.
+- **A transport failure is never a verdict.** `/trace` may print "bogus" only
+  on evidence that the zone itself is at fault: a whole NOERROR message that
+  really does carry no DNSKEY under a DS, a digest that does not reproduce a
+  key, a signature that is present and does not verify. Everything the walk
+  could not establish — nobody answered, a reply still marked TC=1 after the
+  TCP retry, an rcode instead of records — is `indeterminate`, and the page
+  says which link and why. The distinction is not pedantry: the root's DNSKEY
+  set is well over 512 bytes, so a blocked TCP retry is routine, and reading
+  the fragment it leaves behind as the zone's whole key set had `/trace`
+  calling the root zone and `org.` broken several times an hour on a healthy
+  network. `traceUnreadable` and `traceKeySetVerdict` in `trace.go` hold that
+  rule in one place each, and are unit-tested branch by branch. A wrong
+  "broken" is worse than a wrong "steered" because it is alarming, and it is
+  the same reason the propagation grid above was declined.
 
 ## Egress: verified
 
