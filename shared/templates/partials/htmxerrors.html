@@ -6,11 +6,15 @@
      The list grew when Link Tools arrived: it answers 401 (no or wrong API
      key), 409 (that slug is taken) and 500 (storage failed) as well, and each
      of those is a fragment the user needs to see. The DNS pages never return
-     them, so widening the set costs them nothing. */}}
+     them, so widening the set costs them nothing.
+
+     404 joined when revoke did: DELETE /short/:code is the only route here that
+     answers it, and without this the "no such link" fragment is discarded and
+     the button appears to do nothing. */}}
 {{define "partials/htmx-errors"}}
 <script>
   document.body.addEventListener('htmx:beforeSwap', (e) => {
-    if ([400, 401, 409, 429, 500, 502, 503].includes(e.detail.xhr.status)) {
+    if ([400, 401, 404, 409, 429, 500, 502, 503].includes(e.detail.xhr.status)) {
       e.detail.shouldSwap = true
       e.detail.isError = false
     }

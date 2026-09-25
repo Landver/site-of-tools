@@ -109,6 +109,13 @@
   <p class="mt-1 text-xs text-muted">Everything after &ldquo;#&rdquo;. Every hosted parser surveyed throws this away, which hides an OAuth access token completely. Fragments are never sent to a server, but they do land in browser history.</p>
   <div class="mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">#</th>
+          <th class="px-3 py-2 font-medium">Key</th>
+          <th class="px-3 py-2 font-medium">Value</th>
+        </tr>
+      </thead>
       <tbody class="divide-y divide-line">
         {{range .FragParams}}
         <tr class="align-top">

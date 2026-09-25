@@ -240,8 +240,14 @@ API key already closes.
 
 ## 8. The console
 
-`GET /short` is **key-gated** and read-only in the browser: the create form, and
-recent aliases with target, hits and age.
+`GET /short` is **key-gated**: the create form, and recent aliases with target,
+note, hits, age and expiry, each with a revoke button.
+
+The key travels as a **header**, never a query parameter — a parameter would
+land in the server log, the browser history and any referrer. That is also why
+the list arrives by htmx rather than in the initial render: a page navigation
+cannot carry a custom header, so a server-rendered list could not have been
+gated this way at all.
 
 Without the key: the create form and nothing else. A public list hands over the
 entire corpus with no guessing, defeating §3's entropy argument outright, and

@@ -63,6 +63,14 @@
         <input name="slug" autocomplete="off" spellcheck="false" aria-label="Custom slug (optional)"
                placeholder="optional-slug" class="field w-40">
         <button type="submit" class="btn-primary">Shorten</button>
+        {{/* note and ttl are bound by createRequest and documented in the API
+             contract, but had no control here — so both were reachable only by
+             hand-writing curl, and a note could never be set from the console
+             that exists to display it. */}}
+        <input name="note" autocomplete="off" aria-label="Note (optional)" maxlength="256"
+               placeholder="what is this link for?" class="field min-w-0 sm:col-span-2">
+        <input name="ttl" autocomplete="off" spellcheck="false" aria-label="Expiry (optional Go duration)"
+               placeholder="720h — blank = permanent" class="field w-40">
         {{/* Inside the form. It previously carried form="", which detaches a
              control from every form, so "clean" was never actually submitted. */}}
         <label class="flex items-center gap-2 text-xs text-muted sm:col-span-3">
@@ -74,7 +82,7 @@
 
     {{if .Error}}<div class="mt-4 alert-error">{{.Error}}</div>{{end}}
 
-    <div id="result" class="mt-6"></div>
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false"></div>
     <div id="aliases" class="mt-8"></div>
 
     <script>
@@ -144,8 +152,11 @@
       <tr>
         <th class="px-3 py-2 font-medium">Code</th>
         <th class="px-3 py-2 font-medium">Target</th>
+        <th class="px-3 py-2 font-medium">Note</th>
         <th class="px-3 py-2 font-medium">Hits</th>
         <th class="px-3 py-2 font-medium">Created</th>
+        <th class="px-3 py-2 font-medium">Expires</th>
+        <th class="px-3 py-2 font-medium"><span class="sr-only">Actions</span></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-line">
@@ -157,12 +168,45 @@
         {{/* Text, never an anchor: these destinations are arbitrary and the
              point of the page is reading them, not visiting them. */}}
         <td class="px-3 py-2 break-all font-mono text-xs text-muted">{{.Target}}</td>
+        <td class="px-3 py-2 text-xs text-muted">{{.Note}}</td>
         <td class="px-3 py-2 font-mono text-muted">{{.Hits}}</td>
         <td class="px-3 py-2 text-xs text-muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+        <td class="px-3 py-2 text-xs text-muted">{{if .ExpiresAt}}{{.ExpiresAt.Format "2006-01-02"}}{{else}}never{{end}}</td>
+        <td class="px-3 py-2 text-right">
+          {{/* The kill switch had a route and no control, so it was curl-only,
+               while the table below already rendered a "revoked" badge for a
+               state the UI could not produce. Same key expression as the
+               loader: the header is the only way a browser can authenticate. */}}
+          {{if not .RevokedAt}}
+          <button type="button" class="text-xs text-danger hover:underline"
+                  hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
+                  hx-confirm="Revoke {{.Code}}? Existing copies of this link stop working. The code is never reused."
+                  hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
+            Revoke
+          </button>
+          {{end}}
+        </td>
       </tr>
       {{end}}
     </tbody>
   </table>
+</div>
+{{end}}
+{{end}}
+
+{{/* Revoke confirmation. Its own fragment because reusing link/created gave a
+     ZERO-LENGTH body: that template is wrapped in {{with .Created}}, which
+     shortRevoke never sets, so an htmx revoke returned 200 with nothing in it
+     and the page looked like the click had done nothing. */}}
+{{define "link/revoked"}}
+{{with .Revoked}}
+<div class="rounded-lg border border-warn bg-surface p-4">
+  <p class="text-sm text-strong"><span class="font-mono">{{.}}</span> is revoked.</p>
+  <p class="mt-1 text-xs text-muted">
+    It stops resolving immediately, not after a cache expires. The code is never reissued —
+    a reused code would silently change where every existing copy of that link goes.
+    Reload the list to see it marked.
+  </p>
 </div>
 {{end}}
 {{end}}

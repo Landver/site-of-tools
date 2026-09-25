@@ -35,7 +35,11 @@
 
     {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
 
-    <form hx-post="/extract" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    {{/* No hx-push-url: htmx pushes the request path whatever the method,
+           so a POST here would rewrite the address bar to a bare /extract and
+           the pasted text would be gone on reload. GET /extract?text= stays
+           the shareable form. */}}
+      <form hx-post="/extract" hx-target="#result" hx-swap="innerHTML" hx-disabled-elt="find button"
           class="mt-6">
       <textarea name="text" rows="12" autofocus autocomplete="off" spellcheck="false"
                 aria-label="Text to pull links out of"
@@ -76,7 +80,7 @@
       <p class="mt-1 text-xs text-muted">GET with <code class="font-mono">?text=</code> works too, for anything small enough to fit in a URL.</p>
     </details>
 
-    <div id="result" class="mt-8">
+    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
       {{template "link/extracted" .}}
     </div>
   </main>

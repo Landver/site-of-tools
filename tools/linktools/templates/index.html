@@ -58,7 +58,7 @@
          off) rendered an empty form and looked like nothing happened. */}}
     {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
 
-    <div id="result" class="mt-8">
+    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
       {{template "link/inspect" .}}
     </div>
   </main>

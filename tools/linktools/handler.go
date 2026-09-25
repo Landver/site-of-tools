@@ -453,7 +453,9 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 		}
 		return h.storageError(c, vm, err, "link/short")
 	}
-	return reply(c, http.StatusOK, map[string]string{"status": "revoked"}, vm, "link/short", "link/created")
+	vm["Revoked"] = c.Param("code")
+	return reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
+		vm, "link/short", "link/revoked")
 }
 
 // redirect resolves an alias. Not content-negotiated: it is a redirect for every
@@ -668,6 +670,11 @@ func (h *handler) encode(c *echo.Context) error {
 
 // --- static pages ----------------------------------------------------------
 
+// encoding and privacy render directly rather than through reply, and that is
+// deliberate: both are static documents with no result to negotiate and no
+// fragment to swap, so a JSON representation would be an empty promise and an
+// htmx representation would be the whole page. Nothing links to either with
+// hx-get — adding one would need a fragment first (golden rule #2).
 func (h *handler) encoding(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/encoding",
 		h.vm("encoding", "Percent-encoding reference — Link Tools", encodingDesc, ""))
