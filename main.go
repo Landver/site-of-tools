@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,6 +29,18 @@ import (
 )
 
 func main() {
+	// run() holds everything, so its defers — the log drain, the hit batcher,
+	// the Mongo disconnect — run on EVERY exit path. main only decides the
+	// status code. Doing this inline meant a bind failure fell out of main and
+	// exited 0, indistinguishable from a clean shutdown to a deploy script or
+	// to compose's restart accounting.
+	if err := run(); err != nil {
+		log.Printf("fatal: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg := platform.Load()
 
 	// Open shared MongoDB client once at startup, share across features.
@@ -72,15 +85,39 @@ func main() {
 		log.Printf("link tools: unique code index unavailable (%v); short-link creation will refuse writes", err)
 	}
 	cancelIdx()
-	defer reqlog.Close(context.Background())
+	// Bounded. RequestLog.Close's own doc says it waits "bounded by ctx", and
+	// context.Background() bounds nothing: with Mongo unreachable the writer
+	// spends 5s per queued entry, so a full 1024-entry buffer would hold
+	// shutdown open for over an hour.
+	defer func() {
+		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		reqlog.Close(c)
+	}()
+
+	// Shutdown signal, established HERE rather than just before Start, because
+	// the background syncs below need it. Until this branch the deferred
+	// mdb.Close was dead code (log.Fatal skipped it), so nothing ever pulled
+	// the Mongo client out from under them. Now it does, and an interrupted
+	// sync is worse than a slow one: the feeds are written as chunks of
+	// upserts, and freshness is derived from max(updated_at), so a half-written
+	// corpus stamps "now" on itself and the next 23 hours of boots skip the
+	// re-download — leaving botcheck's ip_blocklisted rule and the IP tool's
+	// reputation card reading a corpus that is half old and half new, silently.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// Refresh ipsum + Spamhaus DROP blocklist feeds daily in background
 	// (nil-safe: no Mongo -> each returns at once). Both self-skip download if
 	// corpus refreshed within last day -> redeploys don't re-fetch. DROP: free
 	// for all use per Spamhaus, credited in site footer
 	// (shared/templates/partials/footer.html).
-	go iptools.RunIPsumSync(context.Background(), blocklist)
-	go iptools.RunSpamhausDROPSync(context.Background(), blocklist)
+	var syncs sync.WaitGroup
+	syncs.Add(2)
+	go func() { defer syncs.Done(); iptools.RunIPsumSync(ctx, blocklist) }()
+	go func() { defer syncs.Done(); iptools.RunSpamhausDROPSync(ctx, blocklist) }()
+	// Bounded: a sync that ignores its context must not hold the process open.
+	defer waitBounded(&syncs, 5*time.Second)
 
 	// Template funcs available to every template: shared header uses these for
 	// logo link (always apex) + Tools dropdown. Tools come from one catalog
@@ -197,26 +234,38 @@ func main() {
 
 	handler := echo.NewVirtualHostHandler(hosts)
 
-	// Shut down on SIGINT/SIGTERM so the deferred Close calls above actually
-	// run. They previously could not: Start was handed a context that was never
-	// cancelled, and the only exit was log.Fatal, which calls os.Exit and skips
-	// every defer. So the request log's buffered writer, the short-link hit
-	// batcher and the Mongo client were all torn down by process death rather
-	// than drained — losing whatever was queued on every deploy, since
-	// `docker compose up -d --build` recreates the container with SIGTERM.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	sc := echo.StartConfig{Address: cfg.ListenAddr}
+	// GracefulTimeout caps how long Shutdown waits for in-flight requests.
+	// Echo's default is 10s, and two handlers budget longer than that — the
+	// RDAP/CT client at 20s and the tracer at 15s — so a slow request would run
+	// the clock past compose's own stop grace and get the container SIGKILLed
+	// mid-drain, which is exactly what the drains exist to prevent. Five
+	// seconds: long enough for any ordinary request, short enough that total
+	// teardown stays well inside the 30s stop_grace_period in
+	// docker-compose.yml.
+	sc := echo.StartConfig{Address: cfg.ListenAddr, GracefulTimeout: 5 * time.Second}
 	err = sc.Start(ctx, handler)
-	// A cancelled context is the ordinary shutdown path, not a failure. Return
-	// rather than log.Fatal so the defers get to run.
+
+	// A cancelled context is the ordinary shutdown path, not a failure. Anything
+	// else is real and must reach main as an error, or the process exits 0 on a
+	// bind failure.
 	switch {
 	case err == nil, errors.Is(err, http.ErrServerClosed), errors.Is(err, context.Canceled):
 		log.Print("shutting down; draining buffered writes")
+		return nil
 	default:
-		// Still fatal, but log the defers we are skipping rather than leaving it
-		// a mystery.
-		log.Printf("server error: %v", err)
+		return err
+	}
+}
+
+// waitBounded waits for wg, giving up after d. Used for the blocklist syncs:
+// they take a context, but a stuck HTTP read inside one must not outrank the
+// shutdown that is waiting on it.
+func waitBounded(wg *sync.WaitGroup, d time.Duration) {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(d):
+		log.Printf("blocklist syncs did not finish within %s; continuing shutdown", d)
 	}
 }

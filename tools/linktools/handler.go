@@ -114,10 +114,12 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	// is key-gated and reads the corpus, so it is not a cheap page (doc 06 §4).
 	e.GET("/short", h.shortConsole, fetch)
 	e.POST("/short", h.shortCreate, fetch)
-	// The redirect stays unlimited PER IP — it must be fast and public — but it
-	// is the only unauthenticated route touching the shared database, so it
-	// carries a coarse global breaker as well as the resolve cache behind it
-	// (docs/04-short-links.md §7).
+	// Two limiters, deliberately. A generous per-IP bound (20/s, burst 60 — far
+	// above any human following links, far below a scanner) stops one source
+	// walking random codes straight through the resolve cache into the shared
+	// database, which the negative cache alone cannot prevent because every
+	// random code is a miss. The coarse global breaker then stops the aggregate
+	// from hurting the other subdomains (docs/04-short-links.md §7).
 	e.GET("/s/:code", h.redirect,
 		rateLimiter(redirectPerIPPerSecond, redirectPerIPBurst),
 		globalLimiter(redirectGlobalPerSecond, redirectGlobalBurst))

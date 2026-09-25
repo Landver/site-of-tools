@@ -178,7 +178,7 @@ Use `GET`, not `HEAD` — too many servers answer `HEAD` differently or not at a
 | `/`, `/clean` | 10/s, burst 50 — pure CPU, generous on purpose |
 | `/trace`, `/preview` | 1/s, burst 5 |
 | `POST /short`, `GET /short` | 1/s, burst 5 |
-| `/s/:code` | no per-IP limit; cache + global breaker instead ([04 §7](04-short-links.md#7-abuse-controls-summarised)) |
+| `/s/:code` | 20/s, burst 60 per IP, **plus** a coarse global breaker and the resolve cache ([04 §7](04-short-links.md#7-abuse-controls-summarised)). The per-IP bound is what stops a scanner walking random codes: every random code misses the cache, so the cache alone bounds nothing |
 
 **Per-IP limiting over IPv6 is not a limit.** `dnstools/handler.go:330` keys on
 bare `c.RealIP()`. A client with a routine `/64` has 2⁶⁴ source addresses, so

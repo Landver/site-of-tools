@@ -3,21 +3,25 @@
      on screen and the page looks frozen. Shared so pages can't drift apart on
      it again — every tool that renders an error fragment must include it.
 
-     The list grew when Link Tools arrived: it answers 401 (no or wrong API
-     key), 409 (that slug is taken) and 500 (storage failed) as well, and each
-     of those is a fragment the user needs to see. The DNS pages never return
-     them, so widening the set costs them nothing.
+     Gated on CONTENT TYPE, not on status alone. An earlier version listed
+     statuses only, and that quietly changed behaviour on the DNS, IP and
+     botcheck pages: echo's DEFAULT error handler answers an unrouted path or a
+     recovered panic with JSON on every subdomain, so `{"message":"Not Found"}`
+     was being swapped raw into their result areas — and isError=false meant
+     htmx:responseError never fired, so nothing reported it.
 
-     404 joined when revoke did: DELETE /short/:code is the only route here that
-     answers it, and without this the "no such link" fragment is discarded and
-     the button appears to do nothing. */}}
+     A tool's own error fragment is HTML. Echo's default is JSON. Swapping only
+     HTML keeps every deliberate fragment working and leaves the accidental
+     ones exactly where they were: unswapped. */}}
 {{define "partials/htmx-errors"}}
 <script>
   document.body.addEventListener('htmx:beforeSwap', (e) => {
-    if ([400, 401, 404, 409, 429, 500, 502, 503].includes(e.detail.xhr.status)) {
-      e.detail.shouldSwap = true
-      e.detail.isError = false
-    }
+    const xhr = e.detail.xhr
+    if (![400, 401, 404, 409, 429, 500, 502, 503].includes(xhr.status)) return
+    const type = xhr.getResponseHeader('content-type') || ''
+    if (!type.includes('text/html')) return
+    e.detail.shouldSwap = true
+    e.detail.isError = false
   })
 </script>
 {{end}}
