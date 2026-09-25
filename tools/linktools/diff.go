@@ -1,6 +1,9 @@
 package linktools
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // A13 — compare two URLs. No new parsing logic: this is a second view over two
 // Inspections that Parse already produced, which is why it is forty lines
@@ -226,19 +229,7 @@ func plural(n int, word string) string {
 	if n == 1 {
 		return "1 " + word
 	}
-	return itoa(n) + " " + word + "s"
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
+	return strconv.Itoa(n) + " " + word + "s"
 }
 
 // passLabel renders password presence without ever rendering the password.

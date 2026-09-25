@@ -227,3 +227,40 @@ func TestRuleTableInvariants(t *testing.T) {
 		t.Error("no wrapper rules; A16 is the feature a non-developer uses daily")
 	}
 }
+
+// TestInspectMarksKnownTrackers is a regression guard for a feature that had
+// never worked. inspect.html renders a "tracker" badge on {{if .Tracking}}, and
+// Param.Tracking was never assigned anywhere — TrackingRuleFor existed, was
+// exported, was documented as "the hook url.go's parser uses", and had no
+// caller. The badge had not rendered once.
+//
+// It is also what makes Inspect and Clean agree: both read the same table, so a
+// parameter Clean would strip is the parameter Inspect marks.
+func TestInspectMarksKnownTrackers(t *testing.T) {
+	in := parse(t, "https://example.com/p?utm_source=news&gclid=abc&id=42&q=shoes")
+
+	marked := map[string]string{}
+	for _, p := range in.Params {
+		if p.Tracking != "" {
+			marked[p.Key] = p.Tracking
+		}
+	}
+	for _, key := range []string{"utm_source", "gclid"} {
+		if marked[key] == "" {
+			t.Errorf("%q carries no Tracking name, so the Inspect page shows no tracker badge for it", key)
+		}
+	}
+	for _, key := range []string{"id", "q"} {
+		if marked[key] != "" {
+			t.Errorf("%q was marked as a tracker (%q); it is on the never-strip list", key, marked[key])
+		}
+	}
+
+	// Inspect and Clean must agree: everything Clean removes is marked.
+	res := clean(t, "https://example.com/p?utm_source=news&gclid=abc&id=42", linktools.CleanOptions{})
+	for _, r := range res.Removed {
+		if marked[r.Key] == "" {
+			t.Errorf("Clean removed %q but Inspect does not mark it; the two pages read the same table and must not disagree", r.Key)
+		}
+	}
+}

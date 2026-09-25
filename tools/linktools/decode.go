@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -225,19 +224,6 @@ func isTimestamp(n int64) bool {
 		return true
 	}
 	return false
-}
-
-// TimestampHint renders a timestamp parameter as a date, for the template.
-// Returns empty when v is not one.
-func TimestampHint(v string) string {
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || !isTimestamp(n) {
-		return ""
-	}
-	if n > 9_999_999_999 {
-		return time.UnixMilli(n).UTC().Format(time.RFC3339)
-	}
-	return time.Unix(n, 0).UTC().Format(time.RFC3339)
 }
 
 // printable reports whether s is text a human could read, used to reject base64

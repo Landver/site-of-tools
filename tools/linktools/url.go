@@ -251,6 +251,13 @@ func enrichParam(p *Param, rawVal string) {
 	if d, list := splitList(p.Value); d != "" {
 		p.Delimiter, p.List = d, list
 	}
+	// Name the rule that would strip this parameter, so Inspect can mark a
+	// known tracker without Clean being involved — both read one table, which
+	// is what makes the two pages agree. This call was missing entirely, so
+	// Param.Tracking was never set and inspect.html's "tracker" badge had never
+	// rendered once. Global rules only, for the reason on TrackingRuleFor: a
+	// key alone cannot tell ref=facebook from ref=main.
+	p.Tracking = TrackingRuleFor(p.Key)
 	p.Layers = decodeLadder(p.Value)
 	p.Kind = classify(p.Value)
 }
