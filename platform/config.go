@@ -33,6 +33,13 @@ type Config struct {
 	RDAPURL  string
 	CrtShURL string
 
+	// Short-link creation API key (linktools). Empty disables the write path
+	// AND the console — the redirect path /s/:code stays public. Deliberately
+	// fail-closed: an unset key means nobody can create links, never that
+	// anybody can. An open shortener gets the whole domain blocklisted
+	// (tools/linktools/docs/04-short-links.md §1).
+	LinkAPIKey string
+
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
 	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
 	// missing-BIN path). MongoDatabase = app DB name on shared server,
@@ -58,6 +65,7 @@ func Load() Config {
 		ShodanURL:  getenv("SHODAN_INTERNETDB_URL", "https://internetdb.shodan.io"),
 		RDAPURL:    getenv("RDAP_URL", "https://rdap.org"),
 		CrtShURL:   getenv("CRTSH_URL", "https://crt.sh"),
+		LinkAPIKey: os.Getenv("LINK_API_KEY"),
 		MongoURI:   os.Getenv("MONGODB_URI"),
 		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
 		MongoDatabase: getenv("MONGODB_DATABASE", DefaultMongoDatabase),

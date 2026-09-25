@@ -28,6 +28,7 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 
 	e.Use(middleware.Recover())
 	e.Use(requestLogger(reqlog))
+	e.Use(securityHeaders())
 	e.Use(middleware.Gzip())
 
 	if dev {
@@ -105,10 +106,15 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 		HandleError:      true, // forward errors to global handler for right status
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
 			level, msg := slog.LevelInfo, "REQUEST"
+			// Redact once, here, and use the result for BOTH sinks below. The
+			// slog line lands on the host's disk via Docker with no TTL, so
+			// redacting only inside RequestLog.Record would leave the
+			// longer-lived copy intact. See platform/redact.go.
+			uri := RedactURI(v.URI)
 			attrs := []slog.Attr{
 				slog.String("method", v.Method),
 				slog.Int("status", v.Status),
-				slog.String("uri", v.URI),
+				slog.String("uri", uri),
 				slog.Duration("latency", v.Latency),
 				slog.String("host", v.Host),
 				slog.String("bytes_in", v.ContentLength),
@@ -127,7 +133,7 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 				reqlog.Record(RequestEntry{
 					Method:    v.Method,
 					Host:      v.Host,
-					URI:       v.URI,
+					URI:       uri,
 					Status:    v.Status,
 					RemoteIP:  v.RemoteIP,
 					UserAgent: c.Request().UserAgent(),
@@ -139,4 +145,58 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 			return nil
 		},
 	})
+}
+
+// securityHeaders sets the response headers every subdomain wants. Applied in
+// NewApp so a new tool cannot forget them.
+//
+// The script-src is deliberately permissive and that is a known limitation, not
+// an oversight. Alpine's directives (x-data, x-show, @click) are evaluated at
+// runtime, so the standard build needs 'unsafe-eval'; and three templates carry
+// inline <script> blocks, which need 'unsafe-inline'. Tightening this means
+// switching to Alpine's CSP build AND giving every inline block a per-request
+// nonce — a real change, not a header edit.
+//
+// What it buys even so: no script may be loaded from another origin, nothing
+// may be framed, <base> cannot be rewritten, forms cannot post off-site, and
+// plugins are gone. On link.corpberry.com — whose entire job is rendering
+// attacker-chosen URLs — form-action and base-uri are the two that matter, and
+// the whole policy is the containment layer that turns the next refactor slip
+// in a template from stored XSS into a blocked load
+// (tools/linktools/docs/06-security-and-abuse.md §8).
+func securityHeaders() echo.MiddlewareFunc {
+	const csp = "default-src 'self'; " +
+		"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+		// botcheck spawns a Worker from a blob: URL to time things off the main
+		// thread. worker-src falls back to script-src when unset, and script-src
+		// does not allow blob:, so omitting this silently breaks that tool —
+		// found by loading the page, not by reading the policy.
+		"worker-src 'self' blob:; " +
+		"child-src 'self' blob:; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data:; " +
+		"font-src 'self'; " +
+		// api6.ipify.org is the IP tool's live IPv6 check: the page asks it from
+		// the VISITOR's browser on purpose, because only the visitor's own
+		// connection can answer "do you have working IPv6". It is the single
+		// external endpoint the whole frontend talks to — verified by grepping
+		// every fetch/XHR/Worker call in shared/ and tools/ — so connect-src
+		// stays otherwise closed.
+		"connect-src 'self' https://api6.ipify.org; " +
+		"object-src 'none'; " +
+		"base-uri 'none'; " +
+		"form-action 'self'; " +
+		"frame-ancestors 'none'"
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			h := c.Response().Header()
+			h.Set("Content-Security-Policy", csp)
+			// Stops a response whose body is attacker-influenced being sniffed
+			// into something executable regardless of its declared type.
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			return next(c)
+		}
+	}
 }
