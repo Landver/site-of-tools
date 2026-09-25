@@ -1,0 +1,70 @@
+{{define "link/index"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste a URL and see what is actually in it: every query parameter decoded, in the order it appears,
+      with repeated keys kept apart, comma-lists split and counted, and anything double-encoded peeled layer by layer.
+      Nothing is fetched. The URL is parsed, not visited.
+    </p>
+
+    {{/* GET-shaped, so every result is a shareable URL — the one pattern every
+         tool surveyed agrees on. The trade this makes is stated below the form
+         rather than buried: hosted parsers are client-side and keep the URL on
+         your machine, and we don't. See docs/06 §5. */}}
+    <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6 flex flex-wrap gap-2">
+      <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="URL to inspect"
+             placeholder="https://example.com/search?q=hello+world&utm_source=newsletter"
+             class="field min-w-0 flex-1">
+      <button type="submit" class="btn-primary">Inspect</button>
+      <span role="status" class="htmx-indicator self-center text-sm text-muted">Parsing…</span>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">Where does the URL go?</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          Parsing happens on the server and <strong class="text-strong">nothing is fetched</strong> —
+          no request is made to the host in the URL you paste.
+        </p>
+        <p>
+          The URL does reach this server, so it passes through the ordinary web-server logs like any
+          other URL. The value of the <code class="font-mono">u</code> parameter is redacted before
+          anything is written down here, but don't paste secrets into any tool, including this one.
+        </p>
+        <p>
+          If you need a URL that never leaves your machine at all, a client-side parser is the right
+          choice. The trade made here is a curl-able JSON API on the same URL, which client-side
+          tools structurally cannot offer.
+        </p>
+      </div>
+    </details>
+
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1%26a%3D2'</pre>
+      <p class="mt-1 text-xs text-muted">Anything that doesn't ask for <code class="font-mono">text/html</code> gets JSON. Parameters come back as an ordered array, not an object — an object would lose the order this page exists to preserve.</p>
+    </details>
+
+    {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
+         off) rendered an empty form and looked like nothing happened. */}}
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-8">
+      {{template "link/inspect" .}}
+    </div>
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

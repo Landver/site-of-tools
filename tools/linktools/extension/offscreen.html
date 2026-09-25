@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<!-- The offscreen document exists for one reason: an MV3 service worker has no
+     DOM, so navigator.clipboard does not exist there.
+
+     The catch that is easy to miss: the offscreen document cannot use
+     navigator.clipboard EITHER. That API requires a focused document and an
+     offscreen document is never focused, so it throws "Document is not
+     focused". The write has to go through the deprecated
+     document.execCommand('copy') against a selected textarea, which is exactly
+     what Google's own offscreen-clipboard sample does. -->
+<meta charset="utf-8">
+<textarea id="sink"></textarea>
+<script src="offscreen.js"></script>

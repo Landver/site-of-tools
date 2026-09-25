@@ -1,0 +1,22 @@
+{{/* Route-neutral error fragment. The rate limiter and the 503-when-disabled
+     path can fire on any page here, so neither may answer with one specific
+     page's result template. Same reasoning as dns/error. */}}
+{{define "link/error"}}
+<div class="alert-error">{{.Error}}</div>
+{{end}}
+
+{{define "link/ratelimited"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+  <main class="page-main">
+    <h1 class="text-2xl font-semibold text-strong">Slow down a moment</h1>
+    <p class="mt-3 text-sm text-muted">{{.Error}}</p>
+    <p class="mt-4 text-sm"><a href="/" class="text-brand hover:underline">Back to Inspect</a></p>
+  </main>
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

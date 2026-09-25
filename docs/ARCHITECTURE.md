@@ -26,7 +26,7 @@ prebuilt binary.
 | Live reload      | air — `github.com/air-verse/air`                   | v1.65.x           |
 | GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
 | Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
-| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history + botcheck fingerprint corpus) | v2.8.x |
+| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history + botcheck fingerprint corpus + link-tool short links) | v2.8.x |
 | Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
 | Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
 
@@ -215,6 +215,22 @@ document.body.addEventListener('htmx:afterSwap', e => window.Alpine.initTree(e.d
 ```
 Keep htmx-owned + Alpine-owned regions distinct.
 
+**Security headers — set in `NewApp`, so a new tool can't forget them.**
+`platform/app.go`'s `securityHeaders()` middleware adds CSP, `nosniff`,
+`X-Frame-Options: DENY` and `Referrer-Policy` to every sub-app. Two things the
+policy has to accommodate, both found by loading pages rather than reading the
+header: botcheck spawns a Worker from a `blob:` URL, and `worker-src` falls back
+to `script-src` (which doesn't allow `blob:`), so `worker-src`/`child-src` are
+spelled out; the IP tool's IPv6 check is fetched from the **visitor's** browser,
+so `connect-src` allows `https://api6.ipify.org` and nothing else off-origin.
+`script-src` keeps `'unsafe-inline'`+`'unsafe-eval'` — a known limitation, not an
+oversight: Alpine evaluates its directives at runtime and several templates carry
+inline `<script>`. Tightening it means Alpine's CSP build **and** per-request
+nonces, i.e. a real change, not a header edit. What the policy buys meanwhile is
+`object-src`/`base-uri`/`form-action`/`frame-ancestors` — the containment layer
+that turns a template slip on `link.corpberry.com`, whose job is rendering
+attacker-chosen URLs, into a blocked load instead of stored XSS.
+
 ---
 
 ## 6. Configuration
@@ -241,7 +257,7 @@ necessarily working copy). Config: `platform/config.go`; client:
 `platform/mongo.go` (`platform.OpenMongo` → nil-safe `*Mongo` wrapper).
 **Optional, degrades gracefully**: empty `MONGODB_URI` → `ErrMongoUnavailable` —
 same "missing data non-fatal" contract `iptools.OpenService` uses for absent
-BINs. First users: IP-tool lookup history + engine-level request log (§10).
+BINs. Four consumers so far, all listed in §10.
 
 ---
 
@@ -255,6 +271,7 @@ own `templates/` must be own package).
 site-of-tools/
 ├── main.go                   # package main — entrypoint: config → sub-apps → vhost → listen
 ├── platform/                 # shared engine (importable): config.go, app.go, render.go, conn.go, mongo.go
+│                            #   netgate.go · redact.go — see note under the tree
 ├── shared/                   # shared front-end ONLY: base partials + vendored htmx/alpine/css
 │   ├── embed.go              #   (its own package so it can go:embed what lives here)
 │   ├── templates/partials/   #   head · header · footer
@@ -272,15 +289,21 @@ site-of-tools/
 │   │   ├── templates/        #     index · result · cidr · nav
 │   │   ├── assets/           #     the .BIN databases (gitignored, bind-mounted)
 │   │   └── docs/README.md    #     this tool's design + reference doc
-│   └── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
-│       ├── botcheck.go · scoring.go · handler.go · goodbots.go · report.go · corpus.go · embed.go · tests/
-│       ├── templates/        #     index · result
-│       └── docs/             #     all of this tool's markdown, split by topic
-│           ├── README.md     #       index — links to everything below
-│           ├── RESEARCH.md   #       how the 12 competitor services work
-│           ├── roadmap/      #       what to build next & why (per-category files)
-│           ├── testing/      #       automation-detection test harness + findings
-│           └── reports/      #       per-service research writeups
+│   ├── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
+│   │   ├── botcheck.go · scoring.go · handler.go · goodbots.go · report.go · corpus.go · embed.go · tests/
+│   │   ├── templates/        #     index · result
+│   │   └── docs/             #     all of this tool's markdown, split by topic
+│   │       ├── README.md     #       index — links to everything below
+│   │       ├── RESEARCH.md   #       how the 12 competitor services work
+│   │       ├── roadmap/      #       what to build next & why (per-category files)
+│   │       ├── testing/      #       automation-detection test harness + findings
+│   │       └── reports/      #       per-service research writeups
+│   ├── dnstools/             #   dns.corpberry.com — SELF-CONTAINED, same shape
+│   └── linktools/            #   link.corpberry.com — SELF-CONTAINED, same shape
+│       ├── url.go · clean.go · rules.go · trace.go · short.go · handler.go · …
+│       ├── store.go · resolvecache.go  #  Mongo `links` + its cache/hit batcher
+│       ├── extension/        #     MV3 browser extension — no .go files
+│       └── docs/             #     numbered design docs + reports/
 ├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
 ├── .githooks/pre-push        # test gate (enable: make hooks)
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile
@@ -294,6 +317,31 @@ Why each folder: `platform/` must be importable (can't be `main`); `shared/`,
 code. `tools/` groups tool subdomains (each own Go package, e.g. `tools/iptools`,
 `tools/botcheck`); apex `site/` stays at root. `main.go` at root — composition
 root = 1 thing nothing imports. No single-file folder for its own sake.
+
+**Two engine files earn their place by being cross-cutting, not shared-by-luck:**
+
+- `platform/netgate.go` — the **outbound gate**. `PubliclyRoutable(netip.Addr)`
+  is the deny-by-default address check (unmaps first, so `::ffff:127.0.0.1` is
+  judged as IPv4); `EgressGuard` wraps it as a `net.Dialer.Control` hook plus a
+  port allowlist and a hostname deny list. Control, not resolve-then-dial: the
+  hook fires **after** resolution on the literal address the kernel is about to
+  connect to, so there is no TOCTOU window for DNS rebinding and it composes
+  with Happy Eyeballs. A guarded transport must also set `DisableKeepAlives`,
+  or a pooled connection answers a second, unchecked authority. `RateLimitKey`
+  normalises a client IP into a limiter key, **on the /64 for IPv6** — a
+  per-address bucket is no limit when the client holds 2⁶⁴ of them, and is a
+  memory-growth path besides. The address check previously existed as 4 partial
+  copies (`dnstools`, `iptools`, `botcheck`); this is the promoted one. Any
+  feature dialling a caller-chosen host uses it — never its own copy.
+- `platform/redact.go` — `RedactURI` strips the values of the query keys that
+  carry a whole pasted URL (`u`, `a`, `b`, `curl`, `text`, `v`) before logging.
+  Called once in the request logger's `LogValuesFunc` so it covers **both**
+  sinks: the stdout slog line (Docker-captured on the host, no TTL) and the
+  Mongo request log. It hand-splits instead of using `url.Query()`, which
+  silently drops any pair with a malformed escape — exactly the pair a naive
+  logger then leaks whole. `/static/` is exempt: asset URLs carry
+  `?v=<content hash>` from `AssetVersioner` and nothing user-supplied reaches
+  them.
 
 ---
 
@@ -330,12 +378,16 @@ root = 1 thing nothing imports. No single-file folder for its own sake.
 
 ## 10. Out of scope now (deliberately deferred)
 
-- **Persistence / MongoDB** — wired, now used by 3 features: IP tool's **lookup
+- **Persistence / MongoDB** — wired, now used by 4 features: IP tool's **lookup
   history** (`tools/iptools/history.go`, repository below domain per rule #5),
   engine-level **request log** (`platform/requestlog.go`, shared async writer fed
   by request-logger middleware), botcheck's **fingerprint corpus**
   (`tools/botcheck/corpus.go`, rolling 30-day store behind `fingerprint_reuse`
-  rule). All take `*mongo.Database` from shared client (`platform.OpenMongo`,
+  rule), link tool's **short links** (`tools/linktools/store.go`, `links`
+  collection; the only one that is the feature rather than a side-record, hence
+  a unique index whose error is *not* swallowed, and a TTL that sweeps long
+  after expiry so a slug is never silently re-registered). All take
+  `*mongo.Database` from shared client (`platform.OpenMongo`,
   opened once in `main.go`), self-prune via `platform.EnsureTTLIndex`; all
   degrade to no-ops when `MONGODB_URI` empty, so app still boots stateless.
   Further storage features (e.g. botcheck crowd/rarity scoring, request velocity,

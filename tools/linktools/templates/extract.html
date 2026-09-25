@@ -1,0 +1,159 @@
+{{/* Extract — page shell + result fragment (A18).
+
+     POST, not GET, and it is the only form in this suite that is. The input is
+     a whole newsletter or email body; putting that in a query string means the
+     browser's address bar, the referrer and every proxy in between carry the
+     pasted text. The route accepts both verbs, so a shared ?text= link still
+     works for something small, but the form posts. hx-push-url is kept anyway:
+     on a POST htmx pushes the request path without the body, which is exactly
+     the right outcome here — a shareable page, not a shareable paste.
+
+     Safety rule, carried from inspect.html: an ExtractedURL has no Linkable
+     flag, and these URLs came out of pasted, hostile-by-assumption markup. Not
+     one of them is ever written into an href. Each row's actions are same-origin
+     tool links, where html/template percent-escapes the value into the query and
+     the destination is this site. The whole point of auditing the links in a
+     newsletter is not clicking them.
+
+     Anchor text is shown beside the URL because the mismatch between the two is
+     the finding people are usually looking for. */}}
+{{define "link/extract"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste HTML, Markdown, an email body or any text at all, and get every URL out of it: deduplicated,
+      counted, with the anchor text where there is one. Nothing is fetched. This is for auditing the links in
+      something before it goes out, not for checking whether they work.
+    </p>
+
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <form hx-post="/extract" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6">
+      <textarea name="text" rows="12" autofocus autocomplete="off" spellcheck="false"
+                aria-label="Text to pull links out of"
+                placeholder="Paste an email body, a Markdown file, an HTML fragment…"
+                class="field w-full font-mono text-xs">{{.Text}}</textarea>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <button type="submit" class="btn-primary">Pull the links out</button>
+        <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
+      </div>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">How the input is read</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          The shape of the input is detected rather than asked for: markup is parsed as HTML so the anchor
+          text travels with the link, Markdown link syntax is read as Markdown, and anything else is scanned
+          for bare URLs. Which of the three happened is reported with the result, because it changes what
+          gets found.
+        </p>
+        <p>
+          <strong class="text-strong">Nothing is fetched.</strong> Every surveyed tool that does this job also
+          requests every URL it finds, which is slower and is a different, riskier promise: it tells each
+          destination that someone is auditing the links, from this server's address, before you have decided
+          anything.
+        </p>
+        <p>
+          The pasted text is redacted before this server writes anything down, and the form posts rather than
+          putting the paste in a URL. It still reaches the server to be parsed. Don't paste anything you
+          would not send.
+        </p>
+      </div>
+    </details>
+
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/extract' --data-urlencode 'text=see https://example.com'</pre>
+      <p class="mt-1 text-xs text-muted">GET with <code class="font-mono">?text=</code> works too, for anything small enough to fit in a URL.</p>
+    </details>
+
+    <div id="result" class="mt-8">
+      {{template "link/extracted" .}}
+    </div>
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
+{{define "link/extracted"}}
+{{with .Result}}
+
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+  <span class="text-muted">Read as <span class="font-mono text-strong">{{.Source}}</span></span>
+  <span class="text-muted">Occurrences <span class="font-mono text-strong">{{.Total}}</span></span>
+  <span class="text-muted">Distinct URLs <span class="font-mono text-strong">{{.Unique}}</span></span>
+</div>
+
+{{if .Notes}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Findings</h2>
+  <div class="mt-2 rounded-lg border border-line bg-surface px-4 py-2">
+    {{template "link/notes" .Notes}}
+  </div>
+</section>
+{{end}}
+
+{{if .URLs}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Links found</h2>
+  <p class="mt-1 text-xs text-muted">
+    In the order each was first seen. None of them is clickable here, deliberately: hand a row to Inspect or
+    Clean instead.
+  </p>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">URL</th>
+          <th class="px-3 py-2 font-medium">Link text</th>
+          <th class="px-3 py-2 font-medium">Times</th>
+          <th class="px-3 py-2 font-medium">Hand it to</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .URLs}}
+        <tr class="align-top">
+          {{/* Text, never an anchor. See the file comment. */}}
+          <td class="px-3 py-2 break-all font-mono text-xs text-strong">{{.URL}}</td>
+          <td class="px-3 py-2 text-xs text-muted">
+            {{if .Anchor}}{{.Anchor}}{{else}}<span class="italic">none</span>{{end}}
+          </td>
+          <td class="px-3 py-2 font-mono text-xs
+            {{if gt .Count 1}}text-warn{{else}}text-muted{{end}}">{{.Count}}</td>
+          <td class="px-3 py-2 text-xs">
+            <a href="/?u={{.URL}}" class="text-brand hover:underline">Inspect</a>
+            <span class="text-muted">&middot;</span>
+            <a href="/clean?u={{.URL}}" class="text-brand hover:underline">Clean</a>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{else}}
+<section class="mt-6 rounded-lg border border-line bg-surface p-4">
+  <h2 class="text-sm font-semibold text-strong">No links in that</h2>
+  <p class="mt-1 text-sm text-muted">
+    Nothing in the text parsed as a URL. A link written without a scheme
+    (<code class="font-mono">example.com/thing</code>) is not one as far as this page is concerned, because
+    guessing the scheme is how a tool invents links that were never there.
+  </p>
+</section>
+{{end}}
+
+{{end}}
+{{end}}

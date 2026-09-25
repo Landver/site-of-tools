@@ -1,0 +1,26 @@
+{{/* Severity-tagged finding list, shared by every page in this suite.
+     Call with the note slice: {{template "link/notes" .Notes}}.
+
+     Note here is {Severity, Title, Detail}, richer than dnstools' {Level, Text}:
+     these findings need a headline AND an explanation ("Credentials before the
+     host" / "Everything before the @ is a username"). Same colour vocabulary,
+     so the two read as one family.
+
+     The dot IS the severity ranking and a dot has no text, so it carries a
+     name or the ranking exists for sighted users only (WCAG 1.4.1). */}}
+{{define "link/notes"}}
+<ul class="flex flex-col divide-y divide-line text-sm">
+  {{range .}}
+  <li class="flex items-start gap-3 py-2">
+    <span role="img"
+          aria-label="{{if eq .Severity "fail"}}problem{{else if eq .Severity "warn"}}worth checking{{else if eq .Severity "ok"}}good{{else}}note{{end}}"
+          class="mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full
+          {{if eq .Severity "fail"}}bg-danger{{else if eq .Severity "warn"}}bg-warn{{else if eq .Severity "ok"}}bg-ok{{else}}bg-line{{end}}"></span>
+    <span class="min-w-0 flex-1">
+      <span class="{{if eq .Severity "fail"}}font-medium text-strong{{else}}text-strong{{end}}">{{.Title}}</span>
+      {{if .Detail}}<span class="block text-muted">{{.Detail}}</span>{{end}}
+    </span>
+  </li>
+  {{end}}
+</ul>
+{{end}}

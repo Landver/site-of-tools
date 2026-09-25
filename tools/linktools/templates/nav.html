@@ -1,0 +1,24 @@
+{{/* Sub-nav for the Link Tools suite. Four primary entries as a segmented
+     control, the cheap pages behind "More" — ten top-level entries would not
+     fit and would bury the flagship. .Active = the current page's key. */}}
+{{define "link/nav"}}
+<div class="mb-8 flex flex-wrap items-center gap-3">
+  <div class="inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+    <a href="/" class="rounded-md px-4 py-1.5 transition {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
+    <a href="/clean" class="rounded-md px-4 py-1.5 transition {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
+    <a href="/short" class="rounded-md px-4 py-1.5 transition {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
+    <a href="/trace" class="rounded-md px-4 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
+  </div>
+  <details class="relative text-sm">
+    <summary class="cursor-pointer select-none rounded-lg border border-line bg-surface px-3 py-2 text-muted hover:text-strong">More</summary>
+    <div class="absolute z-10 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
+      <a href="/diff" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Compare two URLs</a>
+      <a href="/curl" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">curl builder</a>
+      <a href="/utm" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Campaign builder</a>
+      <a href="/encode" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Encode / decode</a>
+      <a href="/extract" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Extract links</a>
+      <a href="/encoding" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Encoding reference</a>
+    </div>
+  </details>
+</div>
+{{end}}

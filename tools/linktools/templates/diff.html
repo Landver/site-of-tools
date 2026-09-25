@@ -1,0 +1,249 @@
+{{/* Diff — page shell + result fragment (A13).
+
+     A Diff holds two attacker-supplied URLs (.A and .B) and carries no Linkable
+     flag, so neither side is ever written into an href. Both are text. The only
+     anchors are same-origin tool links, where html/template percent-escapes the
+     value into the query and the destination is this site. Same rule as
+     inspect.html's header comment.
+
+     The colour vocabulary is the one decision here that is not cosmetic.
+     ChangeKind has five values and they are NOT a severity ramp:
+
+       added / removed / modified  a real difference, in the ordinary sense
+       moved                       identical value, different position
+       same                        shown, because a diff that hides what matched
+                                   makes the reader re-derive the whole URL
+
+     "moved" gets its own colour and its own callout because it is the one
+     answer people misread. Reordering a query string is harmless to almost every
+     server — and fatal to any URL whose signature covers the literal query
+     string, where it turns into a 403 with no explanation. Folding it into
+     "same" would hide that; folding it into "modified" would cry wolf on every
+     reordered link. It is a third thing and it is rendered as a third thing.
+
+     Every class string below is written out per branch. Tailwind only ever sees
+     literal class names, never one assembled from .Kind. */}}
+{{define "link/diff"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Two URLs in, a field-by-field and parameter-by-parameter comparison out. The tool for
+      &ldquo;why does staging behave differently from production&rdquo;, where the answer is almost always
+      one parameter that is present on one side, or reordered, or subtly different. Neither URL is fetched.
+    </p>
+
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <form hx-get="/diff" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6 flex flex-col gap-2">
+      <input name="a" value="{{.A}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="First URL"
+             placeholder="https://example.com/search?q=hello&amp;page=1"
+             class="field min-w-0">
+      <input name="b" value="{{.B}}" autocomplete="off" spellcheck="false"
+             aria-label="Second URL"
+             placeholder="https://staging.example.com/search?page=1&amp;q=hello"
+             class="field min-w-0">
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="submit" class="btn-primary">Compare</button>
+        <span role="status" class="htmx-indicator self-center text-sm text-muted">Comparing…</span>
+      </div>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">How repeated keys are compared</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          Repeated keys are compared position by position within the key, never collapsed to last-wins.
+          <code class="font-mono">?id=1&amp;id=2</code> and <code class="font-mono">?id=2&amp;id=1</code> are a
+          real difference, and a comparison built on a map cannot see it at all.
+        </p>
+        <p>
+          Two URLs can differ as text and still describe the same request: different percent-encoding case,
+          a default port written out, a resolved dot segment. When that is what happened it is said plainly
+          rather than reported as a difference.
+        </p>
+      </div>
+    </details>
+
+    <div id="result" class="mt-8">
+      {{template "link/diffed" .}}
+    </div>
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
+{{define "link/diffed"}}
+{{with .Result}}
+
+<div class="rounded-lg border {{if .Identical}}border-ok{{else}}border-line{{end}} bg-surface px-4 py-3">
+  <h2 class="text-sm font-semibold text-strong">{{.Summary}}</h2>
+  <div class="mt-2 grid gap-1 text-xs">
+    <p class="break-all font-mono text-muted"><span class="text-faint">A</span> {{.A}}</p>
+    <p class="break-all font-mono text-muted"><span class="text-faint">B</span> {{.B}}</p>
+  </div>
+</div>
+
+{{if .Notes}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Findings</h2>
+  <div class="mt-2 rounded-lg border border-line bg-surface px-4 py-2">
+    {{template "link/notes" .Notes}}
+  </div>
+</section>
+{{end}}
+
+{{if .Fields}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Components</h2>
+  <p class="mt-1 text-xs text-muted">Everything outside the query string. A differing host or scheme usually makes the parameter table below beside the point.</p>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">Component</th>
+          <th class="px-3 py-2 font-medium">A</th>
+          <th class="px-3 py-2 font-medium">B</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .Fields}}
+        <tr class="align-top">
+          <td class="px-3 py-2 font-mono text-strong">{{.Field}}</td>
+          <td class="px-3 py-2 break-all font-mono text-xs text-muted">
+            {{if eq .A ""}}<span class="italic">absent</span>{{else}}{{.A}}{{end}}
+          </td>
+          <td class="px-3 py-2 break-all font-mono text-xs text-strong">
+            {{if eq .B ""}}<span class="italic">absent</span>{{else}}{{.B}}{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{if .Params}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query parameters</h2>
+  <p class="mt-1 text-xs text-muted">
+    In the order the keys appear across A then B. The <span class="font-mono">#</span> columns are the
+    position each value held in its own query string.
+  </p>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">Key</th>
+          <th class="px-3 py-2 font-medium">Change</th>
+          <th class="px-3 py-2 font-medium">A</th>
+          <th class="px-3 py-2 font-medium">B</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .Params}}
+        <tr class="align-top">
+          <td class="px-3 py-2 font-mono text-strong">{{.Key}}</td>
+          <td class="px-3 py-2">
+            {{/* One literal class string per branch — never assembled. */}}
+            {{if eq .Kind "added"}}
+              <span class="rounded bg-ok/20 px-1.5 py-0.5 font-mono text-xs text-ok">added</span>
+            {{else if eq .Kind "removed"}}
+              <span class="rounded bg-danger/20 px-1.5 py-0.5 font-mono text-xs text-danger">removed</span>
+            {{else if eq .Kind "modified"}}
+              <span class="rounded bg-warn/20 px-1.5 py-0.5 font-mono text-xs text-warn">changed</span>
+            {{else if eq .Kind "moved"}}
+              <span class="rounded bg-brand/20 px-1.5 py-0.5 font-mono text-xs text-brand">moved only</span>
+              <span class="mt-1 block text-xs text-muted">
+                Same value, position {{.IndexA}} &rarr; {{.IndexB}}.
+              </span>
+            {{else}}
+              <span class="rounded bg-line px-1.5 py-0.5 font-mono text-xs text-muted">same</span>
+            {{end}}
+          </td>
+          <td class="px-3 py-2 break-all font-mono text-xs
+            {{if eq .Kind "added"}}text-faint{{else if eq .Kind "removed"}}text-danger{{else}}text-muted{{end}}">
+            {{if eq .Kind "added"}}
+              <span class="italic">not present</span>
+            {{else if eq .A ""}}
+              <span class="italic">empty</span>
+            {{else}}
+              {{.A}}
+            {{end}}
+            {{if .IndexA}}<span class="ml-1 text-faint">#{{.IndexA}}</span>{{end}}
+          </td>
+          <td class="px-3 py-2 break-all font-mono text-xs
+            {{if eq .Kind "removed"}}text-faint{{else if eq .Kind "added"}}text-ok{{else if eq .Kind "modified"}}text-strong{{else}}text-muted{{end}}">
+            {{if eq .Kind "removed"}}
+              <span class="italic">not present</span>
+            {{else if eq .B ""}}
+              <span class="italic">empty</span>
+            {{else}}
+              {{.B}}
+            {{end}}
+            {{if .IndexB}}<span class="ml-1 text-faint">#{{.IndexB}}</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{/* The "moved only" explainer, rendered once when any move occurred. The
+     severity note from the domain says the same thing when EVERY change is a
+     move; this covers the mixed case too, where the reordering is easy to miss
+     among real changes. */}}
+{{$moved := false}}
+{{range .Params}}{{if eq .Kind "moved"}}{{$moved = true}}{{end}}{{end}}
+{{if $moved}}
+<section class="mt-6 rounded-lg border border-brand bg-surface p-4">
+  <h2 class="text-sm font-semibold text-strong">Some parameters only moved</h2>
+  <p class="mt-1 text-sm text-muted">
+    Same key, same value, different position. Almost every server reads a query string as an unordered set
+    and will not notice. The exception matters: if either URL is signed, and the signature covers the
+    literal query string rather than a canonical form of it, reordering invalidates it. That failure arrives
+    as a 403 with nothing in it to suggest the order was the cause.
+  </p>
+</section>
+{{end}}
+
+{{if .Identical}}
+<section class="mt-6 rounded-lg border border-ok bg-surface p-4">
+  <h2 class="text-sm font-semibold text-strong">These two describe the same request</h2>
+  <p class="mt-1 text-sm text-muted">
+    No component differs and no parameter was added, removed or changed. If the two strings are not
+    byte-identical, the difference is in encoding or formatting: percent-encoding case, an explicit default
+    port, a dot segment. A server resolves all three to the same thing.
+  </p>
+</section>
+{{end}}
+
+<p class="mt-6 text-sm">
+  <a href="/?u={{.A}}" class="text-brand hover:underline">Inspect A</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/?u={{.B}}" class="text-brand hover:underline">Inspect B</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/diff?a={{.B}}&amp;b={{.A}}" class="text-brand hover:underline">Swap sides</a>
+</p>
+<p class="mt-2 text-xs text-muted">
+  Neither URL is rendered as a link to itself. Only the Inspect page makes a pasted URL clickable, and only
+  when its scheme passed the http(s) allowlist.
+</p>
+
+{{end}}
+{{end}}

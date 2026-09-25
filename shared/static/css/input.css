@@ -9,6 +9,7 @@
 @source "../../../tools/iptools/templates/**/*.html";
 @source "../../../tools/botcheck/templates/**/*.html";
 @source "../../../tools/dnstools/templates/**/*.html";
+@source "../../../tools/linktools/templates/**/*.html";
 
 /* Dark mode driven by data-theme attribute (set before paint by head script),
    not OS media query directly → manual toggle can override OS default. This

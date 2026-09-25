@@ -5,10 +5,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"log"
 	"maps"
+	"net/http"
+	"os"
+	"os/signal"
 	"slices"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -19,6 +24,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/botcheck"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
+	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
 func main() {
@@ -55,6 +61,16 @@ func main() {
 	// forfeits auto-expiry -> non-fatal.
 	_ = corpus.EnsureIndexes(idxCtx)
 	_ = blocklist.EnsureIndexes(idxCtx)
+	// Short-link store. Must be built HERE, inside the idxCtx window: building it
+	// down beside the link app would hand it an already-cancelled context, and its
+	// unique {code:1} index would silently never be created — which is what makes
+	// the collision-retry strategy correct rather than hopeful.
+	linkStore := linktools.NewLinkStore(idxCtx, mdb.DB())
+	// Drains pending hit counts on shutdown, like reqlog above.
+	defer linkStore.Close()
+	if err := linkStore.IndexError(); err != nil {
+		log.Printf("link tools: unique code index unavailable (%v); short-link creation will refuse writes", err)
+	}
 	cancelIdx()
 	defer reqlog.Close(context.Background())
 
@@ -93,6 +109,7 @@ func main() {
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
+		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 	)
 
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
@@ -134,6 +151,32 @@ func main() {
 	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second)
 	dnstools.Register(dnsApp, dnstools.NewService(5*time.Second), geo, domainClient, dnstools.BlockCheckerFrom(blocklist))
 
+	// link.corpberry.com — URL inspect / clean / short links / trace. Parsing is
+	// pure and opens no connection; only /trace dials out, and only through the
+	// egress gate. The URL still reaches the request log, which is why
+	// platform.RedactURI strips the ?u= value before anything is written down
+	// (tools/linktools/docs/06-security-and-abuse.md §5).
+	linkSvc := linktools.NewService()
+	// Shortener is nil unless BOTH a store and a key exist — fail-closed, so an
+	// unset LINK_API_KEY means nobody can create links rather than anybody can.
+	// Base origin only: Shortener.ShortURL owns the "/s/" prefix, so adding it
+	// here would mint links at /s/s/.
+	shortener := linktools.NewShortener(linkStore, cfg.LinkAPIKey, cfg.URL("link"))
+	if shortener != nil {
+		shortener.CleanTarget = linktools.CleanTargetFunc(linkSvc)
+	}
+	// /trace is the one place this box dials a host a stranger chose. The guard is
+	// shared engine code, allows only 80/443, and refuses our own vhosts and every
+	// local interface address so a trace cannot loop back into the origin behind
+	// Cloudflare (tools/linktools/docs/06-security-and-abuse.md §2).
+	traceGuard := platform.NewEgressGuard([]string{"80", "443"}, []string{
+		cfg.VHost(""), cfg.VHost("ip"), cfg.VHost("botcheck"), cfg.VHost("dns"), cfg.VHost("link"),
+		cfg.MongoURI,
+	})
+	tracer := linktools.NewTracer(traceGuard, 15*time.Second)
+	linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+	linktools.Register(linkApp, linkSvc, tracer, shortener, cfg.URL("link"))
+
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
 	// apex trying to list them all. Apex wires its own inside site.Register,
@@ -141,18 +184,39 @@ func main() {
 	platform.RegisterSEO(ipApp, cfg.URL("ip"), iptools.SitemapPages)
 	platform.RegisterSEO(botApp, cfg.URL("botcheck"), botcheck.SitemapPages)
 	platform.RegisterSEO(dnsApp, cfg.URL("dns"), dnstools.SitemapPages)
+	platform.RegisterSEO(linkApp, cfg.URL("link"), linktools.SitemapPages)
 
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):         apex,
 		cfg.VHost("ip"):       ipApp,
 		cfg.VHost("botcheck"): botApp,
 		cfg.VHost("dns"):      dnsApp,
+		cfg.VHost("link"):     linkApp,
 	}
 	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 
 	handler := echo.NewVirtualHostHandler(hosts)
+
+	// Shut down on SIGINT/SIGTERM so the deferred Close calls above actually
+	// run. They previously could not: Start was handed a context that was never
+	// cancelled, and the only exit was log.Fatal, which calls os.Exit and skips
+	// every defer. So the request log's buffered writer, the short-link hit
+	// batcher and the Mongo client were all torn down by process death rather
+	// than drained — losing whatever was queued on every deploy, since
+	// `docker compose up -d --build` recreates the container with SIGTERM.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	sc := echo.StartConfig{Address: cfg.ListenAddr}
-	if err := sc.Start(context.Background(), handler); err != nil {
-		log.Fatal(err)
+	err = sc.Start(ctx, handler)
+	// A cancelled context is the ordinary shutdown path, not a failure. Return
+	// rather than log.Fatal so the defers get to run.
+	switch {
+	case err == nil, errors.Is(err, http.ErrServerClosed), errors.Is(err, context.Canceled):
+		log.Print("shutting down; draining buffered writes")
+	default:
+		// Still fatal, but log the defers we are skipping rather than leaving it
+		// a mystery.
+		log.Printf("server error: %v", err)
 	}
 }

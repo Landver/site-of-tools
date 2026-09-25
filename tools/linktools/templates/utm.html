@@ -1,0 +1,164 @@
+{{/* Campaign URL builder — page shell + result fragment (A11).
+
+     The inverse of Clean, running on the same table: the five parameters this
+     page adds are exactly the five the Clean page knows how to take away. That
+     is the reason it is worth having rather than being the hundredth utm
+     builder — the two pages agree, and each links to the other.
+
+     Field names come from the handler (.Fields) and their current values from
+     .Values, so the form cannot drift out of step with what the handler reads.
+     The per-field hints are written out branch by branch against literal names
+     rather than derived from the string, because a derived label would be one
+     more thing that silently rots when a field is added.
+
+     Safety rule, carried from inspect.html: .Query and .Built are
+     attacker-supplied text and neither is written into an href. The built URL
+     is shown as text with a copy button; the only anchors are same-origin tool
+     links. */}}
+{{define "link/utm"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Build a campaign-tagged URL from its parts. This is the exact inverse of the
+      <a href="/clean" class="text-brand hover:underline">Clean</a> page and it runs on the same rule table,
+      so every parameter added here is one Clean knows how to remove again.
+    </p>
+
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <form hx-get="/utm" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6">
+      <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="URL to tag"
+             placeholder="https://example.com/landing-page"
+             class="field w-full">
+
+      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        {{range $f := .Fields}}
+        <label class="flex flex-col gap-1 text-sm">
+          <span class="font-mono text-xs text-strong">{{$f}}</span>
+          <input name="{{$f}}" value="{{index $.Values $f}}" autocomplete="off" spellcheck="false"
+                 placeholder="{{if eq $f "utm_source"}}newsletter{{else if eq $f "utm_medium"}}email{{else if eq $f "utm_campaign"}}spring-launch{{else if eq $f "utm_term"}}running+shoes{{else}}header-button{{end}}"
+                 class="field w-full">
+          <span class="text-xs text-muted">
+            {{if eq $f "utm_source"}}
+              Where the traffic comes from. The one field analytics tools treat as required.
+            {{else if eq $f "utm_medium"}}
+              How it arrives: email, cpc, social, referral.
+            {{else if eq $f "utm_campaign"}}
+              Which campaign this link belongs to.
+            {{else if eq $f "utm_term"}}
+              The paid keyword, when there is one. Usually empty outside search ads.
+            {{else}}
+              Which link it was, when one campaign has several. The A/B field.
+            {{end}}
+          </span>
+        </label>
+        {{end}}
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <button type="submit" class="btn-primary">Build the URL</button>
+        <span role="status" class="htmx-indicator self-center text-sm text-muted">Building…</span>
+      </div>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">What it does with a URL that is already tagged</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          An existing value is <strong class="text-strong">replaced, not appended</strong>. Two
+          <code class="font-mono">utm_source</code> parameters on one URL is a real bug that analytics tools
+          resolve inconsistently, and deliberately building one would be an odd thing for this page to do.
+        </p>
+        <p>
+          Leaving a field empty <strong class="text-strong">removes</strong> that parameter rather than adding
+          an empty one. Every other parameter on the URL, and the order it was in, is left exactly as you
+          pasted it.
+        </p>
+        <p>
+          These five tags are visible to everyone the link is forwarded to, and they travel into other
+          people's browser history and referrer headers. They describe a campaign, so keep them describing a
+          campaign: a name that identifies one recipient turns a shareable link into a tracking pixel with a
+          person's name on it.
+        </p>
+      </div>
+    </details>
+
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/utm?u=https%3A%2F%2Fexample.com%2F&amp;utm_source=newsletter'</pre>
+    </details>
+
+    <div id="result" class="mt-8">
+      {{template "link/utmbuilt" .}}
+    </div>
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
+{{define "link/utmbuilt"}}
+{{if .Built}}
+
+<section class="rounded-lg border border-ok bg-surface p-4">
+  <h2 class="text-sm font-semibold text-strong">Tagged URL</h2>
+  <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Built}}</pre>
+  <button type="button" class="btn-primary mt-3"
+          onclick="var b=this;navigator.clipboard.writeText(b.previousElementSibling.textContent).then(function(){b.textContent='Copied'},function(){b.textContent='Select it and copy'})">Copy</button>
+  <p class="mt-3 text-xs text-muted">
+    Shown as text, not as a link. Only the Inspect page makes a URL clickable, and only when its scheme
+    passed the http(s) allowlist.
+  </p>
+</section>
+
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">What was set</h2>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">Parameter</th>
+          <th class="px-3 py-2 font-medium">Value</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range $f := .Fields}}
+        <tr class="align-top">
+          <td class="px-3 py-2 font-mono text-strong">{{$f}}</td>
+          <td class="px-3 py-2 break-all font-mono text-xs">
+            {{$v := index $.Values $f}}
+            {{if $v}}
+              <span class="text-strong">{{$v}}</span>
+            {{else}}
+              <span class="italic text-muted">left empty, so this parameter is not on the URL</span>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p class="mt-6 text-sm">
+  <a href="/?u={{.Built}}" class="text-brand hover:underline">Inspect it</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/clean?u={{.Built}}" class="text-brand hover:underline">Strip it all back off</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/clean/rules" class="text-brand hover:underline">The rules that would remove these</a>
+</p>
+
+{{end}}
+{{end}}

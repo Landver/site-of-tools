@@ -1,0 +1,203 @@
+{{/* curl, both directions — page shell + result fragment (A19).
+
+     Two forms, one route. GET carrying ?u= renders a command; GET carrying
+     ?curl= takes a pasted command apart. The handler branches on ?curl= first,
+     so the paste form wins when both are filled.
+
+     Safety rules carried from inspect.html:
+       - Neither the URL typed in nor the URL recovered from a pasted command is
+         ever written into an href. .Result is an Inspection and DOES carry
+         .Linkable, so the delegated "link/inspect" block below is free to make
+         it clickable under its own allowlist check; nothing in THIS file does.
+       - The generated command is rendered inside <pre> as text. It is shell
+         source that a human is about to paste into a terminal, and everything
+         the caller supplied was single-quoted on the way out (ToCurl) precisely
+         so an "&", ";" or "$(…)" in a URL stays part of the URL.
+
+     Two view-model notes. The handler sets Personas only on the ?u= branch, so
+     the persona select is guarded and simply absent after a paste — the form
+     still submits, and an absent ua means curl's own user agent. And .Cmd is
+     re-rendered into the textarea, which is how the back button survives. */}}
+{{define "link/curl"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      A URL in, a runnable curl command out. Or the useful direction: paste a curl command, including the
+      twenty-flag thing Chrome's &ldquo;Copy as cURL&rdquo; produces, and get the URL and its headers taken
+      apart. Nothing is executed and nothing is fetched. The pasted command is read as text by a tokeniser
+      that understands quoting and nothing else: no variables, no substitution, no shell.
+    </p>
+
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <section class="mt-6">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">URL &rarr; command</h2>
+      <form hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+            class="mt-2">
+        <div class="flex flex-wrap gap-2">
+          <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+                 aria-label="URL to turn into a curl command"
+                 placeholder="https://example.com/api/thing?id=1"
+                 class="field min-w-0 flex-1">
+          {{if .Personas}}
+          <select name="ua" aria-label="Ask as"
+                  class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+            {{$p := .Persona}}
+            {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+          {{end}}
+          <button type="submit" class="btn-primary">Build</button>
+          <span role="status" class="htmx-indicator self-center text-sm text-muted">Building…</span>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="follow" value="true"{{if .Follow}} checked{{end}}>
+            Follow redirects <span class="font-mono text-faint">-L</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="headers" value="true"{{if .ShowHeaders}} checked{{end}}>
+            Show response headers <span class="font-mono text-faint">-i</span>
+          </label>
+        </div>
+      </form>
+    </section>
+
+    <section class="mt-8">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Command &rarr; URL</h2>
+      <form hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+            class="mt-2">
+        <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"
+                  aria-label="curl command to take apart"
+                  placeholder="curl 'https://example.com/api/thing?id=1' -H 'Accept: application/json'"
+                  class="field w-full font-mono text-xs">{{.Cmd}}</textarea>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <button type="submit" class="btn-primary">Take it apart</button>
+          <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
+        </div>
+      </form>
+      <p class="mt-2 text-xs text-muted">
+        A command copied out of DevTools usually carries a session cookie or a bearer token in its
+        <code class="font-mono">-H</code> flags, and they are shown back to you here in full. The value of
+        <code class="font-mono">curl</code> is redacted before anything is written to this server's logs, but
+        the same advice applies as everywhere else: don't paste a live credential into a web tool, this one
+        included.
+      </p>
+    </section>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">What the parser does and does not do</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          <strong class="text-strong">It is a tokeniser, not a shell.</strong> It understands the quoting
+          forms that actually appear in a copied command and refuses everything else. The input is untrusted
+          text and the only safe way to read untrusted text is to not evaluate it.
+        </p>
+        <p>
+          <strong class="text-strong">The URL comes back exactly as written</strong>, including a missing
+          scheme. curl would quietly assume <code class="font-mono">http</code> there; inventing it here would
+          hide the fact that the pasted command depended on that assumption, so it is reported as a finding
+          instead.
+        </p>
+      </div>
+    </details>
+
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/curl?u=https%3A%2F%2Fexample.com%2F'</pre>
+      <p class="mt-1 text-xs text-muted">The paste direction answers on the same URL with <code class="font-mono">?curl=</code>, and returns the URL, the headers in the order they were written, and the full parse of the URL.</p>
+    </details>
+
+    <div id="result" class="mt-8">
+      {{template "link/curled" .}}
+    </div>
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* Result fragment — the htmx swap target, and the body of the page above.
+     Both directions render through here; which one fired is decided by which
+     view-model keys the handler set. */}}
+{{define "link/curled"}}
+
+{{if .Curl}}
+<section>
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The command</h2>
+  <div class="mt-2">
+    <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.Curl}}</pre>
+    <button type="button" class="btn-primary mt-2"
+            onclick="var b=this;navigator.clipboard.writeText(b.previousElementSibling.textContent).then(function(){b.textContent='Copied'},function(){b.textContent='Select it and copy'})">Copy</button>
+  </div>
+  <p class="mt-2 text-xs text-muted">
+    Every value is single-quoted, and an embedded single quote is closed, escaped and reopened. That is not
+    decoration: an unquoted <span class="font-mono">&amp;</span>, <span class="font-mono">;</span> or
+    <span class="font-mono">$(…)</span> inside a URL stops being part of the URL and starts being shell
+    syntax on your machine.
+  </p>
+</section>
+{{end}}
+
+{{if .FromCurl}}
+<section>
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The URL in that command</h2>
+  <div class="mt-2 rounded-lg border border-line bg-surface p-4">
+    <p class="break-all font-mono text-sm text-strong">{{.FromCurl}}</p>
+    <p class="mt-2 text-xs text-muted">Shown as text, exactly as it was written in the command. It is taken apart below.</p>
+  </div>
+</section>
+
+{{if .Headers}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Headers</h2>
+  <p class="mt-1 text-xs text-muted">
+    In the order they were written, not merged into a map: a pasted command can repeat a header, and the
+    order is part of what was pasted.
+  </p>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">Name</th>
+          <th class="px-3 py-2 font-medium">Value</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .Headers}}
+        <tr class="align-top">
+          <td class="px-3 py-2 font-mono text-strong">{{.Name}}</td>
+          <td class="px-3 py-2 break-all font-mono text-xs text-muted">
+            {{if eq .Value ""}}<span class="italic">empty</span>{{else}}{{.Value}}{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{/* The parse itself is Inspect's, not a second implementation of it. The
+     handler put the Inspection under the same .Result key that block reads,
+     and .Linkable travels with it, so the allowlist decision stays in one
+     place. */}}
+{{if .Result}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Taken apart</h2>
+  <div class="mt-2">
+    {{template "link/inspect" .}}
+  </div>
+</section>
+{{end}}
+{{end}}
+
+{{end}}

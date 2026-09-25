@@ -1,0 +1,219 @@
+{{/* Encode / decode — page shell + result fragment (A14).
+
+     The category is crowded and undifferentiated, so this page does one thing
+     the incumbents do not: it shows QUERY and PATH encoding SIDE BY SIDE.
+     `a b` is `a+b` after a "?" and `a%20b` inside a path, `+` is a space in one
+     and a literal plus in the other, and that single difference is the most
+     common URL bug there is. Every surveyed tool hides one of the two behind a
+     dropdown, which is exactly how the difference stays invisible. The pair of
+     cards at the top of the fragment is therefore the point of the page, not
+     decoration, and the full tables below repeat both entries on purpose.
+
+     Those two cards pick their entry by matching Encoding.Name against the
+     literal names set in encode.go, rather than by index. If a name ever
+     changes, a card disappears — visibly wrong. Indexing by position would
+     instead show the WRONG value under the right heading, which is the failure
+     that matters on this page of all pages.
+
+     A failed decode renders as a stated failure, never as an empty box:
+     url.QueryUnescape returns "" plus an error on a bad escape, and a blank
+     cell reads as "this value is empty", which is a different claim about the
+     input. That is the same mistake the Inspect page exists to avoid.
+
+     Nothing here is a URL, so nothing here is ever a link: the input is a
+     VALUE, and a value that happens to look like a URL is still just text. */}}
+{{define "link/encode"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Every reading of one value at once, rather than a dropdown you have to guess at. Percent-encoding with
+      query rules and with path rules together, base64 and its URL-safe variant, HTML entities, unicode
+      escapes, and the decode ladder for anything that was encoded more than once.
+    </p>
+
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <form hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6 flex flex-wrap gap-2">
+      <input name="v" value="{{.Value}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="Value to encode and decode"
+             placeholder="hello world &amp; friends"
+             class="field min-w-0 flex-1">
+      <button type="submit" class="btn-primary">Convert</button>
+      <span role="status" class="htmx-indicator self-center text-sm text-muted">Converting…</span>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">Why a query and a path encode differently</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          A query string inherits <code class="font-mono">application/x-www-form-urlencoded</code> from HTML
+          forms, where a space is written <code class="font-mono">+</code>. A path never did, so there a space
+          is <code class="font-mono">%20</code> and <code class="font-mono">+</code> is an ordinary character.
+          <code class="font-mono">/a+b/</code> is a directory literally called
+          <code class="font-mono">a+b</code>.
+        </p>
+        <p>
+          This bites hardest with base64, where <code class="font-mono">+</code> is part of the alphabet: a
+          decoder that applies form rules to a base64 value destroys it silently.
+          <a href="/encoding" class="text-brand hover:underline">The reference page</a> has the worked
+          example.
+        </p>
+        <p>
+          The value is converted on this server and nothing is fetched. It does travel here like any other
+          input, so the usual rule holds: don't paste a live token into a web tool, this one included.
+        </p>
+      </div>
+    </details>
+
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/encode?v=a%20b'</pre>
+      <p class="mt-1 text-xs text-muted">Both lists come back as ordered arrays carrying the note and, where one failed, the reason it failed.</p>
+    </details>
+
+    <div id="result" class="mt-8">
+      {{template "link/encoded" .}}
+    </div>
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
+{{define "link/encoded"}}
+{{with .Result}}
+
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+  <span class="text-muted">Input <span class="break-all font-mono text-strong">{{.Input}}</span></span>
+  {{if .Kind}}<span class="text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></span>{{end}}
+</div>
+
+{{/* THE point of the page. Matched by name, never by index — see the file
+     comment. */}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query rules vs path rules</h2>
+  <p class="mt-1 text-xs text-muted">
+    The same value, encoded for the two places it might go. If these two differ, putting one where the other
+    belongs is a bug that will not announce itself.
+  </p>
+  <div class="mt-2 grid gap-4 sm:grid-cols-2">
+    {{range .Encoded}}{{if eq .Name "Percent (query)"}}
+    <div class="rounded-lg border border-line bg-surface p-4">
+      <h3 class="text-sm font-semibold text-strong">After a <span class="font-mono">?</span></h3>
+      <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
+      <p class="mt-2 text-xs text-muted">{{.Note}}</p>
+    </div>
+    {{end}}{{end}}
+    {{range .Encoded}}{{if eq .Name "Percent (path)"}}
+    <div class="rounded-lg border border-line bg-surface p-4">
+      <h3 class="text-sm font-semibold text-strong">Inside a path segment</h3>
+      <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
+      <p class="mt-2 text-xs text-muted">{{.Note}}</p>
+    </div>
+    {{end}}{{end}}
+  </div>
+</section>
+
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Encoded</h2>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">As</th>
+          <th class="px-3 py-2 font-medium">Value</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .Encoded}}
+        <tr class="align-top">
+          <td class="px-3 py-2 text-strong">{{.Name}}</td>
+          <td class="px-3 py-2">
+            {{if .Err}}
+              <span class="text-xs text-danger">Could not encode: {{.Err}}</span>
+            {{else if eq .Value ""}}
+              <span class="text-xs italic text-muted">empty string</span>
+            {{else}}
+              <span class="break-all font-mono text-strong">{{.Value}}</span>
+            {{end}}
+            {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Decoded</h2>
+  <p class="mt-1 text-xs text-muted">
+    Every reading attempted, including the ones that failed. A failure is said out loud rather than shown as
+    an empty cell, because an empty cell would claim the value decodes to nothing.
+  </p>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">Read as</th>
+          <th class="px-3 py-2 font-medium">Result</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .Decoded}}
+        <tr class="align-top">
+          <td class="px-3 py-2 text-strong">{{.Name}}</td>
+          <td class="px-3 py-2">
+            {{if .Err}}
+              <span class="text-xs text-danger">Not valid as {{.Name}}: {{.Err}}</span>
+            {{else if eq .Value ""}}
+              <span class="text-xs italic text-muted">decodes to the empty string</span>
+            {{else}}
+              <span class="break-all font-mono text-strong">{{.Value}}</span>
+            {{end}}
+            {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{{if .Layers}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">It decodes further</h2>
+  <p class="mt-1 text-xs text-muted">
+    The same ladder the Inspect page runs on every parameter, one rung at a time with the method named. A
+    value that was encoded twice peels here rather than needing a second paste.
+  </p>
+  <ol class="mt-2 space-y-1 rounded-lg border border-line bg-surface p-4">
+    {{range .Layers}}
+    <li class="text-sm">
+      <span class="text-xs text-muted">{{.Depth}}. {{.Method}}</span>
+      <pre class="mt-0.5 whitespace-pre-wrap break-all font-mono text-strong">{{.Value}}</pre>
+    </li>
+    {{end}}
+  </ol>
+</section>
+{{end}}
+
+<p class="mt-6 text-sm">
+  <a href="/encoding" class="text-brand hover:underline">What percent-encoding actually reserves</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/" class="text-brand hover:underline">Inspect a whole URL instead</a>
+</p>
+
+{{end}}
+{{end}}
