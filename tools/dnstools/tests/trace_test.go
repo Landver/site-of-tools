@@ -28,6 +28,27 @@ func uncheckedLinks(tr *dnstools.Trace) []string {
 	return out
 }
 
+// uncheckedAbove is the same thing for a test whose whole subject is the
+// verdict on ONE zone: it reports the links the walk could not read on the way
+// down, and says nothing about the zone under test.
+//
+// The distinction matters because a skip is also how a regression hides. A
+// validator that answered "could not tell" to everything would walk straight
+// through every uncheckedLinks() skip in this file and out the other side with
+// a green run — including the one test that proves the verification is real at
+// all. So the zones above are allowed to be unreadable (the root and most TLD
+// DNSKEY sets are large enough that a blocked TCP retry is routine); the zone
+// being judged is not.
+func uncheckedAbove(tr *dnstools.Trace, zone string) []string {
+	var out []string
+	for _, l := range tr.Chain {
+		if l.Status == "indeterminate" && !strings.EqualFold(l.Zone, zone) {
+			out = append(out, l.Zone+": "+l.Detail)
+		}
+	}
+	return out
+}
+
 // Live tests here deliberately do NOT call t.Parallel(). The whole suite
 // queries the same handful of public servers, and running these concurrently
 // got the box rate-limited into random timeouts — a flaky deploy gate caused
@@ -156,8 +177,13 @@ func TestTraceCallsABrokenChainBogus(t *testing.T) {
 	if tr.Truncated || tr.AnswerZone == "" {
 		t.Skip("the walk did not finish — upstream trouble, not a code failure")
 	}
-	if bad := uncheckedLinks(tr); len(bad) > 0 {
-		t.Skipf("a link of the chain could not be checked from here (%s) — upstream trouble, not a code failure", strings.Join(bad, "; "))
+	// Above the zone only. dnssec-failed.org.'s own link is the subject: if
+	// THAT came back unreadable there is nothing upstream to blame — its key
+	// set is two RSA keys and arrives in one packet — and turning it into a
+	// skip would let the one test that proves this verifier is not a no-op
+	// pass by never running.
+	if bad := uncheckedAbove(tr, "dnssec-failed.org."); len(bad) > 0 {
+		t.Skipf("a link above the zone could not be checked from here (%s) — upstream trouble, not a code failure", strings.Join(bad, "; "))
 	}
 	if tr.DNSSEC != "bogus" {
 		t.Fatalf("DNSSEC = %q for a deliberately-broken zone, want bogus. Chain: %+v", tr.DNSSEC, tr.Chain)
@@ -477,4 +503,47 @@ func hasNote(tr *dnstools.Trace, level string) bool {
 		}
 	}
 	return false
+}
+
+// The guard on every skip in this file.
+//
+// Each live test above steps aside when a link of its chain came back
+// unreadable, which is right on its own terms: the root and TLD DNSKEY sets
+// are large, a blocked TCP retry is routine, and a lost packet must not read
+// as a blocked deploy. Taken together those skips are also a blind spot. A
+// verifier that regressed into answering "could not tell" to everything — the
+// opposite failure from the one this file's last fix was about, and just as
+// useless — would satisfy every one of them and finish the run green.
+//
+// So this test asserts the property those skips cannot: the walk still reaches
+// "secure" SOMEWHERE. Five names, five separate sets of nameservers, five
+// registries. Upstream trouble takes one of them out at a time; nothing short
+// of a broken verifier takes out all five at once.
+func TestTraceStillProvesASignedNameSecure(t *testing.T) {
+	requireEgress(t)
+	svc := dnstools.NewService(6 * time.Second)
+
+	// Signed, and long-lived enough to pin a test to: the registry that runs
+	// the root zone's own TLD, IANA, two DNS operators and the IETF.
+	signed := []string{"cloudflare.com", "iana.org", "verisign.com", "nlnetlabs.nl", "ietf.org"}
+
+	var why []string
+	for _, name := range signed {
+		tr, err := svc.Trace(context.Background(), name, "A")
+		switch {
+		case err != nil:
+			why = append(why, name+": "+err.Error())
+			continue
+		case tr.DNSSEC == "secure":
+			// One is enough. The verifier is demonstrably still capable of a
+			// positive verdict, so the skips above are skips and not cover.
+			return
+		case tr.DNSSEC == "bogus":
+			// Not a flake in any direction: these names validate everywhere.
+			t.Fatalf("%s was reported bogus: %q. Chain: %+v", name, tr.Verdict.Text, tr.Chain)
+		}
+		why = append(why, name+": "+tr.DNSSEC+" ("+strings.Join(uncheckedLinks(tr), "; ")+")")
+	}
+	t.Fatalf("not one of these %d signed names verified end to end: %s. A lost packet does that to one name at a time, not to all of them at once — and this is exactly the state in which every other live trace test in this file skips rather than fails.",
+		len(signed), strings.Join(why, " | "))
 }

@@ -362,9 +362,30 @@ Resolved from [02-build-fit.md §5](02-build-fit.md#5-open-questions-for-the-own
   the fragment it leaves behind as the zone's whole key set had `/trace`
   calling the root zone and `org.` broken several times an hour on a healthy
   network. `traceUnreadable` and `traceKeySetVerdict` in `trace.go` hold that
-  rule in one place each, and are unit-tested branch by branch. A wrong
-  "broken" is worse than a wrong "steered" because it is alarming, and it is
-  the same reason the propagation grid above was declined.
+  rule in one place each, and are tested branch by branch — over a real socket,
+  through `query()`, because the struct that reaches the classifier is built by
+  `query()` and a test that constructs it by hand is asserting the author's
+  belief about that mapping rather than the mapping.
+  Two corollaries, both of them mistakes this rule was written down to prevent
+  and both of them made anyway:
+  - **A refusal is not a verdict either.** SERVFAIL, REFUSED and NOTAUTH from a
+    zone's own nameservers are `indeterminate`, not `bogus`. They are a lame
+    delegation or a server having a bad moment; no signature was examined, and
+    `bogus` prints "the signatures do not check out" over records the walk
+    never saw. One refusing server among unreachable siblings was enough to
+    reach it, because "somebody answered" is a sticky flag across every server
+    tried.
+  - **Unchecked is not unsigned.** Once a link comes back `indeterminate` the
+    chain stops being provably secure, and the zones below it are `indeterminate`
+    too, not `insecure` — and the whole-walk verdict ranks unchecked above
+    unsigned. Without that, one lost root DNSKEY packet printed "this name is
+    not signed with DNSSEC", a confident statement of fact, across a fully
+    signed name. A wrong "broken" is worse than a wrong "steered" because it is
+    alarming; a wrong "unsigned" is worse still because nobody notices.
+  The live tests skip on upstream trouble, so one of them
+  (`TestTraceStillProvesASignedNameSecure`) exists to fail when they all would:
+  a verifier that answered "could not tell" to everything satisfies every skip
+  in the file, and is exactly as useless as one that answers "broken".
 
 ## Egress: verified
 

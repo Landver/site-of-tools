@@ -29,16 +29,39 @@ func TestEmailAuthOnARealMailDomain(t *testing.T) {
 	// a real, fully-configured mail domain parses into all three; which domain
 	// supplies it is not. So: walk a few, assert in full on the first that
 	// answers completely, skip only if none of them did.
+	candidates := []string{"github.com", "microsoft.com", "cloudflare.com", "paypal.com"}
 	var e *dnstools.EmailAuth
-	for _, domain := range []string{"github.com", "microsoft.com", "cloudflare.com", "paypal.com"} {
+	var sawMX, sawSPF, sawDMARC int
+	for _, domain := range candidates {
 		got, err := svc.EmailAuth(context.Background(), domain)
-		if err != nil || got == nil || !got.HasMX || got.SPF == nil || got.DMARC == nil {
+		if err != nil || got == nil {
 			continue
 		}
-		e = got
-		break
+		if got.HasMX {
+			sawMX++
+		}
+		if got.SPF != nil {
+			sawSPF++
+		}
+		if got.DMARC != nil {
+			sawDMARC++
+		}
+		if got.HasMX && got.SPF != nil && got.DMARC != nil {
+			e = got
+			break
+		}
 	}
 	if e == nil {
+		// The skip has to be able to tell "the packets went missing" from
+		// "the parser stopped working", or a regression in either reader hides
+		// behind it forever and this test passes by never running. All four of
+		// these domains publish all three records, so a run that reached their
+		// zones and came back with no SPF at all, or no DMARC at all, is this
+		// package.
+		if sawMX > 0 && (sawSPF == 0 || sawDMARC == 0) {
+			t.Fatalf("%d of %d candidate domains answered with MX, and SPF parsed %d times, DMARC %d times. That is not lost packets: one of the two readers is returning nothing.",
+				sawMX, len(candidates), sawSPF, sawDMARC)
+		}
 		t.Skip("no candidate mail domain returned MX, SPF and DMARC together — upstream trouble, not a code failure")
 	}
 	if e.SPF.Lookups <= 0 {

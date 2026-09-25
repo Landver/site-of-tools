@@ -290,6 +290,17 @@ type traceServer struct {
 	IP6  string
 }
 
+// traceAddrOverride is the seam that lets a test point the walk at a
+// nameserver on loopback, which traceRoutable exists to forbid. It is the same
+// arrangement dns.go's resolverOverride uses, and for the same reason: without
+// it the classification code below can only ever be driven by hand-built
+// structs, and the branch that told the root zone its chain of trust was
+// broken is reachable only through a real reply off a real wire.
+//
+// nil in production. Assigned once from TestMain, before any test goroutine
+// exists, so nothing here needs a lock.
+var traceAddrOverride func(ip string) (string, bool)
+
 // addr returns the address to send to, preferring IPv4, or "" when neither
 // address is one we are willing to send a packet to. The nameserver names come
 // from zones the caller chose, so this is the guard that stops a hostile
@@ -297,7 +308,15 @@ type traceServer struct {
 // rule spread.go's nameserverAddress applies, tightened by traceRoutable.
 func (t traceServer) addr() string {
 	for _, ip := range [...]string{t.IP, t.IP6} {
-		if ip != "" && traceRoutable(ip) {
+		if ip == "" {
+			continue
+		}
+		if traceAddrOverride != nil {
+			if a, ok := traceAddrOverride(ip); ok {
+				return a
+			}
+		}
+		if traceRoutable(ip) {
 			return net.JoinHostPort(ip, "53")
 		}
 	}
@@ -382,6 +401,26 @@ type traceWalk struct {
 	// and a sixth public field spelling out the same thing would be a second
 	// place for the two to disagree.
 	answer string
+	// unchecked: the chain stopped being provably secure because a link could
+	// not be READ, not because a delegation was unsigned.
+	//
+	// The walk collapses both into one `secure` flag, and every zone below the
+	// cut then gets the same sentence. Those are opposite statements. "The
+	// delegation above this one is unsigned" about a zone under a DNSKEY
+	// packet that merely went missing is the same false verdict this file
+	// exists to avoid, just the quiet one — and verdict() ranks insecure above
+	// indeterminate, so one lost root DNSKEY packet printed "this name is not
+	// signed with DNSSEC" across a fully signed name.
+	unchecked bool
+}
+
+// noteLinkStatus records what one finished chain link means for everything
+// below it. Called once per link, by both the main walk and crossHiddenCut, so
+// the two cannot drift.
+func (w *traceWalk) noteLinkStatus(status string) {
+	if status == traceUnknown {
+		w.unchecked = true
+	}
 }
 
 // What the walk can say about the DATA it shows, as opposed to the delegation
@@ -522,6 +561,7 @@ func (w *traceWalk) run(qname, qtype string) {
 		w.out.Chain = append(w.out.Chain, link)
 		if link.Status != traceSecure {
 			secure = false
+			w.noteLinkStatus(link.Status)
 		}
 
 		// 2. Ask this zone's servers the question the visitor actually typed.
@@ -654,6 +694,7 @@ func (w *traceWalk) crossHiddenCut(zone, cut string, servers []traceServer, keys
 	w.out.Chain = append(w.out.Chain, link)
 	if link.Status != traceSecure {
 		secure = false
+		w.noteLinkStatus(link.Status)
 	}
 	return cut, childKeys, secure
 }
@@ -743,6 +784,15 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 	}
 
 	switch {
+	case !secure && w.unchecked:
+		// The chain stopped being secure because a link could not be READ.
+		// Repeating "the delegation above this one is unsigned" down the rest
+		// of the ladder states the opposite of what happened, and it is the
+		// statement verdict() then turns into "this name is not signed with
+		// DNSSEC" about a name that may be perfectly well signed.
+		link.Status = traceUnknown
+		link.Detail = "A link above this one could not be checked from here, so nothing below it can be verified either. That is a gap in what this walk could reach, not a finding about this zone or the delegation above it."
+		return link, nil
 	case !secure:
 		link.Status = traceInsecure
 		link.Detail = "The delegation above this one is unsigned, so nothing below it can be validated, signed or not."
@@ -854,7 +904,23 @@ func traceKeySetVerdict(r traceReply, walkStopped bool) (status, detail string, 
 	case r.unreadable != "":
 		return traceUnknown, "This zone's servers answered the DNSKEY query with a truncated message and the retry over TCP did not complete, so only a fragment of the key set ever arrived. A fragment is not evidence about the zone: the key the parent's DS points at may be sitting in the part that never got here.", false
 	default:
-		return traceBogus, "The parent publishes a DS record for this zone, but the zone's servers answered the DNSKEY query with an error rather than a key set, so the chain cannot be completed. A validating resolver gets the same answer.", false
+		// Every server that spoke answered with an rcode instead of records:
+		// SERVFAIL, REFUSED or NOTAUTH, which is what query() sorts into
+		// `skipped` while setting `answered`. That is the same condition
+		// traceUnreadable already refuses to reason from one line above, and
+		// it has to be refused here too or the rule holds only for the paths
+		// that happen to carry the message this far.
+		//
+		// A refusal is a fact about a server, not about a key set. REFUSED and
+		// NOTAUTH are a lame delegation — a server listed for a zone it does
+		// not serve — and the walk has a note of its own for that. SERVFAIL is
+		// a server having a bad moment, or a middlebox having one on its
+		// behalf. None of them is anybody's signature failing, and `bogus`
+		// prints the sentence "the signatures do not check out" over records
+		// this walk never saw. One lame server among unreachable siblings was
+		// enough to reach it: `answered` is a sticky OR across every server
+		// tried, so twelve timeouts and one REFUSED landed here.
+		return traceUnknown, "This zone's nameservers answered the query for its DNSKEY set with an error rather than a key set, so the chain could not be checked here. A server refusing or failing a query is a fault on the way to the keys, not a finding about them: no signature was examined either way.", false
 	}
 }
 
@@ -1410,10 +1476,16 @@ func (w *traceWalk) verdict() {
 		// authoritative answer" — which was untrue whenever the answer arrived
 		// and the key fetch after it was what ran out of time.
 		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "This walk did not finish: it stopped at its own limits before it could check the whole chain. There is no DNSSEC verdict to give, and nothing above is a finding about the name."}
-	case insecure:
-		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "info", Text: "This name is not signed with DNSSEC. That is the ordinary state of most of the internet and is not a fault: it simply means answers for this name cannot be cryptographically verified, only trusted to have come from the right servers."}
+	// Unchecked outranks unsigned, and the order is the whole point. A link
+	// nobody could read turns every link below it into a "cannot verify", and
+	// ranking unsigned first printed "this name is not signed with DNSSEC" —
+	// a confident statement of fact — on the strength of one DNSKEY packet
+	// that went missing above. Saying nothing is allowed; saying the wrong
+	// thing quietly is not.
 	case unknown:
 		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "One link of the chain could not be checked from here, so there is no verdict to give. See the chain below for which one and why. This is a statement about what this walk could reach, not about the zone: it is not evidence of anything being wrong."}
+	case insecure:
+		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "info", Text: "This name is not signed with DNSSEC. That is the ordinary state of most of the internet and is not a fault: it simply means answers for this name cannot be cryptographically verified, only trusted to have come from the right servers."}
 	default:
 		// The chain verified end to end. What remains is what can be said
 		// about the DATA, which is a separate question and used to be answered

@@ -28,6 +28,16 @@ var testResolvers = struct {
 	m  map[string]string
 }{m: map[string]string{}}
 
+// testNameservers holds the loopback authoritative servers a trace test has
+// registered, keyed by the fake "IP" its traceServer carries. Same shape and
+// same guarding as testResolvers above; a separate map because it feeds a
+// different seam (traceAddrOverride, which returns a host:port rather than
+// resolving an allowlist key).
+var testNameservers = struct {
+	mu sync.RWMutex
+	m  map[string]string
+}{m: map[string]string{}}
+
 func TestMain(m *testing.M) {
 	// Assigned once here, before any test goroutine exists, so no parallel
 	// test can read the seam while another writes it.
@@ -37,7 +47,53 @@ func TestMain(m *testing.M) {
 		addr, ok := testResolvers.m[key]
 		return addr, ok
 	}
+	traceAddrOverride = func(ip string) (string, bool) {
+		testNameservers.mu.RLock()
+		defer testNameservers.mu.RUnlock()
+		addr, ok := testNameservers.m[ip]
+		return addr, ok
+	}
 	os.Exit(m.Run())
+}
+
+// serveNS starts a UDP-only DNS server on loopback answering with h, and
+// returns a traceServer the walk will actually send packets to.
+//
+// UDP only, deliberately: ask() retries a truncated answer over TCP, and a
+// server with no TCP listener is exactly the shape of the failure this whole
+// guard exists for — a TC=1 reply whose retry cannot complete, which is what
+// the root's oversized DNSKEY set produces on a path that blocks port 53 TCP.
+func serveNS(t *testing.T, h dns.HandlerFunc) traceServer {
+	t.Helper()
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &dns.Server{PacketConn: pc, Handler: h}
+	started := make(chan struct{})
+	srv.NotifyStartedFunc = func() { close(started) }
+	go func() {
+		if err := srv.ActivateAndServe(); err != nil {
+			t.Logf("test nameserver stopped: %v", err)
+		}
+	}()
+	<-started
+	t.Cleanup(func() { _ = srv.Shutdown() })
+
+	addr := pc.LocalAddr().String()
+	// Not an IP on purpose: traceRoutable would reject it, so a test that
+	// forgot to register it reaches nothing rather than some real host.
+	ip := "ns-" + addr
+	testNameservers.mu.Lock()
+	testNameservers.m[ip] = addr
+	testNameservers.mu.Unlock()
+	t.Cleanup(func() {
+		testNameservers.mu.Lock()
+		delete(testNameservers.m, ip)
+		testNameservers.mu.Unlock()
+	})
+	return traceServer{Name: "ns." + ip + ".", IP: ip}
 }
 
 // testZone: canned answers in presentation format, keyed by owner name and

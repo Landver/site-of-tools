@@ -876,14 +876,19 @@ func TestTraceKeySetVerdictWillNotCallALostPacketBroken(t *testing.T) {
 		t.Errorf("a walk that stopped gave %q, want %q", status, traceInsecure)
 	}
 
-	// The verifier must not have become a no-op. A server that answered with
-	// SERVFAIL or REFUSED is still the zone's own servers failing to serve the
-	// keys its parent's DS promises...
-	if status, _, _ = traceKeySetVerdict(traceReply{answered: true}, false); status != traceBogus {
-		t.Errorf("servers answering the DNSKEY query with an error gave %q, want %q", status, traceBogus)
+	// Every server answered with an rcode instead of records — SERVFAIL,
+	// REFUSED or NOTAUTH, which is what query() records as `answered` with no
+	// message. That is the same condition traceUnreadable refuses to reason
+	// from when it arrives inside a message, and it has to be refused here
+	// too: a refusal is a fact about a server, and `bogus` prints "the
+	// signatures do not check out" over records this walk never saw.
+	if status, detail, _ = traceKeySetVerdict(traceReply{answered: true}, false); status != traceUnknown {
+		t.Errorf("servers answering the DNSKEY query with an error gave %q, want %q", status, traceUnknown)
 	}
-	// ...and a whole NOERROR message is still read, so a zone that genuinely
-	// serves no keys under a DS is still caught.
+	accuses(t, detail)
+	// The verifier must not have become a no-op, though: a whole NOERROR
+	// message is still read, so a zone that genuinely serves no keys under a
+	// DS is still caught.
 	if _, _, usable = traceKeySetVerdict(traceReply{msg: new(dns.Msg), answered: true}, false); !usable {
 		t.Error("a whole NOERROR reply was not read as a key set")
 	}
