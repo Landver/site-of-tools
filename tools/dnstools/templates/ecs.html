@@ -70,40 +70,46 @@
     {{end}}
   </p>
 
-  <dl class="spec mt-3 grid-cols-[1fr_auto]">
+  {{/* One left column, not a label/value pair pushed to opposite edges. This
+       card is full width, so a right-aligned answer column put half a screen
+       of nothing between a network and the records it was given. The answers
+       sit directly under the network that asked for them. */}}
+  <div class="mt-3 space-y-3 text-sm">
     {{range .Vantages}}
-    <dt class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
-      {{.Place}}
-      <span class="block font-mono text-faint">{{.Subnet}}</span>
-      {{if .Error}}
-      {{else if .Mismatch}}
-        {{/* A well-formed scope about a network we never probed. Printing it
-             as if it described this row is how someone else's cached answer
-             ends up carrying our verdict, so the prefix is named. */}}
-        <span class="block text-warn">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
-      {{else if .Echoed}}
-        {{/* Scope against the length THIS row sent, printed together: equal
-             is an echo and says nothing, shorter (or longer) is a number the
-             zone had to choose. Reading "/24, tailored" off an echo is how
-             this card used to overclaim. */}}
-        {{if not .Scope}}<span class="block text-faint">scope 0, not tailored</span>
-        {{else if eq .Scope .SourceNetmask}}<span class="block text-faint">scope /{{.Scope}}, the length we sent</span>
-        {{else}}<span class="block text-ok">scope /{{.Scope}}, the zone's own block</span>{{end}}
-      {{else}}<span class="block text-faint">no scope returned</span>{{end}}
-    </dt>
-    <dd class="text-right">
-      {{if .Error}}<span class="text-danger">{{.Error}}</span>
-      {{else}}
-        <span class="font-mono text-xs text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
-        {{/* An empty answer set is a real outcome (NODATA), and printing
-             nothing beside a row reads as "this vantage said nothing". */}}
-        {{if not .Values}}<span class="text-xs text-muted">no {{$.ECS.Type}} record{{if .Rcode}} ({{.Rcode}}){{end}}</span>{{end}}
-        {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
-        <span class="block text-xs text-faint">{{.RTTMS}} ms</span>
-      {{end}}
-    </dd>
+    <div>
+      <div class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
+        {{.Place}}
+        <span class="font-mono text-faint">{{.Subnet}}</span>
+        {{if .Error}}
+        {{else if .Mismatch}}
+          {{/* A well-formed scope about a network we never probed. Printing it
+               as if it described this row is how someone else's cached answer
+               ends up carrying our verdict, so the prefix is named. */}}
+          <span class="block text-warn">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
+        {{else if .Echoed}}
+          {{/* Scope against the length THIS row sent, printed together: equal
+               is an echo and says nothing, shorter (or longer) is a number the
+               zone had to choose. Reading "/24, tailored" off an echo is how
+               this card used to overclaim. */}}
+          {{if not .Scope}}<span class="block text-faint">scope 0, not tailored</span>
+          {{else if eq .Scope .SourceNetmask}}<span class="block text-faint">scope /{{.Scope}}, the length we sent</span>
+          {{else}}<span class="block text-ok">scope /{{.Scope}}, the zone's own block</span>{{end}}
+        {{else}}<span class="block text-faint">no scope returned</span>{{end}}
+      </div>
+      <div class="mt-1">
+        {{if .Error}}<span class="text-danger">{{.Error}}</span>
+        {{else}}
+          <span class="font-mono text-xs text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
+          {{/* An empty answer set is a real outcome (NODATA), and printing
+               nothing under a row reads as "this vantage said nothing". */}}
+          {{if not .Values}}<span class="text-xs text-muted">no {{$.ECS.Type}} record{{if .Rcode}} ({{.Rcode}}){{end}}</span>{{end}}
+          {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
+          <span class="block text-xs text-faint">{{.RTTMS}} ms</span>
+        {{end}}
+      </div>
+    </div>
     {{end}}
-  </dl>
+  </div>
 
   {{if .Notes}}
   <div class="mt-3 border-t border-line pt-2">
