@@ -1,0 +1,212 @@
+{{/* Short-link console.
+
+     Read-only in the browser and KEY-GATED. Without a key this renders the
+     create form and nothing else: a public list of every alias and its target
+     hands over the whole corpus with no guessing, which defeats the code
+     entropy outright, and turns hits/last-hit into a read-receipt oracle
+     showing whether and when a recipient clicked (docs/04-short-links.md §8).
+
+     CreatedIP is json:"-" on the struct, but a struct tag means nothing to a
+     template — it is simply never referenced here. */}}
+{{define "link/short"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Short aliases on a domain I own. <strong class="text-strong">This is not a public shortener</strong> and
+      never will be: creating a link needs a key. An open shortener becomes a phishing relay within days, and
+      the blocklisting that follows takes the whole domain with it, not just the offending link.
+    </p>
+
+    {{if .Disabled}}
+      <div class="mt-6 alert-error">
+        Short links are switched off on this server: no storage configured, or no API key set.
+        The redirect path keeps working for links that already exist.
+      </div>
+    {{else}}
+
+    {{/* The key lives in localStorage and is attached by htmx as a HEADER, never
+         as a query parameter or a form field — a query parameter would land in
+         the server log, in the browser's history and in any referrer. This is
+         also the only way the console can work in a browser at all: a page
+         navigation cannot carry a custom header, so the alias list is loaded by
+         htmx rather than rendered by the initial GET. */}}
+    <section class="mt-6 rounded-lg border border-line bg-surface p-4">
+      <h2 class="text-sm font-semibold text-strong">Operator key</h2>
+      <p class="mt-1 text-xs text-muted">
+        Kept in this browser's local storage and sent as <code class="font-mono">X-Api-Key</code>.
+        Never placed in a URL. Creating a link and listing existing ones both require it.
+      </p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <input id="apikey" type="password" autocomplete="off" spellcheck="false"
+               aria-label="Operator API key" placeholder="X-Api-Key" class="field min-w-0 flex-1">
+        <button type="button" id="loadlist" class="btn-primary"
+                hx-get="/short" hx-target="#aliases" hx-swap="innerHTML"
+                hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
+          Load aliases
+        </button>
+      </div>
+    </section>
+
+    <section class="mt-4 rounded-lg border border-line bg-surface p-4">
+      <h2 class="text-sm font-semibold text-strong">Create</h2>
+      <form hx-post="/short" hx-target="#result" hx-swap="innerHTML" hx-disabled-elt="find button"
+            hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'
+            class="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+        <input name="url" required autocomplete="off" spellcheck="false" aria-label="URL to shorten"
+               placeholder="https://example.com/a/very/long/path?utm_source=x" class="field min-w-0">
+        <input name="slug" autocomplete="off" spellcheck="false" aria-label="Custom slug (optional)"
+               placeholder="optional-slug" class="field w-40">
+        <button type="submit" class="btn-primary">Shorten</button>
+        {{/* note and ttl are bound by createRequest and documented in the API
+             contract, but had no control here — so both were reachable only by
+             hand-writing curl, and a note could never be set from the console
+             that exists to display it. */}}
+        <input name="note" autocomplete="off" aria-label="Note (optional)" maxlength="256"
+               placeholder="what is this link for?" class="field min-w-0 sm:col-span-2">
+        <input name="ttl" autocomplete="off" spellcheck="false" aria-label="Expiry (optional Go duration)"
+               placeholder="720h — blank = permanent" class="field w-40">
+        {{/* Inside the form. It previously carried form="", which detaches a
+             control from every form, so "clean" was never actually submitted. */}}
+        <label class="flex items-center gap-2 text-xs text-muted sm:col-span-3">
+          <input type="checkbox" name="clean" value="true" checked>
+          Strip tracking parameters before storing (the original is kept, so a rule mistake stays recoverable)
+        </label>
+      </form>
+    </section>
+
+    {{if .Error}}<div class="mt-4 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false"></div>
+    <div id="aliases" class="mt-8"></div>
+
+    <script>
+      // Persist the key across reloads so the operator types it once. Wrapped
+      // because storage throws in a private window, and a console that cannot
+      // remember a key is still a usable console.
+      (function () {
+        var el = document.getElementById('apikey')
+        try { el.value = localStorage.getItem('linkApiKey') || '' } catch (e) {}
+        el.addEventListener('change', function () {
+          try { localStorage.setItem('linkApiKey', el.value) } catch (e) {}
+        })
+      })()
+    </script>
+    {{end}}
+
+    <details class="mt-8 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl -X POST {{.Base}}/short \
+  -H 'X-Api-Key: …' -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com/long","clean":true}'</pre>
+    </details>
+  </main>
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* Fragment for a freshly created link, swapped into #result. */}}
+{{define "link/created"}}
+{{with .Created}}
+<div class="rounded-lg border border-ok bg-surface p-4">
+  <p class="font-mono text-sm text-strong">{{.Short}}</p>
+  {{if .Cleaned}}
+  <p class="mt-2 text-xs text-muted">
+    Stripped before storing: {{range $i, $c := .Cleaned}}{{if $i}}, {{end}}<span class="font-mono">{{$c}}</span>{{end}}.
+    The original is kept.
+  </p>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{/* Alias list, swapped into #aliases by the "Load aliases" button.
+
+     A separate fragment because the page itself is a full document: serving
+     "link/short" as the htmx response would inject an entire <html> into a div.
+     It is also the only way this list can exist in a browser — the route gates
+     on an X-Api-Key HEADER, which a page navigation cannot send.
+
+     CreatedIP is never referenced here, and the handler projects it out before
+     rendering anyway: a json:"-" tag means nothing to a template. */}}
+{{define "link/shortlist"}}
+{{if not .Authed}}
+  <p class="text-sm text-muted">
+    That key was not accepted, so the alias list stays hidden. The list is never public:
+    publishing it would hand over every destination without anyone having to guess a code.
+  </p>
+{{else if not .Links}}
+  <p class="text-sm text-muted">No aliases yet.</p>
+{{else}}
+<h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Recent aliases</h2>
+<div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <table class="w-full text-left text-sm">
+    <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+      <tr>
+        <th class="px-3 py-2 font-medium">Code</th>
+        <th class="px-3 py-2 font-medium">Target</th>
+        <th class="px-3 py-2 font-medium">Note</th>
+        <th class="px-3 py-2 font-medium">Hits</th>
+        <th class="px-3 py-2 font-medium">Created</th>
+        <th class="px-3 py-2 font-medium">Expires</th>
+        <th class="px-3 py-2 font-medium"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-line">
+      {{range .Links}}
+      <tr class="align-top">
+        <td class="px-3 py-2 font-mono text-strong">
+          {{.Code}}{{if .RevokedAt}} <span class="text-xs text-danger">revoked</span>{{end}}
+        </td>
+        {{/* Text, never an anchor: these destinations are arbitrary and the
+             point of the page is reading them, not visiting them. */}}
+        <td class="px-3 py-2 break-all font-mono text-xs text-muted">{{.Target}}</td>
+        <td class="px-3 py-2 text-xs text-muted">{{.Note}}</td>
+        <td class="px-3 py-2 font-mono text-muted">{{.Hits}}</td>
+        <td class="px-3 py-2 text-xs text-muted">{{.CreatedAt.Format "2006-01-02"}}</td>
+        <td class="px-3 py-2 text-xs text-muted">{{if .ExpiresAt}}{{.ExpiresAt.Format "2006-01-02"}}{{else}}never{{end}}</td>
+        <td class="px-3 py-2 text-right">
+          {{/* The kill switch had a route and no control, so it was curl-only,
+               while the table below already rendered a "revoked" badge for a
+               state the UI could not produce. Same key expression as the
+               loader: the header is the only way a browser can authenticate. */}}
+          {{if not .RevokedAt}}
+          <button type="button" class="text-xs text-danger hover:underline"
+                  hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
+                  hx-confirm="Revoke {{.Code}}? Existing copies of this link stop working. The code is never reused."
+                  hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
+            Revoke
+          </button>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+{{end}}
+
+{{/* Revoke confirmation. Its own fragment because reusing link/created gave a
+     ZERO-LENGTH body: that template is wrapped in {{with .Created}}, which
+     shortRevoke never sets, so an htmx revoke returned 200 with nothing in it
+     and the page looked like the click had done nothing. */}}
+{{define "link/revoked"}}
+{{with .Revoked}}
+<div class="rounded-lg border border-warn bg-surface p-4">
+  <p class="text-sm text-strong"><span class="font-mono">{{.}}</span> is revoked.</p>
+  <p class="mt-1 text-xs text-muted">
+    It stops resolving immediately, not after a cache expires. The code is never reissued —
+    a reused code would silently change where every existing copy of that link goes.
+    Reload the list to see it marked.
+  </p>
+</div>
+{{end}}
+{{end}}

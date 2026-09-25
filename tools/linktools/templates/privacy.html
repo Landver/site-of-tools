@@ -1,0 +1,57 @@
+{{define "link/privacy"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+  <main class="page-main">
+    <h1 class="text-2xl font-semibold text-strong">Corpberry Link extension — privacy</h1>
+    <p class="mt-2 text-sm text-muted">Served from the application so it versions with the code rather than rotting in a document somewhere.</p>
+
+    <section class="mt-8 space-y-4 text-sm text-muted">
+      <div>
+        <h2 class="font-semibold text-strong">What the extension sends</h2>
+        <p class="mt-1">
+          When you choose <strong class="text-strong">Copy Short Link Address</strong>, the address of the link
+          you right-clicked is sent to <code class="font-mono">link.corpberry.com</code> so an alias can be created
+          for it. That is the whole feature; it cannot work without sending the URL.
+        </p>
+        <p class="mt-1">
+          When you choose <strong class="text-strong">Copy Clean Link Address</strong>, <em>nothing is sent</em>.
+          Cleaning happens inside your browser against a rule table the extension caches.
+        </p>
+      </div>
+      <div>
+        <h2 class="font-semibold text-strong">What is stored</h2>
+        <p class="mt-1">
+          A short link is stored: the code, the destination, when it was created, the creating IP address
+          (for abuse handling only, never shown or served), and a hit count. There is no account and no profile.
+        </p>
+        <p class="mt-1">
+          The extension stores your API key and server setting in the browser's own extension storage.
+          That storage is not encrypted, and if you are signed into the browser it syncs to your other profiles.
+        </p>
+      </div>
+      <div>
+        <h2 class="font-semibold text-strong">What is not collected</h2>
+        <p class="mt-1">
+          No browsing history, no page content, no analytics, no advertising identifiers, no third-party
+          trackers, and nothing at all from pages you merely visit. The extension has no permission to read
+          any page: it acts only on a link you explicitly right-click.
+        </p>
+      </div>
+      <div>
+        <h2 class="font-semibold text-strong">Sharing</h2>
+        <p class="mt-1">Nothing is sold, rented or shared with anyone.</p>
+      </div>
+      <div>
+        <h2 class="font-semibold text-strong">Contact</h2>
+        <p class="mt-1">Via the repository linked in the footer.</p>
+      </div>
+    </section>
+  </main>
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

@@ -27,6 +27,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			URL:  cfg.URL("dns"),
 		},
 		{
+			Name: "Link Tools",
+			Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then strip its tracking parameters, follow where it redirects, and shorten what's left.",
+			URL:  cfg.URL("link"),
+		},
+		{
 			Name: "Bot check",
 			Desc: "Score how much your browser looks like a human vs. an automated bot: client fingerprint signals cross-checked against your connection's headers and IP reputation, with a transparent per-signal breakdown.",
 			URL:  cfg.URL("botcheck"),
@@ -47,7 +52,7 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) error {
 	e.GET("/", func(c *echo.Context) error {
 		data := map[string]any{
 			"Title": "Stas — corpberry.com",
-			"Desc":  "Open-source web tools by Stas: Bot check (transparent 68-signal bot-detection self-test) and IP Tools (lookup, reputation, subnet calculator). One Go binary, no tracking.",
+			"Desc":  "Open-source web tools by Stas: Bot check (transparent bot-detection self-test), IP Tools (lookup, reputation, subnet calculator), DNS Tools (records, propagation, email auth) and Link Tools (URL inspection, tracker stripping, short links). One Go binary, no tracking.",
 			"Tools": Tools(cfg),
 		}
 		// No htmx fragment on apex -> same template for page + fragment.

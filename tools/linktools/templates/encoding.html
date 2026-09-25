@@ -1,0 +1,114 @@
+{{/* A20 — the reference page. No logic, no input, no rate limit: it is a
+     document. It exists because every other page in this suite leads someone to
+     the same question, and because a reference page that is correct is the
+     cheapest durable traffic on a tools site. */}}
+{{define "link/encoding"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Percent-encoding, and where it differs by position</h1>
+    <p class="mt-2 text-sm text-muted">
+      The same character does not mean the same thing in a path, a query and a fragment.
+      That is the source of most URL bugs, and it is why this tool decodes each position with different rules.
+    </p>
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold text-strong">The one that catches everyone: <code class="font-mono">+</code></h2>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr><th class="px-3 py-2 font-medium">Position</th><th class="px-3 py-2 font-medium">Input</th><th class="px-3 py-2 font-medium">Decodes to</th></tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            <tr><td class="px-3 py-2">Query</td><td class="px-3 py-2 font-mono">a+b</td><td class="px-3 py-2 font-mono text-strong">a b</td></tr>
+            <tr><td class="px-3 py-2">Path</td><td class="px-3 py-2 font-mono">a+b</td><td class="px-3 py-2 font-mono text-strong">a+b</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-sm text-muted">
+        In a query string <code class="font-mono">+</code> means a space, because queries inherit
+        <code class="font-mono">application/x-www-form-urlencoded</code> from HTML forms. In a path it is an
+        ordinary character. So <code class="font-mono">/a+b/</code> is a directory literally called
+        <code class="font-mono">a+b</code>, and rendering it as <code class="font-mono">/a b/</code> is wrong.
+      </p>
+      <p class="mt-2 text-sm text-muted">
+        This matters beyond cosmetics: <code class="font-mono">+</code> is a real character in the standard base64
+        alphabet. A parser that form-decodes a base64 value destroys it. Two well-built hosted parsers
+        return opposite answers for <code class="font-mono">?q=a+b</code> and neither says the value is ambiguous,
+        which is why this tool shows both readings instead of choosing.
+      </p>
+    </section>
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold text-strong">Reserved characters (RFC 3986 §2.2)</h2>
+      <p class="mt-1 text-sm text-muted">These delimit parts of a URL. Encode them when they are data rather than structure.</p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Char</th><th class="px-3 py-2 font-medium">Encoded</th>
+              <th class="px-3 py-2 font-medium">Structural meaning</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            <tr><td class="px-3 py-2 font-mono">:</td><td class="px-3 py-2 font-mono">%3A</td><td class="px-3 py-2 text-muted">Ends the scheme; separates host from port</td></tr>
+            <tr><td class="px-3 py-2 font-mono">/</td><td class="px-3 py-2 font-mono">%2F</td><td class="px-3 py-2 text-muted">Path separator. Inside a segment, <span class="font-mono">%2F</span> is a literal slash, <em>not</em> a separator</td></tr>
+            <tr><td class="px-3 py-2 font-mono">?</td><td class="px-3 py-2 font-mono">%3F</td><td class="px-3 py-2 text-muted">Starts the query</td></tr>
+            <tr><td class="px-3 py-2 font-mono">#</td><td class="px-3 py-2 font-mono">%23</td><td class="px-3 py-2 text-muted">Starts the fragment. Never sent to the server</td></tr>
+            <tr><td class="px-3 py-2 font-mono">[ ]</td><td class="px-3 py-2 font-mono">%5B %5D</td><td class="px-3 py-2 text-muted">Wrap an IPv6 literal host</td></tr>
+            <tr><td class="px-3 py-2 font-mono">@</td><td class="px-3 py-2 font-mono">%40</td><td class="px-3 py-2 text-muted">Ends userinfo. Everything before it is a username, not the host</td></tr>
+            <tr><td class="px-3 py-2 font-mono">&amp;</td><td class="px-3 py-2 font-mono">%26</td><td class="px-3 py-2 text-muted">Separates query pairs</td></tr>
+            <tr><td class="px-3 py-2 font-mono">=</td><td class="px-3 py-2 font-mono">%3D</td><td class="px-3 py-2 text-muted">Separates a key from its value</td></tr>
+            <tr><td class="px-3 py-2 font-mono">;</td><td class="px-3 py-2 font-mono">%3B</td><td class="px-3 py-2 text-muted">A legacy pair separator. Go and most modern servers stopped accepting it in 2021</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold text-strong">Unreserved characters</h2>
+      <p class="mt-2 text-sm text-muted">
+        <code class="font-mono">A&ndash;Z a&ndash;z 0&ndash;9 - . _ ~</code> never need encoding, anywhere.
+        Encoding them is legal but produces a different-looking URL that means the same thing, which is why
+        normalising percent-encoding case and decoding unreserved octets are safe operations and dropping a
+        query parameter is not.
+      </p>
+    </section>
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold text-strong">Double encoding</h2>
+      <p class="mt-2 text-sm text-muted">
+        <code class="font-mono">%2520</code> is <code class="font-mono">%20</code> encoded again, which is a space
+        encoded twice. It usually means a URL passed through one system that encoded it and then another that
+        encoded it again. The Inspect page peels these one layer at a time and shows each rung, rather than
+        flattening them silently.
+      </p>
+      <p class="mt-2 text-sm text-muted">
+        The opposite mistake is just as common: decoding a wrapper parameter twice. A link wrapped by a mail
+        gateway holds its target encoded <em>once</em>, and a second pass eats the target's own
+        <code class="font-mono">%20</code> sequences, producing a different URL.
+      </p>
+    </section>
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold text-strong">Malformed escapes</h2>
+      <p class="mt-2 text-sm text-muted">
+        <code class="font-mono">%zz</code> is not valid, and neither is a trailing <code class="font-mono">%2</code>.
+        Go's <code class="font-mono">url.QueryUnescape</code> returns the <em>empty string</em> plus an error for
+        these, so a decoder that ignores the error silently turns
+        <code class="font-mono">?bad=%zz</code> into <code class="font-mono">?bad=</code> &mdash; which looks like a
+        real, empty value. This tool keeps the raw text and says the escape is broken.
+      </p>
+    </section>
+
+    <p class="mt-8 text-sm"><a href="/" class="text-brand hover:underline">Inspect a URL</a></p>
+  </main>
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

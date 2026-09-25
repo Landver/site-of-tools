@@ -1,0 +1,70 @@
+{{define "link/trace"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Follow a link hop by hop without opening it. Every redirect is requested separately, so you see each
+      status code, where it pointed, how long it took, and which responses set a cookie.
+    </p>
+
+    {{if .Disabled}}
+      <div class="mt-6 alert-error">
+        Tracing is switched off on this server. Nothing failed &mdash; the feature simply is not running.
+      </div>
+    {{else}}
+    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+          class="mt-6 flex flex-wrap gap-2">
+      <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+             aria-label="URL to trace" placeholder="http://bit.ly/example"
+             class="field min-w-0 flex-1">
+      <select name="ua" aria-label="Ask as"
+              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+        {{$p := .Persona}}
+        {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <button type="submit" class="btn-primary">Trace</button>
+      <span role="status" class="htmx-indicator self-center text-sm text-muted">Following…</span>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">What this cannot do</summary>
+      <div class="mt-2 space-y-2 text-muted">
+        <p>
+          <strong class="text-strong">JavaScript redirects are not followed.</strong> Following one needs a real
+          browser engine. When a page redirects with script, that is said plainly and no destination is claimed.
+        </p>
+        <p>
+          <strong class="text-strong">Some targets refuse automated requests.</strong> A 403 from a bot-protection
+          service is reported as a refusal, not as a dead link &mdash; they are different facts. Changing
+          &ldquo;ask as&rdquo; above often changes the answer, which is itself worth knowing.
+        </p>
+        <p>
+          <strong class="text-strong">Nothing here judges whether a link is safe.</strong> It reports where the
+          link goes. Deciding whether to visit it is yours.
+        </p>
+        <p>
+          Only ports 80 and 443 are dialled, and only publicly routable addresses. A redirect into a private
+          network is refused and reported rather than followed.
+        </p>
+      </div>
+    </details>
+    {{end}}
+
+    {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
+         off) rendered an empty form and looked like nothing happened. */}}
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
+      {{template "link/chain" .}}
+    </div>
+  </main>
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

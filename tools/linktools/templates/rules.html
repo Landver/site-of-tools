@@ -1,0 +1,315 @@
+{{/* The rule catalog — the page that discharges Clean's "curated, not magic"
+     promise. One define serves both the page and the htmx fragment, because
+     handler.rules passes the same name for each: nothing on this page posts, so
+     it is only ever rendered whole.
+
+     Grouped by class rather than by vendor. Class is what decides behaviour —
+     affiliate rules are off unless asked for, the other three are on — so
+     grouping by it puts the rules that will actually fire in front of the
+     reader. Rule.Class is a Go uint8 with a String method, so the grouping
+     filters compare .Class.String against literal names; four passes over one
+     slice, each branch written out in full.
+
+     Doc links ARE anchors, unlike every other URL in this suite. They are
+     compile-time constants from rules.go, not user input: this page renders no
+     pasted data at all.
+
+     .Catalog.Scope is shipped as data from rules.go for one reason — so the
+     page and the JSON API cannot drift apart, and so nobody replaces it with an
+     unfalsifiable "% of trackers removed". It is printed verbatim. */}}
+{{define "link/rules"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "link/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Every parameter the <a href="/clean" class="text-brand hover:underline">Clean</a> page strips, who sets
+      it, and what it identifies. Here in full, so you can check it rather than trust it.
+    </p>
+
+    {{template "link/rulestable" .}}
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* One tracking-rule row. A helper rather than four copies of the same six
+     cells: the class sections differ in their prose, not in their table. The
+     dot is a Rule. */}}
+{{define "link/rulerow"}}
+<tr class="align-top">
+  <td class="px-3 py-2 font-mono text-strong">
+    {{.Param}}{{if .Prefix}}<span class="text-brand">*</span>{{end}}
+  </td>
+  <td class="px-3 py-2 text-xs text-muted">
+    {{.Origin}}
+    {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
+  </td>
+  <td class="px-3 py-2 break-all text-xs text-muted">
+    {{if .Hosts}}
+      {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
+    {{else}}
+      <span class="rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
+    {{end}}
+  </td>
+  <td class="px-3 py-2 text-xs text-muted">{{if .Note}}{{.Note}}{{else}}&mdash;{{end}}</td>
+</tr>
+{{end}}
+
+{{/* The catalog itself, split out so an htmx request gets the table rather
+     than a whole <html> document swapped into a div. The page above and the
+     fragment are the same markup by construction, so they cannot drift. */}}
+{{define "link/rulestable"}}
+    {{with .Catalog}}
+    <div class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+      <span class="text-muted">Version <span class="font-mono text-strong">{{.Version}}</span></span>
+      <span class="text-muted">Tracking rules <span class="font-mono text-strong">{{len .Tracking}}</span></span>
+      <span class="text-muted">Never stripped <span class="font-mono text-strong">{{len .NeverStrip}}</span></span>
+      <span class="text-muted">Wrappers <span class="font-mono text-strong">{{len .Wrappers}}</span></span>
+    </div>
+
+    <section class="mt-8 rounded-lg border border-warn bg-surface p-4">
+      <h2 class="text-sm font-semibold text-strong">Scope</h2>
+      <p class="mt-2 text-sm text-muted">{{.Scope}}</p>
+      <p class="mt-3 text-sm text-muted">
+        What that means concretely. This catalog is hand-maintained from vendor documentation and it is
+        deliberately conservative, because a wrong deletion is worse than a missed one: a stripped parameter
+        that turned out to be functional breaks the page you were trying to reach, silently, and you have no
+        way of knowing that is what happened.
+      </p>
+      <ul class="mt-3 space-y-2 text-sm text-muted">
+        <li>
+          <strong class="text-strong">It does not guess from the shape of a name.</strong> No regular
+          expressions. A rule nobody can read at a glance is a rule nobody reviews.
+        </li>
+        <li>
+          <strong class="text-strong">Ambiguous names are scoped to a host or they are absent.</strong>
+          <code class="font-mono">ref</code> is a tracker on some sites and a git branch on others, and
+          nothing in the name separates the two.
+        </li>
+        <li>
+          <strong class="text-strong">Some known trackers are deliberately left in.</strong> Amazon's
+          <code class="font-mono">th</code> and <code class="font-mono">psc</code> choose which product
+          variant renders; Substack's <code class="font-mono">publication_id</code> and
+          <code class="font-mono">post_id</code> read as record IDs; the Shopify group is identifiable only
+          by host, and a Shopify storefront is an arbitrary custom domain. Wrong product beats a clean URL.
+        </li>
+        <li>
+          <strong class="text-strong">It will miss things.</strong> Regional ad networks especially. A URL
+          that comes back unchanged has not been certified clean; it has been checked against this list.
+        </li>
+      </ul>
+    </section>
+
+    {{/* --- tracking rules, one section per class --- */}}
+
+    <section class="mt-10">
+      <h2 class="text-lg font-semibold text-strong">Click identifiers</h2>
+      <p class="mt-1 text-sm text-muted">
+        One of these identifies a single ad click. Nothing you can see on the page depends on it. Stripped by
+        default.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Parameter</th>
+              <th class="px-3 py-2 font-medium">Set by</th>
+              <th class="px-3 py-2 font-medium">Applies to</th>
+              <th class="px-3 py-2 font-medium">Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            {{range .Tracking}}{{if eq .Class.String "click"}}{{template "link/rulerow" .}}{{end}}{{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-semibold text-strong">Session and placement breadcrumbs</h2>
+      <p class="mt-1 text-sm text-muted">
+        These record the visit, the placement or the share that brought you here. Stripped by default.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Parameter</th>
+              <th class="px-3 py-2 font-medium">Set by</th>
+              <th class="px-3 py-2 font-medium">Applies to</th>
+              <th class="px-3 py-2 font-medium">Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            {{range .Tracking}}{{if eq .Class.String "session"}}{{template "link/rulerow" .}}{{end}}{{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-semibold text-strong">Personal identifiers</h2>
+      <p class="mt-1 text-sm text-muted">
+        These identify you as an individual to the vendor that set them, not just your visit. This class is
+        the reason the Clean page exists. Stripped by default.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Parameter</th>
+              <th class="px-3 py-2 font-medium">Set by</th>
+              <th class="px-3 py-2 font-medium">Applies to</th>
+              <th class="px-3 py-2 font-medium">Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            {{range .Tracking}}{{if eq .Class.String "person"}}{{template "link/rulerow" .}}{{end}}{{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-semibold text-strong">Affiliate tags <span class="text-sm font-normal text-warn">off by default</span></h2>
+      <p class="mt-1 text-sm text-muted">
+        These attribute a sale to whoever published the link. Removing one is not the same act as removing a
+        click ID: it takes money from the person whose review you found useful. So it happens only when you
+        tick the box on the Clean page, and never silently.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Parameter</th>
+              <th class="px-3 py-2 font-medium">Set by</th>
+              <th class="px-3 py-2 font-medium">Applies to</th>
+              <th class="px-3 py-2 font-medium">Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            {{range .Tracking}}{{if eq .Class.String "affiliate"}}{{template "link/rulerow" .}}{{end}}{{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {{/* --- the deny list: what it refuses to touch --- */}}
+
+    <section class="mt-10">
+      <h2 class="text-lg font-semibold text-strong">Never stripped, whatever else matches</h2>
+      <p class="mt-1 text-sm text-muted">
+        Consulted before any rule, prefix rules included. These names look like tracking and are load-bearing,
+        so the failure mode is stored as data rather than left in a comment: here is what breaks if anyone
+        deletes one.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Parameter</th>
+              <th class="px-3 py-2 font-medium">Applies to</th>
+              <th class="px-3 py-2 font-medium">What breaks without it</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            {{range .NeverStrip}}
+            <tr class="align-top">
+              <td class="px-3 py-2 font-mono text-strong">
+                {{.Param}}{{if .Prefix}}<span class="text-brand">*</span>{{end}}
+              </td>
+              <td class="px-3 py-2 text-xs text-muted">
+                {{if .Hosts}}
+                  {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
+                {{else}}
+                  <span class="rounded bg-line px-1.5 py-0.5 text-xs text-strong">everywhere</span>
+                {{end}}
+              </td>
+              <td class="px-3 py-2 text-xs text-muted">{{.Why}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {{/* --- wrappers --- */}}
+
+    <section class="mt-10">
+      <h2 class="text-lg font-semibold text-strong">Wrappers that get unwrapped</h2>
+      <p class="mt-1 text-sm text-muted">
+        Mail gateways and link shims that carry the real destination inside the link itself. Every one of
+        these is read out of the URL text. Nothing is fetched, so the gateway never learns you looked, and a
+        wrapper whose target is a server-side token cannot be recovered here at all — that is stated rather
+        than guessed at.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-3 py-2 font-medium">Wrapper</th>
+              <th class="px-3 py-2 font-medium">Hosts</th>
+              <th class="px-3 py-2 font-medium">Carried as</th>
+              <th class="px-3 py-2 font-medium">Confidence</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            {{range .Wrappers}}
+            <tr class="align-top">
+              <td class="px-3 py-2 text-strong">
+                {{.Name}}
+                {{if .Partial}}<span class="ml-1 rounded bg-warn/20 px-1.5 py-0.5 text-xs text-warn">domain only</span>{{end}}
+                {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-xs text-brand hover:underline">docs</a>{{end}}
+              </td>
+              <td class="px-3 py-2 break-all text-xs text-muted">
+                {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
+                {{if .Path}}<span class="block font-mono text-faint">path {{.Path}}</span>{{end}}
+              </td>
+              <td class="px-3 py-2 text-xs text-muted">
+                <span class="font-mono">{{.Shape}}</span>
+                {{if .Params}}
+                <span class="block">
+                  {{range $i, $p := .Params}}{{if $i}}, {{end}}<span class="font-mono text-strong">{{$p}}</span>{{end}}
+                </span>
+                {{end}}
+              </td>
+              <td class="px-3 py-2 text-xs">
+                {{if eq .Conf "high"}}
+                  <span class="rounded bg-ok/20 px-1.5 py-0.5 text-ok">high</span>
+                {{else}}
+                  <span class="rounded bg-warn/20 px-1.5 py-0.5 text-warn">{{.Conf}}</span>
+                {{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {{end}}
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/clean/rules'</pre>
+      <p class="mt-1 text-xs text-muted">
+        The same tables, verbatim. The response carries an <code class="font-mono">ETag</code> equal to the
+        version above, so a client that caches the catalog can revalidate with
+        <code class="font-mono">If-None-Match</code> and get a 304 back.
+      </p>
+    </details>
+
+    <p class="mt-8 text-sm">
+      <a href="/clean" class="text-brand hover:underline">Clean a URL</a>
+      <span class="text-muted">&middot;</span>
+      <a href="/" class="text-brand hover:underline">Inspect one instead</a>
+    </p>
+{{end}}

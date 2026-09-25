@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Corpberry Link — options</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 1.25rem; font-weight: 600; }
+    input { width: 100%; padding: .5rem; margin-top: .25rem; font: inherit; box-sizing: border-box; }
+    p.hint { color: #666; margin: .25rem 0 0; font-size: .875rem; }
+    button { margin-top: 1.25rem; padding: .5rem 1rem; font: inherit; }
+    #status { margin-left: .75rem; color: #2e7d32; }
+  </style>
+</head>
+<body>
+  <h1>Corpberry Link</h1>
+
+  <label for="key">API key</label>
+  <input id="key" type="password" autocomplete="off" spellcheck="false">
+  <p class="hint">
+    Needed only for <strong>Copy Short Link Address</strong>. Cleaning works without it.
+    This key is stored in <code>chrome.storage.sync</code>, which is not encrypted and syncs to
+    every Chrome profile signed into your Google account.
+  </p>
+
+  <label for="base">Server</label>
+  <input id="base" type="url" placeholder="https://link.corpberry.com" spellcheck="false">
+  <p class="hint">
+    Leave blank for the default. Only <code>https://link.corpberry.com</code> and a loopback
+    address (<code>http://link.localhost:8080</code>) are accepted &mdash; anything else falls back
+    to the default, so a typo here can never send your key to someone else's server.
+  </p>
+
+  <button id="save">Save</button><span id="status"></span>
+
+  <script src="options.js"></script>
+</body>
+</html>

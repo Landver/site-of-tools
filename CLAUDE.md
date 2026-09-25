@@ -23,10 +23,11 @@ stack. Favor simple, idiomatic path, explain Go-specific choices.
 5. **Persistence lives below domain.** MongoDB wired — shared server
    (`localhost`), `site-of-tools` database, client in
    `platform/mongo.go` (`platform.OpenMongo`, opened once in `main.go`,
-   `MONGODB_URI` config). Three features use it: IP tool's **lookup history**
+   `MONGODB_URI` config). Four features use it: IP tool's **lookup history**
    (`tools/iptools/history.go`), engine-level **request log**
    (`platform/requestlog.go`), botcheck's **fingerprint corpus**
-   (`tools/botcheck/corpus.go`). All nil-safe — empty `MONGODB_URI` disables
+   (`tools/botcheck/corpus.go`), link tool's **short links**
+   (`tools/linktools/store.go`). All nil-safe — empty `MONGODB_URI` disables
    Mongo, they no-op, app still boots stateless. New storage sits *below* the
    domain service (repository the service/handler calls), never driver in
    handler; take `*mongo.Database` from shared client, ensure self-pruning
@@ -46,6 +47,7 @@ Go 1.26.x · Echo **v5** (`github.com/labstack/echo/v5`) · htmx 2.0.x · Alpine
 3.15.x · Tailwind standalone v4.3.x · air `github.com/air-verse/air` v1.65.x ·
 `github.com/ip2location/ip2location-go/v9` v9.8.x · `github.com/ip2location/ip2proxy-go/v4`
 v4.2.x · `github.com/miekg/dns` v1.1.73 · `go.mongodb.org/mongo-driver/v2` v2.8.x (use **/v2**, not v1) ·
+`golang.org/x/net` v0.57.x (already **direct**; `idna` + `html` are packages inside it, no go.mod change) ·
 `github.com/google/go-cmp`
 v0.7.x · `github.com/yuin/goldmark` v1.8.4 · `github.com/yuin/goldmark-meta` v1.1.0 ·
 base `gcr.io/distroless/static-debian12:nonroot`.
@@ -67,7 +69,12 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
 
 - `main.go` at repo **root** — single binary's entrypoint.
 - `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`,
-  `conn.go`, `mongo.go` (shared Mongo client; used by request log, IP-tool lookup history, botcheck fingerprint corpus — see rule #5).
+  `conn.go`, `mongo.go` (shared Mongo client — see rule #5),
+  `netgate.go` (**outbound SSRF gate**: `PubliclyRoutable`, `EgressGuard`
+  w/ `Dialer.Control` + port allowlist + host deny list, `RateLimitKey`
+  keying IPv6 on /64 — any feature dialling a caller-chosen host uses this,
+  never its own copy), `redact.go` (strips pasted-URL values from the request
+  URI before **both** the stdout slog line and the Mongo corpus).
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); own
   package so it can `go:embed` those files.
 - `site/` — apex corpberry.com project (own package, same embed reason):
@@ -76,7 +83,7 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
   optional `draft: true`; slug = filename minus date prefix; publishing =
   commit + deploy, drafts never render).
 - `tools/<tool>/` — each tool subdomain, self-contained (e.g. `tools/iptools/`,
-  `tools/botcheck/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
+  `tools/botcheck/`, `tools/linktools/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
   + `tests/` sub-package + `docs/` folder holding tool's markdown
   (`docs/README.md`, botcheck's index at `docs/README.md` linking out
   to `docs/RESEARCH.md`/`reports/`, `docs/roadmap/`, `docs/testing/`, and

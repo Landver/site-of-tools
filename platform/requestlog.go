@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -44,6 +45,17 @@ type RequestLog struct {
 	coll *mongo.Collection
 	ch   chan RequestEntry
 	done chan struct{}
+	// mu guards ch. Close runs from main's shutdown path while requests can
+	// still be in flight — echo finishes them during graceful shutdown, and
+	// each one reaches Record through the logging middleware — and a send on a
+	// closed channel PANICS. The select's default case does not save it:
+	// default covers a FULL channel, not a closed one. Sending under RLock and
+	// closing under Lock makes the two mutually exclusive.
+	//
+	// Same guard, same reasoning as linktools' hitBatcher, which has the
+	// identical shape.
+	mu     sync.RWMutex
+	closed bool
 }
 
 // NewRequestLog builds store from app database handle, starts its writer. Nil db
@@ -70,6 +82,11 @@ func (rl *RequestLog) Record(e RequestEntry) {
 	if rl == nil {
 		return
 	}
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	if rl.closed {
+		return // shutting down; a late entry is not worth a panic
+	}
 	select {
 	case rl.ch <- e:
 	default: // buffer full: drop, never block request path
@@ -95,7 +112,18 @@ func (rl *RequestLog) Close(ctx context.Context) error {
 	if rl == nil {
 		return nil
 	}
+	// Flag and close together under the write lock, so no reader can observe
+	// closed == false and then send into an already-closed channel. Idempotent:
+	// a second Close finds closed already set and does nothing.
+	rl.mu.Lock()
+	if rl.closed {
+		rl.mu.Unlock()
+		return nil
+	}
+	rl.closed = true
 	close(rl.ch)
+	rl.mu.Unlock()
+
 	select {
 	case <-rl.done:
 	case <-ctx.Done():

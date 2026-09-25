@@ -1,0 +1,73 @@
+{{/* Trace result fragment.
+
+     Two rendering rules govern this file and neither is cosmetic:
+       1. A hop URL is NEVER an anchor. wheregoes.com pipe-separates the
+          characters for the same reason; we render as text. The whole point of
+          the page is inspecting links you do not want to click.
+       2. When .Final is empty the chain demonstrably continues somewhere we did
+          not follow, and the template must NOT substitute the last hop's URL.
+          A pre-redirect URL presented as the destination is the wrong answer in
+          the security-relevant direction. */}}
+{{define "link/chain"}}
+{{with .Result}}
+
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+  <span class="text-muted">Hops <span class="font-mono text-strong">{{len .Hops}}</span></span>
+  <span class="text-muted">Took <span class="font-mono text-strong">{{.Elapsed}}ms</span></span>
+  {{if .Persona}}<span class="text-muted">Asked as <span class="font-mono text-strong">{{.Persona}}</span></span>{{end}}
+</div>
+
+{{if .Notes}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Findings</h2>
+  <div class="mt-2 rounded-lg border border-line bg-surface px-4 py-2">{{template "link/notes" .Notes}}</div>
+</section>
+{{end}}
+
+{{if .Hops}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The chain</h2>
+  <ol class="mt-2 space-y-2">
+    {{range .Hops}}
+    <li class="rounded-lg border border-line bg-surface p-3">
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="font-mono text-muted">{{.Index}}</span>
+        <span class="rounded px-1.5 py-0.5 font-mono text-xs
+          {{if ge .Status 500}}bg-danger/20 text-danger
+          {{else if ge .Status 400}}bg-warn/20 text-warn
+          {{else if ge .Status 300}}bg-line text-strong
+          {{else}}bg-ok/20 text-ok{{end}}">{{.Status}}</span>
+        {{if .SetCookie}}<span title="This response set a cookie" role="img" aria-label="sets a cookie">&#127850;</span>{{end}}
+        <span class="text-xs text-muted">{{.ElapsedMS}}ms</span>
+        {{if .Server}}<span class="text-xs text-muted">{{.Server}}</span>{{end}}
+        {{if .ContentType}}<span class="text-xs text-muted">{{.ContentType}}</span>{{end}}
+      </div>
+      {{/* Text, never an anchor. See the file comment. */}}
+      <p class="mt-1 break-all font-mono text-sm text-strong">{{.URL}}</p>
+      {{if .Location}}<p class="mt-1 break-all font-mono text-xs text-muted">&rarr; {{.Location}}</p>{{end}}
+      {{if .Notes}}<div class="mt-2">{{template "link/notes" .Notes}}</div>{{end}}
+    </li>
+    {{end}}
+  </ol>
+</section>
+{{end}}
+
+<section class="mt-6 rounded-lg border {{if .Final}}border-line{{else}}border-warn{{end}} bg-surface p-4">
+  {{if .Final}}
+    <h2 class="text-sm font-semibold text-strong">Final destination</h2>
+    <p class="mt-2 break-all font-mono text-sm text-strong">{{.Final}}</p>
+    <p class="mt-2 text-xs text-muted">
+      This is where the chain actually ended. Nothing about whether it is safe to visit is claimed here.
+    </p>
+    <a href="/?u={{.Final}}" class="mt-2 inline-block text-sm text-brand hover:underline">Inspect it</a>
+  {{else}}
+    <h2 class="text-sm font-semibold text-strong">No final destination</h2>
+    <p class="mt-2 text-sm text-muted">
+      The chain continues somewhere this tool did not follow &mdash; see the findings above for what and why.
+      The last URL reached is deliberately <em>not</em> shown as the destination, because it isn't one.
+    </p>
+  {{end}}
+</section>
+
+{{end}}
+{{end}}

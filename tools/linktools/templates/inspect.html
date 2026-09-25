@@ -1,0 +1,178 @@
+{{/* Inspect result fragment — the htmx swap target, and the body of the full
+     page. Everything here renders an attacker-supplied URL, so the single rule
+     that governs this file: the input is TEXT unless .Linkable says the scheme
+     passed the http(s) allowlist. html/template does neuter javascript: in a
+     URL context, but this page exists to display hostile URLs and one refactor
+     into an attribute context would be all it takes.
+     See docs/06-security-and-abuse.md §8. */}}
+{{define "link/inspect"}}
+{{with .Result}}
+
+{{/* Summary strip, before the table. Borrowed from calcbe, which is the one
+     surveyed parser that tells you what shape it decided the input was
+     (docs/reports/calcbe-query-string-parser.md). */}}
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+  <span class="text-muted">Scheme <span class="font-mono text-strong">{{or .Scheme "none"}}</span></span>
+  {{if .Host}}<span class="text-muted">Host <span class="font-mono text-strong">{{.Host}}</span></span>{{end}}
+  {{if .Port}}<span class="text-muted">Port <span class="font-mono text-strong">{{.Port}}</span>{{if .DefaultPort}} <span class="text-muted">(default)</span>{{end}}</span>{{end}}
+  <span class="text-muted">Parameters <span class="font-mono text-strong">{{len .Params}}</span></span>
+  {{if .FragParams}}<span class="text-muted">Fragment params <span class="font-mono text-strong">{{len .FragParams}}</span></span>{{end}}
+  {{if .Segments}}<span class="text-muted">Path segments <span class="font-mono text-strong">{{len .Segments}}</span></span>{{end}}
+</div>
+
+{{if .Notes}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Findings</h2>
+  <div class="mt-2 rounded-lg border border-line bg-surface px-4 py-2">
+    {{template "link/notes" .Notes}}
+  </div>
+</section>
+{{end}}
+
+{{if .Unwrapped}}
+<section class="mt-6 rounded-lg border border-brand bg-surface p-4">
+  <h2 class="text-sm font-semibold text-strong">This is a {{.Wrapper}} wrapper</h2>
+  <p class="mt-1 text-sm text-muted">The real destination is below. Nothing was fetched to work this out; it was read straight out of the link.</p>
+  <p class="mt-2 break-all font-mono text-sm text-strong">{{.Unwrapped}}</p>
+  <a href="/?u={{.Unwrapped}}" class="mt-2 inline-block text-sm text-brand hover:underline">Inspect the real destination</a>
+</section>
+{{end}}
+
+{{if .Params}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query parameters</h2>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">#</th>
+          <th class="px-3 py-2 font-medium">Key</th>
+          <th class="px-3 py-2 font-medium">Value</th>
+          <th class="px-3 py-2 font-medium">Raw</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .Params}}
+        <tr class="align-top">
+          <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
+          <td class="px-3 py-2">
+            <span class="font-mono text-strong">{{.Key}}</span>
+            {{if .Repeat}}<span class="ml-1 rounded bg-warn/20 px-1.5 py-0.5 text-xs text-warn">repeat</span>{{end}}
+            {{if .Tracking}}<span class="ml-1 rounded bg-danger/20 px-1.5 py-0.5 text-xs text-danger">tracker</span>{{end}}
+          </td>
+          <td class="px-3 py-2">
+            {{if .Valueless}}
+              <span class="text-muted italic">no value at all (no &ldquo;=&rdquo; in the query)</span>
+            {{else if eq .Value ""}}
+              <span class="text-muted italic">empty string</span>
+            {{else if .List}}
+              <div class="flex flex-wrap gap-1">
+                {{range .List}}<span class="rounded bg-line px-1.5 py-0.5 font-mono text-xs text-strong">{{.}}</span>{{end}}
+              </div>
+              <span class="mt-1 block text-xs text-muted">{{len .List}} values, split on &ldquo;{{.Delimiter}}&rdquo;</span>
+            {{else}}
+              <span class="break-all font-mono text-strong">{{.Value}}</span>
+            {{end}}
+            {{if .Kind}}<span class="ml-1 text-xs text-muted">{{.Kind}}</span>{{end}}
+            {{if .AltValue}}
+              <span class="mt-1 block text-xs text-warn">
+                Read as base64 instead: <span class="font-mono">{{.AltValue}}</span>
+              </span>
+            {{end}}
+            {{if .Warn}}<span class="mt-1 block text-xs text-warn">{{.Warn}}</span>{{end}}
+            {{if .Layers}}
+            <details class="mt-1">
+              <summary class="cursor-pointer text-xs text-brand">Decodes further ({{len .Layers}} more {{if eq (len .Layers) 1}}layer{{else}}layers{{end}})</summary>
+              <ol class="mt-1 space-y-1 border-l border-line pl-3">
+                {{range .Layers}}
+                <li class="text-xs">
+                  <span class="text-muted">{{.Depth}}. {{.Method}}</span>
+                  <pre class="mt-0.5 whitespace-pre-wrap break-all font-mono text-strong">{{.Value}}</pre>
+                </li>
+                {{end}}
+              </ol>
+            </details>
+            {{end}}
+          </td>
+          <td class="px-3 py-2 break-all font-mono text-xs text-muted">{{if .RawValue}}{{.RawValue}}{{else}}&mdash;{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{if .FragParams}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Fragment parameters</h2>
+  <p class="mt-1 text-xs text-muted">Everything after &ldquo;#&rdquo;. Every hosted parser surveyed throws this away, which hides an OAuth access token completely. Fragments are never sent to a server, but they do land in browser history.</p>
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
+        <tr>
+          <th class="px-3 py-2 font-medium">#</th>
+          <th class="px-3 py-2 font-medium">Key</th>
+          <th class="px-3 py-2 font-medium">Value</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line">
+        {{range .FragParams}}
+        <tr class="align-top">
+          <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
+          <td class="px-3 py-2 font-mono text-strong">{{.Key}}</td>
+          <td class="px-3 py-2 break-all font-mono text-strong">{{.Value}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
+{{if .Segments}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Path segments</h2>
+  <ol class="mt-2 flex flex-wrap items-center gap-1 text-sm">
+    {{range .Segments}}
+    <li class="rounded bg-surface px-2 py-1 font-mono text-strong" title="raw: {{.Raw}}">{{.Decoded}}</li>
+    {{end}}
+  </ol>
+</section>
+{{end}}
+
+<section class="mt-6 grid gap-4 sm:grid-cols-2">
+  {{if .Canonical}}
+  <div class="rounded-lg border border-line bg-surface p-4">
+    <h2 class="text-sm font-semibold text-strong">Canonical form</h2>
+    <p class="mt-1 text-xs text-muted">Lossless only: lowercased scheme and host, default port dropped, dot segments resolved. Nothing removed.</p>
+    <p class="mt-2 break-all font-mono text-sm text-strong">{{.Canonical}}</p>
+  </div>
+  {{end}}
+  {{if .HostUnicode}}{{if ne .HostUnicode .HostASCII}}
+  <div class="rounded-lg border border-line bg-surface p-4">
+    <h2 class="text-sm font-semibold text-strong">Host, both ways</h2>
+    <p class="mt-2 font-mono text-sm text-strong">{{.HostUnicode}}</p>
+    <p class="font-mono text-sm text-muted">{{.HostASCII}}</p>
+    <p class="mt-1 text-xs text-muted">Same host. Only one of them is what you read.</p>
+  </div>
+  {{end}}{{end}}
+</section>
+
+{{if .Linkable}}
+<p class="mt-6 text-sm">
+  <a href="{{.Input}}" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"
+     class="text-brand hover:underline">Open this URL</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/clean?u={{.Input}}" class="text-brand hover:underline">Clean it</a>
+  <span class="text-muted">&middot;</span>
+  <a href="/curl?u={{.Input}}" class="text-brand hover:underline">As curl</a>
+</p>
+{{else}}
+<p class="mt-6 text-sm text-muted">
+  This URL is not rendered as a link. Only http and https are ever made clickable here.
+</p>
+{{end}}
+
+{{end}}
+{{end}}
