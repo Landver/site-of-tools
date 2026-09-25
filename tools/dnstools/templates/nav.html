@@ -2,11 +2,11 @@
      as a view switcher, not body text. .Active = the current page's key.
      Links are relative → they stay on dns.corpberry.com.
 
-     Four pages ship today. Adding the next one (see
+     Five pages ship today. Adding the next one (see
      tools/dnstools/docs/01-feature-inventory.md) is a new route + one entry
      here. Same shape as tools/iptools/templates/nav.html. */}}
 {{define "dns/nav"}}
-<div class="mb-8 inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+<div class="mb-8 inline-flex flex-wrap rounded-lg border border-line bg-surface p-1 text-sm font-medium">
   <a href="/"
      class="rounded-md px-4 py-1.5 transition {{if eq .Active "lookup"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
     DNS lookup
@@ -14,6 +14,10 @@
   <a href="/consistency"
      class="rounded-md px-4 py-1.5 transition {{if eq .Active "consistency"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
     Consistency
+  </a>
+  <a href="/trace"
+     class="rounded-md px-4 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
+    Trace
   </a>
   <a href="/domain"
      class="rounded-md px-4 py-1.5 transition {{if eq .Active "domain"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">

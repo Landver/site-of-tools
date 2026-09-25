@@ -23,6 +23,8 @@ const domainDesc = "Who registered this domain, when it expires, what its regist
 
 const consistencyDesc = "Is your DNS change live yet? Asks every one of the zone's own authoritative nameservers directly, with recursion off, and compares them against the public resolvers. Shows which servers disagree, whether their SOA serials match, and how long the cached copies have left."
 
+const traceDesc = "Walk the DNS delegation for any name from a root server down, one zone cut at a time, with recursion off. Every hop is shown: the server that answered, its round-trip time, the nameservers it handed back and whether the referral carried glue. The DNSSEC chain of trust is verified here against the IANA root trust anchors, not read off a resolver's AD bit. Free, open source, JSON API included."
+
 const lookupDesc = "Look up DNS records for any domain: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, PTR, against Cloudflare, Google or Quad9. Shows TTL as seconds and as a duration, plus rcode, header flags and query time. Free, open source, with a curl-able JSON API."
 
 // Mailer: handler dependency for the email-auth page.
@@ -36,11 +38,26 @@ type Spreader interface {
 	Spread(ctx context.Context, name, qtype string) (*Spread, error)
 }
 
+// Tracer: handler dependency for the delegation walk. Separate from Looker and
+// Spreader so a test can fake one half on its own. *Service satisfies all.
+type Tracer interface {
+	Trace(ctx context.Context, name, qtype string) (*Trace, error)
+}
+
 // handler: transport-layer deps for dns.corpberry.com routes.
 type handler struct {
 	svc  Looker
 	spr  Spreader
 	mail Mailer
+	tra  Tracer
+	// ecs: the EDNS-client-subnet steering card on /consistency. A Looker that
+	// does not implement ECSer simply leaves the card off the page.
+	ecs ECSer
+	// rep / block: mail-server reputation on /email. block is the shared
+	// blocklist corpus, which dnstools never opens itself. Either one nil
+	// means the card is not rendered — golden rule #5.
+	rep   Reputer
+	block BlockChecker
 	// dom: RDAP + Certificate Transparency. Best-effort and nil-safe; when it
 	// is off or an upstream is down, the page says so rather than implying the
 	// domain has no registration or no subdomains.
@@ -70,9 +87,10 @@ const (
 //
 //	GET /             DNS record lookup
 //	GET /consistency  the zone's own nameservers vs the public resolvers
+//	GET /trace        the delegation walk from the root, chain of trust checked here
 //	GET /domain       registration (RDAP) + subdomains (Certificate Transparency)
 //	GET /email        SPF / DMARC / DKIM / MTA-STS / TLS-RPT / BIMI
-func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient) {
+func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, bl BlockChecker) {
 	// Every other dependency here is optional and degrades to a 503 or to a
 	// thinner page. svc is not: a nil one can only be a wiring mistake, and
 	// left to be discovered per request it surfaces as a panic-recovered 500
@@ -80,14 +98,18 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient) {
 	if svc == nil {
 		panic("dnstools.Register: svc is nil")
 	}
-	h := &handler{svc: svc, geo: geo, dom: dom}
+	h := &handler{svc: svc, geo: geo, dom: dom, block: bl}
 	// The same *Service satisfies both interfaces; a test can pass a fake that
 	// only implements one.
 	h.spr, _ = svc.(Spreader)
 	h.mail, _ = svc.(Mailer)
+	h.tra, _ = svc.(Tracer)
+	h.ecs, _ = svc.(ECSer)
+	h.rep, _ = svc.(Reputer)
 	limit := rateLimiter()
 	e.GET("/", h.index, limit)
 	e.GET("/consistency", h.consistency, limit)
+	e.GET("/trace", h.trace, limit)
 	e.GET("/domain", h.domain, limit)
 	e.GET("/email", h.email, limit)
 }
@@ -148,7 +170,14 @@ func answered(c *echo.Context, name string, body any, err error, vm map[string]a
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
 func (h *handler) email(c *echo.Context) error {
 	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
-	vm := map[string]any{"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name}
+	// Page-scoped, like every other credit here: the footer sits outside the
+	// htmx target, so a per-result flag never reaches the DOM on a form submit.
+	// Spamhaus only — the reputation card reads the blocklist corpus, and
+	// nothing on this page consults IP2Location.
+	vm := map[string]any{
+		"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name,
+		"SpamhausAttribution": true,
+	}
 
 	if done, err := needName(c, name, vm, "dns/email", "dns/emailauth", "/email?name=example.com"); done {
 		return err
@@ -161,6 +190,14 @@ func (h *handler) email(c *echo.Context) error {
 	if err == nil {
 		vm["Email"] = res
 		vm["OK"], vm["Warn"], vm["Fail"] = res.Score()
+		if h.rep != nil && h.block != nil {
+			// Best-effort: a corpus that is off or unreadable drops the card
+			// rather than failing the page.
+			if mr, repErr := h.rep.MXReputation(c.Request().Context(), name, h.block); repErr == nil {
+				vm["MXRep"] = mr
+				res.MXRep = mr
+			}
+		}
 	}
 	return answered(c, name, res, err, vm, "dns/email", "dns/emailauth")
 }
@@ -300,9 +337,28 @@ func (h *handler) consistency(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+
+	// The steering card sends its own queries, one per vantage point. Run them
+	// beside the nameserver walk, the way /domain runs RDAP and CT together,
+	// so the card adds no latency the page was not already spending.
+	var (
+		wg    sync.WaitGroup
+		steer *ECS
+	)
+	if h.ecs != nil {
+		wg.Add(1)
+		go safe(func() {
+			defer wg.Done()
+			// Best-effort. A type this check cannot measure leaves the card
+			// off rather than failing the whole page.
+			if res, ecsErr := h.ecs.ECS(ctx, name, qtype); ecsErr == nil {
+				steer = res
+			}
+		})
+	}
+
 	sp, err := h.spr.Spread(ctx, name, qtype)
 	if err == nil {
-		vm["Spread"] = sp
 		// Both credits are asserted from what the findings actually used, not
 		// from the page having been requested.
 		// Flags are already set on the page VM; delegationHealth's return
@@ -310,7 +366,53 @@ func (h *handler) consistency(c *echo.Context) error {
 		// on the htmx path.
 		h.delegationHealth(ctx, sp)
 	}
-	return answered(c, name, sp, err, vm, "dns/consistency", "dns/spread")
+	wg.Wait()
+
+	var body any
+	if err == nil {
+		vm["Spread"] = sp
+		// Nil is falsy to {{with}}, so the card renders nothing when the check
+		// did not run.
+		vm["ECS"] = steer
+		// Embedded, so every key /consistency already publishes stays where it
+		// is and the body simply gains "ecs".
+		//
+		// The constructor's one refusal is a nil spread, which Spread does not
+		// return beside a nil error today. Its error still goes to answered
+		// rather than being swallowed back to the bare sp: that fallback would
+		// serve 200 with a `null` body, which is the exact outcome the
+		// constructor exists to prevent, and it would do it silently.
+		body, err = NewECSEnvelope(sp, steer)
+	}
+	return answered(c, name, body, err, vm, "dns/consistency", "dns/spread")
+}
+
+// trace serves the delegation walk from the root, with the chain of trust
+// validated in the domain layer rather than taken from a resolver's AD bit.
+func (h *handler) trace(c *echo.Context) error {
+	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
+	if qtype == "" {
+		qtype = "A"
+	}
+
+	vm := map[string]any{
+		"Title": "DNS trace", "Desc": traceDesc, "Active": "trace",
+		"Query": name, "QType": qtype, "Types": Types,
+	}
+	if done, err := needName(c, name, vm, "dns/trace", "dns/tracewalk", "/trace?name=example.com"); done {
+		return err
+	}
+	if h.tra == nil {
+		return unavailable(c, vm, "dns/trace", "dns/tracewalk")
+	}
+
+	// No attribution flags: this walk uses neither IP2Location nor RDAP.
+	res, err := h.tra.Trace(c.Request().Context(), name, qtype)
+	if err == nil {
+		vm["Trace"] = res
+	}
+	return answered(c, name, res, err, vm, "dns/trace", "dns/tracewalk")
 }
 
 // rateLimiter throttles per client IP, keyed on the same Cloudflare-aware
@@ -449,6 +551,6 @@ func statusFor(err error) int {
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
-		{Path: "/"}, {Path: "/consistency"}, {Path: "/domain"}, {Path: "/email"},
+		{Path: "/"}, {Path: "/consistency"}, {Path: "/trace"}, {Path: "/domain"}, {Path: "/email"},
 	}, nil
 }

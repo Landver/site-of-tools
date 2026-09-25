@@ -68,7 +68,7 @@ func (h *handler) index(c *echo.Context) error {
 			return c.Render(http.StatusOK, "ip/result", map[string]any{})
 		}
 		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": "", "Attribution": true, "Conn": platform.Conn(c),
+			"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": "", "Attribution": true, "SpamhausAttribution": true, "Conn": platform.Conn(c),
 		})
 	}
 	return h.show(c, ip, self)
@@ -122,7 +122,7 @@ func (h *handler) history(c *echo.Context) error {
 
 	vm := map[string]any{
 		"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
-		"Entries": entries, "Enabled": h.hist != nil, "Attribution": true,
+		"Entries": entries, "Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true,
 	}
 	if err != nil {
 		vm["Error"] = err.Error()
@@ -156,7 +156,6 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		}
 	}
 
-
 	// API / CLI: raw JSON — geolocation result or error.
 	if wantsJSON {
 		if err != nil {
@@ -169,7 +168,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// Attribution: IP2Location LITE license requires credit on any page using
 	// databases (see shared/templates/partials/footer.html). Scoped to this
 	// tool via VM flag → apex (no such data) omits it.
-	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true}
+	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true, "SpamhausAttribution": true}
 	code := http.StatusOK
 	if err != nil {
 		vm["Error"] = err.Error()

@@ -42,6 +42,9 @@ type EmailAuth struct {
 	// Receivers weigh FCrDNS heavily, and a mail server whose PTR doesn't
 	// round-trip gets scored down without anything in DNS looking wrong.
 	MailHosts []MailHost `json:"mail_hosts,omitempty"`
+	// MXRep: are these mail servers on a blocklist? Filled by the handler
+	// from the shared corpus, which the domain layer cannot reach itself.
+	MXRep *MXReputation `json:"mx_reputation,omitempty"`
 	// MXCount: how many MX records the domain publishes, which is not always
 	// len(MailHosts) — the FCrDNS fan-out stops at maxMailHosts, and a verdict
 	// that says "every mail host" after checking five of eight is a lie.

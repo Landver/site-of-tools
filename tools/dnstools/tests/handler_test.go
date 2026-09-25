@@ -3,10 +3,13 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
@@ -49,7 +52,7 @@ func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 	)
-	dnstools.Register(e, svc, geo, nil) // nil domain client: RDAP/CT off in handler tests
+	dnstools.Register(e, svc, geo, nil, nil) // nil domain client + nil corpus: RDAP/CT and the reputation card off in handler tests
 	return e
 }
 
@@ -298,7 +301,7 @@ func TestSitemapPages(t *testing.T) {
 	for _, p := range pages {
 		paths = append(paths, p.Path)
 	}
-	want := []string{"/", "/consistency", "/domain", "/email"}
+	want := []string{"/", "/consistency", "/trace", "/domain", "/email"}
 	if diff := cmp.Diff(want, paths); diff != "" {
 		t.Errorf("sitemap pages differ (-want +got):\n%s", diff)
 	}
@@ -348,5 +351,189 @@ func TestRateLimitIsContentNegotiated(t *testing.T) {
 	}
 	if !strings.HasPrefix(strings.TrimSpace(body), "{") {
 		t.Errorf("JSON caller got a non-JSON 429 body: %s", body)
+	}
+}
+
+// --- /consistency: the ECS card's concurrent branch -------------------------
+//
+// fakeLooker implements Looker only, so every test above leaves h.spr and
+// h.ecs nil and /consistency short-circuits to 503 before it ever reaches the
+// goroutine. The fake below implements Looker + Spreader + ECSer, which is
+// what puts the spawned query, its panic guard, its cancellation path and the
+// JSON envelope under -race.
+
+type fakeSpreadECS struct {
+	fakeLooker
+	spread *dnstools.Spread
+
+	ecs    *dnstools.ECS
+	ecsErr error
+	panic  bool
+	// block, when non-nil, holds ECS until it is closed or the request
+	// context is cancelled. started closes as soon as ECS is entered.
+	block   chan struct{}
+	started chan struct{}
+}
+
+func (f *fakeSpreadECS) Spread(context.Context, string, string) (*dnstools.Spread, error) {
+	return f.spread, nil
+}
+
+// nilSpreader returns the one thing NewECSEnvelope refuses: no spread and no
+// error. The real Service never does, which is why the envelope error used to
+// look safe to swallow.
+type nilSpreader struct{ fakeLooker }
+
+func (*nilSpreader) Spread(context.Context, string, string) (*dnstools.Spread, error) {
+	return nil, nil
+}
+
+func (f *fakeSpreadECS) ECS(ctx context.Context, _, _ string) (*dnstools.ECS, error) {
+	if f.started != nil {
+		close(f.started)
+	}
+	if f.panic {
+		panic("boom inside the ECS check")
+	}
+	if f.block != nil {
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return f.ecs, f.ecsErr
+}
+
+func sampleSpread() *dnstools.Spread {
+	return &dnstools.Spread{
+		Name: "example.com", QName: "example.com.", Type: "A",
+		Groups: []dnstools.AnswerGroup{}, Authoritative: []dnstools.ServerAnswer{},
+		Resolvers: []dnstools.ServerAnswer{},
+		Asked:     2, Answered: 2, AuthAnswered: 2, ResolverGroups: 1,
+		Consistent: true, AuthConsistent: true, SerialsAgree: true, SerialsSeen: 1,
+	}
+}
+
+func jsonKeys(t *testing.T, b []byte) []string {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("body is not a JSON object: %v\n%s", err, b)
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestConsistencyEnvelopeKeepsEverySpreadKey is the golden-rule-#2 guard: the
+// published /consistency body must keep every key it had at the same level
+// and merely gain "ecs". Comparing against a bare *Spread rather than a frozen
+// list keeps the assertion true as Spread grows fields, and fails loudly if
+// the embed is ever turned into a nested object or Spread grows a
+// MarshalJSON (which would swallow "ecs" entirely).
+func TestConsistencyEnvelopeKeepsEverySpreadKey(t *testing.T) {
+	sp := sampleSpread()
+	svc := &fakeSpreadECS{spread: sp, ecs: &dnstools.ECS{Name: "example.com", Verdict: "no steering"}}
+
+	rec := do(t, newApp(t, svc, nil), "/consistency?name=example.com&type=A", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	bare, err := json.Marshal(sp)
+	if err != nil {
+		t.Fatalf("marshal bare spread: %v", err)
+	}
+	want := append(jsonKeys(t, bare), "ecs")
+	sort.Strings(want)
+
+	if diff := cmp.Diff(want, jsonKeys(t, rec.Body.Bytes())); diff != "" {
+		t.Errorf("/consistency JSON keys differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestConsistencyWithoutECSPublishesTheBareSpread: an ECS half that is not
+// wired, or that failed, must leave the body byte-identical to what the
+// endpoint published before the card existed — no "ecs": null.
+func TestConsistencyWithoutECSPublishesTheBareSpread(t *testing.T) {
+	sp := sampleSpread()
+	bare, err := json.Marshal(sp)
+	if err != nil {
+		t.Fatalf("marshal bare spread: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		svc  dnstools.Looker
+	}{
+		{"check errored", &fakeSpreadECS{spread: sp, ecsErr: errors.New("no ECS support")}},
+		{"check panicked", &fakeSpreadECS{spread: sp, panic: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := do(t, newApp(t, tc.svc, nil), "/consistency?name=example.com", nil)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+			if diff := cmp.Diff(string(bare), strings.TrimSpace(rec.Body.String())); diff != "" {
+				t.Errorf("body is not the bare spread (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestConsistencyECSStopsWithTheRequest: the spawned query is waited on, so a
+// client that hangs up must not leave the handler parked on wg.Wait() for the
+// whole ECS budget. Fails by deadline rather than by assertion.
+func TestConsistencyECSStopsWithTheRequest(t *testing.T) {
+	svc := &fakeSpreadECS{
+		spread:  sampleSpread(),
+		block:   make(chan struct{}), // never closed: only ctx can free it
+		started: make(chan struct{}),
+	}
+	e := newApp(t, svc, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/consistency?name=example.com", nil).WithContext(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+
+	<-svc.started
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler still parked on wg.Wait() 5s after the request context was cancelled")
+	}
+}
+
+// TestTraceUnavailableWithoutTracer: a Looker that is not a Tracer leaves
+// /trace off rather than panicking on a nil interface.
+func TestTraceUnavailableWithoutTracer(t *testing.T) {
+	rec := do(t, newApp(t, &fakeLooker{}, nil), "/trace?name=example.com", nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestConsistencyRefusesAnEmptyBody: if Spread ever answers with neither a
+// result nor an error, /consistency must fail visibly rather than publish 200
+// with a `null` body, which is what swallowing the envelope error did.
+func TestConsistencyRefusesAnEmptyBody(t *testing.T) {
+	rec := do(t, newApp(t, &nilSpreader{}, nil), "/consistency?name=example.com", nil)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("status = 200 with body %q, want an error status", strings.TrimSpace(rec.Body.String()))
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got == "null" {
+		t.Errorf("body = null; the endpoint published an empty object")
 	}
 }
