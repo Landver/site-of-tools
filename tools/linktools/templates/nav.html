@@ -1,24 +1,41 @@
-{{/* Sub-nav for the Link Tools suite. Four primary entries as a segmented
-     control, the cheap pages behind "More" — ten top-level entries would not
-     fit and would bury the flagship. .Active = the current page's key. */}}
+{{/* Sub-nav for the Link Tools suite.
+
+     Every tool is a top-level entry. An earlier version kept four and hid six
+     behind a "More" dropdown, which measured at 369px inside a 848px column —
+     it was hiding more than half the suite while leaving 479px of the row
+     empty, so most of the tools were undiscoverable for no reason at all.
+
+     Ten short labels measure ~700px, so they fit the .page-main column
+     (max-w-4xl, 848px of content) on one row. flex-wrap does the rest: the
+     group reflows to two or three rows on a narrow viewport rather than
+     needing a breakpoint per tool, which would have to be re-tuned every time
+     a tool is added.
+
+     Labels are deliberately terse — the title attribute carries the full name
+     for a hover, and each page's own <h1> says it in full. .Active = the
+     current page's key, matching the strings handler.go sets. */}}
 {{define "link/nav"}}
-<div class="mb-8 flex flex-wrap items-center gap-3">
-  <div class="inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
-    <a href="/" class="rounded-md px-4 py-1.5 transition {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
-    <a href="/clean" class="rounded-md px-4 py-1.5 transition {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
-    <a href="/short" class="rounded-md px-4 py-1.5 transition {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
-    <a href="/trace" class="rounded-md px-4 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
-  </div>
-  <details class="relative text-sm">
-    <summary class="cursor-pointer select-none rounded-lg border border-line bg-surface px-3 py-2 text-muted hover:text-strong">More</summary>
-    <div class="absolute z-10 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
-      <a href="/diff" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Compare two URLs</a>
-      <a href="/curl" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">curl builder</a>
-      <a href="/utm" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Campaign builder</a>
-      <a href="/encode" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Encode / decode</a>
-      <a href="/extract" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Extract links</a>
-      <a href="/encoding" class="block rounded px-3 py-1.5 text-muted hover:bg-line hover:text-strong">Encoding reference</a>
-    </div>
-  </details>
-</div>
+<nav aria-label="Link Tools sections"
+     class="mb-8 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <a href="/" title="Take a URL apart"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
+  <a href="/clean" title="Strip tracking parameters and unwrap mail-gateway links"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
+  <a href="/short" title="Create and manage short links"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
+  <a href="/trace" title="Follow a redirect chain hop by hop"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
+  <a href="/diff" title="Compare two URLs parameter by parameter"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "diff"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Diff</a>
+  <a href="/curl" title="Turn a URL into a curl command, or take one apart"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "curl"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">curl</a>
+  <a href="/utm" title="Build a campaign-tagged URL"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "utm"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">UTM</a>
+  <a href="/encode" title="Percent, base64 and entity encoding, both directions"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "encode"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encode</a>
+  <a href="/extract" title="Pull every link out of pasted text"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "extract"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Extract</a>
+  <a href="/encoding" title="What percent-encoding reserves, and where it differs"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "encoding"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Reference</a>
+</nav>
 {{end}}

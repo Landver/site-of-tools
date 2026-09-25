@@ -69,8 +69,18 @@
              that exists to display it. */}}
         <input name="note" autocomplete="off" aria-label="Note (optional)" maxlength="256"
                placeholder="what is this link for?" class="field min-w-0 sm:col-span-2">
-        <input name="ttl" autocomplete="off" spellcheck="false" aria-label="Expiry (optional Go duration)"
-               placeholder="720h — blank = permanent" class="field w-40">
+        {{/* Placeholder is just "720h". The explanation lives in the hint below,
+             because this field is w-40 (160px) and the sentence that used to be
+             in here needed about 250px — it rendered as "720h — blank = perm"
+             and the half that mattered was the half that got cut. */}}
+        <input name="ttl" autocomplete="off" spellcheck="false" aria-label="Expiry (optional)"
+               placeholder="720h" class="field w-40">
+        <p class="text-xs text-muted sm:col-span-3">
+          Expiry is optional and takes a Go duration &mdash; <code class="font-mono">720h</code> for thirty days,
+          <code class="font-mono">168h</code> for a week, <code class="font-mono">30m</code> for half an hour.
+          Leave it blank and the link is permanent. An expired link stops resolving immediately, and its code
+          is never handed to a different target.
+        </p>
         {{/* Inside the form. It previously carried form="", which detaches a
              control from every form, so "clean" was never actually submitted. */}}
         <label class="flex items-center gap-2 text-xs text-muted sm:col-span-3">
