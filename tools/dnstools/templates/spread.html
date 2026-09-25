@@ -5,6 +5,13 @@
 {{else if .Spread}}
   {{with .Spread}}
 
+  {{/* Two independent stacking columns, the same shape botcheck's breakdown
+       uses: each column is its own vertical flow, so cards follow one another
+       down their own side instead of being pinned into rows where a short
+       card strands the space beside a tall one. The verdict and the
+       delegation health still line up at the top, because each one is first
+       in its column. */}}
+  <div class="grid gap-4">
   {{/* The verdict, stated plainly, with the honest denominator beside it.
        Never a percentage: healthy GeoDNS legitimately returns different
        answers, so "17% propagated" would be a lie, not a measurement.
@@ -12,7 +19,7 @@
        Every branch here states only what its own inputs establish. Naming one
        cause ("a change is rolling out") when the data allows two is the
        failure mode this whole feature exists to avoid. */}}
-  <div class="card {{if not .Health}}sm:col-span-2{{end}}">
+  <div class="card">
     <div class="eyebrow">verdict</div>
     <p class="text-sm">
       {{if eq .Answered 0}}
@@ -77,24 +84,9 @@
     </p>
   </div>
 
-  {{/* Delegation health: findings about the nameservers themselves rather
-       than the records they serve. */}}
-  {{if .Health}}
-  <div class="card">
-    <div class="eyebrow">delegation health</div>
-    {{template "dns/notes" .Health}}
-  </div>
-  {{end}}
-
   {{/* The authoritative half: the only signal that actually says whether the
        change left the building. Recursion off, so no cache is in the way. */}}
-  {{/* One balanced multi-column flow rather than fixed columns. Card heights
-       here depend on the zone (8 nameservers or 2, one answer group or four),
-       so any hand-assigned split strands a dead half-page on one side for
-       some input. CSS columns balance whatever the query returns; the cards
-       carry break-inside-avoid so none is split down the middle. */}}
-  <div class="sm:col-span-2 sm:columns-2 gap-4">
-  <div class="card mb-4 break-inside-avoid">
+  <div class="card">
     <div class="eyebrow">the zone's own nameservers</div>
     <p class="mb-3 text-xs text-faint">Asked directly, recursion off. This is the source of truth.</p>
     {{/* A verdict drawn from a sample must say it is a sample, or a zone whose
@@ -129,9 +121,22 @@
     {{end}}
   </div>
 
+  {{template "dns/ecs" $}}
+  </div>
+
+  <div class="grid gap-4">
+  {{/* Delegation health: findings about the nameservers themselves rather
+       than the records they serve. */}}
+  {{if .Health}}
+  <div class="card">
+    <div class="eyebrow">delegation health</div>
+    {{template "dns/notes" .Health}}
+  </div>
+  {{end}}
+
   {{/* The resolver half, with cache age rather than a raw TTL. A raw TTL is
        not comparable across resolvers; how far it has counted down is. */}}
-  <div class="card mb-4 break-inside-avoid">
+  <div class="card">
     <div class="eyebrow">public resolvers</div>
     <p class="mb-3 text-xs text-faint">What the wider internet is currently being told, and how long it has held it.</p>
     <dl class="spec grid-cols-[1fr_auto]">
@@ -152,9 +157,7 @@
 
   {{/* The action a stale answer leads to. Linking out beats reimplementing
        three vendors' purge endpoints. */}}
-  {{/* One column when the groups card is there to pair with it, full width when
-       it would otherwise sit alone on a half-empty row. */}}
-  <div class="card mb-4 break-inside-avoid">
+  <div class="card">
     <div class="eyebrow">stale answer?</div>
     <p class="text-sm text-muted">
       A resolver holding an old answer will keep serving it until its TTL runs out{{if .StaleFor}} (up to {{.StaleFor}} here){{end}}.
@@ -174,9 +177,7 @@
   {{/* Grouped by identical answer set — the structurally correct way to show
        this, and what stops legitimate GeoDNS reading as a failure. */}}
   {{if gt (len .Groups) 1}}
-  {{/* One column: short value lists plus a "served by" line wrap fine, and a
-       full-width card here strands the card before it on a half-empty row. */}}
-  <div class="card mb-4 break-inside-avoid">
+  <div class="card">
     <div class="eyebrow">answers in circulation</div>
     <p class="mb-3 text-xs text-faint">
       Grouped by what was actually returned, across the zone's nameservers and the public resolvers together. More than one group means either a change still rolling out, or the zone deliberately answers differently per location.
@@ -189,9 +190,9 @@
     {{end}}
   </div>
   {{end}}
-    </div>
 
-  {{template "dns/ecs" $}}
+  </div>
+
 {{end}}
 {{end}}
 {{end}}

@@ -237,12 +237,13 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		// The card spans both columns of the consistency page's grid: it is
-		// the tallest thing on the page, and a column-width copy strands the
-		// bottom of the other column. "mb-4 break-inside-avoid" is what this
-		// asserted while that page was a CSS multi-column flow, and the
-		// assertion outlived the layout.
-		`class="card sm:col-span-2"`,
+		// One card in one of the consistency page's two stacking columns, at
+		// the same width as the public resolvers card it deliberately mirrors.
+		// This assertion has now outlived two layouts (a CSS multi-column flow
+		// wanted "mb-4 break-inside-avoid", a full-width row wanted
+		// "sm:col-span-2"), so it pins the width the card claims and nothing
+		// about the page around it.
+		`class="card"`,
 		"answers by client network",
 		"This answer depends on the network that asks",
 		// A scope the zone chose has to read differently from one that merely
