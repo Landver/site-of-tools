@@ -25,6 +25,8 @@
     {{template "dns/notes" .Notes}}
   </div>
 
+  {{template "dns/mxrep" $}}
+
   {{/* Two explicit columns, botcheck's pattern. With plain auto-placement a
        long SPF card pushes the next card underneath it instead of filling the
        short right-hand column. */}}

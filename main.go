@@ -132,7 +132,7 @@ func main() {
 	// URLs disable that half (nil client -> the page says the lookup is off,
 	// never that the domain has no registration).
 	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second)
-	dnstools.Register(dnsApp, dnstools.NewService(5*time.Second), geo, domainClient)
+	dnstools.Register(dnsApp, dnstools.NewService(5*time.Second), geo, domainClient, dnstools.BlockCheckerFrom(blocklist))
 
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
