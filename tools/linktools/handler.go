@@ -226,7 +226,9 @@ func (h *handler) rules(c *echo.Context) error {
 	if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
 		return c.NoContent(http.StatusNotModified)
 	}
-	return reply(c, http.StatusOK, cat, vm, "link/rules", "link/rules")
+	// Page and fragment differ, as on /short: serving the page to htmx would
+	// swap a whole <html> document into a div.
+	return reply(c, http.StatusOK, cat, vm, "link/rules", "link/rulestable")
 }
 
 // --- diff ------------------------------------------------------------------

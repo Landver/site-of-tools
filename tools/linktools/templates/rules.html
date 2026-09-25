@@ -32,6 +32,42 @@
       it, and what it identifies. Here in full, so you can check it rather than trust it.
     </p>
 
+    {{template "link/rulestable" .}}
+  </main>
+
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* One tracking-rule row. A helper rather than four copies of the same six
+     cells: the class sections differ in their prose, not in their table. The
+     dot is a Rule. */}}
+{{define "link/rulerow"}}
+<tr class="align-top">
+  <td class="px-3 py-2 font-mono text-strong">
+    {{.Param}}{{if .Prefix}}<span class="text-brand">*</span>{{end}}
+  </td>
+  <td class="px-3 py-2 text-xs text-muted">
+    {{.Origin}}
+    {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
+  </td>
+  <td class="px-3 py-2 break-all text-xs text-muted">
+    {{if .Hosts}}
+      {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
+    {{else}}
+      <span class="rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
+    {{end}}
+  </td>
+  <td class="px-3 py-2 text-xs text-muted">{{if .Note}}{{.Note}}{{else}}&mdash;{{end}}</td>
+</tr>
+{{end}}
+
+{{/* The catalog itself, split out so an htmx request gets the table rather
+     than a whole <html> document swapped into a div. The page above and the
+     fragment are the same markup by construction, so they cannot drift. */}}
+{{define "link/rulestable"}}
     {{with .Catalog}}
     <div class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
       <span class="text-muted">Version <span class="font-mono text-strong">{{.Version}}</span></span>
@@ -276,33 +312,4 @@
       <span class="text-muted">&middot;</span>
       <a href="/" class="text-brand hover:underline">Inspect one instead</a>
     </p>
-  </main>
-
-  {{template "partials/htmx-errors" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
-{{end}}
-
-{{/* One tracking-rule row. A helper rather than four copies of the same six
-     cells: the class sections differ in their prose, not in their table. The
-     dot is a Rule. */}}
-{{define "link/rulerow"}}
-<tr class="align-top">
-  <td class="px-3 py-2 font-mono text-strong">
-    {{.Param}}{{if .Prefix}}<span class="text-brand">*</span>{{end}}
-  </td>
-  <td class="px-3 py-2 text-xs text-muted">
-    {{.Origin}}
-    {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
-  </td>
-  <td class="px-3 py-2 break-all text-xs text-muted">
-    {{if .Hosts}}
-      {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
-    {{else}}
-      <span class="rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
-    {{end}}
-  </td>
-  <td class="px-3 py-2 text-xs text-muted">{{if .Note}}{{.Note}}{{else}}&mdash;{{end}}</td>
-</tr>
 {{end}}
