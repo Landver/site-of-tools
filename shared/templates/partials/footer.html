@@ -5,14 +5,24 @@
     {{/* IP2Location LITE license requires this exact acknowledgment; Spamhaus
          asked only for credit + keeping their © notice with the data (which the
          ip_blocklist corpus itself does, per record — see iptools/spamhaus.go).
-         Both scoped via VM's .Attribution flag → show only on IP tool + botcheck
-         (the pages using this data), never apex. */}}
+         One flag each, because the two sources stopped travelling together.
+         .Attribution = this page read IP2Location: the IP tool, botcheck, and
+         the DNS pages that enrich an address with its ASN.
+         .SpamhausAttribution = this page read the ip_blocklist corpus: the IP
+         tool, botcheck, and the DNS mail-server reputation card, which reads
+         the corpus and no IP2Location data at all. Neither on apex.
+
+         Welded together they were wrong in both directions at once: /email
+         owed Spamhaus a credit it did not print, while / and /consistency
+         printed one they had not earned. */}}
     {{if .Attribution}}
     <span>
       corpberry.com uses the IP2Location LITE database for
       <a href="https://lite.ip2location.com" target="_blank" rel="noopener"
          class="underline hover:text-muted">IP geolocation</a>.
     </span>
+    {{end}}
+    {{if .SpamhausAttribution}}
     <span>
       corpberry.com uses © The Spamhaus Project's
       <a href="https://www.spamhaus.org/blocklists/do-not-route-or-peer/" target="_blank" rel="noopener"

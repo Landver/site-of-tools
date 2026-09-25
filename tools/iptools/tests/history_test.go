@@ -26,7 +26,7 @@ func TestHistoryTemplateWithEntries(t *testing.T) {
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 	)
 	vm := map[string]any{
-		"Title": "Lookup history", "Active": "history", "Enabled": true, "Attribution": true,
+		"Title": "Lookup history", "Active": "history", "Enabled": true, "Attribution": true, "SpamhausAttribution": true,
 		"Entries": []iptools.HistoryEntry{
 			{IP: "8.8.8.8", CountryCode: "US", Country: "United States", City: "Mountain View", ASN: "15169", ASName: "Google LLC", CreatedAt: time.Date(2026, 7, 17, 9, 30, 0, 0, time.UTC)},
 		},

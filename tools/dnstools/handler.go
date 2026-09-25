@@ -170,7 +170,14 @@ func answered(c *echo.Context, name string, body any, err error, vm map[string]a
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
 func (h *handler) email(c *echo.Context) error {
 	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
-	vm := map[string]any{"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name}
+	// Page-scoped, like every other credit here: the footer sits outside the
+	// htmx target, so a per-result flag never reaches the DOM on a form submit.
+	// Spamhaus only — the reputation card reads the blocklist corpus, and
+	// nothing on this page consults IP2Location.
+	vm := map[string]any{
+		"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name,
+		"SpamhausAttribution": true,
+	}
 
 	if done, err := needName(c, name, vm, "dns/email", "dns/emailauth", "/email?name=example.com"); done {
 		return err
