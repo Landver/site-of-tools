@@ -103,6 +103,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -115,8 +116,7 @@
 <section class="rounded-lg border border-ok bg-surface p-4">
   <h2 class="text-sm font-semibold text-strong">Tagged URL</h2>
   <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Built}}</pre>
-  <button type="button" class="btn-primary mt-3"
-          onclick="var b=this;navigator.clipboard.writeText(b.previousElementSibling.textContent).then(function(){b.textContent='Copied'},function(){b.textContent='Select it and copy'})">Copy</button>
+  <button type="button" class="btn-copy mt-3" data-copy="{{.Built}}">Copy</button>
   <p class="mt-3 text-xs text-muted">
     Shown as text, not as a link. Only the Inspect page makes a URL clickable, and only when its scheme
     passed the http(s) allowlist.

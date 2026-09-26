@@ -85,6 +85,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -113,6 +114,7 @@
       <h3 class="text-sm font-semibold text-strong">After a <span class="font-mono">?</span></h3>
       <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
+      <button type="button" class="btn-copy mt-3" data-copy="{{.Value}}">Copy</button>
     </div>
     {{end}}{{end}}
     {{range .Encoded}}{{if eq .Name "Percent (path)"}}
@@ -120,6 +122,7 @@
       <h3 class="text-sm font-semibold text-strong">Inside a path segment</h3>
       <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
+      <button type="button" class="btn-copy mt-3" data-copy="{{.Value}}">Copy</button>
     </div>
     {{end}}{{end}}
   </div>
@@ -145,7 +148,10 @@
             {{else if eq .Value ""}}
               <span class="text-xs italic text-muted">empty string</span>
             {{else}}
-              <span class="break-all font-mono text-strong">{{.Value}}</span>
+              <div class="flex items-start gap-3">
+                <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+                <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button>
+              </div>
             {{end}}
             {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
           </td>
@@ -180,7 +186,10 @@
             {{else if eq .Value ""}}
               <span class="text-xs italic text-muted">decodes to the empty string</span>
             {{else}}
-              <span class="break-all font-mono text-strong">{{.Value}}</span>
+              <div class="flex items-start gap-3">
+                <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+                <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button>
+              </div>
             {{end}}
             {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
           </td>
