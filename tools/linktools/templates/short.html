@@ -208,7 +208,10 @@
                  back for a link made last week is the other half of the job.
                  Revoked rows get neither control — handing out a dead link is
                  worse than making someone retype it. */}}
-            <button type="button" class="btn-copy" data-copy="{{.Short}}">Copy</button>
+            {{/* aria-live because this one is NOT inside a live region: the
+                 created link sits in #result, which is, but the list is its
+                 own div and a silent label change would be silent twice. */}}
+            <button type="button" class="btn-copy" aria-live="polite" data-copy="{{.Short}}">Copy</button>
             <button type="button" class="text-xs text-danger hover:underline"
                     hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
                     hx-confirm="Revoke {{.Code}}? Existing copies of this link stop working. The code is never reused."

@@ -1,31 +1,28 @@
-{{/* Copy-to-clipboard for anything carrying data-copy="<text to copy>".
+{{/* Copy-to-clipboard. A text-only button carrying data-copy="<the text>"
+     copies it on click; add data-copy-auto and it is also copied the moment
+     htmx swaps it in.
 
-     Two behaviours, both declarative:
-       data-copy       clicking the element copies its value
-       data-copy-auto  it is also copied the moment htmx swaps it in
+     Text-only because the confirmation replaces the element's textContent —
+     put data-copy on the <pre> itself and a click would eat the block.
 
-     Delegated from document rather than wired per element, because most of
-     what wants copying here arrives in an htmx fragment — a <script> inside
+     Delegated from document, the same shape as partials/htmx-errors, because
+     most of what wants copying arrives in an htmx fragment: a <script> inside
      the fragment would have to re-run on every reswap, and a load-time
-     querySelectorAll would miss the markup entirely.
+     querySelectorAll would miss that markup entirely. navigator.clipboard is
+     the only API used — execCommand needs a selection in a focused document,
+     which is why only the extension's offscreen page still wants it.
 
-     navigator.clipboard is the only API used. The classic
-     execCommand('copy') fallback needs a selection in a focused document; the
-     one place in this project that genuinely needs it is the extension's
-     offscreen document, which is never focused (linktools/extension/
-     offscreen.js). Here the page is HTTPS in prod and localhost in dev, both
-     secure contexts, so the modern API is available.
+     The confirmation appears only when the write RESOLVED. Chromium grants
+     clipboard-write to the active tab, so the auto-copy succeeds there; Firefox
+     and Safari require transient user activation, which a copy fired from an
+     htmx response does not have. A "Copied" printed optimistically would be a
+     lie on two engines out of three, and there the button is the whole feature.
 
-     The confirmation is only shown when the write RESOLVED. That matters for
-     the auto-copy: Chromium grants clipboard-write to the active tab, so it
-     succeeds, but Firefox and Safari require transient user activation, which
-     is exactly what a copy fired from an htmx response does not have. A
-     "Copied" printed optimistically would be a lie on two engines out of
-     three. Instead the button simply stays as it is and one click does it.
-
-     Colours live on .btn-copy in input.css, not in a classList.add('text-ok')
-     here: two utilities that both set `color` have equal specificity, so the
-     stylesheet's order decides which wins, not the order in the attribute. */}}
+     is-copied / is-failed rather than toggling text-ok / text-danger directly:
+     those are Tailwind names, so using them would lean on the scanner having
+     found them inside a JS string, and on the utilities layer outranking the
+     components layer .btn-copy lives in. A class Tailwind does not own leans on
+     neither. The colours are in input.css beside the rest of .btn-copy. */}}
 {{define "partials/copy"}}
 <script>
   (function () {
@@ -49,6 +46,10 @@
 
     function copy(el) {
       var text = el.dataset.copy
+      // navigator.clipboard is undefined outside a secure context — reachable
+      // in dev over http://192.168.x.x:8080 from a phone. Reading .writeText
+      // off it would throw synchronously, before the caller's .catch is
+      // attached, and the click would die with nothing shown.
       if (!text || !navigator.clipboard) return Promise.reject(new Error('no clipboard'))
       return navigator.clipboard.writeText(text).then(function () {
         flash(el, 'Copied', 'is-copied')
@@ -56,17 +57,14 @@
     }
 
     document.addEventListener('click', function (e) {
-      var el = e.target.closest ? e.target.closest('[data-copy]') : null
-      if (!el) return
-      copy(el).catch(function () { flash(el, 'Copy failed', 'is-failed') })
+      var el = e.target.closest('[data-copy]')
+      if (el) copy(el).catch(function () { flash(el, 'Copy failed', 'is-failed') })
     })
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
-      var t = e.detail && e.detail.target
-      if (!t || !t.querySelector) return
-      var el = t.matches('[data-copy][data-copy-auto]') ? t : t.querySelector('[data-copy][data-copy-auto]')
-      // Swallowed on purpose: a browser that refuses an unattended clipboard
-      // write has not failed, it has just left the button to do the job.
+      var el = e.detail.target.querySelector('[data-copy][data-copy-auto]')
+      // Swallowed on purpose: a browser that refuses an unattended write has
+      // not failed, it has just left the button to do the job.
       if (el) copy(el).catch(function () {})
     })
   })()

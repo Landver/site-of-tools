@@ -262,24 +262,15 @@ console applies the same rendering rules as Inspect
 
 ### Getting the link onto the clipboard
 
-A short link is worth nothing until it is pasted somewhere, so creating one is
-not where the job ends. A freshly created link is copied **automatically**, and
-carries a Copy button as well; every live row in the alias list carries one too,
-for the link you made last week. Revoked rows carry neither — handing out a dead
-link fails silently, in the paste, somewhere else entirely.
+A short link is worth nothing until it is pasted somewhere. A freshly created
+link is copied **automatically** and carries a Copy button as well; every live
+row in the alias list carries one too. Revoked rows carry neither: handing out a
+dead link fails silently, in the paste, somewhere else entirely.
 
-The behaviour is `shared/templates/partials/copy.html`: `data-copy` holds the
-text, `data-copy-auto` also copies on swap, and a delegated listener covers
-markup that arrives by htmx. The confirmation only appears when the write
-**resolved**. Chromium grants clipboard-write to the active tab, so the
-auto-copy succeeds there; Firefox and Safari require transient user activation,
-which a copy fired from an htmx response does not have, and on those the button
-is the whole feature. A "Copied" printed optimistically would be a lie on two
-engines out of three.
-
-The row's copy value is built server-side from `Shortener.ShortURL`, not
-assembled in the template from base + code: that rule already produced `/s/s/`
-once when the prefix was added twice, and a second copy of it would drift.
+The mechanism is `shared/templates/partials/copy.html`, which documents why the
+confirmation waits for the clipboard write to resolve. The row's copy value is
+built server-side from `Shortener.ShortURL` rather than assembled in the
+template, for the reason given in §2.
 
 Revoking an alias is `DELETE /short/:code`, key-gated like every other write.
 Soft-delete only: `RevokedAt` is set, the document stays, and the code is never
