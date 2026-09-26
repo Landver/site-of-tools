@@ -417,8 +417,13 @@ func TestECSCardDoesNotSayEveryResponseWhenOnlySomeWereMeasured(t *testing.T) {
 		verdict, want string
 		scope         uint8
 	}{
-		{"answers-match", "on the 1 of 6 responses that carried one", 24},
-		{"untailored", "The 1 of 6 responses that carried a scope reported scope 0", 0},
+		// Both branches name the denominator with the same phrase. This used
+		// to pin a whole sentence per branch, which made it an assertion
+		// about prose rather than about the guarantee — it failed twice on
+		// rewording that kept the denominator intact. The negative checks
+		// below are what stop the card claiming the full set.
+		{"answers-match", "the 1 of 6 responses that carried one", 24},
+		{"untailored", "the 1 of 6 responses that carried one", 0},
 	} {
 		t.Run(c.verdict, func(t *testing.T) {
 			t.Parallel()

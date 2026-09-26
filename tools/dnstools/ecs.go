@@ -670,29 +670,26 @@ func (e *ECS) notes() {
 	add := func(level, text string) { e.Notes = append(e.Notes, Note{Level: level, Text: text}) }
 
 	if missing := e.Asked - e.Answered; missing > 0 {
-		add("warn", fmt.Sprintf("%d of %d vantage points got no usable answer, so the comparison is over the rest. Their rows below say why.", missing, e.Asked))
+		add("warn", fmt.Sprintf("%d of %d networks got no usable answer; the comparison is over the rest.", missing, e.Asked))
 	}
 	if e.Echoed > 0 && e.Echoed < e.Answered {
-		add("warn", fmt.Sprintf("Only %d of the %d answers came back with a client-subnet option for the network we asked about. Where there is none there is no scope to read, so those rows neither support nor contradict the verdict.", e.Echoed, e.Answered))
+		add("warn", fmt.Sprintf("Only %d of %d answers carried a client-subnet option, so the rest neither support nor contradict the verdict.", e.Echoed, e.Answered))
 	}
 	if e.Mismatched > 0 {
-		add("warn", fmt.Sprintf("%d response(s) came back with a scope for a prefix we never sent — a cached answer keyed to somebody else's network, or a middlebox rewriting the option. Their rows show which prefix, and their scope is excluded from the verdict.", e.Mismatched))
+		add("warn", fmt.Sprintf("%d response(s) carried a scope for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched))
 	}
 	// The signal the whole card exists to find, and the one the verdict can
 	// state only indirectly: a name that resolves in some regions and returns
 	// nothing in others.
 	if e.WithRecords > 0 && e.WithRecords < e.Answered {
-		add("warn", fmt.Sprintf("%d of the %d networks that got an answer were given no %s record at all, while the other %d were given records. Those two groups are listed separately below.",
+		add("warn", fmt.Sprintf("%d of the %d networks that answered were given no %s record at all, while %d were given records; they are separate groups above.",
 			e.Answered-e.WithRecords, e.Answered, e.Type, e.WithRecords))
 	}
 	// What the headline sentence has no room for, never a second copy of it.
 	switch {
 	case e.Verdict == ECSVerdictDiffers:
-		add("info", "The places below are our labels for a fixed table of public prefixes; the wire carried a prefix, not a location. Six prefixes can show that answers differed between them. They cannot show that the split follows geography, and this card does not claim it.")
+		add("info", "The place names are our labels for fixed prefixes. They can show that answers differed; they cannot show the split follows geography.")
 	case e.Verdict == ECSVerdictUntailored:
-		add("warn", "Scope 0 covers this resolver's path only. A zone that picks its answer from the resolver's own location instead of the client subnet reports scope 0 as well, and so does a resolver that chose not to forward the subnet at all, so this is not evidence that every client of every resolver is given these records.")
-	}
-	if e.MaxScope > 0 && !e.ScopeDistinct {
-		add("warn", fmt.Sprintf("Every scope came back as exactly the /%d we sent. A server that echoes the option unchanged produces that whether it tailors anything or not, so read it as \"the option survived the round trip\", not as \"the zone read the network\". A scope the zone shortens to its own block is the version that means something.", e.MaxScope))
+		add("warn", "Scope 0 covers this resolver's path only: a zone steering on the resolver's own location, and a resolver that never forwarded the subnet, both report it too.")
 	}
 }
