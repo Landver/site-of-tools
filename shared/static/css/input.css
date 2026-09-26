@@ -88,6 +88,20 @@
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
   }
+  /* Small secondary control that sits beside the thing it acts on. Driven by
+     partials/copy, which toggles the two state classes below and nothing else
+     — the colours have to live here because two utilities that both set
+     `color` have equal specificity, so stylesheet order would decide the
+     winner rather than the order in the class attribute. */
+  .btn-copy {
+    @apply shrink-0 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-brand;
+  }
+  .btn-copy.is-copied {
+    @apply border-ok text-ok;
+  }
+  .btn-copy.is-failed {
+    @apply border-danger text-danger;
+  }
   /* Inline error alert; add a layout util inline. */
   .alert-error {
     @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger;

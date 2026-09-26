@@ -117,6 +117,7 @@
     </details>
   </main>
   {{template "partials/htmx-errors" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -126,7 +127,16 @@
 {{define "link/created"}}
 {{with .Created}}
 <div class="rounded-lg border border-ok bg-surface p-4">
-  <p class="font-mono text-sm text-strong">{{.Short}}</p>
+  {{/* data-copy-auto puts the link on the clipboard the moment it appears,
+       because a short link is worth nothing until it is pasted somewhere and
+       the create button is the only gesture anyone wants to make. The button
+       is not redundant with it: Firefox and Safari refuse a clipboard write
+       that has no user gesture behind it, and it is also how you copy the
+       link again a minute later. See partials/copy. */}}
+  <div class="flex flex-wrap items-start gap-3">
+    <p class="min-w-0 flex-1 break-all font-mono text-sm text-strong">{{.Short}}</p>
+    <button type="button" class="btn-copy" data-copy="{{.Short}}" data-copy-auto>Copy</button>
+  </div>
   {{if .Cleaned}}
   <p class="mt-2 text-xs text-muted">
     Stripped before storing: {{range $i, $c := .Cleaned}}{{if $i}}, {{end}}<span class="font-mono">{{$c}}</span>{{end}}.
@@ -156,7 +166,12 @@
   <p class="text-sm text-muted">No aliases yet.</p>
 {{else}}
 <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Recent aliases</h2>
-<div class="mt-2 overflow-x-auto rounded-lg border border-line">
+{{/* relative is load-bearing: the Actions header is an sr-only <span>, which
+     is position:absolute, and without a positioned ancestor its containing
+     block is the page — so it escaped this scroll container and gave the whole
+     document 86px of horizontal scroll at 375px wide while the table itself
+     looked fine. */}}
+<div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
   <table class="w-full text-left text-sm">
     <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
       <tr>
@@ -188,12 +203,19 @@
                state the UI could not produce. Same key expression as the
                loader: the header is the only way a browser can authenticate. */}}
           {{if not .RevokedAt}}
-          <button type="button" class="text-xs text-danger hover:underline"
-                  hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
-                  hx-confirm="Revoke {{.Code}}? Existing copies of this link stop working. The code is never reused."
-                  hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
-            Revoke
-          </button>
+          <div class="flex items-center justify-end gap-3">
+            {{/* Copy is here too, not only on a freshly created link: coming
+                 back for a link made last week is the other half of the job.
+                 Revoked rows get neither control — handing out a dead link is
+                 worse than making someone retype it. */}}
+            <button type="button" class="btn-copy" data-copy="{{.Short}}">Copy</button>
+            <button type="button" class="text-xs text-danger hover:underline"
+                    hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
+                    hx-confirm="Revoke {{.Code}}? Existing copies of this link stop working. The code is never reused."
+                    hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
+              Revoke
+            </button>
+          </div>
           {{end}}
         </td>
       </tr>
