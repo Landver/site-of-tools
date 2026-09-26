@@ -9,7 +9,7 @@
 {{range .Found}}{{if .Cached}}{{$anyCached = true}}{{end}}{{end}}
 {{/* Full width whenever the "nothing published" card isn't there to pair with
      it, so the span-2 card that follows doesn't strand an empty half-row. */}}
-<div class="card {{if not .Missing}}sm:col-span-2{{end}}">
+<div class="card">
   <div class="eyebrow">the query</div>
   <dl class="spec">
     <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
@@ -60,12 +60,21 @@
         <span class="text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
       </p>
     </div>
+    {{/* Two independent stacking columns, the same shape botcheck's breakdown
+         and /consistency use: each column is its own vertical flow, so cards
+         follow one another down their own side rather than being pinned into
+         rows where a short card strands the space beside a tall one. The wide
+         answer table above keeps the full width, because it is a table. */}}
+    <div class="grid gap-4">
     {{template "dns/querycard" .}}
+    </div>
+
+    <div class="grid gap-4">
     {{/* Types the resolver could not answer are shown here too: without this
          a filtered name, or a mix of NXDOMAIN and SERVFAIL, was hidden behind
          a sentence claiming the name simply does not exist. */}}
     {{if .Failed}}
-    <div class="card sm:col-span-2">
+    <div class="card">
       <div class="eyebrow">no answer</div>
       <dl class="spec">
         {{range .Failed}}
@@ -79,6 +88,7 @@
       <p class="mt-2 text-xs text-faint">A resolver that blocks a name reports it this way. That is filtering, not absence.</p>
     </div>
     {{end}}
+    </div>
 {{else}}
 
     {{/* Every answer in ONE table, spanning both columns. The type is a column,
@@ -142,8 +152,14 @@
          address above looks like it belongs to the name asked for. A fan-out
          already shows the alias under CNAME, so this is for the narrowed
          query only. */}}
+    {{/* Two independent stacking columns, the same shape botcheck's breakdown
+         and /consistency use: each column is its own vertical flow, so cards
+         follow one another down their own side rather than being pinned into
+         rows where a short card strands the space beside a tall one. The wide
+         answer table above keeps the full width, because it is a table. */}}
+    <div class="grid gap-4">
     {{if and .Chain (eq .Asked 1)}}
-    <div class="card sm:col-span-2">
+    <div class="card">
       <div class="eyebrow">this name is an alias</div>
       <p class="text-sm text-muted">
         <span class="font-mono text-strong">{{$qname}}</span> is an alias. The answer above was reached by
@@ -162,7 +178,9 @@
 
     {{/* Directly under the answer. */}}
     {{template "dns/querycard" .}}
+    </div>
 
+    <div class="grid gap-4">
     {{/* Every empty type collapsed into one line, instead of a wall of empty
          cards. Absence is still stated out loud, just once. */}}
     {{if .Missing}}
@@ -181,7 +199,7 @@
     {{/* A CNAME pointing at a name that doesn't resolve is the classic
          subdomain-takeover shape, so it gets said loudly. */}}
     {{if .Dangling}}
-    <div class="card sm:col-span-2">
+    <div class="card">
       <div class="eyebrow">dangling cname</div>
       <p class="text-sm">
         <span class="text-danger">This name points somewhere that doesn't resolve:</span>
@@ -196,7 +214,7 @@
 
     {{/* "Couldn't find out" is deliberately not folded in with "isn't there". */}}
     {{if .Failed}}
-    <div class="card sm:col-span-2">
+    <div class="card">
       <div class="eyebrow">no answer</div>
       <p class="text-sm text-muted">The resolver didn't give a usable answer for:</p>
       <dl class="spec mt-2">
@@ -225,7 +243,7 @@
     {{/* The receipt made checkable: the exact commands that reproduce this,
          and the answers in zone-file form. */}}
     {{if .Dig}}
-    <details class="card sm:col-span-2">
+    <details class="card">
       <summary class="cursor-pointer text-sm text-muted hover:text-strong">
         Show the <span class="font-mono text-strong">dig</span> commands that reproduce this, and the answers as a zone file
       </summary>
@@ -244,6 +262,7 @@
       </div>
     </details>
     {{end}}
+    </div>
 
   {{end}}
   {{end}}
