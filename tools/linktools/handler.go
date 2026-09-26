@@ -314,7 +314,7 @@ func (h *handler) shortConsole(c *echo.Context) error {
 		// Project before rendering. CreatedIP is json:"-" so the API is safe,
 		// but a struct tag means NOTHING to html/template — the HTML side would
 		// be protected only by nobody having typed {{.CreatedIP}} yet (§8).
-		vm["Links"] = consoleRows(links)
+		vm["Links"] = consoleRows(h.short, links)
 		body["links"] = links
 	}
 	// Page vs fragment differ here, unlike most routes: the browser gets the
@@ -415,7 +415,12 @@ func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page s
 // consoleRow is the console's view of a Link: everything the page renders and
 // nothing it does not. Exists so CreatedIP cannot reach a template at all.
 type consoleRow struct {
-	Code      string
+	Code string
+	// Short is the full public URL, rendered here rather than assembled in the
+	// template: ShortURL owns the /s/ prefix, and a template that pasted base
+	// and code together would be a second copy of that rule waiting to drift
+	// (it already minted /s/s/ once when the prefix was added twice).
+	Short     string
 	Target    string
 	Note      string
 	Hits      int64
@@ -424,11 +429,11 @@ type consoleRow struct {
 	RevokedAt *time.Time
 }
 
-func consoleRows(links []Link) []consoleRow {
+func consoleRows(s *Shortener, links []Link) []consoleRow {
 	out := make([]consoleRow, 0, len(links))
 	for _, l := range links {
 		out = append(out, consoleRow{
-			Code: l.Code, Target: l.Target, Note: l.Note, Hits: l.Hits,
+			Code: l.Code, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note, Hits: l.Hits,
 			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt,
 		})
 	}

@@ -120,6 +120,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -135,8 +136,7 @@
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The command</h2>
   <div class="mt-2">
     <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.Curl}}</pre>
-    <button type="button" class="btn-primary mt-2"
-            onclick="var b=this;navigator.clipboard.writeText(b.previousElementSibling.textContent).then(function(){b.textContent='Copied'},function(){b.textContent='Select it and copy'})">Copy</button>
+    <button type="button" class="btn-copy mt-2" data-copy="{{.Curl}}">Copy</button>
   </div>
   <p class="mt-2 text-xs text-muted">
     Every value is single-quoted, and an embedded single quote is closed, escaped and reopened. That is not

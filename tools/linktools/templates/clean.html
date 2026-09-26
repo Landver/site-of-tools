@@ -98,6 +98,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -132,8 +133,7 @@
   <div class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4">
     <h2 class="text-sm font-semibold text-strong">After</h2>
     <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Output}}</pre>
-    <button type="button" class="btn-primary mt-3"
-            onclick="var b=this;navigator.clipboard.writeText(b.previousElementSibling.textContent).then(function(){b.textContent='Copied'},function(){b.textContent='Select it and copy'})">Copy</button>
+    <button type="button" class="btn-copy mt-3" data-copy="{{.Output}}">Copy</button>
   </div>
 </section>
 

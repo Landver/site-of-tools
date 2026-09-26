@@ -260,6 +260,18 @@ console applies the same rendering rules as Inspect
 ([06 §8](06-security-and-abuse.md#8-rendering-hostile-urls)), since `note` and
 `target` are attacker-influenced strings.
 
+### Getting the link onto the clipboard
+
+A short link is worth nothing until it is pasted somewhere. A freshly created
+link is copied **automatically** and carries a Copy button as well; every live
+row in the alias list carries one too. Revoked rows carry neither: handing out a
+dead link fails silently, in the paste, somewhere else entirely.
+
+The mechanism is `shared/templates/partials/copy.html`, which documents why the
+confirmation waits for the clipboard write to resolve. The row's copy value is
+built server-side from `Shortener.ShortURL` rather than assembled in the
+template, for the reason given in §2.
+
 Revoking an alias is `DELETE /short/:code`, key-gated like every other write.
 Soft-delete only: `RevokedAt` is set, the document stays, and the code is never
 reissued — freeing it would let a re-registered custom slug silently change
