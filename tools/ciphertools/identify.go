@@ -151,6 +151,7 @@ func (x *idents) pemBlocks(t string) {
 	type seen struct {
 		n, parsed int
 		encrypted bool
+		oversized bool // a private key too large to parse (keys.go)
 		preview   string
 	}
 	var order []string
@@ -171,7 +172,9 @@ func (x *idents) pemBlocks(t string) {
 		if strings.Contains(b.Headers["Proc-Type"], "ENCRYPTED") {
 			k.encrypted = true
 		}
-		if ok, preview := pemParses(b); ok {
+		if checkPrivateDER(b) != nil {
+			k.oversized = true
+		} else if ok, preview := pemParses(b); ok {
 			k.parsed++
 			if k.preview == "" {
 				k.preview = preview
@@ -203,6 +206,9 @@ func (x *idents) pemBlocks(t string) {
 		switch {
 		case k.encrypted || typ == "ENCRYPTED PRIVATE KEY":
 			why += ", passphrase-encrypted: decrypt it locally first (openssl pkey -in key.pem -out plain.pem)"
+		case k.oversized:
+			why += fmt.Sprintf(", but larger than any real key (over %s of DER), so not parsed", bytesText(maxPrivateKeyDER))
+			score = 60
 		case k.parsed == 0 && pemChecked[typ]:
 			why += ", but the DER inside doesn't parse as one"
 			score = 60

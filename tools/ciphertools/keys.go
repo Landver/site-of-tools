@@ -79,6 +79,33 @@ const maxKeys = 64
 
 var errTooManyKeys = fmt.Errorf("more than %d keys; paste fewer at once", maxKeys)
 
+// maxRSABits caps every RSA key read from input, at the limit crypto/tls and
+// x/crypto/ssh already apply. Go's RSA has none of its own, and verifying
+// grows with the square of the modulus, signing with its cube: RSA-32768 takes
+// seconds to sign with, and a key filling the request body minutes to verify.
+// Such a key needs no real primes (validation multiplies, it doesn't test
+// primality), so without this one POST to a non-Heavy op could pin a CPU.
+const maxRSABits = 8192
+
+// maxPrivateKeyDER bounds a private key block before it is parsed: Go validates
+// an RSA key while parsing it, which is quadratic in its size, so the bit cap
+// alone would come too late. RSA-16384 is ~9.3 KB of PKCS#1.
+const maxPrivateKeyDER = 16 << 10
+
+func checkRSASize(pub *rsa.PublicKey) error {
+	if n := pub.N.BitLen(); n > maxRSABits {
+		return fmt.Errorf("RSA %d-bit key: above the limit of %s bits, which is also what TLS and SSH accept", n, thousands(maxRSABits))
+	}
+	return nil
+}
+
+func checkPrivateDER(b *pem.Block) error {
+	if strings.Contains(b.Type, "PRIVATE KEY") && len(b.Bytes) > maxPrivateKeyDER {
+		return fmt.Errorf("%s of DER is larger than any real private key; this page reads up to %s", bytesText(len(b.Bytes)), bytesText(maxPrivateKeyDER))
+	}
+	return nil
+}
+
 // ParseKeys reads PEM (up to maxKeys blocks), a JWK, a JWKS, or OpenSSH public
 // key lines (authorized_keys format, one or more).
 func ParseKeys(s string) ([]Key, error) {
@@ -126,6 +153,9 @@ func parsePEM(data []byte) ([]Key, error) {
 func keyFromPEM(b *pem.Block) (*Key, error) {
 	if strings.Contains(b.Headers["Proc-Type"], "ENCRYPTED") {
 		return nil, errors.New("encrypted with a passphrase; decrypt it locally first: openssl pkey -in key.pem -out plain.pem")
+	}
+	if err := checkPrivateDER(b); err != nil {
+		return nil, err
 	}
 	switch b.Type {
 	case "EC PARAMETERS":
@@ -198,6 +228,9 @@ func certName(c *x509.Certificate) string {
 func keyFromPublic(pub any, source string) (*Key, error) {
 	switch p := pub.(type) {
 	case *rsa.PublicKey:
+		if err := checkRSASize(p); err != nil {
+			return nil, err
+		}
 		return &Key{Kind: KindRSA, Public: p, Source: source}, nil
 	case *ecdsa.PublicKey:
 		return &Key{Kind: KindEC, Public: p, Source: source}, nil
@@ -210,6 +243,9 @@ func keyFromPublic(pub any, source string) (*Key, error) {
 func keyFromPrivate(priv any, source string) (*Key, error) {
 	switch p := priv.(type) {
 	case *rsa.PrivateKey:
+		if err := checkRSASize(&p.PublicKey); err != nil {
+			return nil, err
+		}
 		return &Key{Kind: KindRSA, Public: &p.PublicKey, Private: p, Source: source}, nil
 	case *ecdsa.PrivateKey:
 		return &Key{Kind: KindEC, Public: &p.PublicKey, Private: p, Source: source}, nil
@@ -326,6 +362,9 @@ func keyFromJWK(j JWK, source string) (*Key, error) {
 			return nil, errors.New(`"e" is out of range`)
 		}
 		pub := &rsa.PublicKey{N: n, E: int(e.Int64())}
+		if err := checkRSASize(pub); err != nil {
+			return nil, err
+		}
 		k = &Key{Kind: KindRSA, Public: pub}
 		if j.D != "" {
 			priv, err := rsaPrivateFromJWK(j, pub)

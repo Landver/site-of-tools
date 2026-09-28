@@ -313,12 +313,18 @@ func (p *certInput) addPEM(n int, b *pem.Block) error {
 	switch b.Type {
 	case "CERTIFICATE":
 		c, err := x509.ParseCertificate(b.Bytes)
+		if err == nil {
+			err = certKeySize(c.PublicKey)
+		}
 		if err != nil {
 			return fmt.Errorf("PEM block %d (CERTIFICATE): %w", n, err)
 		}
 		p.certs = append(p.certs, c)
 	case "CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST":
 		c, err := x509.ParseCertificateRequest(b.Bytes)
+		if err == nil {
+			err = certKeySize(c.PublicKey)
+		}
 		if err != nil {
 			return fmt.Errorf("PEM block %d (%s): %w", n, b.Type, err)
 		}
@@ -360,14 +366,31 @@ func (p *certInput) readDER(data []byte) error {
 	}
 	certs, err := x509.ParseCertificates(der)
 	if err == nil {
+		for i, c := range certs {
+			if err := certKeySize(c.PublicKey); err != nil {
+				return fmt.Errorf("certificate %d: %w", i+1, err)
+			}
+		}
 		p.certs = certs
 		return p.full()
 	}
 	if csr, cerr := x509.ParseCertificateRequest(der); cerr == nil {
+		if err := certKeySize(csr.PublicKey); err != nil {
+			return err
+		}
 		p.csrs = []*x509.CertificateRequest{csr}
 		return nil
 	}
 	return fmt.Errorf("not a DER certificate or request: %w", err)
+}
+
+// certKeySize applies the RSA cap (keys.go) to a certificate's key, since its
+// signatures, and those it made, are checked with it.
+func certKeySize(pub any) error {
+	if k, ok := pub.(*rsa.PublicKey); ok {
+		return checkRSASize(k)
+	}
+	return nil
 }
 
 // looksHex: only hex digits once whitespace and ':' / '-' separators go.
