@@ -25,7 +25,7 @@
     </p>
     {{template "cipher/engine" .}}
 
-    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist">
+    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist" x-cloak>
       <button type="button" role="tab" @click="tab = 'decode'" :aria-selected="tab === 'decode'"
               :class="tab === 'decode' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">Decode &amp; verify</button>
@@ -46,7 +46,7 @@
           <label class="block text-sm text-muted">Secret, public key, JWK or JWKS <span class="text-faint">(optional)</span>
             <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
                       placeholder="your-256-bit-secret, or -----BEGIN PUBLIC KEY-----, or {&quot;keys&quot;:[…]}"
-                      class="field mt-1 w-full font-mono text-xs">{{.Form.Get "key"}}</textarea>
+                      class="field mt-1 w-full font-mono text-xs">{{if ne .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
           </label>
           <label class="block text-sm text-muted">Secret is
             <select name="key_enc" class="field mt-1 w-full">
@@ -188,14 +188,14 @@ curl {{.Base}}/jwt/sign -d alg=HS256 -d key=secret -d exp=1h --data-urlencode 'p
 <pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-2">
-  <section>
+  <section class="min-w-0">
     <h2 class="eyebrow">Header</h2>
     <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.HeaderJSON}}</pre>
     <dl class="spec mt-3">
       {{range .HeaderRows}}<dt class="font-mono">{{.Name}}</dt><dd><span class="break-all font-mono text-strong">{{.Value}}</span>{{if .Meaning}}<span class="block text-xs text-muted">{{.Meaning}}</span>{{end}}</dd>{{end}}
     </dl>
   </section>
-  <section>
+  <section class="min-w-0">
     <h2 class="eyebrow">Payload</h2>
     {{if .PayloadJSON}}
     <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PayloadJSON}}</pre>

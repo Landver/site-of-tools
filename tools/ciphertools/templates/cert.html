@@ -36,7 +36,8 @@
         <label class="block text-sm text-muted">Or read a file <span class="text-faint">(.pem, .crt, .cer, .der, .csr)</span>
           <input type="file" name="cert_file" class="mt-1 block w-full text-sm text-muted">
         </label>
-        <p class="mt-1 text-xs text-faint">Read in this tab, never uploaded. While a file is picked, it is read instead of the text.</p>
+        <p class="mt-1 text-xs text-faint">The in-browser engine reads it in this tab, never uploaded; with JavaScript off it
+          is uploaded with the form. While a file is picked, it is read instead of the text.</p>
       </div>
       <label class="block text-sm text-muted">Key to match <span class="text-faint">(optional: private or public, PEM, JWK or OpenSSH)</span>
         <textarea name="key" rows="4" autocomplete="off" spellcheck="false"

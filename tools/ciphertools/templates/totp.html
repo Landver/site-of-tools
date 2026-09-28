@@ -129,7 +129,7 @@ curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d mode=hotp -d counter=5</pre>
                  }, 250);
                },
                destroy() { clearInterval(this.timer); } }">
-    <span class="font-semibold text-strong" x-text="left">{{.Remaining}}</span> seconds left in this
+    <span class="font-semibold text-strong" x-text="left" aria-live="off">{{.Remaining}}</span> seconds left in this
     {{.Period}}-second step, counter {{.Counter}}.
   </p>
   {{else}}

@@ -26,7 +26,7 @@
     </p>
     {{template "cipher/engine" .}}
 
-    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist">
+    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist" x-cloak>
       <button type="button" role="tab" @click="tab = 'token'" :aria-selected="tab === 'token'"
               :class="tab === 'token' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">Token</button>
