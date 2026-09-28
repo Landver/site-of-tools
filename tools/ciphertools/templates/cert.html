@@ -194,7 +194,7 @@ curl {{.Base}}/cert --data-urlencode cert@cert.pem --data-urlencode key@public.p
 <section class="mt-6 rounded-lg border border-line p-4">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <h3 class="text-base font-semibold text-strong">Request {{.N}}: <span class="break-all font-mono">{{.Title}}</span></h3>
-    <span class="text-sm {{if .SigOK}}text-ok{{else}}text-danger{{end}}">{{if .SigOK}}Signature valid{{else}}Signature invalid{{end}}</span>
+    <span class="text-sm {{if .SigOK}}text-ok{{else if .SigUnverifiable}}text-warn{{else}}text-danger{{end}}">{{if .SigOK}}Signature valid{{else if .SigUnverifiable}}Signature not checked{{else}}Signature invalid{{end}}</span>
   </div>
   <p class="mt-1 text-xs text-muted">{{.SigDetail}}</p>
   {{template "cipher/warnings" .Warnings}}

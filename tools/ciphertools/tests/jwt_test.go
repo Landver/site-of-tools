@@ -408,3 +408,17 @@ func TestJWTJWKSPicksByKid(t *testing.T) {
 		t.Fatalf("unknown kid: %q %s", j.Verification.State, j.Verification.Detail)
 	}
 }
+
+// An exp that is present but not a NumericDate is not "no exp claim": the
+// issuer did set an expiry, just in a form nothing can check.
+func TestJWTMalformedExpIsNotMissing(t *testing.T) {
+	j := decode(t, token(`{"alg":"HS256"}`, `{"sub":"x","exp":"tomorrow"}`, "AAAA"), "", "", rfcNow)
+	if j.Validity.State != "bad-expiry" {
+		t.Fatalf("validity = %q (%s), want bad-expiry", j.Validity.State, j.Validity.Detail)
+	}
+	for _, w := range j.Warnings {
+		if strings.Contains(w.Text, "No exp claim") {
+			t.Fatalf("malformed exp reported as missing: %q", w.Text)
+		}
+	}
+}

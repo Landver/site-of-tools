@@ -72,7 +72,7 @@ type Verification struct {
 // Validity is the time-claim verdict, separate from the signature on purpose:
 // an expired token can have a perfect signature and vice versa.
 type Validity struct {
-	State  string `json:"state"` // valid | expired | not-yet-valid | no-expiry
+	State  string `json:"state"` // valid | expired | not-yet-valid | no-expiry | bad-expiry
 	Detail string `json:"detail"`
 }
 
@@ -307,6 +307,7 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 	j.PayloadJSON = pretty(payload)
 
 	var exp, nbf, iat *time.Time
+	badExp := false
 	for _, m := range members {
 		r := Row{Name: m.Key, Value: display(m.Raw), Meaning: claimMeanings[m.Key]}
 		switch m.Key {
@@ -314,6 +315,7 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 			t, ok := numericDate(m.Raw)
 			if !ok {
 				r.Note = "not a NumericDate (seconds since 1970), so it can't be checked"
+				badExp = badExp || m.Key == "exp"
 				break
 			}
 			if t.Year() > 3000 {
@@ -338,6 +340,8 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 		v.State, v.Detail = "expired", "Expired "+relative(*exp, now)+"."
 	case nbf != nil && now.Add(leeway).Before(*nbf):
 		v.State, v.Detail = "not-yet-valid", "Not valid until "+nbf.Format("2006-01-02 15:04:05 UTC")+", "+relative(*nbf, now)+"."
+	case badExp:
+		v.State, v.Detail = "bad-expiry", "exp is present but isn't a NumericDate (seconds since 1970), so expiry can't be checked. Verifiers following RFC 7519 reject the token."
 	case exp == nil:
 		v.State, v.Detail = "no-expiry", "No exp claim: this token never expires."
 	default:
@@ -347,7 +351,7 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 		v.Detail += fmt.Sprintf(" (%s of clock skew allowed.)", humanDuration(leeway))
 	}
 	j.Validity = v
-	if exp == nil {
+	if exp == nil && !badExp {
 		j.warn(LevelWarn, "No exp claim. A token that never expires can't be revoked by waiting.")
 	}
 	if iat != nil && iat.After(now.Add(leeway)) {

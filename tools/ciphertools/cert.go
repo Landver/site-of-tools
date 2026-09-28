@@ -97,14 +97,17 @@ type CertView struct {
 
 // CSRView is one decoded certificate signing request.
 type CSRView struct {
-	N          int    `json:"n"`
-	Subject    string `json:"subject"`
-	SANs       SANs   `json:"sans"`
-	Key        string `json:"public_key"`
-	SigAlg     string `json:"signature_algorithm"`
-	SigOK      bool   `json:"signature_ok"`
-	SigDetail  string `json:"signature_detail"`
-	SPKISHA256 string `json:"spki_sha256"`
+	N         int    `json:"n"`
+	Subject   string `json:"subject"`
+	SANs      SANs   `json:"sans"`
+	Key       string `json:"public_key"`
+	SigAlg    string `json:"signature_algorithm"`
+	SigOK     bool   `json:"signature_ok"`
+	SigDetail string `json:"signature_detail"`
+	// SigUnverifiable: signed with an algorithm too broken (MD5) or too
+	// unusual (DSA, Ed448) to check, so no verdict either way, as in signedBy.
+	SigUnverifiable bool   `json:"signature_unverifiable,omitempty"`
+	SPKISHA256      string `json:"spki_sha256"`
 
 	Warnings []Warning `json:"warnings,omitempty"`
 
@@ -635,7 +638,12 @@ func viewCSR(n int, c *x509.CertificateRequest) CSRView {
 	v.Title = title(v.SANs, c.Subject.CommonName, v.Subject)
 	spki := sha256.Sum256(c.RawSubjectPublicKeyInfo)
 	v.SPKISHA256 = fingerprintHex(spki[:])
-	if err := c.CheckSignature(); err != nil {
+	var ia x509.InsecureAlgorithmError
+	if err := c.CheckSignature(); errors.As(err, &ia) || errors.Is(err, x509.ErrUnsupportedAlgorithm) {
+		v.SigUnverifiable = true
+		v.SigDetail = "Signed with " + v.SigAlg + ", which this tool can't check, so there is no verdict on the signature. Many CAs refuse such requests."
+		v.Warnings = append(v.Warnings, Warning{LevelWarn, v.SigDetail})
+	} else if err != nil {
 		v.SigDetail = "The request's signature does NOT verify with the key it carries (" + err.Error() + "). A CA will refuse it."
 		v.Warnings = append(v.Warnings, Warning{LevelDanger, v.SigDetail})
 	} else {

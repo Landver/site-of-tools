@@ -563,3 +563,33 @@ func TestCertPageAndAPI(t *testing.T) {
 		t.Fatalf("no-JS: %d", rec.Code)
 	}
 }
+
+// A CSR signed with an algorithm Go can't check (DSA here, made by openssl) is
+// no verdict, the same rule the chain view follows. "Signature invalid" would
+// tell the visitor their request is broken when it isn't.
+const dsaCSR = `-----BEGIN CERTIFICATE REQUEST-----
+MIICGzCCAdcCAQAwFjEUMBIGA1UEAwwLZHNhLmV4YW1wbGUwggG2MIIBKwYHKoZI
+zjgEATCCAR4CgYEAxPns90673Q19X82l1cVvZWEAmmBvcKZtsjLhkzw+PjWbJsmF
+Z2Lj2wTqdo8J2G/Qrpxb2p+WN6t3rhw91rPM12CW312NqPaBO7d1Nq1+LBovBI9X
+ifW7lIRDi7Kc5y6zusxcJDI7bmQvHHJZOdbP9f5/NroN3OVQCKzvhVjEFp8CFQDA
+yjg9jSUzuMg4aZetzwmn5mvUUwKBgHxV7UFaq2dH/pC1UJxoh9KerBvjcqh5UTQ3
+YfCTgywvYrW2tc9lEofNOEh8sqsK6L621fHzx3VChtQPGxp5O66R0N2VXofqgkoQ
+OnBG3Ozg48ZX4CSRjxxyH38LxgwIaJP2yqGNZXgigqjH9d0oQ+4QtS15n0zewTUI
+HNHm4a+BA4GEAAKBgBdWU9pnHSyFXUiPbh1+ZhZm0cFRZ8aL2r7tq0tc/sQPNMRV
+C+ZG9OZY0CgPoplgrEWIy0NTe/+eWDcUduM/4uZTjvnc6PZ4YbTncTkoxhhwxSZE
+LGlp3KQAFn9vzlw/+jjJbba550KwANUBo/1RR53ZTDiOk9nHXs/j+jutGdogoAAw
+CwYJYIZIAWUDBAMCAzEAMC4CFQCML/8Bp6o4J5Y1SBkcLoWz3s8CZAIVAKK5opJg
+gueeXq/u6Fg1TWIyBGUp
+-----END CERTIFICATE REQUEST-----
+`
+
+func TestCSRUnsupportedSignatureIsNoVerdict(t *testing.T) {
+	res, err := runOp(t, "cert", url.Values{"cert": {dsaCSR}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := res.(*ciphertools.CertResult).CSRs[0]
+	if c.SigOK || !c.SigUnverifiable || strings.Contains(c.SigDetail, "does NOT verify") {
+		t.Fatalf("ok %v unverifiable %v: %s", c.SigOK, c.SigUnverifiable, c.SigDetail)
+	}
+}
