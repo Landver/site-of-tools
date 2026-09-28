@@ -1,0 +1,10 @@
+{{/* Sub-nav for Cipher Tools. Same shape as link/nav: every tool a top-level
+     entry, flex-wrap instead of per-tool breakpoints. .Active = the page key
+     handler.go sets. */}}
+{{define "cipher/nav"}}
+<nav aria-label="Cipher Tools sections"
+     class="mb-8 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <a href="/" title="Decode, verify and sign JSON Web Tokens"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "jwt"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">JWT</a>
+</nav>
+{{end}}

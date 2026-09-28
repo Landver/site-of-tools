@@ -14,4 +14,6 @@ go vet ./...
 echo "pre-push › go test ./..."
 go test ./...
 
+echo "pre-push › wasm engine (GOOS=js GOARCH=wasm go vet)"
+GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
 echo "pre-push › OK"

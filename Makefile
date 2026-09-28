@@ -17,7 +17,7 @@ GOBIN := $(shell go env GOPATH 2>/dev/null)/bin
 INPUT_CSS  := shared/static/css/input.css
 OUTPUT_CSS := shared/static/css/styles.css
 
-.PHONY: help deps tools hooks assets mongo-init css css-watch dev run build test docker
+.PHONY: help deps tools hooks assets mongo-init css css-watch wasm dev run build test docker
 
 help:
 	@echo "Targets:"
@@ -28,6 +28,7 @@ help:
 	@echo "  mongo-init create the site-of-tools database on the Mongo server (needs MONGODB_URI)"
 	@echo "  css        build minified stylesheet"
 	@echo "  css-watch  rebuild stylesheet on change"
+	@echo "  wasm       build the in-browser engine for cipher.corpberry.com"
 	@echo "  dev        run with live reload (APP_ENV=dev)"
 	@echo "  run        run once, no reload"
 	@echo "  test       go test ./... -race"
@@ -66,19 +67,32 @@ css: $(TAILWIND)
 css-watch: $(TAILWIND)
 	$(TAILWIND) -i $(INPUT_CSS) -o $(OUTPUT_CSS) --watch
 
-dev: css
+# The in-browser engine for cipher.corpberry.com: tools/ciphertools compiled to
+# WebAssembly, plus the wasm_exec.js loader copied from the SAME toolchain (the
+# two must match, which is why it is copied here rather than committed). Both
+# are gitignored and embedded via shared/static, the styles.css pattern.
+WASM_DIR := shared/static/wasm
+wasm:
+	@mkdir -p $(WASM_DIR)
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o $(WASM_DIR)/cipher.wasm ./tools/ciphertools/wasm
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(WASM_DIR)/wasm_exec.js
+
+dev: css wasm
 	APP_ENV=dev $(GOBIN)/air
 
 run:
 	APP_ENV=dev go run .
 
+# Also compiles the wasm engine: its main package is js-only, so a plain
+# `go test ./...` never builds it and would pass while it is broken.
 test:
 	go test ./... -race
+	GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
 
 # Depends on css: the binary embeds shared/static (all:static), and styles.css is
 # gitignored/generated — without this a fresh-clone `make build` embeds a missing
 # or stale stylesheet (a 404 in prod). The Docker build already builds CSS first.
-build: css
+build: css wasm
 	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/server .
 
 docker:

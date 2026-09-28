@@ -32,6 +32,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			URL:  cfg.URL("link"),
 		},
 		{
+			Name: "Cipher Tools",
+			Desc: "Decode, verify and sign JWTs; hash text or files with every common algorithm at once; HMACs, password hashes, keys and certificates. It all runs in your browser, so nothing you paste leaves the page.",
+			URL:  cfg.URL("cipher"),
+		},
+		{
 			Name: "Bot check",
 			Desc: "Score how much your browser looks like a human vs. an automated bot: client fingerprint signals cross-checked against your connection's headers and IP reputation, with a transparent per-signal breakdown.",
 			URL:  cfg.URL("botcheck"),

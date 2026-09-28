@@ -23,6 +23,7 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/site"
 	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/ciphertools"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
@@ -147,6 +148,7 @@ func run() error {
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
+		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
 
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
@@ -207,12 +209,20 @@ func run() error {
 	// local interface address so a trace cannot loop back into the origin behind
 	// Cloudflare (tools/linktools/docs/06-security-and-abuse.md §2).
 	traceGuard := platform.NewEgressGuard([]string{"80", "443"}, []string{
-		cfg.VHost(""), cfg.VHost("ip"), cfg.VHost("botcheck"), cfg.VHost("dns"), cfg.VHost("link"),
+		cfg.VHost(""), cfg.VHost("ip"), cfg.VHost("botcheck"), cfg.VHost("dns"), cfg.VHost("link"), cfg.VHost("cipher"),
 		cfg.MongoURI,
 	})
 	tracer := linktools.NewTracer(traceGuard, 15*time.Second)
 	linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	linktools.Register(linkApp, linkSvc, tracer, shortener, cfg.URL("link"))
+
+	// cipher.corpberry.com — JWT, hashes, keys, certificates. The pages run the
+	// ciphertools ops in the visitor's browser (Go compiled to wasm, built by
+	// `make wasm`), so nothing pasted there reaches this box; the POST routes are
+	// the JSON API. No state, no network, nothing to degrade
+	// (tools/ciphertools/docs/02-build-plan.md).
+	cipherApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+	ciphertools.Register(cipherApp, cfg.URL("cipher"))
 
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
@@ -222,6 +232,7 @@ func run() error {
 	platform.RegisterSEO(botApp, cfg.URL("botcheck"), botcheck.SitemapPages)
 	platform.RegisterSEO(dnsApp, cfg.URL("dns"), dnstools.SitemapPages)
 	platform.RegisterSEO(linkApp, cfg.URL("link"), linktools.SitemapPages)
+	platform.RegisterSEO(cipherApp, cfg.URL("cipher"), ciphertools.SitemapPages)
 
 	hosts := map[string]*echo.Echo{
 		cfg.VHost(""):         apex,
@@ -229,6 +240,7 @@ func run() error {
 		cfg.VHost("botcheck"): botApp,
 		cfg.VHost("dns"):      dnsApp,
 		cfg.VHost("link"):     linkApp,
+		cfg.VHost("cipher"):   cipherApp,
 	}
 	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 

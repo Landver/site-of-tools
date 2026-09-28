@@ -1,0 +1,40 @@
+{{/* The in-browser engine: status line, no-JS notice, and the loader.
+
+     The status box starts hidden and cipher.js reveals it, so with JavaScript
+     off it never claims to be "loading" forever; the <noscript> line says the
+     true thing instead — that submitting sends the form to the server.
+
+     States are switched by toggling [hidden] on the three spans, never by
+     adding classes from JS: Tailwind only sees literal class strings in
+     templates (CLAUDE.md gotchas). */}}
+{{define "cipher/engine"}}
+<div data-cipher-engine hidden
+     data-worker="{{asset "js/cipher-worker.js"}}"
+     data-wasm="{{asset "wasm/cipher.wasm"}}"
+     data-wasm-exec="{{asset "wasm/wasm_exec.js"}}"
+     class="mt-4 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted">
+  <span data-state="loading">Loading the in-browser engine…</span>
+  <span data-state="ready" hidden><span class="font-semibold text-ok">Runs in your browser.</span>
+    Nothing you type or pick here is sent anywhere; the same Go code the JSON API uses is running in this tab.</span>
+  <span data-state="failed" hidden class="text-danger">The in-browser engine didn't load, so nothing ran and
+    nothing was sent. Reload to try again.</span>
+</div>
+<noscript>
+  <div class="mt-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-strong">
+    JavaScript is off, so the in-browser engine can't run. Submitting a form sends it to this server instead,
+    where it is processed in memory and neither logged nor stored.
+  </div>
+</noscript>
+<script src="{{asset "js/cipher.js"}}" defer></script>
+{{end}}
+
+{{/* Shared "Warnings" list: .Warnings on any result. */}}
+{{define "cipher/warnings"}}
+{{if .}}
+<ul class="mt-4 space-y-2 text-sm">
+  {{range .}}
+  <li class="rounded-md border px-3 py-2 {{if eq .Level "danger"}}border-danger/40 bg-danger/10 text-danger{{else if eq .Level "warn"}}border-warn/40 bg-warn/10 text-strong{{else}}border-line bg-surface text-muted{{end}}">{{.Text}}</li>
+  {{end}}
+</ul>
+{{end}}
+{{end}}

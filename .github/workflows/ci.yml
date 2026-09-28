@@ -37,6 +37,13 @@ jobs:
       - name: go build
         run: go build ./...
 
+      # The cipher engine's main package is js-only, so the steps above never
+      # compile it. Built, not just vetted: a wasm link failure is still a failure.
+      - name: wasm engine
+        run: |
+          GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
+          GOOS=js GOARCH=wasm go build -o /dev/null ./tools/ciphertools/wasm
+
       # Same gate as the pre-push hook. DB-dependent tests skip when the BINs are
       # absent (they are never committed), so this is green without any assets.
       - name: go test (race)
