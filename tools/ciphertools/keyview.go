@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -68,6 +69,11 @@ type KeyView struct {
 	OpenSSH    string `json:"openssh,omitempty"`
 	PrivatePEM string `json:"private_pem,omitempty"`
 	PrivateJWK *JWK   `json:"private_jwk,omitempty"`
+	// OpenSSHPrivate is the private key in OpenSSH's own format, the file
+	// ssh-keygen writes to ~/.ssh/id_ed25519. OpenSSHEncrypted says it is
+	// protected by the passphrase given to generate.
+	OpenSSHPrivate   string `json:"openssh_private,omitempty"`
+	OpenSSHEncrypted bool   `json:"openssh_encrypted,omitempty"`
 
 	// Thumbprint is RFC 7638, over the public members.
 	Thumbprint string `json:"jwk_thumbprint,omitempty"`
@@ -129,10 +135,27 @@ func runKeysGenerate(in Input) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	k.Comment = generatedComment
+	comment, err := sshComment(in.Get("comment"))
+	if err != nil {
+		return nil, err
+	}
+	k.Comment = comment
 	v, err := viewKey(*k, true)
 	if err != nil {
 		return nil, err
+	}
+	// A passphrase encrypts the OpenSSH form (bcrypt_pbkdf + AES-256-CTR, as
+	// ssh-keygen does). The PKCS#8 and JWK forms can't carry one here, so they
+	// are dropped rather than handed out in the clear beside an encrypted copy
+	// that suggests the key is protected.
+	if pass := in.Get("passphrase"); pass != "" {
+		blk, err := ssh.MarshalPrivateKeyWithPassphrase(k.Private, k.Comment, []byte(pass))
+		if err != nil {
+			return nil, fmt.Errorf("encrypting the OpenSSH key: %w", err)
+		}
+		v.OpenSSHPrivate, v.OpenSSHEncrypted = string(pem.EncodeToMemory(blk)), true
+		v.PrivatePEM, v.PrivateJWK, v.PrivateJWKJSON = "", nil, ""
+		v.warn(LevelInfo, "The private key is shown only in OpenSSH format, encrypted with your passphrase. The PKCS#8 and JWK forms are left out because they would be unencrypted.")
 	}
 	where := "browser"
 	if runtime.GOOS != "js" {
@@ -249,6 +272,9 @@ func viewKey(k Key, generated bool) (KeyView, error) {
 			return v, err
 		}
 		v.PrivatePEM = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+		if blk, err := ssh.MarshalPrivateKey(k.Private, k.Comment); err == nil {
+			v.OpenSSHPrivate = string(pem.EncodeToMemory(blk))
+		}
 		if priv, err := PrivateJWK(k.Private); err == nil {
 			priv.Kid, priv.Alg, priv.Use = pub.Kid, pub.Alg, pub.Use
 			v.PrivateJWK, v.PrivateJWKJSON = &priv, indentJSON(priv)
@@ -258,6 +284,24 @@ func viewKey(k Key, generated bool) (KeyView, error) {
 	}
 	v.keyWarnings(k, generated)
 	return v, nil
+}
+
+// sshComment is the -C of ssh-keygen: one line, printable, bounded. Empty means
+// the default, which marks the key as a test key wherever it ends up.
+func sshComment(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return generatedComment, nil
+	}
+	if len(s) > 256 {
+		return "", errors.New("comment: keep it under 256 characters")
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return "", errors.New("comment: one line of printable text")
+		}
+	}
+	return s, nil
 }
 
 func (v *KeyView) keyWarnings(k Key, generated bool) {

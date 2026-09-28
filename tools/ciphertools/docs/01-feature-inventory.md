@@ -74,6 +74,7 @@ over the raw body, so this is the page for "why doesn't my signature match".
 |---|---|---|
 | Generate RSA 2048/3072/4096, ECDSA P-256/384/521, Ed25519 | 5 | yes, labelled "for testing" |
 | Output as PEM (PKCS#8 / SPKI), JWK, OpenSSH public key | 4 | yes |
+| **OpenSSH private key (`ssh-keygen` format), with comment and optional passphrase** | 0 | yes, added after the owner asked for SSH key pairs |
 | Inspect a pasted key: PEM (PKCS#1 / PKCS#8 / SPKI / SEC1) or JWK | 2 | yes |
 | JWK ⇄ PEM, and the public key derived from a private one | 2 | yes |
 | Fingerprints (SPKI SHA-256, OpenSSH `SHA256:`), JWK thumbprint (RFC 7638) | 0 | yes |

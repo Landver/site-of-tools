@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -458,4 +459,51 @@ func colonHex(b []byte) string {
 		sb.WriteByte(digits[c&15])
 	}
 	return sb.String()
+}
+
+// The OpenSSH private key is what ssh-keygen writes to ~/.ssh/id_*: it must
+// parse back with x/crypto/ssh, carry the comment, and belong to the public
+// line shown beside it. With a passphrase it must need that passphrase, and the
+// unencrypted PKCS#8/JWK forms must be gone.
+func TestGenerateOpenSSHPrivateKey(t *testing.T) {
+	for _, typ := range []string{"ed25519", "ec-p256", "rsa-2048"} {
+		t.Run(typ, func(t *testing.T) {
+			res, err := runOp(t, "keys-generate", url.Values{"type": {typ}, "comment": {"me@laptop"}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := res.(*ciphertools.KeyGenResult).Key
+			if !strings.HasPrefix(v.OpenSSHPrivate, "-----BEGIN OPENSSH PRIVATE KEY-----") || v.OpenSSHEncrypted {
+				t.Fatalf("openssh private = %.60q, encrypted %v", v.OpenSSHPrivate, v.OpenSSHEncrypted)
+			}
+			signer, err := ssh.ParsePrivateKey([]byte(v.OpenSSHPrivate))
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
+			if !strings.HasPrefix(v.OpenSSH, line) || !strings.HasSuffix(v.OpenSSH, " me@laptop") {
+				t.Fatalf("public line %q does not match the private key %q, or lost the comment", v.OpenSSH, line)
+			}
+		})
+	}
+
+	res, err := runOp(t, "keys-generate", url.Values{"type": {"ed25519"}, "passphrase": {"correct horse"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := res.(*ciphertools.KeyGenResult).Key
+	if !v.OpenSSHEncrypted || v.PrivatePEM != "" || v.PrivateJWK != nil {
+		t.Fatalf("encrypted %v, PKCS#8 %d bytes, JWK %v", v.OpenSSHEncrypted, len(v.PrivatePEM), v.PrivateJWK)
+	}
+	var missing *ssh.PassphraseMissingError
+	if _, err := ssh.ParseRawPrivateKey([]byte(v.OpenSSHPrivate)); !errors.As(err, &missing) {
+		t.Fatalf("parsed without the passphrase: %v", err)
+	}
+	if _, err := ssh.ParseRawPrivateKeyWithPassphrase([]byte(v.OpenSSHPrivate), []byte("correct horse")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runOp(t, "keys-generate", url.Values{"type": {"ed25519"}, "comment": {"two\nlines"}}, nil); err == nil {
+		t.Fatal("a multi-line comment was accepted")
+	}
 }
