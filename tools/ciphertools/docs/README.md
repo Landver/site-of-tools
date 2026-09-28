@@ -23,7 +23,7 @@ reasons are in [`02` §Decision](02-build-plan.md#decision-where-the-crypto-runs
 | Floor | Pages | State |
 |---|---|---|
 | 1 | Foundation + JWT (`/`) | built |
-| 2 | Hash, HMAC, Encode | — |
+| 2 | Hash, HMAC, Encode | built |
 | 3 | Password, Random | — |
 | 4 | Keys, Certificates | — |
 | 5 | TOTP, Encrypt, Identify | — |

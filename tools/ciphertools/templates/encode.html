@@ -1,0 +1,212 @@
+{{/* Encode — the same bytes as text, hex, base64, base64url and base32, and
+     the HTTP Basic auth header (C10).
+
+     Three live forms: the converter, and Basic auth build / decode, which share
+     the "basic" op and say which half they are with a hidden mode field. That
+     field is also what tells the no-JS page which result box to fill.
+     Percent-encoding and HTML entities are Link Tools' job; the page links there. */}}
+{{define "cipher/encode"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Base64, hex and base32 converter</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste bytes in one encoding and get them in all the others. Base64 input can be any of the four variants,
+      and the page says which one it saw. A bad character is reported with its offset, and bytes that aren't
+      UTF-8 are shown as hex, never as garbled text.
+    </p>
+    {{range navTools}}{{if eq .Name "Link Tools"}}
+    <p class="mt-2 text-sm text-muted">
+      For percent-encoding and HTML entities, use <a href="{{.URL}}/encode" class="link-brand">Link Tools' encoder</a>.
+    </p>
+    {{end}}{{end}}
+    {{template "cipher/engine" .}}
+
+    {{$from := .Form.Get "from"}}
+    <form method="post" action="/encode" data-cipher="encode" data-live data-target="#encode-result" class="mt-6 space-y-3">
+      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+        <label class="block text-sm text-muted">Input
+          <textarea name="text" rows="5" autofocus autocomplete="off" spellcheck="false"
+                    placeholder="SGVsbG8sIHdvcmxkIQ== or 48656c6c6f or plain text"
+                    class="field mt-1 w-full font-mono text-xs">
+{{.Form.Get "text"}}</textarea>
+        </label>
+        <label class="block text-sm text-muted">Input is
+          <select name="from" class="field mt-1 w-full">
+            <option value="utf8">UTF-8 text</option>
+            <option value="hex" {{if eq $from "hex"}}selected{{end}}>hex</option>
+            <option value="base64" {{if eq $from "base64"}}selected{{end}}>base64</option>
+            <option value="base64url" {{if eq $from "base64url"}}selected{{end}}>base64url</option>
+            <option value="base32" {{if eq $from "base32"}}selected{{end}}>base32</option>
+          </select>
+          <span class="mt-1 block text-xs text-faint">Whitespace between hex, base64 or base32 characters is ignored.</span>
+        </label>
+      </div>
+      <button type="submit" class="btn-primary">Convert</button>
+    </form>
+    <div id="encode-result" class="mt-8" aria-live="polite">
+      {{if eq .Op "encode"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/encode-result" .}}{{end}}{{end}}
+    </div>
+
+    {{$mode := .Form.Get "mode"}}
+    <section class="mt-12">
+      <h2 class="text-lg font-semibold text-strong">HTTP Basic auth</h2>
+      <p class="mt-2 text-sm text-muted">
+        The header is <span class="font-mono">Basic</span> plus base64 of <span class="font-mono">user:password</span>
+        in UTF-8 (RFC 7617). That is an encoding, not encryption: anyone who sees the header can read the password.
+      </p>
+      <div class="mt-4 grid gap-8 lg:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-semibold text-strong">Build a header</h3>
+          <form method="post" action="/encode/basic" data-cipher="basic" data-live data-target="#basic-build-result" class="mt-2 space-y-3">
+            <input type="hidden" name="mode" value="build">
+            <label class="block text-sm text-muted">User name
+              <input name="user" value="{{if eq $mode "build"}}{{.Form.Get "user"}}{{end}}" autocomplete="off" spellcheck="false"
+                     placeholder="Aladdin" class="field mt-1 w-full font-mono text-xs">
+            </label>
+            <label class="block text-sm text-muted">Password
+              <input name="password" value="{{if eq $mode "build"}}{{.Form.Get "password"}}{{end}}" autocomplete="off" spellcheck="false"
+                     placeholder="open sesame" class="field mt-1 w-full font-mono text-xs">
+            </label>
+            <button type="submit" class="btn-primary">Build</button>
+          </form>
+          <div id="basic-build-result" class="mt-4" aria-live="polite">
+            {{if and (eq .Op "basic") (eq $mode "build")}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/basic-result" .}}{{end}}{{end}}
+          </div>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-strong">Decode a header</h3>
+          <form method="post" action="/encode/basic" data-cipher="basic" data-live data-target="#basic-decode-result" class="mt-2 space-y-3">
+            <input type="hidden" name="mode" value="decode">
+            <label class="block text-sm text-muted">Header, value or bare base64
+              <textarea name="header" rows="3" autocomplete="off" spellcheck="false"
+                        placeholder="Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+                        class="field mt-1 w-full font-mono text-xs">{{if eq $mode "decode"}}{{.Form.Get "header"}}{{end}}</textarea>
+            </label>
+            <button type="submit" class="btn-primary">Decode</button>
+          </form>
+          <div id="basic-decode-result" class="mt-4" aria-live="polite">
+            {{if and (eq .Op "basic") (eq $mode "decode")}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/basic-result" .}}{{end}}{{end}}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/encode -d from=hex -d text=48656c6c6f
+curl {{.Base}}/encode/basic -d mode=build -d user=Aladdin --data-urlencode 'password=open sesame'
+curl {{.Base}}/encode/basic -d mode=decode --data-urlencode 'header=Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=='</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. <span class="font-mono">from</span> is utf8, hex, base64, base64url or base32. The API runs on
+        this server, so the input travels; the page above doesn't send it anywhere.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/encode-result"}}
+{{with .Result}}
+<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+  <span><span class="text-strong">{{.Bytes}}</span> bytes</span>
+  <span>Read as <span class="text-strong">{{.ReadAs}}</span></span>
+</div>
+{{template "cipher/warnings" .Warnings}}
+<div class="mt-4 overflow-x-auto">
+  <table class="w-full text-left text-sm">
+    <tbody>
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 text-strong sm:w-48">UTF-8 text</td>
+        <td class="py-2">
+          {{if .Text}}
+          <div class="flex items-start gap-3">
+            <span class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs text-strong">{{.Text}}</span>
+            <button type="button" class="btn-copy" data-copy="{{.Text}}">Copy</button>
+          </div>
+          {{else if .TextNote}}
+          <span class="text-xs text-warn">{{.TextNote}}</span>
+          {{else}}
+          <span class="text-xs italic text-muted">empty</span>
+          {{end}}
+        </td>
+      </tr>
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 text-strong">hex</td>
+        <td class="py-2"><div class="flex items-start gap-3">
+          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Hex}}</span>
+          <button type="button" class="btn-copy" data-copy="{{.Hex}}">Copy</button>
+        </div></td>
+      </tr>
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 text-strong">hex, <span class="font-mono">:</span> separated</td>
+        <td class="py-2"><div class="flex items-start gap-3">
+          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.HexColons}}</span>
+          <button type="button" class="btn-copy" data-copy="{{.HexColons}}">Copy</button>
+        </div></td>
+      </tr>
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 text-strong">base64 <span class="block text-xs text-faint">standard, padded</span></td>
+        <td class="py-2"><div class="flex items-start gap-3">
+          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base64}}</span>
+          <button type="button" class="btn-copy" data-copy="{{.Base64}}">Copy</button>
+        </div></td>
+      </tr>
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 text-strong">base64url <span class="block text-xs text-faint">URL-safe, unpadded (JWT, JWK)</span></td>
+        <td class="py-2"><div class="flex items-start gap-3">
+          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base64URL}}</span>
+          <button type="button" class="btn-copy" data-copy="{{.Base64URL}}">Copy</button>
+        </div></td>
+      </tr>
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 text-strong">base32 <span class="block text-xs text-faint">RFC 4648, padded</span></td>
+        <td class="py-2"><div class="flex items-start gap-3">
+          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base32}}</span>
+          <button type="button" class="btn-copy" data-copy="{{.Base32}}">Copy</button>
+        </div></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{{end}}
+{{end}}
+
+{{/* dot = the render map; .Result = *ciphertools.BasicAuth */}}
+{{define "cipher/basic-result"}}
+{{with .Result}}
+{{if eq .Mode "decode"}}
+<dl class="spec">
+  <dt>User</dt>
+  <dd>{{with .User}}{{if .Value}}<div class="flex items-start gap-3">
+    <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+    <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button></div>{{if not .IsText}}<span class="text-xs text-muted">hex, not text</span>{{end}}{{else}}<span class="text-xs italic text-muted">empty</span>{{end}}{{end}}</dd>
+  <dt>Password</dt>
+  <dd>{{with .Password}}{{if .Value}}<div class="flex items-start gap-3">
+    <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+    <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button></div>{{if not .IsText}}<span class="text-xs text-muted">hex, not text</span>{{end}}{{else}}<span class="text-xs italic text-muted">empty</span>{{end}}{{end}}</dd>
+  <dt>Read as</dt>
+  <dd class="text-strong">{{.ReadAs}}</dd>
+</dl>
+<h4 class="mt-4 text-xs text-faint">Rebuilt header</h4>
+{{end}}
+<div class="mt-1 flex items-start gap-3">
+  <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.Header}}</pre>
+  <button type="button" class="btn-copy" data-copy="{{.Header}}">Copy</button>
+</div>
+<div class="mt-2 flex items-start gap-3">
+  <span class="min-w-0 flex-1 break-all font-mono text-xs text-muted">{{.Token}}</span>
+  <button type="button" class="btn-copy" data-copy="{{.Token}}">Copy</button>
+</div>
+{{template "cipher/warnings" .Warnings}}
+{{end}}
+{{end}}

@@ -43,6 +43,30 @@ func DecodeBytes(s, enc string) ([]byte, error) {
 	return nil, fmt.Errorf("unknown encoding %q", enc)
 }
 
+// decodeInput is DecodeBytes plus how the input was read, in the visitor's
+// words: "UTF-8 text", "hex", "base32", or the exact base64 variant seen.
+func decodeInput(s, enc string) ([]byte, string, error) {
+	switch enc {
+	case EncBase64, EncBase64URL:
+		return decodeBase64Any(s)
+	}
+	b, err := DecodeBytes(s, enc)
+	return b, encName(enc), err
+}
+
+// firstInvalidUTF8 returns the offset of the first byte that can't start or
+// continue a UTF-8 character, or -1 when b is valid UTF-8.
+func firstInvalidUTF8(b []byte) int {
+	for i := 0; i < len(b); {
+		r, n := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && n <= 1 {
+			return i
+		}
+		i += n
+	}
+	return -1
+}
+
 // stripSpace drops whitespace and keeps a map from each kept byte back to its
 // offset in s.
 func stripSpace(s string) (string, []int) {

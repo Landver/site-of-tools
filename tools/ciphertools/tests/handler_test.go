@@ -153,3 +153,23 @@ func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
 		t.Fatalf("unversioned URL marked immutable: %q", cc)
 	}
 }
+
+// Every page carries the whole sub-nav, in the suite's fixed order.
+func TestNavOrder(t *testing.T) {
+	e := newCipherApp(t)
+	pages, _ := ciphertools.SitemapPages()
+	order := []string{`href="/"`, `href="/hash"`, `href="/hmac"`, `href="/encode"`}
+	for _, p := range pages {
+		body := do(t, e, http.MethodGet, p.Path, "", "", asBrowser).Body.String()
+		nav := body[strings.Index(body, "Cipher Tools sections"):]
+		nav = nav[:strings.Index(nav, "</nav>")]
+		last := -1
+		for _, href := range order {
+			i := strings.Index(nav, href)
+			if i <= last {
+				t.Errorf("GET %s: %s missing or out of order", p.Path, href)
+			}
+			last = i
+		}
+	}
+}

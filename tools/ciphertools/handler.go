@@ -32,6 +32,15 @@ var pages = []page{
 	{Key: "jwt", Path: "/", Template: "cipher/jwt",
 		Title: "JWT decoder, verifier and signer — Cipher Tools",
 		Desc:  "Decode a JWT, verify its signature with a secret, PEM or JWKS, and sign new ones: HS, RS, PS, ES and EdDSA. Runs in your browser, so the token never leaves the page. Loud about unverified tokens, alg none and algorithm confusion."},
+	{Key: "hash", Path: "/hash", Template: "cipher/hash",
+		Title: "Hash calculator and checksum checker: MD5, SHA-256, SHA-3, BLAKE2 — Cipher Tools",
+		Desc:  "Hash text or a file with MD5, SHA-1, SHA-2, SHA-3, BLAKE2, Keccak-256, CRC32 and Adler-32 at once, as hex and base64. Paste a checksum to see which algorithm it matches. Flags trailing newlines, CRLF and BOMs. Runs in your browser."},
+	{Key: "hmac", Path: "/hmac", Template: "cipher/hmac",
+		Title: "HMAC generator and webhook signature checker — Cipher Tools",
+		Desc:  "Compute HMAC-SHA256, SHA-512, SHA-1, MD5 and SHA-3 at once with a key as text, hex or base64, and verify a webhook signature (GitHub, Stripe, Slack) in constant time. Runs in your browser, so the key never leaves the page."},
+	{Key: "encode", Path: "/encode", Template: "cipher/encode",
+		Title: "Base64, hex and base32 converter, Basic auth header — Cipher Tools",
+		Desc:  "Convert bytes between UTF-8 text, hex, base64, base64url and base32, with the base64 variant named and bad characters pointed at by offset. Build and decode HTTP Basic auth headers. Runs in your browser."},
 }
 
 // Rate limits. Ops are pure CPU with no upstream, so the ordinary ones are

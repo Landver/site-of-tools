@@ -1,0 +1,100 @@
+{{/* HMAC — every hash at once, and verify a pasted MAC (C3).
+
+     One live form. The key's encoding is explicit beside it, because "the
+     secret is abc" is three different keys depending on how it is read, and a
+     silent guess is what makes webhook signatures "not match". The message
+     textarea starts on the line after the tag for the same reason as on the
+     Hash page: a leading newline is data. */}}
+{{define "cipher/hmac"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">HMAC generator and signature checker</h1>
+    <p class="mt-2 text-sm text-muted">
+      Every common HMAC of a message at once. Paste the signature you received and it is checked in constant
+      time against each one, and the page names the algorithm that matches.
+    </p>
+    {{template "cipher/engine" .}}
+
+    {{$enc := .Form.Get "enc"}}{{$keyEnc := .Form.Get "key_enc"}}
+    <form method="post" action="/hmac" data-cipher="hmac" data-live data-target="#hmac-result" class="mt-6 space-y-3">
+      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+        <label class="block text-sm text-muted">Message
+          <textarea name="text" rows="6" autofocus autocomplete="off" spellcheck="false"
+                    placeholder="{&quot;action&quot;:&quot;opened&quot;, …} (the raw request body)"
+                    class="field mt-1 w-full font-mono text-xs">
+{{.Form.Get "text"}}</textarea>
+        </label>
+        <label class="block text-sm text-muted">Message is
+          <select name="enc" class="field mt-1 w-full">
+            <option value="utf8">UTF-8 text</option>
+            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex bytes</option>
+            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64 bytes</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+        <label class="block text-sm text-muted">Key
+          <input name="key" value="{{.Form.Get "key"}}" autocomplete="off" spellcheck="false"
+                 placeholder="the webhook secret" class="field mt-1 w-full font-mono text-xs">
+        </label>
+        <label class="block text-sm text-muted">Key is
+          <select name="key_enc" class="field mt-1 w-full">
+            <option value="utf8">UTF-8 text</option>
+            <option value="hex" {{if eq $keyEnc "hex"}}selected{{end}}>hex</option>
+            <option value="base64" {{if eq $keyEnc "base64"}}selected{{end}}>base64</option>
+            <option value="base64url" {{if eq $keyEnc "base64url"}}selected{{end}}>base64url</option>
+          </select>
+        </label>
+      </div>
+      <label class="block text-sm text-muted">Expected signature <span class="text-faint">(optional)</span>
+        <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
+               placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-xs">
+      </label>
+      <p class="text-xs text-faint">
+        Webhook signatures (GitHub, Stripe, Slack) are HMAC-SHA256 over the raw request body. Paste the body exactly
+        as it arrived: parsed and re-serialised JSON has different bytes and will not match. GitHub's
+        <span class="font-mono">sha256=</span> prefix is removed for you. Stripe signs
+        <span class="font-mono">timestamp.body</span> and Slack <span class="font-mono">v0:timestamp:body</span>,
+        so put that string in the message.
+      </p>
+      <button type="submit" class="btn-primary">Compute</button>
+    </form>
+    <div id="hmac-result" class="mt-8" aria-live="polite">
+      {{if eq .Op "hmac"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/hmac-result" .}}{{end}}{{end}}
+    </div>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/hmac --data-urlencode text@body.json -d key=secret -d expected=sha256=…</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. Fields: <span class="font-mono">text</span>, <span class="font-mono">enc</span>,
+        <span class="font-mono">key</span>, <span class="font-mono">key_enc</span> (utf8, hex, base64, base64url),
+        <span class="font-mono">expected</span>. <span class="font-mono">--data-urlencode text@file</span> sends the
+        file byte for byte. The API runs on this server, so the key travels; the page above doesn't send it anywhere.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/hmac-result"}}
+{{with .Result}}
+{{with .Compare}}{{template "cipher/compare" .}}{{end}}
+<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+  <span>Message <span class="text-strong">{{.MessageBytes}} bytes</span>, {{.MessageReadAs}}</span>
+  <span>Key <span class="text-strong">{{.KeyBytes}} bytes</span>, {{.KeyReadAs}}</span>
+</div>
+{{template "cipher/warnings" .Warnings}}
+{{template "cipher/digests" .MACs}}
+{{end}}
+{{end}}
