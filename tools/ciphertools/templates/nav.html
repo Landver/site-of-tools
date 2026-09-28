@@ -1,7 +1,7 @@
 {{/* Sub-nav for Cipher Tools. Same shape as link/nav: every tool a top-level
      entry, flex-wrap instead of per-tool breakpoints. .Active = the page key
      handler.go sets. Final order: JWT, Hash, HMAC, Passwords, Encrypt, Keys,
-     Certs, TOTP, Random, Encode, Identify; only built pages are linked. */}}
+     Certs, TOTP, Random, Encode, Identify. */}}
 {{define "cipher/nav"}}
 <nav aria-label="Cipher Tools sections"
      class="mb-8 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
@@ -13,13 +13,19 @@
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "hmac"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">HMAC</a>
   <a href="/password" title="Hash and check passwords: bcrypt, Argon2id, scrypt, PBKDF2"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "password"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Passwords</a>
+  <a href="/encrypt" title="Encrypt and decrypt with AES-GCM, ChaCha20-Poly1305 or AES-CBC"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "encrypt"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encrypt</a>
   <a href="/keys" title="Generate and convert keys: PEM, JWK, OpenSSH"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "keys"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Keys</a>
   <a href="/cert" title="Decode certificates, chains and CSRs"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "cert"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Certs</a>
+  <a href="/totp" title="TOTP and HOTP codes, otpauth:// URIs"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "totp"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">TOTP</a>
   <a href="/random" title="Random tokens, passwords and UUIDs"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "random"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Random</a>
   <a href="/encode" title="Bytes as text, hex, base64 and base32; Basic auth"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "encode"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encode</a>
+  <a href="/identify" title="What is this string? Hashes, tokens, keys, encodings"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "identify"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Identify</a>
 </nav>
 {{end}}

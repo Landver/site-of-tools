@@ -185,7 +185,8 @@ func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
 func TestNavOrder(t *testing.T) {
 	e := newCipherApp(t)
 	pages, _ := ciphertools.SitemapPages()
-	order := []string{`href="/"`, `href="/hash"`, `href="/hmac"`, `href="/password"`, `href="/keys"`, `href="/cert"`, `href="/random"`, `href="/encode"`}
+	order := []string{`href="/"`, `href="/hash"`, `href="/hmac"`, `href="/password"`, `href="/encrypt"`, `href="/keys"`,
+		`href="/cert"`, `href="/totp"`, `href="/random"`, `href="/encode"`, `href="/identify"`}
 	for _, p := range pages {
 		body := do(t, e, http.MethodGet, p.Path, "", "", asBrowser).Body.String()
 		nav := body[strings.Index(body, "Cipher Tools sections"):]

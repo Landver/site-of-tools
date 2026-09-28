@@ -20,13 +20,17 @@ reasons are in [`02` §Decision](02-build-plan.md#decision-where-the-crypto-runs
 
 ## Status
 
+Shipped: all eleven pages in the [feature inventory](01-feature-inventory.md) are
+built, in the five floors below. What was cut, and why, is at the end of
+that inventory; HKDF is first in line for a v2.
+
 | Floor | Pages | State |
 |---|---|---|
 | 1 | Foundation + JWT (`/`) | built |
 | 2 | Hash, HMAC, Encode | built |
 | 3 | Password, Random | built |
 | 4 | Keys, Certificates | built |
-| 5 | TOTP, Encrypt, Identify | — |
+| 5 | TOTP, Encrypt, Identify | built |
 
 ## Adding a page
 

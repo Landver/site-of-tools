@@ -1,0 +1,185 @@
+{{/* TOTP — codes from a base32 secret or an otpauth:// URI (C8). Page shell +
+     result fragment.
+
+     One live form. The result carries a small Alpine countdown: when the step
+     ends it dispatches an input event on the form, and cipher.js re-runs any
+     data-live form on input, so the codes roll over without a click. The
+     countdown counts to a wall-clock deadline, not ticks, so a throttled
+     background tab is right again the moment it is looked at. Its starting
+     value is the result's own integer, never a form value. */}}
+{{define "cipher/totp"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">TOTP and HOTP codes</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste a base32 secret or a whole <span class="font-mono">otpauth://</span> URI to see the codes an
+      authenticator app shows: previous, current and next, with a countdown. Add a code to check it against one
+      step either side, the window most servers accept.
+    </p>
+    {{template "cipher/engine" .}}
+
+    {{$totp := eq .Op "totp"}}{{$mode := ""}}{{$algo := ""}}
+    {{if $totp}}{{$mode = .Form.Get "mode"}}{{$algo = .Form.Get "algo"}}{{end}}
+    <form method="post" action="/totp" data-cipher="totp" data-live data-target="#totp-result" class="mt-6 space-y-3">
+      <label class="block text-sm text-muted">Secret (base32) or otpauth:// URI
+        <textarea name="secret" rows="2" autofocus autocomplete="off" spellcheck="false"
+                  placeholder="JBSW Y3DP EHPK 3PXP, or otpauth://totp/Example:alice@example.com?secret=…&amp;issuer=Example"
+                  class="field mt-1 w-full font-mono text-xs">{{.Form.Get "secret"}}</textarea>
+        <span class="mt-1 block text-xs text-faint">Lower case, spaces, dashes and missing padding are fine. A pasted URI
+          brings its own settings, and the fields below are then ignored.</span>
+      </label>
+      <div class="grid gap-3 sm:grid-cols-4">
+        <label class="block text-sm text-muted">Mode
+          <select name="mode" class="field mt-1 w-full">
+            <option value="totp">TOTP (time)</option>
+            <option value="hotp" {{if eq $mode "hotp"}}selected{{end}}>HOTP (counter)</option>
+          </select>
+        </label>
+        <label class="block text-sm text-muted">Algorithm
+          <select name="algo" class="field mt-1 w-full">
+            <option value="SHA1">SHA1</option>
+            <option value="SHA256" {{if eq $algo "SHA256"}}selected{{end}}>SHA256</option>
+            <option value="SHA512" {{if eq $algo "SHA512"}}selected{{end}}>SHA512</option>
+          </select>
+        </label>
+        <label class="block text-sm text-muted">Digits <span class="text-faint">(6 to 8)</span>
+          <input type="number" name="digits" min="6" max="8" value="{{or (and $totp (.Form.Get "digits")) "6"}}" class="field mt-1 w-full">
+        </label>
+        <label class="block text-sm text-muted">Period, seconds <span class="text-faint">(15 to 300)</span>
+          <input type="number" name="period" min="15" max="300" value="{{or (and $totp (.Form.Get "period")) "30"}}" class="field mt-1 w-full">
+        </label>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-3">
+        <label class="block text-sm text-muted">Counter <span class="text-faint">(HOTP only)</span>
+          <input type="number" name="counter" min="0" value="{{or (and $totp (.Form.Get "counter")) "0"}}" class="field mt-1 w-full">
+        </label>
+        <label class="block text-sm text-muted">Account <span class="text-faint">(for the URI)</span>
+          <input name="label" value="{{.Form.Get "label"}}" autocomplete="off" spellcheck="false"
+                 placeholder="alice@example.com" class="field mt-1 w-full font-mono text-xs">
+        </label>
+        <label class="block text-sm text-muted">Issuer <span class="text-faint">(for the URI)</span>
+          <input name="issuer" value="{{.Form.Get "issuer"}}" autocomplete="off" spellcheck="false"
+                 placeholder="Example" class="field mt-1 w-full font-mono text-xs">
+        </label>
+      </div>
+      <label class="block text-sm text-muted sm:w-64">Code to check <span class="text-faint">(optional)</span>
+        <input name="code" value="{{.Form.Get "code"}}" inputmode="numeric" autocomplete="off" spellcheck="false"
+               placeholder="123456" class="field mt-1 w-full font-mono">
+      </label>
+      <button type="submit" class="btn-primary">Show codes</button>
+    </form>
+    <div id="totp-result" class="mt-8" aria-live="polite">
+      {{if eq .Op "totp"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/totp-result" .}}{{end}}{{end}}
+    </div>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
+curl {{.Base}}/totp --data-urlencode 'secret=otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&amp;issuer=Example'
+curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d mode=hotp -d counter=5</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. Other fields: <span class="font-mono">algo</span> (SHA1, SHA256, SHA512),
+        <span class="font-mono">digits</span>, <span class="font-mono">period</span>, <span class="font-mono">label</span>,
+        <span class="font-mono">issuer</span>, and <span class="font-mono">now</span> (unix seconds) for the codes at
+        another moment. The API runs on this server, so the secret travels; the page above doesn't send it anywhere.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* dot = the render map; .Result = *ciphertools.TOTPResult */}}
+{{define "cipher/totp-result"}}
+{{with .Result}}
+{{with .Check}}
+<div class="mb-6 rounded-lg border-2 px-4 py-3 {{if .Match}}border-ok bg-ok/10{{else}}border-danger bg-danger/10{{end}}">
+  <p class="text-base font-semibold {{if .Match}}text-ok{{else}}text-danger{{end}}">{{if .Match}}Code matches{{else}}No match{{end}}</p>
+  <p class="mt-1 text-sm text-body">{{.Detail}}</p>
+  <p class="mt-1 text-xs text-muted">Checked <span class="font-mono">{{.Code}}</span>, compared in constant time.</p>
+</div>
+{{end}}
+
+<section>
+  <h2 class="eyebrow">Current code</h2>
+  <div class="mt-2 flex items-center gap-4">
+    <span class="font-mono text-4xl font-semibold tracking-widest text-strong">{{.Code}}</span>
+    <button type="button" class="btn-copy" data-copy="{{.Code}}">Copy</button>
+  </div>
+  {{if eq .Type "totp"}}
+  <p class="mt-2 text-sm text-muted"
+     x-data="{ left: {{.Remaining}}, end: 0, timer: 0,
+               init() {
+                 this.end = Date.now() + this.left * 1000;
+                 this.timer = setInterval(() => {
+                   this.left = Math.max(0, Math.ceil((this.end - Date.now()) / 1000));
+                   if (this.left > 0) return;
+                   clearInterval(this.timer);
+                   const form = document.querySelector('form[data-cipher=totp]');
+                   if (form) form.dispatchEvent(new Event('input', { bubbles: true }));
+                 }, 250);
+               },
+               destroy() { clearInterval(this.timer); } }">
+    <span class="font-semibold text-strong" x-text="left">{{.Remaining}}</span> seconds left in this
+    {{.Period}}-second step, counter {{.Counter}}.
+  </p>
+  {{else}}
+  <p class="mt-2 text-sm text-muted">Counter <span class="font-semibold text-strong">{{.Counter}}</span>. HOTP codes don't expire.</p>
+  {{end}}
+</section>
+
+{{template "cipher/warnings" .Warnings}}
+
+<div class="mt-6 overflow-x-auto">
+  <table class="w-full text-left text-sm">
+    <thead class="text-xs text-faint">
+      <tr><th class="py-1 pr-4 font-normal">Step</th><th class="py-1 pr-4 font-normal">Code</th><th class="py-1 pr-4 font-normal">Counter</th><th class="py-1 font-normal">{{if eq .Type "totp"}}Valid{{end}}</th></tr>
+    </thead>
+    <tbody>
+      {{range .Codes}}
+      <tr class="border-t border-line align-top">
+        <td class="py-2 pr-4 {{if eq .Offset 0}}font-semibold text-strong{{else}}text-muted{{end}}">{{.Step}}</td>
+        <td class="py-2 pr-4">
+          <div class="flex items-start gap-3">
+            <span class="font-mono text-strong">{{.Code}}</span>
+            <button type="button" class="btn-copy" data-copy="{{.Code}}">Copy</button>
+          </div>
+        </td>
+        <td class="py-2 pr-4 font-mono text-xs text-muted">{{.Counter}}</td>
+        <td class="py-2 text-xs text-muted">{{if .From}}{{.From}} to {{.Until}}{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<section class="mt-6">
+  <h2 class="eyebrow">otpauth:// URI</h2>
+  <div class="mt-2 flex items-start gap-3">
+    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.URI}}</pre>
+    <button type="button" class="btn-copy" data-copy="{{.URI}}">Copy</button>
+  </div>
+  <p class="mt-1 text-xs text-muted">What a setup QR code holds. Built from the settings below, every part percent-encoded.</p>
+</section>
+
+<dl class="spec mt-6">
+  <dt>Type</dt><dd class="text-strong">{{if eq .Type "totp"}}TOTP (RFC 6238){{else}}HOTP (RFC 4226){{end}}{{if .FromURI}} <span class="text-xs text-muted">from the URI</span>{{end}}</dd>
+  <dt>Algorithm</dt><dd class="text-strong">HMAC-{{.Algorithm}}</dd>
+  <dt>Digits</dt><dd class="text-strong">{{.Digits}}</dd>
+  {{if .Period}}<dt>Period</dt><dd class="text-strong">{{.Period}} seconds</dd>{{end}}
+  {{if .Issuer}}<dt>Issuer</dt><dd class="break-all text-strong">{{.Issuer}}</dd>{{end}}
+  {{if .Account}}<dt>Account</dt><dd class="break-all text-strong">{{.Account}}</dd>{{end}}
+  <dt>Secret</dt><dd><span class="break-all font-mono text-strong">{{.Secret}}</span>
+    <span class="block text-xs text-muted">{{.SecretBytes}} bytes, as base32: upper case, no spaces, no padding</span></dd>
+</dl>
+{{end}}
+{{end}}
