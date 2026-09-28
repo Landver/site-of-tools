@@ -1,0 +1,102 @@
+{{/* Hash — every algorithm at once, a file or text, and compare (C2).
+
+     One live form: cipher.js reruns it on every keystroke and on picking a
+     file, inside the in-browser engine, so the file is read in the tab and never
+     uploaded. With JavaScript off it posts (multipart, for the file) and the page
+     comes back with the result in place.
+
+     The textarea's content starts on the line after the tag: an HTML parser
+     drops one newline right after <textarea>, and for a hash the leading
+     newline of a refilled value is data. */}}
+{{define "cipher/hash"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Hash calculator and checksum checker</h1>
+    <p class="mt-2 text-sm text-muted">
+      Every common hash of your text or file at once, as hex and base64. Paste the checksum you were given and
+      the page names the algorithm it matches, or says why nothing did. The byte count and the newline notes
+      are there because a stray <span class="font-mono">\n</span> is the usual reason a hash "is wrong".
+    </p>
+    {{template "cipher/engine" .}}
+
+    {{$enc := .Form.Get "enc"}}
+    <form method="post" action="/hash" enctype="multipart/form-data" data-cipher="hash" data-live
+          data-target="#hash-result" class="mt-6 space-y-3" x-data>
+      <label class="block text-sm text-muted">Text
+        <textarea name="text" rows="5" autofocus autocomplete="off" spellcheck="false" placeholder="abc"
+                  class="field mt-1 w-full font-mono text-xs">
+{{.Form.Get "text"}}</textarea>
+      </label>
+      <div class="grid gap-3 sm:grid-cols-[12rem_1fr]">
+        <label class="block text-sm text-muted">Text is
+          <select name="enc" class="field mt-1 w-full">
+            <option value="utf8">UTF-8 text</option>
+            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex bytes</option>
+            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64 bytes</option>
+          </select>
+        </label>
+        <label class="block text-sm text-muted">Expected checksum <span class="text-faint">(optional)</span>
+          <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
+                 placeholder="hex or base64; a sha256sum line works too" class="field mt-1 w-full font-mono text-xs">
+        </label>
+      </div>
+      <div>
+        <label class="block text-sm text-muted">Or hash a file
+          <input type="file" name="file" x-ref="file" class="mt-1 block w-full text-sm text-muted">
+        </label>
+        <p class="mt-1 text-xs text-faint">
+          The in-browser engine reads and hashes it in this tab, never uploaded, up to 64 MiB. With JavaScript off it
+          is uploaded with the form, up to 8 MiB. While a file is picked, it is hashed instead of the text.
+        </p>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-muted">
+        <input type="checkbox" name="trim_newline" value="on" {{if .Form.Get "trim_newline"}}checked{{end}}>
+        Strip one trailing newline (<span class="font-mono">\n</span> or <span class="font-mono">\r\n</span>)
+      </label>
+      <div class="flex items-center gap-3">
+        <button type="submit" class="btn-primary">Hash</button>
+        <button type="button" class="btn-copy" x-cloak
+                x-on:click="$refs.file.value = ''; $refs.file.dispatchEvent(new Event('change', { bubbles: true }))">Clear file</button>
+      </div>
+    </form>
+    <div id="hash-result" class="mt-8" aria-live="polite">
+      {{if eq .Op "hash"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/hash-result" .}}{{end}}{{end}}
+    </div>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/hash -d text=abc -d expected=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+curl {{.Base}}/hash -F file=@release.tar.gz</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. Fields: <span class="font-mono">text</span>, <span class="font-mono">enc</span>
+        (utf8, hex, base64), <span class="font-mono">file</span> (multipart, up to 8 MiB),
+        <span class="font-mono">trim_newline</span>, <span class="font-mono">expected</span>. Send a file with
+        <span class="font-mono">-F file=@…</span>: <span class="font-mono">-d @file</span> strips its newlines and
+        changes the hash. The API runs on this server; the page above doesn't send anything.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/hash-result"}}
+{{with .Result}}
+{{with .Compare}}{{template "cipher/compare" .}}{{end}}
+<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+  <span>Input <span class="text-strong">{{.Source}}</span></span>
+  <span><span class="text-strong">{{.Bytes}}</span> bytes hashed</span>
+</div>
+{{template "cipher/warnings" .Warnings}}
+{{template "cipher/digests" .Digests}}
+{{end}}
+{{end}}

@@ -1,0 +1,82 @@
+{{/* Identify — "what is this string?" (C11). Page shell + result fragment.
+
+     One live form. The answer is a ranked list, never one verdict: 32 hex
+     digits is MD5, NTLM, MD4 or LM, and the page says so. Each reading links to
+     the page that opens it; the link carries nothing, since a pasted secret in
+     a URL would land in history and logs. */}}
+{{define "cipher/identify"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">What is this string?</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste a token, key, certificate, hash or encoded value. The page lists what it could be, most likely first,
+      with why, the hashcat mode where one is certain, and the page that reads it. Hashes of the same length can't be
+      told apart by looking, so they are all listed.
+    </p>
+    {{template "cipher/engine" .}}
+
+    <form method="post" action="/identify" data-cipher="identify" data-live data-target="#identify-result" class="mt-6 space-y-3">
+      <label class="block text-sm text-muted">Input
+        <textarea name="text" rows="6" autofocus autocomplete="off" spellcheck="false"
+                  placeholder="eyJhbGciOi…, -----BEGIN CERTIFICATE-----, $2b$12$…, 5f4dcc3b5aa765d61d8327deb882cf99, ssh-ed25519 AAAA…"
+                  class="field mt-1 w-full font-mono text-xs">
+{{.Form.Get "text"}}</textarea>
+      </label>
+      <button type="submit" class="btn-primary">Identify</button>
+    </form>
+    <div id="identify-result" class="mt-8" aria-live="polite">
+      {{if eq .Op "identify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/identify-result" .}}{{end}}{{end}}
+    </div>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
+curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only, up to 1 MiB. The answer is <span class="font-mono">candidates</span>, ranked, each with
+        <span class="font-mono">name</span>, <span class="font-mono">confidence</span> (high, medium, low),
+        <span class="font-mono">why</span>, and where they apply <span class="font-mono">page</span> and
+        <span class="font-mono">hashcat</span>. The API runs on this server, so the input travels; the page above
+        doesn't send it anywhere.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{/* dot = the render map; .Result = *ciphertools.IdentifyResult */}}
+{{define "cipher/identify-result"}}
+{{with .Result}}
+<p class="text-sm text-muted">
+  {{.Bytes}} bytes{{if gt .Lines 1}} on {{.Lines}} lines{{end}}.
+  {{len .Candidates}} reading{{if ne (len .Candidates) 1}}s{{end}}, most likely first. The links open the page; paste the value there.
+</p>
+<ol class="mt-4 space-y-3">
+  {{range .Candidates}}
+  <li class="rounded-lg border border-line bg-surface px-4 py-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <span class="font-semibold text-strong">{{.Name}}</span>
+      <span class="text-xs font-semibold {{if eq .Confidence "high"}}text-ok{{else if eq .Confidence "medium"}}text-warn{{else}}text-faint{{end}}">{{.Confidence}} confidence</span>
+    </div>
+    <p class="mt-1 text-sm text-body">{{.Why}}</p>
+    {{if .Hashcat}}<p class="mt-1 text-xs text-muted">hashcat <span class="font-mono text-strong">-m {{.Hashcat}}</span></p>{{end}}
+    {{if .Preview}}
+    <pre class="mt-2 whitespace-pre-wrap break-all rounded-md border border-line bg-canvas p-2 font-mono text-xs text-strong">{{.Preview}}</pre>
+    {{if .PreviewHex}}<p class="mt-1 text-xs text-faint">The first bytes, as hex.</p>{{end}}
+    {{end}}
+    {{if .Page}}<a href="{{.Page}}" class="link-brand mt-2 inline-block text-sm">Open the {{.PageName}} page</a>{{end}}
+  </li>
+  {{end}}
+</ol>
+{{end}}
+{{end}}

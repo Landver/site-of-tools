@@ -299,11 +299,16 @@ site-of-tools/
 │   │       ├── testing/      #       automation-detection test harness + findings
 │   │       └── reports/      #       per-service research writeups
 │   ├── dnstools/             #   dns.corpberry.com — SELF-CONTAINED, same shape
-│   └── linktools/            #   link.corpberry.com — SELF-CONTAINED, same shape
-│       ├── url.go · clean.go · rules.go · trace.go · short.go · handler.go · …
-│       ├── store.go · resolvecache.go  #  Mongo `links` + its cache/hit batcher
-│       ├── extension/        #     MV3 browser extension — no .go files
-│       └── docs/             #     numbered design docs + reports/
+│   ├── linktools/            #   link.corpberry.com — SELF-CONTAINED, same shape
+│   │   ├── url.go · clean.go · rules.go · trace.go · short.go · handler.go · …
+│   │   ├── store.go · resolvecache.go  #  Mongo `links` + its cache/hit batcher
+│   │   ├── extension/        #     MV3 browser extension — no .go files
+│   │   └── docs/             #     numbered design docs + reports/
+│   └── ciphertools/          #   cipher.corpberry.com — same shape, built TWICE
+│       ├── op.go · jwt.go · hash.go · keys.go · cert.go · …  # pure Go ops
+│       ├── handler.go        #     //go:build !js — the only Echo/platform file
+│       ├── wasm/main.go      #     GOOS=js entrypoint: ops run in the browser
+│       └── docs/             #     landscape, inventory, build plan, traps
 ├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
 ├── .githooks/pre-push        # test gate (enable: make hooks)
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile

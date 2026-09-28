@@ -1,0 +1,177 @@
+{{/* Random — tokens, passwords and UUIDs (C9). Page shell + result fragment.
+
+     Three forms on tabs, all posting to the one "random" op and saying which
+     they are with a hidden kind field; that field also routes the no-JS result
+     to the right box. None is live: every result is a fresh secret, so a new
+     one appears only when asked for.
+
+     The starting tab is picked from literals, never copied from the form
+     (a form value inside x-data would be script). */}}
+{{define "cipher/random"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  {{$kind := .Form.Get "kind"}}{{$random := eq .Op "random"}}
+  {{$pw := and $random (eq $kind "password")}}{{$uuid := and $random (eq $kind "uuid")}}
+  {{$tok := and $random (not $pw) (not $uuid)}}
+  <main class="page-main" x-data="{ tab: '{{if $pw}}password{{else if $uuid}}uuid{{else}}token{{end}}' }">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Random tokens, passwords and UUIDs</h1>
+    <p class="mt-2 text-sm text-muted">
+      Secrets for API keys, session tokens and test accounts, from your browser's cryptographic random source.
+      Characters are drawn without modulo bias, and each result says how many bits of entropy it carries.
+    </p>
+    {{template "cipher/engine" .}}
+
+    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist" x-cloak>
+      <button type="button" role="tab" @click="tab = 'token'" :aria-selected="tab === 'token'"
+              :class="tab === 'token' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5">Token</button>
+      <button type="button" role="tab" @click="tab = 'password'" :aria-selected="tab === 'password'"
+              :class="tab === 'password' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5">Password</button>
+      <button type="button" role="tab" @click="tab = 'uuid'" :aria-selected="tab === 'uuid'"
+              :class="tab === 'uuid' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5">UUID</button>
+    </div>
+
+    {{$format := ""}}{{if $tok}}{{$format = .Form.Get "format"}}{{end}}
+    <section x-show="tab === 'token'" class="mt-4">
+      <form method="post" action="/random" data-cipher="random" data-target="#random-token-result" class="space-y-3">
+        <input type="hidden" name="kind" value="token">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="block text-sm text-muted">Bytes <span class="text-faint">(1 to 1024)</span>
+            <input type="number" name="bytes" min="1" max="1024" value="{{or (and $tok (.Form.Get "bytes")) "32"}}" class="field mt-1 w-full">
+          </label>
+          <label class="block text-sm text-muted">Format
+            <select name="format" class="field mt-1 w-full">
+              <option value="hex">hex</option>
+              <option value="base64url" {{if eq $format "base64url"}}selected{{end}}>base64url</option>
+              <option value="base64" {{if eq $format "base64"}}selected{{end}}>base64</option>
+              <option value="alnum" {{if eq $format "alnum"}}selected{{end}}>letters and digits</option>
+            </select>
+          </label>
+          <label class="block text-sm text-muted">How many <span class="text-faint">(1 to 20)</span>
+            <input type="number" name="count" min="1" max="20" value="{{or (and $tok (.Form.Get "count")) "1"}}" class="field mt-1 w-full">
+          </label>
+        </div>
+        <p class="text-xs text-faint">A letters-and-digits token is made long enough to carry at least the entropy of that many bytes.</p>
+        <button type="submit" class="btn-primary">Generate</button>
+      </form>
+      <div id="random-token-result" class="mt-8" aria-live="polite">
+        {{if $tok}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/random-result" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    <section x-show="tab === 'password'" class="mt-4">
+      <form method="post" action="/random" data-cipher="random" data-target="#random-password-result" class="space-y-3">
+        <input type="hidden" name="kind" value="password">
+        {{/* Always sent, so "every box unticked" reaches the op as an empty
+             list, which it refuses, instead of as "no preference". */}}
+        <input type="hidden" name="sets" value="">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="block text-sm text-muted">Length <span class="text-faint">(4 to 256)</span>
+            <input type="number" name="length" min="4" max="256" value="{{or (and $pw (.Form.Get "length")) "20"}}" class="field mt-1 w-full">
+          </label>
+          <label class="block text-sm text-muted">How many <span class="text-faint">(1 to 20)</span>
+            <input type="number" name="count" min="1" max="20" value="{{or (and $pw (.Form.Get "count")) "1"}}" class="field mt-1 w-full">
+          </label>
+        </div>
+        <fieldset class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
+          <legend class="mb-2 text-sm text-muted">Characters</legend>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="sets" value="lower" {{if $pw}}{{range index $.Form "sets"}}{{if eq . "lower"}}checked{{end}}{{end}}{{else}}checked{{end}}>
+            a-z
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="sets" value="upper" {{if $pw}}{{range index $.Form "sets"}}{{if eq . "upper"}}checked{{end}}{{end}}{{else}}checked{{end}}>
+            A-Z
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="sets" value="digits" {{if $pw}}{{range index $.Form "sets"}}{{if eq . "digits"}}checked{{end}}{{end}}{{else}}checked{{end}}>
+            0-9
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" name="sets" value="symbols" {{if $pw}}{{range index $.Form "sets"}}{{if eq . "symbols"}}checked{{end}}{{end}}{{else}}checked{{end}}>
+            symbols <span class="font-mono text-faint">!"#$%&amp;…</span>
+          </label>
+        </fieldset>
+        <label class="flex items-center gap-2 text-sm text-muted">
+          <input type="checkbox" name="exclude_ambiguous" value="on" {{if and $pw (.Form.Get "exclude_ambiguous")}}checked{{end}}>
+          Leave out look-alikes: <span class="font-mono">0 O 1 l I | `</span>
+        </label>
+        <p class="text-xs text-faint">Every password has at least one character from each set ticked.</p>
+        <button type="submit" class="btn-primary">Generate</button>
+      </form>
+      <div id="random-password-result" class="mt-8" aria-live="polite">
+        {{if $pw}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/random-result" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    {{$version := ""}}{{if $uuid}}{{$version = .Form.Get "version"}}{{end}}
+    <section x-show="tab === 'uuid'" class="mt-4">
+      <form method="post" action="/random" data-cipher="random" data-target="#random-uuid-result" class="space-y-3">
+        <input type="hidden" name="kind" value="uuid">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="block text-sm text-muted">Version
+            <select name="version" class="field mt-1 w-full">
+              <option value="4">4, random</option>
+              <option value="7" {{if eq $version "7"}}selected{{end}}>7, time-ordered</option>
+            </select>
+          </label>
+          <label class="block text-sm text-muted">How many <span class="text-faint">(1 to 100)</span>
+            <input type="number" name="count" min="1" max="100" value="{{or (and $uuid (.Form.Get "count")) "1"}}" class="field mt-1 w-full">
+          </label>
+        </div>
+        <p class="text-xs text-faint">
+          Version 7 sorts by creation time, which suits database keys, and reveals that time to anyone who sees it.
+        </p>
+        <button type="submit" class="btn-primary">Generate</button>
+      </form>
+      <div id="random-uuid-result" class="mt-8" aria-live="polite">
+        {{if $uuid}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/random-result" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
+curl {{.Base}}/random -d kind=password -d length=24 -d sets=lower,upper,digits -d exclude_ambiguous=on
+curl {{.Base}}/random -d kind=uuid -d version=7 -d count=10</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. <span class="font-mono">sets</span> is a comma-separated list or a repeated field, and all four
+        when left out. The API draws on this server, so the values travel over the network to you; the page above
+        makes them in your browser.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/random-result"}}
+{{with .Result}}
+<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+  <span>{{.Detail}}</span>
+  <span>Entropy <span class="text-strong">{{.Entropy}}</span> each</span>
+</div>
+{{template "cipher/warnings" .Warnings}}
+<ul class="mt-4 space-y-2">
+  {{range .Values}}
+  <li class="flex items-start gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+    <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.}}</span>
+    <button type="button" class="btn-copy" data-copy="{{.}}">Copy</button>
+  </li>
+  {{end}}
+</ul>
+{{if gt (len .Values) 1}}
+<button type="button" class="btn-copy mt-3" data-copy="{{.All}}">Copy all</button>
+{{end}}
+{{end}}
+{{end}}

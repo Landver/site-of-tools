@@ -1,0 +1,5 @@
+{{/* A failed op. Rendered by the wasm engine in the browser and by the no-JS
+     server path alike (op.go ErrorFragment). */}}
+{{define "cipher/error"}}
+<div class="alert-error" role="alert">{{.Error}}</div>
+{{end}}

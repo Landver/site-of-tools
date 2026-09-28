@@ -1,0 +1,45 @@
+{{/* Shared by the Hash and HMAC results: the compare banner and the table of
+     digests. Fragments only, rendered in the browser and on the no-JS path. */}}
+
+{{/* dot = *ciphertools.Compare */}}
+{{define "cipher/compare"}}
+<div class="mb-4 rounded-lg border-2 px-4 py-3 {{if .Match}}border-ok bg-ok/10{{else}}border-danger bg-danger/10{{end}}">
+  <p class="text-base font-semibold {{if .Match}}text-ok{{else}}text-danger{{end}}">{{if .Match}}Match{{else}}No match{{end}}</p>
+  <p class="mt-1 text-sm text-body">{{.Detail}}</p>
+  {{if .Note}}<p class="mt-1 text-xs text-muted">{{.Note}}</p>{{end}}
+  {{if .Given}}<p class="mt-1 break-all text-xs text-muted">Compared <span class="font-mono">{{.Given}}</span></p>{{end}}
+</div>
+{{end}}
+
+{{/* dot = []ciphertools.Digest */}}
+{{define "cipher/digests"}}
+<div class="mt-6 overflow-x-auto">
+  <table class="w-full text-left text-sm">
+    <thead class="text-xs text-faint">
+      <tr><th class="py-1 pr-4 font-normal sm:w-48">Algorithm</th><th class="py-1 font-normal">Hex, then base64</th></tr>
+    </thead>
+    <tbody>
+      {{range .}}
+      <tr class="border-t border-line align-top {{if .Match}}bg-ok/10{{end}}">
+        <td class="py-2 pr-4">
+          <span class="font-medium text-strong">{{.Name}}</span>
+          <span class="block text-xs text-faint">{{.Bytes}} bytes</span>
+          {{if .Match}}<span class="block text-xs font-semibold text-ok">matches</span>{{end}}
+          {{if .Note}}<span class="block text-xs {{if .Weak}}text-warn{{else}}text-muted{{end}}">{{.Note}}</span>{{end}}
+        </td>
+        <td class="py-2">
+          <div class="flex items-start gap-3">
+            <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Hex}}</span>
+            <button type="button" class="btn-copy" data-copy="{{.Hex}}">Copy</button>
+          </div>
+          <div class="mt-1 flex items-start gap-3">
+            <span class="min-w-0 flex-1 break-all font-mono text-xs text-muted">{{.Base64}}</span>
+            <button type="button" class="btn-copy" data-copy="{{.Base64}}">Copy</button>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

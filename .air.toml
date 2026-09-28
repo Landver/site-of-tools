@@ -3,7 +3,9 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/server ."
+  # The wasm engine rebuilds too, so a change to tools/ciphertools shows up in the
+  # browser path as well as the JSON API.
+  cmd = "go build -o ./tmp/server . && make -s wasm"
   bin = "./tmp/server"
   # Only Go changes need a rebuild. In dev (APP_ENV=dev) templates and static
   # files are read from disk and re-parsed per request, so editing an .html just

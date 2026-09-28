@@ -38,7 +38,8 @@ stack. Favor simple, idiomatic path, explain Go-specific choices.
    `go vet` + `go test`, blocks failing push (enable once w/ `make hooks`).
    stdlib `testing` + `go-cmp`; handlers via `httptest`; DB-dependent tests
    skip when BINs absent. Don't disable hook to push red.
-7. **Never commit** `.BIN` databases, `.env`, built `styles.css`, Tailwind/air/
+7. **Never commit** `.BIN` databases, `.env`, built `styles.css`, built
+   `shared/static/wasm/` (cipher engine + its `wasm_exec.js`), Tailwind/air/
    Go binaries, Go tarball. DB assets bind-mounted.
 
 ## Pinned versions (don't drift; re-verify before bumping)
@@ -48,6 +49,7 @@ Go 1.26.x · Echo **v5** (`github.com/labstack/echo/v5`) · htmx 2.0.x · Alpine
 `github.com/ip2location/ip2location-go/v9` v9.8.x · `github.com/ip2location/ip2proxy-go/v4`
 v4.2.x · `github.com/miekg/dns` v1.1.73 · `go.mongodb.org/mongo-driver/v2` v2.8.x (use **/v2**, not v1) ·
 `golang.org/x/net` v0.57.x (already **direct**; `idna` + `html` are packages inside it, no go.mod change) ·
+`golang.org/x/crypto` v0.54.x (direct: bcrypt/argon2/scrypt/blake2/sha3/chacha20poly1305/ssh, ciphertools only) ·
 `github.com/google/go-cmp`
 v0.7.x · `github.com/yuin/goldmark` v1.8.4 · `github.com/yuin/goldmark-meta` v1.1.0 ·
 base `gcr.io/distroless/static-debian12:nonroot`.
@@ -83,7 +85,7 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
   optional `draft: true`; slug = filename minus date prefix; publishing =
   commit + deploy, drafts never render).
 - `tools/<tool>/` — each tool subdomain, self-contained (e.g. `tools/iptools/`,
-  `tools/botcheck/`, `tools/linktools/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
+  `tools/botcheck/`, `tools/linktools/`, `tools/ciphertools/`): domain code + `handler.go` + `templates/` (+ tool `assets/`)
   + `tests/` sub-package + `docs/` folder holding tool's markdown
   (`docs/README.md`, botcheck's index at `docs/README.md` linking out
   to `docs/RESEARCH.md`/`reports/`, `docs/roadmap/`, `docs/testing/`, and
@@ -92,6 +94,13 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
   Each own Go package (embed reason); keep `.md` in `docs/`, not code root.
 - Tests go in `<pkg>/tests/` (black-box). White-box test needing unexported
   symbols = exception, sits beside code as `*_test.go`.
+- `tools/ciphertools/` (cipher.corpberry.com) compiled **twice**: natively
+  (JSON API, no-JS form posts) + to WebAssembly (`./wasm`, runs in visitor's
+  browser in a Web Worker via `shared/static/js/cipher{,-worker}.js`). Only
+  `handler.go` (`//go:build !js`) may import Echo/`platform`; every other file
+  pure Go (stdlib + `x/crypto`), no I/O, or wasm build breaks. Ops register in
+  `init()`; results render w/ same `templates/` both sides. Page never posts
+  when engine fails — no silent server fallback (docs/02-build-plan.md).
 - Don't reintroduce `internal/` or `cmd/`, don't split tool's code from its
   templates/assets/docs — co-location deliberate. New tools go under `tools/`.
 
@@ -103,6 +112,7 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
 - `make assets` — download IP2Location LITE BINs (uses `.env` token)
 - `make mongo-init` — create `site-of-tools` Mongo database (needs `MONGODB_URI`; run from a host that can reach server)
 - `make css` / `make css-watch` — build / watch `styles.css`
+- `make wasm` — build cipher engine into `shared/static/wasm/` (dep of `dev` + `build`; `make test` vets it)
 - `make dev` — live reload (`APP_ENV=dev`, disk FS + template reparse)
 - `make test` — `go test ./... -race`
 - `make build` / `make docker` — prod
@@ -115,6 +125,11 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
 - Alpine needs `defer`; re-init Alpine on `htmx:afterSwap` for swapped-in markup.
 - Containers bind `0.0.0.0:8080` (not container-loopback); publish to host loopback.
 - nginx must `proxy_set_header Host $host;` or host routing collapses.
+- `wasm_exec.js` must match Go that built `cipher.wasm` → copied from
+  `$(go env GOROOT)/lib/wasm/` at build, never committed.
+- `GOOS=js GOARCH=wasm go vet` only `./tools/ciphertools ./tools/ciphertools/wasm`
+  — `tests/` imports `Register`, which is `!js`.
+- `{{else with}}` doesn't parse in templates here — nest `if`/`with`.
 
 ## Don't do
 

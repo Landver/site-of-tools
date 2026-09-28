@@ -1,0 +1,232 @@
+{{/* Keys — generate a test key pair, or read a pasted key, in every form (C6).
+
+     Two forms. Generate is Heavy (RSA-4096 takes seconds), so it runs on a
+     click, never on a keystroke; inspect is cheap and live. Both results render
+     through cipher/key-view. Private forms of a pasted key sit in a closed
+     <details>; for a generated key they are the point, so they start open.
+
+     The "for testing" line is on the page and in the result, and says where
+     the key was made: the wasm engine reports "browser", the server path
+     (JavaScript off, or the API) "server". */}}
+{{define "cipher/keys"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Key generator and converter: RSA, ECDSA, Ed25519</h1>
+    <p class="mt-2 text-sm text-muted">
+      Make a test key pair, or paste a key to read it and convert it: PEM, JWK and OpenSSH, with the SPKI
+      fingerprint, the OpenSSH <span class="font-mono">SHA256:</span> fingerprint and the RFC 7638 JWK thumbprint.
+    </p>
+    {{template "cipher/engine" .}}
+
+    {{$type := ""}}{{if eq .Op "keys-generate"}}{{$type = .Form.Get "type"}}{{end}}
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold text-strong">Generate a test key pair</h2>
+      <div class="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-strong">
+        <p><span class="font-semibold">For testing.</span> The key is generated in your browser (on this server with
+          JavaScript off), and a web page is the wrong place to make a key anything real depends on. Real keys
+          belong in a KMS, or come from <span class="font-mono">ssh-keygen</span> or <span class="font-mono">openssl</span> on your own machine:</p>
+        <pre class="mt-2 overflow-x-auto font-mono text-xs">ssh-keygen -t ed25519
+openssl genpkey -algorithm ed25519 -out key.pem
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out key.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out key.pem</pre>
+      </div>
+      <form method="post" action="/keys/generate" data-cipher="keys-generate" data-target="#keys-generated"
+            class="mt-4 flex flex-wrap items-end gap-3">
+        <label class="block text-sm text-muted">Key type
+          <select name="type" class="field mt-1 block w-64">
+            <option value="ed25519">Ed25519</option>
+            <option value="ec-p256" {{if eq $type "ec-p256"}}selected{{end}}>ECDSA P-256</option>
+            <option value="ec-p384" {{if eq $type "ec-p384"}}selected{{end}}>ECDSA P-384</option>
+            <option value="ec-p521" {{if eq $type "ec-p521"}}selected{{end}}>ECDSA P-521</option>
+            <option value="rsa-2048" {{if eq $type "rsa-2048"}}selected{{end}}>RSA 2048</option>
+            <option value="rsa-3072" {{if eq $type "rsa-3072"}}selected{{end}}>RSA 3072</option>
+            <option value="rsa-4096" {{if eq $type "rsa-4096"}}selected{{end}}>RSA 4096 (takes a few seconds)</option>
+          </select>
+        </label>
+        <label class="block text-sm text-muted">SSH comment <span class="text-faint">(optional)</span>
+          <input name="comment" value="{{.Form.Get "comment"}}" autocomplete="off" spellcheck="false"
+                 placeholder="cipher-tools-test-key" class="field mt-1 block w-56 font-mono">
+        </label>
+        <label class="block text-sm text-muted">SSH passphrase <span class="text-faint">(optional)</span>
+          <input type="password" name="passphrase" autocomplete="new-password" class="field mt-1 block w-56">
+        </label>
+        <button type="submit" class="btn-primary">Generate</button>
+      </form>
+      <div id="keys-generated" class="mt-8" aria-live="polite">
+        {{if eq .Op "keys-generate"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/keys-generated" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    <section class="mt-12">
+      <h2 class="text-lg font-semibold text-strong">Read or convert a key</h2>
+      <form method="post" action="/keys/inspect" data-cipher="keys-inspect" data-live data-target="#keys-inspected"
+            class="mt-4 space-y-3">
+        <label class="block text-sm text-muted">Key: PEM, JWK, JWKS or an OpenSSH public key
+          <textarea name="key" rows="7" autocomplete="off" spellcheck="false"
+                    placeholder="-----BEGIN PUBLIC KEY-----, {&quot;kty&quot;:&quot;EC&quot;,…}, or ssh-ed25519 AAAA… user@host"
+                    class="field mt-1 w-full font-mono text-xs">{{if eq .Op "keys-inspect"}}{{.Form.Get "key"}}{{end}}</textarea>
+        </label>
+        <p class="text-xs text-faint">
+          Reads PKCS#8, PKCS#1, SEC 1, SPKI and unencrypted OpenSSH PEM, a certificate's key, JWK and JWKS, and
+          authorized_keys lines. A private key is converted too, but its private forms stay folded away, and the
+          public JWK never carries <span class="font-mono">d</span>, <span class="font-mono">p</span>,
+          <span class="font-mono">q</span>, <span class="font-mono">dp</span>, <span class="font-mono">dq</span>
+          or <span class="font-mono">qi</span>.
+        </p>
+        <button type="submit" class="btn-primary">Read</button>
+      </form>
+      <div id="keys-inspected" class="mt-8" aria-live="polite">
+        {{if eq .Op "keys-inspect"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/keys-inspected" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">The same with openssl and ssh-keygen</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">openssl pkey -in key.pem -noout -text                  # read a key
+openssl pkey -in key.pem -pubout                       # public PEM from a private key
+openssl pkey -in key.pem -pubout -outform DER | openssl dgst -sha256 -c   # SPKI SHA-256
+ssh-keygen -y -f id_ed25519                            # OpenSSH public line from a private key
+ssh-keygen -lf id_ed25519.pub                          # OpenSSH SHA256: fingerprint</pre>
+    </details>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/keys/generate -d type=ec-p256
+curl {{.Base}}/keys/inspect --data-urlencode key@public.pem</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. <span class="font-mono">type</span> is <span class="font-mono">ed25519</span>,
+        <span class="font-mono">ec-p256</span>, <span class="font-mono">ec-p384</span>,
+        <span class="font-mono">ec-p521</span>, <span class="font-mono">rsa-2048</span>,
+        <span class="font-mono">rsa-3072</span> or <span class="font-mono">rsa-4096</span>.
+        Generate has a stricter rate limit than the rest. The API runs on this server: a key it generates was made
+        there and sent back, and a key you inspect travels to it, so give it public keys only. The page above
+        doesn't send anything anywhere.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/keys-generated"}}
+{{with .Result}}
+<div class="rounded-lg border-2 border-warn bg-warn/10 px-4 py-3">
+  <p class="text-base font-semibold text-strong">Test key: {{.Key.Name}}</p>
+  <p class="mt-1 text-sm text-body">
+    Generated {{if eq .Where "browser"}}in your browser{{else}}on this server and sent back to you, not stored{{end}},
+    for testing. A key anything real depends on belongs in a KMS, or comes from ssh-keygen or openssl on your own
+    machine.
+  </p>
+  <p class="mt-1 text-xs text-muted">Took {{.Took}}.</p>
+</div>
+{{template "cipher/key-view" .Key}}
+{{end}}
+{{end}}
+
+{{define "cipher/keys-inspected"}}
+{{with .Result}}
+{{range .Keys}}{{template "cipher/key-view" .}}{{end}}
+{{if .PublicJWKSJSON}}
+<section class="mt-8">
+  <h3 class="eyebrow">Public JWKS, every key above</h3>
+  <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicJWKSJSON}}</pre>
+  <button type="button" class="btn-copy mt-2" data-copy="{{.PublicJWKSJSON}}">Copy</button>
+  <p class="mt-1 text-xs text-muted">Public members only: what a jwks_uri serves.</p>
+</section>
+{{end}}
+{{end}}
+{{end}}
+
+{{/* One key in every form; dot = ciphertools.KeyView. */}}
+{{define "cipher/key-view"}}
+<section class="mt-6 rounded-lg border border-line p-4">
+  <h3 class="text-base font-semibold text-strong">{{.Name}} {{if .Private}}private key{{else if ne .Kind "secret"}}public key{{end}}</h3>
+  <div class="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+    <span>From <span class="text-strong">{{.Source}}</span></span>
+    {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
+    {{with .PublicJWK}}{{if .Kid}}<span>kid <span class="break-all font-mono text-strong">{{.Kid}}</span></span>{{end}}{{end}}
+  </div>
+  {{template "cipher/warnings" .Warnings}}
+
+  {{if .PublicPEM}}
+  <div class="mt-4 grid gap-4 lg:grid-cols-2">
+    <div class="min-w-0">
+      <h4 class="eyebrow">Public key, PEM (SPKI)</h4>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicPEM}}</pre>
+      <button type="button" class="btn-copy mt-2" data-copy="{{.PublicPEM}}">Copy</button>
+    </div>
+    <div class="min-w-0">
+      <h4 class="eyebrow">Public key, JWK</h4>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicJWKJSON}}</pre>
+      <button type="button" class="btn-copy mt-2" data-copy="{{.PublicJWKJSON}}">Copy</button>
+    </div>
+  </div>
+  {{end}}
+
+  {{if .OpenSSH}}
+  <h4 class="eyebrow mt-4">OpenSSH public key</h4>
+  <div class="mt-2 flex items-start gap-3">
+    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.OpenSSH}}</pre>
+    <button type="button" class="btn-copy" data-copy="{{.OpenSSH}}">Copy</button>
+  </div>
+  {{end}}
+
+  <dl class="spec mt-4 grid-cols-[9rem_1fr]">
+    {{if .SPKISHA256}}
+    <dt>SPKI SHA-256</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKISHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SPKISHA256}}">Copy</button></dd>
+    <dt>SPKI SHA-256, base64</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKIPin}}</span><button type="button" class="btn-copy" data-copy="{{.SPKIPin}}">Copy</button></dd>
+    {{end}}
+    {{if .SSHFingerprint}}
+    <dt>OpenSSH</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SSHFingerprint}}</span><button type="button" class="btn-copy" data-copy="{{.SSHFingerprint}}">Copy</button></dd>
+    {{end}}
+    {{if .Thumbprint}}
+    <dt>JWK thumbprint</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Thumbprint}}</span><button type="button" class="btn-copy" data-copy="{{.Thumbprint}}">Copy</button></dd>
+    {{end}}
+  </dl>
+  {{if .SPKISHA256}}<p class="mt-2 text-xs text-faint">SPKI SHA-256 is over the public key's DER, the same digest a certificate carrying this key shows. The JWK thumbprint (RFC 7638) is also the kid when the key had none.</p>{{end}}
+
+  {{if .PrivatePEM}}
+  <details class="mt-4 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm" {{if .Generated}}open{{end}}>
+    <summary class="cursor-pointer font-medium text-strong">Private key: PEM (PKCS#8){{if .PrivateJWKJSON}} and JWK{{end}}</summary>
+    <div class="mt-3 grid gap-4 lg:grid-cols-2">
+      <div class="min-w-0">
+        <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PrivatePEM}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.PrivatePEM}}">Copy</button>
+      </div>
+      {{if .PrivateJWKJSON}}
+      <div class="min-w-0">
+        <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PrivateJWKJSON}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.PrivateJWKJSON}}">Copy</button>
+      </div>
+      {{end}}
+    </div>
+  </details>
+  {{end}}
+
+  {{if .OpenSSHPrivate}}
+  <details class="mt-4 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm" {{if .Generated}}open{{end}}>
+    <summary class="cursor-pointer font-medium text-strong">Private key: OpenSSH format{{if .OpenSSHEncrypted}}, encrypted with your passphrase{{end}}</summary>
+    <pre class="mt-3 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.OpenSSHPrivate}}</pre>
+    <button type="button" class="btn-copy mt-2" data-copy="{{.OpenSSHPrivate}}">Copy</button>
+    <p class="mt-2 text-xs text-muted">
+      What <span class="font-mono">ssh-keygen</span> writes to <span class="font-mono">~/.ssh/id_…</span>: save it there with
+      <span class="font-mono">chmod 600</span>, and put the public line above in the server's
+      <span class="font-mono">authorized_keys</span>.
+    </p>
+  </details>
+  {{end}}
+</section>
+{{end}}

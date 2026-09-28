@@ -1,0 +1,233 @@
+{{/* JWT — decode / verify / sign (C1). Page shell + result fragments.
+
+     Two forms, each posting to its own op. With JavaScript on, cipher.js
+     intercepts both and runs them in the in-browser engine; decode also runs on
+     every keystroke (data-live). With it off, they post to the server and the
+     page comes back with .Op / .Result / .Error filled in.
+
+     The verification banner comes first and is as loud for "not checked" as
+     for "invalid": a token that decodes is not a token that verifies, and that
+     confusion is this category's signature bug (docs/00-landscape.md). */}}
+{{define "cipher/jwt"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main" x-data="{ tab: '{{if eq .Op "jwt-sign"}}sign{{else}}decode{{end}}' }">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">JWT decoder, verifier and signer</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste a token to read it. Add the secret, a PEM public key or a JWKS to check its signature. The
+      algorithm comes from the key, never from the token, so <span class="font-mono">alg: none</span> and
+      public-key-as-HMAC-secret tricks are refused rather than "verified".
+    </p>
+    {{template "cipher/engine" .}}
+
+    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist" x-cloak>
+      <button type="button" role="tab" @click="tab = 'decode'" :aria-selected="tab === 'decode'"
+              :class="tab === 'decode' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5">Decode &amp; verify</button>
+      <button type="button" role="tab" @click="tab = 'sign'" :aria-selected="tab === 'sign'"
+              :class="tab === 'sign' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5">Sign a new token</button>
+    </div>
+
+    {{$enc := .Form.Get "key_enc"}}
+    <section x-show="tab === 'decode'" class="mt-4">
+      <form method="post" action="/jwt/decode" data-cipher="jwt-decode" data-live data-target="#jwt-result" class="space-y-3">
+        <label class="block text-sm text-muted">Token
+          <textarea name="token" rows="5" autofocus autocomplete="off" spellcheck="false"
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMifQ.…"
+                    class="field mt-1 w-full font-mono text-xs">{{.Form.Get "token"}}</textarea>
+        </label>
+        <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+          <label class="block text-sm text-muted">Secret, public key, JWK or JWKS <span class="text-faint">(optional)</span>
+            <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
+                      placeholder="your-256-bit-secret, or -----BEGIN PUBLIC KEY-----, or {&quot;keys&quot;:[…]}"
+                      class="field mt-1 w-full font-mono text-xs">{{if ne .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
+          </label>
+          <label class="block text-sm text-muted">Secret is
+            <select name="key_enc" class="field mt-1 w-full">
+              <option value="utf8">UTF-8 text</option>
+              <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64</option>
+              <option value="base64url" {{if eq $enc "base64url"}}selected{{end}}>base64url</option>
+              <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex</option>
+            </select>
+            <span class="mt-1 block text-xs text-faint">Only for a shared secret. PEM and JWK are read as what they are.</span>
+          </label>
+        </div>
+        <button type="submit" class="btn-primary">Decode</button>
+      </form>
+      <div id="jwt-result" class="mt-8" aria-live="polite">
+        {{if eq .Op "jwt-decode"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/jwt-result" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    <section x-show="tab === 'sign'" class="mt-4">
+      {{$alg := .Form.Get "alg"}}{{$exp := .Form.Get "exp"}}
+      <form method="post" action="/jwt/sign" data-cipher="jwt-sign" data-target="#jwt-signed" class="space-y-3">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="block text-sm text-muted">Algorithm
+            <select name="alg" class="field mt-1 w-full">
+              {{range .Algs}}<option {{if eq . $alg}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+          </label>
+          <label class="block text-sm text-muted">Expires
+            <select name="exp" class="field mt-1 w-full">
+              <option value="">no exp</option>
+              <option value="5m" {{if eq $exp "5m"}}selected{{end}}>in 5 minutes</option>
+              <option value="15m" {{if eq $exp "15m"}}selected{{end}}>in 15 minutes</option>
+              <option value="1h" {{if or (eq $exp "1h") (not .Op)}}selected{{end}}>in 1 hour</option>
+              <option value="1d" {{if eq $exp "1d"}}selected{{end}}>in 1 day</option>
+              <option value="7d" {{if eq $exp "7d"}}selected{{end}}>in 7 days</option>
+            </select>
+          </label>
+          <label class="block text-sm text-muted">kid <span class="text-faint">(optional)</span>
+            <input name="kid" value="{{.Form.Get "kid"}}" autocomplete="off" spellcheck="false" class="field mt-1 w-full font-mono">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-muted">
+          <input type="checkbox" name="iat" value="on" {{if or (not .Op) (.Form.Get "iat")}}checked{{end}}>
+          Add <span class="font-mono">iat</span> (issued now)
+        </label>
+        <label class="block text-sm text-muted">Payload (claims, JSON)
+          <textarea name="payload" rows="5" autocomplete="off" spellcheck="false"
+                    class="field mt-1 w-full font-mono text-xs">{{with .Form.Get "payload"}}{{.}}{{else}}{"sub": "1234567890", "name": "Test User"}{{end}}</textarea>
+        </label>
+        <details class="text-sm">
+          <summary class="cursor-pointer text-muted hover:text-strong">Extra header members</summary>
+          <textarea name="header" rows="3" autocomplete="off" spellcheck="false" placeholder='{"cty": "JWT"}'
+                    class="field mt-2 w-full font-mono text-xs">{{.Form.Get "header"}}</textarea>
+          <p class="mt-1 text-xs text-faint"><span class="font-mono">alg</span> always comes from the menu above.</p>
+        </details>
+        <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+          <label class="block text-sm text-muted">Secret, or private key (PEM / JWK)
+            <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
+                      placeholder="a long random secret, or -----BEGIN PRIVATE KEY-----"
+                      class="field mt-1 w-full font-mono text-xs">{{if eq .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
+          </label>
+          <label class="block text-sm text-muted">Secret is
+            <select name="key_enc" class="field mt-1 w-full">
+              <option value="utf8">UTF-8 text</option>
+              <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64</option>
+              <option value="base64url" {{if eq $enc "base64url"}}selected{{end}}>base64url</option>
+              <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex</option>
+            </select>
+          </label>
+        </div>
+        <p class="text-xs text-faint">
+          For test tokens. A key that signs production tokens belongs in your secret store, not in any web page,
+          this one included.
+        </p>
+        <button type="submit" class="btn-primary">Sign</button>
+      </form>
+      <div id="jwt-signed" class="mt-8" aria-live="polite">
+        {{if eq .Op "jwt-sign"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/jwt-signed" .}}{{end}}{{end}}
+      </div>
+    </section>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/jwt/decode -d token=eyJ… -d key=secret
+curl {{.Base}}/jwt/sign -d alg=HS256 -d key=secret -d exp=1h --data-urlencode 'payload={"sub":"42"}'</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only, and the query string is ignored. The API runs on this server, so the token travels; the page
+        above doesn't send it anywhere. Optional <span class="font-mono">now</span> (unix seconds) checks expiry
+        at another moment, and <span class="font-mono">leeway</span> sets the clock skew allowed (default 60s).
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/jwt-result"}}{{with .Result}}{{template "cipher/jwt-view" .}}{{end}}{{end}}
+
+{{define "cipher/jwt-signed"}}
+{{with .Result}}
+<section>
+  <h2 class="eyebrow">Signed token</h2>
+  <pre class="mt-2 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs text-strong">{{.Token}}</pre>
+  <button type="button" class="btn-copy mt-2" data-copy="{{.Token}}">Copy token</button>
+  <p class="mt-2 text-xs text-muted">Decoded and verified back with the same key below, so what you see is what was signed.</p>
+</section>
+<div class="mt-8">{{template "cipher/jwt-view" .Decoded}}</div>
+{{end}}
+{{end}}
+
+{{/* One decoded token; dot = *ciphertools.JWT. */}}
+{{define "cipher/jwt-view"}}
+{{with .Verification}}
+<div class="rounded-lg border-2 px-4 py-3
+  {{if eq .State "valid"}}border-ok bg-ok/10{{else if eq .State "unchecked"}}border-warn bg-warn/10{{else}}border-danger bg-danger/10{{end}}">
+  <p class="text-base font-semibold
+    {{if eq .State "valid"}}text-ok{{else if eq .State "unchecked"}}text-strong{{else}}text-danger{{end}}">
+    {{if eq .State "valid"}}Signature verified{{else if eq .State "unchecked"}}Signature not checked{{else if eq .State "refused"}}Refused{{else if eq .State "error"}}Key problem{{else}}Invalid signature{{end}}
+  </p>
+  <p class="mt-1 text-sm text-body">{{.Detail}}</p>
+  {{if .Key}}<p class="mt-1 text-xs text-muted">Key: {{.Key}}</p>{{end}}
+</div>
+{{end}}
+
+<div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+  <span>Type <span class="font-mono text-strong">{{.Kind}}</span></span>
+  {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
+  {{if .SigBytes}}<span>Signature <span class="text-strong">{{.SigBytes}} bytes</span></span>{{end}}
+  {{with .Validity}}
+  <span class="{{if eq .State "valid"}}text-ok{{else if eq .State "no-expiry"}}text-warn{{else}}text-danger{{end}}">{{.Detail}}</span>
+  {{end}}
+</div>
+
+{{template "cipher/warnings" .Warnings}}
+
+<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+  <section class="min-w-0">
+    <h2 class="eyebrow">Header</h2>
+    <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.HeaderJSON}}</pre>
+    <dl class="spec mt-3">
+      {{range .HeaderRows}}<dt class="font-mono">{{.Name}}</dt><dd><span class="break-all font-mono text-strong">{{.Value}}</span>{{if .Meaning}}<span class="block text-xs text-muted">{{.Meaning}}</span>{{end}}</dd>{{end}}
+    </dl>
+  </section>
+  <section class="min-w-0">
+    <h2 class="eyebrow">Payload</h2>
+    {{if .PayloadJSON}}
+    <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PayloadJSON}}</pre>
+    <button type="button" class="btn-copy mt-2" data-copy="{{.PayloadJSON}}">Copy JSON</button>
+    {{else if .PayloadText}}{{with .PayloadText}}
+    <pre class="mt-2 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.Value}}</pre>
+    <p class="mt-1 text-xs text-muted">{{.Bytes}} bytes{{if not .IsText}}, shown as hex{{end}}</p>
+    {{end}}{{else}}
+    <p class="mt-2 text-sm text-muted">Encrypted.</p>
+    {{end}}
+  </section>
+</div>
+
+{{if .Claims}}
+<section class="mt-6">
+  <h2 class="eyebrow">Claims</h2>
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead class="text-xs text-faint"><tr><th class="py-1 pr-4 font-normal">Claim</th><th class="py-1 pr-4 font-normal">Value</th><th class="py-1 font-normal">Meaning</th></tr></thead>
+      <tbody>
+        {{range .Claims}}
+        <tr class="border-t border-line align-top">
+          <td class="py-2 pr-4 font-mono text-strong">{{.Name}}</td>
+          <td class="py-2 pr-4"><span class="break-all font-mono text-strong">{{.Value}}</span>
+            {{if .When}}<span class="block text-xs text-muted">{{.When}}</span>{{end}}
+            {{if .Note}}<span class="block text-xs text-warn">{{.Note}}</span>{{end}}</td>
+          <td class="py-2 text-xs text-muted">{{.Meaning}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+{{end}}
