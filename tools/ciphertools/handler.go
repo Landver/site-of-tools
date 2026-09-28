@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,12 @@ var pages = []page{
 	{Key: "hmac", Path: "/hmac", Template: "cipher/hmac",
 		Title: "HMAC generator and webhook signature checker — Cipher Tools",
 		Desc:  "Compute HMAC-SHA256, SHA-512, SHA-1, MD5 and SHA-3 at once with a key as text, hex or base64, and verify a webhook signature (GitHub, Stripe, Slack) in constant time. Runs in your browser, so the key never leaves the page."},
+	{Key: "password", Path: "/password", Template: "cipher/password",
+		Title: "bcrypt, Argon2, scrypt and PBKDF2 password hash generator and checker — Cipher Tools",
+		Desc:  "Hash a password with bcrypt, Argon2id, scrypt or PBKDF2, or paste a stored hash to read its algorithm, cost and salt and check a password against it. Warns about bcrypt's 72-byte limit and weak parameters. Runs in your browser."},
+	{Key: "random", Path: "/random", Template: "cipher/random",
+		Title: "Random token, password and UUID v4 / v7 generator — Cipher Tools",
+		Desc:  "Generate random tokens as hex, base64url or letters and digits, passwords with the character sets you pick and their exact entropy, and UUID v4 or v7 in bulk. Cryptographic randomness with no modulo bias, made in your browser."},
 	{Key: "encode", Path: "/encode", Template: "cipher/encode",
 		Title: "Base64, hex and base32 converter, Basic auth header — Cipher Tools",
 		Desc:  "Convert bytes between UTF-8 text, hex, base64, base64url and base32, with the base64 variant named and bad characters pointed at by offset. Build and decode HTTP Basic auth headers. Runs in your browser."},
@@ -174,8 +181,12 @@ func readInput(c *echo.Context) (Input, error) {
 			switch t := v.(type) {
 			case string:
 				in.Fields.Set(k, t)
-			case float64, bool:
-				in.Fields.Set(k, fmt.Sprint(t))
+			case float64:
+				// 'f', not fmt.Sprint: that writes 1e6 as "1e+06", which no
+				// integer field reads (and "now" read as 1 second past 1970).
+				in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64))
+			case bool:
+				in.Fields.Set(k, strconv.FormatBool(t))
 			case nil:
 			default:
 				return in, fmt.Errorf("field %q: want a string, number or boolean", k)

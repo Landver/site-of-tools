@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -105,6 +106,32 @@ func TestJWTSignAPIAcceptsJSONBody(t *testing.T) {
 	}
 }
 
+// A JSON body's numbers reach the op with every digit: 1700000000 used to
+// arrive as "1.7e+09", which "now" read as one second past 1970. Its booleans
+// arrive as "true"/"false", and false means off.
+func TestJSONBodyNumbersAndBooleans(t *testing.T) {
+	e := newCipherApp(t)
+	claims := func(body string) map[string]any {
+		t.Helper()
+		rec := do(t, e, http.MethodPost, "/jwt/sign", body, "application/json", asAPI)
+		var got struct{ Token string }
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || strings.Count(got.Token, ".") != 2 {
+			t.Fatalf("code %d: %s", rec.Code, rec.Body)
+		}
+		raw, _ := base64.RawURLEncoding.DecodeString(strings.Split(got.Token, ".")[1])
+		var c map[string]any
+		_ = json.Unmarshal(raw, &c)
+		return c
+	}
+	const base = `"alg":"HS256","key":"0123456789abcdef0123456789abcdef","payload":"{}","now":1700000000`
+	if c := claims(`{` + base + `,"iat":true}`); c["iat"] != float64(1700000000) {
+		t.Errorf("iat = %v, want 1700000000", c["iat"])
+	}
+	if c := claims(`{` + base + `,"iat":false}`); c["iat"] != nil {
+		t.Errorf(`"iat": false still added iat = %v`, c["iat"])
+	}
+}
+
 // Secrets are read from the body only. A token in the query string must be
 // ignored, never quietly used: a URL is logged, cached and sent as Referer.
 func TestQueryStringIsIgnored(t *testing.T) {
@@ -158,7 +185,7 @@ func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
 func TestNavOrder(t *testing.T) {
 	e := newCipherApp(t)
 	pages, _ := ciphertools.SitemapPages()
-	order := []string{`href="/"`, `href="/hash"`, `href="/hmac"`, `href="/encode"`}
+	order := []string{`href="/"`, `href="/hash"`, `href="/hmac"`, `href="/password"`, `href="/random"`, `href="/encode"`}
 	for _, p := range pages {
 		body := do(t, e, http.MethodGet, p.Path, "", "", asBrowser).Body.String()
 		nav := body[strings.Index(body, "Cipher Tools sections"):]

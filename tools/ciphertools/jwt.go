@@ -589,7 +589,7 @@ func runJWTSign(in Input) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	payload, err := buildPayload(in.Get("payload"), now, in.Get("iat") != "", in.Get("exp"))
+	payload, err := buildPayload(in.Get("payload"), now, checked(in.Get("iat")), in.Get("exp"))
 	if err != nil {
 		return nil, err
 	}

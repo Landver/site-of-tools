@@ -11,6 +11,10 @@
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "hash"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Hash</a>
   <a href="/hmac" title="Compute an HMAC, check a webhook signature"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "hmac"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">HMAC</a>
+  <a href="/password" title="Hash and check passwords: bcrypt, Argon2id, scrypt, PBKDF2"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "password"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Passwords</a>
+  <a href="/random" title="Random tokens, passwords and UUIDs"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "random"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Random</a>
   <a href="/encode" title="Bytes as text, hex, base64 and base32; Basic auth"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "encode"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encode</a>
 </nav>
