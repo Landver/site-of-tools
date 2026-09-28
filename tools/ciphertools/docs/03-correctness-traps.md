@@ -35,9 +35,12 @@ test case in `tests/`.
 - **Algorithm confusion.** The key's type picks the permitted algorithms. The
   header's `alg` only has to be *consistent* with them. An RSA public key PEM
   offered as an HS256 secret is refused, not HMAC'd.
-- The HMAC secret's encoding (UTF-8 / hex / base64 / base64url) is explicit.
-  jwt.io's "secret base64 encoded" checkbox is the classic source of "invalid
-  signature".
+- The HMAC secret's encoding (UTF-8 / hex / base64 / base64url) is explicit,
+  or, by default, detected: a token doesn't record it, and one string can be
+  valid text and valid base64 at once, so the verifier tries each reading and
+  names the one that matched. With an explicit choice that fails, it still says
+  which reading would have matched. jwt.io's "secret base64 encoded" checkbox is
+  the classic source of "invalid signature".
 - Editing the payload invalidates the signature. Don't silently re-sign; say the
   original no longer matches.
 - Re-serialising JSON changes bytes: a re-signed token won't match the original,

@@ -49,13 +49,19 @@
                       class="field mt-1 w-full font-mono text-xs">{{if ne .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
           </label>
           <label class="block text-sm text-muted">Secret is
+            {{/* Detect is the default: a token doesn't say how its secret was
+                 written down, and one string can be valid text AND valid base64.
+                 Only this form reads the choice back from a decode, never from a
+                 no-JS sign post, which shares the field name. */}}
+            {{$denc := ""}}{{if eq .Op "jwt-decode"}}{{$denc = $enc}}{{end}}
             <select name="key_enc" class="field mt-1 w-full">
-              <option value="utf8">UTF-8 text</option>
-              <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64</option>
-              <option value="base64url" {{if eq $enc "base64url"}}selected{{end}}>base64url</option>
-              <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex</option>
+              <option value="auto">Detect: try each</option>
+              <option value="utf8" {{if eq $denc "utf8"}}selected{{end}}>UTF-8 text</option>
+              <option value="base64" {{if eq $denc "base64"}}selected{{end}}>base64</option>
+              <option value="base64url" {{if eq $denc "base64url"}}selected{{end}}>base64url</option>
+              <option value="hex" {{if eq $denc "hex"}}selected{{end}}>hex</option>
             </select>
-            <span class="mt-1 block text-xs text-faint">Only for a shared secret. PEM and JWK are read as what they are.</span>
+            <span class="mt-1 block text-xs text-faint">Only for a shared secret. Detect tries UTF-8 text, base64 and hex, and says which one matched. PEM and JWK are read as what they are.</span>
           </label>
         </div>
         <button type="submit" class="btn-primary">Decode</button>
@@ -135,7 +141,9 @@ curl {{.Base}}/jwt/sign -d alg=HS256 -d key=secret -d exp=1h --data-urlencode 'p
       <p class="mt-1 text-xs text-muted">
         POST only, and the query string is ignored. The API runs on this server, so the token travels; the page
         above doesn't send it anywhere. Optional <span class="font-mono">now</span> (unix seconds) checks expiry
-        at another moment, and <span class="font-mono">leeway</span> sets the clock skew allowed (default 60s).
+        at another moment, <span class="font-mono">leeway</span> sets the clock skew allowed (default 60s), and
+        <span class="font-mono">key_enc</span> (utf8, base64, base64url, hex) fixes how a secret is read; left out, each
+        reading is tried.
       </p>
     </details>
   </main>

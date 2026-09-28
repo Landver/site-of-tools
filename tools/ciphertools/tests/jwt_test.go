@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"net/url"
@@ -420,5 +421,41 @@ func TestJWTMalformedExpIsNotMissing(t *testing.T) {
 		if strings.Contains(w.Text, "No exp claim") {
 			t.Fatalf("malformed exp reported as missing: %q", w.Text)
 		}
+	}
+}
+
+// A token never says how its HMAC secret was written down, and a secret like
+// this one is valid both as text and as base64 (26 letters: 26 bytes of text,
+// or 19 bytes of base64). Left on "detect", the verifier tries each reading and
+// says which one matched; with an explicit reading that fails, it still says
+// which reading would have matched rather than a bare "invalid".
+func TestJWTSecretEncodingDetected(t *testing.T) {
+	const pasted = "hkjlhlkjhjklhkljhlkjhlkhlk"
+	meant, err := base64.RawStdEncoding.DecodeString(pasted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := sign(t, map[string]string{"alg": "HS256", "key": hex.EncodeToString(meant), "key_enc": "hex", "kid": "k1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+
+	for _, enc := range []string{"", "auto"} {
+		j := decode(t, s.Token, pasted, enc, now)
+		if j.Verification.State != ciphertools.VerifyValid || !strings.Contains(j.Verification.Key, "read as base64") ||
+			!strings.Contains(j.Verification.Detail, "base64") {
+			t.Fatalf("enc %q: %s — %s (key %s)", enc, j.Verification.State, j.Verification.Detail, j.Verification.Key)
+		}
+	}
+
+	j := decode(t, s.Token, pasted, "utf8", now)
+	if j.Verification.State != ciphertools.VerifyInvalid || !strings.Contains(j.Verification.Detail, "DOES with the secret read as base64") {
+		t.Fatalf("explicit utf8: %s — %s", j.Verification.State, j.Verification.Detail)
+	}
+
+	j = decode(t, s.Token, "wrong-but-also-26-letters", "", now)
+	if j.Verification.State != ciphertools.VerifyInvalid || !strings.Contains(j.Verification.Detail, "Tried the secret as UTF-8 text") {
+		t.Fatalf("wrong secret: %s — %s", j.Verification.State, j.Verification.Detail)
 	}
 }

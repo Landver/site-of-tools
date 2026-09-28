@@ -7,6 +7,7 @@ package tests
 import (
 	"context"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -181,10 +182,18 @@ func TestLookupSetFansOutOverAllTypes(t *testing.T) {
 }
 
 // One type failing must never cost the others their answers.
+//
+// Every query must fail here, and a 1ms timeout alone didn't guarantee it: on a
+// CI runner near an anycast node, 1.1.1.1 answered 2 of 9 types inside 1ms and
+// the test failed on a fast network. The resolver is pointed at 192.0.2.1
+// (RFC 5737 TEST-NET-1, never routed) for the duration, so nothing can answer.
+// Not t.Parallel: Go runs serial tests before any parallel one resumes, which
+// is what makes borrowing the package-level Resolvers race-free.
 func TestLookupSetSurvivesAPartialFailure(t *testing.T) {
-	t.Parallel()
-	// A 1ms timeout fails every query, proving failures are collected per type
-	// rather than aborting the whole set.
+	i := slices.IndexFunc(dnstools.Resolvers, func(r dnstools.Resolver) bool { return r.Key == "cloudflare" })
+	orig := dnstools.Resolvers[i].Addr
+	dnstools.Resolvers[i].Addr = "192.0.2.1:53"
+	t.Cleanup(func() { dnstools.Resolvers[i].Addr = orig })
 	svc := dnstools.NewService(time.Millisecond)
 
 	set, err := svc.LookupSet(context.Background(), "google.com", "cloudflare", nil)

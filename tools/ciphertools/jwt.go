@@ -382,7 +382,8 @@ func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool)
 	}
 
 	var keys []Key
-	if looksLikeKeyMaterial(keyInput) {
+	material := looksLikeKeyMaterial(keyInput)
+	if material {
 		ks, err := ParseKeys(keyInput)
 		if err != nil {
 			return Verification{State: VerifyError, Detail: "Couldn't read the key: " + err.Error()}
@@ -393,11 +394,11 @@ func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool)
 			return Verification{State: VerifyRefused, Detail: fmt.Sprintf(
 				"The token says %s, which needs %s (PEM or JWK), and what you pasted reads as a shared secret. Refused rather than guessed.", j.Alg, kindNames[spec.kind])}
 		}
-		secret, err := DecodeBytes(keyInput, keyEnc)
+		ks, err := secretReadings(keyInput, keyEnc)
 		if err != nil {
 			return Verification{State: VerifyError, Detail: "Couldn't read the secret: " + err.Error()}
 		}
-		keys = []Key{{Kind: KindSecret, Secret: secret, Source: "read as " + encName(keyEnc)}}
+		keys = ks
 	}
 
 	var fit []Key
@@ -424,7 +425,7 @@ func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool)
 		}
 		return Verification{State: VerifyRefused, Detail: detail}
 	}
-	if kid != "" && len(fit) > 1 {
+	if material && kid != "" && len(fit) > 1 {
 		var byKid []Key
 		for _, k := range fit {
 			if k.KID == kid {
@@ -443,13 +444,21 @@ func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool)
 			if k.Private != nil && k.Kind != KindSecret {
 				v.Detail += " (Checked with the public half of the private key you pasted; verifying only ever needs the public key.)"
 			}
+			if !material && len(fit) > 1 {
+				v.Detail += fmt.Sprintf(" It matched with the secret %s, so that is how this secret is stored.", k.Source)
+			}
 			j.keyWarnings(spec, k)
 			return v
 		}
 	}
 	detail := "Signature does NOT match. The token was altered, or it wasn't signed with this key."
-	if spec.kind == KindSecret {
-		detail += " If the secret is stored base64-encoded, set its encoding to base64 — the usual cause of this with a key that is otherwise right."
+	if !material {
+		if keyEnc == "" || keyEnc == EncAuto {
+			detail += " Tried the secret as " + readingNames(fit) + "."
+		} else if alt := otherReading(spec, input, sig, keyInput, fit[0]); alt != nil {
+			detail = fmt.Sprintf("Signature does NOT match with the secret %s, but it DOES with the secret %s. Set \"Secret is\" to match.",
+				fit[0].Source, alt.Source)
+		}
 	}
 	return Verification{State: VerifyInvalid, Detail: detail, Key: fit[0].Describe()}
 }
@@ -459,6 +468,61 @@ func algNeeds(alg string, spec jwsAlg) string {
 		return "an ECDSA key on " + spec.curve.Params().Name
 	}
 	return kindNames[spec.kind]
+}
+
+// EncAuto is the verifier's default for a shared secret. A token doesn't record
+// how its secret was written down, and one string can be valid in several
+// encodings at once ("hkjl…" is 26 bytes as text and 19 as base64), so the
+// verifier tries each reading and reports the one that matched. Trying three
+// keys instead of one leaves forging at 3 in 2^256: no weaker in practice.
+const EncAuto = "auto"
+
+// secretReadings is the shared secret as bytes: the one reading asked for, or
+// under EncAuto every reading it decodes as, UTF-8 first, duplicates dropped.
+func secretReadings(s, enc string) ([]Key, error) {
+	if enc != "" && enc != EncAuto {
+		b, err := DecodeBytes(s, enc)
+		if err != nil {
+			return nil, err
+		}
+		return []Key{{Kind: KindSecret, Secret: b, Source: "read as " + encName(enc)}}, nil
+	}
+	var out []Key
+	seen := map[string]bool{}
+	for _, e := range []string{EncUTF8, EncBase64, EncHex} {
+		b, err := DecodeBytes(s, e)
+		if err != nil || seen[string(b)] {
+			continue
+		}
+		seen[string(b)] = true
+		out = append(out, Key{Kind: KindSecret, Secret: b, Source: "read as " + encName(e)})
+	}
+	return out, nil
+}
+
+// otherReading finds a reading of the secret, other than the one chosen, that
+// does verify: the answer to "why is this invalid" when the key is right and
+// only its encoding is wrong.
+func otherReading(spec jwsAlg, input, sig []byte, s string, chosen Key) *Key {
+	all, _ := secretReadings(s, EncAuto)
+	for _, k := range all {
+		if string(k.Secret) != string(chosen.Secret) && verifyJWS(spec, k, input, sig) == nil {
+			return &k
+		}
+	}
+	return nil
+}
+
+// readingNames: "UTF-8 text", "UTF-8 text and base64", "UTF-8 text, base64 and hex".
+func readingNames(keys []Key) string {
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		names[i] = strings.TrimPrefix(k.Source, "read as ")
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 func encName(enc string) string {
