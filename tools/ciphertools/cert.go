@@ -118,6 +118,9 @@ const (
 	LinkInsecure   = "insecure"    // signed with SHA-1 or MD5, which verifiers reject
 	LinkNotCA      = "not-ca"      // the right key signed it, but the issuer may not issue
 	LinkNotChecked = "not-checked" // the names don't chain, so the signature is moot
+	// LinkUnsupported: an algorithm Go's x509 can't check at all (DSA, Ed448),
+	// so the signature is neither confirmed nor refuted.
+	LinkUnsupported = "unsupported"
 )
 
 // CertLink is one adjacent pair: is Issuer the certificate that issued Child?
@@ -498,14 +501,15 @@ func selfSigned(c *x509.Certificate) bool {
 }
 
 // signedBy checks child's signature with parent's key only, ignoring whether
-// parent may issue. unverifiable: the algorithm is too broken to check (MD5).
+// parent may issue. unverifiable: the algorithm is too broken to check (MD5),
+// or one Go doesn't implement (DSA, Ed448); either way no verdict, not "invalid".
 func signedBy(child, parent *x509.Certificate) (ok, unverifiable bool) {
 	err := parent.CheckSignature(child.SignatureAlgorithm, child.RawTBSCertificate, child.Signature)
 	if err == nil {
 		return true, false
 	}
 	var ia x509.InsecureAlgorithmError
-	return false, errors.As(err, &ia)
+	return false, errors.As(err, &ia) || errors.Is(err, x509.ErrUnsupportedAlgorithm)
 }
 
 func viewCert(n int, c *x509.Certificate, now time.Time) CertView {
@@ -644,6 +648,9 @@ func checkLink(certs []*x509.Certificate, child, parent int) CertLink {
 	case err == nil:
 		l.Signature = LinkValid
 		l.Detail = fmt.Sprintf("Certificate %d is issued and signed by certificate %d.", l.Child, l.Issuer)
+	case unverifiable && weakSigHash(c.SignatureAlgorithm) == "":
+		l.Signature = LinkUnsupported
+		l.Detail = fmt.Sprintf("The names chain, but certificate %d is signed with %s, which Go (and so this page) can't check; browsers reject it too.", l.Child, sigAlgName(c.SignatureAlgorithm))
 	case unverifiable:
 		l.Signature = LinkInsecure
 		l.Detail = fmt.Sprintf("The names chain, but certificate %d is signed with %s, which can't be checked safely.", l.Child, sigAlgName(c.SignatureAlgorithm))

@@ -440,6 +440,51 @@ func TestCertWarnings(t *testing.T) {
 	}
 }
 
+// A DSA root and the P-256 leaf it signed, made with openssl (Go can't make
+// DSA certificates); `openssl verify -CAfile root leaf` accepts the pair.
+const (
+	dsaLeafPEM = `-----BEGIN CERTIFICATE-----
+MIIBGzCB2aADAgECAgECMAsGCWCGSAFlAwQDAjATMREwDwYDVQQDDAhEU0EgUm9v
+dDAeFw0yNjA5MjgxMzQ1MjVaFw00NTExMjcxMzQ1MjVaMBYxFDASBgNVBAMMC2Rz
+YS5leGFtcGxlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEywQKHsNKIgZSKWmd
+WmNN2/hCxsLRVZsBu4nJqkCVU6q6ZwssgVq3rvGFHnen8ITUPQm1+cVw6TLJQXb2
+GWZoJaMaMBgwFgYDVR0RBA8wDYILZHNhLmV4YW1wbGUwCwYJYIZIAWUDBAMCAzAA
+MC0CFGHSmGaxl82oGla/O5xJZ+g9cd7RAhUAtlt9G7pAOcoHF1uxg8v5PTnU2QE=
+-----END CERTIFICATE-----
+`
+	dsaRootPEM = `-----BEGIN CERTIFICATE-----
+MIICiTCCAkagAwIBAgIJAMmLKIPGf6KNMAsGCWCGSAFlAwQDAjATMREwDwYDVQQD
+DAhEU0EgUm9vdDAeFw0yNjA5MjgxMzQ1MjVaFw00NjA5MjMxMzQ1MjVaMBMxETAP
+BgNVBAMMCERTQSBSb290MIIBtjCCASsGByqGSM44BAEwggEeAoGBAMfmqoaZxKR0
+S+BobehCC/CDbjQ6snYDreZrZ756lsRUxNhKRiyv5T+FOJLQcfH8QT0Imc3hnMz+
+JuVsU4uN+etpnvHmU+K0YTHNQ3MLmZupFs0WUAERfcDB56Nx4Ech3MOQmSPsiM2Z
+l3c7KkUay4wW8BGqxjjJZ3aVgkupo5r/AhUA8yz/fEsy8cW2NVaTdX9a+hTqsbMC
+gYAFXcQkslasK0QfKHpYLV6booSPSi1IIKWl4FAEykxZNovSUl6ccLIBdPyvzbWy
+rkoxlR+YYDYkY5LITkg03t3LWcwnBDYhR5blHr7UuCHqMg02rNGki1l3rw42mGmm
+sDWwG9qcwpy/6nmBy+S6RpXiKMlDFYaai00qqwF9GW1njwOBhAACgYAFy+QzGOzF
+BBIGTefjP67fZL74UDc19kRZAY9oCuYcn6EtDbvxdgtgU+mBg0MnmxpLy40uGmss
+o+jQIJWGiwlSf6nS25dorPBSy6XGQ4+FZ6t712CsfQhtP78E95DYdaWOo5poG3XC
+cgRqYP29sFv5DvzIej1OnWaAItxwnv0CAqMjMCEwDwYDVR0TAQH/BAUwAwEB/zAO
+BgNVHQ8BAf8EBAMCAgQwCwYJYIZIAWUDBAMCAzAAMC0CFQCIS1lUUz1ZVzTlESz2
+R89E59Tj6wIUIMoQ/mvgOsfYIcbg5zb7i2s9aD0=
+-----END CERTIFICATE-----
+`
+)
+
+// Go's x509 can't check a DSA signature at all. That is "can't say", not "does
+// NOT verify": the chain still orders by name, and the link names the reason.
+func TestCertUnsupportedSignatureIsNotInvalid(t *testing.T) {
+	now := strconv.FormatInt(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)
+	r := certOf(t, url.Values{"cert": {dsaLeafPEM + dsaRootPEM}, "now": {now}}, nil)
+	l := r.Chain.Links[0]
+	if l.Signature != ciphertools.LinkUnsupported || !l.Issued || !strings.Contains(l.Detail, "can't check") {
+		t.Errorf("DSA link: %+v", l)
+	}
+	if !r.Chain.OrderOK || !r.Certs[1].SelfSigned || !strings.Contains(r.Chain.End, "self-signed root") {
+		t.Errorf("DSA chain: %+v, root self-signed %v", r.Chain, r.Certs[1].SelfSigned)
+	}
+}
+
 func TestCertInputErrors(t *testing.T) {
 	p := newPKI(t)
 	good := pemOf(p.leaf)
