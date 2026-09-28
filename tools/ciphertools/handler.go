@@ -7,14 +7,18 @@
 package ciphertools
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -75,6 +79,12 @@ const (
 	heavyRateBurst     = 5
 	rateLimitExpiry    = 3 * time.Minute
 
+	// The engine route. A page load fetches it once and the browser keeps it
+	// (immutable), so a person never comes near this; it bounds how fast one
+	// address can pull 3 MB responses off the box.
+	engineRatePerSecond = 1
+	engineRateBurst     = 10
+
 	// maxBody bounds every POST, uploads included. The browser engine has no
 	// such limit: a file hashed there never travels.
 	maxBody = 8 << 20
@@ -91,9 +101,14 @@ type handler struct{ base string }
 // Ops read the POST body only, never the query string. A secret in a URL lands
 // in history, in Referer headers and in the request log; refusing to read one
 // there is what keeps anybody from building that habit.
-func Register(e *echo.Echo, base string) {
+//
+// static is the shared static FS the app serves /static from; the engine is read
+// from it once and served pre-compressed (engine below).
+func Register(e *echo.Echo, base string, static fs.FS) {
 	h := &handler{base: base}
 	e.Use(immutableEngine)
+	en := &engine{static: static}
+	e.GET(enginePath, en.serve, rateLimiter(engineRatePerSecond, engineRateBurst))
 	pure := rateLimiter(pureRatePerSecond, pureRateBurst)
 	heavy := rateLimiter(heavyRatePerSecond, heavyRateBurst)
 	limit := middleware.BodyLimit(maxBody)
@@ -124,6 +139,71 @@ func immutableEngine(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		return next(c)
 	}
+}
+
+// enginePath is the one static file this package serves itself. Echo's router
+// prefers this exact route to the /static* wildcard NewApp registers, and
+// platform's gzip middleware skips it (platform/app.go), so the bytes written
+// here are the bytes sent.
+const enginePath = "/static/wasm/cipher.wasm"
+
+// engine serves the wasm engine gzipped once, not per request. The file is
+// ~12 MB; the shared gzip middleware compressed it on every fetch, ~0.25 s of
+// CPU each time, and Cloudflare doesn't cache .wasm without a rule, so the one
+// URL every visitor downloads was also the cheapest way to keep a core busy.
+//
+// The cache is keyed on size and modification time: embedded files never
+// change, and in dev (disk FS) a `make wasm` rebuild is picked up on the next
+// request instead of serving the old engine until restart.
+type engine struct {
+	static fs.FS
+	mu     sync.Mutex
+	key    string
+	gz     []byte
+}
+
+const engineFile = "wasm/cipher.wasm"
+
+func (en *engine) serve(c *echo.Context) error {
+	info, err := fs.Stat(en.static, engineFile)
+	if err != nil {
+		return echo.ErrNotFound
+	}
+	c.Response().Header().Add(echo.HeaderVary, echo.HeaderAcceptEncoding)
+	if !strings.Contains(c.Request().Header.Get(echo.HeaderAcceptEncoding), "gzip") {
+		raw, err := fs.ReadFile(en.static, engineFile)
+		if err != nil {
+			return err
+		}
+		return c.Blob(http.StatusOK, "application/wasm", raw)
+	}
+	gz, err := en.compressed(info)
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set(echo.HeaderContentEncoding, "gzip")
+	return c.Blob(http.StatusOK, "application/wasm", gz)
+}
+
+func (en *engine) compressed(info fs.FileInfo) ([]byte, error) {
+	key := fmt.Sprint(info.Size(), info.ModTime().UnixNano())
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	if key == en.key {
+		return en.gz, nil
+	}
+	raw, err := fs.ReadFile(en.static, engineFile)
+	if err != nil {
+		return nil, err
+	}
+	var b bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
+	zw.Write(raw)
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	en.key, en.gz = key, b.Bytes()
+	return en.gz, nil
 }
 
 func findPage(key string) page {
