@@ -24,6 +24,8 @@ func main() {
 		js.Global().Set("cipherInitError", err.Error())
 		return
 	}
+	// How much of a picked file the worker reads before handing it over.
+	js.Global().Set("cipherMaxFile", ciphertools.MaxFile)
 	js.Global().Set("cipherRun", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		if len(args) != 3 {
 			return "cipherRun: want (op, fields, files)"

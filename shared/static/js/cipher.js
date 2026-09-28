@@ -50,14 +50,15 @@
     console.error("cipher engine:", err);
   });
 
-  // FormData -> the plain arrays a worker message can carry. Files become
-  // Uint8Arrays and are transferred, not copied.
-  async function collect(form, submitter) {
+  // FormData -> the plain arrays a worker message can carry. Files go as the
+  // File objects, unread (cloning one copies no bytes): the worker reads only as
+  // much of each as the engine takes, so a multi-GB pick costs nothing here.
+  function collect(form, submitter) {
     const fields = [];
     const files = [];
     for (const [k, v] of new FormData(form, submitter)) {
       if (typeof v === "string") fields.push([k, v]);
-      else if (v.size > 0) files.push([k, new Uint8Array(await v.arrayBuffer())]);
+      else if (v.size > 0) files.push([k, v]);
     }
     return { fields, files };
   }
@@ -78,12 +79,11 @@
       target.innerHTML = "";
       return; // the status line already says it failed; nothing was sent
     }
-    const { fields, files } = await collect(form, submitter);
+    const { fields, files } = collect(form, submitter);
     if (button) button.disabled = true;
     const html = await new Promise((resolve) => {
       pending.set(id, resolve);
-      worker.postMessage({ type: "run", id, op: form.dataset.cipher, fields, files },
-        files.map((f) => f[1].buffer));
+      worker.postMessage({ type: "run", id, op: form.dataset.cipher, fields, files });
     });
     if (button) button.disabled = false;
     if (latest.get(form) !== id) return;

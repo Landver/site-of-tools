@@ -306,6 +306,16 @@ func TestHashRefusesOversizedInput(t *testing.T) {
 	}
 }
 
+// In the browser a bigger file arrives cut to MaxFile+1 bytes (cipher-worker.js),
+// so the refusal can't state the file's size; one byte over used to read as
+// "file is 64.0 MiB; this page hashes up to 64.0 MiB".
+func TestHashOversizeMessageDoesNotStateTruncatedSize(t *testing.T) {
+	_, err := runOp(t, "hash", url.Values{}, map[string][]byte{"file": make([]byte, ciphertools.MaxFile+1)})
+	if err == nil || !strings.Contains(err.Error(), "file is larger than 64.0 MiB") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRenderHash(t *testing.T) {
 	html := render(t, "hash", url.Values{"text": {"abc"}, "expected": {abcVectors["sha1"]}})
 	for _, want := range []string{abcVectors["sha256"], "Keccak-256 (Ethereum)", "not collision-resistant", "Match", "3</span> bytes hashed", `data-copy="` + abcVectors["md5"] + `"`} {

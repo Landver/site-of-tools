@@ -103,6 +103,14 @@ func Run(op Op, in Input) (res any, err error) {
 	return op.Run(in)
 }
 
+// MaxFile is the most of a picked file the in-browser engine reads: the worker
+// hands an op at most MaxFile+1 bytes of it, one past the limit, which is all an
+// op needs to refuse it. Read whole, a disk image was copied into the Go heap,
+// and running out of memory there is a fatal error no recover catches, so the
+// engine was gone until a reload. It is the largest limit any op has (hash's);
+// raise it with that one.
+const MaxFile = MaxHashInput
+
 // ErrorFragment renders a failed op.
 const ErrorFragment = "cipher/error"
 

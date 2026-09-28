@@ -129,8 +129,10 @@ func runHash(in Input) (any, error) {
 		data, source = b, how
 	}
 	if len(data) > MaxHashInput {
-		return nil, fmt.Errorf("%s is %s; this page hashes up to %s. For bigger files, sha256sum (Linux), shasum -a 256 (macOS) or certutil -hashfile (Windows) do it locally",
-			source, mib(len(data)), mib(MaxHashInput))
+		// No size in the message: in the browser a bigger file arrives cut to
+		// MaxFile+1 bytes (op.go), so len(data) is not the file's size.
+		return nil, fmt.Errorf("%s is larger than %s, the most this page hashes. For bigger files, sha256sum (Linux), shasum -a 256 (macOS) or certutil -hashfile (Windows) do it locally",
+			source, mib(MaxHashInput))
 	}
 
 	r := &HashResult{Source: source}
