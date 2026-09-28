@@ -1,0 +1,212 @@
+{{/* Certificates — decode X.509 certificates, chains and CSRs, and check a key
+     against them (C7).
+
+     One live form: parsing is cheap, so it reruns on every keystroke and on
+     picking a file, in the in-browser engine. A picked file is read in the tab,
+     never uploaded, and wins over the text. With JavaScript off it posts
+     (multipart, for the file) and the page comes back with the result in place.
+
+     SANs come before the subject in every certificate, because browsers match
+     host names against SANs and ignore the CN. */}}
+{{define "cipher/cert"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    {{template "cipher/nav" .}}
+    <h1 class="text-2xl font-semibold text-strong">Certificate decoder and chain checker</h1>
+    <p class="mt-2 text-sm text-muted">
+      Paste a certificate, a chain or a CSR as PEM, or the DER as base64 or hex. Several certificates are checked
+      as a chain: each one against the next, and if the order is wrong, the right order. Add a key to check it
+      belongs to the certificate.
+    </p>
+    {{template "cipher/engine" .}}
+
+    <form method="post" action="/cert" enctype="multipart/form-data" data-cipher="cert" data-live
+          data-target="#cert-result" class="mt-6 space-y-3">
+      <label class="block text-sm text-muted">Certificate, chain or CSR
+        <textarea name="cert" rows="8" autofocus autocomplete="off" spellcheck="false"
+                  placeholder="-----BEGIN CERTIFICATE-----, a fullchain.pem, -----BEGIN CERTIFICATE REQUEST-----, or MIIF… (DER as base64)"
+                  class="field mt-1 w-full font-mono text-xs">{{.Form.Get "cert"}}</textarea>
+      </label>
+      <div>
+        <label class="block text-sm text-muted">Or read a file <span class="text-faint">(.pem, .crt, .cer, .der, .csr)</span>
+          <input type="file" name="cert_file" class="mt-1 block w-full text-sm text-muted">
+        </label>
+        <p class="mt-1 text-xs text-faint">Read in this tab, never uploaded. While a file is picked, it is read instead of the text.</p>
+      </div>
+      <label class="block text-sm text-muted">Key to match <span class="text-faint">(optional: private or public, PEM, JWK or OpenSSH)</span>
+        <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
+                  placeholder="-----BEGIN PRIVATE KEY----- or -----BEGIN PUBLIC KEY-----"
+                  class="field mt-1 w-full font-mono text-xs">{{.Form.Get "key"}}</textarea>
+      </label>
+      <p class="text-xs text-faint">
+        A public key answers the match as well as the private one does:
+        <span class="font-mono">openssl pkey -in key.pem -pubout</span> prints it.
+      </p>
+      <button type="submit" class="btn-primary">Decode</button>
+    </form>
+    <div id="cert-result" class="mt-8" aria-live="polite">
+      {{if eq .Op "cert"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/cert-result" .}}{{end}}{{end}}
+    </div>
+
+    <section class="mt-10 text-sm">
+      <h2 class="eyebrow">The same with openssl</h2>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">openssl x509 -in cert.pem -noout -text                  # read a certificate
+openssl req -in csr.pem -noout -text                    # read a CSR
+openssl x509 -in cert.pem -noout -fingerprint -sha256   # fingerprint over the DER
+openssl x509 -inform DER -in cert.der -out cert.pem     # DER to PEM
+openssl verify -CAfile root.pem -untrusted intermediate.pem cert.pem   # check a chain
+openssl x509 -in cert.pem -noout -pubkey | openssl sha256   # key match: these two
+openssl pkey -in key.pem -pubout | openssl sha256           # lines print the same</pre>
+    </section>
+
+    <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/cert --data-urlencode cert@fullchain.pem
+curl {{.Base}}/cert --data-urlencode cert@cert.pem --data-urlencode key@public.pem</pre>
+      <p class="mt-1 text-xs text-muted">
+        POST only. Fields: <span class="font-mono">cert</span> (or a <span class="font-mono">cert_file</span>
+        upload), optional <span class="font-mono">key</span>, and <span class="font-mono">now</span> (unix
+        seconds) to check validity at another moment. The API runs on this server, so what you send travels: match
+        with the public key, never the private one. The page above doesn't send anything anywhere.
+      </p>
+    </details>
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "cipher/cert-result"}}
+{{with .Result}}
+{{with .KeyMatch}}
+<div class="mb-4 rounded-lg border-2 px-4 py-3 {{if eq .State "match"}}border-ok bg-ok/10{{else if eq .State "no-match"}}border-danger bg-danger/10{{else}}border-warn bg-warn/10{{end}}">
+  <p class="text-base font-semibold {{if eq .State "match"}}text-ok{{else if eq .State "no-match"}}text-danger{{else}}text-strong{{end}}">
+    {{if eq .State "match"}}Key matches{{else if eq .State "no-match"}}Key doesn't match{{else}}Key not checked{{end}}
+  </p>
+  <p class="mt-1 break-words text-sm text-body">{{.Detail}}</p>
+  {{if .Key}}<p class="mt-1 text-xs text-muted">Key: {{.Key}}</p>{{end}}
+</div>
+{{end}}
+
+<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+  <span>Read as <span class="text-strong">{{.ReadAs}}</span></span>
+  {{if .Certs}}<span><span class="text-strong">{{len .Certs}}</span> certificate{{if gt (len .Certs) 1}}s{{end}}</span>{{end}}
+  {{if .CSRs}}<span><span class="text-strong">{{len .CSRs}}</span> request{{if gt (len .CSRs) 1}}s{{end}}</span>{{end}}
+</div>
+{{template "cipher/warnings" .Warnings}}
+
+{{with .Chain}}
+<section class="mt-6">
+  <h2 class="eyebrow">Chain</h2>
+  <div class="mt-2 rounded-lg border-2 px-4 py-3 {{if .OrderOK}}border-ok bg-ok/10{{else}}border-danger bg-danger/10{{end}}">
+    <p class="text-base font-semibold {{if .OrderOK}}text-ok{{else}}text-danger{{end}}">{{if .OrderOK}}Order is correct{{else if .Suggested}}Wrong order{{else}}Not one chain{{end}}</p>
+    <p class="mt-1 text-sm text-body">{{.Detail}}</p>
+    {{if .End}}<p class="mt-1 text-xs text-muted">{{.End}}</p>{{end}}
+    {{range .Notes}}<p class="mt-1 text-xs text-muted">{{.}}</p>{{end}}
+  </div>
+  <ul class="mt-3 space-y-1 text-sm">
+    {{range .Links}}
+    <li class="{{if and .Issued (eq .Signature "valid")}}text-ok{{else if .Issued}}text-warn{{else}}text-danger{{end}}">
+      <span class="font-mono">{{.Child}} → {{.Issuer}}</span>
+      <span class="text-body">{{.Detail}}</span>
+    </li>
+    {{end}}
+  </ul>
+  {{if .SuggestedPEM}}
+  <details class="mt-3 text-sm">
+    <summary class="cursor-pointer text-muted hover:text-strong">The chain in the right order ({{.SuggestedText}}), as PEM</summary>
+    <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.SuggestedPEM}}</pre>
+    <button type="button" class="btn-copy mt-2" data-copy="{{.SuggestedPEM}}">Copy</button>
+  </details>
+  {{end}}
+</section>
+{{end}}
+
+{{range .Certs}}{{template "cipher/cert-view" .}}{{end}}
+{{range .CSRs}}{{template "cipher/csr-view" .}}{{end}}
+{{end}}
+{{end}}
+
+{{/* A certificate or request's SANs; dot = ciphertools.SANs. */}}
+{{define "cipher/sans"}}
+{{if .Count}}
+<dl class="spec mt-2">
+  {{if .DNS}}<dt>DNS</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .DNS}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
+  {{if .IP}}<dt>IP</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .IP}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
+  {{if .Email}}<dt>Email</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .Email}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
+  {{if .URI}}<dt>URI</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .URI}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
+</dl>
+{{else}}
+<p class="mt-2 text-sm text-warn">None.</p>
+{{end}}
+{{end}}
+
+{{/* One certificate; dot = ciphertools.CertView. */}}
+{{define "cipher/cert-view"}}
+<section class="mt-6 rounded-lg border border-line p-4">
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    <h3 class="text-base font-semibold text-strong">Certificate {{.N}}: <span class="break-all font-mono">{{.Title}}</span></h3>
+    <span class="text-sm {{if eq .Validity.State "valid"}}text-ok{{else if eq .Validity.State "expired"}}text-danger{{else}}text-warn{{end}}">{{.Validity.Detail}}</span>
+  </div>
+  <p class="mt-1 text-xs text-muted">{{if .IsCA}}CA certificate{{else}}End-entity certificate{{end}}{{if .SelfSigned}}, self-signed{{end}}, X.509 v{{.Version}}</p>
+  {{template "cipher/warnings" .Warnings}}
+
+  <h4 class="eyebrow mt-4">Subject alternative names</h4>
+  {{template "cipher/sans" .SANs}}
+
+  <dl class="spec mt-4 grid-cols-[9rem_1fr]">
+    <dt>Subject</dt><dd class="break-all font-mono text-xs text-strong">{{.Subject}}</dd>
+    <dt>Issuer</dt><dd class="break-all font-mono text-xs text-strong">{{.Issuer}}</dd>
+    <dt>Not before</dt><dd class="text-strong">{{.NotBefore}}</dd>
+    <dt>Not after</dt><dd class="text-strong">{{.NotAfter}} <span class="text-muted">({{if ge .DaysLeft 0}}{{.DaysLeft}} days left{{else}}expired{{end}})</span></dd>
+    <dt>Serial</dt><dd><span class="break-all font-mono text-xs text-strong">{{.Serial}}</span><span class="block break-all text-xs text-muted">{{.SerialDec}}</span></dd>
+    <dt>Signature</dt><dd class="font-mono text-xs text-strong">{{.SigAlg}}</dd>
+    <dt>Public key</dt><dd class="text-strong">{{.Key}}</dd>
+    <dt>Key usage</dt><dd>{{if .KeyUsage}}{{range $i, $u := .KeyUsage}}{{if $i}}, {{end}}{{$u}}{{end}}{{else}}<span class="text-faint">none</span>{{end}}</dd>
+    <dt>Extended key usage</dt><dd>{{if .ExtUsage}}{{range $i, $u := .ExtUsage}}{{if $i}}, {{end}}{{$u}}{{end}}{{else}}<span class="text-faint">none</span>{{end}}</dd>
+    <dt>Basic constraints</dt><dd>{{.Basic}}</dd>
+    {{if .SKI}}<dt>Subject key ID</dt><dd class="break-all font-mono text-xs text-strong">{{.SKI}}</dd>{{end}}
+    {{if .AKI}}<dt>Authority key ID</dt><dd class="break-all font-mono text-xs text-strong">{{.AKI}}</dd>{{end}}
+    {{if .OCSP}}<dt>OCSP</dt><dd class="break-all font-mono text-xs">{{range .OCSP}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
+    {{if .IssuerURL}}<dt>CA issuers</dt><dd class="break-all font-mono text-xs">{{range .IssuerURL}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
+    {{if .CRL}}<dt>CRL</dt><dd class="break-all font-mono text-xs">{{range .CRL}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
+    <dt>SHA-256</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SHA256}}">Copy</button></dd>
+    <dt>SHA-1</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SHA1}}</span><button type="button" class="btn-copy" data-copy="{{.SHA1}}">Copy</button></dd>
+    <dt>SPKI SHA-256</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKISHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SPKISHA256}}">Copy</button></dd>
+  </dl>
+  <p class="mt-2 text-xs text-faint">Fingerprints are over the certificate's DER bytes, as openssl computes them, not over the PEM text.</p>
+</section>
+{{end}}
+
+{{/* One certificate signing request; dot = ciphertools.CSRView. */}}
+{{define "cipher/csr-view"}}
+<section class="mt-6 rounded-lg border border-line p-4">
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    <h3 class="text-base font-semibold text-strong">Request {{.N}}: <span class="break-all font-mono">{{.Title}}</span></h3>
+    <span class="text-sm {{if .SigOK}}text-ok{{else}}text-danger{{end}}">{{if .SigOK}}Signature valid{{else}}Signature invalid{{end}}</span>
+  </div>
+  <p class="mt-1 text-xs text-muted">{{.SigDetail}}</p>
+  {{template "cipher/warnings" .Warnings}}
+
+  <h4 class="eyebrow mt-4">Subject alternative names requested</h4>
+  {{template "cipher/sans" .SANs}}
+
+  <dl class="spec mt-4 grid-cols-[9rem_1fr]">
+    <dt>Subject</dt><dd class="break-all font-mono text-xs text-strong">{{.Subject}}</dd>
+    <dt>Public key</dt><dd class="text-strong">{{.Key}}</dd>
+    <dt>Signature</dt><dd class="font-mono text-xs text-strong">{{.SigAlg}}</dd>
+    <dt>SPKI SHA-256</dt>
+    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKISHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SPKISHA256}}">Copy</button></dd>
+  </dl>
+</section>
+{{end}}

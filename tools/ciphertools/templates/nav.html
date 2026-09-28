@@ -13,6 +13,10 @@
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "hmac"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">HMAC</a>
   <a href="/password" title="Hash and check passwords: bcrypt, Argon2id, scrypt, PBKDF2"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "password"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Passwords</a>
+  <a href="/keys" title="Generate and convert keys: PEM, JWK, OpenSSH"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "keys"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Keys</a>
+  <a href="/cert" title="Decode certificates, chains and CSRs"
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "cert"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Certs</a>
   <a href="/random" title="Random tokens, passwords and UUIDs"
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "random"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Random</a>
   <a href="/encode" title="Bytes as text, hex, base64 and base32; Basic auth"
