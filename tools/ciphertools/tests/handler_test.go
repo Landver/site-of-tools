@@ -1,8 +1,11 @@
 package tests
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,7 +30,7 @@ func newCipherApp(t *testing.T) *echo.Echo {
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example")
+	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{})
 	return e
 }
 
@@ -184,8 +187,9 @@ func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
-	e := platform.NewApp(r, fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}, false, nil)
-	ciphertools.Register(e, "https://cipher.example")
+	static := fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}
+	e := platform.NewApp(r, static, false, nil)
+	ciphertools.Register(e, "https://cipher.example", static)
 
 	rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", nil)
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
@@ -215,5 +219,46 @@ func TestNavOrder(t *testing.T) {
 			}
 			last = i
 		}
+	}
+}
+
+// The engine is ~12 MB. Gzipping it per request costs ~0.25 s of CPU, which
+// made the one URL every visitor fetches a cheap way to keep a core busy. It is
+// compressed once and served as is: gzipped exactly once (not again by the
+// engine's gzip middleware), raw for a client that doesn't take gzip.
+func TestEngineServedPrecompressed(t *testing.T) {
+	r := platform.NewRenderer(false, nil,
+		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
+		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
+	)
+	wasm := bytes.Repeat([]byte("\x00asm engine bytes "), 4096)
+	static := fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}
+	e := platform.NewApp(r, static, false, nil)
+	ciphertools.Register(e, "https://cipher.example", static)
+
+	var first []byte
+	for i := 0; i < 2; i++ {
+		rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", map[string]string{"Accept-Encoding": "gzip, br"})
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Content-Type") != "application/wasm" {
+			t.Fatalf("code %d, encoding %q, type %q", rec.Code, rec.Header().Get("Content-Encoding"), rec.Header().Get("Content-Type"))
+		}
+		zr, err := gzip.NewReader(bytes.NewReader(rec.Body.Bytes()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := io.ReadAll(zr)
+		if !bytes.Equal(got, wasm) {
+			t.Fatalf("one gunzip gives %d bytes, want the %d-byte engine (compressed twice?)", len(got), len(wasm))
+		}
+		if i == 0 {
+			first = rec.Body.Bytes()
+		} else if !bytes.Equal(first, rec.Body.Bytes()) {
+			t.Fatal("second response compressed again instead of reusing the first")
+		}
+	}
+
+	rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm", "", "", nil)
+	if rec.Header().Get("Content-Encoding") != "" || !bytes.Equal(rec.Body.Bytes(), wasm) {
+		t.Fatalf("no-gzip client: encoding %q, %d bytes", rec.Header().Get("Content-Encoding"), rec.Body.Len())
 	}
 }

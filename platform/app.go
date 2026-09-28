@@ -29,7 +29,12 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	e.Use(middleware.Recover())
 	e.Use(requestLogger(reqlog))
 	e.Use(securityHeaders())
-	e.Use(middleware.Gzip())
+	// Everything is gzipped per response except the cipher engine, which is ~12
+	// MB, arrives already compressed once, and would otherwise cost ~0.25 s of
+	// CPU per fetch (tools/ciphertools/handler.go, engine).
+	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
+		Skipper: func(c *echo.Context) bool { return c.Request().URL.Path == "/static/wasm/cipher.wasm" },
+	}))
 
 	if dev {
 		// Don't cache static assets in dev → CSS/JS edits show on refresh, no

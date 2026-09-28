@@ -55,6 +55,20 @@ at build time, never committed, because it must match the compiler that built
 the `.wasm`. It's built by `make wasm` (a prerequisite of `build` and `dev`), by
 the Dockerfile before `go build`, and checked by CI and the pre-push hook.
 
+### Serving the engine
+
+The engine is ~12 MB raw, ~3.1 MB gzipped. `handler.go` serves
+`/static/wasm/cipher.wasm` itself: it gzips the file **once** (cached, keyed on
+size and mtime so a dev rebuild is picked up) and sends those bytes. The shared
+gzip middleware skips that one path (`platform/app.go`), because compressing it
+per request cost ~0.25 s of CPU and made the URL a cheap way to keep a core busy.
+Content-hashed URLs (`?v=`) are `immutable` for a year, so a browser downloads the
+engine once per deploy. The route has its own per-IP limit (1/s, burst 10).
+
+Cloudflare does not cache `.wasm` by default (it caches by extension). A Cache
+Rule on `cipher.corpberry.com` + path starting `/static/` + "Eligible for cache"
+lets the edge serve it; the origin's `Cache-Control` then sets the TTL.
+
 `handler.go` carries `//go:build !js`, so the wasm binary never links Echo, Mongo
 or `platform/`. Everything else in the package is pure Go and builds for both
 targets.

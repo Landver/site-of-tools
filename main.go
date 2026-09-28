@@ -222,7 +222,7 @@ func run() error {
 	// the JSON API. No state, no network, nothing to degrade
 	// (tools/ciphertools/docs/02-build-plan.md).
 	cipherApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	ciphertools.Register(cipherApp, cfg.URL("cipher"))
+	ciphertools.Register(cipherApp, cfg.URL("cipher"), staticFS)
 
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
