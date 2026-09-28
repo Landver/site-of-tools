@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"reflect"
 	"time"
 )
 
@@ -81,7 +83,7 @@ func orderedObject(data []byte) ([]member, error) {
 	dec.UseNumber()
 	tok, err := dec.Token()
 	if err != nil {
-		return nil, err
+		return nil, jsonError(err)
 	}
 	if d, ok := tok.(json.Delim); !ok || d != '{' {
 		return nil, errors.New("not a JSON object")
@@ -90,22 +92,52 @@ func orderedObject(data []byte) ([]member, error) {
 	for dec.More() {
 		kt, err := dec.Token()
 		if err != nil {
-			return nil, err
+			return nil, jsonError(err)
 		}
 		key, _ := kt.(string)
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
-			return nil, err
+			return nil, jsonError(err)
 		}
 		out = append(out, member{Key: key, Raw: raw})
 	}
 	if _, err := dec.Token(); err != nil { // closing brace
-		return nil, err
+		return nil, jsonError(err)
 	}
 	if dec.More() {
 		return nil, errors.New("trailing data after the JSON object")
 	}
 	return out, nil
+}
+
+// jsonError puts encoding/json's errors in the visitor's terms: its type errors
+// name Go types ("cannot unmarshal number into Go struct field JWK.kty of type
+// string"), and a document cut short is a bare "EOF".
+func jsonError(err error) error {
+	var te *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &te) && te.Field != "":
+		return fmt.Errorf("%q must be %s, found a JSON %s", te.Field, jsonKind(te.Type), te.Value)
+	case errors.As(err, &te):
+		return fmt.Errorf("must be %s, found a JSON %s", jsonKind(te.Type), te.Value)
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return errors.New("the JSON ends before it is closed")
+	}
+	return err
+}
+
+func jsonKind(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Slice, reflect.Array:
+		return "an array"
+	case reflect.Struct, reflect.Map:
+		return "an object"
+	case reflect.Bool:
+		return "true or false"
+	}
+	return "a number"
 }
 
 // display renders a raw JSON value for a table cell: strings unquoted, the rest

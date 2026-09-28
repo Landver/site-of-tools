@@ -319,11 +319,11 @@ func TestCertCSR(t *testing.T) {
 	// A damaged signature: the DER still parses, the signature doesn't verify.
 	bad := slices.Clone(csrDER)
 	bad[len(bad)-1] ^= 0x01
-	if c := certOf(t, url.Values{"cert": {base64.StdEncoding.EncodeToString(bad)}}, nil).CSRs[0]; c.SigOK || !warned(c.Warnings, "does NOT verify") {
+	if c := certOf(t, url.Values{"cert": {base64.StdEncoding.EncodeToString(bad)}}, nil).CSRs[0]; c.SigOK || !noted(c.Warnings, "does NOT verify") {
 		t.Errorf("damaged CSR: %+v", c)
 	}
 	noSAN, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: "legacy.example.com"}}, k)
-	if c := certOf(t, url.Values{"cert": {base64.StdEncoding.EncodeToString(noSAN)}}, nil).CSRs[0]; !warned(c.Warnings, "No subject alternative names") {
+	if c := certOf(t, url.Values{"cert": {base64.StdEncoding.EncodeToString(noSAN)}}, nil).CSRs[0]; !noted(c.Warnings, "No subject alternative names") {
 		t.Errorf("CN-only CSR: %v", c.Warnings)
 	}
 	// The key matches its own request.
@@ -401,7 +401,7 @@ func TestCertExpiryStates(t *testing.T) {
 		if v.Validity.State != c.state || v.DaysLeft != c.days {
 			t.Errorf("%s: state %s days %d (%s)", name, v.Validity.State, v.DaysLeft, v.Validity.Detail)
 		}
-		if c.warn == "" && len(v.Warnings) != 0 || c.warn != "" && !warned(v.Warnings, c.warn) {
+		if c.warn == "" && len(v.Warnings) != 0 || c.warn != "" && !noted(v.Warnings, c.warn) {
 			t.Errorf("%s: warnings %v, want %q", name, v.Warnings, c.warn)
 		}
 	}
@@ -427,11 +427,11 @@ func TestCertWarnings(t *testing.T) {
 	r := certOf(t, url.Values{"cert": {pemOf(leafDER, root.Raw)}}, nil)
 	leaf, rootView := r.Certs[0], r.Certs[1]
 	for _, want := range []string{"Signed with SHA-1", "No subject alternative names"} {
-		if !warned(leaf.Warnings, want) {
+		if !noted(leaf.Warnings, want) {
 			t.Errorf("leaf lacks %q: %v", want, leaf.Warnings)
 		}
 	}
-	if !warned(rootView.Warnings, "below 2048") || !warned(rootView.Warnings, "Harmless on a root") || !rootView.SelfSigned {
+	if !noted(rootView.Warnings, "below 2048") || !noted(rootView.Warnings, "Harmless on a root") || !rootView.SelfSigned {
 		t.Errorf("root: self-signed %v, %v", rootView.SelfSigned, rootView.Warnings)
 	}
 	// The link verifies with the key, but SHA-1 is refused by verifiers.
@@ -517,7 +517,7 @@ func TestCertInputErrors(t *testing.T) {
 	}
 	// A block that isn't a certificate is skipped with a note, not an error.
 	r := certOf(t, url.Values{"cert": {good + "-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n"}}, nil)
-	if len(r.Certs) != 1 || !warned(r.Warnings, "X509 CRL") {
+	if len(r.Certs) != 1 || !noted(r.Warnings, "X509 CRL") {
 		t.Errorf("CRL block: %+v", r.Warnings)
 	}
 }

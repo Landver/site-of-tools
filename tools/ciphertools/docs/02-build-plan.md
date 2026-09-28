@@ -72,7 +72,7 @@ targets.
 | `/cert` | X.509 / CSR / chain decode | `/cert` | yes |
 | `/totp` | TOTP/HOTP codes, `otpauth://` | `/totp` | yes |
 | `/random` | Tokens, passwords, UUIDs | `/random` | no |
-| `/encode` | Bytes between text/hex/base64/base32, Basic auth | `/encode` | yes |
+| `/encode` | Bytes between text/hex/base64/base32, Basic auth | `/encode`, `/encode/basic` | yes |
 | `/identify` | What is this string? | `/identify` | yes |
 
 ## Floors

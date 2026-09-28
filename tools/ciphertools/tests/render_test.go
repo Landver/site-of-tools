@@ -67,3 +67,49 @@ func TestRenderErrorsAreFragments(t *testing.T) {
 		}
 	}
 }
+
+// An error is shown to whoever pasted the input, so it reads in their terms.
+// encoding/asn1 prints Go struct tags ("tags don't match (16 vs {class:0 …})
+// {optional:false …} publicKeyInfo @2"), encoding/json names Go types ("into Go
+// struct field JWK.kty of type string"), and JSON cut short is a bare "EOF".
+func TestErrorsDontLeakGoInternals(t *testing.T) {
+	leaks := []string{"asn1:", "{class:", "Go struct", "Go value", "ciphertools.", "EOF"}
+	check := func(name, msg string) {
+		t.Helper()
+		for _, l := range leaks {
+			if strings.Contains(msg, l) {
+				t.Errorf("%s: %q leaks %q", name, msg, l)
+			}
+		}
+	}
+	stub := func(typ string) string { return "-----BEGIN " + typ + "-----\nAAAA\n-----END " + typ + "-----\n" }
+	for name, c := range map[string]struct {
+		op     string
+		fields url.Values
+	}{
+		"SPKI":           {"keys-inspect", url.Values{"key": {stub("PUBLIC KEY")}}},
+		"PKCS#8":         {"keys-inspect", url.Values{"key": {stub("PRIVATE KEY")}}},
+		"PKCS#1":         {"keys-inspect", url.Values{"key": {stub("RSA PRIVATE KEY")}}},
+		"SEC 1":          {"keys-inspect", url.Values{"key": {stub("EC PRIVATE KEY")}}},
+		"JWK member":     {"keys-inspect", url.Values{"key": {`{"kty":5}`}}},
+		"JWKS keys":      {"keys-inspect", url.Values{"key": {`{"keys":5}`}}},
+		"JWKS entry":     {"keys-inspect", url.Values{"key": {`{"keys":[5]}`}}},
+		"CSR":            {"cert", url.Values{"cert": {stub("CERTIFICATE REQUEST")}}},
+		"sign header":    {"jwt-sign", url.Values{"alg": {"HS256"}, "key": {"k"}, "header": {`{"kid":"a"`}}},
+		"sign payload":   {"jwt-sign", url.Values{"alg": {"HS256"}, "key": {"k"}, "payload": {`{"sub":`}}},
+		"sign JWK":       {"jwt-sign", url.Values{"alg": {"ES256"}, "key": {`{"kty":"EC","crv":5}`}}},
+		"decode, header": {"jwt-decode", url.Values{"token": {"eyJhbGciOiJIUzI1NiI.e30.AAAA"}}},
+	} {
+		_, err := runOp(t, c.op, c.fields, nil)
+		if err == nil {
+			t.Errorf("%s: no error", name)
+			continue
+		}
+		check(name, err.Error())
+	}
+	// A key that doesn't parse is a verification detail, not an op error.
+	j := decode(t, jwtioToken, `{"kty":"oct","k":5}`, "", rfcNow)
+	check("verify JWK", j.Verification.Detail)
+	j = decode(t, jwtioToken, stub("PUBLIC KEY"), "", rfcNow)
+	check("verify PEM", j.Verification.Detail)
+}

@@ -132,6 +132,22 @@ func TestJSONBodyNumbersAndBooleans(t *testing.T) {
 	}
 }
 
+// A JSON body that isn't a flat object says so in JSON terms, not Go's
+// ("into Go value of type map[string]interface {}").
+func TestJSONBodyErrorsReadPlainly(t *testing.T) {
+	e := newCipherApp(t)
+	for body, want := range map[string]string{
+		`["alg","HS256"]`: "body: must be an object, found a JSON array",
+		`{"alg":"HS256"`:  "body: the JSON ends before it is closed",
+	} {
+		rec := do(t, e, http.MethodPost, "/jwt/sign", body, "application/json", asAPI)
+		var got struct{ Error string }
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusBadRequest || got.Error != want {
+			t.Errorf("%s: code %d, error %q, want %q", body, rec.Code, got.Error, want)
+		}
+	}
+}
+
 // Secrets are read from the body only. A token in the query string must be
 // ignored, never quietly used: a URL is logged, cached and sent as Referer.
 func TestQueryStringIsIgnored(t *testing.T) {

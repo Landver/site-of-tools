@@ -21,8 +21,8 @@ reasons are in [`02` §Decision](02-build-plan.md#decision-where-the-crypto-runs
 ## Status
 
 Shipped: all eleven pages in the [feature inventory](01-feature-inventory.md) are
-built, in the five floors below. What was cut, and why, is at the end of
-that inventory; HKDF is first in line for a v2.
+built, in the five floors below, and the review pass (floor 6) is done. What was
+cut, and why, is at the end of that inventory; HKDF is first in line for a v2.
 
 | Floor | Pages | State |
 |---|---|---|
@@ -31,6 +31,7 @@ that inventory; HKDF is first in line for a v2.
 | 3 | Password, Random | built |
 | 4 | Keys, Certificates | built |
 | 5 | TOTP, Encrypt, Identify | built |
+| 6 | Review pass: crypto correctness, security and privacy, engine plumbing, templates/UX, tests and docs | built |
 
 ## Adding a page
 

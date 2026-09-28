@@ -41,7 +41,7 @@ differentiator. The cut is at the end, with a reason for each item.
 
 | Feature | n | Ship |
 |---|---|---|
-| HMAC-MD5/SHA-1/SHA-256/384/512/SHA3-256, all at once | 5 | yes |
+| HMAC-MD5/SHA-1/SHA-224/256/384/512/SHA3-256/512, all at once | 5 | yes |
 | Key as text / hex / base64 | 5 | yes |
 | **Verify: paste an expected MAC, get a constant-time match plus the algorithm** | 1 | yes |
 

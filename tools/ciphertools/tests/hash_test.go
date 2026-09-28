@@ -45,6 +45,8 @@ func digestByID(t *testing.T, ds []ciphertools.Digest, id string) ciphertools.Di
 	return ciphertools.Digest{}
 }
 
+// noted: some warning's text contains sub. Shared by every page's tests;
+// hasLevel (encrypt_test.go) also pins the level.
 func noted(ws []ciphertools.Warning, sub string) bool {
 	for _, w := range ws {
 		if strings.Contains(w.Text, sub) {
@@ -203,6 +205,18 @@ func TestHashTrailingNewline(t *testing.T) {
 	r = hashOf(t, url.Values{"text": {"abc\n"}, "trim_newline": {"false"}}, nil)
 	if r.Bytes != 4 {
 		t.Error(`trim_newline "false" trimmed`)
+	}
+}
+
+// The data is hashed as typed: no Unicode normalisation, no trimming. "é"
+// precomposed (U+00E9) and decomposed (e + U+0301) are different bytes.
+func TestHashDoesNotNormalise(t *testing.T) {
+	nfc, nfd := hashOf(t, url.Values{"text": {"caf\u00e9"}}, nil), hashOf(t, url.Values{"text": {"cafe\u0301"}}, nil)
+	if nfc.Bytes != 5 || nfd.Bytes != 6 || digestByID(t, nfc.Digests, "sha256").Hex == digestByID(t, nfd.Digests, "sha256").Hex {
+		t.Errorf("NFC %d bytes, NFD %d bytes, same digest: the text was normalised", nfc.Bytes, nfd.Bytes)
+	}
+	if r := hashOf(t, url.Values{"text": {" abc\t"}}, nil); r.Bytes != 5 || digestByID(t, r.Digests, "sha256").Hex == abcVectors["sha256"] {
+		t.Errorf("surrounding whitespace trimmed: %d bytes", r.Bytes)
 	}
 }
 

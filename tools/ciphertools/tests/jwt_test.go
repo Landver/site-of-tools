@@ -1,11 +1,13 @@
 package tests
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -136,7 +138,7 @@ func TestJWTAlgNoneIsRefusedEvenWithAKey(t *testing.T) {
 		if j.Verification.State != ciphertools.VerifyRefused {
 			t.Errorf("alg %q: state %q, want refused", alg, j.Verification.State)
 		}
-		if !hasWarning(j, ciphertools.LevelDanger, "none") {
+		if !hasLevel(j.Warnings, ciphertools.LevelDanger, "none") {
 			t.Errorf("alg %q: no danger warning", alg)
 		}
 	}
@@ -155,7 +157,7 @@ func TestJWTAlgorithmConfusionRefused(t *testing.T) {
 	}
 
 	// And the reverse: an RS256 token with something that reads as a secret.
-	rs := signed(t, "RS256", pkcs8(t, priv), "")
+	rs := signed(t, "RS256", pkcs8PEM(t, priv), "")
 	j = decode(t, rs, "just-a-string", "", time.Now())
 	if j.Verification.State != ciphertools.VerifyRefused {
 		t.Fatalf("RS256 token + secret: %q", j.Verification.State)
@@ -183,7 +185,7 @@ func TestJWTCleansPastedToken(t *testing.T) {
 	if j.Verification.State != ciphertools.VerifyValid {
 		t.Fatalf("state %q after cleaning", j.Verification.State)
 	}
-	if !hasWarning(j, ciphertools.LevelInfo, "Bearer") {
+	if !hasLevel(j.Warnings, ciphertools.LevelInfo, "Bearer") {
 		t.Fatalf("cleaning happened silently")
 	}
 }
@@ -204,21 +206,70 @@ func TestJWTStructureErrors(t *testing.T) {
 
 func TestJWTShortHMACSecretWarned(t *testing.T) {
 	j := decode(t, jwtioToken, "your-256-bit-secret", "", rfcNow) // 19 bytes < 32
-	if !hasWarning(j, ciphertools.LevelWarn, "RFC 7518") {
+	if !hasLevel(j.Warnings, ciphertools.LevelWarn, "RFC 7518") {
 		t.Fatalf("no short-secret warning: %+v", j.Warnings)
 	}
 }
 
-// --- signing ----------------------------------------------------------------
+// Editing a claim keeps the old signature, which then no longer matches. The
+// RFC 7515 A.1 vector above covers the other half: its payload has CRLFs inside
+// the JSON and still verifies, because the check runs over the segments as
+// pasted, never over re-serialised claims.
+func TestJWTEditedPayloadNoLongerVerifies(t *testing.T) {
+	parts := strings.Split(jwtioToken, ".")
+	edited := parts[0] + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"1234567890","name":"John Doe","admin":true}`)) + "." + parts[2]
+	if j := decode(t, edited, "your-256-bit-secret", "utf8", rfcNow); j.Verification.State != ciphertools.VerifyInvalid {
+		t.Fatalf("edited payload: %q %s", j.Verification.State, j.Verification.Detail)
+	}
+}
 
-func pkcs8(t *testing.T, k any) string {
-	t.Helper()
-	der, err := x509.MarshalPKCS8PrivateKey(k)
+// exp/nbf/iat may be floats or, in sloppy tokens, strings; aud is a string or
+// an array. All of it is shown, none of it crashes.
+func TestJWTSloppyClaimsAreShown(t *testing.T) {
+	j := decode(t, token(`{"alg":"HS256"}`, `{"aud":["api","web"],"exp":1300819380.5,"iat":"1300819000"}`, "AAAA"), "", "", rfcNow)
+	rows := map[string]ciphertools.Row{}
+	for _, r := range j.Claims {
+		rows[r.Name] = r
+	}
+	if rows["aud"].Value != `["api","web"]` {
+		t.Errorf("aud array shown as %q", rows["aud"].Value)
+	}
+	if !strings.HasPrefix(rows["exp"].When, "2011-03-22 18:43:00 UTC") || j.Validity.State != "valid" {
+		t.Errorf("float exp: %q, validity %q", rows["exp"].When, j.Validity.State)
+	}
+	if rows["iat"].When != "" || !strings.Contains(rows["iat"].Note, "not a NumericDate") || rows["iat"].Value != "1300819000" {
+		t.Errorf("string iat: %+v", rows["iat"])
+	}
+	j = decode(t, token(`{"alg":"HS256"}`, `{"aud":"api"}`, "AAAA"), "", "", rfcNow)
+	if j.Claims[0].Value != "api" {
+		t.Errorf("aud string shown as %q", j.Claims[0].Value)
+	}
+}
+
+// PS* uses a salt as long as the hash (RFC 7518 §3.5). The signer's output
+// verifies under exactly that rule, and a signature with any other salt length
+// is refused, even though Go's own PSSSaltLengthAuto would take it.
+func TestJWTPSSSaltLengthEqualsHash(t *testing.T) {
+	k := testSigners()["rsa"].(*rsa.PrivateKey)
+	parts := strings.Split(signed(t, "PS256", pkcs8PEM(t, k), ""), ".")
+	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	sig, _ := base64.RawURLEncoding.DecodeString(parts[2])
+	if err := rsa.VerifyPSS(&k.PublicKey, crypto.SHA256, sum[:], sig, &rsa.PSSOptions{SaltLength: sha256.Size}); err != nil {
+		t.Fatalf("signer's salt is not 32 bytes: %v", err)
+	}
+	long, err := rsa.SignPSS(rand.Reader, k, crypto.SHA256, sum[:], &rsa.PSSOptions{SaltLength: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	spki, _ := x509.MarshalPKIXPublicKey(&k.PublicKey)
+	pub := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spki}))
+	tok := parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString(long)
+	if j := decode(t, tok, pub, "", time.Now()); j.Verification.State != ciphertools.VerifyInvalid {
+		t.Fatalf("64-byte salt: %q %s", j.Verification.State, j.Verification.Detail)
+	}
 }
+
+// --- signing ----------------------------------------------------------------
 
 func sign(t *testing.T, fields map[string]string) (*ciphertools.JWTSigned, error) {
 	t.Helper()
@@ -268,13 +319,16 @@ func TestJWTSignRoundTripEveryAlg(t *testing.T) {
 				priv, pub = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ""
 				pub = priv
 			case "RS", "PS":
-				priv, pub = pkcs8(t, rsaKey), pubPEM(&rsaKey.PublicKey)
+				priv, pub = pkcs8PEM(t, rsaKey), pubPEM(&rsaKey.PublicKey)
 			case "ES":
-				priv, pub = pkcs8(t, ec[alg]), pubPEM(&ec[alg].PublicKey)
+				priv, pub = pkcs8PEM(t, ec[alg]), pubPEM(&ec[alg].PublicKey)
 			default:
-				priv, pub = pkcs8(t, edKey), pubPEM(edKey.Public())
+				priv, pub = pkcs8PEM(t, edKey), pubPEM(edKey.Public())
 			}
 			tok := signed(t, alg, priv, "utf8")
+			if strings.ContainsAny(tok, "+/=") {
+				t.Fatalf("%s token is not unpadded base64url: %s", alg, tok)
+			}
 			j := decode(t, tok, pub, "utf8", time.Now())
 			if j.Verification.State != ciphertools.VerifyValid || j.Alg != alg {
 				t.Fatalf("alg %s: %q %s", j.Alg, j.Verification.State, j.Verification.Detail)
@@ -300,7 +354,7 @@ func TestJWTSignRefusals(t *testing.T) {
 		"secret for RS":   {"alg": "RS256", "key": "secret"},
 		"payload array":   {"alg": "HS256", "key": "k", "payload": "[1,2]"},
 		"no key":          {"alg": "HS256"},
-		"curve mismatch":  {"alg": "ES384", "key": pkcs8(t, p256)},
+		"curve mismatch":  {"alg": "ES384", "key": pkcs8PEM(t, p256)},
 		"unknown preset":  {"alg": "HS256", "key": "k", "exp": "3w"},
 		"header not JSON": {"alg": "HS256", "key": "k", "header": "{nope"},
 	}
@@ -353,13 +407,4 @@ func TestJWTJWKSPicksByKid(t *testing.T) {
 	if j.Verification.State != ciphertools.VerifyInvalid || !strings.Contains(j.Verification.Detail, `kid "c"`) {
 		t.Fatalf("unknown kid: %q %s", j.Verification.State, j.Verification.Detail)
 	}
-}
-
-func hasWarning(j *ciphertools.JWT, level, substr string) bool {
-	for _, w := range j.Warnings {
-		if w.Level == level && strings.Contains(w.Text, substr) {
-			return true
-		}
-	}
-	return false
 }

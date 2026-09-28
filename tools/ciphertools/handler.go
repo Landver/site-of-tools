@@ -190,7 +190,7 @@ func readInput(c *echo.Context) (Input, error) {
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		var obj map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&obj); err != nil {
-			return in, fmt.Errorf("body: %w", err)
+			return in, fmt.Errorf("body: %w", jsonError(err))
 		}
 		for k, v := range obj {
 			switch t := v.(type) {

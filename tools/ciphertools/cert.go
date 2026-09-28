@@ -317,7 +317,7 @@ func (p *certInput) addPEM(n int, b *pem.Block) error {
 			err = certKeySize(c.PublicKey)
 		}
 		if err != nil {
-			return fmt.Errorf("PEM block %d (CERTIFICATE): %w", n, err)
+			return fmt.Errorf("PEM block %d (CERTIFICATE): %w", n, derError(err))
 		}
 		p.certs = append(p.certs, c)
 	case "CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST":
@@ -326,7 +326,7 @@ func (p *certInput) addPEM(n int, b *pem.Block) error {
 			err = certKeySize(c.PublicKey)
 		}
 		if err != nil {
-			return fmt.Errorf("PEM block %d (%s): %w", n, b.Type, err)
+			return fmt.Errorf("PEM block %d (%s): %w", n, b.Type, derError(err))
 		}
 		p.csrs = append(p.csrs, c)
 	case "TRUSTED CERTIFICATE":
@@ -381,7 +381,7 @@ func (p *certInput) readDER(data []byte) error {
 		p.csrs = []*x509.CertificateRequest{csr}
 		return nil
 	}
-	return fmt.Errorf("not a DER certificate or request: %w", err)
+	return fmt.Errorf("not a DER certificate or request: %w", derError(err))
 }
 
 // certKeySize applies the RSA cap (keys.go) to a certificate's key, since its

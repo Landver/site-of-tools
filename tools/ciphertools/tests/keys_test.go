@@ -202,7 +202,7 @@ func TestLegacyPEMConverts(t *testing.T) {
 		if v.PrivatePEM != pkcs8PEM(t, c.want) {
 			t.Errorf("%s: PKCS#8 differs", name)
 		}
-		if !strings.HasPrefix(v.Source, name) || !warned(v.Warnings, "older format") {
+		if !strings.HasPrefix(v.Source, name) || !noted(v.Warnings, "older format") {
 			t.Errorf("%s: source %q warnings %v", name, v.Source, v.Warnings)
 		}
 	}
@@ -212,13 +212,39 @@ func TestLegacyPEMConverts(t *testing.T) {
 	}
 }
 
-func warned(ws []ciphertools.Warning, sub string) bool {
-	for _, w := range ws {
-		if strings.Contains(w.Text, sub) {
-			return true
+// An encrypted PEM gets a clear refusal naming the fix, in both of its forms:
+// PKCS#8's own type and the legacy Proc-Type header.
+func TestEncryptedPEMRefused(t *testing.T) {
+	for name, in := range map[string]string{
+		"PKCS#8":    "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n",
+		"Proc-Type": "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00112233445566778899AABBCCDDEEFF\n\nAAAA\n-----END RSA PRIVATE KEY-----\n",
+	} {
+		_, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil)
+		if err == nil || !strings.Contains(err.Error(), "encrypted with a passphrase") || !strings.Contains(err.Error(), "openssl pkey") {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
-	return false
+}
+
+// EC members are fixed-length in a JWK (RFC 7518 §6.2.1.2), unlike RSA's
+// integers. A P-521 value's top byte is 0 or 1, so minimal big-endian bytes
+// would come out short about half the time; eight keys make a miss 1 in 2^24.
+func TestECJWKMembersAreFixedLength(t *testing.T) {
+	for range 8 {
+		k, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var j struct{ X, Y, D string }
+		if err := json.Unmarshal([]byte(inspectOne(t, pkcs8PEM(t, k)).PrivateJWKJSON), &j); err != nil {
+			t.Fatal(err)
+		}
+		for name, v := range map[string]string{"x": j.X, "y": j.Y, "d": j.D} {
+			if b, _ := base64.RawURLEncoding.DecodeString(v); len(b) != 66 {
+				t.Fatalf("P-521 %s is %d bytes, want 66", name, len(b))
+			}
+		}
+	}
 }
 
 // The OpenSSH line parses back to the same key, both with x/crypto/ssh and
@@ -366,11 +392,11 @@ func TestKeysWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := inspectOne(t, pkcs8PEM(t, small)); !warned(v.Warnings, "below 2048") || !warned(v.Warnings, "private key") {
+	if v := inspectOne(t, pkcs8PEM(t, small)); !noted(v.Warnings, "below 2048") || !noted(v.Warnings, "private key") {
 		t.Errorf("RSA 1024: %v", v.Warnings)
 	}
 	mislabelled := strings.Replace(rfcESKey, `"kty":"EC"`, `"kty":"EC","alg":"ES384"`, 1)
-	if v := inspectOne(t, mislabelled); !warned(v.Warnings, "alg ES384") || v.Alg != "ES384" {
+	if v := inspectOne(t, mislabelled); !noted(v.Warnings, "alg ES384") || v.Alg != "ES384" {
 		t.Errorf("ES384 on P-256: %v", v.Warnings)
 	}
 	if v := inspectOne(t, rfcHSKey); v.Kind != "secret" || v.PublicPEM != "" || v.OpenSSH != "" || v.Thumbprint == "" {

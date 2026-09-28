@@ -106,6 +106,17 @@ func checkPrivateDER(b *pem.Block) error {
 	return nil
 }
 
+// derError keeps encoding/asn1's parse errors off the page: they print Go
+// struct tags ("tags don't match (16 vs {class:0 tag:0 …}) {optional:false …}
+// publicKeyInfo @2"). crypto/x509 returns some bare and folds others into its
+// own message as text, so the check is on the text.
+func derError(err error) error {
+	if err != nil && strings.Contains(err.Error(), "asn1: ") {
+		return errors.New("the bytes inside don't parse as that type; the paste may be damaged, or the BEGIN line may name the wrong type")
+	}
+	return err
+}
+
 // ParseKeys reads PEM (up to maxKeys blocks), a JWK, a JWKS, or OpenSSH public
 // key lines (authorized_keys format, one or more).
 func ParseKeys(s string) ([]Key, error) {
@@ -136,7 +147,7 @@ func parsePEM(data []byte) ([]Key, error) {
 		}
 		k, err := keyFromPEM(b)
 		if err != nil {
-			return nil, fmt.Errorf("PEM block %d (%s): %w", n, b.Type, err)
+			return nil, fmt.Errorf("PEM block %d (%s): %w", n, b.Type, derError(err))
 		}
 		if k != nil {
 			keys = append(keys, *k)
@@ -280,12 +291,16 @@ func parseJWKInput(data []byte) ([]Key, error) {
 		Keys []json.RawMessage `json:"keys"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
-		return nil, fmt.Errorf("not valid JSON: %w", err)
+		var te *json.UnmarshalTypeError
+		if errors.As(err, &te) { // valid JSON, but "keys" isn't an array
+			return nil, fmt.Errorf("JWKS: %w", jsonError(err))
+		}
+		return nil, fmt.Errorf("not valid JSON: %w", jsonError(err))
 	}
 	if probe.Keys == nil {
 		var j JWK
 		if err := json.Unmarshal(data, &j); err != nil {
-			return nil, fmt.Errorf("JWK: %w", err)
+			return nil, fmt.Errorf("JWK: %w", jsonError(err))
 		}
 		k, err := keyFromJWK(j, "JWK")
 		if err != nil {
@@ -300,7 +315,7 @@ func parseJWKInput(data []byte) ([]Key, error) {
 	for i, raw := range probe.Keys {
 		var j JWK
 		if err := json.Unmarshal(raw, &j); err != nil {
-			return nil, fmt.Errorf("JWKS entry %d: %w", i+1, err)
+			return nil, fmt.Errorf("JWKS entry %d: %w", i+1, jsonError(err))
 		}
 		k, err := keyFromJWK(j, fmt.Sprintf("JWKS entry %d", i+1))
 		if err != nil {
