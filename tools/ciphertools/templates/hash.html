@@ -65,22 +65,26 @@
       </label>
       <button type="submit" class="btn-primary">Hash</button>
     </form>
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/hash -d text=abc -d expected=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+  curl {{.Base}}/hash -F file=@release.tar.gz</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only. Fields: <span class="font-mono">text</span>, <span class="font-mono">enc</span>
+          (utf8, hex, base64), <span class="font-mono">file</span> (multipart, up to 8 MiB),
+          <span class="font-mono">trim_newline</span>, <span class="font-mono">expected</span>. Send a file with
+          <span class="font-mono">-F file=@…</span>: <span class="font-mono">-d @file</span> strips its newlines and
+          changes the hash. The API runs on this server; this page doesn't send anything.
+        </p>
+      </div>
+    </details>
     <div id="hash-result" class="mt-8" aria-live="polite">
       {{if eq .Op "hash"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/hash-result" .}}{{end}}{{end}}
     </div>
 
-    <details class="mt-10 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/hash -d text=abc -d expected=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
-curl {{.Base}}/hash -F file=@release.tar.gz</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only. Fields: <span class="font-mono">text</span>, <span class="font-mono">enc</span>
-        (utf8, hex, base64), <span class="font-mono">file</span> (multipart, up to 8 MiB),
-        <span class="font-mono">trim_newline</span>, <span class="font-mono">expected</span>. Send a file with
-        <span class="font-mono">-F file=@…</span>: <span class="font-mono">-d @file</span> strips its newlines and
-        changes the hash. The API runs on this server; the page above doesn't send anything.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}

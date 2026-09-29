@@ -83,22 +83,26 @@
       </details>
       <button type="submit" class="btn-primary">Show codes</button>
     </form>
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
+  curl {{.Base}}/totp --data-urlencode 'secret=otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&amp;issuer=Example'
+  curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d mode=hotp -d counter=5</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only. Other fields: <span class="font-mono">algo</span> (SHA1, SHA256, SHA512),
+          <span class="font-mono">digits</span>, <span class="font-mono">period</span>, <span class="font-mono">label</span>,
+          <span class="font-mono">issuer</span>, and <span class="font-mono">now</span> (unix seconds) for the codes at
+          another moment. The API runs on this server, so the secret travels; this page doesn't send it anywhere.
+        </p>
+      </div>
+    </details>
     <div id="totp-result" class="mt-8" aria-live="polite">
       {{if eq .Op "totp"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/totp-result" .}}{{end}}{{end}}
     </div>
 
-    <details class="mt-10 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
-curl {{.Base}}/totp --data-urlencode 'secret=otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&amp;issuer=Example'
-curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d mode=hotp -d counter=5</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only. Other fields: <span class="font-mono">algo</span> (SHA1, SHA256, SHA512),
-        <span class="font-mono">digits</span>, <span class="font-mono">period</span>, <span class="font-mono">label</span>,
-        <span class="font-mono">issuer</span>, and <span class="font-mono">now</span> (unix seconds) for the codes at
-        another moment. The API runs on this server, so the secret travels; the page above doesn't send it anywhere.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}
