@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"net/url"
@@ -170,4 +172,38 @@ func TestHMACKeyWarnings(t *testing.T) {
 	if !noted(r.Warnings, "Ends in a newline") {
 		t.Errorf("message newline: %+v", r.Warnings)
 	}
+}
+
+// The webhook trap, same as the JWT one: a secret handed out as base64 looks
+// like text, and read as text it is a different key. With an expected MAC to
+// compare against, "detect" tries each reading of the key and uses the one that
+// matches; an explicit reading that fails says which one would have.
+func TestHMACKeyEncodingDetected(t *testing.T) {
+	const pasted, body = "hkjlhlkjhjklhkljhlkjhlkhlk", `{"event":"ping"}`
+	meant, _ := base64.RawStdEncoding.DecodeString(pasted)
+	want := hmacHex(meant, body)
+
+	for _, enc := range []string{"", "auto"} {
+		r := hmacOf(t, url.Values{"text": {body}, "key": {pasted}, "key_enc": {enc}, "expected": {"sha256=" + want}})
+		if r.Compare == nil || !r.Compare.Match || !strings.Contains(r.KeyReadAs, "base64") || r.KeyBytes != len(meant) {
+			t.Fatalf("enc %q: compare %+v, key read as %q (%d bytes)", enc, r.Compare, r.KeyReadAs, r.KeyBytes)
+		}
+	}
+
+	r := hmacOf(t, url.Values{"text": {body}, "key": {pasted}, "key_enc": {"utf8"}, "expected": {want}})
+	if r.Compare.Match || !strings.Contains(r.Compare.Detail, "read as base64") {
+		t.Fatalf("explicit utf8: %+v", r.Compare)
+	}
+
+	// No expected MAC: nothing to detect against, so the key is text.
+	r = hmacOf(t, url.Values{"text": {body}, "key": {pasted}})
+	if r.KeyBytes != len(pasted) {
+		t.Fatalf("no expected: key read as %q, %d bytes", r.KeyReadAs, r.KeyBytes)
+	}
+}
+
+func hmacHex(key []byte, msg string) string {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(msg))
+	return hex.EncodeToString(m.Sum(nil))
 }

@@ -251,7 +251,6 @@ func TestEncryptKeyLengthRefused(t *testing.T) {
 		{"aes-cbc", strings.Repeat("00", 20), "hex", "never padded or truncated"},
 		{"chacha20-poly1305", strings.Repeat("00", 16), "hex", "ChaCha20-Poly1305 takes exactly 32 bytes"},
 		{"aes-gcm", "correct horse battery staple", "utf8", "A passphrase is not a key"},
-		{"aes-gcm", "", "hex", "no key given"},
 		{"aes-gcm", "00112g", "hex", "at offset 5"},
 		{"aes-gcm", strings.Repeat("00", 16), "base32", "key_enc: want hex or base64"},
 		// 64 hex digits read as base64 are 48 bytes; the error says hex fits.
@@ -361,4 +360,29 @@ func hasLevel(ws []ciphertools.Warning, level, sub string) bool {
 		}
 	}
 	return false
+}
+
+// Encrypt with no key makes a 32-byte one and hands it back, so "encrypt this"
+// needs no detour to the Random page; that key then decrypts the output.
+// Decrypt with no key can't guess one and says so.
+func TestEncryptBlankKeyIsGenerated(t *testing.T) {
+	for _, algo := range []string{"aes-gcm", "chacha20-poly1305", "aes-cbc"} {
+		res, err := runOp(t, "encrypt", url.Values{"algo": {algo}, "text": {"hello"}}, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", algo, err)
+		}
+		r := res.(*ciphertools.EncryptResult)
+		if r.GeneratedKey == nil || r.GeneratedKey.Bytes != 32 || r.KeyBytes != 32 {
+			t.Fatalf("%s: generated key %+v", algo, r.GeneratedKey)
+		}
+		back, err := runOp(t, "encrypt", url.Values{"mode": {"decrypt"}, "algo": {algo}, "key": {r.GeneratedKey.Hex},
+			"key_enc": {"hex"}, "data": {r.Combined.Base64}}, nil)
+		if err != nil || back.(*ciphertools.EncryptResult).Plaintext.Value != "hello" {
+			t.Fatalf("%s: decrypt with the generated key: %v", algo, err)
+		}
+	}
+	err := encryptErr(t, url.Values{"mode": {"decrypt"}, "data": {"AAAA"}})
+	if !strings.Contains(err.Error(), "no key given") {
+		t.Fatalf("decrypt without a key: %v", err)
+	}
 }

@@ -25,7 +25,7 @@
     <form method="post" action="/hmac" data-cipher="hmac" data-live data-target="#hmac-result" class="mt-6 space-y-3">
       <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
         <label class="block text-sm text-muted">Message
-          <textarea name="text" rows="6" autofocus autocomplete="off" spellcheck="false"
+          <textarea name="text" rows="4" autofocus autocomplete="off" spellcheck="false"
                     placeholder="{&quot;action&quot;:&quot;opened&quot;, …} (the raw request body)"
                     class="field mt-1 w-full font-mono text-xs">
 {{.Form.Get "text"}}</textarea>
@@ -45,7 +45,8 @@
         </label>
         <label class="block text-sm text-muted">Key is
           <select name="key_enc" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
+            <option value="auto">Detect: try each</option>
+            <option value="utf8" {{if eq $keyEnc "utf8"}}selected{{end}}>UTF-8 text</option>
             <option value="hex" {{if eq $keyEnc "hex"}}selected{{end}}>hex</option>
             <option value="base64" {{if eq $keyEnc "base64"}}selected{{end}}>base64</option>
             <option value="base64url" {{if eq $keyEnc "base64url"}}selected{{end}}>base64url</option>
@@ -56,13 +57,15 @@
         <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
                placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-xs">
       </label>
-      <p class="text-xs text-faint">
-        Webhook signatures (GitHub, Stripe, Slack) are HMAC-SHA256 over the raw request body. Paste the body exactly
-        as it arrived: parsed and re-serialised JSON has different bytes and will not match. GitHub's
-        <span class="font-mono">sha256=</span> prefix is removed for you. Stripe signs
-        <span class="font-mono">timestamp.body</span> and Slack <span class="font-mono">v0:timestamp:body</span>,
-        so put that string in the message.
-      </p>
+      <details class="text-xs text-muted">
+        <summary class="cursor-pointer hover:text-strong">Checking a GitHub, Stripe or Slack webhook?</summary>
+        <p class="mt-1 text-faint">
+          They sign the raw request body with HMAC-SHA256. Paste the body exactly as it arrived: parsed and
+          re-serialised JSON has different bytes and will not match. GitHub's <span class="font-mono">sha256=</span>
+          prefix is removed for you. Stripe signs <span class="font-mono">timestamp.body</span> and Slack
+          <span class="font-mono">v0:timestamp:body</span>, so put that string in the message.
+        </p>
+      </details>
       <button type="submit" class="btn-primary">Compute</button>
     </form>
     <div id="hmac-result" class="mt-8" aria-live="polite">

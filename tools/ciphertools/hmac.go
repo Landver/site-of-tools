@@ -36,12 +36,49 @@ func runHMAC(in Input) (any, error) {
 		return nil, fmt.Errorf("message: %w", err)
 	}
 	keyInput, keyEnc := in.Get("key"), in.Get("key_enc")
-	key, keyHow, err := decodeInput(keyInput, keyEnc)
+	// Detect (the default) reads the key as text until there is an expected MAC
+	// to test the other readings against; see detectKey below.
+	auto := keyEnc == "" || keyEnc == EncAuto
+	readEnc := keyEnc
+	if auto {
+		readEnc = EncUTF8
+	}
+	key, keyHow, err := decodeInput(keyInput, readEnc)
 	if err != nil {
 		return nil, fmt.Errorf("key: %w", err)
 	}
-	r := &HMACResult{MessageBytes: len(msg), MessageReadAs: msgHow, KeyBytes: len(key), KeyReadAs: keyHow}
+	r := &HMACResult{MessageBytes: len(msg), MessageReadAs: msgHow, KeyBytes: len(key), KeyReadAs: keyHow,
+		MACs: macsOf(msg, key)}
 
+	expected := in.Get("expected")
+	if strings.TrimSpace(expected) != "" {
+		r.Compare = compareDigests(expected, r.MACs,
+			"Check the key's encoding (a secret handed out as base64 or hex is not the same key as that text read as UTF-8), and that the message is the raw body byte for byte: parsed and re-serialised JSON won't match.")
+		if !r.Compare.Match {
+			if k, how, c := detectKey(msg, keyInput, key, expected); c != nil {
+				if auto {
+					// The reading that matches IS the key: show its MACs.
+					key, r.KeyBytes, r.KeyReadAs, r.MACs, r.Compare = k, len(k), how+" (detected: the reading that matches)", macsOf(msg, k), c
+					r.Compare.Detail += " Matched with the key read as " + how + "."
+				} else {
+					r.Compare.Detail = fmt.Sprintf("No match with the key read as %s, but it DOES match %s with the key read as %s. Set \"Key is\" to match.",
+						keyHow, strings.Join(c.Matches, ", "), how)
+				}
+			}
+		}
+	}
+
+	r.keyWarnings(key, keyInput)
+	if len(msg) == 0 {
+		r.warn(LevelInfo, "The message is empty: these are the MACs of zero bytes.")
+	}
+	r.Warnings = append(r.Warnings, byteNotes(msg, " Webhook bodies usually don't end in one; a copy from a terminal or an editor often does.")...)
+	return r, nil
+}
+
+// macsOf is msg's HMAC under key for every algorithm, in display order.
+func macsOf(msg, key []byte) []Digest {
+	var out []Digest
 	for _, id := range hmacAlgs {
 		a := hashAlgByID(id)
 		m := hmac.New(a.new, key)
@@ -51,25 +88,31 @@ func runHMAC(in Input) (any, error) {
 			// MD5 and SHA-1 collisions don't break HMAC, so this is advice, not an alarm.
 			note = "legacy; still sound as a MAC, but use SHA-256 for anything new"
 		}
-		r.MACs = append(r.MACs, newDigest(a.id, "HMAC-"+a.name, note, false, m.Sum(nil)))
+		out = append(out, newDigest(a.id, "HMAC-"+a.name, note, false, m.Sum(nil)))
 	}
+	return out
+}
 
-	r.keyWarnings(key, keyInput, keyEnc)
-	if len(msg) == 0 {
-		r.warn(LevelInfo, "The message is empty: these are the MACs of zero bytes.")
+// detectKey tries the other readings of the key (base64, hex) against the
+// expected MAC: the same trap as a JWT secret (EncAuto in jwt.go), where a key
+// handed out as base64 looks like text and read as text is a different key.
+// Returns the first reading that matches, or a nil Compare.
+func detectKey(msg []byte, keyInput string, tried []byte, expected string) ([]byte, string, *Compare) {
+	for _, enc := range []string{EncBase64, EncHex} {
+		k, how, err := decodeInput(keyInput, enc)
+		if err != nil || string(k) == string(tried) {
+			continue
+		}
+		if c := compareDigests(expected, macsOf(msg, k), ""); c.Match {
+			return k, how, c
+		}
 	}
-	r.Warnings = append(r.Warnings, byteNotes(msg, " Webhook bodies usually don't end in one; a copy from a terminal or an editor often does.")...)
-
-	if e := in.Get("expected"); strings.TrimSpace(e) != "" {
-		r.Compare = compareDigests(e, r.MACs,
-			"Check the key's encoding (a secret handed out as base64 or hex is not the same key as that text read as UTF-8), and that the message is the raw body byte for byte: parsed and re-serialised JSON won't match.")
-	}
-	return r, nil
+	return nil, "", nil
 }
 
 func (r *HMACResult) warn(level, text string) { r.Warnings = append(r.Warnings, Warning{level, text}) }
 
-func (r *HMACResult) keyWarnings(key []byte, keyInput, keyEnc string) {
+func (r *HMACResult) keyWarnings(key []byte, keyInput string) {
 	if len(key) == 0 {
 		r.warn(LevelWarn, "The key is empty. That is valid HMAC, but anyone can compute the same MAC, so it proves nothing.")
 		return
@@ -90,7 +133,7 @@ func (r *HMACResult) keyWarnings(key []byte, keyInput, keyEnc string) {
 	if len(key) > 64 {
 		r.warn(LevelInfo, fmt.Sprintf("The key is %d bytes, longer than some of these hashes' block size (64 bytes for SHA-256, 128 for SHA-512), so HMAC hashes it first. That is RFC 2104, not a bug.", len(key)))
 	}
-	if (keyEnc == "" || keyEnc == EncUTF8) && strings.TrimSpace(keyInput) != keyInput {
+	if strings.HasPrefix(r.KeyReadAs, "UTF-8") && strings.TrimSpace(keyInput) != keyInput {
 		r.warn(LevelWarn, "The key starts or ends with whitespace, and as UTF-8 text that whitespace is part of the key.")
 	}
 }

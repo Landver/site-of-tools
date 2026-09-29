@@ -59,7 +59,7 @@ curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
 {{with .Result}}
 <p class="text-sm text-muted">
   {{.Bytes}} bytes{{if gt .Lines 1}} on {{.Lines}} lines{{end}}.
-  {{len .Candidates}} reading{{if ne (len .Candidates) 1}}s{{end}}, most likely first. The links open the page; paste the value there.
+  {{len .Candidates}} reading{{if ne (len .Candidates) 1}}s{{end}}, most likely first. The button takes the value to the page that reads it.
 </p>
 <ol class="mt-4 space-y-3">
   {{range .Candidates}}
@@ -74,7 +74,8 @@ curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
     <pre class="mt-2 whitespace-pre-wrap break-all rounded-md border border-line bg-canvas p-2 font-mono text-xs text-strong">{{.Preview}}</pre>
     {{if .PreviewHex}}<p class="mt-1 text-xs text-faint">The first bytes, as hex.</p>{{end}}
     {{end}}
-    {{if .Page}}<a href="{{.Page}}" class="link-brand mt-2 inline-block text-sm">Open the {{.PageName}} page</a>{{end}}
+    {{if .Page}}{{if .Field}}<a href="{{.Page}}" data-carry="{{.Field}}" data-carry-set="{{.Set}}" data-carry-source="form[data-cipher=identify] [name=text]"
+       class="btn-primary mt-3 inline-block">Open it on the {{.PageName}} page</a>{{else}}<a href="{{.Page}}" class="link-brand mt-2 inline-block text-sm">Open the {{.PageName}} page</a>{{end}}{{end}}
   </li>
   {{end}}
 </ol>

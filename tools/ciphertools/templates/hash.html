@@ -19,17 +19,17 @@
     {{template "cipher/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">Hash calculator and checksum checker</h1>
     <p class="mt-2 text-sm text-muted">
-      Every common hash of your text or file at once, as hex and base64. Paste the checksum you were given and
-      the page names the algorithm it matches, or says why nothing did. The byte count and the newline notes
-      are there because a stray <span class="font-mono">\n</span> is the usual reason a hash "is wrong".
+      Every common hash of your text or file at once. Paste the checksum you were given and the page names the
+      algorithm it matches, or says why nothing did.
     </p>
     {{template "cipher/engine" .}}
 
     {{$enc := .Form.Get "enc"}}
     <form method="post" action="/hash" enctype="multipart/form-data" data-cipher="hash" data-live
-          data-target="#hash-result" class="mt-6 space-y-3" x-data>
+          data-target="#hash-result" x-data
+          class="mt-6 space-y-3 rounded-lg data-dragging:outline-2 data-dragging:outline-offset-4 data-dragging:outline-dashed data-dragging:outline-brand">
       <label class="block text-sm text-muted">Text
-        <textarea name="text" rows="5" autofocus autocomplete="off" spellcheck="false" placeholder="abc"
+        <textarea name="text" rows="4" autofocus autocomplete="off" spellcheck="false" placeholder="abc"
                   class="field mt-1 w-full font-mono text-xs">
 {{.Form.Get "text"}}</textarea>
       </label>
@@ -47,23 +47,23 @@
         </label>
       </div>
       <div>
-        <label class="block text-sm text-muted">Or hash a file
-          <input type="file" name="file" x-ref="file" class="mt-1 block w-full text-sm text-muted">
-        </label>
+        <span class="block text-sm text-muted">Or a file: pick one, or drop it anywhere on this form</span>
+        <div class="mt-1 flex flex-wrap items-center gap-3">
+          <input type="file" name="file" x-ref="file" aria-label="File to hash"
+                 class="min-w-0 text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-line file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-strong hover:file:border-brand">
+          <button type="button" class="btn-copy" x-cloak
+                  x-on:click="$refs.file.value = ''; $refs.file.dispatchEvent(new Event('change', { bubbles: true }))">Clear file</button>
+        </div>
         <p class="mt-1 text-xs text-faint">
-          The in-browser engine reads and hashes it in this tab, never uploaded, up to 64 MiB. With JavaScript off it
-          is uploaded with the form, up to 8 MiB. While a file is picked, it is hashed instead of the text.
+          Hashed in this tab, never uploaded, up to 64 MiB; a picked file is hashed instead of the text. (With
+          JavaScript off it is uploaded with the form, up to 8 MiB.)
         </p>
       </div>
       <label class="flex items-center gap-2 text-sm text-muted">
         <input type="checkbox" name="trim_newline" value="on" {{if .Form.Get "trim_newline"}}checked{{end}}>
         Strip one trailing newline (<span class="font-mono">\n</span> or <span class="font-mono">\r\n</span>)
       </label>
-      <div class="flex items-center gap-3">
-        <button type="submit" class="btn-primary">Hash</button>
-        <button type="button" class="btn-copy" x-cloak
-                x-on:click="$refs.file.value = ''; $refs.file.dispatchEvent(new Event('change', { bubbles: true }))">Clear file</button>
-      </div>
+      <button type="submit" class="btn-primary">Hash</button>
     </form>
     <div id="hash-result" class="mt-8" aria-live="polite">
       {{if eq .Op "hash"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/hash-result" .}}{{end}}{{end}}

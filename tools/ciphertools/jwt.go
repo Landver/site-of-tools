@@ -343,7 +343,7 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 	case badExp:
 		v.State, v.Detail = "bad-expiry", "exp is present but isn't a NumericDate (seconds since 1970), so expiry can't be checked. Verifiers following RFC 7519 reject the token."
 	case exp == nil:
-		v.State, v.Detail = "no-expiry", "No exp claim: this token never expires."
+		v.State, v.Detail = "no-expiry", "No exp claim: this token never expires, so it can't be revoked by waiting."
 	default:
 		v.Detail = "Within its validity window; expires " + relative(*exp, now) + "."
 	}
@@ -351,9 +351,6 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 		v.Detail += fmt.Sprintf(" (%s of clock skew allowed.)", humanDuration(leeway))
 	}
 	j.Validity = v
-	if exp == nil && !badExp {
-		j.warn(LevelWarn, "No exp claim. A token that never expires can't be revoked by waiting.")
-	}
 	if iat != nil && iat.After(now.Add(leeway)) {
 		j.warn(LevelWarn, "iat is in the future: either the issuer's clock is wrong or the claim was forged.")
 	}
@@ -440,11 +437,13 @@ func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool)
 
 	for _, k := range fit {
 		if verifyJWS(spec, k, input, sig) == nil {
-			v := Verification{State: VerifyValid, Detail: "Signature verified.", Key: k.Describe()}
+			v := Verification{State: VerifyValid, Detail: "Whoever holds this key signed exactly this header and payload.", Key: k.Describe()}
 			if k.Private != nil && k.Kind != KindSecret {
 				v.Detail += " (Checked with the public half of the private key you pasted; verifying only ever needs the public key.)"
 			}
-			if !material && len(fit) > 1 {
+			// Only worth saying when detection found something: text matching
+			// first is the reading anyone would assume.
+			if !material && len(fit) > 1 && k.Source != fit[0].Source {
 				v.Detail += fmt.Sprintf(" It matched with the secret %s, so that is how this secret is stored.", k.Source)
 			}
 			j.keyWarnings(spec, k)

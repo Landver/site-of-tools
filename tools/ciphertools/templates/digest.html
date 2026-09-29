@@ -11,13 +11,25 @@
 </div>
 {{end}}
 
-{{/* dot = []ciphertools.Digest */}}
+{{/* dot = []ciphertools.Digest
+
+     Hex by default, base64 one click away: showing both doubled the table to
+     32 rows for the one encoding most people want. The choice lives on window
+     so it survives the re-render every keystroke does on a live page. Without
+     JavaScript, Alpine never runs and both rows show, which is the right
+     fallback. */}}
 {{define "cipher/digests"}}
-<div class="mt-6 overflow-x-auto">
+<div class="mt-6" x-data="{ b64: window.cipherB64 === true }">
+  <div class="inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-xs font-medium" role="group" aria-label="Show digests as" x-cloak>
+    <button type="button" @click="b64 = false; window.cipherB64 = false" :aria-pressed="!b64"
+            :class="!b64 ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
+            class="rounded-md px-2.5 py-1">hex</button>
+    <button type="button" @click="b64 = true; window.cipherB64 = true" :aria-pressed="b64"
+            :class="b64 ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
+            class="rounded-md px-2.5 py-1">base64</button>
+  </div>
+  <div class="mt-2 overflow-x-auto">
   <table class="w-full text-left text-sm">
-    <thead class="text-xs text-faint">
-      <tr><th class="py-1 pr-4 font-normal sm:w-48">Algorithm</th><th class="py-1 font-normal">Hex, then base64</th></tr>
-    </thead>
     <tbody>
       {{range .}}
       <tr class="border-t border-line align-top {{if .Match}}bg-ok/10{{end}}">
@@ -28,12 +40,12 @@
           {{if .Note}}<span class="block text-xs {{if .Weak}}text-warn{{else}}text-muted{{end}}">{{.Note}}</span>{{end}}
         </td>
         <td class="py-2">
-          <div class="flex items-start gap-3">
+          <div class="flex items-start gap-3" x-show="!b64">
             <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Hex}}</span>
             <button type="button" class="btn-copy" data-copy="{{.Hex}}">Copy</button>
           </div>
-          <div class="mt-1 flex items-start gap-3">
-            <span class="min-w-0 flex-1 break-all font-mono text-xs text-muted">{{.Base64}}</span>
+          <div class="flex items-start gap-3" x-show="b64">
+            <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base64}}</span>
             <button type="button" class="btn-copy" data-copy="{{.Base64}}">Copy</button>
           </div>
         </td>
@@ -41,5 +53,6 @@
       {{end}}
     </tbody>
   </table>
+  </div>
 </div>
 {{end}}

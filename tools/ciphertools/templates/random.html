@@ -26,15 +26,15 @@
     </p>
     {{template "cipher/engine" .}}
 
-    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist" x-cloak>
+    <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
       <button type="button" role="tab" @click="tab = 'token'" :aria-selected="tab === 'token'"
-              :class="tab === 'token' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              :class="tab === 'token' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">Token</button>
       <button type="button" role="tab" @click="tab = 'password'" :aria-selected="tab === 'password'"
-              :class="tab === 'password' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              :class="tab === 'password' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">Password</button>
       <button type="button" role="tab" @click="tab = 'uuid'" :aria-selected="tab === 'uuid'"
-              :class="tab === 'uuid' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              :class="tab === 'uuid' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">UUID</button>
     </div>
 

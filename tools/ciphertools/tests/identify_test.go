@@ -341,3 +341,24 @@ func TestIdentifyPageAndAPI(t *testing.T) {
 		t.Error("identify form isn't live")
 	}
 }
+
+// Each "Open it on the … page" button carries the value to the field that reads
+// it, so the visitor never pastes twice. A candidate with a page but no field
+// (a fingerprint, a UUID) keeps a plain link.
+func TestIdentifyCarryTargets(t *testing.T) {
+	for in, want := range map[string]struct{ page, field, set string }{
+		jwtioToken: {"/", "token", ""},
+		"$2b$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW":     {"/password", "hash", ""},
+		"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==":                               {"/encode", "header", ""},
+		"otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP": {"/totp", "secret", ""},
+	} {
+		r, err := ciphertools.Identify(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := r.Candidates[0]
+		if c.Page != want.page || c.Field != want.field || c.Set != want.set {
+			t.Errorf("%.30q: top candidate %q -> page %q field %q set %q, want %+v", in, c.Name, c.Page, c.Field, c.Set, want)
+		}
+	}
+}
