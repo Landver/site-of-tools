@@ -45,7 +45,8 @@
         </label>
         <label class="block text-sm text-muted">Key is
           <select name="key_enc" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
+            <option value="auto">Detect: try each</option>
+            <option value="utf8" {{if eq $keyEnc "utf8"}}selected{{end}}>UTF-8 text</option>
             <option value="hex" {{if eq $keyEnc "hex"}}selected{{end}}>hex</option>
             <option value="base64" {{if eq $keyEnc "base64"}}selected{{end}}>base64</option>
             <option value="base64url" {{if eq $keyEnc "base64url"}}selected{{end}}>base64url</option>
