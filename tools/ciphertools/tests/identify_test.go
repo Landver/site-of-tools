@@ -348,8 +348,8 @@ func TestIdentifyPageAndAPI(t *testing.T) {
 func TestIdentifyCarryTargets(t *testing.T) {
 	for in, want := range map[string]struct{ page, field, set string }{
 		jwtioToken: {"/", "token", ""},
-		"$2b$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW": {"/password", "hash", ""},
-		"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==":                           {"/encode", "header", ""},
+		"$2b$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW":     {"/password", "hash", ""},
+		"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==":                               {"/encode", "header", ""},
 		"otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP": {"/totp", "secret", ""},
 	} {
 		r, err := ciphertools.Identify(in)
