@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -106,9 +107,11 @@ type EncryptResult struct {
 	// PlaintextReadAs: how the encrypt input was read.
 	PlaintextReadAs string `json:"plaintext_read_as,omitempty"`
 	// DataReadAs: how the decrypt input was read (base64 variant, or hex).
-	DataReadAs string    `json:"data_read_as,omitempty"`
-	AADBytes   int       `json:"aad_bytes,omitempty"`
-	Warnings   []Warning `json:"warnings,omitempty"`
+	DataReadAs string `json:"data_read_as,omitempty"`
+	AADBytes   int    `json:"aad_bytes,omitempty"`
+	// GeneratedKey is set when encrypt was asked with no key and made one.
+	GeneratedKey *Blob     `json:"generated_key,omitempty"`
+	Warnings     []Warning `json:"warnings,omitempty"`
 }
 
 func (r *EncryptResult) warn(level, text string) {
@@ -127,8 +130,18 @@ func runEncrypt(in Input) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("algo: want aes-gcm, chacha20-poly1305 or aes-cbc, got %q", algo)
 	}
-	key, err := encryptKey(in, spec)
-	if err != nil {
+	mode := strings.ToLower(strings.TrimSpace(in.Get("mode")))
+	// Encrypting with no key makes one: the common case is "encrypt this" with no
+	// key yet, and sending the visitor to another page to make one first was a
+	// detour. 32 random bytes fit every algorithm here (AES-256, ChaCha20). The
+	// result shows it prominently, because without it nothing can be decrypted.
+	var key, generated []byte
+	var err error
+	if mode != "decrypt" && strings.TrimSpace(in.Get("key")) == "" {
+		generated = make([]byte, 32)
+		rand.Read(generated)
+		key = generated
+	} else if key, err = encryptKey(in, spec); err != nil {
 		return nil, err
 	}
 	var nonce []byte
@@ -150,7 +163,11 @@ func runEncrypt(in Input) (any, error) {
 		}
 	}
 	r := &EncryptResult{Algorithm: spec.name(len(key)), KeyBytes: len(key), NonceName: spec.nonceName(), AADBytes: len(aad)}
-	switch mode := strings.ToLower(strings.TrimSpace(in.Get("mode"))); mode {
+	if generated != nil {
+		g := blobOf(generated)
+		r.GeneratedKey = &g
+	}
+	switch mode {
 	case "", "encrypt":
 		r.Mode = "encrypt"
 		err = r.encrypt(in, spec, key, nonce, aad)

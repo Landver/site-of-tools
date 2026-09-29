@@ -45,7 +45,20 @@
     worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
     worker.postMessage({ type: "init", wasm: box.dataset.wasm, wasmExec: box.dataset.wasmExec });
   });
-  ready.then(() => show("ready"), (err) => {
+  ready.then(() => {
+    show("ready");
+    // A live form answers on every keystroke, so its submit button would only
+    // suggest a click is needed. It stays in the markup for the no-JS path and
+    // is swapped for a note once the engine is known to be running.
+    for (const form of document.querySelectorAll("form[data-cipher][data-live]")) {
+      for (const b of form.querySelectorAll("button[type=submit]")) {
+        const note = document.createElement("span");
+        note.className = "text-xs text-faint";
+        note.textContent = "Updates as you type.";
+        b.replaceWith(note);
+      }
+    }
+  }, (err) => {
     show("failed");
     console.error("cipher engine:", err);
   });
@@ -94,6 +107,59 @@
     let t;
     return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
   };
+
+  // Drop a file anywhere on a form that takes one: fewer clicks than the
+  // picker. The dropped file goes into the form's own file input, so it is read
+  // by the engine exactly like a picked one. data-dragging drives the outline
+  // (a data-dragging: variant in the template, not a class set here).
+  for (const form of document.querySelectorAll("form[data-cipher]")) {
+    const input = form.querySelector("input[type=file]");
+    if (!input) continue;
+    form.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      form.dataset.dragging = "";
+    });
+    form.addEventListener("dragleave", (e) => {
+      if (!form.contains(e.relatedTarget)) delete form.dataset.dragging;
+    });
+    form.addEventListener("drop", (e) => {
+      e.preventDefault();
+      delete form.dataset.dragging;
+      if (!e.dataTransfer.files.length) return;
+      input.files = e.dataTransfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  // Carry a value to the page that handles it (Identify's "Open" links), so
+  // nothing is pasted twice. It travels in sessionStorage, never the URL: a
+  // URL is history, Referer and a log line, and the value may be a secret.
+  const CARRY = "cipher-carry";
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("a[data-carry]");
+    const src = a && document.querySelector(a.dataset.carrySource);
+    if (!src) return;
+    try {
+      sessionStorage.setItem(CARRY, JSON.stringify({
+        path: a.pathname, field: a.dataset.carry, set: a.dataset.carrySet || "", value: src.value,
+      }));
+    } catch { /* storage off: the link still opens the page */ }
+  });
+  try {
+    const c = JSON.parse(sessionStorage.getItem(CARRY) || "null");
+    sessionStorage.removeItem(CARRY);
+    const field = c && c.path === location.pathname && document.querySelector("form[data-cipher] [name=\"" + c.field + "\"]");
+    if (field) {
+      field.value = c.value;
+      // "from=hex": the encoding the value was recognised as, set beside it.
+      for (const pair of c.set.split("&").filter(Boolean)) {
+        const [k, v] = pair.split("=");
+        const el = field.form.querySelector("[name=\"" + k + "\"]");
+        if (el) el.value = v;
+      }
+      field.focus();
+    }
+  } catch { /* nothing carried */ }
 
   for (const form of document.querySelectorAll("form[data-cipher]")) {
     form.addEventListener("submit", (e) => {

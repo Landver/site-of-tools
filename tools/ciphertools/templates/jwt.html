@@ -25,12 +25,12 @@
     </p>
     {{template "cipher/engine" .}}
 
-    <div class="mt-6 flex gap-1 text-sm font-medium" role="tablist" x-cloak>
+    <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
       <button type="button" role="tab" @click="tab = 'decode'" :aria-selected="tab === 'decode'"
-              :class="tab === 'decode' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              :class="tab === 'decode' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">Decode &amp; verify</button>
       <button type="button" role="tab" @click="tab = 'sign'" :aria-selected="tab === 'sign'"
-              :class="tab === 'sign' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              :class="tab === 'sign' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5">Sign a new token</button>
     </div>
 
@@ -38,7 +38,7 @@
     <section x-show="tab === 'decode'" class="mt-4">
       <form method="post" action="/jwt/decode" data-cipher="jwt-decode" data-live data-target="#jwt-result" class="space-y-3">
         <label class="block text-sm text-muted">Token
-          <textarea name="token" rows="5" autofocus autocomplete="off" spellcheck="false"
+          <textarea name="token" rows="4" autofocus autocomplete="off" spellcheck="false"
                     placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMifQ.…"
                     class="field mt-1 w-full font-mono text-xs">{{.Form.Get "token"}}</textarea>
         </label>
@@ -61,7 +61,7 @@
               <option value="base64url" {{if eq $denc "base64url"}}selected{{end}}>base64url</option>
               <option value="hex" {{if eq $denc "hex"}}selected{{end}}>hex</option>
             </select>
-            <span class="mt-1 block text-xs text-faint">Only for a shared secret. Detect tries UTF-8 text, base64 and hex, and says which one matched. PEM and JWK are read as what they are.</span>
+            <span class="mt-1 block text-xs text-faint">For a shared secret: Detect tries text, base64 and hex.</span>
           </label>
         </div>
         <button type="submit" class="btn-primary">Decode</button>

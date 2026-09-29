@@ -19,46 +19,62 @@
     {{template "cipher/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">Encrypt and decrypt: AES-GCM, ChaCha20-Poly1305, AES-CBC</h1>
     <p class="mt-2 text-sm text-muted">
-      Encrypt text or bytes with a key you supply, or decrypt what an encrypt produced. The key is exact bytes, as
-      hex or base64: 16, 24 or 32 for AES, 32 for ChaCha20-Poly1305. It is never padded or cut to fit.
-    </p>
-    <p class="mt-2 text-sm text-muted">
-      No passphrase mode, because a passphrase is not a key. Make a random key on the
-      <a href="/random" class="link-brand">Random page</a> (32 bytes, hex), or derive one with Argon2id or PBKDF2 on the
-      <a href="/password" class="link-brand">Passwords page</a>: the last <span class="font-mono">$</span> part of its
-      output is a 32-byte key in base64, and the salt and parameters before it are what derive the same key again.
+      Encrypt text with AES-GCM or ChaCha20-Poly1305, or decrypt what it produced. Leave the key blank and a random
+      one is made for you.
     </p>
     {{template "cipher/engine" .}}
 
-    <div class="mt-4 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted">
-      Output layout: <span class="font-mono text-strong">nonce ‖ ciphertext ‖ tag</span> for AES-GCM and
-      ChaCha20-Poly1305 (12-byte nonce, 16-byte tag), <span class="font-mono text-strong">iv ‖ ciphertext</span> for
-      AES-CBC (16-byte IV, PKCS#7 padding). Decrypt reads the same layout, so the output of one is the input of the other.
-    </div>
-
     {{$op := eq .Op "encrypt"}}{{$mode := ""}}{{$algo := ""}}{{$kenc := ""}}{{$aenc := ""}}{{$enc := ""}}{{$denc := ""}}
     {{if $op}}{{$mode = .Form.Get "mode"}}{{$algo = .Form.Get "algo"}}{{$kenc = .Form.Get "key_enc"}}{{$aenc = .Form.Get "aad_enc"}}{{$enc = .Form.Get "enc"}}{{$denc = .Form.Get "data_enc"}}{{end}}
+    {{/* Field order follows the task: what to encrypt, then the key, then the
+         choices most people never change, then the ones almost nobody does
+         (nonce, AAD) folded away. */}}
     <form method="post" action="/encrypt" data-cipher="encrypt" data-target="#encrypt-result" class="mt-6 space-y-3"
           x-data="{ mode: '{{if eq $mode "decrypt"}}decrypt{{else}}encrypt{{end}}', algo: '{{if eq $algo "chacha20-poly1305"}}chacha20-poly1305{{else if eq $algo "aes-cbc"}}aes-cbc{{else}}aes-gcm{{end}}' }">
-      <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted" role="radiogroup" aria-label="Mode">
-        <label class="flex items-center gap-2">
-          <input type="radio" name="mode" value="encrypt" x-model="mode" {{if ne $mode "decrypt"}}checked{{end}}> Encrypt
+      <div class="inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="radiogroup" aria-label="Mode">
+        <label class="cursor-pointer rounded-md px-3 py-1.5 has-[:checked]:bg-canvas has-[:checked]:text-strong has-[:checked]:shadow-sm has-[:checked]:ring-1 has-[:checked]:ring-line text-muted hover:text-strong">
+          <input type="radio" name="mode" value="encrypt" x-model="mode" class="sr-only" {{if ne $mode "decrypt"}}checked{{end}}> Encrypt
         </label>
-        <label class="flex items-center gap-2">
-          <input type="radio" name="mode" value="decrypt" x-model="mode" {{if eq $mode "decrypt"}}checked{{end}}> Decrypt
+        <label class="cursor-pointer rounded-md px-3 py-1.5 has-[:checked]:bg-canvas has-[:checked]:text-strong has-[:checked]:shadow-sm has-[:checked]:ring-1 has-[:checked]:ring-line text-muted hover:text-strong">
+          <input type="radio" name="mode" value="decrypt" x-model="mode" class="sr-only" {{if eq $mode "decrypt"}}checked{{end}}> Decrypt
         </label>
       </div>
-      <label class="block text-sm text-muted">Algorithm
-        <select name="algo" x-model="algo" class="field mt-1 w-full">
-          <option value="aes-gcm">AES-GCM (recommended)</option>
-          <option value="chacha20-poly1305" {{if eq $algo "chacha20-poly1305"}}selected{{end}}>ChaCha20-Poly1305</option>
-          <option value="aes-cbc" {{if eq $algo "aes-cbc"}}selected{{end}}>AES-CBC with PKCS#7 (legacy, unauthenticated)</option>
-        </select>
-      </label>
+
+      <div x-show="mode === 'encrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+        <label class="block text-sm text-muted">Text to encrypt
+          <textarea name="text" rows="4" autocomplete="off" spellcheck="false" placeholder="hello"
+                    class="field mt-1 w-full font-mono text-xs">
+{{.Form.Get "text"}}</textarea>
+        </label>
+        <label class="block text-sm text-muted">Text is
+          <select name="enc" class="field mt-1 w-full">
+            <option value="utf8">UTF-8 text</option>
+            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex bytes</option>
+            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64 bytes</option>
+          </select>
+        </label>
+      </div>
+      <div x-show="mode === 'decrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+        <label class="block text-sm text-muted">Data to decrypt <span class="text-faint">(the combined output)</span>
+          <textarea name="data" rows="4" autocomplete="off" spellcheck="false"
+                    placeholder="base64 or hex of nonce ‖ ciphertext ‖ tag"
+                    class="field mt-1 w-full font-mono text-xs">
+{{.Form.Get "data"}}</textarea>
+        </label>
+        <label class="block text-sm text-muted">Data is
+          <select name="data_enc" class="field mt-1 w-full">
+            <option value="auto">Detect</option>
+            <option value="base64" {{if eq $denc "base64"}}selected{{end}}>base64</option>
+            <option value="hex" {{if eq $denc "hex"}}selected{{end}}>hex</option>
+          </select>
+        </label>
+      </div>
+
       <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <label class="block text-sm text-muted">Key
+        <label class="block text-sm text-muted">Key <span class="text-faint" x-show="mode === 'encrypt'">(blank: make one)</span>
           <input name="key" value="{{.Form.Get "key"}}" autocomplete="off" spellcheck="false"
-                 placeholder="64 hex digits for a 32-byte key" class="field mt-1 w-full font-mono text-xs">
+                 placeholder="64 hex digits, or leave blank to encrypt with a new random key"
+                 class="field mt-1 w-full font-mono text-xs">
         </label>
         <label class="block text-sm text-muted">Key is
           <select name="key_enc" class="field mt-1 w-full">
@@ -67,60 +83,40 @@
           </select>
         </label>
       </div>
-      <label class="block text-sm text-muted">Nonce or IV, hex <span class="text-faint">(optional)</span>
-        <input name="nonce" value="{{.Form.Get "nonce"}}" autocomplete="off" spellcheck="false"
-               placeholder="blank: random" class="field mt-1 w-full font-mono text-xs">
-        <span class="mt-1 block text-xs text-faint">Encrypt: leave blank for a random one (12 bytes, or a 16-byte IV for CBC);
-          set it only to reproduce a test vector. Decrypt: only when the data doesn't start with it.</span>
+      <label class="block text-sm text-muted">Algorithm
+        <select name="algo" x-model="algo" class="field mt-1 w-full sm:w-96">
+          <option value="aes-gcm">AES-GCM (recommended)</option>
+          <option value="chacha20-poly1305" {{if eq $algo "chacha20-poly1305"}}selected{{end}}>ChaCha20-Poly1305</option>
+          <option value="aes-cbc" {{if eq $algo "aes-cbc"}}selected{{end}}>AES-CBC with PKCS#7 (legacy, unauthenticated)</option>
+        </select>
       </label>
-      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <label class="block text-sm text-muted">Associated data, AAD <span class="text-faint">(optional, not for CBC)</span>
-          <input name="aad" value="{{.Form.Get "aad"}}" :disabled="algo === 'aes-cbc'" autocomplete="off" spellcheck="false"
-                 class="field mt-1 w-full font-mono text-xs">
-          <span class="mt-1 block text-xs text-faint">Authenticated, not encrypted. Decrypt needs the same bytes.</span>
-        </label>
-        <label class="block text-sm text-muted">AAD is
-          <select name="aad_enc" :disabled="algo === 'aes-cbc'" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
-            <option value="hex" {{if eq $aenc "hex"}}selected{{end}}>hex</option>
-            <option value="base64" {{if eq $aenc "base64"}}selected{{end}}>base64</option>
-          </select>
-        </label>
-      </div>
 
-      <div x-show="mode === 'encrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <label class="block text-sm text-muted">Plaintext <span class="text-faint">(to encrypt)</span>
-          <textarea name="text" rows="5" autocomplete="off" spellcheck="false"
-                    class="field mt-1 w-full font-mono text-xs">
-{{.Form.Get "text"}}</textarea>
-        </label>
-        <label class="block text-sm text-muted">Plaintext is
-          <select name="enc" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
-            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex</option>
-            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64</option>
-          </select>
-        </label>
-      </div>
-      <div x-show="mode === 'decrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <label class="block text-sm text-muted">Data <span class="text-faint">(to decrypt: the combined output)</span>
-          <textarea name="data" rows="5" autocomplete="off" spellcheck="false"
-                    placeholder="base64 or hex of nonce ‖ ciphertext ‖ tag"
-                    class="field mt-1 w-full font-mono text-xs">
-{{.Form.Get "data"}}</textarea>
-        </label>
-        <label class="block text-sm text-muted">Data is
-          <select name="data_enc" class="field mt-1 w-full">
-            <option value="auto">base64 or hex (detect)</option>
-            <option value="base64" {{if eq $denc "base64"}}selected{{end}}>base64</option>
-            <option value="hex" {{if eq $denc "hex"}}selected{{end}}>hex</option>
-          </select>
-        </label>
-      </div>
-      <p class="text-xs text-faint">
-        For test data and interop checks. A key that protects real data belongs in your secret store, not in any web
-        page, this one included.
-      </p>
+      <details class="text-sm" {{if or (.Form.Get "nonce") (.Form.Get "aad")}}open{{end}}>
+        <summary class="cursor-pointer text-muted hover:text-strong">Nonce and associated data (optional)</summary>
+        <div class="mt-2 space-y-3">
+          <label class="block text-sm text-muted">Nonce or IV, hex
+            <input name="nonce" value="{{.Form.Get "nonce"}}" autocomplete="off" spellcheck="false"
+                   placeholder="blank: random" class="field mt-1 w-full font-mono text-xs">
+            <span class="mt-1 block text-xs text-faint">Leave blank: a random one is made (12 bytes, or a 16-byte IV for
+              CBC). Set it only to reproduce a test vector, or to decrypt data that doesn't start with it.</span>
+          </label>
+          <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+            <label class="block text-sm text-muted">Associated data, AAD <span class="text-faint">(not for CBC)</span>
+              <input name="aad" value="{{.Form.Get "aad"}}" :disabled="algo === 'aes-cbc'" autocomplete="off" spellcheck="false"
+                     class="field mt-1 w-full font-mono text-xs">
+              <span class="mt-1 block text-xs text-faint">Authenticated, not encrypted. Decrypt needs the same bytes.</span>
+            </label>
+            <label class="block text-sm text-muted">AAD is
+              <select name="aad_enc" :disabled="algo === 'aes-cbc'" class="field mt-1 w-full">
+                <option value="utf8">UTF-8 text</option>
+                <option value="hex" {{if eq $aenc "hex"}}selected{{end}}>hex</option>
+                <option value="base64" {{if eq $aenc "base64"}}selected{{end}}>base64</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </details>
+
       <button type="submit" class="btn-primary"><span x-text="mode === 'decrypt' ? 'Decrypt' : 'Encrypt'">{{if eq $mode "decrypt"}}Decrypt{{else}}Encrypt{{end}}</span></button>
     </form>
     <div id="encrypt-result" class="mt-8" aria-live="polite">
@@ -128,6 +124,24 @@
     </div>
 
     <details class="mt-10 text-sm">
+      <summary class="cursor-pointer text-muted hover:text-strong">How the output is laid out, and why there's no passphrase</summary>
+      <div class="mt-2 space-y-2 text-xs text-muted">
+        <p>
+          <span class="font-mono text-strong">nonce ‖ ciphertext ‖ tag</span> for AES-GCM and ChaCha20-Poly1305
+          (12-byte nonce, 16-byte tag), <span class="font-mono text-strong">iv ‖ ciphertext</span> for AES-CBC (16-byte
+          IV, PKCS#7 padding). Decrypt reads the same layout, so the output of one is the input of the other.
+        </p>
+        <p>
+          The key is exact bytes: 16, 24 or 32 for AES, 32 for ChaCha20-Poly1305, never padded or cut to fit. A
+          passphrase is not a key: derive one with Argon2id or PBKDF2 on the
+          <a href="/password" class="link-brand">Passwords page</a> (the last <span class="font-mono">$</span> part of its
+          output is a 32-byte key in base64), or make a random one on the <a href="/random" class="link-brand">Random page</a>.
+        </p>
+        <p>For test data and interop checks. A key that protects real data belongs in your secret store, not in any web page, this one included.</p>
+      </div>
+    </details>
+
+    <details class="mt-2 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/encrypt -d algo=aes-gcm -d key=000102030405060708090a0b0c0d0e0f -d text=hello
 curl {{.Base}}/encrypt -d mode=decrypt -d algo=aes-gcm -d key=000102030405060708090a0b0c0d0e0f --data-urlencode data=…</pre>
@@ -150,6 +164,20 @@ curl {{.Base}}/encrypt -d mode=decrypt -d algo=aes-gcm -d key=000102030405060708
 {{/* dot = the render map; .Result = *ciphertools.EncryptResult */}}
 {{define "cipher/encrypt-result"}}
 {{with .Result}}
+{{with .GeneratedKey}}
+{{/* x-init copies the new key into the form, so decrypting (or encrypting
+     again) uses it without a paste. */}}
+<div class="mb-6 rounded-lg border-2 border-warn bg-warn/10 px-4 py-3"
+     x-data x-init="const f = document.querySelector('form[data-cipher=encrypt]'); if (f) { f.querySelector('[name=key]').value = '{{.Hex}}'; f.querySelector('[name=key_enc]').value = 'hex' }">
+  <p class="text-base font-semibold text-strong">A new random key was made for this</p>
+  <p class="mt-1 text-sm text-body">Save it: without it the data below can't be decrypted. It's now in the key field too, so switching to Decrypt just works.</p>
+  <div class="mt-2 flex items-start gap-3">
+    <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Hex}}</span>
+    <button type="button" class="btn-copy" data-copy="{{.Hex}}">Copy key</button>
+  </div>
+  <p class="mt-1 text-xs text-muted">{{.Bytes}} bytes, hex</p>
+</div>
+{{end}}
 <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
   <span class="font-semibold text-strong">{{.Algorithm}}</span>
   <span>{{if eq .Mode "encrypt"}}Encrypted{{else}}Decrypted{{end}}</span>

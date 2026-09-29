@@ -47,6 +47,11 @@ type Candidate struct {
 	// Page is the path of the page that opens it here, when there is one.
 	Page     string `json:"page,omitempty"`
 	PageName string `json:"page_name,omitempty"`
+	// Field is the input on Page that takes this value, so the link can carry
+	// it there instead of asking for a second paste; Set holds "name=value"
+	// choices to make alongside (the encoding it was read as). Display only.
+	Field string `json:"-"`
+	Set   string `json:"-"`
 	// Hashcat is the hashcat -m mode, only where it is certain.
 	Hashcat string `json:"hashcat,omitempty"`
 	// Preview is the start of the decoded bytes, as text or as hex.
@@ -70,6 +75,49 @@ var pageNames = map[string]string{
 
 func runIdentify(in Input) (any, error) { return Identify(in.Get("text")) }
 
+// carryTarget is the field on c.Page that takes the pasted value, and any
+// choice to set with it. Empty where the page has nothing to paste it into (a
+// fingerprint, a UUID).
+func carryTarget(c Candidate) (field, set string) {
+	name := strings.ToLower(c.Name)
+	switch c.Page {
+	case "/":
+		return "token", ""
+	case "/password":
+		return "hash", ""
+	case "/hash", "/hmac":
+		return "expected", ""
+	case "/cert":
+		if strings.Contains(name, "fingerprint") {
+			return "", ""
+		}
+		return "cert", ""
+	case "/keys":
+		if strings.Contains(name, "fingerprint") {
+			return "", ""
+		}
+		return "key", ""
+	case "/totp":
+		if strings.Contains(name, "one-time code") {
+			return "code", ""
+		}
+		return "secret", ""
+	case "/encode":
+		switch {
+		case strings.Contains(name, "basic auth"):
+			return "header", ""
+		case strings.Contains(name, "base64url"):
+			return "text", "from=base64url"
+		case strings.Contains(name, "base64"):
+			return "text", "from=base64"
+		case strings.Contains(name, "hex"):
+			return "text", "from=hex"
+		}
+		return "text", ""
+	}
+	return "", ""
+}
+
 // Identify ranks what s could be, most likely first.
 func Identify(s string) (*IdentifyResult, error) {
 	if len(s) > maxIdentify {
@@ -90,6 +138,7 @@ func Identify(s string) (*IdentifyResult, error) {
 	for i := range x.c {
 		x.c[i].Confidence = level(x.c[i].score)
 		x.c[i].PageName = pageNames[x.c[i].Page]
+		x.c[i].Field, x.c[i].Set = carryTarget(x.c[i])
 	}
 	return &IdentifyResult{Bytes: len(t), Lines: strings.Count(t, "\n") + 1, Candidates: x.c}, nil
 }

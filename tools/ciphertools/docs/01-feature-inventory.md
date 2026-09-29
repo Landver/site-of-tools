@@ -62,7 +62,7 @@ over the raw body, so this is the page for "why doesn't my signature match".
 
 | Feature | n | Ship |
 |---|---|---|
-| AES-GCM encrypt / decrypt, explicit key, random nonce | 4 | yes |
+| AES-GCM encrypt / decrypt, explicit key, random nonce | 4 | yes; a blank key on encrypt makes a random 32-byte one and shows it |
 | ChaCha20-Poly1305 | 3 | yes |
 | AES-CBC with PKCS#7, for interop with legacy systems | 4 | yes, flagged as unauthenticated |
 | **The output layout stated (`nonce ‖ ciphertext ‖ tag`) so it interoperates** | 0 | yes |

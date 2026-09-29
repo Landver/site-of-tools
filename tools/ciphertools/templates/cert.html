@@ -26,21 +26,23 @@
     {{template "cipher/engine" .}}
 
     <form method="post" action="/cert" enctype="multipart/form-data" data-cipher="cert" data-live
-          data-target="#cert-result" class="mt-6 space-y-3">
+          data-target="#cert-result"
+          class="mt-6 space-y-3 rounded-lg data-dragging:outline-2 data-dragging:outline-offset-4 data-dragging:outline-dashed data-dragging:outline-brand">
       <label class="block text-sm text-muted">Certificate, chain or CSR
-        <textarea name="cert" rows="8" autofocus autocomplete="off" spellcheck="false"
+        <textarea name="cert" rows="6" autofocus autocomplete="off" spellcheck="false"
                   placeholder="-----BEGIN CERTIFICATE-----, a fullchain.pem, -----BEGIN CERTIFICATE REQUEST-----, or MIIF… (DER as base64)"
                   class="field mt-1 w-full font-mono text-xs">{{.Form.Get "cert"}}</textarea>
       </label>
       <div>
-        <label class="block text-sm text-muted">Or read a file <span class="text-faint">(.pem, .crt, .cer, .der, .csr)</span>
-          <input type="file" name="cert_file" class="mt-1 block w-full text-sm text-muted">
+        <label class="block text-sm text-muted">Or a file (.pem, .crt, .cer, .der, .csr): pick one, or drop it anywhere on this form
+          <input type="file" name="cert_file"
+                 class="mt-1 block w-full text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-line file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-strong hover:file:border-brand">
         </label>
-        <p class="mt-1 text-xs text-faint">The in-browser engine reads it in this tab, never uploaded; with JavaScript off it
-          is uploaded with the form. While a file is picked, it is read instead of the text.</p>
+        <p class="mt-1 text-xs text-faint">Read in this tab, never uploaded; a picked file is read instead of the text.
+          (With JavaScript off it is uploaded with the form.)</p>
       </div>
       <label class="block text-sm text-muted">Key to match <span class="text-faint">(optional: private or public, PEM, JWK or OpenSSH)</span>
-        <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
+        <textarea name="key" rows="2" autocomplete="off" spellcheck="false"
                   placeholder="-----BEGIN PRIVATE KEY----- or -----BEGIN PUBLIC KEY-----"
                   class="field mt-1 w-full font-mono text-xs">{{.Form.Get "key"}}</textarea>
       </label>

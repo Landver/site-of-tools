@@ -27,51 +27,60 @@
     {{$totp := eq .Op "totp"}}{{$mode := ""}}{{$algo := ""}}
     {{if $totp}}{{$mode = .Form.Get "mode"}}{{$algo = .Form.Get "algo"}}{{end}}
     <form method="post" action="/totp" data-cipher="totp" data-live data-target="#totp-result" class="mt-6 space-y-3">
-      <label class="block text-sm text-muted">Secret (base32) or otpauth:// URI
-        <textarea name="secret" rows="2" autofocus autocomplete="off" spellcheck="false"
-                  placeholder="JBSW Y3DP EHPK 3PXP, or otpauth://totp/Example:alice@example.com?secret=…&amp;issuer=Example"
-                  class="field mt-1 w-full font-mono text-xs">{{.Form.Get "secret"}}</textarea>
-        <span class="mt-1 block text-xs text-faint">Lower case, spaces, dashes and missing padding are fine. A pasted URI
-          brings its own settings, and the fields below are then ignored.</span>
-      </label>
-      <div class="grid gap-3 sm:grid-cols-4">
-        <label class="block text-sm text-muted">Mode
-          <select name="mode" class="field mt-1 w-full">
-            <option value="totp">TOTP (time)</option>
-            <option value="hotp" {{if eq $mode "hotp"}}selected{{end}}>HOTP (counter)</option>
-          </select>
+      {{/* The secret is the only thing most people need; the defaults (SHA1, 6
+           digits, 30 s) are what Google Authenticator and nearly every other app
+           use, so the rest waits behind "Settings". */}}
+      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+        <label class="block text-sm text-muted">Secret (base32) or otpauth:// URI
+          <textarea name="secret" rows="2" autofocus autocomplete="off" spellcheck="false"
+                    placeholder="JBSW Y3DP EHPK 3PXP, or otpauth://totp/Example:alice@example.com?secret=…"
+                    class="field mt-1 w-full font-mono text-xs">{{.Form.Get "secret"}}</textarea>
+          <span class="mt-1 block text-xs text-faint">Spaces, dashes and lower case are fine. A pasted URI brings its own settings.</span>
         </label>
-        <label class="block text-sm text-muted">Algorithm
-          <select name="algo" class="field mt-1 w-full">
-            <option value="SHA1">SHA1</option>
-            <option value="SHA256" {{if eq $algo "SHA256"}}selected{{end}}>SHA256</option>
-            <option value="SHA512" {{if eq $algo "SHA512"}}selected{{end}}>SHA512</option>
-          </select>
-        </label>
-        <label class="block text-sm text-muted">Digits <span class="text-faint">(6 to 8)</span>
-          <input type="number" name="digits" min="6" max="8" value="{{or (and $totp (.Form.Get "digits")) "6"}}" class="field mt-1 w-full">
-        </label>
-        <label class="block text-sm text-muted">Period, seconds <span class="text-faint">(15 to 300)</span>
-          <input type="number" name="period" min="15" max="300" value="{{or (and $totp (.Form.Get "period")) "30"}}" class="field mt-1 w-full">
+        <label class="block text-sm text-muted">Code to check <span class="text-faint">(optional)</span>
+          <input name="code" value="{{.Form.Get "code"}}" inputmode="numeric" autocomplete="off" spellcheck="false"
+                 placeholder="123456" class="field mt-1 w-full font-mono">
         </label>
       </div>
-      <div class="grid gap-3 sm:grid-cols-3">
-        <label class="block text-sm text-muted">Counter <span class="text-faint">(HOTP only)</span>
-          <input type="number" name="counter" min="0" value="{{or (and $totp (.Form.Get "counter")) "0"}}" class="field mt-1 w-full">
-        </label>
-        <label class="block text-sm text-muted">Account <span class="text-faint">(for the URI)</span>
-          <input name="label" value="{{.Form.Get "label"}}" autocomplete="off" spellcheck="false"
-                 placeholder="alice@example.com" class="field mt-1 w-full font-mono text-xs">
-        </label>
-        <label class="block text-sm text-muted">Issuer <span class="text-faint">(for the URI)</span>
-          <input name="issuer" value="{{.Form.Get "issuer"}}" autocomplete="off" spellcheck="false"
-                 placeholder="Example" class="field mt-1 w-full font-mono text-xs">
-        </label>
-      </div>
-      <label class="block text-sm text-muted sm:w-64">Code to check <span class="text-faint">(optional)</span>
-        <input name="code" value="{{.Form.Get "code"}}" inputmode="numeric" autocomplete="off" spellcheck="false"
-               placeholder="123456" class="field mt-1 w-full font-mono">
-      </label>
+      <details class="text-sm" {{if and $totp (or (eq $mode "hotp") (and (ne $algo "") (ne $algo "SHA1")) (.Form.Get "label") (.Form.Get "issuer"))}}open{{end}}>
+        <summary class="cursor-pointer text-muted hover:text-strong">Settings: algorithm, digits, period, HOTP, and the account for the URI</summary>
+        <div class="mt-2 space-y-3">
+          <div class="grid gap-3 sm:grid-cols-4">
+            <label class="block text-sm text-muted">Mode
+              <select name="mode" class="field mt-1 w-full">
+                <option value="totp">TOTP (time)</option>
+                <option value="hotp" {{if eq $mode "hotp"}}selected{{end}}>HOTP (counter)</option>
+              </select>
+            </label>
+            <label class="block text-sm text-muted">Algorithm
+              <select name="algo" class="field mt-1 w-full">
+                <option value="SHA1">SHA1</option>
+                <option value="SHA256" {{if eq $algo "SHA256"}}selected{{end}}>SHA256</option>
+                <option value="SHA512" {{if eq $algo "SHA512"}}selected{{end}}>SHA512</option>
+              </select>
+            </label>
+            <label class="block text-sm text-muted">Digits <span class="text-faint">(6 to 8)</span>
+              <input type="number" name="digits" min="6" max="8" value="{{or (and $totp (.Form.Get "digits")) "6"}}" class="field mt-1 w-full">
+            </label>
+            <label class="block text-sm text-muted">Period, seconds <span class="text-faint">(15 to 300)</span>
+              <input type="number" name="period" min="15" max="300" value="{{or (and $totp (.Form.Get "period")) "30"}}" class="field mt-1 w-full">
+            </label>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-3">
+            <label class="block text-sm text-muted">Counter <span class="text-faint">(HOTP only)</span>
+              <input type="number" name="counter" min="0" value="{{or (and $totp (.Form.Get "counter")) "0"}}" class="field mt-1 w-full">
+            </label>
+            <label class="block text-sm text-muted">Account <span class="text-faint">(for the URI)</span>
+              <input name="label" value="{{.Form.Get "label"}}" autocomplete="off" spellcheck="false"
+                     placeholder="alice@example.com" class="field mt-1 w-full font-mono text-xs">
+            </label>
+            <label class="block text-sm text-muted">Issuer <span class="text-faint">(for the URI)</span>
+              <input name="issuer" value="{{.Form.Get "issuer"}}" autocomplete="off" spellcheck="false"
+                     placeholder="Example" class="field mt-1 w-full font-mono text-xs">
+            </label>
+          </div>
+        </div>
+      </details>
       <button type="submit" class="btn-primary">Show codes</button>
     </form>
     <div id="totp-result" class="mt-8" aria-live="polite">

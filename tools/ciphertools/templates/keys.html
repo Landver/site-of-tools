@@ -27,15 +27,17 @@
     {{$type := ""}}{{if eq .Op "keys-generate"}}{{$type = .Form.Get "type"}}{{end}}
     <section class="mt-8">
       <h2 class="text-lg font-semibold text-strong">Generate a test key pair</h2>
-      <div class="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-strong">
-        <p><span class="font-semibold">For testing.</span> The key is generated in your browser (on this server with
-          JavaScript off), and a web page is the wrong place to make a key anything real depends on. Real keys
-          belong in a KMS, or come from <span class="font-mono">ssh-keygen</span> or <span class="font-mono">openssl</span> on your own machine:</p>
-        <pre class="mt-2 overflow-x-auto font-mono text-xs">ssh-keygen -t ed25519
+      <p class="mt-1 text-sm text-muted">
+        <span class="font-semibold text-warn">For testing.</span> The key is generated in your browser (on this server
+        with JavaScript off). Anything real should come from your own machine or a KMS.
+      </p>
+      <details class="mt-1 text-xs">
+        <summary class="cursor-pointer text-muted hover:text-strong">Make one on your own machine instead</summary>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">ssh-keygen -t ed25519
 openssl genpkey -algorithm ed25519 -out key.pem
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out key.pem
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out key.pem</pre>
-      </div>
+      </details>
       <form method="post" action="/keys/generate" data-cipher="keys-generate" data-target="#keys-generated"
             class="mt-4 flex flex-wrap items-end gap-3">
         <label class="block text-sm text-muted">Key type
@@ -119,15 +121,11 @@ curl {{.Base}}/keys/inspect --data-urlencode key@public.pem</pre>
 
 {{define "cipher/keys-generated"}}
 {{with .Result}}
-<div class="rounded-lg border-2 border-warn bg-warn/10 px-4 py-3">
-  <p class="text-base font-semibold text-strong">Test key: {{.Key.Name}}</p>
-  <p class="mt-1 text-sm text-body">
-    Generated {{if eq .Where "browser"}}in your browser{{else}}on this server and sent back to you, not stored{{end}},
-    for testing. A key anything real depends on belongs in a KMS, or comes from ssh-keygen or openssl on your own
-    machine.
-  </p>
-  <p class="mt-1 text-xs text-muted">Took {{.Took}}.</p>
-</div>
+<p class="text-sm text-muted">
+  <span class="font-semibold text-warn">{{.Key.Name}} test key,</span> generated {{if eq .Where "browser"}}in your
+  browser{{else}}on this server and sent back to you, not stored{{end}} in {{.Took}}. It's for testing: anything real
+  belongs in a KMS, or comes from ssh-keygen or openssl on your own machine.
+</p>
 {{template "cipher/key-view" .Key}}
 {{end}}
 {{end}}
@@ -146,87 +144,105 @@ curl {{.Base}}/keys/inspect --data-urlencode key@public.pem</pre>
 {{end}}
 {{end}}
 
-{{/* One key in every form; dot = ciphertools.KeyView. */}}
+{{/* One key in every form; dot = ciphertools.KeyView.
+
+     One format at a time, public and private side by side, each with its own
+     fingerprint: showing PEM, JWK, OpenSSH and four fingerprints at once made
+     a 1,300px page for a question ("give me the SSH pair") with one answer.
+     Private halves carry the warn colour so they can't be mistaken for the
+     half you share. Without JavaScript every panel shows, each under its own
+     heading. A generated key opens on OpenSSH (the ssh-keygen replacement is the
+     common reason to be here); a pasted one on PEM. */}}
 {{define "cipher/key-view"}}
-<section class="mt-6 rounded-lg border border-line p-4">
-  <h3 class="text-base font-semibold text-strong">{{.Name}} {{if .Private}}private key{{else if ne .Kind "secret"}}public key{{end}}</h3>
-  <div class="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-    <span>From <span class="text-strong">{{.Source}}</span></span>
-    {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
-    {{with .PublicJWK}}{{if .Kid}}<span>kid <span class="break-all font-mono text-strong">{{.Kid}}</span></span>{{end}}{{end}}
+<section class="mt-6 rounded-lg border border-line p-4"
+         x-data="{ fmt: '{{if and .Generated .OpenSSH}}openssh{{else if .PublicPEM}}pem{{else}}jwk{{end}}' }">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h3 class="text-base font-semibold text-strong">{{.Name}} {{if .Private}}private key{{else if ne .Kind "secret"}}public key{{end}}</h3>
+      <div class="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+        <span>From <span class="text-strong">{{.Source}}</span></span>
+        {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
+      </div>
+    </div>
+    <div class="inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-xs font-medium" role="group" aria-label="Key format" x-cloak>
+      {{if .OpenSSH}}<button type="button" @click="fmt = 'openssh'" :aria-pressed="fmt === 'openssh'"
+              :class="fmt === 'openssh' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
+              class="rounded-md px-2.5 py-1">OpenSSH</button>{{end}}
+      {{if .PublicPEM}}<button type="button" @click="fmt = 'pem'" :aria-pressed="fmt === 'pem'"
+              :class="fmt === 'pem' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
+              class="rounded-md px-2.5 py-1">PEM</button>{{end}}
+      {{if .PublicJWKJSON}}<button type="button" @click="fmt = 'jwk'" :aria-pressed="fmt === 'jwk'"
+              :class="fmt === 'jwk' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
+              class="rounded-md px-2.5 py-1">JWK</button>{{end}}
+    </div>
   </div>
   {{template "cipher/warnings" .Warnings}}
 
-  {{if .PublicPEM}}
-  <div class="mt-4 grid gap-4 lg:grid-cols-2">
-    <div class="min-w-0">
-      <h4 class="eyebrow">Public key, PEM (SPKI)</h4>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicPEM}}</pre>
-      <button type="button" class="btn-copy mt-2" data-copy="{{.PublicPEM}}">Copy</button>
-    </div>
-    <div class="min-w-0">
-      <h4 class="eyebrow">Public key, JWK</h4>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicJWKJSON}}</pre>
-      <button type="button" class="btn-copy mt-2" data-copy="{{.PublicJWKJSON}}">Copy</button>
-    </div>
-  </div>
-  {{end}}
-
   {{if .OpenSSH}}
-  <h4 class="eyebrow mt-4">OpenSSH public key</h4>
-  <div class="mt-2 flex items-start gap-3">
-    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.OpenSSH}}</pre>
-    <button type="button" class="btn-copy" data-copy="{{.OpenSSH}}">Copy</button>
-  </div>
-  {{end}}
-
-  <dl class="spec mt-4 grid-cols-[9rem_1fr]">
-    {{if .SPKISHA256}}
-    <dt>SPKI SHA-256</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKISHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SPKISHA256}}">Copy</button></dd>
-    <dt>SPKI SHA-256, base64</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKIPin}}</span><button type="button" class="btn-copy" data-copy="{{.SPKIPin}}">Copy</button></dd>
-    {{end}}
-    {{if .SSHFingerprint}}
-    <dt>OpenSSH</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SSHFingerprint}}</span><button type="button" class="btn-copy" data-copy="{{.SSHFingerprint}}">Copy</button></dd>
-    {{end}}
-    {{if .Thumbprint}}
-    <dt>JWK thumbprint</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Thumbprint}}</span><button type="button" class="btn-copy" data-copy="{{.Thumbprint}}">Copy</button></dd>
-    {{end}}
-  </dl>
-  {{if .SPKISHA256}}<p class="mt-2 text-xs text-faint">SPKI SHA-256 is over the public key's DER, the same digest a certificate carrying this key shows. The JWK thumbprint (RFC 7638) is also the kid when the key had none.</p>{{end}}
-
-  {{if .PrivatePEM}}
-  <details class="mt-4 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm" {{if .Generated}}open{{end}}>
-    <summary class="cursor-pointer font-medium text-strong">Private key: PEM (PKCS#8){{if .PrivateJWKJSON}} and JWK{{end}}</summary>
-    <div class="mt-3 grid gap-4 lg:grid-cols-2">
+  <div x-show="fmt === 'openssh'" class="mt-4">
+    <h4 class="sr-only">OpenSSH</h4>
+    <div class="grid gap-4 {{if .OpenSSHPrivate}}lg:grid-cols-2{{end}}">
       <div class="min-w-0">
-        <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PrivatePEM}}</pre>
-        <button type="button" class="btn-copy mt-2" data-copy="{{.PrivatePEM}}">Copy</button>
+        <p class="eyebrow">Public: for authorized_keys</p>
+        <pre class="mt-2 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.OpenSSH}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.OpenSSH}}">Copy</button>
+        {{if .SSHFingerprint}}<p class="mt-2 break-all text-xs text-muted">Fingerprint <span class="font-mono text-strong">{{.SSHFingerprint}}</span></p>{{end}}
       </div>
-      {{if .PrivateJWKJSON}}
-      <div class="min-w-0">
-        <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PrivateJWKJSON}}</pre>
-        <button type="button" class="btn-copy mt-2" data-copy="{{.PrivateJWKJSON}}">Copy</button>
-      </div>
+      {{if .OpenSSHPrivate}}
+      <details class="min-w-0 rounded-lg border border-warn/40 bg-warn/10 p-3" {{if .Generated}}open{{end}}>
+        <summary class="eyebrow cursor-pointer">Private: keep secret{{if .OpenSSHEncrypted}}, encrypted with your passphrase{{end}}</summary>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.OpenSSHPrivate}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.OpenSSHPrivate}}">Copy</button>
+        <p class="mt-2 text-xs text-muted">Save as <span class="font-mono">~/.ssh/id_…</span> and run <span class="font-mono">chmod 600</span> on it.</p>
+      </details>
       {{end}}
     </div>
-  </details>
+  </div>
   {{end}}
 
-  {{if .OpenSSHPrivate}}
-  <details class="mt-4 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm" {{if .Generated}}open{{end}}>
-    <summary class="cursor-pointer font-medium text-strong">Private key: OpenSSH format{{if .OpenSSHEncrypted}}, encrypted with your passphrase{{end}}</summary>
-    <pre class="mt-3 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.OpenSSHPrivate}}</pre>
-    <button type="button" class="btn-copy mt-2" data-copy="{{.OpenSSHPrivate}}">Copy</button>
-    <p class="mt-2 text-xs text-muted">
-      What <span class="font-mono">ssh-keygen</span> writes to <span class="font-mono">~/.ssh/id_…</span>: save it there with
-      <span class="font-mono">chmod 600</span>, and put the public line above in the server's
-      <span class="font-mono">authorized_keys</span>.
-    </p>
-  </details>
+  {{if .PublicPEM}}
+  <div x-show="fmt === 'pem'" class="mt-4">
+    <h4 class="sr-only">PEM</h4>
+    <div class="grid gap-4 {{if .PrivatePEM}}lg:grid-cols-2{{end}}">
+      <div class="min-w-0">
+        <p class="eyebrow">Public: PEM (SPKI)</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicPEM}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.PublicPEM}}">Copy</button>
+        {{if .SPKISHA256}}
+        <p class="mt-2 break-all text-xs text-muted">SPKI SHA-256 <span class="font-mono text-strong">{{.SPKISHA256}}</span></p>
+        <p class="mt-1 break-all text-xs text-muted">as base64 <span class="font-mono text-strong">{{.SPKIPin}}</span></p>
+        {{end}}
+      </div>
+      {{if .PrivatePEM}}
+      <details class="min-w-0 rounded-lg border border-warn/40 bg-warn/10 p-3" {{if .Generated}}open{{end}}>
+        <summary class="eyebrow cursor-pointer">Private: PEM (PKCS#8), keep secret</summary>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PrivatePEM}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.PrivatePEM}}">Copy</button>
+      </details>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+
+  {{if .PublicJWKJSON}}
+  <div x-show="fmt === 'jwk'" class="mt-4">
+    <h4 class="sr-only">JWK</h4>
+    <div class="grid gap-4 {{if .PrivateJWKJSON}}lg:grid-cols-2{{end}}">
+      <div class="min-w-0">
+        <p class="eyebrow">Public: JWK</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PublicJWKJSON}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.PublicJWKJSON}}">Copy</button>
+        {{if .Thumbprint}}<p class="mt-2 break-all text-xs text-muted">Thumbprint (RFC 7638, also the kid) <span class="font-mono text-strong">{{.Thumbprint}}</span></p>{{end}}
+      </div>
+      {{if .PrivateJWKJSON}}
+      <details class="min-w-0 rounded-lg border border-warn/40 bg-warn/10 p-3" {{if .Generated}}open{{end}}>
+        <summary class="eyebrow cursor-pointer">Private: JWK, keep secret</summary>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.PrivateJWKJSON}}</pre>
+        <button type="button" class="btn-copy mt-2" data-copy="{{.PrivateJWKJSON}}">Copy</button>
+      </details>
+      {{end}}
+    </div>
+  </div>
   {{end}}
 </section>
 {{end}}
