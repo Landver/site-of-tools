@@ -13,23 +13,14 @@ import (
 
 // Tools is single tool catalog, shared by apex tools index + header's Tools
 // dropdown (wired as template func in main). Add new tools here -> both index
-// + nav pick them up.
+// + nav pick them up. Keep A→Z by Name: slice order = render order in both,
+// and a site test fails on an out-of-order entry.
 func Tools(cfg platform.Config) []platform.Tool {
 	return []platform.Tool{
 		{
-			Name: "IP Tools",
-			Desc: "Look up geolocation, ASN, and proxy/VPN for any IP; inspect your own connection (live IPv6 check included); and calculate subnets with the CIDR tool.",
-			URL:  cfg.URL("ip"),
-		},
-		{
-			Name: "DNS Tools",
-			Desc: "A suite of DNS tools: look up every record type for a domain in one query (A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, and reverse PTR), against Cloudflare, Google or Quad9, with the TTL, rcode, header flags and query time behind every answer.",
-			URL:  cfg.URL("dns"),
-		},
-		{
-			Name: "Link Tools",
-			Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then strip its tracking parameters, follow where it redirects, and shorten what's left.",
-			URL:  cfg.URL("link"),
+			Name: "Bot check",
+			Desc: "Score how much your browser looks like a human vs. an automated bot: client fingerprint signals cross-checked against your connection's headers and IP reputation, with a transparent per-signal breakdown.",
+			URL:  cfg.URL("botcheck"),
 		},
 		{
 			Name: "Cipher Tools",
@@ -37,9 +28,19 @@ func Tools(cfg platform.Config) []platform.Tool {
 			URL:  cfg.URL("cipher"),
 		},
 		{
-			Name: "Bot check",
-			Desc: "Score how much your browser looks like a human vs. an automated bot: client fingerprint signals cross-checked against your connection's headers and IP reputation, with a transparent per-signal breakdown.",
-			URL:  cfg.URL("botcheck"),
+			Name: "DNS Tools",
+			Desc: "A suite of DNS tools: look up every record type for a domain in one query (A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, and reverse PTR), against Cloudflare, Google or Quad9, with the TTL, rcode, header flags and query time behind every answer.",
+			URL:  cfg.URL("dns"),
+		},
+		{
+			Name: "IP Tools",
+			Desc: "Look up geolocation, ASN, and proxy/VPN for any IP; inspect your own connection (live IPv6 check included); and calculate subnets with the CIDR tool.",
+			URL:  cfg.URL("ip"),
+		},
+		{
+			Name: "Link Tools",
+			Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then strip its tracking parameters, follow where it redirects, and shorten what's left.",
+			URL:  cfg.URL("link"),
 		},
 	}
 }

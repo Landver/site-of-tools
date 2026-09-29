@@ -4,6 +4,7 @@ package tests
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,6 +71,22 @@ func TestHomeJSON(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "IP Tools") {
 		t.Errorf("json should list the tool, got:\n%s", rec.Body.String())
+	}
+}
+
+func TestToolsAlphabetical(t *testing.T) {
+	// Catalog order = render order of apex index + header Tools dropdown → A→Z,
+	// case-insensitive ("Bot check" and "IP Tools" differ in case style).
+	var got []string
+	for _, tool := range site.Tools(platform.Config{Env: "prod", BaseDomain: "corpberry.com"}) {
+		got = append(got, tool.Name)
+	}
+	want := slices.Clone(got)
+	slices.SortFunc(want, func(a, b string) int {
+		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	})
+	if !slices.Equal(got, want) {
+		t.Errorf("site.Tools order = %q, want A→Z %q", got, want)
 	}
 }
 
