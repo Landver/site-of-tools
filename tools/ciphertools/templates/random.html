@@ -25,6 +25,21 @@
       Characters are drawn without modulo bias, and each result says how many bits of entropy it carries.
     </p>
     {{template "cipher/engine" .}}
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
+  curl {{.Base}}/random -d kind=password -d length=24 -d sets=lower,upper,digits -d exclude_ambiguous=on
+  curl {{.Base}}/random -d kind=uuid -d version=7 -d count=10</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only. <span class="font-mono">sets</span> is a comma-separated list or a repeated field, and all four
+          when left out. The API draws on this server, so the values travel over the network to you; this page
+          makes them in your browser.
+        </p>
+      </div>
+    </details>
 
     <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
       <button type="button" role="tab" @click="tab = 'token'" :aria-selected="tab === 'token'"
@@ -136,17 +151,6 @@
       </div>
     </section>
 
-    <details class="mt-10 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
-curl {{.Base}}/random -d kind=password -d length=24 -d sets=lower,upper,digits -d exclude_ambiguous=on
-curl {{.Base}}/random -d kind=uuid -d version=7 -d count=10</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only. <span class="font-mono">sets</span> is a comma-separated list or a repeated field, and all four
-        when left out. The API draws on this server, so the values travel over the network to you; the page above
-        makes them in your browser.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}

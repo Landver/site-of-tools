@@ -52,6 +52,21 @@
       </p>
       <button type="submit" class="btn-primary">Decode</button>
     </form>
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/cert --data-urlencode cert@fullchain.pem
+  curl {{.Base}}/cert --data-urlencode cert@cert.pem --data-urlencode key@public.pem</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only. Fields: <span class="font-mono">cert</span> (or a <span class="font-mono">cert_file</span>
+          upload), optional <span class="font-mono">key</span>, and <span class="font-mono">now</span> (unix
+          seconds) to check validity at another moment. The API runs on this server, so what you send travels: match
+          with the public key, never the private one. This page doesn't send anything anywhere.
+        </p>
+      </div>
+    </details>
     <div id="cert-result" class="mt-8" aria-live="polite">
       {{if eq .Op "cert"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/cert-result" .}}{{end}}{{end}}
     </div>
@@ -67,17 +82,6 @@ openssl x509 -in cert.pem -noout -pubkey | openssl sha256   # key match: these t
 openssl pkey -in key.pem -pubout | openssl sha256           # lines print the same</pre>
     </section>
 
-    <details class="mt-10 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/cert --data-urlencode cert@fullchain.pem
-curl {{.Base}}/cert --data-urlencode cert@cert.pem --data-urlencode key@public.pem</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only. Fields: <span class="font-mono">cert</span> (or a <span class="font-mono">cert_file</span>
-        upload), optional <span class="font-mono">key</span>, and <span class="font-mono">now</span> (unix
-        seconds) to check validity at another moment. The API runs on this server, so what you send travels: match
-        with the public key, never the private one. The page above doesn't send anything anywhere.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}

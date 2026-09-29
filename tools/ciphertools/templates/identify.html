@@ -30,22 +30,26 @@
       </label>
       <button type="submit" class="btn-primary">Identify</button>
     </form>
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
+  curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only, up to 1 MiB. The answer is <span class="font-mono">candidates</span>, ranked, each with
+          <span class="font-mono">name</span>, <span class="font-mono">confidence</span> (high, medium, low),
+          <span class="font-mono">why</span>, and where they apply <span class="font-mono">page</span> and
+          <span class="font-mono">hashcat</span>. The API runs on this server, so the input travels; this page
+          doesn't send it anywhere.
+        </p>
+      </div>
+    </details>
     <div id="identify-result" class="mt-8" aria-live="polite">
       {{if eq .Op "identify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/identify-result" .}}{{end}}{{end}}
     </div>
 
-    <details class="mt-10 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
-curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only, up to 1 MiB. The answer is <span class="font-mono">candidates</span>, ranked, each with
-        <span class="font-mono">name</span>, <span class="font-mono">confidence</span> (high, medium, low),
-        <span class="font-mono">why</span>, and where they apply <span class="font-mono">page</span> and
-        <span class="font-mono">hashcat</span>. The API runs on this server, so the input travels; the page above
-        doesn't send it anywhere.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}

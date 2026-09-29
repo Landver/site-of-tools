@@ -24,6 +24,22 @@
       public-key-as-HMAC-secret tricks are refused rather than "verified".
     </p>
     {{template "cipher/engine" .}}
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/jwt/decode -d token=eyJ… -d key=secret
+  curl {{.Base}}/jwt/sign -d alg=HS256 -d key=secret -d exp=1h --data-urlencode 'payload={"sub":"42"}'</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only, and the query string is ignored. The API runs on this server, so the token travels; this page
+          doesn't send it anywhere. Optional <span class="font-mono">now</span> (unix seconds) checks expiry
+          at another moment, <span class="font-mono">leeway</span> sets the clock skew allowed (default 60s), and
+          <span class="font-mono">key_enc</span> (utf8, base64, base64url, hex) fixes how a secret is read; left out, each
+          reading is tried.
+        </p>
+      </div>
+    </details>
 
     <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
       <button type="button" role="tab" @click="tab = 'decode'" :aria-selected="tab === 'decode'"
@@ -134,18 +150,6 @@
       </div>
     </section>
 
-    <details class="mt-10 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/jwt/decode -d token=eyJ… -d key=secret
-curl {{.Base}}/jwt/sign -d alg=HS256 -d key=secret -d exp=1h --data-urlencode 'payload={"sub":"42"}'</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only, and the query string is ignored. The API runs on this server, so the token travels; the page
-        above doesn't send it anywhere. Optional <span class="font-mono">now</span> (unix seconds) checks expiry
-        at another moment, <span class="font-mono">leeway</span> sets the clock skew allowed (default 60s), and
-        <span class="font-mono">key_enc</span> (utf8, base64, base64url, hex) fixes how a secret is read; left out, each
-        reading is tried.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}

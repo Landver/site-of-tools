@@ -23,6 +23,24 @@
       fingerprint, the OpenSSH <span class="font-mono">SHA256:</span> fingerprint and the RFC 7638 JWK thumbprint.
     </p>
     {{template "cipher/engine" .}}
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+          this server, unlike on the page, which runs everything in your browser.</p>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/keys/generate -d type=ec-p256
+  curl {{.Base}}/keys/inspect --data-urlencode key@public.pem</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only. <span class="font-mono">type</span> is <span class="font-mono">ed25519</span>,
+          <span class="font-mono">ec-p256</span>, <span class="font-mono">ec-p384</span>,
+          <span class="font-mono">ec-p521</span>, <span class="font-mono">rsa-2048</span>,
+          <span class="font-mono">rsa-3072</span> or <span class="font-mono">rsa-4096</span>.
+          Generate has a stricter rate limit than the rest. The API runs on this server: a key it generates was made
+          there and sent back, and a key you inspect travels to it, so give it public keys only. This page
+          doesn't send anything anywhere.
+        </p>
+      </div>
+    </details>
 
     {{$type := ""}}{{if eq .Op "keys-generate"}}{{$type = .Form.Get "type"}}{{end}}
     <section class="mt-8">
@@ -97,20 +115,6 @@ ssh-keygen -y -f id_ed25519                            # OpenSSH public line fro
 ssh-keygen -lf id_ed25519.pub                          # OpenSSH SHA256: fingerprint</pre>
     </details>
 
-    <details class="mt-4 text-sm">
-      <summary class="cursor-pointer text-muted hover:text-strong">JSON API</summary>
-      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/keys/generate -d type=ec-p256
-curl {{.Base}}/keys/inspect --data-urlencode key@public.pem</pre>
-      <p class="mt-1 text-xs text-muted">
-        POST only. <span class="font-mono">type</span> is <span class="font-mono">ed25519</span>,
-        <span class="font-mono">ec-p256</span>, <span class="font-mono">ec-p384</span>,
-        <span class="font-mono">ec-p521</span>, <span class="font-mono">rsa-2048</span>,
-        <span class="font-mono">rsa-3072</span> or <span class="font-mono">rsa-4096</span>.
-        Generate has a stricter rate limit than the rest. The API runs on this server: a key it generates was made
-        there and sent back, and a key you inspect travels to it, so give it public keys only. The page above
-        doesn't send anything anywhere.
-      </p>
-    </details>
   </main>
 
   {{template "partials/copy" .}}
