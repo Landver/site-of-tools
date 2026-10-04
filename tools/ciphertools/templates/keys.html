@@ -90,7 +90,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out key.pem</pre>
         <label class="block text-sm text-muted">Key: PEM, JWK, JWKS or an OpenSSH public key
           <textarea name="key" rows="7" autocomplete="off" spellcheck="false"
                     placeholder="-----BEGIN PUBLIC KEY-----, {&quot;kty&quot;:&quot;EC&quot;,…}, or ssh-ed25519 AAAA… user@host"
-                    class="field mt-1 w-full font-mono text-xs">{{if eq .Op "keys-inspect"}}{{.Form.Get "key"}}{{end}}</textarea>
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{if eq .Op "keys-inspect"}}{{.Form.Get "key"}}{{end}}</textarea>
         </label>
         <p class="text-xs text-faint">
           Reads PKCS#8, PKCS#1, SEC 1, SPKI and unencrypted OpenSSH PEM, a certificate's key, JWK and JWKS, and

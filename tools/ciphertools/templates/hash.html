@@ -30,7 +30,7 @@
           class="mt-6 space-y-3 rounded-lg data-dragging:outline-2 data-dragging:outline-offset-4 data-dragging:outline-dashed data-dragging:outline-brand">
       <label class="block text-sm text-muted">Text
         <textarea name="text" rows="4" autofocus autocomplete="off" spellcheck="false" placeholder="abc"
-                  class="field mt-1 w-full font-mono text-xs">
+                  class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
       </label>
       <div class="grid gap-3 sm:grid-cols-[12rem_1fr]">
@@ -43,7 +43,7 @@
         </label>
         <label class="block text-sm text-muted">Expected checksum <span class="text-faint">(optional)</span>
           <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
-                 placeholder="hex or base64; a sha256sum line works too" class="field mt-1 w-full font-mono text-xs">
+                 placeholder="hex or base64; a sha256sum line works too" class="field mt-1 w-full font-mono text-base sm:text-xs">
         </label>
       </div>
       <div>

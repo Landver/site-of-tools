@@ -31,7 +31,7 @@
       <label class="block text-sm text-muted">Certificate, chain or CSR
         <textarea name="cert" rows="6" autofocus autocomplete="off" spellcheck="false"
                   placeholder="-----BEGIN CERTIFICATE-----, a fullchain.pem, -----BEGIN CERTIFICATE REQUEST-----, or MIIF… (DER as base64)"
-                  class="field mt-1 w-full font-mono text-xs">{{.Form.Get "cert"}}</textarea>
+                  class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "cert"}}</textarea>
       </label>
       <div>
         <label class="block text-sm text-muted">Or a file (.pem, .crt, .cer, .der, .csr): pick one, or drop it anywhere on this form
@@ -44,7 +44,7 @@
       <label class="block text-sm text-muted">Key to match <span class="text-faint">(optional: private or public, PEM, JWK or OpenSSH)</span>
         <textarea name="key" rows="2" autocomplete="off" spellcheck="false"
                   placeholder="-----BEGIN PRIVATE KEY----- or -----BEGIN PUBLIC KEY-----"
-                  class="field mt-1 w-full font-mono text-xs">{{.Form.Get "key"}}</textarea>
+                  class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "key"}}</textarea>
       </label>
       <p class="text-xs text-faint">
         A public key answers the match as well as the private one does:
