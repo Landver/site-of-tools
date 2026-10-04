@@ -155,7 +155,7 @@ func run() error {
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
 	// malformed post fails boot here rather than serving a broken page.
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	if err := site.Register(apex, cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev())); err != nil {
+	if _, err := site.Register(apex, cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev())); err != nil {
 		log.Fatalf("apex: %v", err)
 	}
 
@@ -171,13 +171,13 @@ func run() error {
 	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
 	geo.WithShodan(shodan)
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	iptools.Register(ipApp, geo, lookupHistory, blocklist)
+	iptools.Register(ipApp, geo, lookupHistory, iptools.CheckerFrom(blocklist))
 
 	// botcheck.corpberry.com — reuses same IP service for server-side
 	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo
 	// corpus for fingerprint-reuse signal.
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	botcheck.Register(botApp, geo, corpus, blocklist)
+	botcheck.Register(botApp, geo, corpus, iptools.CheckerFrom(blocklist))
 
 	// dns.corpberry.com — DNS record lookup. Queries public resolvers directly
 	// over UDP/53 (no databases to load, so nothing to degrade), and reuses the

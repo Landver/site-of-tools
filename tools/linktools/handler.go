@@ -2,7 +2,6 @@ package linktools
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -56,8 +55,6 @@ const (
 
 // recentLimit bounds the key-gated console list.
 const recentLimit = 50
-
-const minTTL = time.Minute
 
 // handler: transport-layer dependencies for link.corpberry.com.
 //
@@ -339,21 +336,12 @@ func (h *handler) diff(c *echo.Context) error {
 			return err
 		}
 	}
-	ia, err := h.svc.Parse(a)
+	res, err := h.svc.Diff(a, b)
 	if err != nil {
-		return h.badRequest(c, vm, sideError("A", err), "link/diff")
+		return h.badRequest(c, vm, err, "link/diff")
 	}
-	ib, err := h.svc.Parse(b)
-	if err != nil {
-		return h.badRequest(c, vm, sideError("B", err), "link/diff")
-	}
-	res := DiffInspections(ia, ib)
 	vm["Result"] = res
 	return reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
-}
-
-func sideError(side string, err error) error {
-	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
 
 // --- trace -----------------------------------------------------------------
@@ -432,17 +420,6 @@ func (h *handler) shortConsole(c *echo.Context) error {
 	return reply(c, http.StatusOK, body, vm, "link/short", "link/shortlist")
 }
 
-// createRequest is a TYPED struct with string fields only. Decoding into a
-// map or bson.M would let {"slug":{"$ne":null}} reach a Mongo filter as an
-// operator (docs/04-short-links.md §3).
-type createRequest struct {
-	URL   string `json:"url" form:"url"`
-	Slug  string `json:"slug" form:"slug"`
-	TTL   string `json:"ttl" form:"ttl"`
-	Note  string `json:"note" form:"note"`
-	Clean bool   `json:"clean" form:"clean"`
-}
-
 func (h *handler) shortCreate(c *echo.Context) error {
 	vm := h.vm("short", "Short links", shortDesc, "")
 	if !h.short.HasKey() {
@@ -456,71 +433,31 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		return reply(c, http.StatusUnauthorized, map[string]string{"error": msg}, vm, "link/short", "link/error")
 	}
 
-	var req createRequest
+	var req CreateRequest
 	if err := c.Bind(&req); err != nil {
 		return h.badRequest(c, vm, errors.New("could not read the request body"), "link/short")
 	}
-	opt := CreateOptions{Slug: req.Slug, Note: req.Note, Clean: req.Clean, CreatedIP: c.RealIP()}
-	if req.TTL != "" {
-		d, err := time.ParseDuration(req.TTL)
-		if err != nil {
-			return h.badRequest(c, vm, errors.New("ttl is not a duration, e.g. 720h"), "link/short")
-		}
-		// CreateOptions reads <= 0 as permanent; leaving ttl out asks for that.
-		if d < minTTL {
-			return h.badRequest(c, vm, errors.New("ttl must be at least 1m; leave it out for a link that never expires"), "link/short")
-		}
-		opt.TTL = d
-	}
-
-	link, err := h.short.Create(c.Request().Context(), req.URL, opt)
+	created, err := h.short.CreateFrom(c.Request().Context(), req, c.RealIP())
 	if err != nil {
-		return h.createError(c, vm, err)
-	}
-	out := map[string]any{
-		"code": link.Code, "short": h.short.ShortURL(link.Code),
-		"target": link.Target, "created_at": link.CreatedAt,
-		"expires_at": link.ExpiresAt, "hits": link.Hits,
-	}
-	if link.Original != "" {
-		out["original"] = link.Original
-	}
-	if len(link.Cleaned) > 0 {
-		out["cleaned"] = link.Cleaned
+		code, msg := PublicError(err)
+		if code == http.StatusInternalServerError {
+			return h.storageError(c, vm, err, "link/short")
+		}
+		vm["Error"] = sentence(msg)
+		return reply(c, code, map[string]string{"error": msg}, vm, "link/short", "link/error")
 	}
 	vm["Created"] = map[string]any{
-		"Short": h.short.ShortURL(link.Code), "Target": link.Target, "Cleaned": link.Cleaned,
-		"Note": link.Note, "ExpiresAt": link.ExpiresAt,
+		"Short": created.Short, "Target": created.Target, "Cleaned": created.Cleaned,
+		"Note": created.Note, "ExpiresAt": created.ExpiresAt,
 	}
 	listChanged(c)
-	return reply(c, http.StatusCreated, out, vm, "link/short", "link/created")
-}
-
-// createError maps the domain's sentinels onto status codes. 409 for a taken
-// slug is the one that matters: guessing what the caller meant and silently
-// appending a suffix is how "my-link-2" ends up in someone's slide deck.
-func (h *handler) createError(c *echo.Context, vm map[string]any, err error) error {
-	switch {
-	case errors.Is(err, ErrSlugTaken):
-		// 409, never a silently-suffixed slug: guessing what the caller meant
-		// is how "my-link-2" ends up in someone's slide deck.
-		return h.failErr(c, vm, http.StatusConflict, err, "link/short")
-	case errors.Is(err, ErrDisabled):
-		return h.failErr(c, vm, http.StatusServiceUnavailable, err, "link/short")
-	case errors.Is(err, ErrInvalidTarget), errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidNote):
-		return h.failErr(c, vm, http.StatusBadRequest, err, "link/short")
-	}
-	// Anything else is a storage or driver failure. Those messages can carry
-	// connection strings and internal topology, so the client gets a fixed
-	// sentence and the detail goes to the log.
-	return h.storageError(c, vm, err, "link/short")
+	return reply(c, http.StatusCreated, created, vm, "link/short", "link/created")
 }
 
 // storageError logs the real error and returns a fixed 500 to the caller.
 func (h *handler) storageError(c *echo.Context, vm map[string]any, err error, page string) error {
 	c.Logger().Error("linktools storage error", "err", err, "path", c.Request().URL.Path)
-	const msg = "Something went wrong on our side. Nothing was changed."
-	return h.fail(c, vm, http.StatusInternalServerError, msg, page)
+	return h.fail(c, vm, http.StatusInternalServerError, storageFailure, page)
 }
 
 func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page string) error {
@@ -680,26 +617,12 @@ func (h *handler) curl(c *echo.Context) error {
 
 	postReset(c, "/curl")
 	if cmd != "" {
-		req, err := h.svc.FromCurlRequest(cmd)
+		res, err := h.svc.ParseCurl(cmd)
 		if err != nil {
 			return h.badRequest(c, vm, err, "link/curl")
 		}
-		in, perr := h.svc.Parse(req.URL)
-		if perr != nil {
-			return h.badRequest(c, vm, perr, "link/curl")
-		}
-		out := map[string]any{
-			"url": req.URL, "headers": req.Headers, "inspection": in,
-			"method": req.Method, "method_why": req.MethodWhy,
-		}
-		if req.BodyBytes > 0 {
-			out["body_bytes"] = req.BodyBytes
-		}
-		if len(req.Notes) > 0 {
-			out["notes"] = req.Notes
-		}
-		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = req.URL, req.Headers, in, req
-		return reply(c, http.StatusOK, out, vm, "link/curl", "link/curled")
+		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = res.URL, res.Headers, res.Inspection, res
+		return reply(c, http.StatusOK, res, vm, "link/curl", "link/curled")
 	}
 
 	if done, err := h.needURL(c, raw, vm, "link/curl", "link/curled",
@@ -791,7 +714,10 @@ func (h *handler) utm(c *echo.Context) error {
 	for i, key := range UTMKeys {
 		v := strings.TrimSpace(c.QueryParam(key))
 		fields[i] = utmField{Name: key, Placeholder: utmHelp[key][0], Hint: utmHelp[key][1], Value: v}
-		typed[key] = v
+		// The form submits every field, so an empty one means keep, not remove.
+		if v != "" {
+			typed[key] = v
+		}
 		rare = rare || (i >= utmCommon && v != "")
 		anyTag = anyTag || v != ""
 	}

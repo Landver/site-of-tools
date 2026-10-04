@@ -24,7 +24,7 @@ func newTestApp(t *testing.T) *echo.Echo {
 	e := echo.New()
 	e.Renderer = r
 	cfg := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
-	if err := site.Register(e, cfg, testPostsFS()); err != nil {
+	if _, err := site.Register(e, cfg, testPostsFS()); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	return e

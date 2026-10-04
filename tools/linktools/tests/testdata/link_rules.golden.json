@@ -1,0 +1,1254 @@
+{
+  "catalog": {
+    "status": 200,
+    "body": {
+      "version": "2026-10-04",
+      "scope": "A curated list, not a complete one. It will miss regional ad networks, and it will not guess about parameters that are functional on some sites.",
+      "tracking": [
+        {
+          "param": "gclid",
+          "origin": "Google Ads",
+          "class": "click",
+          "note": "Auto-tagged onto every ad click.",
+          "doc": "https://support.google.com/google-ads/answer/6305348"
+        },
+        {
+          "param": "gclsrc",
+          "origin": "Google Ads",
+          "class": "click",
+          "note": "Names the click source (aw.ds, 3p.ds)."
+        },
+        {
+          "param": "gbraid",
+          "origin": "Google Ads",
+          "class": "click",
+          "note": "iOS web-to-app click cohort, added after Apple's tracking prompt (ATT).",
+          "doc": "https://support.google.com/google-ads/answer/16297842"
+        },
+        {
+          "param": "wbraid",
+          "origin": "Google Ads",
+          "class": "click",
+          "note": "iOS app-to-web click cohort.",
+          "doc": "https://support.google.com/google-ads/answer/10417364"
+        },
+        {
+          "param": "dclid",
+          "origin": "Campaign Manager 360",
+          "class": "click",
+          "note": "Display click ID."
+        },
+        {
+          "param": "srsltid",
+          "origin": "Google Merchant Center",
+          "class": "click",
+          "note": "Attached to free product listings in search."
+        },
+        {
+          "param": "gad_source",
+          "origin": "Google Ads",
+          "class": "click",
+          "note": "Click surface, added 2023."
+        },
+        {
+          "param": "gad_campaignid",
+          "origin": "Google Ads",
+          "class": "session",
+          "note": "Campaign ID, added 2024."
+        },
+        {
+          "param": "_gl",
+          "origin": "Google Analytics 4",
+          "class": "person",
+          "note": "The cross-domain linker: Google's own docs say the cookies' client ID and session ID are passed between domains in this parameter.",
+          "doc": "https://support.google.com/analytics/answer/10071811"
+        },
+        {
+          "param": "_ga",
+          "origin": "Google Analytics",
+          "class": "person",
+          "note": "Legacy linker form of the client ID."
+        },
+        {
+          "param": "ga_",
+          "prefix": true,
+          "origin": "Google Analytics for email",
+          "class": "session",
+          "note": "Legacy campaign family."
+        },
+        {
+          "param": "gs_l",
+          "origin": "Google Search",
+          "class": "session",
+          "note": "Result-position log from the search page."
+        },
+        {
+          "param": "fbclid",
+          "origin": "Meta",
+          "class": "click",
+          "note": "Becomes the fbc identifier server-side, so it outlives the click."
+        },
+        {
+          "param": "fb_action_ids",
+          "origin": "Facebook",
+          "class": "session"
+        },
+        {
+          "param": "fb_action_types",
+          "origin": "Facebook",
+          "class": "session"
+        },
+        {
+          "param": "fb_source",
+          "origin": "Facebook",
+          "class": "session",
+          "note": "Which Facebook surface the link was clicked from."
+        },
+        {
+          "param": "fb_ref",
+          "origin": "Facebook",
+          "class": "session"
+        },
+        {
+          "param": "action_object_map",
+          "origin": "Facebook Open Graph",
+          "class": "session"
+        },
+        {
+          "param": "action_type_map",
+          "origin": "Facebook Open Graph",
+          "class": "session"
+        },
+        {
+          "param": "action_ref_map",
+          "origin": "Facebook Open Graph",
+          "class": "session"
+        },
+        {
+          "param": "mibextid",
+          "origin": "Meta",
+          "class": "session",
+          "note": "Added by the mobile share sheet."
+        },
+        {
+          "param": "__tn__",
+          "hosts": [
+            "facebook.com"
+          ],
+          "origin": "Facebook",
+          "class": "session",
+          "note": "Internal surface code."
+        },
+        {
+          "param": "__cft__",
+          "prefix": true,
+          "hosts": [
+            "facebook.com"
+          ],
+          "origin": "Facebook",
+          "class": "session",
+          "note": "Click-tracking blob; the real key is __cft__[0]."
+        },
+        {
+          "param": "__xts__",
+          "prefix": true,
+          "hosts": [
+            "facebook.com"
+          ],
+          "origin": "Facebook",
+          "class": "session",
+          "note": "Click-tracking blob; the real key is __xts__[0]."
+        },
+        {
+          "param": "msclkid",
+          "origin": "Microsoft Advertising",
+          "class": "click",
+          "note": "A 32-character GUID, unique per click, auto-tagged on by default.",
+          "doc": "https://learn.microsoft.com/en-us/advertising/msa-help/hlp_ba_proc_microsoftclickid"
+        },
+        {
+          "param": "ttclid",
+          "origin": "TikTok Ads",
+          "class": "click",
+          "note": "TikTok tells advertisers to store it 28 days or more and replay it to the Events API.",
+          "doc": "https://ads.tiktok.com/help/article/tiktok-click-id"
+        },
+        {
+          "param": "tt_medium",
+          "origin": "TikTok",
+          "class": "session"
+        },
+        {
+          "param": "tt_content",
+          "origin": "TikTok",
+          "class": "session"
+        },
+        {
+          "param": "share_app_name",
+          "hosts": [
+            "tiktok.com"
+          ],
+          "origin": "TikTok",
+          "class": "session"
+        },
+        {
+          "param": "share_iid",
+          "hosts": [
+            "tiktok.com"
+          ],
+          "origin": "TikTok",
+          "class": "session"
+        },
+        {
+          "param": "u_code",
+          "hosts": [
+            "tiktok.com"
+          ],
+          "origin": "TikTok",
+          "class": "session"
+        },
+        {
+          "param": "twclid",
+          "origin": "X Ads",
+          "class": "click"
+        },
+        {
+          "param": "__twitter_impression",
+          "origin": "X",
+          "class": "session"
+        },
+        {
+          "param": "s",
+          "hosts": [
+            "x.com",
+            "twitter.com"
+          ],
+          "origin": "X share sheet",
+          "class": "session",
+          "note": "Names the surface the link was shared from (s=20, s=46)."
+        },
+        {
+          "param": "t",
+          "hosts": [
+            "x.com",
+            "twitter.com"
+          ],
+          "origin": "X share sheet",
+          "class": "session",
+          "note": "Opaque share token. On YouTube the same name is a timestamp and is never removed."
+        },
+        {
+          "param": "ref_src",
+          "hosts": [
+            "x.com",
+            "twitter.com"
+          ],
+          "origin": "X embeds",
+          "class": "session"
+        },
+        {
+          "param": "ref_url",
+          "hosts": [
+            "x.com",
+            "twitter.com"
+          ],
+          "origin": "X embeds",
+          "class": "session",
+          "note": "Carries the referring page's own URL."
+        },
+        {
+          "param": "yclid",
+          "origin": "Yandex.Direct",
+          "class": "click"
+        },
+        {
+          "param": "_openstat",
+          "origin": "Openstat",
+          "class": "session",
+          "note": "Base64 of four campaign fields."
+        },
+        {
+          "param": "mc_cid",
+          "origin": "Mailchimp",
+          "class": "session",
+          "note": "The Mailchimp ID for the campaign that generated the link.",
+          "doc": "https://mailchimp.com/developer/marketing/docs/e-commerce/"
+        },
+        {
+          "param": "mc_eid",
+          "origin": "Mailchimp",
+          "class": "person",
+          "note": "Your subscriber ID in the sender's Mailchimp list.",
+          "doc": "https://mailchimp.com/developer/marketing/docs/e-commerce/"
+        },
+        {
+          "param": "mc_tc",
+          "origin": "Mailchimp",
+          "class": "session"
+        },
+        {
+          "param": "__hstc",
+          "origin": "HubSpot",
+          "class": "person",
+          "note": "HubSpot's main visitor cookie, carrying hubspotutk.",
+          "doc": "https://knowledge.hubspot.com/reports/what-cookies-does-hubspot-set-in-a-visitor-s-browser"
+        },
+        {
+          "param": "__hssc",
+          "origin": "HubSpot",
+          "class": "session",
+          "doc": "https://knowledge.hubspot.com/reports/what-cookies-does-hubspot-set-in-a-visitor-s-browser"
+        },
+        {
+          "param": "__hsfp",
+          "origin": "HubSpot",
+          "class": "person",
+          "note": "Device fingerprint."
+        },
+        {
+          "param": "_hsenc",
+          "origin": "HubSpot email",
+          "class": "person",
+          "note": "Encoded recipient token."
+        },
+        {
+          "param": "_hsmi",
+          "origin": "HubSpot email",
+          "class": "session",
+          "note": "Message ID."
+        },
+        {
+          "param": "hsctatracking",
+          "origin": "HubSpot CTA",
+          "class": "session",
+          "note": "CTA GUID pair."
+        },
+        {
+          "param": "mkt_tok",
+          "origin": "Marketo",
+          "class": "person",
+          "note": "Base64 blob carrying the lead ID and the send ID."
+        },
+        {
+          "param": "_kx",
+          "origin": "Klaviyo",
+          "class": "person",
+          "note": "Klaviyo's own docs: an encrypted value decrypted by their web tracking to identify the user who clicked.",
+          "doc": "https://help.klaviyo.com/hc/en-us/articles/360034666712"
+        },
+        {
+          "param": "s_cid",
+          "origin": "Adobe Campaign",
+          "class": "session"
+        },
+        {
+          "param": "s_kwcid",
+          "origin": "Adobe Advertising",
+          "class": "click",
+          "note": "Keyword ID."
+        },
+        {
+          "param": "ef_id",
+          "origin": "Adobe Advertising Cloud",
+          "class": "click"
+        },
+        {
+          "param": "vero_conv",
+          "origin": "Vero",
+          "class": "session"
+        },
+        {
+          "param": "vero_id",
+          "origin": "Vero",
+          "class": "person"
+        },
+        {
+          "param": "bsft_",
+          "prefix": true,
+          "origin": "Blueshift",
+          "class": "person",
+          "note": "Blueshift's email click family."
+        },
+        {
+          "param": "utm_",
+          "prefix": true,
+          "origin": "Google Analytics, and by now everyone",
+          "class": "session",
+          "note": "The campaign family: source, medium, campaign, term, content, id, source_platform, creative_format, marketing_tactic.",
+          "doc": "https://matomo.org/faq/reports/how-to-build-campaign-tracking-urls/"
+        },
+        {
+          "param": "mtm_",
+          "prefix": true,
+          "origin": "Matomo 4+",
+          "class": "session",
+          "note": "Matomo's eight documented campaign parameters.",
+          "doc": "https://matomo.org/faq/how-to/faq_120/"
+        },
+        {
+          "param": "pk_",
+          "prefix": true,
+          "origin": "Piwik / Matomo 3",
+          "class": "session",
+          "note": "Kept working for backwards compatibility.",
+          "doc": "https://matomo.org/faq/how-to/faq_120/"
+        },
+        {
+          "param": "piwik_",
+          "prefix": true,
+          "origin": "Piwik",
+          "class": "session"
+        },
+        {
+          "param": "matomo_",
+          "prefix": true,
+          "origin": "Matomo",
+          "class": "session"
+        },
+        {
+          "param": "igshid",
+          "origin": "Instagram",
+          "class": "session",
+          "note": "Share ID, added to links shared out of the app."
+        },
+        {
+          "param": "igsh",
+          "origin": "Instagram",
+          "class": "session",
+          "note": "Share ID, newer form."
+        },
+        {
+          "param": "si",
+          "hosts": [
+            "youtube.com",
+            "youtu.be"
+          ],
+          "origin": "YouTube",
+          "class": "session",
+          "note": "Share-attribution token. Not removed on Spotify: there it is reported to gate access on playlist invites."
+        },
+        {
+          "param": "feature",
+          "hosts": [
+            "youtube.com",
+            "youtu.be"
+          ],
+          "origin": "YouTube",
+          "class": "session"
+        },
+        {
+          "param": "kw",
+          "hosts": [
+            "youtube.com"
+          ],
+          "origin": "YouTube",
+          "class": "session"
+        },
+        {
+          "param": "pp",
+          "hosts": [
+            "youtube.com",
+            "youtu.be"
+          ],
+          "origin": "YouTube",
+          "class": "session"
+        },
+        {
+          "param": "ref",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session",
+          "note": "Placement breadcrumb. Scoped to Amazon: on a git forge the same name picks a branch."
+        },
+        {
+          "param": "ref_",
+          "prefix": true,
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session"
+        },
+        {
+          "param": "pd_rd_",
+          "prefix": true,
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session",
+          "note": "Recommendation slot."
+        },
+        {
+          "param": "pf_rd_",
+          "prefix": true,
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session",
+          "note": "Recommendation slot."
+        },
+        {
+          "param": "qid",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session",
+          "note": "Search-result context."
+        },
+        {
+          "param": "crid",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session",
+          "note": "Search-result context."
+        },
+        {
+          "param": "sprefix",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon",
+          "class": "session",
+          "note": "What was typed before the search ran."
+        },
+        {
+          "param": "tag",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon Associates",
+          "class": "affiliate",
+          "note": "Removing it takes their commission."
+        },
+        {
+          "param": "linkcode",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon Associates",
+          "class": "affiliate"
+        },
+        {
+          "param": "ascsubtag",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon Associates",
+          "class": "affiliate",
+          "note": "Publisher's own sub-tag; often identifies the article."
+        },
+        {
+          "param": "creativeasin",
+          "hosts": [
+            "amazon."
+          ],
+          "origin": "Amazon Associates",
+          "class": "affiliate"
+        },
+        {
+          "param": "trk",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "origin": "LinkedIn",
+          "class": "session",
+          "note": "Traffic-source code."
+        },
+        {
+          "param": "trkinfo",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "origin": "LinkedIn",
+          "class": "session"
+        },
+        {
+          "param": "trackingid",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "origin": "LinkedIn",
+          "class": "session"
+        },
+        {
+          "param": "lipi",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "origin": "LinkedIn",
+          "class": "person",
+          "note": "Page-instance ID, joinable to the viewing member."
+        },
+        {
+          "param": "licu",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "origin": "LinkedIn",
+          "class": "person"
+        },
+        {
+          "param": "li_fat_id",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "origin": "LinkedIn Ads",
+          "class": "click"
+        },
+        {
+          "param": "share_id",
+          "hosts": [
+            "reddit.com"
+          ],
+          "origin": "Reddit",
+          "class": "session"
+        },
+        {
+          "param": "ref_campaign",
+          "hosts": [
+            "reddit.com"
+          ],
+          "origin": "Reddit",
+          "class": "session"
+        },
+        {
+          "param": "ref_source",
+          "hosts": [
+            "reddit.com"
+          ],
+          "origin": "Reddit",
+          "class": "session"
+        },
+        {
+          "param": "rdt",
+          "hosts": [
+            "reddit.com"
+          ],
+          "origin": "Reddit",
+          "class": "session"
+        },
+        {
+          "param": "_branch_match_id",
+          "hosts": [
+            "reddit.com"
+          ],
+          "origin": "Branch (via Reddit)",
+          "class": "session",
+          "note": "Deep-link match ID."
+        },
+        {
+          "param": "spm",
+          "hosts": [
+            "aliexpress.",
+            "taobao.com",
+            "tmall.com",
+            "lazada."
+          ],
+          "origin": "Alibaba",
+          "class": "session",
+          "note": "Placement path through the site."
+        },
+        {
+          "param": "algo_pvid",
+          "hosts": [
+            "aliexpress."
+          ],
+          "origin": "AliExpress",
+          "class": "session",
+          "note": "Experiment arm."
+        },
+        {
+          "param": "ws_ab_test",
+          "hosts": [
+            "aliexpress."
+          ],
+          "origin": "AliExpress",
+          "class": "session",
+          "note": "Experiment arm."
+        },
+        {
+          "param": "r",
+          "hosts": [
+            "substack.com"
+          ],
+          "origin": "Substack",
+          "class": "person",
+          "note": "The referring subscriber. Custom Substack domains are unreachable from the name alone, so this only fires on substack.com."
+        },
+        {
+          "param": "triedredirect",
+          "hosts": [
+            "substack.com"
+          ],
+          "origin": "Substack",
+          "class": "session"
+        },
+        {
+          "param": "showwelcomeonshare",
+          "hosts": [
+            "substack.com"
+          ],
+          "origin": "Substack",
+          "class": "session"
+        }
+      ],
+      "never_strip": [
+        {
+          "param": "q",
+          "why": "The search is gone. On google.com/url?q= it is the destination itself, so deleting it turns an unwrap into a dead link."
+        },
+        {
+          "param": "id",
+          "why": "Wrong record, or a 404. Every CMS and REST route in existence uses this name."
+        },
+        {
+          "param": "uid",
+          "why": "Wrong record, or a 404."
+        },
+        {
+          "param": "pid",
+          "why": "Wrong record, or a 404."
+        },
+        {
+          "param": "item",
+          "why": "Wrong record, or a 404."
+        },
+        {
+          "param": "sku",
+          "why": "Wrong product."
+        },
+        {
+          "param": "page",
+          "why": "Silently resets to page 1; the reader assumes the link was wrong."
+        },
+        {
+          "param": "p",
+          "why": "Pagination on countless sites, and a catch-all elsewhere. Too broad to guess at."
+        },
+        {
+          "param": "offset",
+          "why": "Pagination resets."
+        },
+        {
+          "param": "limit",
+          "why": "Page size resets; a deep link into a long list stops working."
+        },
+        {
+          "param": "cursor",
+          "why": "Cursor pagination restarts from the beginning."
+        },
+        {
+          "param": "after",
+          "why": "Cursor pagination restarts from the beginning."
+        },
+        {
+          "param": "token",
+          "why": "The link is dead. Password resets, magic links and email confirmations are usually single-use, so retrying does not recover it."
+        },
+        {
+          "param": "code",
+          "why": "OAuth 2.0 authorization response (RFC 6749 §4.1.2). The token exchange never happens and login loops back to the start."
+        },
+        {
+          "param": "state",
+          "why": "OAuth 2.0 CSRF binding (RFC 6749 §10.12). The client cannot bind the callback to its request and fails closed, with an incomprehensible error."
+        },
+        {
+          "param": "redirect_uri",
+          "why": "OAuth 2.0 authorization request (RFC 6749 §3.1.2). invalid_request, or a silent fall-back to a registered default that is not where the user was going."
+        },
+        {
+          "param": "nonce",
+          "why": "OpenID Connect ID-token validation fails."
+        },
+        {
+          "param": "session",
+          "why": "Logged out."
+        },
+        {
+          "param": "sid",
+          "why": "Removing it logs you out."
+        },
+        {
+          "param": "sessionid",
+          "why": "Logged out."
+        },
+        {
+          "param": "jsessionid",
+          "why": "Logged out."
+        },
+        {
+          "param": "phpsessid",
+          "why": "Logged out."
+        },
+        {
+          "param": "s_id",
+          "why": "Logged out."
+        },
+        {
+          "param": "sig",
+          "why": "Signature mismatch, 403. Also an Azure SAS field."
+        },
+        {
+          "param": "signature",
+          "why": "Signature mismatch, 403."
+        },
+        {
+          "param": "hmac",
+          "why": "Signature mismatch, 403."
+        },
+        {
+          "param": "mac",
+          "why": "Signature mismatch, 403."
+        },
+        {
+          "param": "x-amz-",
+          "prefix": true,
+          "why": "403 SignatureDoesNotMatch on an S3 presigned URL."
+        },
+        {
+          "param": "x-goog-",
+          "prefix": true,
+          "why": "403 on a Google Cloud Storage signed URL."
+        },
+        {
+          "param": "awsaccesskeyid",
+          "why": "403 on an S3 SigV2 presigned URL."
+        },
+        {
+          "param": "expires",
+          "why": "403 on a SigV2 presigned URL, and a cache directive elsewhere."
+        },
+        {
+          "param": "key-pair-id",
+          "why": "403 on a CloudFront signed URL."
+        },
+        {
+          "param": "policy",
+          "why": "403 on a CloudFront signed URL."
+        },
+        {
+          "param": "sv",
+          "hosts": [
+            "core.windows.net"
+          ],
+          "why": "403 on an Azure Blob SAS URL."
+        },
+        {
+          "param": "se",
+          "hosts": [
+            "core.windows.net"
+          ],
+          "why": "403 on an Azure Blob SAS URL."
+        },
+        {
+          "param": "sp",
+          "hosts": [
+            "core.windows.net"
+          ],
+          "why": "403 on an Azure Blob SAS URL. Note sp is also a Bing tracking parameter."
+        },
+        {
+          "param": "st",
+          "hosts": [
+            "core.windows.net"
+          ],
+          "why": "403 on an Azure Blob SAS URL."
+        },
+        {
+          "param": "sr",
+          "hosts": [
+            "core.windows.net"
+          ],
+          "why": "403 on an Azure Blob SAS URL."
+        },
+        {
+          "param": "v",
+          "hosts": [
+            "youtube.com"
+          ],
+          "why": "?v= is the video ID. Remove it and the URL is the YouTube homepage."
+        },
+        {
+          "param": "t",
+          "hosts": [
+            "youtube.com",
+            "youtu.be"
+          ],
+          "why": "The timestamp: ?t=90 is a deep link into the middle of the video. The same name on x.com is a share token, and is removed there."
+        },
+        {
+          "param": "start",
+          "hosts": [
+            "youtube.com",
+            "youtu.be"
+          ],
+          "why": "The timestamp for an embed."
+        },
+        {
+          "param": "si",
+          "hosts": [
+            "spotify.com"
+          ],
+          "why": "Reported to gate access on collaborative and private playlist invites: the recipient gets a permission error instead of the playlist. Reported, not confirmed."
+        },
+        {
+          "param": "u",
+          "hosts": [
+            "list-manage.com"
+          ],
+          "why": "The unsubscribe link silently stops working."
+        },
+        {
+          "param": "e",
+          "hosts": [
+            "list-manage.com"
+          ],
+          "why": "The unsubscribe silently does nothing."
+        },
+        {
+          "param": "c",
+          "hosts": [
+            "list-manage.com"
+          ],
+          "why": "The unsubscribe silently does nothing."
+        },
+        {
+          "param": "hash",
+          "hosts": [
+            "list-manage.com"
+          ],
+          "why": "The unsubscribe silently does nothing."
+        },
+        {
+          "param": "ref",
+          "hosts": [
+            "github.com",
+            "gitlab.com",
+            "codeberg.org",
+            "bitbucket.org",
+            "gitea.com",
+            "git.sr.ht"
+          ],
+          "why": "?ref=main picks a branch: without it, the wrong branch, or a 404."
+        },
+        {
+          "param": "format",
+          "why": "Wrong content type."
+        },
+        {
+          "param": "output",
+          "why": "Wrong content type."
+        },
+        {
+          "param": "callback",
+          "why": "A JSONP call that never invokes its callback."
+        },
+        {
+          "param": "jsonp",
+          "why": "A JSONP call that never invokes its callback."
+        },
+        {
+          "param": "alt",
+          "why": "Wrong response format on Google APIs."
+        },
+        {
+          "param": "lang",
+          "why": "Wrong language."
+        },
+        {
+          "param": "hl",
+          "why": "Wrong language."
+        },
+        {
+          "param": "locale",
+          "why": "Wrong language."
+        },
+        {
+          "param": "gl",
+          "why": "Wrong region. One underscore from _gl, which is removed."
+        },
+        {
+          "param": "cid",
+          "why": "Adobe's conventional campaign slot, and also customer ID, conversation ID and channel ID on countless apps. The ambiguous case that most looks safe and is not."
+        },
+        {
+          "param": "icid",
+          "why": "Same ambiguity as cid."
+        },
+        {
+          "param": "int_cid",
+          "why": "Same ambiguity as cid."
+        },
+        {
+          "param": "variant",
+          "why": "Wrong Shopify product variant, wrong price."
+        },
+        {
+          "param": "share",
+          "why": "Changes content disposition on some hosts."
+        },
+        {
+          "param": "dl",
+          "why": "Renders instead of downloading."
+        },
+        {
+          "param": "download",
+          "why": "Renders instead of downloading."
+        },
+        {
+          "param": "raw",
+          "why": "Renders instead of serving the file."
+        }
+      ],
+      "wrappers": [
+        {
+          "name": "Microsoft Safe Links",
+          "hosts": [
+            "*.safelinks.protection.outlook.com",
+            "*.safelinks.protection.office365.us",
+            "*.safelinks.protection.outlook.cn"
+          ],
+          "shape": "param",
+          "params": [
+            "url"
+          ],
+          "confidence": "high",
+          "doc": "https://learn.microsoft.com/en-us/defender-office-365/safe-links-about"
+        },
+        {
+          "name": "Proofpoint urldefense v1",
+          "hosts": [
+            "urldefense.proofpoint.com",
+            "urldefense.com"
+          ],
+          "path": "/v1/url",
+          "shape": "custom",
+          "confidence": "high"
+        },
+        {
+          "name": "Proofpoint urldefense v2",
+          "hosts": [
+            "urldefense.proofpoint.com",
+            "urldefense.com"
+          ],
+          "path": "/v2/url",
+          "shape": "custom",
+          "confidence": "high"
+        },
+        {
+          "name": "Proofpoint urldefense v3",
+          "hosts": [
+            "urldefense.com",
+            "urldefense.proofpoint.com"
+          ],
+          "path": "/v3/",
+          "shape": "custom",
+          "confidence": "high"
+        },
+        {
+          "name": "Google redirect",
+          "hosts": [
+            "google."
+          ],
+          "path": "/url",
+          "shape": "param",
+          "params": [
+            "q",
+            "url"
+          ],
+          "confidence": "high"
+        },
+        {
+          "name": "Google AMP viewer",
+          "hosts": [
+            "google."
+          ],
+          "path": "/amp/",
+          "shape": "custom",
+          "confidence": "medium"
+        },
+        {
+          "name": "Google Ads redirect",
+          "hosts": [
+            "google.",
+            "googleadservices.com"
+          ],
+          "shape": "param",
+          "params": [
+            "adurl"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "name": "Meta link shim",
+          "hosts": [
+            "l.facebook.com",
+            "lm.facebook.com",
+            "l.messenger.com"
+          ],
+          "shape": "param",
+          "params": [
+            "u"
+          ],
+          "confidence": "high",
+          "doc": "https://engineering.fb.com/2012/09/14/security/a-faster-better-link-shim/"
+        },
+        {
+          "name": "Instagram link shim",
+          "hosts": [
+            "l.instagram.com"
+          ],
+          "shape": "param",
+          "params": [
+            "u"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "name": "YouTube redirect",
+          "hosts": [
+            "youtube.com"
+          ],
+          "path": "/redirect",
+          "shape": "param",
+          "params": [
+            "q"
+          ],
+          "confidence": "high"
+        },
+        {
+          "name": "Cisco Secure Email",
+          "hosts": [
+            "secure-web.cisco.com"
+          ],
+          "shape": "path-tail",
+          "confidence": "high"
+        },
+        {
+          "name": "Barracuda Link Protect",
+          "hosts": [
+            "linkprotect.cudasvc.com"
+          ],
+          "path": "/url",
+          "shape": "param",
+          "params": [
+            "a"
+          ],
+          "confidence": "high"
+        },
+        {
+          "name": "Mimecast URL Protect",
+          "hosts": [
+            "mimecast.com"
+          ],
+          "path": "/s/",
+          "shape": "param",
+          "params": [
+            "domain"
+          ],
+          "partial": true,
+          "confidence": "medium",
+          "doc": "https://mimecastsupport.zendesk.com/hc/en-us/articles/34000769379219-Targeted-Threat-Protection-URL-Protect-Embedded-Links"
+        },
+        {
+          "name": "Tumblr redirect",
+          "hosts": [
+            "t.umblr.com"
+          ],
+          "path": "/redirect",
+          "shape": "param",
+          "params": [
+            "z"
+          ],
+          "confidence": "high"
+        },
+        {
+          "name": "Reddit outbound",
+          "hosts": [
+            "out.reddit.com",
+            "click.redditmail.com"
+          ],
+          "shape": "param",
+          "params": [
+            "url"
+          ],
+          "confidence": "high"
+        },
+        {
+          "name": "Steam link filter",
+          "hosts": [
+            "steamcommunity.com"
+          ],
+          "path": "/linkfilter",
+          "shape": "param",
+          "params": [
+            "url",
+            "u"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "name": "VK away",
+          "hosts": [
+            "vk.com"
+          ],
+          "path": "/away.php",
+          "shape": "param",
+          "params": [
+            "to"
+          ],
+          "confidence": "high"
+        },
+        {
+          "name": "LinkedIn interstitial",
+          "hosts": [
+            "linkedin.com"
+          ],
+          "path": "/redir/redirect",
+          "shape": "param",
+          "params": [
+            "url"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "name": "Slack redirect",
+          "hosts": [
+            "slack-redir.net"
+          ],
+          "path": "/link",
+          "shape": "param",
+          "params": [
+            "url"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "name": "href.li",
+          "hosts": [
+            "href.li"
+          ],
+          "shape": "bare-query",
+          "confidence": "high"
+        },
+        {
+          "name": "DeviantArt outgoing",
+          "hosts": [
+            "deviantart.com"
+          ],
+          "path": "/users/outgoing",
+          "shape": "bare-query",
+          "confidence": "high"
+        }
+      ]
+    }
+  }
+}

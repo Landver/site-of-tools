@@ -1,0 +1,164 @@
+{
+  "error": {
+    "status": 400,
+    "body": {
+      "error": "this check needs a domain name, not an IP address",
+      "name": "192.0.2.1"
+    }
+  },
+  "no_corpus": {
+    "status": 200,
+    "body": {
+      "domain": "example.com",
+      "spf": {
+        "record": "v=spf1 mx -all",
+        "lookups": 1,
+        "limit": 10,
+        "all": "-all"
+      },
+      "dmarc": {
+        "record": "v=DMARC1; p=reject",
+        "name": "_dmarc.example.com",
+        "policy": "reject"
+      },
+      "has_mx": true,
+      "mail_hosts": [
+        {
+          "host": "mail.example.com",
+          "ip": "192.0.2.25",
+          "ptr": "mail.example.com",
+          "fcrdns": true
+        }
+      ],
+      "mx_count": 1,
+      "notes": [
+        {
+          "level": "ok",
+          "text": "SPF ends in -all."
+        },
+        {
+          "level": "warn",
+          "text": "No DKIM key at the common selectors."
+        }
+      ],
+      "query_ms": 40
+    }
+  },
+  "no_name": {
+    "status": 400,
+    "body": {
+      "error": "no name; pass ?name=, e.g. /email?name=example.com"
+    }
+  },
+  "reputation_failed": {
+    "status": 200,
+    "body": {
+      "domain": "example.com",
+      "spf": {
+        "record": "v=spf1 mx -all",
+        "lookups": 1,
+        "limit": 10,
+        "all": "-all"
+      },
+      "dmarc": {
+        "record": "v=DMARC1; p=reject",
+        "name": "_dmarc.example.com",
+        "policy": "reject"
+      },
+      "has_mx": true,
+      "mail_hosts": [
+        {
+          "host": "mail.example.com",
+          "ip": "192.0.2.25",
+          "ptr": "mail.example.com",
+          "fcrdns": true
+        }
+      ],
+      "mx_count": 1,
+      "notes": [
+        {
+          "level": "ok",
+          "text": "SPF ends in -all."
+        },
+        {
+          "level": "warn",
+          "text": "No DKIM key at the common selectors."
+        }
+      ],
+      "query_ms": 40
+    }
+  },
+  "unavailable": {
+    "status": 503,
+    "body": {
+      "error": "This check isn't available right now."
+    }
+  },
+  "with_reputation": {
+    "status": 200,
+    "body": {
+      "domain": "example.com",
+      "spf": {
+        "record": "v=spf1 mx -all",
+        "lookups": 1,
+        "limit": 10,
+        "all": "-all"
+      },
+      "dmarc": {
+        "record": "v=DMARC1; p=reject",
+        "name": "_dmarc.example.com",
+        "policy": "reject"
+      },
+      "has_mx": true,
+      "mail_hosts": [
+        {
+          "host": "mail.example.com",
+          "ip": "192.0.2.25",
+          "ptr": "mail.example.com",
+          "fcrdns": true
+        }
+      ],
+      "mx_reputation": {
+        "domain": "example.com",
+        "hosts": [
+          {
+            "host": "mail.example.com",
+            "preference": 10,
+            "addresses": [
+              {
+                "ip": "192.0.2.25",
+                "listed": false
+              }
+            ]
+          }
+        ],
+        "mx_count": 1,
+        "checked": 1,
+        "listed": 0,
+        "feeds": [
+          "ipsum"
+        ],
+        "corpus": "ipsum, synced daily",
+        "notes": [
+          {
+            "level": "ok",
+            "text": "No mail server is listed."
+          }
+        ],
+        "query_ms": 3
+      },
+      "mx_count": 1,
+      "notes": [
+        {
+          "level": "ok",
+          "text": "SPF ends in -all."
+        },
+        {
+          "level": "warn",
+          "text": "No DKIM key at the common selectors."
+        }
+      ],
+      "query_ms": 40
+    }
+  }
+}

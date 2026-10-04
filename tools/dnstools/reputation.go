@@ -29,9 +29,8 @@ import (
 )
 
 // BlockChecker: the two things this feature needs from the shared IP blocklist
-// corpus. Declared here, as an interface, for the reason Mailer and Spreader
-// are declared in handler.go: dnstools must not open its own Mongo handle, and
-// a nil dependency has to mean "this card is not rendered" rather than a
+// corpus. An interface because dnstools must not open its own Mongo handle,
+// and a nil dependency has to mean "this card is not rendered" rather than a
 // panic. *iptools.BlockList satisfies it; a test fakes it in six lines.
 //
 // LastSync is in the interface rather than probed for with a type assertion
@@ -59,9 +58,7 @@ type BlockChecker interface {
 // refuses to run at all.
 //
 // MXReputation re-checks for the typed nil itself, so this is the documented
-// front door rather than the only lock on it. main.go hands the bare
-// *BlockList to iptools.Register and botcheck.Register, so passing it raw here
-// is the mistake the house wiring style invites.
+// front door rather than the only lock on it.
 func BlockCheckerFrom(bl *iptools.BlockList) BlockChecker {
 	if bl == nil {
 		return nil
@@ -69,7 +66,7 @@ func BlockCheckerFrom(bl *iptools.BlockList) BlockChecker {
 	return bl
 }
 
-// Reputer: handler dependency for this card. Separate from Mailer so a test
+// Reputer: EmailReport's dependency for this card. Separate from Mailer so a test
 // can fake either half on its own; *Service satisfies both.
 type Reputer interface {
 	MXReputation(ctx context.Context, domain string, bl BlockChecker) (*MXReputation, error)
@@ -77,7 +74,7 @@ type Reputer interface {
 
 // ErrNoBlocklist: the shared corpus is not wired (no MONGODB_URI, so no Mongo,
 // so no blocklist). A missing dependency, not a failed lookup and not a clean
-// result — the handler skips the card rather than printing one.
+// result — EmailReport skips the card rather than printing one.
 var ErrNoBlocklist = errors.New("the blocklist corpus is not available")
 
 // Query budget for one call. DNS: 1 MX + up to repMaxHosts × 2 (A then AAAA)

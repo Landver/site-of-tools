@@ -791,3 +791,54 @@ func Rules() RuleCatalog {
 		Wrappers:   slices.Clone(wrappers),
 	}
 }
+
+// RuleSummary is the catalog without its tables.
+type RuleSummary struct {
+	Version    string `json:"version"`
+	Scope      string `json:"scope"`
+	Tracking   int    `json:"tracking"`
+	NeverStrip int    `json:"never_strip"`
+	Wrappers   int    `json:"wrappers"`
+}
+
+func (c RuleCatalog) Summary() RuleSummary {
+	return RuleSummary{
+		Version: c.Version, Scope: c.Scope,
+		Tracking: len(c.Tracking), NeverStrip: len(c.NeverStrip), Wrappers: len(c.Wrappers),
+	}
+}
+
+// RuleMatches is every tracking rule and never-strip entry naming one
+// parameter, exact names before prefixes. Whether one fires still depends on
+// the host and, for affiliate rules, on asking for them; Verdict decides that.
+type RuleMatches struct {
+	Param      string `json:"param"`
+	Tracking   []Rule `json:"tracking"`
+	NeverStrip []Deny `json:"never_strip"`
+}
+
+// Matches names param the way Clean's lookup does: lower-cased, exactly or by
+// literal prefix.
+func (c RuleCatalog) Matches(param string) RuleMatches {
+	k := strings.ToLower(strings.TrimSpace(param))
+	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}
+	names := func(p string, prefix bool) bool {
+		if prefix {
+			return strings.HasPrefix(k, p)
+		}
+		return k == p
+	}
+	for _, prefix := range []bool{false, true} {
+		for _, r := range c.Tracking {
+			if r.Prefix == prefix && names(r.Param, prefix) {
+				out.Tracking = append(out.Tracking, r)
+			}
+		}
+		for _, d := range c.NeverStrip {
+			if d.Prefix == prefix && names(d.Param, prefix) {
+				out.NeverStrip = append(out.NeverStrip, d)
+			}
+		}
+	}
+	return out
+}

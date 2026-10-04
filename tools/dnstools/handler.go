@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -28,17 +27,6 @@ const consistencyDesc = "Is your DNS change live yet? Asks every one of the zone
 const traceDesc = "Walk the DNS delegation for any name from a root server down, one zone cut at a time, with recursion off. Every hop is shown: the server that answered, its round-trip time, the nameservers it handed back and whether the referral carried glue. The DNSSEC chain of trust is verified here against the IANA root trust anchors, not read off a resolver's AD bit. Free, open source, JSON API included."
 
 const lookupDesc = "Look up DNS records for any domain: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, PTR, against Cloudflare, Google or Quad9. Shows TTL as seconds and as a duration, plus rcode, header flags and query time. Free, open source, with a curl-able JSON API."
-
-// Mailer: handler dependency for the email-auth page.
-type Mailer interface {
-	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
-}
-
-// Spreader: handler dependency for the consistency check. Separate from Looker
-// so a test can fake either half on its own. *Service satisfies both.
-type Spreader interface {
-	Spread(ctx context.Context, name, qtype string) (*Spread, error)
-}
 
 // Tracer: handler dependency for the delegation walk. Separate from Looker and
 // Spreader so a test can fake one half on its own. *Service satisfies all.
@@ -249,49 +237,15 @@ func (h *handler) email(c *echo.Context) error {
 		return unavailable(c, vm, "dns/email", "dns/emailauth")
 	}
 
-	res, err := h.mail.EmailAuth(c.Request().Context(), name)
+	res, err := EmailReport(c.Request().Context(), h.mail, h.rep, h.block, c.QueryParam("name"))
 	if err == nil {
 		vm["Email"] = res
 		vm["OK"], vm["Warn"], vm["Fail"] = res.Score()
-		if h.rep != nil && h.block != nil {
-			// Best-effort: a corpus that is off or unreadable drops the card
-			// rather than failing the page.
-			if mr, repErr := h.rep.MXReputation(c.Request().Context(), name, h.block); repErr == nil {
-				vm["MXRep"] = mr
-				res.MXRep = mr
-			}
+		if res.MXRep != nil {
+			vm["MXRep"] = res.MXRep
 		}
 	}
 	return answered(c, name, res, err, vm, "dns/email", "dns/emailauth")
-}
-
-// delegationHealth supplies the two inputs Spread's own probes cannot reach:
-// an ASN per nameserver address, from iptools in-process, and the registry's
-// delegation, over RDAP. The judgement itself lives in the domain layer.
-//
-// Reports whether IP2Location and RDAP data each made it onto the page, which
-// is what the two footer credits key off.
-func (h *handler) delegationHealth(ctx context.Context, sp *Spread) (usedGeo, usedRDAP bool) {
-	var asnOf func(string) string
-	if h.geo != nil {
-		asnOf = func(ip string) string {
-			g, err := h.geo.Lookup(ip)
-			if err != nil || g == nil {
-				return ""
-			}
-			return g.ASN
-		}
-	}
-
-	// The registry knows the zone apex and nothing below it, so this asks
-	// about the zone Spread walked up to find, not the name that was typed.
-	var registryNS []string
-	if h.dom != nil && sp.Zone != "" {
-		if reg, err := h.dom.Registration(ctx, strings.TrimSuffix(sp.Zone, ".")); err == nil {
-			registryNS = reg.Nameservers
-		}
-	}
-	return sp.AddDelegationHealth(asnOf, registryNS), len(registryNS) > 0
 }
 
 // domain serves the two questions DNS itself cannot answer: who registered
@@ -311,96 +265,41 @@ func (h *handler) domain(c *echo.Context) error {
 	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
 		return err
 	}
-	// The other routes are validated inside the domain layer; this one reaches
-	// HTTP upstreams directly, so it does its own check first (an IP included).
-	if err := needDomain(name); err != nil {
+	rep, err := DomainInfo(c.Request().Context(), h.svc, h.dom, c.QueryParam("name"))
+	if err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
 	}
-
-	ctx := c.Request().Context()
-	// Registries hold records for registrable domains only; CT is asked about
-	// the name as typed.
-	regName := RegistrableDomain(name)
-	if regName != name {
-		vm["RegFor"] = regName
-	}
-
-	// Two independent upstreams, fetched concurrently: neither should wait on
-	// the other, and either failing must not cost the other's result.
-	var (
-		wg     sync.WaitGroup
-		reg    *Registration
-		regErr error
-		ct     *CertNames
-		ctErr  error
-	)
-	wg.Add(2)
-	go safe(func() {
-		defer wg.Done()
-		regErr = errPanic
-		reg, regErr = h.dom.Registration(ctx, regName)
-	})
-	go safe(func() {
-		defer wg.Done()
-		ctErr = errPanic
-		ct, ctErr = h.dom.CertNames(ctx, name)
-	})
-	wg.Wait()
-
-	// A nil client answers ErrDisabled from both halves, and so does one whose
-	// URLs were blanked in config — the same page either way, which is why
-	// this is one branch rather than a nil check that would miss the second.
-	if errors.Is(regErr, ErrDisabled) && errors.Is(ctErr, ErrDisabled) {
-		return unavailable(c, vm, "dns/domain", "dns/domaininfo")
+	if rep.RegistrableDomain != "" {
+		vm["RegFor"] = rep.RegistrableDomain
 	}
 
 	// Partial success stays 200; total failure must not.
 	code := http.StatusOK
-	if regErr != nil && ctErr != nil {
+	switch err := rep.Err(); {
+	case errors.Is(err, ErrDisabled):
+		return unavailable(c, vm, "dns/domain", "dns/domaininfo")
+	case err != nil:
 		code = http.StatusBadGateway
-	} else {
+	default:
 		vm["TitleName"] = displayName(name)
 	}
-
-	out := map[string]any{"name": name}
-	if regName != name {
-		out["registrable_domain"] = regName
-	}
-	if regErr == nil {
-		out["registration"] = reg
-		vm["Registration"] = reg
-		// Credit each upstream only when its data is actually on the page, and
-		// only on this page — same rule the Shodan credit follows in iptools.
+	if rep.RegErr == nil {
+		vm["Registration"] = rep.Registration
 	} else {
-		out["registration_error"] = regErr.Error()
-		vm["RegError"] = regErr.Error()
-		// Distinguish "the registry answered, and holds nothing for this name"
-		// from "the lookup failed". Only the latter deserves the disclaimer.
-		absent := errors.Is(regErr, errNoRDAPRecord)
-		vm["RegAbsent"] = absent
-		// A name with nameservers is registered whatever its TLD's RDAP says
-		// (.de has none).
-		if absent {
-			if set, err := h.svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
-				vm["RegHasNS"] = true
-				out["delegated"] = true
-				// Known registered: neither "unregistered" nor a total failure.
-				out["registration_error"] = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
-				if code == http.StatusBadGateway {
-					code = http.StatusOK
-					vm["TitleName"] = displayName(name)
-				}
-			}
+		vm["RegError"] = rep.RegErr.Error()
+		// "The registry holds nothing for this name" is an answer; only a
+		// failed lookup deserves the disclaimer.
+		vm["RegAbsent"] = errors.Is(rep.RegErr, errNoRDAPRecord)
+		if rep.Delegated {
+			vm["RegHasNS"] = true
 		}
 	}
-	if ctErr == nil {
-		out["certificate_names"] = ct
-		vm["Certs"] = ct
+	if rep.CertErr == nil {
+		vm["Certs"] = rep.CertNames
 	} else {
-		out["certificate_names_error"] = ctErr.Error()
-		vm["CertError"] = ctErr.Error()
+		vm["CertError"] = rep.CertErr.Error()
 	}
-	return reply(c, code, out, vm, "dns/domain", "dns/domaininfo")
+	return reply(c, code, rep, vm, "dns/domain", "dns/domaininfo")
 }
 
 // consistency serves the "is my change live yet" check: the zone's own
@@ -408,10 +307,7 @@ func (h *handler) domain(c *echo.Context) error {
 // actually returned.
 func (h *handler) consistency(c *echo.Context) error {
 	name, typed := readName(c)
-	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
-	if qtype == "" {
-		qtype = "A"
-	}
+	qtype := walkType(c.QueryParam("type"))
 
 	vm := withName(map[string]any{
 		"Title": "DNS consistency", "Desc": consistencyDesc, "Active": "consistency",
@@ -426,65 +322,20 @@ func (h *handler) consistency(c *echo.Context) error {
 		return unavailable(c, vm, "dns/consistency", "dns/spread")
 	}
 
-	ctx := c.Request().Context()
-
-	// The steering card sends its own queries, one per vantage point. Run them
-	// beside the nameserver walk, the way /domain runs RDAP and CT together,
-	// so the card adds no latency the page was not already spending.
-	var (
-		wg    sync.WaitGroup
-		steer *ECS
-	)
-	if h.ecs != nil {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			// Best-effort. A type this check cannot measure leaves the card
-			// off rather than failing the whole page.
-			if res, ecsErr := h.ecs.ECS(ctx, name, qtype); ecsErr == nil {
-				steer = res
-			}
-		})
-	}
-
-	sp, err := h.spr.Spread(ctx, name, qtype)
+	env, err := Consistency(c.Request().Context(), h.spr, h.ecs, h.geo, h.dom, c.QueryParam("name"), c.QueryParam("type"))
 	if err == nil {
-		// Both credits are asserted from what the findings actually used, not
-		// from the page having been requested.
-		// Flags are already set on the page VM; delegationHealth's return
-		// values would only ever narrow them, and narrowing loses the credit
-		// on the htmx path.
-		h.delegationHealth(ctx, sp)
+		// A nil ECS is falsy to {{with}}, so the card renders nothing when the
+		// check did not run.
+		vm["Spread"], vm["ECS"] = env.Spread, env.ECS
 	}
-	wg.Wait()
-
-	var body any
-	if err == nil {
-		vm["Spread"] = sp
-		// Nil is falsy to {{with}}, so the card renders nothing when the check
-		// did not run.
-		vm["ECS"] = steer
-		// Embedded, so every key /consistency already publishes stays where it
-		// is and the body simply gains "ecs".
-		//
-		// The constructor's one refusal is a nil spread, which Spread does not
-		// return beside a nil error today. Its error still goes to answered
-		// rather than being swallowed back to the bare sp: that fallback would
-		// serve 200 with a `null` body, which is the exact outcome the
-		// constructor exists to prevent, and it would do it silently.
-		body, err = NewECSEnvelope(sp, steer)
-	}
-	return answered(c, name, body, err, vm, "dns/consistency", "dns/spread")
+	return answered(c, name, env, err, vm, "dns/consistency", "dns/spread")
 }
 
 // trace serves the delegation walk from the root, with the chain of trust
 // validated in the domain layer rather than taken from a resolver's AD bit.
 func (h *handler) trace(c *echo.Context) error {
 	name, typed := readName(c)
-	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
-	if qtype == "" {
-		qtype = "A"
-	}
+	qtype := walkType(c.QueryParam("type"))
 
 	vm := withName(map[string]any{
 		"Title": "DNS trace", "Desc": traceDesc, "Active": "trace",
@@ -556,20 +407,24 @@ func (h *handler) index(c *echo.Context) error {
 	// Blank or "all" = the default fan-out. Naming one type narrows to it, so
 	// a ?type= permalink still works, but nobody has to click through nine
 	// types to find out what a domain publishes.
-	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
-	if qtype == "ALL" {
-		qtype = ""
-	}
-	resolver := strings.ToLower(strings.TrimSpace(c.QueryParam("resolver")))
-	if resolver == "" {
-		resolver = DefaultResolver
-	}
+	qtype := lookupType(c.QueryParam("type"))
+	resolver := resolverKey(c.QueryParam("resolver"))
 
 	vm := withName(h.vm(name, qtype, resolver), name, typed)
 	if done, err := needName(c, name, vm, "dns/index", "dns/result", "/?name=example.com&type=A"); done {
 		return err
 	}
-	return h.show(c, vm, name, qtype, resolver)
+	// No "your request" connection card here, unlike iptools/botcheck: this
+	// tool answers questions about someone else's domain, so the visitor's own
+	// connection is a non-sequitur. The DNS-relevant version of that idea is
+	// resolver identity ("which resolver do YOU use"), which needs a delegated
+	// beacon zone and is Tier 2 (02-build-fit.md §4).
+	res, err := LookupEnriched(c.Request().Context(), h.svc, h.geo,
+		c.QueryParam("name"), c.QueryParam("type"), c.QueryParam("resolver"))
+	if err == nil {
+		vm["Result"] = res
+	}
+	return answered(c, name, res, err, vm, "dns/index", "dns/result")
 }
 
 // vm builds the shared view model every render of this page needs.
@@ -586,57 +441,6 @@ func (h *handler) vm(name, qtype, resolver string) map[string]any {
 		"Types":       Types,
 		"Resolvers":   Resolvers,
 	}
-}
-
-// show runs the lookup and responds in the caller's preferred format.
-func (h *handler) show(c *echo.Context, vm map[string]any, name, qtype, resolver string) error {
-	var types []string
-	if qtype != "" {
-		types = []string{qtype}
-	}
-	res, err := h.svc.LookupSet(c.Request().Context(), name, resolver, types)
-	if err == nil {
-		vm["Result"] = res
-		// IP2Location's licence requires the credit wherever their data shows
-		// (shared/templates/partials/footer.html), so it is claimed only once
-		// enrichment has actually attached something.
-		h.enrich(res)
-	}
-	// No "your request" connection card here, unlike iptools/botcheck: this
-	// tool answers questions about someone else's domain, so the visitor's own
-	// connection is a non-sequitur. The DNS-relevant version of that idea is
-	// resolver identity ("which resolver do YOU use"), which needs a delegated
-	// beacon zone and is Tier 2 (02-build-fit.md §4).
-	return answered(c, name, res, err, vm, "dns/index", "dns/result")
-}
-
-// enrich attaches ASN / AS-name / country to each A and AAAA answer by calling
-// iptools' geo service directly, in-process. Best-effort throughout: no geo
-// service, unloaded databases or a failed lookup just leaves the fields blank
-// and the DNS result stands on its own.
-// Returns whether it actually attached anything, which drives the
-// IP2Location credit: the footer shows exactly when their data is on screen.
-func (h *handler) enrich(set *ResultSet) bool {
-	if h.geo == nil || set == nil {
-		return false
-	}
-	attached := false
-	for f := range set.Found {
-		for i, r := range set.Found[f].Records {
-			if r.Type != "A" && r.Type != "AAAA" {
-				continue
-			}
-			geo, err := h.geo.Lookup(r.Value)
-			if err != nil || geo == nil {
-				continue
-			}
-			set.Found[f].Records[i].ASN = geo.ASN
-			set.Found[f].Records[i].ASName = geo.ASName
-			set.Found[f].Records[i].Country = geo.Country
-			attached = attached || geo.ASN != "" || geo.ASName != "" || geo.Country != ""
-		}
-	}
-	return attached
 }
 
 // statusFor maps domain errors to HTTP status: caller's fault (bad type,

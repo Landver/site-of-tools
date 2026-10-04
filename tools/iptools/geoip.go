@@ -29,8 +29,9 @@ type Result struct {
 	ASName      string  `json:"as_name"`
 	Proxy       *Proxy  `json:"proxy,omitempty"`
 	// Blocklist: abuse/threat reputation from shared ip_blocklist corpus
-	// (G37), handler-populated (NOT by Lookup — separate repository). nil =
-	// not checked (corpus off); non-nil = checked, Listed() false when clean.
+	// (G37), set by LookupWithReputation (NOT by Lookup — separate
+	// repository). nil = not checked (corpus off); non-nil = checked,
+	// Listed() false when clean.
 	Blocklist *BlockLookup `json:"blocklist,omitempty"`
 	// Shodan: open-port intel for looked-up IP from Shodan free InternetDB
 	// (handler-populated, best-effort — NOT by Lookup, same shape as Blocklist).
@@ -71,6 +72,17 @@ func (s *Service) WithShodan(sh *Shodan) *Service {
 		s.shodan = sh
 	}
 	return s
+}
+
+// Offline returns a copy of s, sharing its open databases, that never calls
+// Shodan. Nil-safe.
+func (s *Service) Offline() *Service {
+	if s == nil {
+		return nil
+	}
+	c := *s
+	c.shodan = nil
+	return &c
 }
 
 // ErrUnavailable: returned when geolocation databases not loaded.
@@ -174,13 +186,38 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		ASName:      clean(as.As),
 		Proxy:       s.lookupProxy(ipStr),
 	}
-	if s.shodan != nil && routable(ipStr) {
+	if s.shodan != nil && Routable(ipStr) {
 		if si, err := s.shodan.Lookup(context.Background(), ipStr); err == nil && si != nil {
 			res.Shodan = si
 			FuseShodanProxy(res)
 		}
 	}
 	return res, nil
+}
+
+// LookupWithReputation looks ip up via svc and, when chk is set, attaches the
+// blocklist reputation. A failed blocklist read leaves Blocklist nil (not
+// checked), never an empty "clean" lookup.
+func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip string) (*Result, error) {
+	if svc == nil {
+		return nil, ErrUnavailable
+	}
+	res, err := svc.Lookup(ip)
+	if err != nil || res == nil || chk == nil {
+		return res, err
+	}
+	if lk, err := chk.Check(ctx, ip); err == nil {
+		res.Blocklist = &lk
+	}
+	return res, nil
+}
+
+// Routable reports whether ip is a public address worth geolocating: not
+// loopback, private, link-local or unspecified.
+func Routable(ip string) bool {
+	a := net.ParseIP(ip)
+	return a != nil && !a.IsLoopback() && !a.IsPrivate() &&
+		!a.IsLinkLocalUnicast() && !a.IsUnspecified()
 }
 
 // FuseShodanProxy syncs Shodan proxy/VPN tags into res.Proxy if tagged.

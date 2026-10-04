@@ -23,14 +23,16 @@ import (
 
 	"github.com/miekg/dns"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 // Record: one answer row, transport layer renders as HTML or JSON.
 //
 // TTLHuman sits alongside TTL, never instead of it: every tool surveyed that
 // humanises TTL keeps the raw integer too (feature inventory §1).
-// ASN/ASName/Country are best-effort IP enrichment filled in by the handler
-// via iptools, NOT by this package — domain layer stays pure DNS.
+// ASN/ASName/Country are best-effort IP enrichment that LookupEnriched adds
+// from iptools; LookupSet itself stays pure DNS.
 // Field: one decoded part of a record whose value is a packed tuple (SOA's
 // timers, for instance). Shown under the raw value, never instead of it.
 type Field struct {
@@ -641,6 +643,58 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	return set, nil
 }
 
+// LookupEnriched is GET /'s lookup, defaults included: name normalised like
+// pasted input, blank or "ALL" type = the fan-out, blank resolver = the
+// default. geo (nil-able) adds each A/AAAA answer's network.
+func LookupEnriched(ctx context.Context, svc Looker, geo iptools.Looker, name, qtype, resolver string) (*ResultSet, error) {
+	var types []string
+	if t := lookupType(qtype); t != "" {
+		types = []string{t}
+	}
+	set, err := svc.LookupSet(ctx, NormalizeName(name), resolverKey(resolver), types)
+	if err != nil {
+		return nil, err
+	}
+	enrichGeo(set, geo)
+	return set, nil
+}
+
+// lookupType: "" is the fan-out.
+func lookupType(qtype string) string {
+	t := strings.ToUpper(strings.TrimSpace(qtype))
+	if t == "ALL" {
+		return ""
+	}
+	return t
+}
+
+func resolverKey(resolver string) string {
+	if r := strings.ToLower(strings.TrimSpace(resolver)); r != "" {
+		return r
+	}
+	return DefaultResolver
+}
+
+func enrichGeo(set *ResultSet, geo iptools.Looker) {
+	if geo == nil || set == nil {
+		return
+	}
+	for f := range set.Found {
+		for i, r := range set.Found[f].Records {
+			if r.Type != "A" && r.Type != "AAAA" {
+				continue
+			}
+			g, err := geo.Lookup(r.Value)
+			if err != nil || g == nil {
+				continue
+			}
+			set.Found[f].Records[i].ASN = g.ASN
+			set.Found[f].Records[i].ASName = g.ASName
+			set.Found[f].Records[i].Country = g.Country
+		}
+	}
+}
+
 func txtRank(r Record) int {
 	switch {
 	case strings.HasPrefix(strings.ToLower(strings.TrimLeft(r.Value, `"`)), "v=spf1"):
@@ -733,8 +787,8 @@ func (s *Service) lookup(ctx context.Context, qname, qtype, addr string) (Result
 	return cloneResult(e.result, false, 0), e.err
 }
 
-// cloneResult returns a Result whose Records slice is the caller's own, so a
-// handler enriching records (ASN, country) can never write into the cache or
+// cloneResult returns a Result whose Records slice is the caller's own, so
+// LookupEnriched adding ASN and country can never write into the cache or
 // into another request's answer. age is how long the answer has been held.
 func cloneResult(r Result, cached bool, age time.Duration) Result {
 	out := r

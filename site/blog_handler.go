@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,8 +14,8 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// errPostNotFound: slug has no published post → handler maps it to 404.
-var errPostNotFound = errors.New("blog: post not found")
+// ErrPostNotFound: slug has no published post → handler maps it to 404.
+var ErrPostNotFound = errors.New("blog: post not found")
 
 // absoluteURL expands a site path ("/static/img/x.png") against base;
 // already-absolute URLs pass through. og:image must be absolute.
@@ -56,16 +57,18 @@ func (b *Blog) reload() error {
 	return nil
 }
 
-func (b *Blog) posts() ([]Post, error) {
+// Posts returns the published posts, newest first. The slice is the
+// caller's own: editing it never reaches the loaded set.
+func (b *Blog) Posts() ([]Post, error) {
 	if b.dev {
-		// Fresh slice per request — no shared mutation under parallel requests.
 		return LoadPosts(b.fsys)
 	}
-	return b.loaded, nil
+	return slices.Clone(b.loaded), nil
 }
 
-func (b *Blog) post(slug string) (Post, error) {
-	posts, err := b.posts()
+// Post returns the published post with this slug, or ErrPostNotFound.
+func (b *Blog) Post(slug string) (Post, error) {
+	posts, err := b.Posts()
 	if err != nil {
 		return Post{}, err
 	}
@@ -74,7 +77,7 @@ func (b *Blog) post(slug string) (Post, error) {
 			return p, nil
 		}
 	}
-	return Post{}, errPostNotFound
+	return Post{}, ErrPostNotFound
 }
 
 // registerRoutes wires /blog, /blog/:slug, /blog/feed.xml onto the apex app.
@@ -87,7 +90,7 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 	postURL := func(slug string) string { return blogURL + "/" + slug }
 
 	e.GET("/blog", func(c *echo.Context) error {
-		posts, err := b.posts()
+		posts, err := b.Posts()
 		if err != nil {
 			return err
 		}
@@ -102,8 +105,8 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 	})
 
 	e.GET("/blog/:slug", func(c *echo.Context) error {
-		post, err := b.post(c.Param("slug"))
-		if errors.Is(err, errPostNotFound) {
+		post, err := b.Post(c.Param("slug"))
+		if errors.Is(err, ErrPostNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "no such post")
 		}
 		if err != nil {
@@ -137,7 +140,7 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 
 	// Static path beats /blog/:slug in echo's router — no conflict.
 	e.GET("/blog/feed.xml", func(c *echo.Context) error {
-		posts, err := b.posts()
+		posts, err := b.Posts()
 		if err != nil {
 			return err
 		}

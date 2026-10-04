@@ -1,0 +1,289 @@
+{
+  "bad_type": {
+    "status": 400,
+    "body": {
+      "error": "unsupported record type",
+      "name": "example.com"
+    }
+  },
+  "fanout_enriched": {
+    "status": 200,
+    "body": {
+      "name": "example.com",
+      "qname": "example.com.",
+      "resolver": "cloudflare",
+      "resolver_name": "Cloudflare (1.1.1.1)",
+      "flags": "qr rd ra",
+      "nxdomain": false,
+      "found": [
+        {
+          "type": "A",
+          "records": [
+            {
+              "type": "A",
+              "value": "192.0.2.10",
+              "ttl": 300,
+              "ttl_human": "5m",
+              "asn": "64500",
+              "as_name": "Example Net",
+              "country": "Exampleland"
+            }
+          ],
+          "cached": false
+        },
+        {
+          "type": "AAAA",
+          "records": [
+            {
+              "type": "AAAA",
+              "value": "2001:db8::10",
+              "ttl": 300,
+              "ttl_human": "5m",
+              "asn": "64500",
+              "as_name": "Example Net",
+              "country": "Exampleland"
+            }
+          ],
+          "cached": false
+        },
+        {
+          "type": "MX",
+          "records": [
+            {
+              "type": "MX",
+              "value": "10 mail.example.com.",
+              "ttl": 3600,
+              "ttl_human": "1h",
+              "target": "mail.example.com"
+            }
+          ],
+          "cached": false
+        }
+      ],
+      "missing": [
+        "CNAME",
+        "NS",
+        "TXT",
+        "SOA",
+        "CAA",
+        "HTTPS"
+      ],
+      "signed": false,
+      "authenticated": false,
+      "dnssec_bogus": false,
+      "dig": [
+        "dig @1.1.1.1 example.com. A,AAAA,CNAME,MX,NS,TXT,SOA,CAA,HTTPS"
+      ],
+      "cached": false,
+      "asked": 9,
+      "query_ms": 7
+    }
+  },
+  "no_name": {
+    "status": 400,
+    "body": {
+      "error": "no name; pass ?name=, e.g. /?name=example.com\u0026type=A"
+    }
+  },
+  "reverse": {
+    "status": 200,
+    "body": {
+      "name": "192.0.2.10",
+      "qname": "192.0.2.10.",
+      "resolver": "cloudflare",
+      "resolver_name": "Cloudflare (1.1.1.1)",
+      "flags": "qr rd ra",
+      "nxdomain": false,
+      "found": [],
+      "missing": [
+        "PTR"
+      ],
+      "signed": false,
+      "authenticated": false,
+      "dnssec_bogus": false,
+      "dig": [
+        "dig @1.1.1.1 192.0.2.10. PTR"
+      ],
+      "cached": false,
+      "asked": 1,
+      "query_ms": 7
+    }
+  },
+  "trailing_junk": {
+    "status": 200,
+    "body": {
+      "name": "example.com ",
+      "qname": "example.com .",
+      "resolver": "cloudflare",
+      "resolver_name": "Cloudflare (1.1.1.1)",
+      "flags": "qr rd ra",
+      "nxdomain": false,
+      "found": [
+        {
+          "type": "A",
+          "records": [
+            {
+              "type": "A",
+              "value": "192.0.2.10",
+              "ttl": 300,
+              "ttl_human": "5m"
+            }
+          ],
+          "cached": false
+        },
+        {
+          "type": "AAAA",
+          "records": [
+            {
+              "type": "AAAA",
+              "value": "2001:db8::10",
+              "ttl": 300,
+              "ttl_human": "5m"
+            }
+          ],
+          "cached": false
+        },
+        {
+          "type": "MX",
+          "records": [
+            {
+              "type": "MX",
+              "value": "10 mail.example.com.",
+              "ttl": 3600,
+              "ttl_human": "1h",
+              "target": "mail.example.com"
+            }
+          ],
+          "cached": false
+        }
+      ],
+      "missing": [
+        "CNAME",
+        "NS",
+        "TXT",
+        "SOA",
+        "CAA",
+        "HTTPS"
+      ],
+      "signed": false,
+      "authenticated": false,
+      "dnssec_bogus": false,
+      "dig": [
+        "dig @1.1.1.1 example.com . A,AAAA,CNAME,MX,NS,TXT,SOA,CAA,HTTPS"
+      ],
+      "cached": false,
+      "asked": 9,
+      "query_ms": 7
+    }
+  },
+  "type_all_no_geo": {
+    "status": 200,
+    "body": {
+      "name": "example.com",
+      "qname": "example.com.",
+      "resolver": "cloudflare",
+      "resolver_name": "Cloudflare (1.1.1.1)",
+      "flags": "qr rd ra",
+      "nxdomain": false,
+      "found": [
+        {
+          "type": "A",
+          "records": [
+            {
+              "type": "A",
+              "value": "192.0.2.10",
+              "ttl": 300,
+              "ttl_human": "5m"
+            }
+          ],
+          "cached": false
+        },
+        {
+          "type": "AAAA",
+          "records": [
+            {
+              "type": "AAAA",
+              "value": "2001:db8::10",
+              "ttl": 300,
+              "ttl_human": "5m"
+            }
+          ],
+          "cached": false
+        },
+        {
+          "type": "MX",
+          "records": [
+            {
+              "type": "MX",
+              "value": "10 mail.example.com.",
+              "ttl": 3600,
+              "ttl_human": "1h",
+              "target": "mail.example.com"
+            }
+          ],
+          "cached": false
+        }
+      ],
+      "missing": [
+        "CNAME",
+        "NS",
+        "TXT",
+        "SOA",
+        "CAA",
+        "HTTPS"
+      ],
+      "signed": false,
+      "authenticated": false,
+      "dnssec_bogus": false,
+      "dig": [
+        "dig @1.1.1.1 example.com. A,AAAA,CNAME,MX,NS,TXT,SOA,CAA,HTTPS"
+      ],
+      "cached": false,
+      "asked": 9,
+      "query_ms": 7
+    }
+  },
+  "type_and_resolver": {
+    "status": 200,
+    "body": {
+      "name": "example.com",
+      "qname": "example.com.",
+      "resolver": "google",
+      "resolver_name": "Google (8.8.8.8)",
+      "flags": "qr rd ra",
+      "nxdomain": false,
+      "found": [
+        {
+          "type": "MX",
+          "records": [
+            {
+              "type": "MX",
+              "value": "10 mail.example.com.",
+              "ttl": 3600,
+              "ttl_human": "1h",
+              "target": "mail.example.com"
+            }
+          ],
+          "cached": false
+        }
+      ],
+      "missing": [],
+      "signed": false,
+      "authenticated": false,
+      "dnssec_bogus": false,
+      "dig": [
+        "dig @1.1.1.1 example.com. MX"
+      ],
+      "cached": false,
+      "asked": 1,
+      "query_ms": 7
+    }
+  },
+  "upstream_failure": {
+    "status": 502,
+    "body": {
+      "error": "query 1.1.1.1:53: i/o timeout",
+      "name": "example.com"
+    }
+  }
+}

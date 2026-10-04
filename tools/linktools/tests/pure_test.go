@@ -1118,3 +1118,55 @@ func TestEncodeLeadsWithTheReading(t *testing.T) {
 		t.Errorf("trailing newline notes = %+v", nl.Notes)
 	}
 }
+
+// TestUTMAbsentKeepsEmptyRemoves: a key left out keeps the URL's tag; "" removes
+// every copy of it.
+func TestUTMAbsentKeepsEmptyRemoves(t *testing.T) {
+	t.Parallel()
+	res, err := linktools.NewService().BuildUTM(
+		"https://example.com/?utm_source=old&utm_medium=email&utm_campaign=a&utm_campaign=b&x=1",
+		map[string]string{"utm_medium": "", "utm_campaign": " ", "utm_term": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.URL != "https://example.com/?utm_source=old&x=1" {
+		t.Errorf("built %q", res.URL)
+	}
+	if diff := cmp.Diff([]linktools.UTMTag{{Key: "utm_source", Value: "old", Source: linktools.TagKept}}, res.Tags); diff != "" {
+		t.Errorf("tags (-want +got):\n%s", diff)
+	}
+}
+
+func TestParseCurlInspectsTheURLItFound(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.ParseCurl("  curl -sS 'https://example.com/a?b=1' -H 'X-Trace: 42'  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.URL != "https://example.com/a?b=1" || res.Inspection == nil || res.Inspection.Host != "example.com" ||
+		len(res.Headers) != 1 || res.Method != "GET" {
+		t.Errorf("ParseCurl = %+v", res)
+	}
+	if _, err := svc.ParseCurl("curl -H 'a: b'"); err == nil {
+		t.Error("a command without a URL parsed")
+	}
+}
+
+func TestDiffNamesTheSideThatFailed(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	for _, tc := range []struct{ a, b, prefix string }{
+		{"https://example.com/", "http://[::1", "URL B is not valid: "},
+		{"http://%zz", "https://example.com/", "URL A is not valid: "},
+		{" ", "https://example.com/", "need two URLs"},
+	} {
+		if _, err := svc.Diff(tc.a, tc.b); err == nil || !strings.HasPrefix(err.Error(), tc.prefix) {
+			t.Errorf("Diff(%q, %q) = %v, want %q…", tc.a, tc.b, err, tc.prefix)
+		}
+	}
+	d, err := svc.Diff(" https://example.com/?a=1 ", "https://example.com/?a=2")
+	if err != nil || d.Identical || d.A != "https://example.com/?a=1" {
+		t.Errorf("Diff = %+v, %v", d, err)
+	}
+}

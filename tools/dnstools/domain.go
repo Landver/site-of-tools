@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -408,6 +409,92 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 		out.Truncated = true
 	}
 	return out, nil
+}
+
+// DomainReport is GET /domain's body. RegErr and CertErr keep each half's own
+// failure for the caller; Err judges the report as a whole.
+type DomainReport struct {
+	CertNames         *CertNames    `json:"certificate_names,omitempty"`
+	CertNamesError    string        `json:"certificate_names_error,omitempty"`
+	Delegated         bool          `json:"delegated,omitempty"`
+	Name              string        `json:"name"`
+	RegistrableDomain string        `json:"registrable_domain,omitempty"`
+	Registration      *Registration `json:"registration,omitempty"`
+	RegistrationError string        `json:"registration_error,omitempty"`
+
+	RegErr  error `json:"-"`
+	CertErr error `json:"-"`
+}
+
+// DomainInfo asks RDAP about name's registrable domain and CT about name
+// itself, concurrently, so one upstream failing still leaves the other. Its
+// error is bad input only.
+func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string) (*DomainReport, error) {
+	name = NormalizeName(name)
+	// Checked here, not left to a resolver: both upstreams are plain HTTP.
+	if err := needDomain(name); err != nil {
+		return nil, err
+	}
+	out := &DomainReport{Name: name}
+	regName := RegistrableDomain(name)
+	if regName != name {
+		out.RegistrableDomain = regName
+	}
+
+	var (
+		wg     sync.WaitGroup
+		reg    *Registration
+		regErr error
+		ct     *CertNames
+		ctErr  error
+	)
+	wg.Add(2)
+	go safe(func() {
+		defer wg.Done()
+		regErr = errPanic
+		reg, regErr = dom.Registration(ctx, regName)
+	})
+	go safe(func() {
+		defer wg.Done()
+		ctErr = errPanic
+		ct, ctErr = dom.CertNames(ctx, name)
+	})
+	wg.Wait()
+
+	out.RegErr, out.CertErr = regErr, ctErr
+	if regErr == nil {
+		out.Registration = reg
+	} else {
+		out.RegistrationError = regErr.Error()
+		// A name with nameservers is registered whatever its TLD's RDAP says
+		// (.de has none).
+		if errors.Is(regErr, errNoRDAPRecord) && svc != nil {
+			if set, err := svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
+				out.Delegated = true
+				out.RegistrationError = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
+			}
+		}
+	}
+	if ctErr == nil {
+		out.CertNames = ct
+	} else {
+		out.CertNamesError = ctErr.Error()
+	}
+	return out, nil
+}
+
+// Err is ErrDisabled when neither upstream is configured, an error naming
+// both failures when neither answered and no delegation vouches for the
+// name, else nil.
+func (r *DomainReport) Err() error {
+	switch {
+	case errors.Is(r.RegErr, ErrDisabled) && errors.Is(r.CertErr, ErrDisabled):
+		return ErrDisabled
+	case r.RegErr != nil && r.CertErr != nil && !r.Delegated:
+		// %s, not %w: one half being switched off must not read as both.
+		return fmt.Errorf("registration: %s; certificate transparency: %s", r.RegistrationError, r.CertNamesError)
+	}
+	return nil
 }
 
 // date trims an RFC3339-ish timestamp to the day, which is all these fields

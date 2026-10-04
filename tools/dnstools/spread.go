@@ -14,6 +14,8 @@ import (
 
 	"github.com/miekg/dns"
 	"golang.org/x/net/publicsuffix"
+
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 // Spread answers "is my change live yet", honestly.
@@ -803,6 +805,74 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	}
 	sortNotes(sp.Health)
 	return usedASN
+}
+
+// Spreader: Consistency's zone canvass, apart from Looker so a test can fake
+// either half. *Service satisfies both.
+type Spreader interface {
+	Spread(ctx context.Context, name, qtype string) (*Spread, error)
+}
+
+// Consistency is GET /consistency: the zone canvass, the ECS steering card
+// run beside it (best-effort, ecs may be nil), and the delegation health only
+// geo and dom can supply. A blank type is A.
+func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looker, dom *DomainClient, name, qtype string) (*ECSEnvelope, error) {
+	if spr == nil {
+		return nil, ErrDisabled
+	}
+	name, qtype = NormalizeName(name), walkType(qtype)
+	var (
+		wg    sync.WaitGroup
+		steer *ECS
+	)
+	if ecs != nil {
+		wg.Add(1)
+		go safe(func() {
+			defer wg.Done()
+			if res, err := ecs.ECS(ctx, name, qtype); err == nil {
+				steer = res
+			}
+		})
+	}
+	sp, err := spr.Spread(ctx, name, qtype)
+	if err == nil && sp != nil {
+		delegationHealth(ctx, sp, geo, dom)
+	}
+	wg.Wait()
+	if err != nil {
+		return nil, err
+	}
+	return NewECSEnvelope(sp, steer)
+}
+
+func walkType(qtype string) string {
+	if t := strings.ToUpper(strings.TrimSpace(qtype)); t != "" {
+		return t
+	}
+	return "A"
+}
+
+// delegationHealth fetches what Spread's probes cannot reach: each
+// nameserver's ASN, and the registry's delegation for sp.Zone (the registry
+// knows the zone apex, not the name asked about).
+func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *DomainClient) {
+	var asnOf func(string) string
+	if geo != nil {
+		asnOf = func(ip string) string {
+			g, err := geo.Lookup(ip)
+			if err != nil || g == nil {
+				return ""
+			}
+			return g.ASN
+		}
+	}
+	var registryNS []string
+	if dom != nil && sp.Zone != "" {
+		if reg, err := dom.Registration(ctx, strings.TrimSuffix(sp.Zone, ".")); err == nil {
+			registryNS = reg.Nameservers
+		}
+	}
+	sp.AddDelegationHealth(asnOf, registryNS)
 }
 
 // providerKey reduces a nameserver hostname to the operator running it, so

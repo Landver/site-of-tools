@@ -118,6 +118,20 @@ func NewBlockList(db *mongo.Database) *BlockList {
 	return &BlockList{coll: db.Collection(blocklistCollection)}
 }
 
+// Checker is the read side of the corpus that lookups are enriched from.
+type Checker interface {
+	Check(ctx context.Context, ip string) (BlockLookup, error)
+}
+
+// CheckerFrom returns b as a Checker, nil when b is nil: a nil *BlockList
+// answers "not listed", which inside an interface would read as checked-clean.
+func CheckerFrom(b *BlockList) Checker {
+	if b == nil {
+		return nil
+	}
+	return b
+}
+
 // EnsureIndexes creates the three indexes, best-effort + idempotent (safe every
 // startup). Nil-safe.
 //

@@ -258,6 +258,62 @@ func TrackingRuleFor(key string) string {
 	return r.name()
 }
 
+// ParamVerdict is what Clean does with one query parameter, and why.
+// Affiliate: a rule matches, but Clean strips it only when asked to.
+type ParamVerdict struct {
+	Key        string `json:"key"`
+	Strip      bool   `json:"strip"`
+	Affiliate  bool   `json:"affiliate,omitempty"`
+	NeverStrip bool   `json:"never_strip,omitempty"`
+	Rule       string `json:"rule,omitempty"`
+	Why        string `json:"why,omitempty"`
+}
+
+// URLVerdict judges a URL's query as Clean does by default: nothing
+// unwrapped, affiliate tags kept. Signed names the signature that makes Clean
+// leave the whole URL alone, in which case nothing has Strip set.
+type URLVerdict struct {
+	Host   string         `json:"host"`
+	Signed string         `json:"signed,omitempty"`
+	Params []ParamVerdict `json:"params"`
+}
+
+// Verdict runs Clean's own lookup over raw's parameters. That lookup reads
+// the package tables Rules copies, not the receiver.
+func (RuleCatalog) Verdict(raw string) (*URLVerdict, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("no URL given")
+	}
+	if len(raw) > maxInput {
+		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
+	}
+	host := u.Hostname()
+	_, query, _, _, _ := splitParts(raw)
+	pairs := splitRawPairs(query)
+	out := &URLVerdict{Host: host, Params: []ParamVerdict{}}
+	out.Signed, _ = looksSigned(pairs)
+	for _, p := range pairs {
+		if p.key == "" {
+			continue
+		}
+		v := ParamVerdict{Key: p.key}
+		if r, ok := lookupTracking(p.key, host, false); ok {
+			v.Strip, v.Rule, v.Why = out.Signed == "", r.name(), removalFor(p, r).Why
+		} else if a, ok := lookupTracking(p.key, host, true); ok && a.Class == ClassAffiliate {
+			v.Affiliate, v.Rule, v.Why = true, a.name(), removalFor(p, a).Why
+		} else if why, denied := denyReason(p.key, host); denied {
+			v.NeverStrip, v.Why = true, why
+		}
+		out.Params = append(out.Params, v)
+	}
+	return out, nil
+}
+
 func removalFor(p rawPair, r Rule) Removal {
 	why := r.Origin + ": " + r.Class.why() + "."
 	if r.Note != "" {

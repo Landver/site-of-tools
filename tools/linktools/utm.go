@@ -33,9 +33,10 @@ type UTMResult struct {
 	Notes []Note   `json:"notes,omitempty"`
 }
 
-// BuildUTM tags raw with the typed values. A typed value replaces the URL's
-// own (analytics tools disagree about duplicates); an empty one leaves it.
-func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, error) {
+// BuildUTM applies changes to raw's campaign tags. A value replaces the URL's
+// own (analytics tools disagree about duplicates), "" removes it, and a key
+// absent from changes keeps whatever the URL has.
+func (s *Service) BuildUTM(raw string, changes map[string]string) (*UTMResult, error) {
 	raw = strings.TrimSpace(raw)
 	in, err := s.Parse(raw)
 	if err != nil {
@@ -60,9 +61,14 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 	}
 
 	for _, key := range UTMKeys {
-		v := strings.TrimSpace(typed[key])
+		v, given := changes[key]
+		v = strings.TrimSpace(v)
 		old, copies := firstValue(in.Params, key)
 		switch {
+		case given && v == "":
+			if copies > 0 {
+				in.Params = upsertParam(in.Params, key, "")
+			}
 		case v != "":
 			in.Params = upsertParam(in.Params, key, v)
 			tag := UTMTag{Key: key, Value: v, Source: TagSet}

@@ -1,0 +1,89 @@
+{
+  "index": {
+    "status": 200,
+    "body": {
+      "Canonical": "https://corpberry.com/blog",
+      "Desc": "Occasional technical writeups by Stas: bot detection, Go, and the tools on this site.",
+      "Feed": "https://corpberry.com/blog/feed.xml",
+      "Posts": [
+        {
+          "Date": "2026-07-25T00:00:00Z",
+          "Desc": "The third test post.",
+          "Draft": false,
+          "HTML": "<p>Third body with a <a href=\"https://example.com\">link</a>.</p>\n",
+          "Image": "/static/img/post-card.png",
+          "Slug": "third-post",
+          "Title": "Third Post"
+        },
+        {
+          "Date": "2026-07-20T00:00:00Z",
+          "Desc": "The first test post.",
+          "Draft": false,
+          "HTML": "<p>Hello <strong>first</strong> body.</p>\n",
+          "Image": "https://example.com/first-card.png",
+          "Slug": "first-post",
+          "Title": "First Post"
+        }
+      ],
+      "Title": "Blog — corpberry.com"
+    }
+  },
+  "post_absent": {
+    "status": 404,
+    "body": {
+      "message": "no such post"
+    }
+  },
+  "post_draft": {
+    "status": 404,
+    "body": {
+      "message": "no such post"
+    }
+  },
+  "post_first": {
+    "status": 200,
+    "body": {
+      "Author": "Stas",
+      "Canonical": "https://corpberry.com/blog/first-post",
+      "Desc": "The first test post.",
+      "Feed": "https://corpberry.com/blog/feed.xml",
+      "JSONLD": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"BlogPosting\",\n  \"headline\": \"First Post\",\n  \"description\": \"The first test post.\",\n  \"image\": \"https://example.com/first-card.png\",\n  \"datePublished\": \"2026-07-20T00:00:00Z\",\n  \"dateModified\": \"2026-07-20T00:00:00Z\",\n  \"url\": \"https://corpberry.com/blog/first-post\",\n  \"mainEntityOfPage\": {\n    \"@type\": \"WebPage\",\n    \"@id\": \"https://corpberry.com/blog/first-post\"\n  },\n  \"author\": {\n    \"@type\": \"Person\",\n    \"name\": \"Stas\",\n    \"url\": \"https://corpberry.com\",\n    \"sameAs\": [\n      \"https://www.linkedin.com/in/stanislav-navarici/\"\n    ]\n  },\n  \"publisher\": {\n    \"@type\": \"Person\",\n    \"name\": \"Stas\",\n    \"url\": \"https://corpberry.com\",\n    \"sameAs\": [\n      \"https://www.linkedin.com/in/stanislav-navarici/\"\n    ]\n  },\n  \"inLanguage\": \"en\"\n}",
+      "OGImage": "https://example.com/first-card.png",
+      "OGType": "article",
+      "Post": {
+        "Date": "2026-07-20T00:00:00Z",
+        "Desc": "The first test post.",
+        "Draft": false,
+        "HTML": "<p>Hello <strong>first</strong> body.</p>\n",
+        "Image": "https://example.com/first-card.png",
+        "Slug": "first-post",
+        "Title": "First Post"
+      },
+      "Published": "2026-07-20T00:00:00Z",
+      "Title": "First Post — corpberry.com"
+    }
+  },
+  "post_third": {
+    "status": 200,
+    "body": {
+      "Author": "Stas",
+      "Canonical": "https://corpberry.com/blog/third-post",
+      "Desc": "The third test post.",
+      "Feed": "https://corpberry.com/blog/feed.xml",
+      "JSONLD": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"BlogPosting\",\n  \"headline\": \"Third Post\",\n  \"description\": \"The third test post.\",\n  \"image\": \"https://corpberry.com/static/img/post-card.png\",\n  \"datePublished\": \"2026-07-25T00:00:00Z\",\n  \"dateModified\": \"2026-07-25T00:00:00Z\",\n  \"url\": \"https://corpberry.com/blog/third-post\",\n  \"mainEntityOfPage\": {\n    \"@type\": \"WebPage\",\n    \"@id\": \"https://corpberry.com/blog/third-post\"\n  },\n  \"author\": {\n    \"@type\": \"Person\",\n    \"name\": \"Stas\",\n    \"url\": \"https://corpberry.com\",\n    \"sameAs\": [\n      \"https://www.linkedin.com/in/stanislav-navarici/\"\n    ]\n  },\n  \"publisher\": {\n    \"@type\": \"Person\",\n    \"name\": \"Stas\",\n    \"url\": \"https://corpberry.com\",\n    \"sameAs\": [\n      \"https://www.linkedin.com/in/stanislav-navarici/\"\n    ]\n  },\n  \"inLanguage\": \"en\"\n}",
+      "OGImage": "https://corpberry.com/static/img/post-card.png",
+      "OGType": "article",
+      "Post": {
+        "Date": "2026-07-25T00:00:00Z",
+        "Desc": "The third test post.",
+        "Draft": false,
+        "HTML": "<p>Third body with a <a href=\"https://example.com\">link</a>.</p>\n",
+        "Image": "/static/img/post-card.png",
+        "Slug": "third-post",
+        "Title": "Third Post"
+      },
+      "Published": "2026-07-25T00:00:00Z",
+      "Title": "Third Post — corpberry.com"
+    }
+  }
+}

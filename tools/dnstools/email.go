@@ -44,8 +44,8 @@ type EmailAuth struct {
 	// Receivers weigh FCrDNS heavily, and a mail server whose PTR doesn't
 	// round-trip gets scored down without anything in DNS looking wrong.
 	MailHosts []MailHost `json:"mail_hosts,omitempty"`
-	// MXRep: are these mail servers on a blocklist? Filled by the handler
-	// from the shared corpus, which the domain layer cannot reach itself.
+	// MXRep: are these mail servers on a blocklist? Filled by EmailReport
+	// from the shared corpus, which EmailAuth cannot reach itself.
 	MXRep *MXReputation `json:"mx_reputation,omitempty"`
 	// MXCount: how many MX records the domain publishes, which is not always
 	// len(MailHosts) — the FCrDNS fan-out stops at maxMailHosts, and a verdict
@@ -237,6 +237,32 @@ var commonDKIMSelectors = []string{
 // answer is settled and further queries buy nothing. Without this, a record
 // with deeply nested includes turns one click into unbounded DNS traffic.
 const maxSPFIncludes = 15
+
+// Mailer: EmailReport's record checks, apart from Looker so a test can fake
+// them alone. *Service satisfies it.
+type Mailer interface {
+	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
+}
+
+// EmailReport is GET /email: EmailAuth, plus its mail servers' reputation
+// when rep and bl are both wired. The reputation is best-effort: a corpus
+// that is off or unreadable leaves MXRep nil rather than failing the report.
+func EmailReport(ctx context.Context, mail Mailer, rep Reputer, bl BlockChecker, name string) (*EmailAuth, error) {
+	if mail == nil {
+		return nil, ErrDisabled
+	}
+	name = NormalizeName(name)
+	res, err := mail.EmailAuth(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if rep != nil && bl != nil {
+		if mr, err := rep.MXReputation(ctx, name, bl); err == nil {
+			res.MXRep = mr
+		}
+	}
+	return res, nil
+}
 
 // EmailAuth runs every check concurrently.
 func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, error) {

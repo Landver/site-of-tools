@@ -2,7 +2,6 @@ package iptools
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 
@@ -28,19 +27,20 @@ type Looker interface {
 // handler: transport-layer deps for ip.corpberry.com routes.
 type handler struct {
 	svc  Looker
-	hist *History   // nil when Mongo disabled — Record/Recent nil-safe
-	bl   *BlockList // nil when Mongo disabled — Check nil-safe (G37)
+	hist *History // nil when Mongo disabled — Record/Recent nil-safe
+	chk  Checker  // nil when Mongo disabled → no blocklist row (G37)
 }
 
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
 // (?ip=…), consistent w/ /cidr?cidr=… — no /:ip pretty route. hist may be nil
-// (Mongo off) → /history view empty.
+// (Mongo off) → /history view empty; chk nil → no blocklist enrichment (build
+// it with CheckerFrom).
 //
 //	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
 //	GET /history  most recent user-initiated lookups
-func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList) {
-	h := &handler{svc: svc, hist: hist, bl: bl}
+func Register(e *echo.Echo, svc Looker, hist *History, chk Checker) {
+	h := &handler{svc: svc, hist: hist, chk: chk}
 	e.GET("/", h.index)
 	e.GET("/cidr", h.cidr)
 	e.GET("/history", h.history)
@@ -56,7 +56,7 @@ func (h *handler) index(c *echo.Context) error {
 	if ip == "" {
 		// Default to caller's own IP when routable public address
 		// (skips 127.0.0.1 in dev, private ranges, etc.).
-		if own := c.RealIP(); routable(own) {
+		if own := c.RealIP(); Routable(own) {
 			ip, self = own, true
 		}
 	}
@@ -136,7 +136,7 @@ func (h *handler) history(c *echo.Context) error {
 // show looks up ip & responds in caller's preferred format. self marks result
 // as visitor's own IP (small label in HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
-	res, err := h.svc.Lookup(ip)
+	res, err := LookupWithReputation(c.Request().Context(), h.svc, h.chk, ip)
 	wantsJSON := platform.WantsJSON(c)
 
 	// Record real user-initiated web lookups for /history view: successful,
@@ -146,17 +146,6 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// Mongo off.
 	if err == nil && !self && !wantsJSON {
 		h.hist.Record(res)
-	}
-
-	// Enrich w/ abuse/threat reputation from shared blocklist corpus (G37)
-	// when configured — same corpus botcheck reads, here keyed on LOOKED-UP ip
-	// so any address can be inspected. Best-effort: Mongo error leaves
-	// Blocklist nil (row omitted). nil bl (Mongo off) → skip, so card never
-	// implies "clean" when we couldn't actually check.
-	if err == nil && h.bl != nil {
-		if lk, e := h.bl.Check(c.Request().Context(), ip); e == nil {
-			res.Blocklist = &lk
-		}
 	}
 
 	code := http.StatusOK
@@ -239,14 +228,6 @@ func (r *Result) ConnNetwork() platform.ConnNetwork {
 		n.Provider = clean(p.Provider)
 	}
 	return n
-}
-
-// routable reports whether ipStr is public address worth geolocating — not
-// loopback / private / link-local / unspecified.
-func routable(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
 }
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.

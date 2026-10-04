@@ -151,6 +151,33 @@ type CurlRequest struct {
 	Notes     []Note   `json:"notes,omitempty"`
 }
 
+// CurlParse is a pasted command taken apart, with its URL inspected.
+type CurlParse struct {
+	BodyBytes  int         `json:"body_bytes,omitempty"`
+	Headers    []Header    `json:"headers"`
+	Inspection *Inspection `json:"inspection"`
+	Method     string      `json:"method"`
+	MethodWhy  string      `json:"method_why"`
+	Notes      []Note      `json:"notes,omitempty"`
+	URL        string      `json:"url"`
+}
+
+// ParseCurl is FromCurlRequest followed by Parse of the URL it found.
+func (s *Service) ParseCurl(cmd string) (*CurlParse, error) {
+	r, err := s.FromCurlRequest(strings.TrimSpace(cmd))
+	if err != nil {
+		return nil, err
+	}
+	in, err := s.Parse(r.URL)
+	if err != nil {
+		return nil, err
+	}
+	return &CurlParse{
+		BodyBytes: r.BodyBytes, Headers: r.Headers, Inspection: in,
+		Method: r.Method, MethodWhy: r.MethodWhy, Notes: r.Notes, URL: r.URL,
+	}, nil
+}
+
 // urlencodeData encodes a --data-urlencode argument as curl does; "@file" is
 // left alone.
 func urlencodeData(v string) string {
