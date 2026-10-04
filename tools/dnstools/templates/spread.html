@@ -102,15 +102,16 @@
     </p>
     {{end}}
     {{if .Authoritative}}
-    <dl class="spec grid-cols-[1fr_auto]">
+    <dl class="pairs">
       {{range .Authoritative}}
+      <div>
       <dt class="font-mono text-xs wrap-anywhere {{if .Error}}text-faint{{else}}text-muted{{end}}">
         {{.Label}}
         {{if .Serial}}<span class="block text-faint">serial {{.Serial}}</span>{{end}}
         {{if .OpenResolver}}<span class="block text-danger">open resolver</span>{{end}}
         {{if .TCPFail}}<span class="block text-warn">no TCP/53</span>{{end}}
       </dt>
-      <dd class="text-right">
+      <dd>
         {{if .Error}}<span class="text-danger">{{.Error}}</span>
         {{else}}{{if .Values}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
           {{else if not .CNAME}}<span class="text-xs text-muted">{{if eq .Rcode "NXDOMAIN"}}NXDOMAIN{{else}}no {{$.Spread.Type}} record{{end}}</span>{{end}}
@@ -119,6 +120,7 @@
           {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
           <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
       </dd>
+      </div>
       {{end}}
     </dl>
     {{else}}
@@ -131,19 +133,21 @@
   <div class="card">
     <h2 class="eyebrow">public resolvers</h2>
     <p class="mb-3 text-xs text-faint">What Cloudflare, Google and Quad9 hold right now, as reached from this server, and how long they have held it.</p>
-    <dl class="spec grid-cols-[1fr_auto]">
+    <dl class="pairs">
       {{range .Resolvers}}
+      <div>
       <dt class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
         {{.Label}}
         {{if .CacheAge}}<span class="block text-faint">{{if eq .CacheAge "0s"}}just fetched{{else}}cached {{.CacheAge}} ago{{end}}</span>{{end}}
       </dt>
-      <dd class="text-right">
+      <dd>
         {{if .Error}}<span class="text-danger">{{.Error}}</span>
         {{else}}{{if .Values}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
           {{else if not .CNAME}}<span class="text-xs text-muted">{{if eq .Rcode "NXDOMAIN"}}NXDOMAIN{{else}}no {{$.Spread.Type}} record{{end}}</span>{{end}}
           {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
           <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
       </dd>
+      </div>
       {{end}}
     </dl>
   </div>
