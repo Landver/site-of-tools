@@ -161,6 +161,14 @@ carries (`bücher.de` is asked as `xn--bcher-kva.de`, label by label so
 like a URL or address (`platform/redact.go`). An IP on a route that needs a
 domain (everything but `/`) is `ErrNeedDomain`, `400`.
 
+JSON fields added by the UX pass, all additive: `target` on every record
+that names a host, `unvalidated` (types without AD beside some that had it),
+`stale_resolvers` and `answers_vary` on `/consistency` (a resolver is only
+named stale when the client-subnet probes in the same run don't show the zone
+varying its answers), `keys_without_ds` on a trace chain link,
+`registrable_domain` and `delegated` on `/domain`, and `nxdomain`,
+`dkim_selectors_asked` and `dkim_selectors_invalid` on `/email`.
+
 `/domain` on the HTML page renders the registration as soon as RDAP answers
 and lets the CT card fetch itself (`?part=certs`, `hx-trigger="load"`): crt.sh
 is the slow half and often the failing one. JSON callers, and a browser
