@@ -5,15 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // Email authentication: SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI.
@@ -823,41 +822,43 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 // maxSTSAge is RFC 8461 §3.2's ceiling on max_age, a little over a year.
 const maxSTSAge = 31557600
 
-// mtaSTSTransport carries the one outbound HTTP request this package makes.
-//
-// The address is attacker-chosen: any domain can publish a _mta-sts TXT and
-// point mta-sts.<domain> wherever it likes, and the reply is reflected back
-// into the page. So the dial is gated on the resolved address being publicly
-// routable — without that the fetch is a probe into whatever this container
-// can reach, and gating at dial time rather than on the hostname closes the
-// rebinding window between the two.
-var mtaSTSTransport http.RoundTripper = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	DialContext: (&net.Dialer{
-		Timeout:   5 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control:   dialPublicOnly,
-	}).DialContext,
-	MaxIdleConns:        4,
-	IdleConnTimeout:     30 * time.Second,
-	TLSHandshakeTimeout: 5 * time.Second,
+// mtaSTSTransport gates the policy fetch on g: any domain can point
+// mta-sts.<domain> wherever it likes, and the reply is reflected into the page.
+func mtaSTSTransport(g *platform.EgressGuard) *http.Transport {
+	return &http.Transport{
+		// With a proxy every dial goes to the proxy's address, so the guard
+		// would judge the proxy instead of the destination.
+		Proxy:       nil,
+		DialContext: g.DialContext(5 * time.Second),
+		// The guard only runs on a dial, so a pooled connection would skip it.
+		DisableKeepAlives:   true,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
 }
 
-func dialPublicOnly(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
+// defaultMTASTSTransport serves a Service that WithEgressGuard never
+// configured: public addresses on 443 only.
+var defaultMTASTSTransport = mtaSTSTransport(platform.NewEgressGuard([]string{"443"}, nil))
+
+// WithEgressGuard sends the MTA-STS policy fetch through g, which should allow
+// port 443 only. Call it before the Service is used. Nil-safe.
+func (s *Service) WithEgressGuard(g *platform.EgressGuard) *Service {
+	if s != nil {
+		c := *s.http
+		c.Transport = mtaSTSTransport(g)
+		s.http = &c
 	}
-	// Control runs after resolution, so this is always a literal.
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return fmt.Errorf("refusing to connect to %q", address)
+	return s
+}
+
+func (s *Service) policyClient() *http.Client {
+	c := *s.http
+	// NewService builds a bare client; nil here would mean DefaultTransport.
+	if c.Transport == nil {
+		c.Transport = defaultMTASTSTransport
 	}
-	ip = ip.Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-		return fmt.Errorf("refusing to fetch a policy from %s: not a public address", ip)
-	}
-	return nil
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &c
 }
 
 func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, error) {
@@ -866,12 +867,7 @@ func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, err
 		return "", err
 	}
 	req.Header.Set("User-Agent", domainUserAgent)
-	// A copy, so the gated transport and the no-redirect rule apply to this
-	// fetch without changing the client the rest of the package shares.
-	client := *s.http
-	client.Transport = mtaSTSTransport
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
+	resp, err := s.policyClient().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("policy file unreachable")
 	}

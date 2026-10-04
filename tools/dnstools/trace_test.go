@@ -228,11 +228,9 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"link-local metadata", traceServer{Name: "ns.evil.test.", IP: "169.254.169.254"}, ""},
 		{"unspecified", traceServer{Name: "ns.evil.test.", IP: "0.0.0.0"}, ""},
 		{"ipv6 loopback only", traceServer{Name: "ns.evil.test.", IP6: "::1"}, ""},
-		// Addresses that are neither loopback nor private and so sail past
-		// spread.go's routable(), but that no nameserver lives at. trace.go is
-		// the caller that takes addresses straight out of a third party's
-		// referral, so its guard has to be the stricter one: glue of 224.0.0.1
-		// would otherwise make this host query the all-hosts multicast group.
+		// Neither loopback nor private, but no nameserver lives at them: glue
+		// of 224.0.0.1 would otherwise make this host query the all-hosts
+		// multicast group.
 		{"multicast", traceServer{Name: "ns.evil.test.", IP: "224.0.0.1"}, ""},
 		{"ssdp multicast", traceServer{Name: "ns.evil.test.", IP: "239.255.255.250"}, ""},
 		{"broadcast", traceServer{Name: "ns.evil.test.", IP: "255.255.255.255"}, ""},
@@ -260,11 +258,11 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 	// Every root hint this walk starts from has to pass its own guard, or the
 	// walk would refuse to leave the ground.
 	for _, h := range traceRootHints {
-		if !traceRoutable(h.IP) {
-			t.Errorf("root hint %s (%s) is refused by traceRoutable", h.Name, h.IP)
+		if !nsRoutable(h.IP) {
+			t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, h.IP)
 		}
-		if !traceRoutable(h.IP6) {
-			t.Errorf("root hint %s (%s) is refused by traceRoutable", h.Name, h.IP6)
+		if !nsRoutable(h.IP6) {
+			t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, h.IP6)
 		}
 	}
 }

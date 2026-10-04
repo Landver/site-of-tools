@@ -82,7 +82,7 @@ func serveNS(t *testing.T, h dns.HandlerFunc) traceServer {
 	t.Cleanup(func() { _ = srv.Shutdown() })
 
 	addr := pc.LocalAddr().String()
-	// Not an IP on purpose: traceRoutable would reject it, so a test that
+	// Not an IP on purpose: nsRoutable would reject it, so a test that
 	// forgot to register it reaches nothing rather than some real host.
 	ip := "ns-" + addr
 	testNameservers.mu.Lock()

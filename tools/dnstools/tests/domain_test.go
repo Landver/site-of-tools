@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
@@ -343,5 +344,43 @@ func TestCertNamesUpstreamFailure(t *testing.T) {
 	dc, _ := canned(t, "{}", http.StatusOK, "502 Bad Gateway", http.StatusBadGateway)
 	if _, err := dc.CertNames(context.Background(), "example.com"); err == nil {
 		t.Error("a 502 from the certificate log should be reported, not swallowed")
+	}
+}
+
+// rdap.org redirects wherever the registry's bootstrap entry says, so each hop
+// off the configured host must be HTTPS and pass the egress guard. ownOnly
+// marks the hops only the configured guard knows to refuse.
+func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
+	t.Parallel()
+
+	own := platform.NewEgressGuard([]string{"443"}, []string{"dns.corpberry.com", "93.184.216.34"})
+	for _, tc := range []struct {
+		name, location string
+		ownOnly        bool
+	}{
+		{"plain http to a private address", "http://10.0.0.1/domain/example.com", false},
+		{"non-HTTP scheme", "ftp://rdap.example.test/domain/example.com", false},
+		{"loopback", "https://127.0.0.1:8443/domain/example.com", false},
+		{"localhost by name", "https://localhost/domain/example.com", false},
+		{"RFC 1918", "https://10.0.0.1/domain/example.com", false},
+		{"CGNAT", "https://100.64.0.1/domain/example.com", false},
+		{"IPv4-mapped private", "https://[::ffff:192.168.1.1]/domain/example.com", false},
+		{"our own vhost", "https://DNS.corpberry.com./domain/example.com", true},
+		{"our own address", "https://93.184.216.34/domain/example.com", true},
+	} {
+		srv := httptest.NewServer(http.RedirectHandler(tc.location, http.StatusFound))
+		t.Cleanup(srv.Close)
+		clients := map[string]*dnstools.DomainClient{
+			"configured": dnstools.NewDomainClient(srv.URL, "", 5*time.Second).WithEgressGuard(own),
+		}
+		if !tc.ownOnly {
+			clients["default"] = dnstools.NewDomainClient(srv.URL, "", 5*time.Second)
+		}
+		for name, dc := range clients {
+			_, err := dc.Registration(context.Background(), "example.com")
+			if err == nil || !strings.Contains(err.Error(), "redirected somewhere this tool won't follow") {
+				t.Errorf("%s, %s client: err = %v, want the redirect refused", tc.name, name, err)
+			}
+		}
 	}
 }

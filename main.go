@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"log"
 	"maps"
@@ -179,6 +180,19 @@ func run() error {
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	botcheck.Register(botApp, geo, corpus, iptools.CheckerFrom(blocklist))
 
+	// Every subdomain, "mcp" included ahead of its app. Outbound guards refuse
+	// them all, and serving one that is missing from this list fails startup.
+	subdomains := []string{"", "ip", "botcheck", "dns", "link", "cipher", "mcp"}
+	ownHosts := []string{cfg.MongoURI}
+	for _, sub := range subdomains {
+		ownHosts = append(ownHosts, cfg.VHost(sub))
+	}
+	ownHosts = append(ownHosts, cfg.EgressDenyAddrs...)
+	// MTA-STS is HTTPS by definition. RDAP/CT redirect hops and the link tracer
+	// also take port 80: some registries (.kg, .mg) serve RDAP over HTTP only.
+	httpsGuard := platform.NewEgressGuard([]string{"443"}, ownHosts)
+	webGuard := platform.NewEgressGuard([]string{"80", "443"}, ownHosts)
+
 	// dns.corpberry.com — DNS record lookup. Queries public resolvers directly
 	// over UDP/53 (no databases to load, so nothing to degrade), and reuses the
 	// SAME geo service the IP tool opened above to label resolved addresses with
@@ -188,8 +202,9 @@ func run() error {
 	// RDAP + Certificate Transparency: both free, keyless and public. Blank
 	// URLs disable that half (nil client -> the page says the lookup is off,
 	// never that the domain has no registration).
-	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second)
-	dnstools.Register(dnsApp, dnstools.NewService(5*time.Second), geo, domainClient, dnstools.BlockCheckerFrom(blocklist))
+	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
+	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
+	dnstools.Register(dnsApp, dnsSvc, geo, domainClient, dnstools.BlockCheckerFrom(blocklist))
 
 	// link.corpberry.com — URL inspect / clean / short links / trace. Parsing is
 	// pure and opens no connection; only /trace dials out, and only through the
@@ -206,15 +221,11 @@ func run() error {
 	if shortener != nil {
 		shortener.CleanTarget = linktools.CleanTargetFunc(linkSvc)
 	}
-	// /trace is the one place this box dials a host a stranger chose. The guard is
-	// shared engine code, allows only 80/443, and refuses our own vhosts and every
-	// local interface address so a trace cannot loop back into the origin behind
-	// Cloudflare (tools/linktools/docs/06-security-and-abuse.md §2).
-	traceGuard := platform.NewEgressGuard([]string{"80", "443"}, []string{
-		cfg.VHost(""), cfg.VHost("ip"), cfg.VHost("botcheck"), cfg.VHost("dns"), cfg.VHost("link"), cfg.VHost("cipher"),
-		cfg.MongoURI,
-	})
-	tracer := linktools.NewTracer(traceGuard, 15*time.Second)
+	// /trace dials any URL a stranger chose. The guard allows only 80/443 and
+	// refuses our own hosts and every local interface address, so a trace
+	// cannot loop back into the origin behind Cloudflare
+	// (tools/linktools/docs/06-security-and-abuse.md §2).
+	tracer := linktools.NewTracer(webGuard, 15*time.Second)
 	linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	linktools.Register(linkApp, linkSvc, tracer, shortener, cfg.URL("link"))
 
@@ -236,13 +247,20 @@ func run() error {
 	platform.RegisterSEO(linkApp, cfg.URL("link"), linktools.SitemapPages)
 	platform.RegisterSEO(cipherApp, cfg.URL("cipher"), ciphertools.SitemapPages)
 
-	hosts := map[string]*echo.Echo{
-		cfg.VHost(""):         apex,
-		cfg.VHost("ip"):       ipApp,
-		cfg.VHost("botcheck"): botApp,
-		cfg.VHost("dns"):      dnsApp,
-		cfg.VHost("link"):     linkApp,
-		cfg.VHost("cipher"):   cipherApp,
+	apps := map[string]*echo.Echo{
+		"":         apex,
+		"ip":       ipApp,
+		"botcheck": botApp,
+		"dns":      dnsApp,
+		"link":     linkApp,
+		"cipher":   cipherApp,
+	}
+	hosts := make(map[string]*echo.Echo, len(apps))
+	for sub, app := range apps {
+		if !slices.Contains(subdomains, sub) {
+			return fmt.Errorf("subdomain %q is served but missing from the subdomains list", sub)
+		}
+		hosts[cfg.VHost(sub)] = app
 	}
 	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 

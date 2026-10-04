@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // ErrDisabled: this half of the client has no URL configured, so there is
@@ -141,16 +143,89 @@ type DomainClient struct {
 	ctURL   string
 }
 
-// NewDomainClient builds the client. Blank URLs disable that half.
+// errRedirectRefused: a redirect to a non-HTTP(S) scheme or to a destination
+// the egress guard refuses.
+var errRedirectRefused = errors.New("redirect refused")
+
+// NewDomainClient builds the client. Blank URLs disable that half. Redirects
+// off the configured hosts go through a default guard (public addresses, ports
+// 80 and 443) until WithEgressGuard replaces it.
 func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient {
 	if rdapURL == "" && ctURL == "" {
 		return nil
 	}
-	return &DomainClient{
-		client:  &http.Client{Timeout: timeout},
+	d := &DomainClient{
 		rdapURL: strings.TrimSuffix(rdapURL, "/"),
 		ctURL:   strings.TrimSuffix(ctURL, "/"),
 	}
+	d.client = d.httpClient(timeout, platform.NewEgressGuard([]string{"80", "443"}, nil))
+	return d
+}
+
+// WithEgressGuard sends every dial to a host other than the configured RDAP
+// and CT hosts through g. Call it before the client is used. Nil-safe.
+func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
+	if d != nil {
+		d.client = d.httpClient(d.client.Timeout, g)
+	}
+	return d
+}
+
+// httpClient dials the configured hosts directly and everything else, i.e.
+// wherever rdap.org's bootstrap redirect points, through g.
+func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
+	base := map[string]bool{}
+	for _, raw := range []string{d.rdapURL, d.ctURL} {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" {
+			base[hostPort(u)] = true
+		}
+	}
+	direct := &net.Dialer{Timeout: timeout}
+	gated := g.DialContext(timeout)
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			switch {
+			case len(via) >= 10:
+				return errors.New("stopped after 10 redirects")
+			// Plain HTTP stays allowed: .kg and .mg RDAP has no HTTPS, and the
+			// guard, not the scheme, keeps hops off private addresses.
+			case req.URL.Scheme != "https" && req.URL.Scheme != "http":
+				return errRedirectRefused
+			case base[hostPort(req.URL)]:
+				return nil
+			}
+			// By name too: our own vhosts resolve to public addresses.
+			if err := g.AllowHost(req.URL.Hostname()); err != nil {
+				return fmt.Errorf("%w: %w", errRedirectRefused, err)
+			}
+			return nil
+		},
+		Transport: &http.Transport{
+			// With a proxy every dial goes to the proxy's address, so the
+			// guard would judge the proxy instead of the destination.
+			Proxy: nil,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if base[strings.ToLower(addr)] {
+					return direct.DialContext(ctx, network, addr)
+				}
+				return gated(ctx, network, addr)
+			},
+			// The guard only runs on a dial, so a pooled connection would skip it.
+			DisableKeepAlives: true,
+		},
+	}
+}
+
+func hostPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "443"
+		if u.Scheme == "http" {
+			port = "80"
+		}
+	}
+	return strings.ToLower(net.JoinHostPort(u.Hostname(), port))
 }
 
 func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error {
@@ -167,7 +242,10 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	if err != nil {
 		// Plain words: the raw error embeds the whole request URL.
 		var nerr net.Error
-		if errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+		switch {
+		case errors.Is(err, errRedirectRefused), errors.Is(err, platform.ErrBlockedAddress), errors.Is(err, platform.ErrBlockedPort):
+			return fmt.Errorf("%s redirected somewhere this tool won't follow", req.URL.Host)
+		case errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded):
 			return fmt.Errorf("%s timed out", req.URL.Host)
 		}
 		return fmt.Errorf("couldn't reach %s", req.URL.Host)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/miekg/dns"
 	"golang.org/x/net/publicsuffix"
 
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
@@ -437,7 +439,7 @@ func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string)
 			// First routable rather than first: a zone that lists a private
 			// address ahead of the real one must not be able to use the guard
 			// below to hide the server that does answer.
-			if ip == "" && routable(rec.Value) {
+			if ip == "" && nsRoutable(rec.Value) {
 				ip = rec.Value
 			}
 		}
@@ -508,9 +510,15 @@ func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname st
 // answerKey collapses a sorted answer set into one comparable string.
 func answerKey(vals []string) string { return strings.Join(vals, "\n") }
 
-// routable rejects the addresses a nameserver name must never point at before
-// we send it a packet. Mirrors the guard tools/iptools applies to user-supplied
-// addresses; worth promoting to a shared helper once a third caller wants it.
+// nsRoutable: whether a nameserver address taken from a caller-chosen zone may
+// be sent a packet.
+func nsRoutable(ipStr string) bool {
+	ip, err := netip.ParseAddr(ipStr)
+	return err == nil && platform.PubliclyRoutable(ip)
+}
+
+// routable is MX reputation's address filter. It only gates a corpus read,
+// never a dial, so it stays looser than nsRoutable.
 func routable(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&

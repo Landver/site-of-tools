@@ -2,6 +2,7 @@ package tests
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -118,6 +119,47 @@ func TestEgressGuardHosts(t *testing.T) {
 	for _, h := range []string{"example.com", "8.8.8.8", "sub.example.co.uk"} {
 		if err := g.AllowHost(h); err != nil {
 			t.Errorf("AllowHost(%q) = %v, want nil", h, err)
+		}
+	}
+}
+
+// TestEgressGuardDeniesListedAddresses: inside a container the host's public
+// addresses are invisible to net.InterfaceAddrs, so they arrive as deny
+// entries, and Control is the only check that sees a name resolved to them.
+func TestEgressGuardDeniesListedAddresses(t *testing.T) {
+	g := platform.NewEgressGuard([]string{"443"}, []string{
+		"93.184.216.34",
+		" [2606:2800:220:1:248:1893:25c8:1946]:443 ",
+		"https://8.8.4.4/",
+		"mongodb://appuser:pw@1.0.0.1:27017/site-of-tools",
+		"2a01:4f8:c0c:1234::/64",
+		"[2001:4860:4860::8844]",
+	})
+
+	refused := []string{
+		"93.184.216.34",
+		"::ffff:93.184.216.34",
+		"2606:2800:220:1:248:1893:25c8:1946",
+		"8.8.4.4",
+		"1.0.0.1",
+		"2a01:4f8:c0c:1234::1",
+		"2a01:4f8:c0c:1234:ffff:ffff:ffff:ffff",
+		"2a01:4f8:c0c:1234::1%eth0",
+		"2001:4860:4860::8844",
+	}
+	for _, host := range refused {
+		addr := net.JoinHostPort(host, "443")
+		if err := g.Control("tcp", addr, nil); !errors.Is(err, platform.ErrBlockedAddress) {
+			t.Errorf("Control(%q) = %v, want ErrBlockedAddress", addr, err)
+		}
+		if err := g.AllowHost(host); !errors.Is(err, platform.ErrBlockedAddress) {
+			t.Errorf("AllowHost(%q) = %v, want ErrBlockedAddress", host, err)
+		}
+	}
+
+	for _, host := range []string{"8.8.8.8", "2a01:4f8:c0c:1235::1", "2001:4860:4860::8888"} {
+		if err := g.Control("tcp", net.JoinHostPort(host, "443"), nil); err != nil {
+			t.Errorf("Control(%s) = %v, want permitted: it is not on the deny list", host, err)
 		}
 	}
 }

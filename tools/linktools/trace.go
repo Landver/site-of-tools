@@ -184,10 +184,10 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 		Timeout: 0,
 		Transport: &http.Transport{
 			// Proxy is nil DELIBERATELY, not by omission. With
-			// http.ProxyFromEnvironment (which dnstools/email.go still carries)
-			// and HTTP_PROXY/HTTPS_PROXY set, DialContext is handed the
-			// PROXY's address, so the gate validates the proxy while the
-			// attacker-chosen hostname travels to the target inside a CONNECT.
+			// http.ProxyFromEnvironment and HTTP_PROXY/HTTPS_PROXY set,
+			// DialContext is handed the PROXY's address, so the gate validates
+			// the proxy while the attacker-chosen hostname travels to the
+			// target inside a CONNECT.
 			// The gate is then completely bypassed. docker-compose.yml loads
 			// .env wholesale, so such a variable is invisible in the repo, and
 			// Go caches the environment read in a sync.Once. Doc §2(a).

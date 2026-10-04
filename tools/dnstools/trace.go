@@ -293,7 +293,7 @@ type traceServer struct {
 }
 
 // traceAddrOverride is the seam that lets a test point the walk at a
-// nameserver on loopback, which traceRoutable exists to forbid. It is the same
+// nameserver on loopback, which nsRoutable exists to forbid. It is the same
 // arrangement dns.go's resolverOverride uses, and for the same reason: without
 // it the classification code below can only ever be driven by hand-built
 // structs, and the branch that told the root zone its chain of trust was
@@ -307,7 +307,7 @@ var traceAddrOverride func(ip string) (string, bool)
 // address is one we are willing to send a packet to. The nameserver names come
 // from zones the caller chose, so this is the guard that stops a hostile
 // delegation turning the walk into a port-53 probe of our own host — the same
-// rule spread.go's nameserverAddress applies, tightened by traceRoutable.
+// rule spread.go's nameserverAddress applies.
 func (t traceServer) addr() string {
 	for _, ip := range [...]string{t.IP, t.IP6} {
 		if ip == "" {
@@ -318,62 +318,11 @@ func (t traceServer) addr() string {
 				return a
 			}
 		}
-		if traceRoutable(ip) {
+		if nsRoutable(ip) {
 			return net.JoinHostPort(ip, "53")
 		}
 	}
 	return ""
-}
-
-// traceReserved: address blocks that are neither private nor loopback and so
-// slip past spread.go's routable(), but that no real nameserver lives in.
-// Reserved rather than routable, all of them.
-var traceReserved = func() []*net.IPNet {
-	out := make([]*net.IPNet, 0, 7)
-	for _, cidr := range []string{
-		"100.64.0.0/10",   // RFC 6598 carrier-grade NAT
-		"192.0.0.0/24",    // RFC 6890 IETF protocol assignments
-		"192.0.2.0/24",    // TEST-NET-1
-		"198.18.0.0/15",   // RFC 2544 benchmarking
-		"198.51.100.0/24", // TEST-NET-2
-		"203.0.113.0/24",  // TEST-NET-3
-		"240.0.0.0/4",     // RFC 1112 reserved
-		"2001:db8::/32",   // documentation
-	} {
-		_, n, err := net.ParseCIDR(cidr)
-		if err != nil {
-			panic("dnstools: malformed reserved range " + cidr)
-		}
-		out = append(out, n)
-	}
-	return out
-}()
-
-// traceRoutable is the address guard this walk sends packets through.
-//
-// spread.go's routable() rejects loopback, RFC1918/ULA, link-local and the
-// unspecified address, which is the right set for a nameserver name a visitor
-// typed. It is not the right set here: trace takes addresses straight out of
-// an arbitrary referral's additional section, and that source can name a
-// multicast group (glue of 224.0.0.1 makes this host query all-hosts), a
-// broadcast address, or CGNAT space belonging to somebody else's customers.
-// IsGlobalUnicast rules out multicast, broadcast and the unspecified address
-// in one go; the explicit list covers the reserved unicast blocks it allows.
-//
-// Kept here rather than folded into routable() because this file may not edit
-// spread.go. Tightening routable() itself, and collapsing the two, is the
-// follow-up — the comment there already anticipates a shared helper.
-func traceRoutable(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	if ip == nil || !ip.IsGlobalUnicast() || !routable(ipStr) {
-		return false
-	}
-	for _, n := range traceReserved {
-		if n.Contains(ip) {
-			return false
-		}
-	}
-	return true
 }
 
 // traceWalk is one walk's mutable state: the budget, the context, and the

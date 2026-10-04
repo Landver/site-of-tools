@@ -94,32 +94,39 @@ type EgressGuard struct {
 	// the database host). Belt and braces beyond the address check, since those
 	// hosts resolve to public addresses and would otherwise pass.
 	denyHosts map[string]bool
-	// denyAddrs: this machine's own interface addresses, enumerated once at
-	// startup. Stops a request looping back into the origin behind Cloudflare.
-	denyAddrs map[netip.Addr]bool
+	// denyAddrs, denyPrefixes: this machine's interface addresses plus the
+	// literal addresses and prefixes the caller listed, checked at dial time.
+	// Stops a request looping back into the origin behind Cloudflare.
+	denyAddrs    map[netip.Addr]bool
+	denyPrefixes []netip.Prefix
 	// allowLoopback: test-only seam. Never set in production; the constructor
 	// leaves it false and nothing exported can change it.
 	allowLoopback bool
 }
 
-// NewEgressGuard builds a guard allowing only the given ports, refusing the
-// given hostnames, and refusing every address of every local interface.
+// NewEgressGuard builds a guard allowing only the given ports, refusing every
+// address of every local interface, and refusing each deny entry: a hostname,
+// a literal address or a CIDR prefix, bare, as host:port or inside a URL.
 //
 // Enumerating local interfaces can fail on an unusual host; that is non-fatal
-// and only forfeits the self-connection check, which the hostname deny list and
-// the routable check already cover in the ordinary case.
-func NewEgressGuard(ports []string, denyHosts []string) *EgressGuard {
+// and only forfeits the self-connection check, which the deny list and the
+// routable check already cover in the ordinary case.
+func NewEgressGuard(ports []string, deny []string) *EgressGuard {
 	g := &EgressGuard{
 		ports:     make(map[string]bool, len(ports)),
-		denyHosts: make(map[string]bool, len(denyHosts)),
+		denyHosts: make(map[string]bool, len(deny)),
 		denyAddrs: map[netip.Addr]bool{},
 	}
 	for _, p := range ports {
 		g.ports[p] = true
 	}
-	for _, h := range denyHosts {
+	for _, h := range deny {
 		h = strings.ToLower(strings.TrimSpace(h))
 		if h == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(h); err == nil {
+			g.denyPrefixes = append(g.denyPrefixes, p.Masked())
 			continue
 		}
 		// Callers pass a bare host, a host:port, or a full URL of any scheme.
@@ -137,7 +144,14 @@ func NewEgressGuard(ports []string, denyHosts []string) *EgressGuard {
 		} else if host, _, err := net.SplitHostPort(h); err == nil {
 			h = host
 		}
-		g.denyHosts[strings.TrimSuffix(h, ".")] = true
+		h = strings.TrimSuffix(strings.Trim(h, "[]"), ".")
+		// A literal has to reach the address set: Control only ever sees
+		// addresses, so in the hostname map it would never match a dial.
+		if a, err := netip.ParseAddr(h); err == nil {
+			g.denyAddrs[a.Unmap().WithZone("")] = true
+			continue
+		}
+		g.denyHosts[h] = true
 	}
 	if addrs, err := net.InterfaceAddrs(); err == nil {
 		for _, a := range addrs {
@@ -194,12 +208,19 @@ func (g *EgressGuard) AllowPort(port string) error {
 }
 
 func (g *EgressGuard) permitted(addr netip.Addr) bool {
-	addr = addr.Unmap()
+	// Zone dropped: a zoned address never equals a map key or falls inside a
+	// prefix, so "[2001:db8::1%eth0]" would otherwise walk past both.
+	addr = addr.Unmap().WithZone("")
 	if g.allowLoopback && addr.IsLoopback() {
 		return true
 	}
 	if g.denyAddrs[addr] {
 		return false
+	}
+	for _, p := range g.denyPrefixes {
+		if p.Contains(addr) {
+			return false
+		}
 	}
 	return PubliclyRoutable(addr)
 }
