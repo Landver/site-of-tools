@@ -1,7 +1,9 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -179,10 +181,9 @@ func TestNilTracerIsUnavailableNotABadGateway(t *testing.T) {
 	}
 }
 
-// TestNilShortenerIsUnavailable: the write path, the console and the redirect all
-// report the same thing. An unset LINK_API_KEY or MONGODB_URI means creation is
-// off, which is the fail-closed property that keeps the domain off a blocklist
-// (docs/04-short-links.md §5).
+// TestNilShortenerIsUnavailable: with no storage (MONGODB_URI unset) the write
+// path, the console and the redirect all report the same thing. A missing key
+// alone is narrower; see TestKeylessServerRefusesEveryKeyGatedRoute.
 func TestNilShortenerIsUnavailable(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -200,6 +201,111 @@ func TestNilShortenerIsUnavailable(t *testing.T) {
 	// Not a 201 by any route: a disabled feature must never report success.
 	if rec := request(t, e, http.MethodPost, "/short", asHTML); rec.Code == http.StatusCreated {
 		t.Error("POST /short reported 201 with no shortener wired")
+	}
+}
+
+// TestKeylessServerRefusesEveryKeyGatedRoute: storage wired, LINK_API_KEY
+// unset. Create, list and revoke answer 503 whatever key is sent. The store is
+// offline, so a request that got past the gate would come back 500 instead.
+func TestKeylessServerRefusesEveryKeyGatedRoute(t *testing.T) {
+	t.Parallel()
+	short := keylessShortener(t, offlineStore())
+
+	for _, h := range []map[string]string{
+		asJSON, // no header at all
+		{"Accept": "*/*", "X-Api-Key": ""},
+		{"Accept": "*/*", "X-Api-Key": testAPIKey}, // a key that worked before it was unset
+		{"Accept": "*/*", "X-Api-Key": "anything"},
+	} {
+		// A fresh app per key: these routes share one per-IP limiter, burst 5.
+		e := newLinkApp(t, nil, short)
+		for _, tc := range []struct{ method, target string }{
+			{http.MethodPost, "/short"},
+			{http.MethodGet, "/short"},
+			{http.MethodDelete, "/short/abcdefg"},
+		} {
+			rec := request(t, e, tc.method, tc.target, h)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Errorf("%s %s with X-Api-Key %q and no key configured = %d, want 503 (body %s)",
+					tc.method, tc.target, h["X-Api-Key"], rec.Code, rec.Body)
+			}
+		}
+	}
+
+	e := newLinkApp(t, nil, short)
+	page := request(t, e, http.MethodGet, "/short", asHTML)
+	if page.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /short as a browser with no key configured = %d, want 503", page.Code)
+	}
+	body := page.Body.String()
+	for _, want := range []string{"Creating short links is switched off", "keep redirecting"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the console does not say %q", want)
+		}
+	}
+	for _, gone := range []string{`id="apikey"`, `hx-post="/short"`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the console renders %s although nothing it could send would succeed", gone)
+		}
+	}
+
+	// The redirect is not key-gated. The offline lookup fails and is answered as
+	// a miss; what it must never say is that short links are off.
+	if rec := request(t, e, http.MethodGet, "/s/abc1234", asHTML); rec.Code == http.StatusServiceUnavailable {
+		t.Errorf("GET /s/abc1234 with no key configured = 503 (%s); resolving never needs the key", rec.Body)
+	}
+}
+
+// TestKeylessServerStillRedirects: links made while a key was set keep
+// redirecting once LINK_API_KEY is unset, and the key that made them no longer
+// creates, lists or revokes anything.
+func TestKeylessServerStillRedirects(t *testing.T) {
+	ctx := context.Background()
+	keyed, store := liveShortener(t, ctx)
+	link, err := keyed.Create(ctx, "https://example.com/kept", linktools.CreateOptions{Slug: "made-with-a-key"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	e := newLinkApp(t, nil, keylessShortener(t, store))
+
+	rec := request(t, e, http.MethodGet, "/s/"+link.Code, asHTML)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("GET /s/%s with no key configured = %d, want 302 (body %s)", link.Code, rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Location"); got != link.Target {
+		t.Errorf("Location = %q, want %q", got, link.Target)
+	}
+	if rec := request(t, e, http.MethodGet, "/s/never-made-here", asHTML); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /s/never-made-here with no key configured = %d, want 404", rec.Code)
+	}
+
+	oldKey := map[string]string{"Accept": "*/*", "X-Api-Key": testAPIKey}
+
+	req := httptest.NewRequest(http.MethodPost, "/short",
+		strings.NewReader(`{"url":"https://example.com/new","slug":"made-without-a-key"}`))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range oldKey {
+		req.Header.Set(k, v)
+	}
+	created := httptest.NewRecorder()
+	e.ServeHTTP(created, req)
+	if created.Code != http.StatusServiceUnavailable {
+		t.Errorf("POST /short with the old key = %d, want 503 (body %s)", created.Code, created.Body)
+	}
+	if _, err := keyed.Resolve(ctx, "made-without-a-key"); !errors.Is(err, linktools.ErrLinkNotFound) {
+		t.Errorf("a refused create left a link behind (Resolve = %v)", err)
+	}
+
+	if rec := request(t, e, http.MethodGet, "/short", oldKey); rec.Code != http.StatusServiceUnavailable ||
+		strings.Contains(rec.Body.String(), link.Code) {
+		t.Errorf("GET /short with the old key = %d, want 503 and no aliases (body %s)", rec.Code, rec.Body)
+	}
+
+	if rec := request(t, e, http.MethodDelete, "/short/"+link.Code, oldKey); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("DELETE /short/%s with the old key = %d, want 503 (body %s)", link.Code, rec.Code, rec.Body)
+	}
+	if rec := request(t, e, http.MethodGet, "/s/"+link.Code, asHTML); rec.Code != http.StatusFound {
+		t.Errorf("after a refused revoke, GET /s/%s = %d, want 302", link.Code, rec.Code)
 	}
 }
 

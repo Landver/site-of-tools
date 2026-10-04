@@ -425,19 +425,29 @@ func (h *handler) traceRoute(c *echo.Context) error {
 
 // --- short links -----------------------------------------------------------
 
+// shortOff answers a key-gated route when no key is configured: 503 before any
+// credential is read, because no key can work and a 401 would say otherwise.
+// Nil short also means no storage, so the redirect is down too.
+func (h *handler) shortOff(c *echo.Context, vm map[string]any) error {
+	vm["Disabled"] = true
+	msg := "Creating short links is switched off on this server: no API key is set, so links cannot be created, listed or revoked. Links that already exist keep redirecting."
+	if h.short == nil {
+		msg = "Short links are switched off on this server: no storage is configured, so links can be neither created nor followed."
+	}
+	return h.disabled(c, vm, "link/short", msg)
+}
+
 // shortConsole renders the create form, and the recent list ONLY to a caller
 // holding the key. A public list hands over the whole corpus with no guessing,
 // which defeats the code entropy outright and turns the hit counter into a
 // read-receipt oracle (docs/04-short-links.md §8).
 func (h *handler) shortConsole(c *echo.Context) error {
 	vm := h.vm("short", "Short links", shortDesc, "")
-	vm["Disabled"] = h.short == nil
-	authed := h.short != nil && h.short.Authorized(c.Request().Header.Get("X-Api-Key"))
-	vm["Authed"] = authed
-
-	if h.short == nil {
-		return h.disabled(c, vm, "link/short", "Short links are not enabled on this server.")
+	if !h.short.HasKey() {
+		return h.shortOff(c, vm)
 	}
+	authed := h.short.Authorized(c.Request().Header.Get("X-Api-Key"))
+	vm["Authed"] = authed
 	body := map[string]any{"enabled": true, "authorized": authed}
 	if authed {
 		links, err := h.short.Recent(c.Request().Context(), recentLimit)
@@ -470,8 +480,8 @@ type createRequest struct {
 
 func (h *handler) shortCreate(c *echo.Context) error {
 	vm := h.vm("short", "Short links", shortDesc, "")
-	if h.short == nil {
-		return h.disabled(c, vm, "link/short", "Short links are not enabled on this server.")
+	if !h.short.HasKey() {
+		return h.shortOff(c, vm)
 	}
 	if !h.short.Authorized(c.Request().Header.Get("X-Api-Key")) {
 		// Same body for a missing key and a wrong one: saying which is a free
@@ -616,8 +626,8 @@ func consoleRows(s *Shortener, links []Link) []consoleRow {
 // copy of that link goes (docs/04-short-links.md §4).
 func (h *handler) shortRevoke(c *echo.Context) error {
 	vm := h.vm("short", "Short links", shortDesc, "")
-	if h.short == nil {
-		return h.disabled(c, vm, "link/short", "Short links are not enabled on this server.")
+	if !h.short.HasKey() {
+		return h.shortOff(c, vm)
 	}
 	if !h.short.Authorized(c.Request().Header.Get("X-Api-Key")) {
 		const msg = "Revoking a short link needs a valid API key."

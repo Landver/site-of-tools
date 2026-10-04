@@ -66,6 +66,20 @@ func offlineShortener(t *testing.T) *linktools.Shortener {
 	return s
 }
 
+// keylessShortener is what main.go builds when MONGODB_URI is set and
+// LINK_API_KEY is not.
+func keylessShortener(t *testing.T, store *linktools.LinkStore) *linktools.Shortener {
+	t.Helper()
+	if store == nil {
+		t.Fatal("no LinkStore to build on")
+	}
+	s := linktools.NewShortener(store, "", "https://link.example")
+	if s == nil {
+		t.Fatal("NewShortener returned nil with a store and no key; links already handed out would stop resolving")
+	}
+	return s
+}
+
 // liveMongo holds one connection for the whole live run.
 //
 // One client, not one per test: platform.OpenMongo dials and pings, and against
@@ -151,26 +165,53 @@ func insertExpired(t *testing.T, ctx context.Context, store *linktools.LinkStore
 
 // --- fail-closed wiring ----------------------------------------------------
 
-// TestNewShortenerFailsClosed is the property that keeps corpberry.com off a
-// blocklist. An unset LINK_API_KEY means nobody can create, never that anybody
-// can (docs/04-short-links.md §5), and the same goes for an absent MONGODB_URI:
-// both are wiring mistakes, and a wiring mistake must not open the write path.
+// TestNewShortenerFailsClosed: with no store there is nothing to create or
+// resolve, so there is no shortener at all. The keyless case builds one; see
+// TestKeylessShortenerAuthorizesNobody.
 func TestNewShortenerFailsClosed(t *testing.T) {
 	t.Parallel()
 	if s := linktools.NewShortener(nil, "k", "https://link.example"); s != nil {
-		t.Error("a shortener was built with no store; with Mongo off, creation must be off too")
-	}
-	if s := linktools.NewShortener(offlineStore(), "", "https://link.example"); s != nil {
-		t.Error("a shortener was built with an EMPTY API key. An unset LINK_API_KEY means nobody can create, never that anybody can: that is a public shortener, and a public shortener gets the whole domain blocklisted.")
+		t.Error("a shortener was built with no store; with Mongo off, short links must be off too")
 	}
 	if s := linktools.NewShortener(nil, "", ""); s != nil {
 		t.Error("a shortener was built with neither a store nor a key")
 	}
 }
 
+// TestKeylessShortenerAuthorizesNobody is the property that keeps corpberry.com
+// off a blocklist: an unset LINK_API_KEY means nobody can create, never that
+// anybody can (docs/04-short-links.md §5). The empty presented key is the one
+// that matters: "" against an unset key is what a careless compare lets through.
+func TestKeylessShortenerAuthorizesNobody(t *testing.T) {
+	t.Parallel()
+	s := keylessShortener(t, offlineStore())
+
+	if s.HasKey() {
+		t.Error("HasKey() = true with an empty LINK_API_KEY")
+	}
+	for _, key := range []string{"", testAPIKey, "anything"} {
+		if s.Authorized(key) {
+			t.Errorf("Authorized(%q) = true with no key configured; that is a public shortener", key)
+		}
+	}
+	// The domain refuses by itself too, so a caller that skips Authorized still
+	// cannot write. Anything that reached the offline store would fail with a
+	// connection error instead of ErrDisabled.
+	ctx := context.Background()
+	if _, err := s.Create(ctx, "https://example.com/", linktools.CreateOptions{}); !errors.Is(err, linktools.ErrDisabled) {
+		t.Errorf("Create with no key configured = %v, want ErrDisabled", err)
+	}
+	if _, err := s.Recent(ctx, 10); !errors.Is(err, linktools.ErrDisabled) {
+		t.Errorf("Recent with no key configured = %v, want ErrDisabled", err)
+	}
+	if err := s.Revoke(ctx, "abc1234"); !errors.Is(err, linktools.ErrDisabled) {
+		t.Errorf("Revoke with no key configured = %v, want ErrDisabled", err)
+	}
+}
+
 // TestNilShortenerIsSafeAndDisabled: nil means the feature is off, and every
-// method says so rather than panicking, so the handler answers 503 without a
-// single nil check of its own (short.go's type comment).
+// method says so rather than panicking, so the handler answers 503 (short.go's
+// type comment).
 func TestNilShortenerIsSafeAndDisabled(t *testing.T) {
 	t.Parallel()
 	var s *linktools.Shortener
@@ -192,6 +233,9 @@ func TestNilShortenerIsSafeAndDisabled(t *testing.T) {
 	}
 	if s.Authorized(testAPIKey) {
 		t.Error("a nil *Shortener authorised a caller; a disabled feature authorises nobody")
+	}
+	if s.HasKey() {
+		t.Error("HasKey() on a nil *Shortener = true")
 	}
 	s.RecordHit("abc1234") // must not panic
 }

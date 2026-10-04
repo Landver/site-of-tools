@@ -50,13 +50,14 @@
   </p>
 
   {{if .Hosts}}
-  <dl class="spec grid-cols-[1fr_auto]">
+  <dl class="pairs">
     {{range .Hosts}}
+    <div>
     <dt class="font-mono text-xs wrap-anywhere {{if .Error}}text-faint{{else}}text-muted{{end}}">
       {{.Host}}
       <span class="block text-faint">preference {{.Preference}}</span>
     </dt>
-    <dd class="text-right">
+    <dd>
       {{/* A host with no address is a finding about the lookup, not about the
            machine's reputation, so it is warn rather than danger: "does not
            exist" and "the lookup failed" are both reasons we know nothing,
@@ -81,6 +82,7 @@
       {{if .Duplicate}}<span class="block text-xs text-faint">same address as above, counted once</span>{{end}}
       {{end}}
     </dd>
+    </div>
     {{end}}
   </dl>
   {{end}}

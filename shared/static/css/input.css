@@ -161,6 +161,14 @@
   .spec > dt {
     @apply text-faint;
   }
+  /* Label/value rows (<div><dt><dd></div>) whose value can be long: it sits
+     beside the label when it fits and drops below it when it doesn't. */
+  .pairs {
+    @apply grid gap-y-3 text-sm;
+  }
+  .pairs > div {
+    @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1;
+  }
 
   /* Page scaffolding shared by every page: centred column, capped width,
      vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */

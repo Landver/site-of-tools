@@ -209,12 +209,14 @@
         <span class="font-mono text-strong">{{$qname}}</span> is an alias. The answer above was reached by
         following the CNAME below, and is published on the target rather than on the name you asked for.
       </p>
-      <dl class="spec mt-3 grid-cols-[1fr_auto]">
+      <dl class="pairs mt-3">
         {{range .Chain}}
+        <div>
         <dt class="font-mono text-xs wrap-anywhere text-muted">{{.Owner}}</dt>
-        <dd class="text-right font-mono text-xs wrap-anywhere text-strong">
+        <dd class="font-mono text-xs wrap-anywhere text-strong">
           → {{.Value}} <span class="text-faint">({{.TTLHuman}})</span>
         </dd>
+        </div>
         {{end}}
       </dl>
     </div>

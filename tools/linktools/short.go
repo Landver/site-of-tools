@@ -23,11 +23,14 @@ import (
 // code generation and expiry; storage sits below it in LinkStore, per CLAUDE.md
 // rule #5, and HTTP sits above it in handler.go.
 //
-// Nil *Shortener means the feature is off, and every method reports ErrDisabled
-// so the handler answers 503 without a single nil check of its own.
+// Nil *Shortener means no storage: every method reports ErrDisabled or does
+// nothing, and every route answers 503. Built without an API key it still
+// resolves, but Create, Recent and Revoke report ErrDisabled and Authorized
+// refuses everyone: the key gates writes and the list, never the redirect.
 type Shortener struct {
 	store   *LinkStore
 	keyHash [sha256.Size]byte
+	hasKey  bool // false: keyHash is the zero value and must never be compared
 	baseURL string
 
 	// CleanTarget is the seam to clean.go, injected at wiring time: it takes a
@@ -122,37 +125,46 @@ var reservedSlugs = map[string]bool{
 }
 
 // NewShortener wires the domain service. It returns nil — the feature off —
-// when there is no store or no API key.
+// when there is no store.
 //
-// The empty-key case is the one worth stating: an unset LINK_API_KEY means
-// nobody can create, never that anybody can (docs/04-short-links.md §5). A
-// public shortener is found by scanners within days, and when one is used for
-// phishing the blocklists take the whole domain, not the offending path: the
-// portfolio, the blog and all four tools, with an appeal measured in weeks. So
-// the write path fails closed on a wiring mistake, exactly as it does on a
-// missing MONGODB_URI.
+// An empty apiKey still builds one, because resolving never needs the key and
+// links already handed out must keep working. What it switches off is
+// everything the key gates. An unset LINK_API_KEY means nobody can create,
+// never that anybody can (docs/04-short-links.md §5). A public shortener is
+// found by scanners within days, and when one is used for phishing the
+// blocklists take the whole domain, not the offending path: the portfolio, the
+// blog and all four tools, with an appeal measured in weeks.
 //
 // baseURL is the origin aliases are handed out under, config-driven so moving
 // to a dedicated short domain stays a one-line change (§2).
 func NewShortener(store *LinkStore, apiKey, baseURL string) *Shortener {
-	if store == nil || apiKey == "" {
+	if store == nil {
 		return nil
 	}
-	return &Shortener{
+	s := &Shortener{
 		store:   store,
-		keyHash: sha256.Sum256([]byte(apiKey)),
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 	}
+	if apiKey != "" {
+		s.keyHash, s.hasKey = sha256.Sum256([]byte(apiKey)), true
+	}
+	return s
+}
+
+// HasKey reports whether an API key is configured, i.e. whether create, list
+// and revoke can run at all. Nil-safe.
+func (s *Shortener) HasKey() bool {
+	return s != nil && s.hasKey
 }
 
 // Authorized reports whether key is the configured API key.
 //
 // Both sides are SHA-256'd first. subtle.ConstantTimeCompare returns 0
 // immediately on a length mismatch, so comparing the raw strings would leak the
-// key's length; hashing makes both operands fixed-length (§5). A nil receiver
-// authorises nobody.
+// key's length; hashing makes both operands fixed-length (§5). A nil receiver,
+// or one with no key configured, authorises nobody.
 func (s *Shortener) Authorized(key string) bool {
-	if s == nil {
+	if !s.HasKey() {
 		return false
 	}
 	got := sha256.Sum256([]byte(key))
@@ -175,7 +187,7 @@ func (s *Shortener) ShortURL(code string) string {
 // "cleaned" array is the handler's to report from CleanTarget's second return,
 // and Link.Original is set whenever cleaning changed the URL.
 func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions) (*Link, error) {
-	if s == nil {
+	if !s.HasKey() {
 		return nil, ErrDisabled
 	}
 	note := strings.TrimSpace(opt.Note)
@@ -326,7 +338,7 @@ func (s *Shortener) RecordHit(code string) {
 // (docs/04-short-links.md §4). Until this existed Revoke had no caller at all,
 // so the kill switch §10 promises was not reachable by any route.
 func (s *Shortener) Revoke(ctx context.Context, code string) error {
-	if s == nil {
+	if !s.HasKey() {
 		return ErrDisabled
 	}
 	// Validated before it reaches a Mongo filter, like every other code path.
@@ -341,7 +353,7 @@ func (s *Shortener) Revoke(ctx context.Context, code string) error {
 // is key-gated precisely because this list defeats §3's entropy argument
 // outright and turns hits/last_hit_at into a read-receipt oracle.
 func (s *Shortener) Recent(ctx context.Context, n int64) ([]Link, error) {
-	if s == nil {
+	if !s.HasKey() {
 		return nil, ErrDisabled
 	}
 	return s.store.Recent(ctx, n)
