@@ -36,6 +36,7 @@
   --color-canvas:  #ffffff; /* page background          */
   --color-surface: #f4f4f5; /* raised bg: cards, inputs */
   --color-line:    #e4e4e7; /* borders, dividers        */
+  --color-line-strong: #8a8a93; /* form-control borders: 3:1, so a field reads as a field */
   --color-strong:  #18181b; /* headings, emphasis       */
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
@@ -52,6 +53,7 @@
   --color-canvas:  #0a0a0a;
   --color-surface: #171717;
   --color-line:    #262626;
+  --color-line-strong: #6b6b6b;
   --color-strong:  #ffffff;
   --color-body:    #e5e5e5;
   --color-muted:   #a3a3a3;
@@ -91,9 +93,12 @@
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by lookup and CIDR forms. */
+  /* Text input + primary button, shared by lookup and CIDR forms. The border
+     is line-strong (3:1, WCAG 1.4.11): at the card's line colour a filled-in
+     field read as plain text. Focus is a real 2px ring, not a 1px border tint,
+     and a field the page marks aria-invalid turns its border red. */
   .field {
-    @apply flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus:border-brand focus:outline-none;
+    @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger;
   }
   /* Disabled = in flight (hx-disabled-elt): dimmed with a wait cursor, so a
      second click visibly has nothing to land on. */

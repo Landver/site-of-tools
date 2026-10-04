@@ -29,12 +29,21 @@
     // How long the confirmation stays before the label goes back.
     var RESET_MS = 1600
 
+    // One status line for the whole page, made at load so it is already in
+    // the accessibility tree when it changes: a button that carries an
+    // aria-label never announces its own new text, so "Copied" is said here.
+    var live = document.createElement('p')
+    live.className = 'sr-only'
+    live.setAttribute('role', 'status')
+    document.body.appendChild(live)
+
     function flash(el, label, cls) {
       // Remember the real label once per flash cycle, not per call: a second
       // click inside the window would otherwise memorise "Copied" forever.
       if (el._copyTimer) clearTimeout(el._copyTimer)
       else el._copyLabel = el.textContent.trim()
       el.textContent = label
+      live.textContent = label
       el.classList.remove('is-copied', 'is-failed')
       el.classList.add(cls)
       el._copyTimer = setTimeout(function () {
