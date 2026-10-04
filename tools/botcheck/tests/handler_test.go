@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -183,6 +184,19 @@ func TestCheckFragmentRendersHistoryCard(t *testing.T) {
 		if !strings.Contains(frag, want) {
 			t.Errorf("history card missing %q in fragment:\n%s", want, frag)
 		}
+	}
+}
+
+// The four tabs don't fit a 320px screen on one line: the strip wraps instead
+// of widening the page.
+func TestResultTabsWrap(t *testing.T) {
+	frag := post(newTestApp(fakeLooker{}), "/check", `{}`, map[string]string{"Accept": "text/html"}).Body.String()
+	m := regexp.MustCompile(`<div class="([^"]*)">\s*<button type="button" @click="tab = `).FindStringSubmatch(frag)
+	if m == nil {
+		t.Fatalf("no tab strip in fragment:\n%s", frag)
+	}
+	if !strings.Contains(m[1], "flex-wrap") {
+		t.Errorf("tab strip can't wrap: class=%q", m[1])
 	}
 }
 

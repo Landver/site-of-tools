@@ -65,24 +65,24 @@
     {{end}}
   </div>
 
-  <div class="mt-4 inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <div class="mt-4 inline-flex flex-wrap gap-y-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
     <button type="button" @click="tab = 'breakdown'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'breakdown' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Score breakdown
     </button>
     <button type="button" @click="tab = 'raw'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'raw' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Raw fingerprint
     </button>
     <button type="button" @click="tab = 'request'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'request' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Your request
     </button>
     <button type="button" @click="tab = 'history'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'history' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Recent checks
     </button>
