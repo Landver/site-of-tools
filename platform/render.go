@@ -153,10 +153,35 @@ func prefersHTML(c *echo.Context) bool {
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.
 func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 
+// SetNegotiationHeaders marks a response from URL that answers as page, htmx
+// fragment or JSON depending on who asks. Every handler that picks a
+// representation calls it (Respond does), with the status it is about to send.
+//
+//   - Vary names both headers that decide the answer, so no cache hands one
+//     representation to a request for another.
+//   - A fragment is never stored. A form with hx-push-url / hx-replace-url
+//     leaves the fragment's response in the browser cache under the very
+//     address it puts in the bar; a Back that misses the back-forward cache
+//     then rendered that fragment bare: no styles, no header, no form.
+//   - An htmx error asks htmx not to push its URL: a 400 or a 429 is a
+//     moment, not a place to come back to.
+func SetNegotiationHeaders(c *echo.Context, code int) {
+	h := c.Response().Header()
+	h.Add("Vary", "Accept")
+	h.Add("Vary", "HX-Request")
+	if IsHTMX(c) {
+		h.Set("Cache-Control", "no-store")
+		if code >= 400 {
+			h.Set("HX-Push-Url", "false")
+		}
+	}
+}
+
 // Respond renders one domain result in representation caller wants:
 // JSON (API/CLI), HTML fragment (htmx), or full HTML page (browser).
 // Pass same template name for page + fragment when feature has no fragment.
 func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) error {
+	SetNegotiationHeaders(c, code)
 	switch {
 	case WantsJSON(c):
 		return c.JSON(code, data)

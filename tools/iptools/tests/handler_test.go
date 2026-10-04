@@ -342,3 +342,21 @@ func TestOGTags(t *testing.T) {
 		}
 	}
 }
+
+// TestLookupFragmentIsNeverCached: the lookup pushes its URL, so without Vary
+// and no-store the browser served the cached fragment, bare, on Back.
+func TestLookupFragmentIsNeverCached(t *testing.T) {
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}})
+	page := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
+	if vary := strings.Join(page.Header().Values("Vary"), ","); !strings.Contains(vary, "HX-Request") || !strings.Contains(vary, "Accept") {
+		t.Errorf("Vary = %q, want HX-Request and Accept", vary)
+	}
+	frag := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if got := frag.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("fragment Cache-Control = %q, want no-store", got)
+	}
+	bad := do(newTestApp(fakeLooker{err: errors.New("not an IP address")}), "/?ip=nope", map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if bad.Code != http.StatusBadRequest || bad.Header().Get("HX-Push-Url") != "false" {
+		t.Errorf("htmx error = %d with HX-Push-Url %q, want 400 and false", bad.Code, bad.Header().Get("HX-Push-Url"))
+	}
+}

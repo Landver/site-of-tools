@@ -155,24 +155,16 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 // html/template fail the render, while handing it the view-model map would leak
 // Title/Desc into the JSON body. Same split dnstools uses.
 //
-// One URL answers three ways, so every answer says what it varies on, and a
-// fragment is never stored: the parsing pages replace the address bar with
-// each result, and without Vary the browser's cache held the htmx fragment
-// under that address and served it, bare and unstyled, when Back returned to
-// it. An htmx error never becomes a history entry either: a 400 or a 429 is a
-// moment, not a place to come back to.
+// One URL answers three ways, so the response says what it varies on and a
+// fragment is never cached (platform.SetNegotiationHeaders): the parsing pages
+// replace the address bar with each result, and Back used to find the htmx
+// fragment in the browser cache under that address and show it bare.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
-	hdr := c.Response().Header()
-	hdr.Add("Vary", "Accept")
-	hdr.Add("Vary", "HX-Request")
+	platform.SetNegotiationHeaders(c, code)
 	switch {
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
 	case platform.IsHTMX(c):
-		hdr.Set("Cache-Control", "no-store")
-		if code >= 400 {
-			hdr.Set("HX-Push-Url", "false")
-		}
 		return c.Render(code, frag, vm)
 	}
 	return c.Render(code, page, vm)

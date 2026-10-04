@@ -22,7 +22,7 @@
       not read off a resolver's AD bit.
     </p>
 
-    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:queue last"
           class="mt-6 flex flex-wrap gap-2">
       <input name="name" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
              aria-label="Domain name to trace"

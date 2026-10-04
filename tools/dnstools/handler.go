@@ -118,8 +118,11 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 // does. Every route serves its domain struct as JSON and a view model as HTML,
 // so platform.Respond — one value shared by all three — cannot stand in for it.
 //
-// page is the whole document a browser gets; frag is the slot htmx swaps.
+// page is the whole document a browser gets; frag is the slot htmx swaps. The
+// lookups push their URL, so the headers keep a cached fragment from ever
+// being shown bare on Back (platform.SetNegotiationHeaders).
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
+	platform.SetNegotiationHeaders(c, code)
 	switch {
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
