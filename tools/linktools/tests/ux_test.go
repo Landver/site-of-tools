@@ -89,7 +89,7 @@ func TestEveryExampleLoadsAResult(t *testing.T) {
 				continue
 			}
 			body := rec.Body.String()
-			if strings.Contains(body, "alert-error") {
+			if strings.Contains(body, `class="alert-error"`) {
 				t.Errorf("%s: example %q renders an error:\n%s", page, href, truncate(body))
 			}
 			if examplesOn(t, body) != nil {
@@ -334,5 +334,61 @@ func TestCleanFormSendsUnwrapOnlyWhenTurnedOff(t *testing.T) {
 	off := request(t, e, http.MethodGet, "/clean?unwrap=false&u=https%3A%2F%2Fexample.com%2F", asHTML).Body.String()
 	if !regexp.MustCompile(`name="unwrap" value="false"[^>]*checked`).MatchString(off) {
 		t.Error("with unwrap=false the box does not show as ticked")
+	}
+}
+
+// TestFragmentsAreNeverCachedAsPages: one URL answers as a page, a fragment or
+// JSON, and the live pages put each result URL in the address bar. Without
+// Vary, the browser cached the htmx fragment under that address and showed it,
+// bare and unstyled, when Back returned there. An htmx error must not become a
+// history entry either.
+func TestFragmentsAreNeverCachedAsPages(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+
+	page := request(t, e, http.MethodGet, inspectTarget, asHTML)
+	vary := strings.Join(page.Header().Values("Vary"), ",")
+	for _, want := range []string{"HX-Request", "Accept"} {
+		if !strings.Contains(vary, want) {
+			t.Errorf("Vary = %q, missing %s", vary, want)
+		}
+	}
+	frag := request(t, e, http.MethodGet, inspectTarget, asHTMX)
+	if got := frag.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("fragment Cache-Control = %q, want no-store", got)
+	}
+	bad := request(t, e, http.MethodGet, "/?u=http%3A%2F%2F%5B", asHTMX)
+	if bad.Code != http.StatusBadRequest || bad.Header().Get("HX-Push-Url") != "false" {
+		t.Errorf("htmx error = %d with HX-Push-Url %q; an error must not become a history entry", bad.Code, bad.Header().Get("HX-Push-Url"))
+	}
+}
+
+// TestEmptyTraceCostsNothing: the bare Trace page, or "Ask as" changed before
+// there is a URL, dials nothing, so it must not spend the 1/s trace budget.
+func TestEmptyTraceCostsNothing(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+	for i := 0; i < 12; i++ {
+		if rec := request(t, e, http.MethodGet, "/trace?ua=googlebot", asHTMX); rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d with no URL was rate-limited", i+1)
+		}
+	}
+}
+
+// TestShortRefusesNonsenseTTLs: a negative ttl meant "permanent" and a tiny
+// one made a link that was dead on arrival. Both are refused before storage.
+func TestShortRefusesNonsenseTTLs(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, offlineShortener(t))
+	for _, ttl := range []string{"-5h", "1ms", "30s"} {
+		req := httptest.NewRequest(http.MethodPost, "/short",
+			strings.NewReader(`{"url":"https://example.com/x","ttl":"`+ttl+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Api-Key", testAPIKey)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "at least 1m") {
+			t.Errorf("ttl %s = %d %s, want 400 asking for at least 1m", ttl, rec.Code, rec.Body)
+		}
 	}
 }

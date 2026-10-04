@@ -20,7 +20,10 @@
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="Parsed: {{len .Params}} {{if eq (len .Params) 1}}parameter{{else}}parameters{{end}}{{if .Notes}}, {{len .Notes}} {{if eq (len .Notes) 1}}finding{{else}}findings{{end}}{{end}}.">
   <span class="text-muted">Scheme <span class="font-mono text-strong">{{or .Scheme "none"}}</span></span>
-  {{if .Host}}<span class="text-muted">Host <span class="font-mono text-strong">{{.Host}}</span></span>{{end}}
+  {{if .Host}}<span class="min-w-0 text-muted">Host <span class="wrap-anywhere font-mono text-strong">{{.Host}}</span></span>{{end}}
+  {{/* mailto:, tel:, data:, javascript: carry everything after the scheme
+       here, and it was never shown: not the address, not the payload. */}}
+  {{if .Opaque}}<span class="min-w-0 text-muted">Value <span class="wrap-anywhere font-mono text-strong">{{.Opaque}}</span></span>{{end}}
   {{if .Port}}<span class="text-muted">Port <span class="font-mono text-strong">{{.Port}}</span>{{if .DefaultPort}} <span class="text-muted">(default)</span>{{end}}</span>{{end}}
   <span class="text-muted">Query parameters <span class="font-mono text-strong">{{len .Params}}</span></span>
   {{if .FragParams}}<span class="text-muted">Fragment parameters <span class="font-mono text-strong">{{len .FragParams}}</span></span>{{end}}
@@ -199,7 +202,7 @@
   {{if and .Canonical (ne .Canonical .Input)}}
   <div class="rounded-lg border border-line bg-surface p-4">
     <h2 class="text-sm font-semibold text-strong">Canonical form</h2>
-    <p class="mt-1 text-xs text-muted">Lossless only: lowercased scheme and host, default port dropped, dot segments resolved. Nothing removed.</p>
+    <p class="mt-1 text-xs text-muted">{{if .HasPass}}Lowercased scheme and host, default port dropped, dot segments resolved. The password is left out: it is never shown back.{{else}}Lossless only: lowercased scheme and host, default port dropped, dot segments resolved. Nothing removed.{{end}}</p>
     <p class="mt-2 wrap-anywhere font-mono text-sm text-strong">{{.Canonical}}</p>
     <button type="button" class="btn-copy mt-3" data-copy="{{.Canonical}}">Copy</button>
   </div>

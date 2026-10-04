@@ -1,61 +1,151 @@
 {{/* Behaviour every Link Tools form page shares, delegated from document like
      partials/copy, because the results arrive by htmx and a script inside a
      fragment would have to re-run on every swap. Include once per page:
-     {{template "link/live" .}}.
+     {{template "link/live" .}}. A result area is any element carrying
+     data-result (most pages have one, #result; curl has one per direction).
 
-     1. What a screen reader hears. The parsing pages answer as you type, so
-        #result is replaced on every pause, and as a live region it read the
-        whole new result aloud each time (a summary strip, findings, a table of
-        every parameter), dozens of times while one URL was typed. So #result
-        is not a live region. Each result fragment names itself in one line on
-        its outermost element, data-announce="…", and that line is copied into
-        the page's one polite status region, #result-status (sr-only). The
-        empty state announces nothing; an error announces its message.
+     1. What a screen reader hears. The parsing pages answer as you type, so a
+        result area is replaced on every pause, and as a live region it read
+        the whole new result aloud each time, dozens of times while one URL
+        was typed. So result areas are not live regions. Each result fragment
+        names itself in one line on its outermost element, data-announce="…",
+        and that line is copied into the page's one polite status region,
+        #result-status (sr-only). The empty state announces nothing; an error
+        announces its message.
 
-     2. aria-busy on #result while a request is out, so assistive tech knows
-        the region is about to change rather than reading a half-swapped one.
+     2. aria-busy on a result area while a request for it is out, so assistive
+        tech knows it is about to change rather than reading a half-swapped one.
 
-     3. The history snapshot. Before htmx pushes a history entry it saves
-        <main>'s innerHTML, and innerHTML carries each control's value
-        ATTRIBUTE, the one the page was rendered with, not what was typed
-        since. Back then showed a result beside a different URL, or a ticked
-        box the result had been computed without. The live values are copied
-        into the attributes just before the snapshot. Password fields are
-        skipped, so the operator key never lands in a history cache. */}}
+     3. Wrong-tool input never rides in a URL. The server recognises a curl
+        command or text with links where one URL goes (url.go's WrongTool) and
+        answers with a button to the right page, but on a GET form the request
+        that carries the input to the server IS the leak: the command, cookies
+        and all, is in the request line and, on a live form, copied to the
+        address bar on every pause. So the same recognition runs here first
+        (wrongTool mirrors WrongTool; keep the two in step), the request is
+        never sent, and the button is built in the page, carrying the input on
+        by POST. Without JavaScript the server's answer is the same button.
+
+     4. A change before there is a URL (Trace's "Ask as" on an empty page) sends
+        nothing: it would only push an empty state into the history and spend
+        the rate limit. And empty parameters are dropped from a GET, so a
+        cleared box leaves /clean, not /clean?u=, and UTM URLs do not carry
+        four empty tags.
+
+     5. The history snapshot. Before htmx pushes a history entry it saves the
+        page being left, and the controls in that snapshot must describe the
+        result in it. The form has usually been edited for the NEXT request by
+        then, so the values are taken from the snapshot's own URL
+        (e.detail.path), not from the form. Only GET forms take part: their
+        state is their URL. Password fields never do.
+
+     6. A 429 on a live form retries once by itself after Retry-After, instead
+        of leaving "too many requests" on screen until the next keystroke. */}}
 {{define "link/live"}}
 <script>
   (function () {
-    function result() { return document.getElementById('result') }
+    function isResult(el) { return el && el.hasAttribute && el.hasAttribute('data-result') }
 
     document.body.addEventListener('htmx:beforeRequest', function (e) {
-      var r = result()
-      if (r && e.detail.target === r) r.setAttribute('aria-busy', 'true')
+      if (isResult(e.detail.target)) e.detail.target.setAttribute('aria-busy', 'true')
     })
-    document.body.addEventListener('htmx:afterRequest', function () {
-      var r = result()
-      if (r) r.removeAttribute('aria-busy')
+    document.body.addEventListener('htmx:afterRequest', function (e) {
+      if (isResult(e.detail.target)) e.detail.target.removeAttribute('aria-busy')
     })
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
       var status = document.getElementById('result-status')
-      if (!status || !e.detail.target || e.detail.target.id !== 'result') return
+      if (!status || !isResult(e.detail.target)) return
       var src = e.detail.target.querySelector('[data-announce]')
       status.textContent = src ? src.getAttribute('data-announce') : ''
     })
 
-    document.body.addEventListener('htmx:beforeHistorySave', function () {
-      document.querySelectorAll('main input, main textarea, main select').forEach(function (el) {
-        if (el.type === 'password') return
+    // Mirrors url.go's WrongTool.
+    function wrongTool(v) {
+      var t = v.trim(), low = t.toLowerCase()
+      if (/^curl[ \t\n]/.test(low)) return 'curl'
+      if (low.indexOf('<a ') >= 0 || low.indexOf('href=') >= 0 || t.indexOf('](http') >= 0) return 'extract'
+      if (t.indexOf('://') >= 0 && /[ \t\n]/.test(t)) return 'extract'
+      return ''
+    }
+
+    // The same markup as link/error's suggestion, built from text nodes: the
+    // input is never parsed as HTML.
+    function suggest(area, tool, value) {
+      var curl = tool === 'curl'
+      var msg = curl ? 'That looks like a curl command, not a URL.' : 'That looks like text with links in it, not one URL.'
+      var alert = document.createElement('div')
+      alert.className = 'alert-error'
+      alert.setAttribute('data-announce', msg)
+      alert.textContent = msg
+      var form = document.createElement('form')
+      form.method = 'post'
+      form.action = curl ? '/curl' : '/extract'
+      form.className = 'mt-3'
+      form.setAttribute('rel', 'noreferrer')
+      var input = document.createElement('input')
+      input.type = 'hidden'
+      input.name = curl ? 'curl' : 'text'
+      input.value = value
+      var button = document.createElement('button')
+      button.type = 'submit'
+      button.className = 'btn-secondary'
+      button.textContent = (curl ? 'Take it apart on the curl page' : 'Pull the links out on the Extract page') + ' →'
+      form.appendChild(input)
+      form.appendChild(button)
+      area.replaceChildren(alert, form)
+      var status = document.getElementById('result-status')
+      if (status) status.textContent = msg
+    }
+
+    document.body.addEventListener('htmx:confirm', function (e) {
+      var form = e.detail.elt
+      if (!form || form.tagName !== 'FORM' || e.detail.verb !== 'get') return
+      var u = form.elements.namedItem('u')
+      if (!u || typeof u.value !== 'string') return
+      var ev = e.detail.triggeringEvent
+      if (ev && ev.type === 'change' && !u.value.trim()) {
+        e.preventDefault()
+        return
+      }
+      var tool = wrongTool(u.value)
+      if (tool && isResult(e.detail.target)) {
+        e.preventDefault()
+        suggest(e.detail.target, tool, u.value.trim())
+      }
+    })
+
+    document.body.addEventListener('htmx:configRequest', function (e) {
+      if (e.detail.verb !== 'get') return
+      var p = e.detail.parameters
+      Object.keys(p).forEach(function (k) {
+        if (p[k] === '') delete p[k]
+      })
+    })
+
+    document.body.addEventListener('htmx:beforeHistorySave', function (e) {
+      var params = new URL(e.detail.path || location.href, location.origin).searchParams
+      document.querySelectorAll('main form[hx-get] [name]').forEach(function (el) {
+        if (el.type === 'password' || el.type === 'hidden' || el.type === 'submit') return
+        var v = params.getAll(el.name)
         if (el.tagName === 'TEXTAREA') {
-          el.textContent = el.value
+          el.textContent = v[0] || ''
         } else if (el.tagName === 'SELECT') {
-          Array.prototype.forEach.call(el.options, function (o) { o.toggleAttribute('selected', o.selected) })
+          Array.prototype.forEach.call(el.options, function (o) { o.toggleAttribute('selected', o.value === (v[0] || '')) })
         } else if (el.type === 'checkbox' || el.type === 'radio') {
-          el.toggleAttribute('checked', el.checked)
+          el.toggleAttribute('checked', v.indexOf(el.value) >= 0)
         } else {
-          el.setAttribute('value', el.value)
+          el.setAttribute('value', v[0] || '')
         }
       })
+    })
+
+    document.body.addEventListener('htmx:afterRequest', function (e) {
+      var xhr = e.detail.xhr, form = e.detail.elt
+      if (!xhr || xhr.status !== 429 || !form || !form.hasAttribute || !form.hasAttribute('hx-replace-url')) return
+      var wait = Math.min(parseInt(xhr.getResponseHeader('Retry-After'), 10) || 1, 5)
+      clearTimeout(form._linkRetry)
+      form._linkRetry = setTimeout(function () { htmx.trigger(form, 'submit') }, wait * 1000)
     })
   })()
 </script>

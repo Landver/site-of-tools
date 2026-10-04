@@ -27,9 +27,10 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
 
-  <main class="page-main">
+  <main class="page-main" hx-history-elt>
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
@@ -42,19 +43,23 @@
     <form action="/encode" hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="v" value="{{.Value}}"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
-             aria-label="Value to encode and decode"
-             placeholder="hello world &amp; friends"
-             class="field min-w-0 flex-1">
+      {{/* A textarea, growing with its content: a value with a newline in it
+           (JSON, a PEM block, wrapped base64) lost the newline in a one-line
+           input, and every encoding below was then of a different value. */}}
+      <textarea name="v" rows="1"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
+                aria-label="Value to encode and decode"
+                placeholder="hello world &amp; friends"
+                class="field field-sizing-content min-h-10 min-w-0 flex-1 resize-y">{{.Value}}</textarea>
       <button type="submit" class="btn-primary">Convert</button>
     </form>
 
-    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    <div id="result" class="mt-6">
-      {{template "link/encoded" .}}
+    {{/* A full-page error renders INSIDE the result area: above it, it
+         outlived the next live update and sat over a fresh, valid result. */}}
+    <div id="result" class="mt-6" data-result>
+      {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/encoded" .}}{{end}}
     </div>
 
     <details class="mt-10 text-sm">
@@ -129,7 +134,7 @@
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/encoding" class="text-brand-ink hover:underline">Percent-encoding reference</a>
-  <a href="/" class="text-brand-ink hover:underline">Inspect a whole URL</a>
+  {{if eq .Kind "url"}}<a href="/?u={{.Input}}" class="text-brand-ink hover:underline">Inspect it as a URL</a>{{else}}<a href="/" class="text-brand-ink hover:underline">Inspect a whole URL</a>{{end}}
 </p>
 
 {{else}}

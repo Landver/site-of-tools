@@ -63,7 +63,7 @@
              failed before one came back): a "0" badge and "0 ms" read as a
              bug, so it says so in words. */}}
         {{if eq .Status 0}}
-        <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-muted">no response</span>
+        <span class="whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">no response</span>
         {{else}}
         <span class="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs
           {{if ge .Status 500}}bg-danger/10 text-danger

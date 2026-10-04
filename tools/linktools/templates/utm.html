@@ -20,9 +20,10 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
 
-  <main class="page-main">
+  <main class="page-main" hx-history-elt>
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
@@ -62,12 +63,13 @@
       </div>
     </form>
 
-    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    <div id="result" class="mt-6">
-      {{template "link/utmbuilt" .}}
+    {{/* A full-page error renders INSIDE the result area: above it, it
+         outlived the next live update and sat over a fresh, valid result. */}}
+    <div id="result" class="mt-6" data-result>
+      {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/utmbuilt" .}}{{end}}
     </div>
 
     <details class="mt-10 text-sm">

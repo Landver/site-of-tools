@@ -23,15 +23,16 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
 
-  <main class="page-main">
+  <main class="page-main" hx-history-elt hx-history="false">
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a curl command, including the twenty-flag one Chrome's &ldquo;Copy as cURL&rdquo; produces, and get
-      its URL and headers taken apart. Or turn a URL into a safely quoted command. Nothing is run and nothing is
-      fetched.
+      its URL, method and headers taken apart. Or turn a URL into a safely quoted command. Nothing is run and
+      nothing is fetched.
     </p>
 
     {{/* Two directions, one shown at a time: a segmented control made of two
@@ -40,10 +41,13 @@
          and cannot flash both panels while a script loads. The radios are not
          inside either form and are never submitted. Paste is the default
          because it is the useful direction; Build opens when the page was
-         asked to build (?u=). The result renders under whichever panel is
-         showing, instead of under both forms as it used to, two screens away
-         from the one in use. relative: the sr-only radios are absolutely
-         positioned and must not escape to the page (see short.html). */}}
+         asked to build (?u=). Each panel holds its own form AND its own result
+         area, so switching never shows one direction's answer under the other
+         direction's form. relative: the sr-only radios are absolutely
+         positioned and must not escape to the page (see short.html).
+
+         hx-history="false" on <main>: a pasted command, cookies and all, must
+         not be kept in htmx's sessionStorage snapshot of the page. */}}
     {{$build := and .Query (not .Cmd)}}
     <div class="group/curl mt-6">
       <div class="relative inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="radiogroup" aria-label="Direction">
@@ -59,9 +63,10 @@
            session cookies and bearer tokens, and a query string would put them
            in the address bar, the history and every proxy log on the way
            (handler.go, POST /curl). Same reasoning as Extract. */}}
+      <div class="hidden group-has-[#curl-mode-paste:checked]/curl:block">
       <form method="post" action="/curl" hx-post="/curl" hx-target="#result" hx-swap="innerHTML"
             hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
-            class="mt-4 hidden group-has-[#curl-mode-paste:checked]/curl:block">
+            class="mt-4">
         <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"{{if not (or $build .Cmd)}} autofocus{{end}}
                   aria-label="curl command to take apart"
                   placeholder="curl 'https://example.com/api/thing?id=1' -H 'Accept: application/json'"
@@ -75,10 +80,17 @@
           paste live credentials into any web tool, this one included.
         </p>
       </form>
+      <div id="result" class="mt-6" data-result>
+        {{if and .Error (not $build)}}{{template "link/error" .}}
+        {{else if .FromCurl}}{{template "link/curled" .}}
+        {{else if not .Curl}}{{template "link/examples" .}}{{end}}
+      </div>
+      </div>
 
-      <form action="/curl" hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+      <div class="hidden group-has-[#curl-mode-build:checked]/curl:block">
+      <form action="/curl" hx-get="/curl" hx-target="#result-build" hx-swap="innerHTML" hx-replace-url="true"
             hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
-            class="mt-4 hidden group-has-[#curl-mode-build:checked]/curl:block">
+            class="mt-4">
         {{/* The URL takes a whole row on a phone; beside a 220px menu it was
              27px wide. curl's own user agent is the default: the browser
              persona put a 130-character -H 'User-Agent: …' into every command
@@ -111,15 +123,37 @@
           </label>
         </div>
       </form>
+      <div id="result-build" class="mt-6" data-result>
+        {{if and .Error $build}}{{template "link/error" .}}
+        {{else if .Curl}}{{template "link/curled" .}}
+        {{else if not .FromCurl}}{{template "link/examples" .}}{{end}}
+      </div>
+      </div>
     </div>
-
-    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    <div id="result" class="mt-6">
-      {{template "link/curled" .}}
-    </div>
+
+    {{/* The address bar follows the direction on screen: the paste direction
+         has no URL of its own (it posts), so switching to it leaves a bare
+         /curl, and switching back restores the build form's query. Without
+         this, a reload after switching opened the other direction. */}}
+    <script>
+      (function () {
+        var paste = document.getElementById('curl-mode-paste')
+        var build = document.getElementById('curl-mode-build')
+        var form = document.querySelector('form[hx-target="#result-build"]')
+        function sync() {
+          var qs = ''
+          if (build.checked && form && form.elements.u.value.trim()) {
+            qs = '?' + new URLSearchParams(new FormData(form)).toString()
+          }
+          history.replaceState(history.state, '', '/curl' + qs)
+        }
+        paste.addEventListener('change', sync)
+        build.addEventListener('change', sync)
+      })()
+    </script>
 
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">What the parser does and does not do</summary>
@@ -186,6 +220,7 @@
          to come back looking exactly like a GET. The body is measured, never
          shown: it is where a copied command keeps its passwords. */}}
     {{with .Request}}
+    {{if .Notes}}<div class="mb-3 rounded-lg border border-line bg-surface px-4 py-2">{{template "link/notes" .Notes}}</div>{{end}}
     <p class="text-xs text-muted">
       <span class="rounded bg-line px-1.5 py-0.5 font-mono font-semibold text-strong">{{.Method}}</span>
       <span class="ml-1">{{.MethodWhy}}{{if .BodyBytes}}, with a {{.BodyBytes}}-byte body (not shown){{end}}</span>

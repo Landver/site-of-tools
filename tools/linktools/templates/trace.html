@@ -3,8 +3,9 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
-  <main class="page-main">
+  <main class="page-main" hx-history-elt>
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
@@ -23,14 +24,15 @@
          the history. Changing "ask as" re-runs it, because the page itself
          says the answer often depends on who asks.
 
-         hx-sync="this:drop" rather than hx-disabled-elt: disabling the button
-         that has focus throws focus to <body>, so the next Tab started over at
-         the header. The progress text lives inside the button for the same
+         hx-sync="this:queue last" rather than hx-disabled-elt: disabling the
+         button that has focus throws focus to <body>, so the next Tab started
+         over at the header; and a change made while a trace runs (a new URL,
+         another "Ask as") runs next, rather than being dropped. The progress text lives inside the button for the same
          reason the parsing pages have none: beside it, it held its width even
          while hidden, and squeezed the URL field on a phone. The field takes a
          whole row there; the menu and button share the next. */}}
     <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
-          hx-trigger="submit, change from:find select" hx-sync="this:drop"
+          hx-trigger="submit, change from:find select" hx-sync="this:queue last"
           class="mt-6 flex flex-wrap gap-2">
       <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
              aria-label="URL to trace" placeholder="http://bit.ly/example"
@@ -49,14 +51,13 @@
     </form>
     {{end}}
 
-    {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
-         off) rendered an empty form and looked like nothing happened. */}}
-    {{if and .Error (not .Disabled)}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    <div id="result" class="mt-6">
-      {{template "link/chain" .}}
+    {{/* A full-page error renders INSIDE the result area: above it, it
+         outlived the next live update and sat over a fresh, valid result. */}}
+    <div id="result" class="mt-6" data-result>
+      {{if (and .Error (not .Disabled))}}{{template "link/error" .}}{{else}}{{template "link/chain" .}}{{end}}
     </div>
 
     {{if not .Disabled}}

@@ -1015,3 +1015,74 @@ func TestCurlCommandSaysHowItSends(t *testing.T) {
 		t.Errorf("body measured as %d bytes", r.BodyBytes)
 	}
 }
+
+// TestRound2EdgeCases pins the power-user review's parser findings.
+func TestRound2EdgeCases(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+
+	// curl globs [] and {} unless told not to.
+	line, err := svc.ToCurl("https://example.com/?filter[status]=open&ids[]=1", linktools.CurlOptions{})
+	if err != nil || !strings.Contains(line, " -g ") {
+		t.Errorf("ToCurl with brackets = %q, %v; want -g", line, err)
+	}
+	if line, _ := svc.ToCurl("https://example.com/?a=1", linktools.CurlOptions{}); strings.Contains(line, "-g") {
+		t.Errorf("ToCurl added -g with nothing to glob: %q", line)
+	}
+
+	// The canonical form keeps an IPv6 literal's brackets.
+	if in, _ := svc.Parse("http://[::1]:80/"); in.Canonical != "http://[::1]/" {
+		t.Errorf("canonical = %q, want http://[::1]/", in.Canonical)
+	}
+
+	// A host that is an IPv4 address written as a number is named.
+	for _, host := range []string{"2130706433", "0x7f000001", "0177.1", "127.1"} {
+		in, _ := svc.Parse("http://" + host + "/")
+		if !hasNote(in.Notes, linktools.SevWarn, "Host is an IP address in disguise") {
+			t.Errorf("%s: no disguised-address note: %+v", host, in.Notes)
+		}
+	}
+	if in, _ := svc.Parse("http://example.com/"); hasNote(in.Notes, linktools.SevWarn, "Host is an IP address in disguise") {
+		t.Error("an ordinary host was called a disguised address")
+	}
+
+	// A broken escape would be "fixed" by the browser before following, so
+	// the page must not offer to open it.
+	if in, _ := svc.Parse("https://example.com/?a=%zz"); in.Linkable {
+		t.Error("a URL with a broken escape is marked linkable")
+	}
+
+	// The curl tokeniser says what a shell would have done.
+	if _, err := svc.FromCurlRequest(`curl 'https://example.com/`); err == nil {
+		t.Error("an unclosed quote was accepted")
+	}
+	r, err := svc.FromCurlRequest(`curl 'https://example.com/'; rm -rf /`)
+	if err != nil || r.URL != "https://example.com/" || !hasNote(r.Notes, linktools.SevWarn, "The command ends at an unquoted ;") {
+		t.Errorf("command with ; = %+v, %v", r, err)
+	}
+	r, _ = svc.FromCurlRequest(`curl "https://example.com/$HOME"`)
+	if !hasNote(r.Notes, linktools.SevInfo, "Shell expansion left as written") {
+		t.Errorf("no expansion note: %+v", r.Notes)
+	}
+	r, _ = svc.FromCurlRequest(`curl -u alice:hunter2 https://example.com/`)
+	found := false
+	for _, h := range r.Headers {
+		if h.Name == "Authorization" {
+			found = true
+			if strings.Contains(h.Value, "hunter2") {
+				t.Errorf("-u printed the password: %q", h.Value)
+			}
+		}
+	}
+	if !found {
+		t.Error("-u produced no Authorization row")
+	}
+	r, _ = svc.FromCurlRequest(`curl -G https://example.com/search --data-urlencode 'q=hello world'`)
+	if r.URL != "https://example.com/search?q=hello%20world" {
+		t.Errorf("-G URL = %q, want the data in the query", r.URL)
+	}
+	r, _ = svc.FromCurlRequest(`wget https://example.com/`)
+	if !hasNote(r.Notes, linktools.SevWarn, "Not a curl command") {
+		t.Errorf("a wget command was not called out: %+v", r.Notes)
+	}
+}

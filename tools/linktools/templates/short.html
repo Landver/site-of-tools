@@ -13,6 +13,7 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
   <main class="page-main">
     {{template "link/nav" .}}
@@ -48,6 +49,12 @@
          block, not in attribute code: Alpine evaluates x-init and @event
          values as EXPRESSIONS, so the try/catch that used to sit in them was a
          syntax error, and the key was silently never read or saved. */}}
+    <noscript>
+      <p class="mt-6 text-sm text-muted">
+        The console needs JavaScript: the key travels in a request header, which a plain form cannot send.
+        Everything else on this site works without it.
+      </p>
+    </noscript>
     <div x-data="linkKey()">
     <section class="mt-6 rounded-lg border border-line bg-surface p-4">
       <h2 class="text-sm font-semibold text-strong">API key</h2>
@@ -60,7 +67,7 @@
             hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
         <input id="apikey" type="password" autocomplete="off" spellcheck="false" x-model="key"
                aria-label="API key" placeholder="X-Api-Key" class="field min-w-0 flex-1">
-        <button type="submit" class="btn-secondary">Show links</button>
+        <button type="submit" class="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" :disabled="!key">Show links</button>
       </form>
       <button type="button" x-show="key" x-cloak @click="forget()"
               class="mt-2 text-xs text-muted underline-offset-2 hover:text-strong hover:underline">Forget the key on this browser</button>
@@ -128,9 +135,7 @@
       </form>
     </section>
 
-    {{if .Error}}<div class="mt-4 alert-error">{{.Error}}</div>{{end}}
-
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false"></div>
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">{{if .Error}}{{template "link/error" .}}{{end}}</div>
 
     {{/* Loads itself: on arrival when a key is already saved, so the operator
          lands on their links instead of on a button (the script below sends
@@ -149,9 +154,8 @@
          - fill the box, and once htmx is up ask the list to load, so the
            operator lands on their links;
          - define linkKey(), the Alpine state for the box: the key as typed,
-           saved on every change rather than on "change" (which never fires
-           when Enter submits with focus still in the field), and removed when
-           the box is emptied, which is what "Forget" does.
+           saved once the server accepts it (see the afterSwap listener), and
+           removed by "Forget".
 
          Storage is wrapped because it throws in a private window, and a
          console that cannot remember a key is still a usable console. */}}
@@ -173,13 +177,29 @@
         document.addEventListener('DOMContentLoaded', function () {
           if (read()) htmx.trigger(document.body, 'link-list-changed')
         })
+        // Saved only once the server has accepted it: the list fragment
+        // marks itself data-key="ok" or "bad". Saving on every keystroke
+        // stored typos, and every reload then sent the wrong key again.
+        document.body.addEventListener('htmx:afterSwap', function (e) {
+          if (!e.detail.target || e.detail.target.id !== 'aliases') return
+          if (e.detail.target.querySelector('[data-key="ok"]')) save(document.getElementById('apikey').value)
+          else if (e.detail.target.querySelector('[data-key="bad"]')) save('')
+        })
+        // After a revoke the row's own button is gone, so focus goes to the
+        // card that says what happened, not to <body>.
+        document.body.addEventListener('htmx:afterSettle', function (e) {
+          var card = e.detail.target && e.detail.target.querySelector('[data-autofocus]')
+          if (card) card.focus()
+        })
         window.linkKey = function () {
           return {
             key: read(),
-            init: function () { this.$watch('key', save) },
             forget: function () {
               this.key = ''
+              save('')
               document.getElementById('aliases').innerHTML = ''
+              document.getElementById('result').innerHTML = ''
+              document.getElementById('apikey').focus()
             }
           }
         }
@@ -248,14 +268,14 @@
      rendering anyway: a json:"-" tag means nothing to a template. */}}
 {{define "link/shortlist"}}
 {{if not .Authed}}
-  <div class="alert-error">
+  <div class="alert-error" data-key="bad">
     That key was not accepted. Check it and try again: the list is never public, because publishing it would
     hand over every destination without anyone having to guess a code.
   </div>
 {{else if not .Links}}
-  <p class="text-sm text-muted">No short links yet. The first one you create shows up here.</p>
+  <p class="text-sm text-muted" data-key="ok">No short links yet. The first one you create shows up here.</p>
 {{else}}
-<h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Your short links</h2>
+<h2 class="text-sm font-semibold uppercase tracking-wide text-muted" data-key="ok">Your short links</h2>
 {{/* relative is load-bearing: the Actions header is an sr-only <span>, which
      is position:absolute, and without a positioned ancestor its containing
      block is the page — so it escaped this scroll container and gave the whole
@@ -278,9 +298,9 @@
       {{range .Links}}
       {{/* A revoked row is dimmed as well as labelled: it is history now, and
            the eye should slide past it to the links that still work. */}}
-      <tr class="align-top{{if .RevokedAt}} opacity-60{{end}}">
+      <tr class="align-top{{if or .RevokedAt .Expired}} opacity-60{{end}}">
         <td class="px-3 py-2 font-mono text-strong">
-          <span class="whitespace-nowrap">{{.Code}}</span>{{if .RevokedAt}} <span class="block font-sans text-xs text-danger">revoked</span>{{end}}
+          <span class="whitespace-nowrap">{{.Code}}</span>{{if .RevokedAt}} <span class="block font-sans text-xs text-danger">revoked</span>{{else if .Expired}} <span class="block font-sans text-xs text-warn">expired</span>{{end}}
         </td>
         {{/* Text, never an anchor: these destinations are arbitrary and the
              point of the page is reading them, not visiting them. */}}
@@ -288,13 +308,13 @@
         <td class="px-3 py-2 text-xs text-muted">{{.Note}}</td>
         <td class="px-3 py-2 font-mono text-muted">{{.Hits}}</td>
         <td class="whitespace-nowrap px-3 py-2 text-xs text-muted">{{.CreatedAt.Format "2006-01-02"}}</td>
-        <td class="whitespace-nowrap px-3 py-2 text-xs text-muted">{{if .ExpiresAt}}{{.ExpiresAt.Format "2006-01-02"}}{{else}}never{{end}}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-xs text-muted">{{.Expires}}</td>
         <td class="px-3 py-2 text-right">
           {{/* The kill switch had a route and no control, so it was curl-only,
                while the table below already rendered a "revoked" badge for a
                state the UI could not produce. Same key expression as the
                loader: the header is the only way a browser can authenticate. */}}
-          {{if not .RevokedAt}}
+          {{if not (or .RevokedAt .Expired)}}
           <div class="flex items-center justify-end gap-3">
             {{/* Copy is here too, not only on a freshly created link: coming
                  back for a link made last week is the other half of the job.
@@ -327,7 +347,7 @@
      and the page looked like the click had done nothing. */}}
 {{define "link/revoked"}}
 {{with .Revoked}}
-<div class="rounded-lg border border-warn bg-surface p-4">
+<div class="rounded-lg border border-warn bg-surface p-4" tabindex="-1" data-autofocus>
   <p class="text-sm text-strong"><span class="font-mono">{{.}}</span> is revoked.</p>
   <p class="mt-1 text-xs text-muted">
     It stops resolving immediately, not after a cache expires. The code is never reissued: a reused code

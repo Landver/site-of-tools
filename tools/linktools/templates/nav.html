@@ -49,5 +49,15 @@
   <a href="/short" title="Short links on this domain (API key needed)"{{if eq .Active "short"}} aria-current="page"{{end}}
      class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
 </nav>
-<p class="eyebrow">Link Tools</p>
+<p id="content" class="eyebrow" tabindex="-1">Link Tools</p>
+{{end}}
+
+{{/* The skip link: first thing in the tab order on every Link Tools page, so
+     a keyboard user reaches the tool without walking the header and all ten
+     sub-nav tabs first (fifteen stops on a result page, which has no
+     autofocus). It lands on the suite eyebrow above the heading; the next Tab
+     is the page's own first control. Hidden until focused. */}}
+{{define "link/skip"}}
+<a href="#content"
+   class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-canvas focus:px-3 focus:py-2 focus:text-sm focus:text-strong focus:ring-2 focus:ring-brand">Skip to the tool</a>
 {{end}}

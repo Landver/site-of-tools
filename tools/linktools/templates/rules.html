@@ -22,6 +22,7 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
 
   <main class="page-main">
@@ -357,6 +358,8 @@
               if (hit) visible++
             })
             sec.hidden = visible === 0
+            var jump = document.querySelector('a[href="#' + sec.id + '"]')
+            if (jump) jump.hidden = sec.hidden
             shown += visible
           })
           none.hidden = shown !== 0
