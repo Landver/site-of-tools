@@ -11,12 +11,38 @@
      A field the URL doesn't name is left as the snapshot has it: the first
      page of a visit can be a bare URL, and its rendered defaults are right. */}}
 {{define "partials/htmx-history"}}
+{{/* Two more history traps, same partial:
+
+     A response that lands after Back: the form that sent it was replaced by
+     the restored page, and processing it anyway pushed its URL and title
+     over the ones just restored, beside a page with no result. Requests
+     still in flight when a page is restored are aborted instead. (Checking
+     in beforeSwap can't work: the sending element is detached by then, and
+     its events no longer bubble to the body.)
+
+     A transient notice (data-transient: the rate-limit note, the offline
+     box) is about a moment, not a URL. htmx snapshots the page for Back just
+     before the next swap, and a notice caught in that snapshot came back on
+     Back over the result it had been sitting on. It is removed first. */}}
 <script>
   document.body.addEventListener('htmx:historyRestore', () => {
     const params = new URLSearchParams(location.search)
     document.querySelectorAll('main form [name]').forEach((el) => {
       if (params.has(el.name)) el.value = params.get(el.name)
     })
+  })
+  const pending = new Set()
+  document.body.addEventListener('htmx:beforeRequest', (e) => {
+    const xhr = e.detail.xhr
+    pending.add(xhr)
+    xhr.addEventListener('loadend', () => pending.delete(xhr))
+  })
+  document.body.addEventListener('htmx:historyRestore', () => {
+    pending.forEach((xhr) => xhr.abort())
+    pending.clear()
+  })
+  document.body.addEventListener('htmx:beforeHistorySave', () => {
+    document.querySelectorAll('[data-transient]').forEach((el) => el.remove())
   })
 </script>
 {{end}}

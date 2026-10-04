@@ -48,7 +48,15 @@
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
    re-pointing variables re-themes entire site w/ zero markup churn. */
+/* Native controls (checkboxes, select popups, scrollbars) follow the theme
+   too: without color-scheme they render light on the dark page, and a white
+   checkbox was the loudest thing in a results table. */
+:root {
+  color-scheme: light;
+}
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --color-brand-ink: #e0619a;
   --color-canvas:  #0a0a0a;
   --color-surface: #171717;
@@ -69,6 +77,12 @@
      pages instead of repeating the cluster. */
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
+  }
+  /* One focus ring everywhere, the one fields already use: links, buttons,
+     tabs and summaries used to show the OS ring beside the brand one. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
   /* Alpine's cloak: hide x-cloak elements until Alpine initialises. */
   [x-cloak] {
@@ -120,7 +134,7 @@
   }
   /* Inline error alert; add a layout util inline. */
   .alert-error {
-    @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger;
+    @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger wrap-anywhere;
   }
   /* Two-column label/value grid for result cards' <dl>. Override column width
      inline where needed, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */

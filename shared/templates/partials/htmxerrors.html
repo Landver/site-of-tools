@@ -31,11 +31,15 @@
   document.body.addEventListener('htmx:sendError', (e) => {
     const target = e.detail.target
     if (!target) return
+    // Above the last result, not instead of it, and data-transient so it
+    // is not saved into history (partials/htmx-history).
+    target.querySelectorAll(':scope > [data-transient]').forEach((el) => el.remove())
     const box = document.createElement('div')
     box.className = 'alert-error sm:col-span-2'
     box.setAttribute('role', 'alert')
+    box.dataset.transient = ''
     box.textContent = "Couldn't reach the server. Check your connection and try again."
-    target.replaceChildren(box)
+    target.prepend(box)
   })
 </script>
 {{end}}
