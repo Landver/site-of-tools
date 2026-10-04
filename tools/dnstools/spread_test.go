@@ -258,3 +258,43 @@ func TestRotationIsWitnessedInsideOneProvider(t *testing.T) {
 		t.Error("two servers of one provider on one serial with different sets is rotation")
 	}
 }
+
+// The purge card is for resolvers holding an answer the zone has moved on
+// from. One resolver behind while the others already match is that; every
+// resolver differing from the zone and from each other is steering, and a
+// purge cannot "fix" an answer that is correct where it was given.
+func TestStaleResolversAreTheOnesAPurgeCanHelp(t *testing.T) {
+	t.Parallel()
+
+	auth := []ServerAnswer{
+		answer("ns1.example.net.", 7, "192.0.2.10"),
+		answer("ns2.example.net.", 7, "192.0.2.10"),
+	}
+	behind := &Spread{Authoritative: auth, Resolvers: []ServerAnswer{
+		answer("Cloudflare (1.1.1.1)", 0, "192.0.2.10"),
+		answer("Google (8.8.8.8)", 0, "192.0.2.10"),
+		answer("Quad9 (9.9.9.9)", 0, "192.0.2.99"),
+	}}
+	behind.summarise()
+	if len(behind.Stale) != 1 || behind.Stale[0] != "Quad9 (9.9.9.9)" {
+		t.Errorf("Stale = %v, want only the resolver still on the old answer", behind.Stale)
+	}
+
+	steering := &Spread{Authoritative: auth, Resolvers: []ServerAnswer{
+		answer("Cloudflare (1.1.1.1)", 0, "192.0.2.21"),
+		answer("Google (8.8.8.8)", 0, "192.0.2.22"),
+		answer("Quad9 (9.9.9.9)", 0, "192.0.2.23"),
+	}}
+	steering.summarise()
+	if len(steering.Stale) != 0 {
+		t.Errorf("every resolver on its own answer is steering, not staleness: Stale = %v", steering.Stale)
+	}
+
+	agreed := &Spread{Authoritative: auth, Resolvers: []ServerAnswer{
+		answer("Cloudflare (1.1.1.1)", 0, "192.0.2.10"),
+	}}
+	agreed.summarise()
+	if len(agreed.Stale) != 0 {
+		t.Errorf("nothing differs, so nothing is stale: %v", agreed.Stale)
+	}
+}

@@ -12,7 +12,7 @@
        the finding. */}}
   <div class="card sm:col-span-2">
     <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <div class="eyebrow">findings</div>
+      <h2 class="eyebrow">findings</h2>
       {{/* Each separator is behind a test of what precedes it, or a clean
            domain opens with a dangling bullet. Nothing counts "info" notes,
            so a findings list made only of those needs a line of its own. */}}
@@ -38,7 +38,7 @@
   <div class="grid gap-4 content-start">
   {{with .SPF}}
   <div class="card">
-    <div class="eyebrow">spf</div>
+    <h2 class="eyebrow">spf</h2>
     <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
     <dl class="spec mt-3">
       <dt>DNS lookups</dt>
@@ -60,7 +60,7 @@
   <div class="grid gap-4 content-start">
   {{with .DMARC}}
   <div class="card">
-    <div class="eyebrow">dmarc</div>
+    <h2 class="eyebrow">dmarc</h2>
     <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
     <dl class="spec mt-3">
       <dt>Policy</dt>
@@ -76,22 +76,24 @@
        plainly, as the lookup page does, rather than a row simply missing:
        "not published" and "not checked" read the same when nothing is said. */}}
   <div class="card">
-    <div class="eyebrow">the rest</div>
+    <h2 class="eyebrow">other records</h2>
     <dl class="spec">
       <dt>DKIM</dt>
       <dd>
         {{if .DKIM}}{{range $i, $k := .DKIM}}{{if $i}}, {{end}}<span class="font-mono">{{$k.Selector}}</span>{{end}}
         {{else}}<span class="text-faint">no key at the selectors tried</span>{{end}}
-        <span class="block text-xs text-faint">DNS can't list selectors, so these are guesses{{if .DKIMAsked}} plus yours{{end}}.</span>
+        <span class="block text-xs text-faint">Found by trying common selectors{{if .DKIMAsked}} and yours{{end}}. DNS can't list selectors, so others may exist.</span>
         {{/* The way out of a guess: the visitor usually knows the selector,
              it's in the mail provider's DKIM settings. */}}
-        <form action="/email" hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+        {{/* The ids are what let htmx put focus back in the field after the
+             swap replaces the whole result, this form included. */}}
+        <form action="/email" hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:drop" data-busy="Checking the selector…"
               class="mt-2 flex flex-wrap gap-2">
           <input type="hidden" name="name" value="{{$page.Query}}">
-          <input name="selector" value="{{$page.Selector}}" required autocomplete="off" spellcheck="false"
+          <input id="dkim-selector" name="selector" value="{{$page.Selector}}" required autocomplete="off" spellcheck="false"
                  aria-label="DKIM selector to check" placeholder="your selector"
-                 class="w-32 min-w-0 rounded-md border border-line bg-canvas px-2 py-1 font-mono text-xs text-strong placeholder-faint focus:border-brand focus:outline-none">
-          <button type="submit" class="btn-copy">Check</button>
+                 class="w-32 min-w-0 rounded-md border border-line-strong bg-canvas px-2 py-1 font-mono text-xs text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+          <button id="dkim-check" type="submit" class="btn-copy">Check</button>
         </form>
       </dd>
       <dt>MTA-STS</dt>
@@ -99,7 +101,10 @@
         {{with .MTASTS}}
           {{if .PolicyFound}}<span class="font-mono">{{.Mode}}</span>{{if .MaxAge}} <span class="text-faint">· max_age {{.MaxAgeHuman}}</span>{{end}}
             {{if .MX}}<span class="block text-xs text-faint wrap-anywhere">policy MX: {{range $i, $m := .MX}}{{if $i}}, {{end}}{{$m}}{{end}}</span>{{end}}
-          {{else}}<span class="text-danger">policy unreachable</span>{{end}}
+          {{/* Two different fixes, so two different words: a file that never
+               arrived, and one that arrived and isn't a valid policy. */}}
+          {{else if .Fetched}}<span class="text-danger">policy file invalid</span>
+          {{else}}<span class="text-danger">policy file unreachable</span>{{end}}
         {{else}}<span class="text-faint">not published</span>{{end}}
       </dd>
       <dt>TLS-RPT</dt>
@@ -118,36 +123,40 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{/* Skip link: the first thing a keyboard reaches, and invisible until it
+       does. Jumps past the site header to the tool. */}}
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
   {{template "partials/header" .}}
-  <main class="page-main">
+  <main id="main" class="page-main">
     {{template "dns/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Email authentication for a domain: SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI.
-      Including the check that matters most and is easiest to miss: whether your SPF record
-      stays under the 10 DNS lookups the spec allows, because over that it fails for everyone, silently.
+      SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI for a domain, plus whether its inbound mail servers are on
+      a blocklist. SPF is checked against its 10-lookup limit: over it, SPF fails for every message, silently.
     </p>
 
-    <form hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    <form hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:drop" data-busy="Checking SPF, DMARC, DKIM, MTA-STS…"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" autofocus required autocomplete="off" spellcheck="false"
-             aria-label="Domain name, or an email address" placeholder="example.com" class="field">
-      <button type="submit" class="btn-primary">
+      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
+             aria-label="Domain name, or an email address" placeholder="example.com or you@example.com" class="field">
+      <button type="submit" class="btn-primary in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60">
         {{/* Both labels share one grid cell, so swapping them in flight
              never changes the button's width or shoves the input. */}}
         <span class="inline-grid">
           <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Check</span>
-          <span aria-hidden="true" class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Checking…</span>
+          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Checking…</span>
         </span>
       </button>
-      {{/* Screen readers only, and only in flight: see index.html. */}}
-      <span role="status" class="sr-only hidden in-[.htmx-request]:block">Checking SPF, DMARC, DKIM, MTA-STS…</span>
     </form>
 
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
-      <div class="mt-3 font-mono text-xs text-muted">
-        <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com'</span></p>
+      <div class="mt-3 space-y-3 text-muted">
+        <p>Same URL, content-negotiated: browsers get the page, everything else gets JSON.</p>
+        <div class="space-y-2 font-mono text-xs wrap-anywhere">
+          <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com'</span></p>
+          <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com&selector=s1'</span></p>
+        </div>
       </div>
     </details>
 

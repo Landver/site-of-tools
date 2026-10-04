@@ -3,57 +3,56 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{/* Skip link: the first thing a keyboard reaches, and invisible until it
+       does. Jumps past the site header to the tool. */}}
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
   {{template "partials/header" .}}
 
-  <main class="page-main">
+  <main id="main" class="page-main">
     {{template "dns/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Every record type at once, in one query: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA and HTTPS, asked in parallel.
-      Paste an IP instead and it turns into a reverse (PTR) lookup on its own.
+      Nine record types at once, asked in parallel: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA and HTTPS.
+      Enter an IP to get its reverse (PTR) record instead.
     </p>
 
     <!-- Pure htmx, GET-shaped: every control is a query param, so any result is
          a shareable URL (the one pattern every tool surveyed shares — see
          tools/dnstools/docs/reports/firsthand-ui-observations.md). -->
-    <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:drop" data-busy="Querying every record type…"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" autofocus required autocomplete="off" spellcheck="false"
+      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
              aria-label="Domain name or IP address to look up"
              placeholder="example.com or an IP"
              class="field">
       {{/* Defaults to every type at once — picking one is narrowing, not the
            price of entry. */}}
       <select name="type" aria-label="Record type"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+              class="rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
         <option value="all"{{if .AllTypes}} selected{{end}}>All types</option>
         {{$t := .QType}}
         {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
       </select>
       <select name="resolver" aria-label="Resolver to query"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+              class="rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
         {{$r := .Resolver}}
         {{range .Resolvers}}<option value="{{.Key}}"{{if eq .Key $r}} selected{{end}}>{{.Name}}</option>{{end}}
       </select>
-      <button type="submit" class="btn-primary">
+      <button type="submit" class="btn-primary in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60">
         {{/* Both labels share one grid cell, so swapping them in flight
              never changes the button's width or shoves the input. */}}
         <span class="inline-grid">
           <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Look up</span>
-          <span aria-hidden="true" class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Looking up…</span>
+          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Looking up…</span>
         </span>
       </button>
-      {{/* htmx toggles .htmx-request on the form while in flight. Shown to
-           screen readers then and only then; sighted users get the button
-           label and the dimmed results. */}}
-      <span role="status" class="sr-only hidden in-[.htmx-request]:block">Querying every record type…</span>
     </form>
 
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 space-y-3 text-muted">
         <p>Same URLs, content-negotiated: browsers get the page, everything else gets JSON.</p>
-        <div class="space-y-2 font-mono text-xs">
+        <div class="space-y-2 font-mono text-xs wrap-anywhere">
           <p><span class="text-faint"># every type at once (JSON)</span><br>
              <span class="text-strong">curl 'https://dns.corpberry.com/?name=example.com'</span></p>
           <p><span class="text-faint"># narrow to one type, from Quad9</span><br>
@@ -82,6 +81,9 @@
   {{template "partials/htmx-history" .}}
   {{template "dns/script" .}}
   {{template "partials/copy" .}}
+  {{/* The Copy buttons need script; without it they would be buttons that
+       do nothing. */}}
+  <noscript><style>[data-copy]{display:none}</style></noscript>
 </body>
 </html>
 {{end}}

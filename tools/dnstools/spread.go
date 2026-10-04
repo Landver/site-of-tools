@@ -68,6 +68,10 @@ type Spread struct {
 	// That is a change which has left the nameservers and is waiting out a
 	// cache — not steering, and not a stalled rollout.
 	ResolversStale bool `json:"resolvers_stale,omitempty"`
+	// Stale: which public resolvers hold an answer the zone's own servers no
+	// longer give (an old record, or a cached NXDOMAIN): the ones a purge is
+	// for. Empty when nothing is stale, or when the shape says steering.
+	Stale []string `json:"stale_resolvers,omitempty"`
 
 	// Consistent: every server that answered returned the same set.
 	Consistent bool `json:"consistent"`
@@ -655,6 +659,32 @@ func (sp *Spread) summarise() {
 	// is anycast steering, which needs the resolvers to disagree.
 	sp.ResolversStale = sp.ResolverGroups == 1 && sp.AuthConsistent &&
 		authKey != "" && resolverKey != authKey
+
+	// Stale: the resolvers holding something the zone's own servers no longer
+	// serve, a cached NXDOMAIN included, which are the only ones a cache purge
+	// can help. Claimed only where it is the reading the data supports: the
+	// zone in step and not rotating, and either every resolver in one voice
+	// (ResolversStale) or some of them already on the zone's answer. Every
+	// resolver disagreeing with the zone AND with each other is the steering
+	// shape, and calling those stale would send someone to purge a GeoDNS
+	// answer that is correct where it was given.
+	if sp.AuthConsistent && authKey != "" && !sp.Rotation {
+		var differ []string
+		matched := false
+		for _, r := range sp.Resolvers {
+			if r.Error != "" {
+				continue
+			}
+			if answerKey(r.Values) == authKey {
+				matched = true
+			} else {
+				differ = append(differ, r.Label)
+			}
+		}
+		if len(differ) > 0 && (matched || sp.ResolversStale) {
+			sp.Stale = differ
+		}
+	}
 
 	sp.health()
 }

@@ -15,7 +15,7 @@
 {{define "dns/nav"}}
 <nav id="dns-nav" aria-label="DNS Tools sections" {{if .OOB}}hx-swap-oob="true"{{end}}
      class="mb-8 inline-flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
-  <a href="/{{with .NavName}}?name={{.}}{{end}}" title="Every record type for a name, at once"
+  <a href="/{{with .NavName}}?name={{.}}{{end}}" title="Nine record types for a name, at once"
      {{if eq .Active "lookup"}}aria-current="page"{{end}}
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "lookup"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">DNS lookup</a>
   <a href="/consistency{{with .NavName}}?name={{.}}{{end}}" title="Is a DNS change live yet? The zone's own nameservers against the public resolvers"
@@ -27,7 +27,7 @@
   <a href="/domain{{with .NavName}}?name={{.}}{{end}}" title="Who registered it, when it expires, and its subdomains"
      {{if eq .Active "domain"}}aria-current="page"{{end}}
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "domain"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Domain</a>
-  <a href="/email{{with .NavName}}?name={{.}}{{end}}" title="SPF, DMARC, DKIM, MTA-STS and mail-server reputation"
+  <a href="/email{{with .NavName}}?name={{.}}{{end}}" title="SPF, DMARC, DKIM, MTA-STS and inbound mail-server blocklists"
      {{if eq .Active "email"}}aria-current="page"{{end}}
      class="rounded-md px-3 py-1.5 transition {{if eq .Active "email"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Email</a>
 </nav>
@@ -70,18 +70,66 @@
 {{end}}
 {{end}}
 
-{{/* On a phone the keyboard stays up after a submit (the page doesn't
-     navigate), covering the result it just asked for. Once the result is
-     in, a coarse pointer gets its focus dropped so the keyboard folds away.
-     A mouse and keyboard user keeps the caret where it was, to type the next
-     name straight away. */}}
+{{/* The page's small behaviours, all keyed off htmx events. #dns-status is
+     the one live region; every message about what is happening goes there,
+     once, so a screen reader hears "Checking…" then the result.
+
+       beforeRequest   the form's data-busy text, while the request runs
+       afterSwap       the name field marked invalid when the answer is an
+                       error (the full page renders that server-side), and
+                       on a phone the keyboard folded away once a result is in
+       afterSettle     focus put back when a swap removed the control that
+                       had it (the subdomains card's "Try again")
+       historyRestore  Back and Forward said out loud: the page changed
+                       under the reader without a request of theirs */}}
 {{define "dns/script"}}
 <script>
-  document.body.addEventListener('htmx:afterSwap', (e) => {
-    if (e.detail.target.id !== 'result') return
-    if (!matchMedia('(pointer: coarse)').matches) return
-    const el = document.activeElement
-    if (el && el.matches('main form input')) el.blur()
-  })
+  (function () {
+    var status = function (text) {
+      var el = document.getElementById('dns-status')
+      if (el) el.textContent = text
+    }
+    document.body.addEventListener('htmx:beforeRequest', function (e) {
+      var form = e.detail.elt.closest && e.detail.elt.closest('form[data-busy]')
+      if (form) status(form.dataset.busy)
+    })
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+      if (e.detail.target.id !== 'result') return
+      var input = document.querySelector('main form input[name=name]')
+      var err = document.getElementById('dns-error')
+      if (input) {
+        if (err) {
+          input.setAttribute('aria-invalid', 'true')
+          input.setAttribute('aria-describedby', 'dns-error')
+        } else {
+          input.removeAttribute('aria-invalid')
+          input.removeAttribute('aria-describedby')
+        }
+      }
+      // On a phone the keyboard stays up after a submit (the page doesn't
+      // navigate), covering the result it just asked for. A mouse and
+      // keyboard user keeps the caret, to type the next name straight away.
+      if (!matchMedia('(pointer: coarse)').matches) return
+      var el = document.activeElement
+      if (el && el.matches('main form input')) el.blur()
+    })
+    // Only a swap that took the focused element with it earns a focus move;
+    // a card loading in on its own must never pull the reader away.
+    var lost = null
+    document.body.addEventListener('htmx:beforeSwap', function (e) {
+      var a = document.activeElement
+      lost = a && a !== document.body && e.detail.target.contains(a) ? e.detail.target : null
+    })
+    document.body.addEventListener('htmx:afterSettle', function (e) {
+      var target = lost
+      lost = null
+      if (!target || target !== e.detail.target || document.activeElement !== document.body) return
+      var spot = target.matches('[tabindex="-1"]') ? target : target.querySelector('[tabindex="-1"]')
+      if (spot) spot.focus()
+    })
+    document.body.addEventListener('htmx:historyRestore', function () {
+      status(document.title)
+    })
+  })()
 </script>
 {{end}}

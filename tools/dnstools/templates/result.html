@@ -12,7 +12,7 @@
      only ever speaks for the all-cached case. */}}
 {{$anyCached := false}}
 {{range .Found}}{{if .Cached}}{{$anyCached = true}}{{end}}{{end}}
-<div class="eyebrow">the query</div>
+<h2 class="eyebrow">the query</h2>
 <dl class="spec">
   <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
   <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
@@ -30,26 +30,27 @@
   <dt>DNSSEC</dt>
   <dd>
     {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate.</span>
-    {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures (AD)</span>
-    {{else if .Unvalidated}}<span class="text-warn">Partly validated</span> <span class="text-faint">— no AD on {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{if .Chain}}, answered through the alias{{end}}</span>
+    {{else if .NXDomain}}<span class="text-faint">Not applicable: there is no record to validate</span>
+    {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures</span>
+    {{else if .Unvalidated}}<span class="text-warn">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
     {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
     {{else}}<span class="text-faint">Unsigned</span>{{end}}
     {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName}}
     <a href="/trace?name={{$.NavName}}" class="mt-1 block w-fit text-xs link-brand">See where the chain breaks</a>
     {{end}}
   </dd>
-  {{if .NSID}}<dt>Answered by</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
+  {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
   {{/* Only claim parallelism when more than one type was actually asked. */}}
   <dt>Took</dt>
   <dd class="tabular-nums">
-    {{if .Cached}}<span class="text-ok">instant</span> <span class="text-faint">— every answer served from this server's cache, no upstream query</span>
+    {{if .Cached}}<span class="text-ok">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
     {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}
-      {{if $anyCached}}<span class="block text-xs text-faint">Some types came from this server's cache; the table marks which.</span>{{end}}{{end}}
+      {{if $anyCached}}<span class="block text-xs text-faint">Some types came from this site's cache; the table marks which.</span>{{end}}{{end}}
   </dd>
 </dl>
 {{if .Reversed}}
 <p class="mt-3 text-xs text-faint">
-  You pasted an IP, so this ran as a PTR lookup against its reverse name.
+  You entered an IP, so this ran as a PTR lookup against its reverse name.
 </p>
 {{end}}
 {{end}}
@@ -59,8 +60,8 @@
      tool, a hostname to a lookup of that host. Underlined faintly at rest so
      a link reads as one without forty underlines shouting. */}}
 {{define "dns/value"}}
-{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-faint/40 underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}</a>
-{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-faint/40 underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}</a>
+{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
+{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
 {{else}}{{.Value}}{{end}}
 {{end}}
 
@@ -82,7 +83,7 @@
        same, and neither is a fault of the tool's making. */}}
   {{if .NXDomain}}
     <div class="card sm:col-span-2">
-      <div class="eyebrow">not found</div>
+      <h2 class="eyebrow">not found</h2>
       <p class="text-sm">
         <span class="text-warn">This name does not exist.</span>
         <span class="text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
@@ -99,6 +100,19 @@
     {{if .Failed}}{{template "dns/failed" .}}{{end}}
   {{else}}
 
+    {{/* Nothing came back for any type: that is the answer, and it leads,
+         rather than a "Broken" in the fifth row of the receipt. */}}
+    {{if and (not .Found) (not .Missing) .Failed}}
+    <div class="card sm:col-span-2">
+      <h2 class="eyebrow">no answer</h2>
+      <p class="text-sm">
+        <span class="block text-base font-medium text-danger">This name doesn't resolve.</span>
+        <span class="mt-1 block text-faint">{{.ResolverName}} gave no usable answer for any type{{if .Bogus}}, because the name's DNSSEC signatures don't validate{{end}}.</span>
+      </p>
+      {{if .Bogus}}{{with $page.NavName}}<a href="/trace?name={{.}}" class="mt-2 inline-block text-xs link-brand">See where the chain breaks</a>{{end}}{{end}}
+    </div>
+    {{end}}
+
     {{/* Every answer in ONE table, spanning both columns. The type is a column,
          not a card boundary: splitting a zone's records across eight cards
          makes you reassemble them by eye. One <tbody> per type, so a long one
@@ -106,7 +120,7 @@
     {{if .Found}}
     <div class="card sm:col-span-2">
       <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div class="eyebrow">{{if .Reversed}}reverse lookup{{else}}records{{end}}</div>
+        <h2 id="records-h" class="eyebrow">{{if .Reversed}}reverse lookup{{else}}records{{end}}</h2>
         {{/* Who runs this zone: the first thing anyone needs, and nothing in
              the raw records says it. */}}
         {{if .Provider}}<div class="text-sm text-muted">DNS hosted by <span class="font-medium text-strong">{{.Provider}}</span></div>{{end}}
@@ -115,9 +129,9 @@
            tag on each of the target's forty records. */}}
       {{if and .Chain (gt .Asked 1)}}
       <p class="mb-3 text-xs text-muted">
-        <span class="font-mono text-strong">{{$qname}}</span> is an alias
-        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-faint/40 underline-offset-4 hover:text-brand">{{.Target}}</a> {{end}}
-        <span class="text-faint">· every answer below comes from the end of that chain.</span>
+        <span class="font-mono text-strong">{{$page.Query}}</span> is an alias
+        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-faint underline-offset-4 hover:text-brand">{{.Target}}</a> {{end}}
+        <span class="text-faint">· apart from the CNAME itself, every record below is the last name's.</span>
       </p>
       {{end}}
       {{if .Reversed}}
@@ -126,22 +140,28 @@
         <a href="{{toolURL "ip"}}/?ip={{$page.Query}}" class="link-brand">Look it up in IP Tools</a>
       </p>
       {{end}}
-      <table class="w-full text-sm">
+      <table aria-labelledby="records-h" class="w-full text-sm">
         <thead>
           <tr class="text-left text-faint">
-            <th class="w-px whitespace-nowrap pb-2 pr-4 font-normal">Type</th>
-            <th class="pb-2 font-normal sm:pr-4">Value</th>
-            <th class="hidden pb-2 text-right font-normal sm:table-cell">TTL</th>
+            <th scope="col" class="w-px whitespace-nowrap pb-2 pr-4 font-normal">Type</th>
+            <th scope="col" class="pb-2 font-normal sm:pr-4">Value</th>
+            <th scope="col" class="hidden pb-2 text-right font-normal sm:table-cell">TTL</th>
           </tr>
         </thead>
         {{range $res := .Found}}
         <tbody class="group/more border-t border-line">
           {{range $ri, $rec := $res.Records}}
           <tr class="align-top {{if $ri}}border-t border-line/60{{end}} {{if $res.FoldsRow $ri}}hidden group-has-[:checked]/more:table-row{{end}}">
-            {{/* The type heads its group, said once like the cache flag. */}}
-            <td class="py-2 pr-4 font-mono text-xs text-muted whitespace-nowrap">{{if not $ri}}{{.Type}}
-              {{if $res.Cached}}<span class="block font-sans text-faint">cached</span>{{end}}{{end}}
-            </td>
+            {{/* The type heads its group, said once like the cache flag, as the
+                 header of its row group. A screen reader moving down the
+                 column still hears it on every row. */}}
+            {{if not $ri}}
+            <th scope="rowgroup" class="py-2 pr-4 text-left font-mono text-xs font-normal text-muted whitespace-nowrap">{{.Type}}
+              {{if $res.Cached}}<span class="block font-sans text-faint">cached</span>{{end}}
+            </th>
+            {{else}}
+            <td class="py-2 pr-4"><span class="sr-only">{{.Type}}</span></td>
+            {{end}}
             <td class="py-2 font-mono wrap-anywhere text-strong sm:pr-4">
               {{/* What this record is for, above the value it decorates: a wall
                    of verification tokens reads as the integrations it is. */}}
@@ -173,15 +193,16 @@
           </tr>
           {{end}}
           {{/* The fold, as a checkbox and :has() rather than script: it works
-               before Alpine loads and with JavaScript off. */}}
+               before Alpine loads and with JavaScript off. A visible checkbox
+               with one fixed label, so "checked" means what it says: every
+               record of this type is showing. */}}
           {{if $res.Folded}}
           <tr class="border-t border-line/60">
             <td></td>
-            <td colspan="2" class="py-2">
-              <label class="inline-block cursor-pointer text-xs text-muted hover:text-strong">
-                <input type="checkbox" class="peer sr-only">
-                <span class="rounded peer-focus-visible:outline-2 peer-focus-visible:outline-brand group-has-[:checked]/more:hidden">Show {{$res.Folded}} more {{$res.Type}} records</span>
-                <span class="hidden rounded peer-focus-visible:outline-2 peer-focus-visible:outline-brand group-has-[:checked]/more:inline">Show fewer</span>
+            <td colspan="2" class="py-1">
+              <label class="inline-flex cursor-pointer items-center gap-2 py-1 text-xs text-muted hover:text-strong">
+                <input type="checkbox" class="size-4 accent-brand">
+                Show all {{len $res.Records}} {{$res.Type}} records
               </label>
             </td>
           </tr>
@@ -203,7 +224,7 @@
          says the alias in the table's own header instead. */}}
     {{if and .Chain (eq .Asked 1)}}
     <div class="card">
-      <div class="eyebrow">this name is an alias</div>
+      <h2 class="eyebrow">this name is an alias</h2>
       <p class="text-sm text-muted">
         <span class="font-mono text-strong">{{$qname}}</span> is an alias. The answer above was reached by
         following the CNAME below, and is published on the target rather than on the name you asked for.
@@ -230,13 +251,10 @@
          cards. Absence is still stated out loud, just once. */}}
     {{if .Missing}}
     <div class="card">
-      <div class="eyebrow">nothing published</div>
+      <h2 class="eyebrow">not published</h2>
       <p class="text-sm text-muted">
-        No records of {{if eq (len .Missing) 1}}this type{{else}}these types{{end}}:
-        <span class="font-mono text-strong">{{range $i, $t := .Missing}}{{if $i}}, {{end}}{{$t}}{{end}}</span>
-      </p>
-      <p class="mt-2 text-xs text-faint">
-        The name resolves, these types just aren't published on it.
+        <span class="font-mono text-strong">{{range $i, $t := .Missing}}{{if $i}}, {{end}}{{$t}}{{end}}</span>:
+        the name exists, but publishes no records of {{if eq (len .Missing) 1}}this type{{else}}these types{{end}}.
       </p>
     </div>
     {{end}}
@@ -245,7 +263,7 @@
          subdomain-takeover shape, so it gets said loudly. */}}
     {{if .Dangling}}
     <div class="card">
-      <div class="eyebrow">dangling cname</div>
+      <h2 class="eyebrow">dangling cname</h2>
       <p class="text-sm">
         <span class="text-danger">This name points somewhere that doesn't resolve:</span>
         <span class="font-mono text-strong wrap-anywhere">{{range $i, $d := .Dangling}}{{if $i}}, {{end}}{{$d}}{{end}}</span>
@@ -273,20 +291,20 @@
       <div class="mt-4 space-y-4">
         <div>
           <div class="flex items-center justify-between gap-4">
-            <div class="text-xs text-faint">One command per type: <code class="font-mono text-muted">dig name A AAAA</code> would only ask the last one.</div>
-            <button type="button" class="btn-copy" data-copy="{{range .Dig}}{{.}}
+            <div class="text-xs text-faint">{{if gt (len .Dig) 1}}One command per type: <code class="font-mono text-muted">dig name A AAAA</code> would only ask the last one.{{else}}The command{{end}}</div>
+            <button type="button" class="btn-copy" aria-label="Copy the dig commands" data-copy="{{range .Dig}}{{.}}
 {{end}}">Copy</button>
           </div>
-          <pre class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{range .Dig}}{{.}}
+          <pre tabindex="0" role="region" aria-label="dig commands" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{range .Dig}}{{.}}
 {{end}}</pre>
         </div>
         {{if .Zone}}
         <div>
           <div class="flex items-center justify-between gap-4">
             <div class="text-xs text-faint">Zone-file format</div>
-            <button type="button" class="btn-copy" data-copy="{{.Zone}}">Copy</button>
+            <button type="button" class="btn-copy" aria-label="Copy the zone file" data-copy="{{.Zone}}">Copy</button>
           </div>
-          <pre class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{.Zone}}</pre>
+          <pre tabindex="0" role="region" aria-label="Zone file" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{.Zone}}</pre>
         </div>
         {{end}}
         {{$curl := printf "%s/?name=%s" (toolURL "dns") $page.Query}}
@@ -296,9 +314,9 @@
         <div>
           <div class="flex items-center justify-between gap-4">
             <div class="text-xs text-faint">The same result as JSON</div>
-            <button type="button" class="btn-copy" data-copy="{{$curl}}">Copy</button>
+            <button type="button" class="btn-copy" aria-label="Copy the curl command" data-copy="{{$curl}}">Copy</button>
           </div>
-          <pre class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{$curl}}</pre>
+          <pre tabindex="0" role="region" aria-label="curl command" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{$curl}}</pre>
         </div>
       </div>
     </details>
@@ -314,7 +332,7 @@
      resolver explanation, which nine copies made read as nine problems. */}}
 {{define "dns/failed"}}
 <div class="card">
-  <div class="eyebrow">no answer</div>
+  <h2 class="eyebrow">no answer</h2>
   <p class="text-sm text-muted">The resolver didn't give a usable answer for:</p>
   <div class="divide-y divide-line">
   {{range .FailureGroups}}
@@ -327,14 +345,14 @@
            "something broke" and "the signature expired". */}}
       {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
       {{if .Bogus}}
-      <span class="block text-xs text-warn">DNSSEC validation failure: the same query succeeds with checking disabled, so the zone is bogus, not down.</span>
+      <span class="block text-xs text-warn">DNSSEC validation failure: the same query succeeds with checking disabled, so the signatures are broken, not the servers.</span>
       {{end}}
     </div>
   </div>
   {{end}}
   </div>
   <p class="text-xs text-faint">
-    A failure to answer, not proof the records are missing. A resolver that blocks a name reports it this way too.
+    A failure to answer, not proof the records are missing.{{if not .Bogus}} A resolver that blocks a name reports it this way too.{{end}}
   </p>
 </div>
 {{end}}

@@ -15,7 +15,7 @@
     {{/* Inbound, said in the title: these are the servers that RECEIVE this
          domain's mail. "Why does my mail go to spam" is about the addresses
          it is sent from, which can be different machines entirely. */}}
-    <div class="eyebrow">inbound mail servers (mx) on blocklists</div>
+    <h2 class="eyebrow">inbound mail servers (mx) on blocklists</h2>
     {{/* The headline number, and only ever over the denominator that was
          actually read. "3 clean" is a claim about three addresses, which is
          what Checked counts — distinct addresses, so one IP shared by two MX
@@ -65,7 +65,7 @@
            and neither is a listing. */}}
       {{if .Error}}<span class="text-xs text-warn">{{.Error}}</span>{{end}}
       {{range .Addrs}}
-      <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-faint/40 underline-offset-4 hover:text-brand hover:decoration-brand">{{.IP}}</a>
+      <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{.IP}}<span class="sr-only"> in IP Tools</span></a>
       {{if .Error}}
         {{/* Not clean, and not listed either: the corpus was unreadable for
              this address. Anything that looked like a verdict here would be

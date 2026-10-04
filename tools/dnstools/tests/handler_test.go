@@ -266,7 +266,7 @@ func TestEmptyAnswerStatesRenderDistinctly(t *testing.T) {
 	}
 	e := newApp(t, &fakeLooker{set: nodata}, nil)
 	body := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html"}).Body.String()
-	if !strings.Contains(body, "nothing published") {
+	if !strings.Contains(body, ">not published<") {
 		t.Error("empty types should collapse into one grouped card")
 	}
 	for _, typ := range []string{"MX", "CNAME", "CAA"} {
@@ -285,7 +285,7 @@ func TestEmptyAnswerStatesRenderDistinctly(t *testing.T) {
 	if !strings.Contains(body, "does not exist") {
 		t.Error("NXDOMAIN should say the name does not exist")
 	}
-	if strings.Contains(body, "nothing published") {
+	if strings.Contains(body, ">not published<") {
 		t.Error("NXDOMAIN must not also render the per-type missing card")
 	}
 }

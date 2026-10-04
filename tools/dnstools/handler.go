@@ -583,9 +583,14 @@ func rateLimiter() echo.MiddlewareFunc {
 			if active == "" {
 				active = "lookup"
 			}
+			// A refused request is not a place to go Back to: keep it out
+			// of the history htmx would otherwise push.
+			if platform.IsHTMX(c) {
+				c.Response().Header().Set("HX-Push-Url", "false")
+			}
 			return reply(c, http.StatusTooManyRequests,
 				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down", "Desc": msg, "Error": msg,
+				map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
 					"Active": active, "Retry": c.Request().URL.RequestURI()},
 				"dns/ratelimited", "dns/slowdown")
 		},

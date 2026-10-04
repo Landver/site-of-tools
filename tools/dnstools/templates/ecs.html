@@ -22,10 +22,12 @@
      own absence on a page that is already dense. */}}
 {{define "dns/ecs"}}
 {{with .ECS}}
-{{/* Last on a phone, where the consistency page's columns dissolve: it is
-     the one card there that isn't about whether the change is live. */}}
-<div class="card order-7 sm:order-none">
-  <div class="eyebrow">answers by client network</div>
+{{/* A name that doesn't exist is already said twice on the page (verdict,
+     delegation health); a third card saying every network was told so adds
+     nothing. */}}
+{{if not (and (eq .Verdict "no-records") (eq .Rcode "NXDOMAIN"))}}
+<div class="card">
+  <h2 class="eyebrow">answers by client network</h2>
 
   {{/* The verdict headline and the one number behind it. Every branch
        quantifies over the subset it was derived from, never over "every
@@ -44,7 +46,7 @@
       {{if .Rotation}}<span class="text-warn">Different answers, and no client-subnet tailoring behind them.</span>
       {{else}}<span class="text-ok">No client-subnet tailoring on this path.</span>{{end}}
     {{else if eq .Verdict "no-records"}}
-      <span class="text-warn">No {{.Type}} record anywhere.</span>
+      <span class="text-warn">No {{.Type}} record for any of the {{.Asked}} networks.</span>
     {{else if eq .Verdict "unsupported"}}
       <span class="text-warn">Could not tell.</span>
     {{else}}
@@ -177,5 +179,6 @@
     fixed public prefixes, one query each, never your address
   </p>
 </div>
+{{end}}
 {{end}}
 {{end}}

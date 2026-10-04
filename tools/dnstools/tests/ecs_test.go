@@ -249,12 +249,13 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	for _, want := range []string{
 		// One card in one of the consistency page's two stacking columns, at
 		// the same width as the public resolvers card it deliberately mirrors.
-		// This assertion has now outlived three layouts (a CSS multi-column
+		// This assertion has now outlived four layouts (a CSS multi-column
 		// flow wanted "mb-4 break-inside-avoid", a full-width row wanted
-		// "sm:col-span-2", the phone ordering added "order-7"), so it pins
-		// the width the card claims and nothing about the page around it:
-		// a card, and never a full-width one (checked below).
-		`class="card `,
+		// "sm:col-span-2", a phone ordering added and then dropped
+		// "order-7"), so it pins the width the card claims and nothing about
+		// the page around it: a card, and never a full-width one (checked
+		// below).
+		`class="card"`,
 		"answers by client network",
 		"This answer depends on the network that asks",
 		// A scope the zone chose has to read differently from one that merely
@@ -377,7 +378,9 @@ func TestECSCardSaysNoRecordsRatherThanSameRecords(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "No A record anywhere") {
+	// Bounded by what was asked: six prefixes through one resolver are not
+	// "anywhere".
+	if !strings.Contains(out, "No A record for any of the 6 networks") {
 		t.Errorf("the card does not say the name published nothing:\n%s", out)
 	}
 	// The eyebrow is the card's title and always reads "answers by location";
