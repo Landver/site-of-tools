@@ -23,11 +23,10 @@
       the blocklisting that follows takes the whole domain with it, not just the offending link.
     </p>
 
+    {{/* The handler words it: with no key the redirects still work, with no
+         storage they do not. */}}
     {{if .Disabled}}
-      <div class="mt-6 alert-error">
-        Short links are switched off on this server: no storage configured, or no API key set.
-        The redirect path keeps working for links that already exist.
-      </div>
+      <div class="mt-6 alert-error">{{.Error}}</div>
     {{else}}
 
     {{/* The key lives in localStorage and is attached by htmx as a HEADER, never
