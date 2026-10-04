@@ -470,7 +470,10 @@ func (h *handler) shortCreate(c *echo.Context) error {
 	if len(link.Cleaned) > 0 {
 		out["cleaned"] = link.Cleaned
 	}
-	vm["Created"] = map[string]any{"Short": h.short.ShortURL(link.Code), "Target": link.Target, "Cleaned": link.Cleaned}
+	vm["Created"] = map[string]any{
+		"Short": h.short.ShortURL(link.Code), "Target": link.Target, "Cleaned": link.Cleaned,
+		"Note": link.Note, "ExpiresAt": link.ExpiresAt,
+	}
 	listChanged(c)
 	return reply(c, http.StatusCreated, out, vm, "link/short", "link/created")
 }
@@ -587,7 +590,14 @@ func (h *handler) redirect(c *echo.Context) error {
 	link, err := h.short.Resolve(c.Request().Context(), code)
 	if err != nil {
 		// One status for expired, revoked and never-existed. Telling them apart
-		// is an existence oracle over the guessable custom-slug namespace.
+		// is an existence oracle over the guessable custom-slug namespace. A
+		// browser gets a page saying so instead of a bare text/plain line: this
+		// is the only part of Short a recipient ever sees, and the one moment
+		// they need telling it is the link, not their connection. Same status,
+		// same headers, same words for all three causes.
+		if !platform.WantsJSON(c) {
+			return c.Render(http.StatusNotFound, "link/gone", h.vm("", "Short link not found", shortDesc, ""))
+		}
 		return c.String(http.StatusNotFound, "no such link")
 	}
 
@@ -806,9 +816,17 @@ func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
 		},
 		DenyHandler: func(c *echo.Context, _ string, _ error) error {
 			const msg = "Too many requests from your address. Try again in a few seconds."
+			// Retry is the page that was refused, so the way back is one click
+			// to where the visitor was rather than always to Inspect. A GET
+			// keeps its query; a POST cannot be replayed by a link, so it gets
+			// its page.
+			retry := c.Request().URL.Path
+			if c.Request().Method == http.MethodGet {
+				retry = c.Request().URL.RequestURI()
+			}
 			return reply(c, http.StatusTooManyRequests,
 				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down", "Desc": msg, "Error": msg},
+				map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
 				"link/ratelimited", "link/error")
 		},
 	})

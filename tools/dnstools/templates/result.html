@@ -116,13 +116,13 @@
           <tr class="border-t border-line align-top">
             {{/* The cache flag belongs to the type, not to each of its
                  records, so it is said once at the head of the group. */}}
-            <td class="py-2 pr-4 font-mono text-xs text-brand whitespace-nowrap">{{.Type}}
+            <td class="py-2 pr-4 font-mono text-xs text-brand-ink whitespace-nowrap">{{.Type}}
               {{if and $cached (eq $ri 0)}}<span class="block font-sans text-faint">cached</span>{{end}}
             </td>
             <td class="py-2 pr-4 font-mono break-all text-strong">
               {{/* What this record is for, above the value it decorates: a wall
                    of verification tokens reads as the integrations it is. */}}
-              {{if .Label}}<span class="block font-sans text-xs text-brand">{{.Label}}</span>{{end}}
+              {{if .Label}}<span class="block font-sans text-xs text-brand-ink">{{.Label}}</span>{{end}}
               {{if and .Owner (ne .Owner $qname)}}<span class="block font-sans text-xs text-warn">on {{.Owner}}</span>{{end}}
               {{.Value}}
               {{if or .ASN .Country}}

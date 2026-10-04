@@ -6,7 +6,7 @@
   {{template "partials/header" .}}
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Follow a link hop by hop without opening it: every redirect's status code, where it pointed, how long it
       took, and which responses set a cookie.
@@ -37,8 +37,7 @@
              class="field min-w-0 basis-full sm:basis-0">
       <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
         <span class="shrink-0">as</span>
-        <select name="ua"
-                class="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+        <select name="ua" class="field min-w-0 flex-1">
           {{$p := .Persona}}
           {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
         </select>
@@ -63,7 +62,7 @@
     {{if not .Disabled}}
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">What this cannot do</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           <strong class="text-strong">JavaScript redirects are not followed.</strong> Following one needs a real
           browser engine. When a page redirects with script, that is said plainly and no destination is claimed.

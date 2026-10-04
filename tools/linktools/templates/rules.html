@@ -26,9 +26,9 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Every parameter the <a href="/clean" class="text-brand hover:underline">Clean</a> page strips, who sets
+      Every parameter the <a href="/clean" class="link-inline">Clean</a> page strips, who sets
       it, and what it identifies. Here in full, so you can check it rather than trust it.
     </p>
 
@@ -47,17 +47,17 @@
 {{define "link/rulerow"}}
 <tr class="align-top">
   <td class="px-3 py-2 font-mono text-strong">
-    {{.Param}}{{if .Prefix}}<span class="text-brand">*</span>{{end}}
+    {{.Param}}{{if .Prefix}}<span class="text-brand-ink">*</span>{{end}}
   </td>
   <td class="px-3 py-2 text-xs text-muted">
     {{.Origin}}
-    {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
+    {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand-ink hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
   </td>
-  <td class="px-3 py-2 break-all text-xs text-muted">
+  <td class="px-3 py-2 wrap-anywhere text-xs text-muted">
     {{if .Hosts}}
       {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
     {{else}}
-      <span class="rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
+      <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
     {{end}}
   </td>
   <td class="px-3 py-2 text-xs text-muted">{{if .Note}}{{.Note}}{{else}}&mdash;{{end}}</td>
@@ -126,15 +126,24 @@
              placeholder="Find a parameter or vendor, e.g. fbclid"
              class="field min-w-0 max-w-sm flex-1 basis-64">
       <nav aria-label="Rule sections" class="flex flex-wrap gap-x-3 gap-y-1">
-        <a href="#click" class="text-brand hover:underline">Click IDs</a>
-        <a href="#session" class="text-brand hover:underline">Breadcrumbs</a>
-        <a href="#person" class="text-brand hover:underline">Personal IDs</a>
-        <a href="#affiliate" class="text-brand hover:underline">Affiliate</a>
-        <a href="#never" class="text-brand hover:underline">Never stripped</a>
-        <a href="#wrappers" class="text-brand hover:underline">Wrappers</a>
+        <a href="#click" class="text-brand-ink hover:underline">Click IDs</a>
+        <a href="#session" class="text-brand-ink hover:underline">Breadcrumbs</a>
+        <a href="#person" class="text-brand-ink hover:underline">Personal IDs</a>
+        <a href="#affiliate" class="text-brand-ink hover:underline">Affiliate</a>
+        <a href="#never" class="text-brand-ink hover:underline">Never stripped</a>
+        <a href="#wrappers" class="text-brand-ink hover:underline">Wrappers</a>
       </nav>
     </div>
     <p id="rule-find-none" class="mt-4 text-sm text-muted" hidden role="status"></p>
+
+    {{/* The two marks the tables use, said once in words. Both used to be
+         explained only in a hover title, which a phone never shows. */}}
+    <p class="mt-4 max-w-prose text-xs text-muted">
+      <span class="font-mono text-brand-ink">*</span> at the end of a name matches every parameter that starts
+      with it: <span class="font-mono">utm_*</span> covers <span class="font-mono">utm_source</span>,
+      <span class="font-mono">utm_medium</span> and the rest. <span class="text-faint">unsourced</span> means no
+      vendor documentation was found and the rule rests on observed behaviour.
+    </p>
 
     <div id="rule-tables">
     {{/* --- tracking rules, one section per class --- */}}
@@ -145,7 +154,7 @@
         One of these identifies a single ad click. Nothing you can see on the page depends on it. Stripped by
         default.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Click identifiers">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -167,7 +176,7 @@
       <p class="mt-1 text-sm text-muted">
         These record the visit, the placement or the share that brought you here. Stripped by default.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Session and placement breadcrumbs">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -190,7 +199,7 @@
         These identify you as an individual to the vendor that set them, not just your visit. This class is
         the reason the Clean page exists. Stripped by default.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Personal identifiers">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -214,7 +223,7 @@
         click ID: it takes money from the person whose review you found useful. So it happens only when you
         tick the box on the Clean page, and never silently.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Affiliate tags off by default">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -240,7 +249,7 @@
         so the failure mode is stored as data rather than left in a comment: here is what breaks if anyone
         deletes one.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Never stripped, whatever else matches">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -253,13 +262,13 @@
             {{range .NeverStrip}}
             <tr class="align-top">
               <td class="px-3 py-2 font-mono text-strong">
-                {{.Param}}{{if .Prefix}}<span class="text-brand">*</span>{{end}}
+                {{.Param}}{{if .Prefix}}<span class="text-brand-ink">*</span>{{end}}
               </td>
               <td class="px-3 py-2 text-xs text-muted">
                 {{if .Hosts}}
                   {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
                 {{else}}
-                  <span class="rounded bg-line px-1.5 py-0.5 text-xs text-strong">everywhere</span>
+                  <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-strong">everywhere</span>
                 {{end}}
               </td>
               <td class="px-3 py-2 text-xs text-muted">{{.Why}}</td>
@@ -280,7 +289,7 @@
         wrapper whose target is a server-side token cannot be recovered here at all — that is stated rather
         than guessed at.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Wrappers that get unwrapped">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -295,10 +304,10 @@
             <tr class="align-top">
               <td class="px-3 py-2 text-strong">
                 {{.Name}}
-                {{if .Partial}}<span class="ml-1 rounded bg-warn/20 px-1.5 py-0.5 text-xs text-warn">domain only</span>{{end}}
-                {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-xs text-brand hover:underline">docs</a>{{end}}
+                {{if .Partial}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn">domain only</span>{{end}}
+                {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-xs text-brand-ink hover:underline">docs</a>{{end}}
               </td>
-              <td class="px-3 py-2 break-all text-xs text-muted">
+              <td class="px-3 py-2 wrap-anywhere text-xs text-muted">
                 {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
                 {{if .Path}}<span class="block font-mono text-faint">path {{.Path}}</span>{{end}}
               </td>
@@ -312,9 +321,9 @@
               </td>
               <td class="px-3 py-2 text-xs">
                 {{if eq .Conf "high"}}
-                  <span class="rounded bg-ok/20 px-1.5 py-0.5 text-ok">high</span>
+                  <span class="whitespace-nowrap rounded bg-ok/10 px-1.5 py-0.5 text-ok">high</span>
                 {{else}}
-                  <span class="rounded bg-warn/20 px-1.5 py-0.5 text-warn">{{.Conf}}</span>
+                  <span class="whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-warn">{{.Conf}}</span>
                 {{end}}
               </td>
             </tr>
@@ -368,7 +377,7 @@
     </details>
 
     <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-      <a href="/clean" class="text-brand hover:underline">Clean a URL</a>
-      <a href="/" class="text-brand hover:underline">Inspect one instead</a>
+      <a href="/clean" class="text-brand-ink hover:underline">Clean a URL</a>
+      <a href="/" class="text-brand-ink hover:underline">Inspect one instead</a>
     </p>
 {{end}}

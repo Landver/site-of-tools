@@ -7,35 +7,47 @@
 
      Ten short labels measure ~700px, so they fit the .page-main column
      (max-w-4xl, 848px of content) on one row. flex-wrap does the rest: the
-     group reflows to two or three rows on a narrow viewport rather than
-     needing a breakpoint per tool, which would have to be re-tuned every time
-     a tool is added.
+     group reflows on a narrow viewport rather than needing a breakpoint per
+     tool, which would have to be re-tuned every time a tool is added. The
+     tighter phone padding keeps that to two rows at 375px instead of three.
+
+     Order follows the job, not the build: the URL tools people reach for
+     first, then the builders and converters, then the reference, and Short
+     last. Short is the owner's console; to everyone else it is a page that
+     explains why they cannot use it, and it used to sit third, between the
+     two most-used tools.
 
      Labels are deliberately terse — the title attribute carries the full name
      for a hover, and each page's own <h1> says it in full. .Active = the
-     current page's key, matching the strings handler.go sets. */}}
+     current page's key, matching the strings handler.go sets; the active link
+     carries aria-current, which is what tells a screen reader where it is.
+
+     The eyebrow under the bar names the suite. The <h1> is the page's own name
+     ("Clean a URL"), so without it nothing on the page said these ten pages
+     were one tool. */}}
 {{define "link/nav"}}
 <nav aria-label="Link Tools sections"
-     class="mb-8 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
-  <a href="/" title="Take a URL apart"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
-  <a href="/clean" title="Strip tracking parameters and unwrap mail-gateway links"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
-  <a href="/short" title="Create and manage short links"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
-  <a href="/trace" title="Follow a redirect chain hop by hop"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
-  <a href="/diff" title="Compare two URLs parameter by parameter"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "diff"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Diff</a>
-  <a href="/curl" title="Turn a URL into a curl command, or take one apart"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "curl"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">curl</a>
-  <a href="/utm" title="Build a campaign-tagged URL"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "utm"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">UTM</a>
-  <a href="/encode" title="Percent, base64 and entity encoding, both directions"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "encode"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encode</a>
-  <a href="/extract" title="Pull every link out of pasted text"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "extract"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Extract</a>
-  <a href="/encoding" title="What percent-encoding reserves, and where it differs"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Active "encoding"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Reference</a>
+     class="mb-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium sm:mb-8">
+  <a href="/" title="Take a URL apart"{{if eq .Active "inspect"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
+  <a href="/clean" title="Strip tracking parameters and unwrap mail-gateway links"{{if eq .Active "clean"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
+  <a href="/trace" title="Follow a redirect chain hop by hop"{{if eq .Active "trace"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
+  <a href="/diff" title="Compare two URLs parameter by parameter"{{if eq .Active "diff"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "diff"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Diff</a>
+  <a href="/extract" title="Pull every link out of pasted text"{{if eq .Active "extract"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "extract"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Extract</a>
+  <a href="/utm" title="Build a campaign-tagged URL"{{if eq .Active "utm"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "utm"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">UTM</a>
+  <a href="/curl" title="Turn a URL into a curl command, or take one apart"{{if eq .Active "curl"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "curl"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">curl</a>
+  <a href="/encode" title="Percent, base64 and entity encoding, both directions"{{if eq .Active "encode"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "encode"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encode</a>
+  <a href="/encoding" title="What percent-encoding reserves, and where it differs"{{if eq .Active "encoding"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "encoding"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Reference</a>
+  <a href="/short" title="Short links on this domain (operator key needed)"{{if eq .Active "short"}} aria-current="page"{{end}}
+     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
 </nav>
+<p class="eyebrow">Link Tools</p>
 {{end}}

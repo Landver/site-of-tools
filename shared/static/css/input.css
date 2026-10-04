@@ -19,8 +19,13 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  /* Accent — corpberry magenta (identical in both themes). */
+  /* Accent — corpberry magenta (identical in both themes) as a FILL: buttons,
+     the active tab, borders, the logo dot. White on it is 5.7:1. */
   --color-brand: #b83266;
+  /* The accent as TEXT: links and eyebrows. Same colour in the light theme;
+     lighter in the dark one, where the fill measured 3.5:1 on the canvas and
+     every link on the default theme failed WCAG AA. */
+  --color-brand-ink: #b83266;
 
   /* Semantic tokens — LIGHT values (default). Markup only ever names these
      (bg-canvas, text-body, border-line, …); switching theme flips variable
@@ -31,14 +36,20 @@
   --color-strong:  #18181b; /* headings, emphasis       */
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
-  --color-faint:   #71717a; /* labels, footer, hints    */
-  --color-danger:  #dc2626; /* proxy / threat / error   */
-  --color-ok:      #059669; /* not-a-proxy / looks human */
-  --color-warn:    #d97706; /* suspicious (bot-check band) */
+  --color-faint:   #68686f; /* labels, footer, hints    */
+  /* The three status colours are text as often as they are fills, so the
+     light values are the ones that pass AA as text, on the canvas, the
+     surface and a /10 tint of themselves (the old ones measured 2.6–4.8:1). */
+  --color-danger:  #b91c1c; /* proxy / threat / error   */
+  --color-ok:      #047857; /* not-a-proxy / looks human */
+  --color-warn:    #92400e; /* suspicious (bot-check band) */
   /* Notable but not bad: a parameter that only moved, a wrapper that was read
      through. Brand magenta did this job before and sat too close to danger
      red to be read as anything but an error, in the dark theme especially. */
-  --color-info:    #2563eb;
+  --color-info:    #1d4ed8;
+  /* Form-field edges. --color-line is for dividers and measured 1.3:1, so an
+     input's outline was nearly invisible (WCAG 1.4.11 asks 3:1). */
+  --color-field-line: #85858d;
 }
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
@@ -50,11 +61,13 @@
   --color-strong:  #ffffff;
   --color-body:    #e5e5e5;
   --color-muted:   #a3a3a3;
-  --color-faint:   #737373;
+  --color-faint:   #8a8a8a;
   --color-danger:  #f87171;
   --color-ok:      #34d399;
   --color-warn:    #fbbf24;
   --color-info:    #60a5fa;
+  --color-brand-ink: #e8679a;
+  --color-field-line: #6b6b6b;
 }
 
 @layer base {
@@ -68,6 +81,16 @@
   [x-cloak] {
     display: none !important;
   }
+  /* Native controls follow the theme: without color-scheme the dark theme
+     drew white checkboxes, light scrollbars and a light <select> popup.
+     accent-color puts the brand on checked boxes instead of browser blue. */
+  :root {
+    color-scheme: light;
+    accent-color: var(--color-brand);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
 }
 
 @layer components {
@@ -80,16 +103,20 @@
   }
   /* Small brand-magenta uppercase label above section headings and card titles. */
   .eyebrow {
-    @apply font-mono text-xs uppercase tracking-widest text-brand;
+    @apply font-mono text-xs uppercase tracking-widest text-brand-ink;
   }
   /* …and as card title always gets same bottom margin — baked in → call
      sites stay bare `eyebrow` (same precedent as .spec > dt). */
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by lookup and CIDR forms. */
+  /* Text input + primary button, shared by every form. The edge is
+     field-line (3:1 or better on canvas and surface), the fill canvas so a
+     field inside a surface card still reads as a field, and focus is a 2px
+     ring rather than a 1px border tint. 16px text on a phone: iOS Safari zooms
+     the whole page into any input smaller than that. */
   .field {
-    @apply flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus:border-brand focus:outline-none;
+    @apply flex-1 rounded-md border border-field-line bg-canvas px-3 py-2 text-base text-strong placeholder-faint focus:border-brand focus:outline-2 focus:outline-offset-1 focus:outline-brand sm:text-sm;
   }
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
@@ -97,14 +124,14 @@
   /* Same box as .btn-primary, quiet colours: for the second action on a page
      that already has a primary one, so the two never compete. */
   .btn-secondary {
-    @apply rounded-md border border-line bg-surface px-4 py-2 text-sm font-medium text-strong hover:border-brand;
+    @apply rounded-md border border-field-line bg-canvas px-4 py-2 text-sm font-medium text-strong hover:border-brand;
   }
   /* Small secondary control that sits beside the thing it acts on. Driven by
      partials/copy, which toggles is-copied / is-failed and nothing else: names
      Tailwind does not own, so the confirmation never depends on the scanner
      having found a utility name inside a JS string. */
   .btn-copy {
-    @apply shrink-0 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-brand;
+    @apply shrink-0 rounded-md border border-field-line bg-canvas px-3 py-1.5 text-xs font-medium text-strong hover:border-brand;
   }
   .btn-copy.is-copied {
     @apply border-ok text-ok;
@@ -128,13 +155,21 @@
 
   /* Page scaffolding shared by every page: centred column, capped width,
      vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */
+  /* 16px gutters and less top padding on a phone, matching the header there;
+     the desktop rhythm from sm up. */
   .page-main {
-    @apply mx-auto w-full max-w-4xl px-6 py-12 flex-1;
+    @apply mx-auto w-full max-w-4xl px-4 py-8 flex-1 sm:px-6 sm:py-12;
   }
 
   /* Underlined brand link (apex contact rows, history IP links). */
   .link-brand {
-    @apply border-b border-brand text-strong hover:text-brand;
+    @apply border-b border-brand text-strong hover:text-brand-ink;
+  }
+  /* A link inside a sentence. Underlined, because colour alone does not set
+     it apart from the words around it (WCAG 1.4.1 asks 3:1 against them, and
+     brand-ink beside muted text is about 2:1). */
+  .link-inline {
+    @apply text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink;
   }
 
   /* Rendered blog markdown body — bare tags straight from goldmark, so all

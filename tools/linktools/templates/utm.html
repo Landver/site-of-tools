@@ -24,9 +24,9 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Add campaign tags to a URL. The exact inverse of <a href="/clean" class="text-brand hover:underline">Clean</a>,
+      Add campaign tags to a URL. The exact inverse of <a href="/clean" class="link-inline">Clean</a>,
       on the same rule table: every tag added here is one Clean knows how to remove.
     </p>
 
@@ -37,7 +37,7 @@
           class="mt-6">
       <label class="flex flex-col gap-1 text-sm">
         <span class="text-xs font-medium text-strong">URL to tag</span>
-        <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+        <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
                placeholder="https://example.com/landing-page"
                class="field w-full flex-none">
       </label>
@@ -58,7 +58,6 @@
 
       <div class="mt-4 flex flex-wrap items-center gap-2">
         <button type="submit" class="btn-primary">Build the URL</button>
-        <span role="status" class="htmx-indicator self-center text-sm text-muted">Building…</span>
       </div>
     </form>
 
@@ -72,7 +71,7 @@
 
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">What it does with a URL that is already tagged</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           An existing value is <strong class="text-strong">replaced, not appended</strong>. Two
           <code class="font-mono">utm_source</code> parameters on one URL is a real bug that analytics tools
@@ -81,7 +80,7 @@
         <p>
           Leaving a field empty <strong class="text-strong">keeps</strong> whatever the URL already carries for
           that tag, and the result says which tags were already there. To drop a tag, delete it from the URL,
-          or strip them all on the <a href="/clean" class="text-brand hover:underline">Clean</a> page. Every
+          or strip them all on the <a href="/clean" class="link-inline">Clean</a> page. Every
           other parameter on the URL, and the order it was in, is left exactly as you pasted it.
         </p>
         <p>
@@ -108,17 +107,20 @@
 </html>
 {{end}}
 
-{{/* One campaign field: its name as the label, the input, and the hint.
+{{/* One campaign field: its name as the label, the input, and the hint. The
+     label holds the name alone and the hint is a description, so a screen
+     reader announces "utm_source", not the name and the whole sentence under
+     it as one long label.
      flex-none on the input because .field is flex-1, and inside a flex-col
      label that grew the input VERTICALLY whenever a grid neighbour's hint
      wrapped to one more line than its own. */}}
 {{define "link/utmfield"}}
-<label class="flex flex-col gap-1 text-sm">
-  <span class="font-mono text-xs text-strong">{{.Name}}</span>
-  <input name="{{.Name}}" value="{{.Value}}" autocomplete="off" spellcheck="false"
-         placeholder="{{.Placeholder}}" class="field w-full flex-none">
-  <span class="text-xs text-muted">{{.Hint}}</span>
-</label>
+<div class="flex flex-col gap-1 text-sm">
+  <label for="tag-{{.Name}}" class="font-mono text-xs text-strong">{{.Name}}</label>
+  <input id="tag-{{.Name}}" name="{{.Name}}" value="{{.Value}}" autocomplete="off" spellcheck="false"
+         placeholder="{{.Placeholder}}" aria-describedby="tag-{{.Name}}-hint" class="field w-full flex-none">
+  <span id="tag-{{.Name}}-hint" class="text-xs text-muted">{{.Hint}}</span>
+</div>
 {{end}}
 
 {{/* Result fragment — the htmx swap target, and the body of the page above.
@@ -131,7 +133,7 @@
 <section class="rounded-lg border border-ok bg-surface p-4" data-announce="Tagged URL ready.">
   <h2 class="text-sm font-semibold text-strong">Tagged URL</h2>
   <div class="mt-2 flex flex-wrap items-start gap-3">
-    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.URL}}</pre>
+    <pre class="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.URL}}</pre>
     <button type="button" class="btn-copy" data-copy="{{.URL}}">Copy</button>
   </div>
   {{if .Tags}}
@@ -158,9 +160,9 @@
 {{end}}
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/?u={{.URL}}" class="text-brand hover:underline">Inspect it</a>
-  <a href="/clean?u={{.URL}}" class="text-brand hover:underline">Strip it all back off</a>
-  <a href="/clean/rules" class="text-brand hover:underline">The rules that would remove these</a>
+  <a href="/?u={{.URL}}" class="text-brand-ink hover:underline">Inspect it</a>
+  <a href="/clean?u={{.URL}}" class="text-brand-ink hover:underline">Strip it all back off</a>
+  <a href="/clean/rules" class="text-brand-ink hover:underline">The rules that would remove these</a>
 </p>
 
 {{else}}

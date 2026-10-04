@@ -64,9 +64,12 @@ type Chain struct {
 
 // Hop is one request/response pair in the chain.
 type Hop struct {
-	Index    int    `json:"index"`
-	URL      string `json:"url"`
-	Status   int    `json:"status"`
+	Index  int    `json:"index"`
+	URL    string `json:"url"`
+	Status int    `json:"status"`
+	// Reason is the status code's standard name ("Moved Permanently"), so a
+	// reader does not need the table of codes in their head.
+	Reason   string `json:"reason,omitempty"`
 	Location string `json:"location,omitempty"`
 	// ElapsedMS covers the whole hop: dial, TLS, request, response headers.
 	ElapsedMS int64 `json:"elapsed_ms"`
@@ -348,6 +351,7 @@ func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) stri
 	defer resp.Body.Close()
 
 	hop.Status = resp.StatusCode
+	hop.Reason = http.StatusText(resp.StatusCode)
 	hop.Server = resp.Header.Get("Server")
 	hop.ContentType = resp.Header.Get("Content-Type")
 	// Recorded, never kept: this is the per-hop cookie marker, not a jar.

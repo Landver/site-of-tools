@@ -31,7 +31,7 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Every reading of one value at once, instead of a dropdown to guess at: percent-encoding for a query and
       for a path side by side, base64 and its URL-safe variant, HTML entities, unicode escapes, and the decode
@@ -42,12 +42,11 @@
     <form action="/encode" hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="v" value="{{.Value}}" autofocus autocomplete="off" spellcheck="false"
+      <input name="v" value="{{.Value}}"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
              aria-label="Value to encode and decode"
              placeholder="hello world &amp; friends"
              class="field min-w-0 flex-1">
       <button type="submit" class="btn-primary">Convert</button>
-      <span role="status" class="htmx-indicator self-center text-sm text-muted">Converting…</span>
     </form>
 
     {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
@@ -60,7 +59,7 @@
 
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">Why a query and a path encode differently</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           A query string inherits <code class="font-mono">application/x-www-form-urlencoded</code> from HTML
           forms, where a space is written <code class="font-mono">+</code>. A path never did, so there a space
@@ -71,7 +70,7 @@
         <p>
           This bites hardest with base64, where <code class="font-mono">+</code> is part of the alphabet: a
           decoder that applies form rules to a base64 value destroys it silently.
-          <a href="/encoding" class="text-brand hover:underline">The reference page</a> has the worked
+          <a href="/encoding" class="link-inline">The reference page</a> has the worked
           example.
         </p>
         <p>
@@ -129,8 +128,8 @@
 {{end}}
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/encoding" class="text-brand hover:underline">What percent-encoding actually reserves</a>
-  <a href="/" class="text-brand hover:underline">Inspect a whole URL instead</a>
+  <a href="/encoding" class="text-brand-ink hover:underline">What percent-encoding actually reserves</a>
+  <a href="/" class="text-brand-ink hover:underline">Inspect a whole URL instead</a>
 </p>
 
 {{else}}
@@ -155,7 +154,7 @@
     {{range .Encoded}}{{if eq .Name "Percent (query)"}}
     <div class="rounded-lg border border-line bg-surface p-4">
       <h3 id="pair-query" class="text-sm font-semibold text-strong">After a <span class="font-mono">?</span></h3>
-      <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
+      <pre class="mt-2 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Value}}</pre>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
       {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn">Already encoded: this encodes it a second time.</p>{{end}}
       <button type="button" class="btn-copy mt-3" aria-describedby="pair-query" data-copy="{{.Value}}">Copy</button>
@@ -164,7 +163,7 @@
     {{range .Encoded}}{{if eq .Name "Percent (path)"}}
     <div class="rounded-lg border border-line bg-surface p-4">
       <h3 id="pair-path" class="text-sm font-semibold text-strong">Inside a path segment</h3>
-      <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
+      <pre class="mt-2 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Value}}</pre>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
       {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn">Already encoded: this encodes it a second time.</p>{{end}}
       <button type="button" class="btn-copy mt-3" aria-describedby="pair-path" data-copy="{{.Value}}">Copy</button>
@@ -177,7 +176,7 @@
 {{define "link/enc-table"}}
 <section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Encoded</h2>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Encoded">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -196,7 +195,7 @@
               <span class="text-xs italic text-muted">empty string</span>
             {{else}}
               <div class="flex items-start gap-3">
-                <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+                <span class="min-w-0 flex-1 wrap-anywhere font-mono text-strong">{{.Value}}</span>
                 <button type="button" class="btn-copy" aria-describedby="enc-{{$i}}" data-copy="{{.Value}}">Copy</button>
               </div>
             {{end}}
@@ -217,7 +216,7 @@
     Every reading attempted, including the ones that failed. A failure is said out loud rather than shown as
     an empty cell, because an empty cell would claim the value decodes to nothing.
   </p>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Decoded">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -236,7 +235,7 @@
               <span class="text-xs italic text-muted">decodes to the empty string</span>
             {{else}}
               <div class="flex items-start gap-3">
-                <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+                <span class="min-w-0 flex-1 wrap-anywhere font-mono text-strong">{{.Value}}</span>
                 <button type="button" class="btn-copy" aria-describedby="dec-{{$i}}" data-copy="{{.Value}}">Copy</button>
               </div>
             {{end}}
@@ -262,7 +261,7 @@
     {{range .Layers}}
     <li class="text-sm">
       <span class="text-xs text-muted">{{.Depth}}. {{.Method}}</span>
-      <pre class="mt-0.5 whitespace-pre-wrap break-all font-mono text-strong">{{.Value}}</pre>
+      <pre class="mt-0.5 whitespace-pre-wrap wrap-anywhere font-mono text-strong">{{.Value}}</pre>
     </li>
     {{end}}
   </ol>

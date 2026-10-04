@@ -28,9 +28,9 @@
   {{if .Linkable}}
   <span class="flex flex-wrap gap-x-4 gap-y-1 sm:ml-auto">
     <a href="{{.Input}}" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"
-       class="text-brand hover:underline">Open<span class="sr-only"> this URL in a new tab</span> &#8599;</a>
-    <a href="/clean?u={{.Input}}" class="text-brand hover:underline">Clean it</a>
-    <a href="/curl?u={{.Input}}" class="text-brand hover:underline">As curl</a>
+       class="text-brand-ink hover:underline">Open<span class="sr-only"> this URL in a new tab</span> &#8599;</a>
+    <a href="/clean?u={{.Input}}" class="text-brand-ink hover:underline">Clean it</a>
+    <a href="/curl?u={{.Input}}" class="text-brand-ink hover:underline">As curl</a>
   </span>
   {{end}}
 </div>
@@ -49,10 +49,10 @@
   <h2 class="text-sm font-semibold text-strong">This is a {{.Wrapper}} wrapper</h2>
   <p class="mt-1 text-sm text-muted">The real destination, read straight out of the link. Nothing was fetched.</p>
   <div class="mt-2 flex flex-wrap items-start gap-3">
-    <p class="min-w-0 flex-1 break-all font-mono text-sm text-strong">{{.Unwrapped}}</p>
+    <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong">{{.Unwrapped}}</p>
     <button type="button" class="btn-copy" data-copy="{{.Unwrapped}}">Copy</button>
   </div>
-  <a href="/?u={{.Unwrapped}}" class="mt-2 inline-block text-sm text-brand hover:underline">Inspect the real destination</a>
+  <a href="/?u={{.Unwrapped}}" class="mt-2 inline-block text-sm text-brand-ink hover:underline">Inspect the real destination</a>
 </section>
 {{end}}
 
@@ -62,7 +62,7 @@
   {{/* relative: the scroll container must be the containing block for any
        absolutely positioned descendant, or one escapes it and scrolls the
        whole page sideways on a phone (the same bug short.html records). */}}
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Query parameters">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -79,9 +79,9 @@
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
           <td class="px-3 py-2">
-            <span class="break-all font-mono text-strong">{{.Key}}</span>
-            {{if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/20 px-1.5 py-0.5 text-xs text-warn">repeat</span>{{end}}
-            {{if .Tracking}}<span class="ml-1 whitespace-nowrap rounded bg-danger/20 px-1.5 py-0.5 text-xs text-danger">tracker</span>{{end}}
+            <span class="wrap-anywhere font-mono text-strong">{{.Key}}</span>
+            {{if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn">repeat</span>{{end}}
+            {{if .Tracking}}<span class="ml-1 whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">tracker</span>{{end}}
           </td>
           <td class="px-3 py-2">
             {{if .Valueless}}
@@ -90,14 +90,14 @@
               <span class="text-muted italic">empty string</span>
             {{else if .List}}
               <div class="flex flex-wrap gap-1">
-                {{range .List}}<span class="rounded bg-line px-1.5 py-0.5 font-mono text-xs text-strong">{{.}}</span>{{end}}
+                {{range .List}}<span class="wrap-anywhere rounded bg-line px-1.5 py-0.5 font-mono text-xs text-strong">{{.}}</span>{{end}}
               </div>
               <span class="mt-1 block text-xs text-muted">{{len .List}} values, split on &ldquo;{{.Delimiter}}&rdquo;</span>
             {{else}}
-              <span class="break-all font-mono text-strong">{{.Value}}</span>
+              <span class="wrap-anywhere font-mono text-strong">{{.Value}}</span>
             {{end}}
             {{if .Kind}}<span class="ml-1 text-xs text-muted">{{.Kind}}</span>{{end}}
-            {{if .RawValue}}<span class="mt-1 block break-all font-mono text-xs text-faint sm:hidden">raw {{.RawValue}}</span>{{end}}
+            {{if .RawValue}}<span class="mt-1 block wrap-anywhere font-mono text-xs text-faint sm:hidden">raw {{.RawValue}}</span>{{end}}
             {{if .AltValue}}
               <span class="mt-1 block text-xs text-warn">
                 Read as base64 instead: <span class="font-mono">{{.AltValue}}</span>
@@ -106,19 +106,19 @@
             {{if .Warn}}<span class="mt-1 block text-xs text-warn">{{.Warn}}</span>{{end}}
             {{if .Layers}}
             <details class="mt-1">
-              <summary class="cursor-pointer text-xs text-brand">Decodes further ({{len .Layers}} more {{if eq (len .Layers) 1}}layer{{else}}layers{{end}})</summary>
+              <summary class="cursor-pointer text-xs text-brand-ink">Decodes further ({{len .Layers}} more {{if eq (len .Layers) 1}}layer{{else}}layers{{end}})</summary>
               <ol class="mt-1 space-y-1 border-l border-line pl-3">
                 {{range .Layers}}
                 <li class="text-xs">
                   <span class="text-muted">{{.Depth}}. {{.Method}}</span>
-                  <pre class="mt-0.5 whitespace-pre-wrap break-all font-mono text-strong">{{.Value}}</pre>
+                  <pre class="mt-0.5 whitespace-pre-wrap wrap-anywhere font-mono text-strong">{{.Value}}</pre>
                 </li>
                 {{end}}
               </ol>
             </details>
             {{end}}
           </td>
-          <td class="hidden px-3 py-2 break-all font-mono text-xs text-muted sm:table-cell">{{if .RawValue}}{{.RawValue}}{{else}}<span aria-label="same as the value">&mdash;</span>{{end}}</td>
+          <td class="hidden px-3 py-2 wrap-anywhere font-mono text-xs text-muted sm:table-cell">{{if .RawValue}}{{.RawValue}}{{else}}<span aria-label="same as the value">&mdash;</span>{{end}}</td>
         </tr>
         {{end}}
       </tbody>
@@ -131,7 +131,7 @@
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Fragment parameters</h2>
   <p class="mt-1 text-xs text-muted">Everything after &ldquo;#&rdquo;. A browser never sends it to a server, but it does keep it in history, so a token here is still exposed.</p>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Fragment parameters">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -144,8 +144,8 @@
         {{range .FragParams}}
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
-          <td class="px-3 py-2 break-all font-mono text-strong">{{.Key}}</td>
-          <td class="px-3 py-2 break-all font-mono text-strong">{{.Value}}{{if .Kind}}<span class="ml-1 font-sans text-xs text-muted">{{.Kind}}</span>{{end}}</td>
+          <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Key}}</td>
+          <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Value}}{{if .Kind}}<span class="ml-1 font-sans text-xs text-muted">{{.Kind}}</span>{{end}}</td>
         </tr>
         {{end}}
       </tbody>
@@ -170,13 +170,16 @@
 </section>
 {{end}}
 
-{{if or .Canonical (and .HostUnicode (ne .HostUnicode .HostASCII))}}
+{{/* The canonical form gets a card only when it differs from the input: a
+     card repeating the input byte for byte, alone in a two-column grid, was
+     a box that said nothing. When they match, one line says so. */}}
+{{if or (and .Canonical (ne .Canonical .Input)) (and .HostUnicode (ne .HostUnicode .HostASCII))}}
 <section class="mt-6 grid gap-4 sm:grid-cols-2">
-  {{if .Canonical}}
+  {{if and .Canonical (ne .Canonical .Input)}}
   <div class="rounded-lg border border-line bg-surface p-4">
     <h2 class="text-sm font-semibold text-strong">Canonical form</h2>
     <p class="mt-1 text-xs text-muted">Lossless only: lowercased scheme and host, default port dropped, dot segments resolved. Nothing removed.</p>
-    <p class="mt-2 break-all font-mono text-sm text-strong">{{.Canonical}}</p>
+    <p class="mt-2 wrap-anywhere font-mono text-sm text-strong">{{.Canonical}}</p>
     <button type="button" class="btn-copy mt-3" data-copy="{{.Canonical}}">Copy</button>
   </div>
   {{end}}
@@ -189,6 +192,10 @@
   </div>
   {{end}}{{end}}
 </section>
+{{end}}
+
+{{if and .Canonical (eq .Canonical .Input)}}
+<p class="mt-6 text-sm text-muted">Already in canonical form: lowercase scheme and host, no default port, no dot segments.</p>
 {{end}}
 
 {{if not .Linkable}}

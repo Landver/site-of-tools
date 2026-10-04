@@ -22,9 +22,12 @@
 <body>
   {{template "partials/header" .}}
   <main class="page-main">
-    <h1 class="text-2xl font-semibold text-strong">Slow down a moment</h1>
+    {{template "link/nav" .}}
+    <h1 class="mt-1 text-2xl font-semibold text-strong">Slow down a moment</h1>
     <p class="mt-3 text-sm text-muted">{{.Error}}</p>
-    <p class="mt-4 text-sm"><a href="/" class="text-brand hover:underline">Back to Inspect</a></p>
+    {{/* Retry is a same-origin path the handler took from the refused
+         request, so the way back is to the page the visitor was on. */}}
+    <p class="mt-4 text-sm"><a href="{{.Retry}}" class="text-brand-ink hover:underline">Try again</a></p>
   </main>
   {{template "partials/footer" .}}
 </body>

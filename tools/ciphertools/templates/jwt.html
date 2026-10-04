@@ -197,7 +197,7 @@
 
 {{template "cipher/warnings" .Warnings}}
 
-<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
+<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand-ink{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-2">
   <section class="min-w-0">

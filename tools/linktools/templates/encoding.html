@@ -10,7 +10,7 @@
   {{template "partials/header" .}}
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">Percent-encoding, and where it differs by position</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">Percent-encoding, and where it differs by position</h1>
     <p class="mt-2 text-sm text-muted">
       The same character does not mean the same thing in a path, a query and a fragment.
       That is the source of most URL bugs, and it is why this tool decodes each position with different rules.
@@ -18,7 +18,7 @@
 
     <section class="mt-8">
       <h2 class="text-lg font-semibold text-strong">The one that catches everyone: <code class="font-mono">+</code></h2>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="How + decodes, by position">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr><th class="px-3 py-2 font-medium">Position</th><th class="px-3 py-2 font-medium">Input</th><th class="px-3 py-2 font-medium">Decodes to</th></tr>
@@ -46,7 +46,7 @@
     <section class="mt-8">
       <h2 class="text-lg font-semibold text-strong">Reserved characters (RFC 3986 §2.2)</h2>
       <p class="mt-1 text-sm text-muted">These delimit parts of a URL. Encode them when they are data rather than structure.</p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Reserved characters">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -105,7 +105,7 @@
       </p>
     </section>
 
-    <p class="mt-8 text-sm"><a href="/" class="text-brand hover:underline">Inspect a URL</a></p>
+    <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-sm"><a href="/" class="text-brand-ink hover:underline">Inspect a URL</a><a href="/encode" class="text-brand-ink hover:underline">Encode or decode a value</a></p>
   </main>
   {{template "partials/htmx-errors" .}}
   {{template "partials/footer" .}}

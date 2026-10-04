@@ -26,7 +26,7 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Paste HTML, Markdown, an email or any text and get every link out of it: deduplicated, counted, with its
       anchor text. Nothing is fetched. For auditing links before something goes out, not for checking that
@@ -43,13 +43,12 @@
     <form method="post" action="/extract" hx-post="/extract" hx-target="#result" hx-swap="innerHTML"
           hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
           class="mt-6">
-      <textarea name="text" rows="10" autofocus spellcheck="false"
+      <textarea name="text" rows="10"{{if not .Text}} autofocus{{end}} spellcheck="false"
                 aria-label="Text to pull links out of"
                 placeholder="Paste an email body, a Markdown file, an HTML fragment…"
-                class="field w-full font-mono text-xs">{{.Text}}</textarea>
+                class="field w-full font-mono text-base sm:text-xs">{{.Text}}</textarea>
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <button type="submit" class="btn-primary">Pull the links out</button>
-        <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
       </div>
     </form>
 
@@ -63,7 +62,7 @@
 
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">How the input is read</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           The shape of the input is detected rather than asked for: markup is parsed as HTML so the anchor
           text travels with the link, Markdown link syntax is read as Markdown, and anything else is scanned
@@ -131,7 +130,7 @@
     In the order each was first seen. None of them is clickable here, deliberately: hand a row to Inspect or
     Clean instead, which opens in a new tab and leaves this list where it is.
   </p>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Links found">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -148,7 +147,7 @@
                the URL they are about, each saying what it is in words, so the
                colour is a second cue and never the only one. */}}
           <td class="px-3 py-2">
-            <span class="break-all font-mono text-xs text-strong">{{.URL}}</span>
+            <span class="wrap-anywhere font-mono text-xs text-strong">{{.URL}}</span>
             {{if .Flags}}
             <ul class="mt-1 space-y-0.5">
               {{range .Flags}}
@@ -164,9 +163,9 @@
           {{/* A new tab: the paste and its result live only in this page, and
                following a row here used to throw both away. */}}
           <td class="whitespace-nowrap px-3 py-2 text-xs">
-            <a href="/?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand hover:underline">Inspect</a>
+            <a href="/?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand-ink hover:underline">Inspect</a>
             <span class="text-muted">&middot;</span>
-            <a href="/clean?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand hover:underline">Clean</a>
+            <a href="/clean?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand-ink hover:underline">Clean</a>
           </td>
         </tr>
         {{end}}

@@ -27,7 +27,7 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a curl command, including the twenty-flag one Chrome's &ldquo;Copy as cURL&rdquo; produces, and get
       its URL and headers taken apart. Or turn a URL into a safely quoted command. Nothing is run and nothing is
@@ -62,13 +62,12 @@
       <form method="post" action="/curl" hx-post="/curl" hx-target="#result" hx-swap="innerHTML"
             hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
             class="mt-4 hidden group-has-[#curl-mode-paste:checked]/curl:block">
-        <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"{{if not $build}} autofocus{{end}}
+        <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"{{if not (or $build .Cmd)}} autofocus{{end}}
                   aria-label="curl command to take apart"
                   placeholder="curl 'https://example.com/api/thing?id=1' -H 'Accept: application/json'"
-                  class="field w-full font-mono text-xs">{{.Cmd}}</textarea>
+                  class="field w-full font-mono text-base sm:text-xs">{{.Cmd}}</textarea>
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <button type="submit" class="btn-primary">Take it apart</button>
-          <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
         </div>
         <p class="mt-2 text-xs text-muted">
           A command copied out of DevTools usually carries a session cookie or a bearer token, and it is shown
@@ -80,18 +79,24 @@
       <form action="/curl" hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
             hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
             class="mt-4 hidden group-has-[#curl-mode-build:checked]/curl:block">
+        {{/* The URL takes a whole row on a phone; beside a 220px menu it was
+             27px wide. curl's own user agent is the default: the browser
+             persona put a 130-character -H 'User-Agent: …' into every command
+             before anyone had asked for one. */}}
         <div class="flex flex-wrap gap-2">
-          <input name="u" value="{{.Query}}" autocomplete="off" spellcheck="false"{{if $build}} autofocus{{end}}
+          <input name="u" value="{{.Query}}" autocomplete="off" spellcheck="false"
                  aria-label="URL to turn into a curl command"
                  placeholder="https://example.com/api/thing?id=1"
-                 class="field min-w-0 flex-1">
-          <select name="ua" aria-label="Ask as"
-                  class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
-            {{$p := .Persona}}
-            {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
-          </select>
+                 class="field min-w-0 basis-full sm:basis-0">
+          <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
+            <span class="shrink-0">as</span>
+            <select name="ua" class="field min-w-0 flex-1">
+              {{$p := .Persona}}
+              <option value=""{{if eq $p ""}} selected{{end}}>curl's own (no User-Agent)</option>
+              {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+          </label>
           <button type="submit" class="btn-primary">Build</button>
-          <span role="status" class="htmx-indicator self-center text-sm text-muted">Building…</span>
         </div>
         <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
           <label class="flex items-center gap-2">
@@ -116,7 +121,7 @@
 
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">What the parser does and does not do</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           <strong class="text-strong">It is a tokeniser, not a shell.</strong> It understands the quoting
           forms that actually appear in a copied command and refuses everything else: no variables, no
@@ -157,7 +162,7 @@
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The command</h2>
   <div class="mt-2 rounded-lg border border-ok bg-surface p-3">
     <div class="flex flex-wrap items-start gap-3">
-      <pre class="min-w-0 flex-1 overflow-x-auto font-mono text-xs text-strong">{{.Curl}}</pre>
+      <pre class="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere font-mono text-xs text-strong">{{.Curl}}</pre>
       <button type="button" class="btn-copy" data-copy="{{.Curl}}">Copy</button>
     </div>
   </div>
@@ -174,7 +179,7 @@
 <section data-announce="Command taken apart: {{len .Headers}} {{if eq (len .Headers) 1}}header{{else}}headers{{end}}.">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The URL in that command</h2>
   <div class="mt-2 rounded-lg border border-line bg-surface p-4">
-    <p class="break-all font-mono text-sm text-strong">{{.FromCurl}}</p>
+    <p class="wrap-anywhere font-mono text-sm text-strong">{{.FromCurl}}</p>
     <p class="mt-2 text-xs text-muted">Shown as text, exactly as it was written in the command. It is taken apart below.</p>
   </div>
 </section>
@@ -186,7 +191,7 @@
     In the order they were written, not merged into a map: a pasted command can repeat a header, and the
     order is part of what was pasted.
   </p>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Headers">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -198,7 +203,7 @@
         {{range .Headers}}
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-strong">{{.Name}}</td>
-          <td class="px-3 py-2 break-all font-mono text-xs text-muted">
+          <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-muted">
             {{if eq .Value ""}}<span class="italic">empty</span>{{else}}{{.Value}}{{end}}
           </td>
         </tr>
@@ -214,12 +219,10 @@
      and .Linkable travels with it, so the allowlist decision stays in one
      place. */}}
 {{if .Result}}
-<section class="mt-6">
-  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Taken apart</h2>
-  <div class="mt-2">
-    {{template "link/inspect" .}}
-  </div>
-</section>
+{{/* No heading of its own: the parse brings its own sections (findings,
+     query parameters, …), and nesting them under a "Taken apart" h2 made a
+     heading of the same rank contain headings of the same rank. */}}
+<div class="mt-6">{{template "link/inspect" .}}</div>
 {{end}}
 {{end}}
 

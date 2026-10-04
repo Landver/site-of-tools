@@ -32,7 +32,7 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Two URLs in, a part-by-part and parameter-by-parameter comparison out: what was added, removed, changed
       or only moved. For &ldquo;why does staging behave differently from production&rdquo;. Neither URL is fetched.
@@ -46,7 +46,7 @@
           class="mt-6 flex flex-col gap-2">
       <label class="flex items-center gap-3">
         <span class="w-4 shrink-0 text-center font-mono text-sm font-semibold text-muted">A</span>
-        <input name="a" value="{{.A}}" autofocus autocomplete="off" spellcheck="false"
+        <input name="a" value="{{.A}}"{{if not .A}} autofocus{{end}} autocomplete="off" spellcheck="false"
                aria-label="URL A"
                placeholder="https://example.com/search?q=hello&amp;page=1"
                class="field min-w-0">
@@ -60,7 +60,6 @@
       </label>
       <div class="flex flex-wrap items-center gap-2 pl-7">
         <button type="submit" class="btn-primary">Compare</button>
-        <span role="status" class="htmx-indicator self-center text-sm text-muted">Comparing…</span>
       </div>
     </form>
 
@@ -74,7 +73,7 @@
 
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">How repeated keys are compared</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           Repeated keys are compared position by position within the key, never collapsed to last-wins.
           <code class="font-mono">?id=1&amp;id=2</code> and <code class="font-mono">?id=2&amp;id=1</code> are a
@@ -110,8 +109,8 @@
      data-announce="{{.Summary}}">
   <h2 class="text-sm font-semibold text-strong">{{.Summary}}</h2>
   <div class="mt-2 grid gap-1 text-xs">
-    <p class="break-all font-mono text-muted"><span class="text-faint">A</span> {{.A}}</p>
-    <p class="break-all font-mono text-muted"><span class="text-faint">B</span> {{.B}}</p>
+    <p class="wrap-anywhere font-mono text-muted"><span class="text-faint">A</span> {{.A}}</p>
+    <p class="wrap-anywhere font-mono text-muted"><span class="text-faint">B</span> {{.B}}</p>
   </div>
 </div>
 
@@ -128,7 +127,7 @@
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Components</h2>
   <p class="mt-1 text-xs text-muted">Everything outside the query string.</p>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Components">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -146,10 +145,10 @@
                  meaning does not (FieldChange.Cosmetic). */}}
             {{if .Cosmetic}}<span class="mt-1 block whitespace-nowrap font-sans text-xs text-muted">spelling only</span>{{end}}
           </td>
-          <td class="px-3 py-2 break-all font-mono text-xs text-muted">
+          <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-muted">
             {{if eq .A ""}}<span class="italic">absent</span>{{else}}{{.A}}{{end}}
           </td>
-          <td class="px-3 py-2 break-all font-mono text-xs text-strong">
+          <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-strong">
             {{if eq .B ""}}<span class="italic">absent</span>{{else}}{{.B}}{{end}}
           </td>
         </tr>
@@ -167,7 +166,7 @@
     In the order the keys appear across A then B. The <span class="font-mono">#</span> columns are the
     position each value held in its own query string.
   </p>
-  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Query parameters">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -184,21 +183,21 @@
           <td class="px-3 py-2">
             {{/* One literal class string per branch — never assembled. */}}
             {{if eq .Kind "added"}}
-              <span class="rounded bg-ok/20 px-1.5 py-0.5 font-mono text-xs text-ok">added</span>
+              <span class="whitespace-nowrap rounded bg-ok/10 px-1.5 py-0.5 font-mono text-xs text-ok">added</span>
             {{else if eq .Kind "removed"}}
-              <span class="rounded bg-danger/20 px-1.5 py-0.5 font-mono text-xs text-danger">removed</span>
+              <span class="whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 font-mono text-xs text-danger">removed</span>
             {{else if eq .Kind "modified"}}
-              <span class="rounded bg-warn/20 px-1.5 py-0.5 font-mono text-xs text-warn">changed</span>
+              <span class="whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 font-mono text-xs text-warn">changed</span>
             {{else if eq .Kind "moved"}}
-              <span class="rounded bg-info/20 px-1.5 py-0.5 font-mono text-xs text-info">moved only</span>
+              <span class="whitespace-nowrap rounded bg-info/10 px-1.5 py-0.5 font-mono text-xs text-info">moved only</span>
               <span class="mt-1 block text-xs text-muted">
                 Same value, position {{.IndexA}} &rarr; {{.IndexB}}.
               </span>
             {{else}}
-              <span class="rounded bg-line px-1.5 py-0.5 font-mono text-xs text-muted">same</span>
+              <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 font-mono text-xs text-muted">same</span>
             {{end}}
           </td>
-          <td class="px-3 py-2 break-all font-mono text-xs
+          <td class="px-3 py-2 wrap-anywhere font-mono text-xs
             {{if eq .Kind "added"}}text-faint{{else if eq .Kind "removed"}}text-danger{{else}}text-muted{{end}}">
             {{if eq .Kind "added"}}
               <span class="italic">not present</span>
@@ -209,7 +208,7 @@
             {{end}}
             {{if .IndexA}}<span class="ml-1 text-faint">#{{.IndexA}}</span>{{end}}
           </td>
-          <td class="px-3 py-2 break-all font-mono text-xs
+          <td class="px-3 py-2 wrap-anywhere font-mono text-xs
             {{if eq .Kind "removed"}}text-faint{{else if eq .Kind "added"}}text-ok{{else if eq .Kind "modified"}}text-strong{{else}}text-muted{{end}}">
             {{if eq .Kind "removed"}}
               <span class="italic">not present</span>
@@ -258,9 +257,9 @@
 {{end}}
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/?u={{.A}}" class="text-brand hover:underline">Inspect A</a>
-  <a href="/?u={{.B}}" class="text-brand hover:underline">Inspect B</a>
-  <a href="/diff?a={{.B}}&amp;b={{.A}}" class="text-brand hover:underline">Swap sides</a>
+  <a href="/?u={{.A}}" class="text-brand-ink hover:underline">Inspect A</a>
+  <a href="/?u={{.B}}" class="text-brand-ink hover:underline">Inspect B</a>
+  <a href="/diff?a={{.B}}&amp;b={{.A}}" class="text-brand-ink hover:underline">Swap sides</a>
 </p>
 {{else}}
 {{template "link/examples" .}}

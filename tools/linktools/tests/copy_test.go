@@ -35,7 +35,7 @@ func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 	e := newLinkApp(t, nil, nil)
 
 	for _, target := range []string{
-		"/?u=https%3A%2F%2Fexample.com%2Fp%3Fa%3D1",
+		"/?u=HTTPS%3A%2F%2FExample.com%2Fp%3Fa%3D1", // canonical form differs, so it has a card and a Copy
 		"/clean?u=https%3A%2F%2Fexample.com%2Fp%3Futm_source%3Dx",
 		"/utm?u=https%3A%2F%2Fexample.com%2Fp&utm_source=n&utm_medium=email",
 		"/curl?u=https%3A%2F%2Fexample.com%2Fp",

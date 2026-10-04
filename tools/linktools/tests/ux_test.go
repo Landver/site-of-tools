@@ -5,6 +5,8 @@ import (
 	"html"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -285,5 +287,31 @@ func TestCurlPasteNeverRidesInAURL(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "https://api.example.com/v1/x?id=1") {
 		t.Error("POST /curl did not take the command apart")
+	}
+}
+
+// TestAlpineAttributesAreExpressions: Alpine evaluates x-init, x-data and
+// @event values as JavaScript EXPRESSIONS, so a statement there (try/catch,
+// var, a for loop) is a syntax error that logs once and disables the whole
+// binding. It happened: the console's key was silently never read or saved,
+// with every page still rendering perfectly. Statements belong in a script, as
+// short.html's linkKey() does.
+func TestAlpineAttributesAreExpressions(t *testing.T) {
+	t.Parallel()
+	files, _ := filepath.Glob("../templates/*.html")
+	partials, _ := filepath.Glob("../../../shared/templates/partials/*.html")
+	files = append(files, partials...)
+	if len(files) == 0 {
+		t.Fatal("no templates found; the test is looking in the wrong place")
+	}
+	attr := regexp.MustCompile(`\s(x-init|x-data|x-effect|@[\w.:-]+|x-on:[\w.:-]+)="\s*(try|var|let|const|for|while)\b`)
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range attr.FindAllStringSubmatch(string(b), -1) {
+			t.Errorf("%s: %s starts with the statement %q; Alpine needs an expression there", filepath.Base(f), m[1], m[2])
+		}
 	}
 }

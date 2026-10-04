@@ -7,7 +7,7 @@
 
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a URL to see every part of it decoded: each query parameter in order, repeated keys kept apart,
       lists split, double-encoding peeled layer by layer. Nothing is fetched.
@@ -26,12 +26,11 @@
     <form action="/" hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+      <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
              aria-label="URL to inspect"
              placeholder="https://example.com/search?q=hello+world&utm_source=newsletter"
              class="field min-w-0 flex-1">
       <button type="submit" class="btn-primary">Inspect</button>
-      <span role="status" class="htmx-indicator self-center text-sm text-muted">Parsing…</span>
     </form>
 
     {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
@@ -49,7 +48,7 @@
          below the fold on a laptop screen. */}}
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">Where does the URL go?</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           Parsing happens on the server and <strong class="text-strong">nothing is fetched</strong>:
           no request is made to the host in the URL you paste.

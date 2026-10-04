@@ -26,12 +26,17 @@
   </div>
   {{if .Final}}
     <div class="mt-2 flex flex-wrap items-start gap-3">
-      <p class="min-w-0 flex-1 break-all font-mono text-sm text-strong">{{.Final}}</p>
+      <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong">{{.Final}}</p>
       <button type="button" class="btn-copy" data-copy="{{.Final}}">Copy</button>
     </div>
     <p class="mt-2 text-xs text-muted">
       Where the chain actually ended. Nothing about whether it is safe to visit is claimed here.
-      <a href="/?u={{.Final}}" class="ml-1 text-sm text-brand hover:underline">Inspect it</a>
+    </p>
+    {{/* Clean as well as Inspect: redirectors are exactly where tracking
+         parameters get added on the way through. */}}
+    <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      <a href="/?u={{.Final}}" class="text-brand-ink hover:underline">Inspect it</a>
+      <a href="/clean?u={{.Final}}" class="text-brand-ink hover:underline">Clean it</a>
     </p>
   {{else}}
     <p class="mt-2 text-sm text-muted">
@@ -57,18 +62,19 @@
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="font-mono text-muted">{{.Index}}</span>
         <span class="rounded px-1.5 py-0.5 font-mono text-xs
-          {{if ge .Status 500}}bg-danger/20 text-danger
-          {{else if ge .Status 400}}bg-warn/20 text-warn
+          {{if ge .Status 500}}bg-danger/10 text-danger
+          {{else if ge .Status 400}}bg-warn/10 text-warn
           {{else if ge .Status 300}}bg-line text-strong
-          {{else}}bg-ok/20 text-ok{{end}}">{{.Status}}</span>
+          {{else}}bg-ok/10 text-ok{{end}}">{{.Status}}{{if .Reason}} {{.Reason}}{{end}}</span>
         <span class="text-xs text-muted">{{.ElapsedMS}} ms</span>
-        {{if .SetCookie}}<span class="rounded bg-line px-1.5 py-0.5 text-xs text-muted"><span aria-hidden="true">&#127850;</span> sets a cookie</span>{{end}}
-        {{if .Server}}<span class="text-xs text-faint">{{.Server}}</span>{{end}}
-        {{if .ContentType}}<span class="text-xs text-faint">{{.ContentType}}</span>{{end}}
+        {{if .SetCookie}}<span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-muted"><span aria-hidden="true">&#127850;</span> sets a cookie</span>{{end}}
+        {{/* Labelled: "gws" or "github.com" alone is a riddle. */}}
+        {{if .Server}}<span class="text-xs text-faint">server <span class="text-muted">{{.Server}}</span></span>{{end}}
+        {{if .ContentType}}<span class="text-xs text-faint">type <span class="text-muted">{{.ContentType}}</span></span>{{end}}
       </div>
       {{/* Text, never an anchor. See the file comment. */}}
-      <p class="mt-1 break-all font-mono text-sm text-strong">{{.URL}}</p>
-      {{if .Location}}<p class="mt-1 break-all font-mono text-xs text-muted"><span aria-hidden="true">&rarr;</span><span class="sr-only">redirects to</span> {{.Location}}</p>{{end}}
+      <p class="mt-1 wrap-anywhere font-mono text-sm text-strong">{{.URL}}</p>
+      {{if .Location}}<p class="mt-1 wrap-anywhere font-mono text-xs text-muted"><span aria-hidden="true">&rarr;</span><span class="sr-only">redirects to</span> {{.Location}}</p>{{end}}
       {{if .Notes}}<div class="mt-2">{{template "link/notes" .Notes}}</div>{{end}}
     </li>
     {{end}}
