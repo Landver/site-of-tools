@@ -17,30 +17,46 @@
         Tracing is switched off on this server. Nothing failed &mdash; the feature simply is not running.
       </div>
     {{else}}
-    {{/* Not live, unlike the parsing pages: every trace dials out to someone
-         else's server and the route allows one a second. A trace is a thing you
-         ask for, so it waits for the button, and push-url keeps each one as its
-         own step in the history. */}}
-    <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    {{/* Not live as you type, unlike the parsing pages: every trace dials out
+         to someone else's server and the route allows one a second. A trace
+         waits for the button, and push-url keeps each one as its own step in
+         the history. Changing "ask as" re-runs it, because the page itself
+         says the answer often depends on who asks.
+
+         hx-sync="this:drop" rather than hx-disabled-elt: disabling the button
+         that has focus throws focus to <body>, so the next Tab started over at
+         the header. The progress text lives inside the button for the same
+         reason the parsing pages have none: beside it, it held its width even
+         while hidden, and squeezed the URL field on a phone. The field takes a
+         whole row there; the menu and button share the next. */}}
+    <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
+          hx-trigger="submit, change from:find select" hx-sync="this:drop"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+      <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
              aria-label="URL to trace" placeholder="http://bit.ly/example"
-             class="field min-w-0 flex-1">
-      <select name="ua" aria-label="Ask as"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
-        {{$p := .Persona}}
-        {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
-      </select>
-      <button type="submit" class="btn-primary">Trace</button>
-      <span role="status" class="htmx-indicator self-center text-sm text-muted">Following…</span>
+             class="field min-w-0 basis-full sm:basis-0">
+      <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
+        <span class="shrink-0">as</span>
+        <select name="ua"
+                class="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+          {{$p := .Persona}}
+          {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <button type="submit" class="btn-primary">
+        <span class="in-[.htmx-request]:hidden">Trace</span>
+        <span class="hidden in-[.htmx-request]:inline" role="status">Following…</span>
+      </button>
     </form>
     {{end}}
 
     {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
          off) rendered an empty form and looked like nothing happened. */}}
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if and .Error (not .Disabled)}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/chain" .}}
     </div>
 
@@ -76,6 +92,7 @@
     {{end}}
   </main>
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>

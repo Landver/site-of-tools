@@ -50,6 +50,33 @@ func parseReason(err error) error {
 	return err
 }
 
+// Pages a pasted input can belong on instead of the one it was pasted into.
+const (
+	ToolCurl    = "curl"
+	ToolExtract = "extract"
+)
+
+// WrongTool names the page an input belongs on when it is plainly not one URL:
+// a curl command, or text and markup with links in it. "" when it might be a
+// URL. Without this the commonest wrong paste, a command copied out of
+// DevTools, got "first path segment in URL cannot contain colon" on the page
+// people land on first.
+func WrongTool(raw string) string {
+	t := strings.TrimSpace(raw)
+	low := strings.ToLower(t)
+	switch {
+	case strings.HasPrefix(low, "curl ") || strings.HasPrefix(low, "curl\t") || strings.HasPrefix(low, "curl\n"):
+		return ToolCurl
+	case strings.Contains(low, "<a ") || strings.Contains(low, "href=") || strings.Contains(t, "](http"):
+		return ToolExtract
+	case strings.Contains(t, "://") && strings.ContainsAny(t, " \t\n"):
+		// A URL has no whitespace in it. Text around a link, or a list of
+		// links, does.
+		return ToolExtract
+	}
+	return ""
+}
+
 // Parse takes a URL apart. It never fetches anything.
 //
 // Deliberately does NOT use url.ParseQuery for the parameter list: that returns

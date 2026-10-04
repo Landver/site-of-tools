@@ -50,9 +50,11 @@
       <span role="status" class="htmx-indicator self-center text-sm text-muted">Converting…</span>
     </form>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/encoded" .}}
     </div>
 
@@ -87,6 +89,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
@@ -101,8 +104,47 @@
      guess about what it is earns a line. */}}
 {{if .Kind}}<p class="mb-4 text-sm text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></p>{{end}}
 
-{{/* THE point of the page. Matched by name, never by index — see the file
-     comment. */}}
+{{/* Order follows what the value most likely is. Plain text leads with the
+     query-vs-path pair, the point of the page. A value that is already
+     percent-encoded leads with its decoded readings, because reading it is why
+     anyone pastes one, and the pair it used to lead with offered %2520 for
+     %20 with a Copy button beside it (EncodeResult.AlreadyEncoded). */}}
+{{if .AlreadyEncoded}}
+<section class="rounded-lg border border-info bg-surface p-4" data-announce="Already percent-encoded; decoded readings first.">
+  <h2 class="text-sm font-semibold text-strong">This is already percent-encoded</h2>
+  <p class="mt-1 text-sm text-muted">
+    Its decoded readings come first. Encoding it again would turn every <span class="font-mono">%</span> into
+    <span class="font-mono">%25</span>: the double encoding that breaks links when two systems each encode once.
+  </p>
+</section>
+<div class="mt-6">{{template "link/dec-table" .}}</div>
+{{template "link/dec-ladder" .}}
+<div class="mt-6">{{template "link/enc-pair" .}}</div>
+<div class="mt-6">{{template "link/enc-table" .}}</div>
+{{else}}
+<div data-announce="Converted.{{if .Kind}} Looks like {{.Kind}}.{{end}}">{{template "link/enc-pair" .}}</div>
+<div class="mt-6">{{template "link/enc-table" .}}</div>
+<div class="mt-6">{{template "link/dec-table" .}}</div>
+{{template "link/dec-ladder" .}}
+{{end}}
+
+<p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+  <a href="/encoding" class="text-brand hover:underline">What percent-encoding actually reserves</a>
+  <a href="/" class="text-brand hover:underline">Inspect a whole URL instead</a>
+</p>
+
+{{else}}
+{{template "link/examples" .}}
+{{end}}
+{{end}}
+
+{{/* THE point of the page: one value encoded for the two places it might go.
+     Matched by name, never by index — see the file comment. Each Copy button
+     is described by its card's heading, so a screen reader hears what it
+     copies rather than eleven identical "Copy"s; aria-describedby, not
+     aria-label, because the copy partial swaps the visible text to "Copied"
+     and a label would hide that. */}}
+{{define "link/enc-pair"}}
 <section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query rules vs path rules</h2>
   <p class="mt-1 text-xs text-muted">
@@ -112,24 +154,28 @@
   <div class="mt-2 grid gap-4 sm:grid-cols-2">
     {{range .Encoded}}{{if eq .Name "Percent (query)"}}
     <div class="rounded-lg border border-line bg-surface p-4">
-      <h3 class="text-sm font-semibold text-strong">After a <span class="font-mono">?</span></h3>
+      <h3 id="pair-query" class="text-sm font-semibold text-strong">After a <span class="font-mono">?</span></h3>
       <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
-      <button type="button" class="btn-copy mt-3" data-copy="{{.Value}}">Copy</button>
+      {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn">Already encoded: this encodes it a second time.</p>{{end}}
+      <button type="button" class="btn-copy mt-3" aria-describedby="pair-query" data-copy="{{.Value}}">Copy</button>
     </div>
     {{end}}{{end}}
     {{range .Encoded}}{{if eq .Name "Percent (path)"}}
     <div class="rounded-lg border border-line bg-surface p-4">
-      <h3 class="text-sm font-semibold text-strong">Inside a path segment</h3>
+      <h3 id="pair-path" class="text-sm font-semibold text-strong">Inside a path segment</h3>
       <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Value}}</pre>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
-      <button type="button" class="btn-copy mt-3" data-copy="{{.Value}}">Copy</button>
+      {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn">Already encoded: this encodes it a second time.</p>{{end}}
+      <button type="button" class="btn-copy mt-3" aria-describedby="pair-path" data-copy="{{.Value}}">Copy</button>
     </div>
     {{end}}{{end}}
   </div>
 </section>
+{{end}}
 
-<section class="mt-6">
+{{define "link/enc-table"}}
+<section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Encoded</h2>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
@@ -140,9 +186,9 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-line">
-        {{range .Encoded}}
+        {{range $i, $e := .Encoded}}
         <tr class="align-top">
-          <td class="px-3 py-2 text-strong">{{.Name}}</td>
+          <td id="enc-{{$i}}" class="px-3 py-2 text-strong">{{.Name}}</td>
           <td class="px-3 py-2">
             {{if .Err}}
               <span class="text-xs text-danger">Could not encode: {{.Err}}</span>
@@ -151,7 +197,7 @@
             {{else}}
               <div class="flex items-start gap-3">
                 <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
-                <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button>
+                <button type="button" class="btn-copy" aria-describedby="enc-{{$i}}" data-copy="{{.Value}}">Copy</button>
               </div>
             {{end}}
             {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
@@ -162,8 +208,10 @@
     </table>
   </div>
 </section>
+{{end}}
 
-<section class="mt-6">
+{{define "link/dec-table"}}
+<section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Decoded</h2>
   <p class="mt-1 text-xs text-muted">
     Every reading attempted, including the ones that failed. A failure is said out loud rather than shown as
@@ -178,9 +226,9 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-line">
-        {{range .Decoded}}
+        {{range $i, $e := .Decoded}}
         <tr class="align-top">
-          <td class="px-3 py-2 text-strong">{{.Name}}</td>
+          <td id="dec-{{$i}}" class="px-3 py-2 text-strong">{{.Name}}</td>
           <td class="px-3 py-2">
             {{if .Err}}
               <span class="text-xs text-danger">Not valid as {{.Name}}: {{.Err}}</span>
@@ -189,7 +237,7 @@
             {{else}}
               <div class="flex items-start gap-3">
                 <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
-                <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button>
+                <button type="button" class="btn-copy" aria-describedby="dec-{{$i}}" data-copy="{{.Value}}">Copy</button>
               </div>
             {{end}}
             {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
@@ -200,7 +248,9 @@
     </table>
   </div>
 </section>
+{{end}}
 
+{{define "link/dec-ladder"}}
 {{if .Layers}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">It decodes further</h2>
@@ -217,14 +267,5 @@
     {{end}}
   </ol>
 </section>
-{{end}}
-
-<p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/encoding" class="text-brand hover:underline">What percent-encoding actually reserves</a>
-  <a href="/" class="text-brand hover:underline">Inspect a whole URL instead</a>
-</p>
-
-{{else}}
-{{template "link/examples" .}}
 {{end}}
 {{end}}

@@ -207,10 +207,40 @@ func classify(v string) Kind {
 	if hexRe.MatchString(v) {
 		return KindHex
 	}
-	if looksBase64(v) {
+	if looksBase64(v) && (decodesToText(v) || encodedLooking(v)) {
 		return KindBase64
 	}
 	return ""
+}
+
+// decodesToText: base64 of something a person could read.
+func decodesToText(v string) bool {
+	_, _, ok := tryBase64(v)
+	return ok
+}
+
+// encodedLooking is the label's second test, for base64 of binary such as a
+// random token. looksBase64 alone is only length and alphabet, so it tagged
+// every eight-, twelve- and sixteen-letter word ("facebook", "linkedin",
+// "campaign") as base64, which on a utm_source made the page look broken.
+// Real encodings almost always mix digits with both letter cases, or carry
+// padding or the two symbols; ordinary words almost never do.
+func encodedLooking(v string) bool {
+	if strings.ContainsAny(v, "+/=") {
+		return true
+	}
+	var digit, lower, upper bool
+	for i := 0; i < len(v); i++ {
+		switch c := v[i]; {
+		case c >= '0' && c <= '9':
+			digit = true
+		case c >= 'a' && c <= 'z':
+			lower = true
+		case c >= 'A' && c <= 'Z':
+			upper = true
+		}
+	}
+	return digit && lower && upper
 }
 
 // isTimestamp reports whether n is plausibly a Unix time in seconds or

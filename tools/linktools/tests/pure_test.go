@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -600,7 +601,7 @@ func TestDiffNamesEveryKindOfChange(t *testing.T) {
 		{"added", "https://example.com/?a=1", "https://example.com/?a=1&b=2", "b", linktools.ChangeAdded},
 		{"removed", "https://example.com/?a=1&b=2", "https://example.com/?a=1", "b", linktools.ChangeRemoved},
 		{"modified", "https://example.com/?a=1", "https://example.com/?a=2", "a", linktools.ChangeModified},
-		{"moved", "https://example.com/?a=1&b=2", "https://example.com/?b=2&a=1", "a", linktools.ChangeMoved},
+		{"moved", "https://example.com/?a=1&b=2&c=3", "https://example.com/?b=2&c=3&a=1", "a", linktools.ChangeMoved},
 		{"same", "https://example.com/?a=1&b=2", "https://example.com/?a=1&b=3", "a", linktools.ChangeSame},
 	} {
 		got := changeFor(t, diffOf(t, tc.a, tc.b), tc.key).Kind
@@ -615,6 +616,10 @@ func TestDiffNamesEveryKindOfChange(t *testing.T) {
 // Harmless to most servers and fatal to any URL whose signature covers the
 // literal query string, which is exactly why "nothing changed" is the wrong
 // answer here.
+//
+// Only the parameter that moved is called moved. c went to the front; a and b
+// kept their order relative to each other, and saying all three moved (as
+// absolute positions do) describes a shuffle that did not happen.
 func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/?a=1&b=2&c=3", "https://example.com/?c=3&a=1&b=2")
@@ -624,13 +629,65 @@ func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	if len(d.Fields) != 0 {
 		t.Errorf("reordering the query reported a component change: %+v", d.Fields)
 	}
+	want := map[string]linktools.ChangeKind{"a": linktools.ChangeSame, "b": linktools.ChangeSame, "c": linktools.ChangeMoved}
 	for _, c := range d.Params {
-		if c.Kind != linktools.ChangeMoved {
-			t.Errorf("%q reported as %q; nothing was added, removed or changed", c.Key, c.Kind)
+		if c.Kind != want[c.Key] {
+			t.Errorf("%q reported as %q, want %q", c.Key, c.Kind, want[c.Key])
 		}
 	}
 	if !hasNote(d.Notes, linktools.SevWarn, "Only the order changed") {
 		t.Errorf("no note naming the reorder: %+v", d.Notes)
+	}
+}
+
+// TestDiffDoesNotCallARemovalAReorder is the case the Clean page produces on
+// every URL it cleans: drop the first parameter and every later one changes
+// position without anything moving relative to anything else. Calling them
+// moved raised the signed-URL warning over a diff that had none.
+func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
+	t.Parallel()
+	d := diffOf(t, "https://example.com/p?utm_source=x&id=42&page=2&lang=en", "https://example.com/p?id=42&page=2&lang=en")
+	for _, c := range d.Params {
+		want := linktools.ChangeSame
+		if c.Key == "utm_source" {
+			want = linktools.ChangeRemoved
+		}
+		if c.Kind != want {
+			t.Errorf("%q reported as %q, want %q", c.Key, c.Kind, want)
+		}
+	}
+	if got := d.Summary(); got != "1 parameter removed." {
+		t.Errorf("summary %q, want just the removal", got)
+	}
+}
+
+// TestDiffCallsSpellingCosmetic: host case, a default port written out and a
+// dot segment are three ways of spelling one request. They are listed, because
+// the strings differ, but they are not differences, which is what the page's
+// own help text promises.
+func TestDiffCallsSpellingCosmetic(t *testing.T) {
+	t.Parallel()
+	d := diffOf(t, "HTTPS://Example.com:443/a/./b?x=%7e", "https://example.com/a/b?x=~")
+	if !d.Identical {
+		t.Errorf("two spellings of one request reported as different: %s %+v", d.Summary(), d.Fields)
+	}
+	for _, f := range d.Fields {
+		if !f.Cosmetic {
+			t.Errorf("%s: %q vs %q is a spelling difference but was not marked cosmetic", f.Field, f.A, f.B)
+		}
+	}
+	if !hasNote(d.Notes, linktools.SevInfo, "Different text, same URL") {
+		t.Errorf("no note explaining the spelling difference: %+v", d.Notes)
+	}
+
+	// A real port is still a real difference, and so is %2F against a slash.
+	for _, pair := range [][2]string{
+		{"https://example.com:8443/", "https://example.com/"},
+		{"https://example.com/a%2Fb", "https://example.com/a/b"},
+	} {
+		if diffOf(t, pair[0], pair[1]).Identical {
+			t.Errorf("%s and %s called identical", pair[0], pair[1])
+		}
 	}
 }
 
@@ -769,5 +826,130 @@ func TestEncodeRunsTheSameLadderAsInspect(t *testing.T) {
 	}
 	if r.Input != "%2520" {
 		t.Errorf("input not echoed back unchanged: %q", r.Input)
+	}
+}
+
+// TestOrdinaryWordsAreNotBase64. Eight letters from the base64 alphabet is a
+// word as often as it is an encoding, and "facebook base64" beside a
+// utm_source is the kind of label that makes every other label doubtful.
+func TestOrdinaryWordsAreNotBase64(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	in, err := svc.Parse("https://example.com/?a=facebook&b=campaign&c=linkedin&d=aGVsbG8gd29ybGQ%3D&e=IwAR0Zx3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]linktools.Kind{"a": "", "b": "", "c": "", "d": linktools.KindBase64, "e": linktools.KindBase64}
+	for _, p := range in.Params {
+		if p.Kind != want[p.Key] {
+			t.Errorf("%s=%s classified %q, want %q", p.Key, p.Value, p.Kind, want[p.Key])
+		}
+	}
+}
+
+// TestUTMKeepsWhatItWasNotGiven: pasting a tagged link to change one tag used
+// to wipe the other four, because an empty field meant "remove". Now an empty
+// field leaves the URL's value alone, a typed one replaces it, and the result
+// says which was which.
+func TestUTMKeepsWhatItWasNotGiven(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.BuildUTM("https://example.com/landing?utm_source=old&utm_medium=email&x=1",
+		map[string]string{"utm_source": "newsletter", "utm_content": "header"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"utm_source=newsletter", "utm_medium=email", "x=1", "utm_content=header"} {
+		if !strings.Contains(res.URL, want) {
+			t.Errorf("built %q, missing %s", res.URL, want)
+		}
+	}
+	if strings.Contains(res.URL, "utm_source=old") {
+		t.Errorf("built %q: the typed utm_source did not replace the old one", res.URL)
+	}
+	got := map[string]linktools.UTMTag{}
+	for _, tag := range res.Tags {
+		got[tag.Key] = tag
+	}
+	if tag := got["utm_source"]; tag.Source != linktools.TagReplaced || tag.Was != "old" {
+		t.Errorf("utm_source = %+v, want replaced, was old", tag)
+	}
+	if tag := got["utm_medium"]; tag.Source != linktools.TagKept {
+		t.Errorf("utm_medium = %+v, want kept", tag)
+	}
+	if tag := got["utm_content"]; tag.Source != linktools.TagSet {
+		t.Errorf("utm_content = %+v, want set", tag)
+	}
+}
+
+// TestUTMAssumesHTTPSAndNamesItsWorries: a URL without a scheme becomes https
+// (tagged as written it would be a relative link), and the advice a campaign
+// report would give a month late arrives with the link.
+func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.BuildUTM("example.com/landing", map[string]string{"utm_medium": "Email", "utm_campaign": "fall sale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(res.URL, "https://example.com/landing?") {
+		t.Errorf("built %q, want an absolute https URL", res.URL)
+	}
+	for _, title := range []string{"https:// assumed", "No utm_source", "Capital letters in utm_medium", "Spaces in utm_campaign"} {
+		found := false
+		for _, n := range res.Notes {
+			found = found || n.Title == title
+		}
+		if !found {
+			t.Errorf("no %q note: %+v", title, res.Notes)
+		}
+	}
+}
+
+// TestExtractFlagsWhatAnAuditIsFor: link text that shows one host over a link
+// to another, a javascript: link and a mail-gateway wrapper each get named on
+// their row, and an honest link gets nothing. Before this every row of a
+// phishing email looked like every row of a newsletter.
+func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.Extract(`<p>
+		<a href="https://paypal.com.example.net/login">https://www.paypal.com/</a>
+		<a href="https://www.paypal.com/help">paypal.com</a>
+		<a href="javascript:alert(1)">open</a>
+		<a href="https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fevil.example%2F&amp;data=1">report</a>
+		<a href="https://example.com/sale?utm_source=x&amp;fbclid=y">our store</a>
+		<a href="https://example.com/sale?utm_source=x&amp;fbclid=y">fall sale</a>
+	</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string][]string{}
+	anchors := map[string][]string{}
+	for _, u := range res.URLs {
+		for _, f := range u.Flags {
+			flags[u.URL] = append(flags[u.URL], f.Severity+": "+f.Title)
+		}
+		anchors[u.URL] = u.Anchors
+	}
+	expect := map[string]string{
+		"https://paypal.com.example.net/login": "fail: Text shows www.paypal.com, link goes to paypal.com.example.net",
+		"javascript:alert(1)":                  "fail: javascript: link",
+		"https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fevil.example%2F&data=1": "warn: Microsoft Safe Links wrapper, really goes to evil.example",
+		"https://example.com/sale?utm_source=x&fbclid=y":                                           "info: 2 tracking parameters",
+	}
+	for u, want := range expect {
+		if !slices.Contains(flags[u], want) {
+			t.Errorf("%s: flags %q, want %q among them", u, flags[u], want)
+		}
+	}
+	if got := flags["https://www.paypal.com/help"]; len(got) != 0 {
+		t.Errorf("an honest link (paypal.com over www.paypal.com) was flagged: %q", got)
+	}
+	if got := anchors["https://example.com/sale?utm_source=x&fbclid=y"]; !slices.Equal(got, []string{"our store", "fall sale"}) {
+		t.Errorf("anchors = %q, want both link texts", got)
+	}
+	if !hasNote(res.Notes, linktools.SevWarn, "3 links worth a second look") {
+		t.Errorf("no summary note: %+v", res.Notes)
 	}
 }

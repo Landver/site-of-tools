@@ -1,0 +1,62 @@
+{{/* Behaviour every Link Tools form page shares, delegated from document like
+     partials/copy, because the results arrive by htmx and a script inside a
+     fragment would have to re-run on every swap. Include once per page:
+     {{template "link/live" .}}.
+
+     1. What a screen reader hears. The parsing pages answer as you type, so
+        #result is replaced on every pause, and as a live region it read the
+        whole new result aloud each time (a summary strip, findings, a table of
+        every parameter), dozens of times while one URL was typed. So #result
+        is not a live region. Each result fragment names itself in one line on
+        its outermost element, data-announce="…", and that line is copied into
+        the page's one polite status region, #result-status (sr-only). The
+        empty state announces nothing; an error announces its message.
+
+     2. aria-busy on #result while a request is out, so assistive tech knows
+        the region is about to change rather than reading a half-swapped one.
+
+     3. The history snapshot. Before htmx pushes a history entry it saves
+        <main>'s innerHTML, and innerHTML carries each control's value
+        ATTRIBUTE, the one the page was rendered with, not what was typed
+        since. Back then showed a result beside a different URL, or a ticked
+        box the result had been computed without. The live values are copied
+        into the attributes just before the snapshot. Password fields are
+        skipped, so the operator key never lands in a history cache. */}}
+{{define "link/live"}}
+<script>
+  (function () {
+    function result() { return document.getElementById('result') }
+
+    document.body.addEventListener('htmx:beforeRequest', function (e) {
+      var r = result()
+      if (r && e.detail.target === r) r.setAttribute('aria-busy', 'true')
+    })
+    document.body.addEventListener('htmx:afterRequest', function () {
+      var r = result()
+      if (r) r.removeAttribute('aria-busy')
+    })
+
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+      var status = document.getElementById('result-status')
+      if (!status || !e.detail.target || e.detail.target.id !== 'result') return
+      var src = e.detail.target.querySelector('[data-announce]')
+      status.textContent = src ? src.getAttribute('data-announce') : ''
+    })
+
+    document.body.addEventListener('htmx:beforeHistorySave', function () {
+      document.querySelectorAll('main input, main textarea, main select').forEach(function (el) {
+        if (el.type === 'password') return
+        if (el.tagName === 'TEXTAREA') {
+          el.textContent = el.value
+        } else if (el.tagName === 'SELECT') {
+          Array.prototype.forEach.call(el.options, function (o) { o.toggleAttribute('selected', o.selected) })
+        } else if (el.type === 'checkbox' || el.type === 'radio') {
+          el.toggleAttribute('checked', el.checked)
+        } else {
+          el.setAttribute('value', el.value)
+        }
+      })
+    })
+  })()
+</script>
+{{end}}

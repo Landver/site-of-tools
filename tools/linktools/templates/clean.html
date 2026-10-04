@@ -71,9 +71,11 @@
       </div>
     </form>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/cleaned" .}}
     </div>
 
@@ -108,6 +110,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
@@ -121,7 +124,8 @@
 {{define "link/cleaned"}}
 {{with .Result}}
 
-<section class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4">
+<section class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4"
+         data-announce="{{if .Removed}}Clean URL ready, {{len .Removed}} removed.{{else}}Nothing to remove.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <h2 class="text-sm font-semibold text-strong">{{if .Removed}}Clean URL{{else}}Nothing to remove{{end}}</h2>
     <p class="text-xs text-muted">

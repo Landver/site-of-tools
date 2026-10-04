@@ -55,7 +55,11 @@
         </label>
       </div>
 
-      <form action="/curl" hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+      {{/* POST, and no URL update: a command copied out of DevTools carries
+           session cookies and bearer tokens, and a query string would put them
+           in the address bar, the history and every proxy log on the way
+           (handler.go, POST /curl). Same reasoning as Extract. */}}
+      <form method="post" action="/curl" hx-post="/curl" hx-target="#result" hx-swap="innerHTML"
             hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
             class="mt-4 hidden group-has-[#curl-mode-paste:checked]/curl:block">
         <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"{{if not $build}} autofocus{{end}}
@@ -68,8 +72,8 @@
         </div>
         <p class="mt-2 text-xs text-muted">
           A command copied out of DevTools usually carries a session cookie or a bearer token, and it is shown
-          back to you here in full. It is redacted from this server's logs, but don't paste a live credential
-          into a web tool, this one included.
+          back to you here in full. It is sent in the request body, never in a URL, and nothing is kept, but
+          don't paste a live credential into a web tool, this one included.
         </p>
       </form>
 
@@ -102,9 +106,11 @@
       </form>
     </div>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/curled" .}}
     </div>
 
@@ -129,11 +135,12 @@
     <details class="mt-2 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/curl?u=https%3A%2F%2Fexample.com%2F'</pre>
-      <p class="mt-1 text-xs text-muted">The paste direction answers on the same URL with <code class="font-mono">?curl=</code>, and returns the URL, the headers in the order they were written, and the full parse of the URL.</p>
+      <p class="mt-1 text-xs text-muted">The paste direction answers on the same path: <code class="font-mono">--data-urlencode curl=…</code> as a POST, or <code class="font-mono">?curl=</code> for something with nothing secret in it. It returns the URL, the headers in the order they were written, and the full parse of the URL.</p>
     </details>
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
@@ -146,7 +153,7 @@
 {{define "link/curled"}}
 
 {{if .Curl}}
-<section>
+<section data-announce="Command built.">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The command</h2>
   <div class="mt-2 rounded-lg border border-ok bg-surface p-3">
     <div class="flex flex-wrap items-start gap-3">
@@ -164,7 +171,7 @@
 {{end}}
 
 {{if .FromCurl}}
-<section>
+<section data-announce="Command taken apart: {{len .Headers}} {{if eq (len .Headers) 1}}header{{else}}headers{{end}}.">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The URL in that command</h2>
   <div class="mt-2 rounded-lg border border-line bg-surface p-4">
     <p class="break-all font-mono text-sm text-strong">{{.FromCurl}}</p>

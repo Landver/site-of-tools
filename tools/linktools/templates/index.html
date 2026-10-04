@@ -36,9 +36,11 @@
 
     {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
          off) rendered an empty form and looked like nothing happened. */}}
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/inspect" .}}
     </div>
 
@@ -73,6 +75,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>

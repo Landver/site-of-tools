@@ -17,7 +17,8 @@
      (docs/reports/calcbe-query-string-parser.md). The next steps sit at its
      right-hand end rather than under everything else, where a long table put
      them a few screens away from the input they act on. */}}
-<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
+     data-announce="Parsed: {{len .Params}} {{if eq (len .Params) 1}}parameter{{else}}parameters{{end}}{{if .Notes}}, {{len .Notes}} {{if eq (len .Notes) 1}}finding{{else}}findings{{end}}{{end}}.">
   <span class="text-muted">Scheme <span class="font-mono text-strong">{{or .Scheme "none"}}</span></span>
   {{if .Host}}<span class="text-muted">Host <span class="font-mono text-strong">{{.Host}}</span></span>{{end}}
   {{if .Port}}<span class="text-muted">Port <span class="font-mono text-strong">{{.Port}}</span>{{if .DefaultPort}} <span class="text-muted">(default)</span>{{end}}</span>{{end}}

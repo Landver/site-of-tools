@@ -83,6 +83,7 @@ type handler struct {
 //	POST /short             Create an alias (key required)
 //	GET  /s/:code           The redirect itself
 //	GET  /curl              URL <-> curl command, both directions
+//	POST /curl              The paste direction, from the page's form
 //	GET  /extract           Pull every URL out of pasted text
 //	GET  /utm               Campaign URL builder
 //	GET  /encode            Encode / decode playground
@@ -102,6 +103,11 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/clean/rules", h.rules, pure)
 	e.GET("/diff", h.diff, pure)
 	e.GET("/curl", h.curl, pure)
+	// The paste form posts: a command copied out of DevTools carries session
+	// cookies and bearer tokens, and in a query string they land in the
+	// address bar, the history and every proxy log in front of this app, none
+	// of which the request-log redactor reaches. GET ?curl= stays for the API.
+	e.POST("/curl", h.curl, pure)
 	e.GET("/extract", h.extract, pure)
 	e.POST("/extract", h.extract, pure)
 	e.GET("/utm", h.utm, pure)
@@ -185,6 +191,32 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 	return true, reply(c, http.StatusOK, nil, vm, page, frag)
 }
 
+// suggestion is a way out of a wrong-tool error: a button that carries the
+// input to the page it belongs on.
+type suggestion struct {
+	Label, Action, Field, Value string
+}
+
+// wrongTool answers an input that belongs on another page (WrongTool): a 400
+// that says what it looks like, and a button that takes it there by POST, so a
+// curl command's cookies do not travel in a URL on the way. Reports whether it
+// answered.
+func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string) (bool, error) {
+	var msg string
+	switch WrongTool(raw) {
+	case ToolCurl:
+		msg = "That looks like a curl command, not a URL."
+		vm["Suggest"] = suggestion{Label: "Take it apart on the curl page", Action: "/curl", Field: "curl", Value: raw}
+	case ToolExtract:
+		msg = "That looks like text with links in it, not one URL."
+		vm["Suggest"] = suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: raw}
+	default:
+		return false, nil
+	}
+	vm["Error"] = msg
+	return true, reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
+}
+
 // --- inspect ---------------------------------------------------------------
 
 func (h *handler) inspect(c *echo.Context) error {
@@ -196,6 +228,9 @@ func (h *handler) inspect(c *echo.Context) error {
 		return err
 	}
 
+	if done, err := h.wrongTool(c, vm, raw, "link/index"); done {
+		return err
+	}
 	res, err := h.svc.Parse(raw)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/index")
@@ -221,6 +256,9 @@ func (h *handler) clean(c *echo.Context) error {
 		return err
 	}
 
+	if done, err := h.wrongTool(c, vm, raw, "link/clean"); done {
+		return err
+	}
 	res, err := h.svc.Clean(raw, opt)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/clean")
@@ -332,6 +370,9 @@ func (h *handler) traceRoute(c *echo.Context) error {
 		return err
 	}
 
+	if done, err := h.wrongTool(c, vm, raw, "link/trace"); done {
+		return err
+	}
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
 		if errors.Is(err, ErrDisabled) {
@@ -571,6 +612,9 @@ const curlDesc = "Turn a URL into a runnable curl command, or paste a curl comma
 func (h *handler) curl(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	cmd := strings.TrimSpace(c.QueryParam("curl"))
+	if cmd == "" && c.Request().Method == http.MethodPost {
+		cmd = strings.TrimSpace(c.FormValue("curl"))
+	}
 	vm := h.vm("curl", "URL and curl", curlDesc, raw)
 	vm["Cmd"] = cmd
 	// Set before the empty-input branch below, not only on the ?u= path: the
@@ -646,90 +690,56 @@ func (h *handler) extract(c *echo.Context) error {
 const utmDesc = "Build a campaign-tagged URL from its parts. The inverse of the Clean page, on the same rule table, so the parameters it adds are exactly the ones Clean knows how to remove."
 
 // utmField is one campaign parameter as the builder's form shows it. The
-// placeholder and hint live here beside the name, rather than as one template
-// branch per literal name, so adding a field is one line and cannot leave a
-// field without its hint. Value is filled per request.
+// placeholder and hint live in utmHelp beside the name, rather than as one
+// template branch per literal name, so a field cannot arrive without its hint.
+// Value is filled per request.
 type utmField struct {
 	Name, Placeholder, Hint, Value string
 }
 
-// utmFields are the five standard campaign parameters, in the order Google
-// documents them. The form shows the first three and folds the last two away:
-// term and content are for paid search and A/B tests, and most links have
-// neither.
-var utmFields = []utmField{
-	{Name: "utm_source", Placeholder: "newsletter", Hint: "Where the traffic comes from. The one most analytics tools require."},
-	{Name: "utm_medium", Placeholder: "email", Hint: "How it arrives: email, cpc, social, referral."},
-	{Name: "utm_campaign", Placeholder: "spring-launch", Hint: "Which campaign the link belongs to."},
-	{Name: "utm_term", Placeholder: "running+shoes", Hint: "The paid keyword, for search ads."},
-	{Name: "utm_content", Placeholder: "header-button", Hint: "Which link it was, when a campaign has several. The A/B field."},
+// utmHelp is the form's text for each of linktools.UTMKeys.
+var utmHelp = map[string][2]string{
+	"utm_source":   {"newsletter", "Where the traffic comes from. The one most analytics tools require."},
+	"utm_medium":   {"email", "How it arrives: email, cpc, social, referral."},
+	"utm_campaign": {"spring-launch", "Which campaign the link belongs to."},
+	"utm_term":     {"running+shoes", "The paid keyword, for search ads."},
+	"utm_content":  {"header-button", "Which link it was, when a campaign has several. The A/B field."},
 }
 
-// utmCommon is how many of utmFields the form shows unfolded.
+// utmCommon is how many of the fields the form shows unfolded. Term and
+// content are for paid search and A/B tests, and most links have neither.
 const utmCommon = 3
 
 func (h *handler) utm(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	vm := h.vm("utm", "Campaign URL builder", utmDesc, raw)
 
-	fields := append([]utmField(nil), utmFields...)
-	values := map[string]string{}
-	rare := false // a folded field has a value, so the fold opens
-	for i := range fields {
-		fields[i].Value = strings.TrimSpace(c.QueryParam(fields[i].Name))
-		values[fields[i].Name] = fields[i].Value
-		rare = rare || (i >= utmCommon && fields[i].Value != "")
+	fields := make([]utmField, len(UTMKeys))
+	typed := map[string]string{}
+	rare, anyTag := false, false // a folded field has a value / any field does
+	for i, key := range UTMKeys {
+		v := strings.TrimSpace(c.QueryParam(key))
+		fields[i] = utmField{Name: key, Placeholder: utmHelp[key][0], Hint: utmHelp[key][1], Value: v}
+		typed[key] = v
+		rare = rare || (i >= utmCommon && v != "")
+		anyTag = anyTag || v != ""
 	}
-	vm["Common"], vm["Rare"], vm["RareOpen"] = fields[:utmCommon], fields[utmCommon:], rare
+	vm["Common"], vm["Rare"], vm["RareOpen"], vm["AnyTag"] = fields[:utmCommon], fields[utmCommon:], rare, anyTag
 
 	if done, err := h.needURL(c, raw, vm, "link/utm", "link/utmbuilt",
 		"?u=https%3A%2F%2Fexample.com%2F&utm_source=newsletter"); done {
 		return err
 	}
 
-	in, err := h.svc.Parse(raw)
+	if done, err := h.wrongTool(c, vm, raw, "link/utm"); done {
+		return err
+	}
+	res, err := h.svc.BuildUTM(raw, typed)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/utm")
 	}
-	// Replace an existing value rather than appending a second copy: two
-	// utm_source parameters is a real bug and building one deliberately would
-	// be an odd thing for this page to do.
-	for _, f := range utmFields {
-		in.Params = upsertParam(in.Params, f.Name, values[f.Name])
-	}
-	built, err := h.svc.Rebuild(in)
-	if err != nil {
-		return h.badRequest(c, vm, err, "link/utm")
-	}
-	vm["Built"] = built
-	return reply(c, http.StatusOK, map[string]any{"url": built}, vm, "link/utm", "link/utmbuilt")
-}
-
-// upsertParam sets key to value, replacing the first occurrence and dropping
-// the rest; an empty value removes the key entirely.
-func upsertParam(ps []Param, key, value string) []Param {
-	out := make([]Param, 0, len(ps)+1)
-	done := false
-	for _, p := range ps {
-		if p.Key != key {
-			out = append(out, p)
-			continue
-		}
-		if done || value == "" {
-			continue
-		}
-		p.Value, p.RawValue, p.Layers, p.List, p.Delimiter = value, "", nil, nil, ""
-		p.Valueless, p.Warn, p.AltValue = false, "", ""
-		out = append(out, p)
-		done = true
-	}
-	if !done && value != "" {
-		out = append(out, Param{Index: len(out) + 1, Key: key, Value: value})
-	}
-	for i := range out {
-		out[i].Index = i + 1
-	}
-	return out
+	vm["Result"] = res
+	return reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
 }
 
 // --- encode ----------------------------------------------------------------

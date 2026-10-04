@@ -462,6 +462,9 @@ func parseTarget(raw string) (*url.URL, []Note, error) {
 			notes = append(notes, Note{SevInfo, "No scheme given", "Traced as https://" + raw + "."})
 		}
 	}
+	if u.Scheme == "" {
+		return nil, nil, fmt.Errorf("not a URL: paste the whole link, starting with http:// or https://")
+	}
 	if !isHTTPScheme(u.Scheme) {
 		return nil, nil, fmt.Errorf("only http and https can be traced; this is %q", u.Scheme)
 	}

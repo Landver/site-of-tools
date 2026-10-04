@@ -123,6 +123,14 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not a URL: %w", parseReason(err))
 	}
+	// A relative reference is a valid URL reference and comes back untouched
+	// (TestCleanRejectsEmptyInput), but one with no query either has nothing a
+	// rule could ever match, and "nothing to remove" alone read as a verdict on
+	// a link nobody had pasted. Say what it is.
+	if u.Scheme == "" && u.Host == "" && u.RawQuery == "" {
+		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
+			"There is no scheme, host or query here, so there was nothing to clean. If you meant to paste a link, paste all of it, starting with https://."})
+	}
 	host := u.Hostname()
 
 	prefix, query, frag, hasQuery, hasFrag := splitParts(work)

@@ -226,3 +226,64 @@ func TestCreateAndRevokeReloadTheList(t *testing.T) {
 		t.Errorf("revoke sent HX-Trigger %q, want link-list-changed", got)
 	}
 }
+
+// TestWrongPasteIsSentToTheRightPage: a curl command or a block of text pasted
+// where one URL goes gets a sentence saying what it looks like and a button to
+// the page it belongs on, instead of "first path segment in URL cannot contain
+// colon". The button is a POST form: the input may be a command with cookies
+// in it, and a link would put them in a URL.
+func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+
+	for _, tc := range []struct{ page, input, action, field string }{
+		{"/", "curl 'https://api.example.com/x' -H 'cookie: s=1'", "/curl", "curl"},
+		{"/clean", `<a href="https://example.com/">x</a>`, "/extract", "text"},
+		{"/utm", "see https://a.example and https://b.example", "/extract", "text"},
+	} {
+		target := tc.page + "?u=" + urlEscape(tc.input)
+		rec := request(t, e, http.MethodGet, target, asHTMX)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", target, rec.Code)
+			continue
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, `<form method="post" action="`+tc.action+`"`) {
+			t.Errorf("%s: no POST form to %s:\n%s", target, tc.action, truncate(body))
+		}
+		if !strings.Contains(body, `name="`+tc.field+`"`) {
+			t.Errorf("%s: the form does not carry the input as %q", target, tc.field)
+		}
+	}
+}
+
+// TestCurlPasteNeverRidesInAURL: the paste form posts, and the route answers a
+// POST with the full result, so a DevTools command's cookies stay out of the
+// address bar, the history and the proxy logs. GET ?curl= still works for the
+// API.
+func TestCurlPasteNeverRidesInAURL(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+
+	page := request(t, e, http.MethodGet, "/curl", asHTML).Body.String()
+	form := regexp.MustCompile(`(?s)<form[^>]*>\s*<textarea name="curl"`).FindString(page)
+	if form == "" {
+		t.Fatal("no paste form found on /curl")
+	}
+	if !strings.Contains(page, `<form method="post" action="/curl" hx-post="/curl"`) {
+		t.Error("the paste form does not POST")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/curl",
+		strings.NewReader("curl="+urlEscape("curl 'https://api.example.com/v1/x?id=1' -H 'cookie: s=1'")))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /curl = %d (body %s)", rec.Code, truncate(rec.Body.String()))
+	}
+	if !strings.Contains(rec.Body.String(), "https://api.example.com/v1/x?id=1") {
+		t.Error("POST /curl did not take the command apart")
+	}
+}

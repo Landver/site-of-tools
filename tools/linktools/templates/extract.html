@@ -43,7 +43,7 @@
     <form method="post" action="/extract" hx-post="/extract" hx-target="#result" hx-swap="innerHTML"
           hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
           class="mt-6">
-      <textarea name="text" rows="10" autofocus autocomplete="off" spellcheck="false"
+      <textarea name="text" rows="10" autofocus spellcheck="false"
                 aria-label="Text to pull links out of"
                 placeholder="Paste an email body, a Markdown file, an HTML fragment…"
                 class="field w-full font-mono text-xs">{{.Text}}</textarea>
@@ -53,9 +53,11 @@
       </div>
     </form>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/extracted" .}}
     </div>
 
@@ -90,6 +92,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
@@ -104,7 +107,8 @@
      they were found: the usual next step is pasting the list into a sheet or
      a checker. &#10; is a newline inside the attribute; the copy partial
      reads it back through dataset as a real one. */}}
-<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
+     data-announce="{{.Unique}} distinct {{if eq .Unique 1}}link{{else}}links{{end}} found.">
   <span class="text-muted">Read as <span class="font-mono text-strong">{{.Source}}</span></span>
   <span class="text-muted">Occurrences <span class="font-mono text-strong">{{.Total}}</span></span>
   <span class="text-muted">Distinct URLs <span class="font-mono text-strong">{{.Unique}}</span></span>
@@ -125,7 +129,7 @@
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Links found</h2>
   <p class="mt-1 text-xs text-muted">
     In the order each was first seen. None of them is clickable here, deliberately: hand a row to Inspect or
-    Clean instead.
+    Clean instead, which opens in a new tab and leaves this list where it is.
   </p>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
@@ -140,17 +144,29 @@
       <tbody class="divide-y divide-line">
         {{range .URLs}}
         <tr class="align-top">
-          {{/* Text, never an anchor. See the file comment. */}}
-          <td class="px-3 py-2 break-all font-mono text-xs text-strong">{{.URL}}</td>
-          <td class="px-3 py-2 text-xs text-muted">
-            {{if .Anchor}}{{.Anchor}}{{else}}<span class="italic">none</span>{{end}}
+          {{/* Text, never an anchor. See the file comment. The flags sit under
+               the URL they are about, each saying what it is in words, so the
+               colour is a second cue and never the only one. */}}
+          <td class="px-3 py-2">
+            <span class="break-all font-mono text-xs text-strong">{{.URL}}</span>
+            {{if .Flags}}
+            <ul class="mt-1 space-y-0.5">
+              {{range .Flags}}
+              <li class="text-xs {{if eq .Severity "fail"}}text-danger{{else if eq .Severity "warn"}}text-warn{{else}}text-muted{{end}}">{{.Title}}</li>
+              {{end}}
+            </ul>
+            {{end}}
           </td>
-          <td class="px-3 py-2 font-mono text-xs
-            {{if gt .Count 1}}text-warn{{else}}text-muted{{end}}">{{.Count}}</td>
+          <td class="px-3 py-2 text-xs text-muted">
+            {{if .Anchors}}{{range $i, $a := .Anchors}}{{if $i}}<br>{{end}}{{$a}}{{end}}{{else}}<span class="italic">none</span>{{end}}
+          </td>
+          <td class="px-3 py-2 font-mono text-xs text-muted">{{.Count}}</td>
+          {{/* A new tab: the paste and its result live only in this page, and
+               following a row here used to throw both away. */}}
           <td class="whitespace-nowrap px-3 py-2 text-xs">
-            <a href="/?u={{.URL}}" class="text-brand hover:underline">Inspect</a>
+            <a href="/?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand hover:underline">Inspect</a>
             <span class="text-muted">&middot;</span>
-            <a href="/clean?u={{.URL}}" class="text-brand hover:underline">Clean</a>
+            <a href="/clean?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand hover:underline">Clean</a>
           </td>
         </tr>
         {{end}}

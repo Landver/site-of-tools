@@ -1,6 +1,7 @@
 package linktools
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -35,10 +36,18 @@ type ParamChange struct {
 }
 
 // FieldChange is one differing component outside the query.
+//
+// Cosmetic marks a difference of spelling, not of meaning: host case, a
+// default port written out, a dot segment, percent-encoding case. It is still
+// listed, because the two strings do differ, but it does not count against
+// Identical, and the page says what kind of difference it is. Reporting
+// "Example.com" vs "example.com" as a different host was the false alarm the
+// page's own help text promised it would not raise.
 type FieldChange struct {
-	Field string `json:"field"`
-	A     string `json:"a,omitempty"`
-	B     string `json:"b,omitempty"`
+	Field    string `json:"field"`
+	A        string `json:"a,omitempty"`
+	B        string `json:"b,omitempty"`
+	Cosmetic bool   `json:"cosmetic,omitempty"`
 }
 
 // Diff is the whole comparison.
@@ -59,23 +68,26 @@ type Diff struct {
 func DiffInspections(a, b *Inspection) *Diff {
 	d := &Diff{A: a.Input, B: b.Input}
 
-	for _, f := range []struct{ name, av, bv string }{
-		{"scheme", a.Scheme, b.Scheme},
+	// Each field carries its value as written (av, bv) and its normal form
+	// (an, bn). Written forms that differ are always listed; normal forms that
+	// agree make the difference cosmetic.
+	for _, f := range []struct{ name, av, bv, an, bn string }{
+		{"scheme", a.Scheme, b.Scheme, strings.ToLower(a.Scheme), strings.ToLower(b.Scheme)},
 		// opaque carries the ENTIRE payload of a non-hierarchical URL
 		// (mailto:, tel:, javascript:, data:, magnet:). Omitting it made this
 		// function report "javascript:alert(1)" and "javascript:fetch(...)" as
 		// equivalent — an affirmative false claim from the one tool whose job is
 		// saying what differs.
-		{"opaque", a.Opaque, b.Opaque},
-		{"host", a.Host, b.Host},
-		{"port", a.Port, b.Port},
-		{"path", a.Path, b.Path},
-		{"fragment", a.Fragment, b.Fragment},
-		{"user", a.User, b.User},
-		{"unwrapped target", a.Unwrapped, b.Unwrapped},
+		{"opaque", a.Opaque, b.Opaque, a.Opaque, b.Opaque},
+		{"host", a.Host, b.Host, normalHost(a), normalHost(b)},
+		{"port", a.Port, b.Port, normalPort(a), normalPort(b)},
+		{"path", a.Path, b.Path, normalPath(a), normalPath(b)},
+		{"fragment", a.Fragment, b.Fragment, normalizeEscapes(a.Fragment), normalizeEscapes(b.Fragment)},
+		{"user", a.User, b.User, a.User, b.User},
+		{"unwrapped target", a.Unwrapped, b.Unwrapped, a.Unwrapped, b.Unwrapped},
 	} {
 		if f.av != f.bv {
-			d.Fields = append(d.Fields, FieldChange{Field: f.name, A: f.av, B: f.bv})
+			d.Fields = append(d.Fields, FieldChange{Field: f.name, A: f.av, B: f.bv, Cosmetic: f.an == f.bn})
 		}
 	}
 	// Passwords are deliberately never captured (Inspection.HasPass is a bool,
@@ -104,25 +116,26 @@ func DiffInspections(a, b *Inspection) *Diff {
 			case va[i].Value != vb[i].Value:
 				d.Params = append(d.Params, ParamChange{Key: key, Kind: ChangeModified,
 					A: va[i].Value, B: vb[i].Value, IndexA: va[i].Index, IndexB: vb[i].Index})
-			case va[i].Index != vb[i].Index:
-				// Same value, different position. Worth naming rather than
-				// hiding: order is load-bearing for signed URLs, and "only the
-				// order changed" is a genuinely different answer from "nothing
-				// changed".
-				d.Params = append(d.Params, ParamChange{Key: key, Kind: ChangeMoved,
-					A: va[i].Value, B: vb[i].Value, IndexA: va[i].Index, IndexB: vb[i].Index})
 			default:
+				// Same value. Whether it MOVED is decided below, across all
+				// the pairs at once, because a position on its own says
+				// nothing about order.
 				d.Params = append(d.Params, ParamChange{Key: key, Kind: ChangeSame,
 					A: va[i].Value, B: vb[i].Value, IndexA: va[i].Index, IndexB: vb[i].Index})
 			}
 		}
 	}
 
+	// Same value, out of order: worth naming rather than hiding, because order
+	// is load-bearing for signed URLs, and "only the order changed" is a
+	// genuinely different answer from "nothing changed".
+	markMoves(d.Params)
+
 	// Two URLs both carrying a password can never be declared equivalent: the
 	// values were never captured, so the claim is unverifiable either way. Say
 	// that, rather than asserting equality we cannot stand behind.
 	undecidable := a.HasPass && b.HasPass
-	d.Identical = len(d.Fields) == 0 && !hasRealChange(d.Params) && !undecidable
+	d.Identical = !hasRealField(d.Fields) && !hasRealChange(d.Params) && !undecidable
 	if undecidable {
 		d.Notes = append(d.Notes, Note{SevWarn, "Passwords not compared",
 			"Both URLs carry a password. This tool never captures a password, so it cannot tell you whether the two match — everything else about them is compared below."})
@@ -131,11 +144,131 @@ func DiffInspections(a, b *Inspection) *Diff {
 		d.Notes = append(d.Notes, Note{SevInfo, "Different text, same URL",
 			"These two strings differ but describe the same request: the differences are all in encoding or formatting, not in content."})
 	}
-	if onlyMoves(d.Params) && len(d.Fields) == 0 && !d.Identical {
+	if onlyMoves(d.Params) && !hasRealField(d.Fields) && !d.Identical {
 		d.Notes = append(d.Notes, Note{SevWarn, "Only the order changed",
 			"Same parameters, same values, different positions. Harmless to most servers and fatal to any URL whose signature covers the literal query string."})
 	}
 	return d
+}
+
+// markMoves decides which unchanged parameters actually moved.
+//
+// Absolute positions cannot decide it: delete the first parameter and every
+// one after it changes position while nothing has moved relative to anything
+// else. That flagged Clean's own "diff it against the original" link as a
+// reordering, signature warning included, on every URL it had cleaned. The
+// pairs that kept their order are the longest run whose B positions rise in A
+// order; any other unchanged pair moved. Among equally long runs, the one that
+// keeps more pairs at their exact old position wins, so what gets called
+// "moved" is what a reader would call moved. Changed values do not take part:
+// they are already reported as changed, wherever they ended up.
+func markMoves(cs []ParamChange) {
+	var same []int // indexes into cs of unchanged pairs present on both sides
+	for i, c := range cs {
+		if c.Kind == ChangeSame {
+			same = append(same, i)
+		}
+	}
+	sort.Slice(same, func(x, y int) bool { return cs[same[x]].IndexA < cs[same[y]].IndexA })
+
+	n := len(same)
+	length, exact, prev := make([]int, n), make([]int, n), make([]int, n)
+	best := -1
+	for i := 0; i < n; i++ {
+		here := 0
+		if c := cs[same[i]]; c.IndexA == c.IndexB {
+			here = 1
+		}
+		length[i], exact[i], prev[i] = 1, here, -1
+		for j := 0; j < i; j++ {
+			if cs[same[j]].IndexB >= cs[same[i]].IndexB {
+				continue
+			}
+			if l, e := length[j]+1, exact[j]+here; l > length[i] || (l == length[i] && e > exact[i]) {
+				length[i], exact[i], prev[i] = l, e, j
+			}
+		}
+		if best < 0 || length[i] > length[best] || (length[i] == length[best] && exact[i] > exact[best]) {
+			best = i
+		}
+	}
+	kept := make(map[int]bool, n)
+	for i := best; i >= 0; i = prev[i] {
+		kept[same[i]] = true
+	}
+	for _, i := range same {
+		if !kept[i] {
+			cs[i].Kind = ChangeMoved
+		}
+	}
+}
+
+// normalHost is the host as a resolver sees it: ASCII, lowercase.
+func normalHost(in *Inspection) string {
+	if in.HostASCII != "" {
+		return strings.ToLower(in.HostASCII)
+	}
+	return strings.ToLower(in.Host)
+}
+
+// normalPort drops a port that is the scheme's default: :443 on https names
+// the port the URL would have used anyway.
+func normalPort(in *Inspection) string {
+	if in.DefaultPort {
+		return ""
+	}
+	return in.Port
+}
+
+// normalPath resolves dot segments and normalises escapes, and treats an empty
+// http(s) path as "/", which is what a client sends for it (RFC 3986 §6.2.3).
+func normalPath(in *Inspection) string {
+	p := normalizeEscapes(removeDotSegments(in.Path))
+	if p == "" && in.Host != "" && (strings.EqualFold(in.Scheme, "http") || strings.EqualFold(in.Scheme, "https")) {
+		return "/"
+	}
+	return p
+}
+
+// normalizeEscapes applies RFC 3986 §6.2.2's two lossless rules to an escaped
+// string: %xx is compared with uppercase hex, and an escaped unreserved
+// character means the character itself. Everything else stays escaped, so %2F
+// is still not a slash and %20 is still not a space.
+func normalizeEscapes(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) && isHexDigit(s[i+1]) && isHexDigit(s[i+2]) {
+			c := hexVal(s[i+1])<<4 | hexVal(s[i+2])
+			if isUnreserved(c) {
+				b.WriteByte(c)
+			} else {
+				b.WriteString(strings.ToUpper(s[i : i+3]))
+			}
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func hexVal(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	}
+	return c - 'A' + 10
+}
+
+// isUnreserved: RFC 3986 §2.3, the characters that never need escaping.
+func isUnreserved(c byte) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
+		c == '-' || c == '.' || c == '_' || c == '~'
 }
 
 func groupByKey(ps []Param) map[string][]Param {
@@ -160,6 +293,16 @@ func orderedKeys(a, b []Param) []string {
 		}
 	}
 	return out
+}
+
+// hasRealField reports a component difference that is not merely cosmetic.
+func hasRealField(fs []FieldChange) bool {
+	for _, f := range fs {
+		if !f.Cosmetic {
+			return true
+		}
+	}
+	return false
 }
 
 func hasRealChange(cs []ParamChange) bool {
@@ -212,8 +355,14 @@ func (d *Diff) Summary() string {
 			parts = append(parts, plural(p.n, "parameter")+" "+p.label)
 		}
 	}
-	if len(d.Fields) > 0 {
-		parts = append(parts, plural(len(d.Fields), "component")+" different")
+	real := 0
+	for _, f := range d.Fields {
+		if !f.Cosmetic {
+			real++
+		}
+	}
+	if real > 0 {
+		parts = append(parts, plural(real, "component")+" different")
 	}
 	if len(parts) == 0 {
 		// Reachable when the only reason these are not identical is something

@@ -64,9 +64,11 @@
       </div>
     </form>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/diffed" .}}
     </div>
 
@@ -94,6 +96,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -103,7 +106,8 @@
 {{define "link/diffed"}}
 {{with .Result}}
 
-<div class="rounded-lg border {{if .Identical}}border-ok{{else}}border-line{{end}} bg-surface px-4 py-3">
+<div class="rounded-lg border {{if .Identical}}border-ok{{else}}border-line{{end}} bg-surface px-4 py-3"
+     data-announce="{{.Summary}}">
   <h2 class="text-sm font-semibold text-strong">{{.Summary}}</h2>
   <div class="mt-2 grid gap-1 text-xs">
     <p class="break-all font-mono text-muted"><span class="text-faint">A</span> {{.A}}</p>
@@ -136,7 +140,12 @@
       <tbody class="divide-y divide-line">
         {{range .Fields}}
         <tr class="align-top">
-          <td class="px-3 py-2 font-mono text-strong">{{.Field}}</td>
+          <td class="px-3 py-2 font-mono text-strong">
+            {{.Field}}
+            {{/* Listed because the strings differ, labelled because the
+                 meaning does not (FieldChange.Cosmetic). */}}
+            {{if .Cosmetic}}<span class="mt-1 block whitespace-nowrap font-sans text-xs text-muted">spelling only</span>{{end}}
+          </td>
           <td class="px-3 py-2 break-all font-mono text-xs text-muted">
             {{if eq .A ""}}<span class="italic">absent</span>{{else}}{{.A}}{{end}}
           </td>

@@ -62,9 +62,11 @@
       </div>
     </form>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{if .Error}}<div class="mt-6">{{template "link/error" .}}</div>{{end}}
 
-    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6">
       {{template "link/utmbuilt" .}}
     </div>
 
@@ -77,9 +79,10 @@
           resolve inconsistently, and deliberately building one would be an odd thing for this page to do.
         </p>
         <p>
-          Leaving a field empty <strong class="text-strong">removes</strong> that parameter rather than adding
-          an empty one. Every other parameter on the URL, and the order it was in, is left exactly as you
-          pasted it.
+          Leaving a field empty <strong class="text-strong">keeps</strong> whatever the URL already carries for
+          that tag, and the result says which tags were already there. To drop a tag, delete it from the URL,
+          or strip them all on the <a href="/clean" class="text-brand hover:underline">Clean</a> page. Every
+          other parameter on the URL, and the order it was in, is left exactly as you pasted it.
         </p>
         <p>
           These five tags are visible to everyone the link is forwarded to, and they travel into other
@@ -98,6 +101,7 @@
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
@@ -117,25 +121,53 @@
 </label>
 {{end}}
 
-{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
+{{/* Result fragment — the htmx swap target, and the body of the page above.
+     Every tag on the result is listed with where it came from, because an
+     empty field now keeps what the URL already carried: a tag can be on the
+     result without having been typed, and that should never be a surprise. */}}
 {{define "link/utmbuilt"}}
-{{if .Built}}
+{{with .Result}}
 
-<section class="rounded-lg border border-ok bg-surface p-4">
+<section class="rounded-lg border border-ok bg-surface p-4" data-announce="Tagged URL ready.">
   <h2 class="text-sm font-semibold text-strong">Tagged URL</h2>
   <div class="mt-2 flex flex-wrap items-start gap-3">
-    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Built}}</pre>
-    <button type="button" class="btn-copy" data-copy="{{.Built}}">Copy</button>
+    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.URL}}</pre>
+    <button type="button" class="btn-copy" data-copy="{{.URL}}">Copy</button>
   </div>
+  {{if .Tags}}
+  <ul class="mt-3 space-y-1 text-xs">
+    {{range .Tags}}
+    <li class="flex flex-wrap items-baseline gap-x-2">
+      <span class="font-mono text-strong">{{.Key}}={{.Value}}</span>
+      {{if eq .Source "replaced"}}<span class="text-muted">replaced <span class="font-mono">{{.Was}}</span></span>
+      {{else if eq .Source "kept"}}<span class="text-muted">already on the URL</span>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
 </section>
 
+{{if .Notes}}
+<section class="mt-6">
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Findings</h2>
+  <div class="mt-2 rounded-lg border border-line bg-surface px-4 py-2">
+    {{template "link/notes" .Notes}}
+  </div>
+</section>
+{{end}}
+
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/?u={{.Built}}" class="text-brand hover:underline">Inspect it</a>
-  <a href="/clean?u={{.Built}}" class="text-brand hover:underline">Strip it all back off</a>
+  <a href="/?u={{.URL}}" class="text-brand hover:underline">Inspect it</a>
+  <a href="/clean?u={{.URL}}" class="text-brand hover:underline">Strip it all back off</a>
   <a href="/clean/rules" class="text-brand hover:underline">The rules that would remove these</a>
 </p>
 
 {{else}}
+{{if .AnyTag}}
+<p class="text-sm text-muted">Paste the URL to tag, at the top, and the tagged link appears here.</p>
+{{else}}
 {{template "link/examples" .}}
+{{end}}
 {{end}}
 {{end}}

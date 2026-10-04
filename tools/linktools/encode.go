@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"html"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -31,17 +32,36 @@ type Encoding struct {
 
 // EncodeResult is every reading of one value at once, rather than a dropdown.
 // Seeing them together is the entire value of the page.
+//
+// AlreadyEncoded says the input carries valid %XX escapes that decode to
+// something else. The page then leads with the decoded readings, because the
+// usual reason to paste an encoded value is to read it, and the encode cards
+// it used to lead with offered %2520 for %20 with a Copy button beside it: the
+// double encoding the reference page warns about, one click from a clipboard.
 type EncodeResult struct {
-	Input   string     `json:"input"`
-	Encoded []Encoding `json:"encoded"`
-	Decoded []Encoding `json:"decoded"`
-	Layers  []Layer    `json:"layers,omitempty"`
-	Kind    Kind       `json:"kind,omitempty"`
+	Input          string     `json:"input"`
+	Encoded        []Encoding `json:"encoded"`
+	Decoded        []Encoding `json:"decoded"`
+	Layers         []Layer    `json:"layers,omitempty"`
+	Kind           Kind       `json:"kind,omitempty"`
+	AlreadyEncoded bool       `json:"already_encoded,omitempty"`
+}
+
+// escapeRe: one well-formed percent escape.
+var escapeRe = regexp.MustCompile(`%[0-9A-Fa-f]{2}`)
+
+// alreadyEncoded reports valid escapes that decode to something different.
+func alreadyEncoded(v string) bool {
+	if !escapeRe.MatchString(v) {
+		return false
+	}
+	dec, err := url.PathUnescape(v)
+	return err == nil && dec != v
 }
 
 // EncodeAll computes every representation of v.
 func EncodeAll(v string) *EncodeResult {
-	r := &EncodeResult{Input: v, Kind: classify(v)}
+	r := &EncodeResult{Input: v, Kind: classify(v), AlreadyEncoded: alreadyEncoded(v)}
 
 	r.Encoded = []Encoding{
 		{Name: "Percent (query)", Value: url.QueryEscape(v),
