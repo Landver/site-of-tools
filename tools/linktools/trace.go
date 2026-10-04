@@ -355,6 +355,23 @@ func (ch *Chain) liftLastHop() {
 		"The last page answered " + status + ": the link is broken, or the site turns this kind of visitor away. Asking as someone else tells the two apart."})
 }
 
+// Unlisted is the hop's notes without those already among findings, by
+// title: what the page shows under the hop once the chain's own findings,
+// which carry the last hop's reason, are on screen above it.
+func (h Hop) Unlisted(findings []Note) []Note {
+	var out []Note
+	for _, n := range h.Notes {
+		listed := false
+		for _, f := range findings {
+			listed = listed || f.Title == n.Title
+		}
+		if !listed {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // step performs one hop, fills in the response fields and notes, and returns
 // the Location to follow — empty when the chain ends here.
 func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) string {

@@ -520,3 +520,27 @@ func TestRoundThreeAnswers(t *testing.T) {
 		t.Error("the rules text changed, so RulesVersion must move off 2026-09-25")
 	}
 }
+
+// TestShortKeyCheckSaysWhenItFails: a key check that comes back as neither
+// verdict (a 429 after quick reloads, a 5xx, no answer) is said in the key
+// card. The list it would have filled is hidden until a key is accepted, so
+// its error used to be swapped in out of sight and the button looked dead.
+func TestShortKeyCheckSaysWhenItFails(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile("../templates/short.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	for _, want := range []string{
+		"tell('error'",       // a swap without a data-key marker
+		"htmx:responseError", // an answer htmx would not swap
+		"htmx:sendError",     // no answer at all
+		`x-text="message ||`, // the card shows the reason
+		`@input="edited()"`,  // editing the key resets the console's last answer
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("short.html lacks %s", want)
+		}
+	}
+}

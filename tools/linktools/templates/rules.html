@@ -54,9 +54,11 @@
     {{.Origin}}
     {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand-ink hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
   </td>
-  <td class="px-3 py-2 wrap-anywhere text-xs text-muted">
+  {{/* A host breaks anywhere only when it is long; "tiktok.com" split into
+       "tiktok.c" / "om" at 375px. */}}
+  <td class="px-3 py-2 text-xs text-muted">
     {{if .Hosts}}
-      {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
+      {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="{{if gt (len $h) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono">{{$h}}</span>{{end}}
     {{else}}
       <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
     {{end}}
@@ -307,9 +309,9 @@
                 {{if .Partial}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn-ink">domain only</span>{{end}}
                 {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-xs text-brand-ink hover:underline">docs</a>{{end}}
               </td>
-              <td class="px-3 py-2 wrap-anywhere text-xs text-muted">
-                {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
-                {{if .Path}}<span class="block font-mono text-faint">path {{.Path}}</span>{{end}}
+              <td class="px-3 py-2 text-xs text-muted">
+                {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="{{if gt (len $h) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono">{{$h}}</span>{{end}}
+                {{if .Path}}<span class="block wrap-anywhere font-mono text-faint">path {{.Path}}</span>{{end}}
               </td>
               <td class="px-3 py-2 text-xs text-muted">
                 {{/* The shape in words; the JSON keeps the short codes. */}}

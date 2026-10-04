@@ -325,3 +325,23 @@ func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
 		t.Errorf("chain notes %+v lack the last hop's refusal", ch.Notes)
 	}
 }
+
+// TestHopUnlistedSkipsWhatFindingsSay: the page prints the last hop's reason
+// once, in Findings, not again under the hop. The JSON keeps both.
+func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer first.Close()
+
+	ch := trace(t, testTracer(t), first.URL)
+	last := ch.Hops[len(ch.Hops)-1]
+	if len(last.Notes) == 0 {
+		t.Fatal("the refused hop has no notes; the JSON must keep them")
+	}
+	for _, n := range last.Unlisted(ch.Notes) {
+		if n.Title == "Refused before connecting" {
+			t.Errorf("Unlisted still carries %q, which Findings already shows", n.Title)
+		}
+	}
+}

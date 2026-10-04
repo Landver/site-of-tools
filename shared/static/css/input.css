@@ -123,6 +123,13 @@
   .field {
     @apply flex-1 rounded-md border border-field-line bg-canvas px-3 py-2 text-base text-strong placeholder-faint focus:border-brand focus:outline-2 focus:outline-offset-1 focus:outline-brand sm:text-sm;
   }
+  /* A native <select> ignores line-height (Chrome computes it as normal), so
+     a menu that wrapped onto its own row came out 3px shorter than the input
+     beside it. Pinned to the input's height instead: one line, the padding
+     and the border, at each of .field's two text sizes. */
+  select.field {
+    @apply min-h-[2.625rem] sm:min-h-[2.375rem];
+  }
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
   }

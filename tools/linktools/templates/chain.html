@@ -55,6 +55,7 @@
 {{end}}
 
 {{if .Hops}}
+{{$findings := .Notes}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The chain</h2>
   <ol class="mt-2 space-y-2">
@@ -83,7 +84,10 @@
       {{/* Text, never an anchor. See the file comment. */}}
       <p class="mt-1 wrap-anywhere font-mono text-sm text-strong">{{.URL}}</p>
       {{if .Location}}<p class="mt-1 wrap-anywhere font-mono text-xs text-muted"><span aria-hidden="true">&rarr;</span><span class="sr-only">redirects to</span> {{.Location}}</p>{{end}}
-      {{if .Notes}}<div class="mt-2">{{template "link/notes" .Notes}}</div>{{end}}
+      {{/* Without the notes already in Findings: the last hop's reason is
+           lifted up there (trace.go's liftLastHop), and printing it twice
+           read as two problems. The JSON keeps it in both places. */}}
+      {{with .Unlisted $findings}}<div class="mt-2">{{template "link/notes" .}}</div>{{end}}
     </li>
     {{end}}
   </ol>

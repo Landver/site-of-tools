@@ -381,7 +381,7 @@ API included", because all three are true of every tool on the site:
 ```go
 {
 	Name: "Link Tools",
-	Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then strip its tracking parameters, follow where it redirects, and shorten what's left.",
+	Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then remove its tracking parameters, follow where it redirects, or compare it with another.",
 	URL:  cfg.URL("link"),
 },
 ```

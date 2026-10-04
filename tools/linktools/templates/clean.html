@@ -166,8 +166,11 @@
           <td class="w-2/5 px-3 py-2">
             <ul class="space-y-1">
               {{range .Params}}
-              <li class="wrap-anywhere font-mono text-xs">
-                <span class="text-sm text-strong">{{.Key}}</span><span class="text-faint">=</span>{{if eq .Value ""}}<span class="font-sans italic text-muted">empty</span>{{else}}<span class="text-muted">{{.Value}}</span>{{end}}
+              {{/* Per part, as on Inspect: a short key or value keeps its
+                   letters together ("utm_source=tw" / "itter" at 375px), and
+                   only a long one may break anywhere. */}}
+              <li class="font-mono text-xs">
+                <span class="{{if gt (len .Key) 20}}wrap-anywhere{{else}}break-words{{end}} text-sm text-strong">{{.Key}}</span><span class="text-faint">=</span>{{if eq .Value ""}}<span class="font-sans italic text-muted">empty</span>{{else}}<span class="{{if gt (len .Value) 20}}wrap-anywhere{{else}}break-words{{end}} text-muted">{{.Value}}</span>{{end}}
               </li>
               {{end}}
             </ul>
