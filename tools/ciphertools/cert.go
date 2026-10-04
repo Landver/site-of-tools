@@ -26,7 +26,16 @@ import (
 // would be right.
 
 func init() {
-	register(Op{Name: "cert", Path: "/cert", Page: "cert", Fragment: "cipher/cert-result", Run: runCert})
+	register(Op{Name: "cert", Path: "/cert", Page: "cert", Fragment: "cipher/cert-result", Run: runCert,
+		Fields: []Field{
+			{Name: "cert", Kind: KindString, Required: true,
+				Description: "Certificates and signing requests to decode, as PEM (several are checked as a chain), or DER as base64 or hex; may be left out when cert_file is uploaded."},
+			{Name: "cert_file", Kind: KindFile,
+				Description: "A PEM or DER file to read instead of cert."},
+			{Name: "key", Kind: KindString,
+				Description: "A public or private key (PEM, JWK or an OpenSSH line) to match against the certificates and requests, naming the one it belongs to."},
+			nowField,
+		}})
 }
 
 // maxCerts bounds one paste. Ordering a chain checks every name-matched pair,

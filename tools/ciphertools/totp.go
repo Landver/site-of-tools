@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -27,8 +28,34 @@ import (
 // for; nothing here keeps time.
 
 func init() {
-	register(Op{Name: "totp", Path: "/totp", Page: "totp", Fragment: "cipher/totp-result", Run: runTOTP})
+	register(Op{Name: "totp", Path: "/totp", Page: "totp", Fragment: "cipher/totp-result", Run: runTOTP,
+		Fields: []Field{
+			{Name: "secret", Kind: KindString, Required: true,
+				Description: "The shared secret in base32 (any case; spaces, dashes and padding ignored), e.g. JBSWY3DPEHPK3PXP, or a whole otpauth:// URI, whose settings then replace every field but code and now."},
+			{Name: "mode", Kind: KindEnum, Enum: []string{OTPTypeTOTP, OTPTypeHOTP}, Default: OTPTypeTOTP,
+				Description: "totp for time-based codes (RFC 6238), hotp for counter-based ones (RFC 4226)."},
+			{Name: "algo", Kind: KindEnum, Enum: []string{"SHA1", "SHA256", "SHA512"}, Default: "SHA1",
+				Description: "The HMAC behind the codes; nearly every authenticator uses SHA1, and Google Authenticator ignores this setting."},
+			otpDigitsField,
+			otpPeriodField,
+			{Name: "counter", Kind: KindInt, Default: "0", Min: ptr(0), Max: ptr(math.MaxInt64),
+				Description: "The HOTP counter (mode hotp); codes come back for counter-1, counter and counter+1."},
+			{Name: "code", Kind: KindString,
+				Description: "A code to check against the previous, current and next step (or counter)."},
+			{Name: "label", Kind: KindString,
+				Description: "The account name in the otpauth:// URI the result builds, e.g. alice@example.com."},
+			{Name: "issuer", Kind: KindString,
+				Description: "The issuer in the otpauth:// URI the result builds, e.g. Example Corp."},
+			nowField,
+		}})
 }
+
+var (
+	otpDigitsField = Field{Name: "digits", Kind: KindInt, Default: strconv.Itoa(otpDefaultDigits),
+		Min: ptr(otpMinDigits), Max: ptr(otpMaxDigits), Description: "Digits per code; most authenticators show 6."}
+	otpPeriodField = Field{Name: "period", Kind: KindInt, Default: strconv.Itoa(otpDefaultPeriod),
+		Min: ptr(otpMinPeriod), Max: ptr(otpMaxPeriod), Description: "Seconds per TOTP step (mode totp)."}
+)
 
 // OTP types, as the otpauth:// URI names them.
 const (
@@ -162,10 +189,10 @@ func otpFromFields(in Input, secret string) (*OTPSettings, error) {
 	if s.Algorithm, err = otpAlgorithm(in.Get("algo")); err != nil {
 		return nil, fmt.Errorf("algo: %w", err)
 	}
-	if s.Digits, err = intField(in, "digits", otpDefaultDigits, otpMinDigits, otpMaxDigits); err != nil {
+	if s.Digits, err = intField(in, otpDigitsField); err != nil {
 		return nil, err
 	}
-	if s.Period, err = intField(in, "period", otpDefaultPeriod, otpMinPeriod, otpMaxPeriod); err != nil {
+	if s.Period, err = intField(in, otpPeriodField); err != nil {
 		return nil, err
 	}
 	if s.Counter, err = otpCounter(in.Get("counter")); err != nil {

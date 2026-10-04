@@ -27,8 +27,38 @@ import (
 // prominently as "invalid".
 
 func init() {
-	register(Op{Name: "jwt-decode", Path: "/jwt/decode", Page: "jwt", Fragment: "cipher/jwt-result", Run: runJWTDecode})
-	register(Op{Name: "jwt-sign", Path: "/jwt/sign", Page: "jwt", Fragment: "cipher/jwt-signed", Run: runJWTSign})
+	register(Op{Name: "jwt-decode", Path: "/jwt/decode", Page: "jwt", Fragment: "cipher/jwt-result", Run: runJWTDecode,
+		Fields: []Field{
+			{Name: "token", Kind: KindString, Required: true,
+				Description: "The token to decode: a signed JWT (header.payload.signature), or an encrypted JWE of five parts, of which only the header is readable; a Bearer prefix, quotes and line breaks around it are removed."},
+			{Name: "key", Kind: KindString,
+				Description: "A key to verify the signature with: the shared secret for HS256/384/512, or a public (or private) key as PEM, JWK, JWKS or an OpenSSH line for RS*, PS*, ES* and EdDSA; omit it to decode without verifying."},
+			{Name: "key_enc", Kind: KindEnum, Enum: append([]string{EncAuto}, byteEncodings...), Default: EncAuto,
+				Description: "How a shared-secret key is written: auto tries UTF-8 text, base64 and hex and reports which reading verified; ignored for PEM and JWK keys."},
+			{Name: "leeway", Kind: KindInt, Default: strconv.Itoa(int(DefaultLeeway / time.Second)), Min: ptr(0), Max: ptr(86400),
+				Description: "Clock skew in seconds allowed when checking exp and nbf."},
+			nowField,
+		}})
+	register(Op{Name: "jwt-sign", Path: "/jwt/sign", Page: "jwt", Fragment: "cipher/jwt-signed", Run: runJWTSign,
+		Fields: []Field{
+			{Name: "alg", Kind: KindEnum, Enum: append(append([]string(nil), SignAlgs...), "Ed25519"), Default: "HS256",
+				Description: "The signature algorithm: HS* sign with a shared secret, RS* and PS* with an RSA private key, ES256/384/512 with an ECDSA P-256/384/521 private key, EdDSA (or its other name Ed25519) with an Ed25519 private key."},
+			{Name: "key", Kind: KindString, Required: true,
+				Description: "The signing key: the shared secret for HS*, or the private key as PEM (PKCS#8, PKCS#1, SEC 1 or OpenSSH), JWK or JWKS for the others."},
+			{Name: "key_enc", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+				Description: "How a shared-secret key is written (signing has no auto); ignored for PEM and JWK keys."},
+			{Name: "kid", Kind: KindString,
+				Description: "A key id: added to the header unless header has one, and used to pick the signing key out of a JWKS."},
+			{Name: "header", Kind: KindJSON,
+				Description: `Extra header members as a JSON object, e.g. {"cty":"JWT"}; alg always comes from alg, and typ defaults to "JWT".`},
+			{Name: "payload", Kind: KindJSON, Default: "{}",
+				Description: `The claims as a JSON object, e.g. {"sub":"42","name":"Ada"}, signed with their order kept.`},
+			{Name: "iat", Kind: KindBool, Default: "false",
+				Description: "Add an iat claim of the current time (or now), unless payload has one."},
+			{Name: "exp", Kind: KindEnum, Enum: []string{"5m", "15m", "1h", "1d", "7d"},
+				Description: "A lifetime to add as an exp claim, counted from the current time (or now), unless payload has one; omit it for a token that never expires."},
+			nowField,
+		}})
 }
 
 // Warning levels.

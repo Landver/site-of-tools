@@ -16,8 +16,24 @@ import (
 // Tools' encode page, which this page links to instead of repeating them.
 
 func init() {
-	register(Op{Name: "encode", Path: "/encode", Page: "encode", Fragment: "cipher/encode-result", Run: runEncode})
-	register(Op{Name: "basic", Path: "/encode/basic", Page: "encode", Fragment: "cipher/basic-result", Run: runBasic})
+	register(Op{Name: "encode", Path: "/encode", Page: "encode", Fragment: "cipher/encode-result", Run: runEncode,
+		Fields: []Field{
+			{Name: "text", Kind: KindString, Required: true,
+				Description: "The bytes to show as UTF-8 text, hex, base64, base64url and base32, written per from."},
+			{Name: "from", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+				Description: "How text is written: utf8 (as typed), hex, base64 (either alphabet, padded or not), base64url or base32."},
+		}})
+	register(Op{Name: "basic", Path: "/encode/basic", Page: "encode", Fragment: "cipher/basic-result", Run: runBasic,
+		Fields: []Field{
+			{Name: "mode", Kind: KindEnum, Enum: []string{"build", "decode"},
+				Description: "build an HTTP Basic auth header from user and password, or decode header; omitted, it is decode when header is given and build otherwise."},
+			{Name: "user", Kind: KindString,
+				Description: "The user name to build the header from; it can't contain ':'."},
+			{Name: "password", Kind: KindString,
+				Description: "The password to build the header from, sent as UTF-8."},
+			{Name: "header", Kind: KindString,
+				Description: "What to decode: an Authorization: Basic … line, a Basic … value or the bare base64."},
+		}})
 }
 
 // Encoded is one input shown in every encoding.

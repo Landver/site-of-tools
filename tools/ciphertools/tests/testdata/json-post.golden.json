@@ -1,0 +1,111 @@
+{
+  "jwt-sign": {
+    "status": 200,
+    "body": {
+      "decoded": {
+        "alg": "HS256",
+        "claims": [
+          {
+            "meaning": "Subject: who the token is about, usually a user id",
+            "name": "sub",
+            "value": "42"
+          },
+          {
+            "meaning": "Issued at",
+            "name": "iat",
+            "value": "1700000000",
+            "when": "2023-11-14 22:13:20 UTC · in 0 seconds"
+          },
+          {
+            "meaning": "Expires at: reject the token after this time",
+            "name": "exp",
+            "value": "1700003600",
+            "when": "2023-11-14 23:13:20 UTC · in 1 hour"
+          }
+        ],
+        "header": {
+          "alg": "HS256",
+          "cty": "JWT",
+          "typ": "JWT"
+        },
+        "header_rows": [
+          {
+            "meaning": "Signature (or key-management) algorithm",
+            "name": "alg",
+            "value": "HS256"
+          },
+          {
+            "meaning": "Media type of the whole token, usually JWT",
+            "name": "typ",
+            "value": "JWT"
+          },
+          {
+            "meaning": "Media type of the payload; JWT here means a nested token",
+            "name": "cty",
+            "value": "JWT"
+          }
+        ],
+        "kind": "JWS",
+        "payload": {
+          "exp": 1700003600,
+          "iat": 1700000000,
+          "sub": "42"
+        },
+        "signature": "1Xl5k5oT2imtE3gNTlvZk5YE2vhTXknQNPMsKzR8xdg",
+        "validity": {
+          "detail": "Within its validity window; expires in 1 hour. (1 minute of clock skew allowed.)",
+          "state": "valid"
+        },
+        "verification": {
+          "detail": "Whoever holds this key signed exactly this header and payload.",
+          "key": "32-byte shared secret (read as UTF-8 text)",
+          "state": "valid"
+        }
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImN0eSI6IkpXVCJ9.eyJzdWIiOiI0MiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAzNjAwfQ.1Xl5k5oT2imtE3gNTlvZk5YE2vhTXknQNPMsKzR8xdg"
+    }
+  },
+  "jwt-sign-iat-false": {
+    "status": 200,
+    "body": {
+      "decoded": {
+        "alg": "HS256",
+        "header": {
+          "alg": "HS256",
+          "typ": "JWT"
+        },
+        "header_rows": [
+          {
+            "meaning": "Signature (or key-management) algorithm",
+            "name": "alg",
+            "value": "HS256"
+          },
+          {
+            "meaning": "Media type of the whole token, usually JWT",
+            "name": "typ",
+            "value": "JWT"
+          }
+        ],
+        "kind": "JWS",
+        "payload": {},
+        "signature": "svo3sQiBr6VRrugrrB1OoHS7Y-c0pzdPFYhCfjX7elM",
+        "validity": {
+          "detail": "No exp claim: this token never expires, so it can't be revoked by waiting.",
+          "state": "no-expiry"
+        },
+        "verification": {
+          "detail": "Whoever holds this key signed exactly this header and payload.",
+          "key": "32-byte shared secret (read as UTF-8 text)",
+          "state": "valid"
+        }
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.svo3sQiBr6VRrugrrB1OoHS7Y-c0pzdPFYhCfjX7elM"
+    }
+  },
+  "nested-value": {
+    "status": 400,
+    "body": {
+      "error": "field \"payload\": want a string, number or boolean"
+    }
+  }
+}

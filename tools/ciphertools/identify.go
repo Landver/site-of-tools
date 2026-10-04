@@ -25,7 +25,11 @@ import (
 // expensive, and nothing trusts the input to be well formed.
 
 func init() {
-	register(Op{Name: "identify", Path: "/identify", Page: "identify", Fragment: "cipher/identify-result", Run: runIdentify})
+	register(Op{Name: "identify", Path: "/identify", Page: "identify", Fragment: "cipher/identify-result", Run: runIdentify,
+		Fields: []Field{
+			{Name: "text", Kind: KindString, Required: true,
+				Description: "The string to identify, up to 1 MiB: a hash, token, key, certificate, password hash, UUID, otpauth:// URI or encoded value; the answer ranks what it could be, with hashcat modes."},
+		}})
 }
 
 // Confidence levels, from the score bands in level.

@@ -13,7 +13,19 @@ import (
 // (docs/01-feature-inventory.md, C3).
 
 func init() {
-	register(Op{Name: "hmac", Path: "/hmac", Page: "hmac", Fragment: "cipher/hmac-result", Run: runHMAC})
+	register(Op{Name: "hmac", Path: "/hmac", Page: "hmac", Fragment: "cipher/hmac-result", Run: runHMAC,
+		Fields: []Field{
+			{Name: "text", Kind: KindString,
+				Description: "The message, read per enc; for a webhook, the raw request body byte for byte, since re-serialised JSON won't match."},
+			{Name: "enc", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+				Description: "How text is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first."},
+			{Name: "key", Kind: KindString,
+				Description: "The HMAC key, read per key_enc, e.g. a webhook signing secret."},
+			{Name: "key_enc", Kind: KindEnum, Enum: append([]string{EncAuto}, byteEncodings...), Default: EncAuto,
+				Description: "How key is written: auto reads it as UTF-8 text and, when expected doesn't match that way, tries base64 and hex too and says which reading matched."},
+			{Name: "expected", Kind: KindString,
+				Description: "A MAC to check in constant time against every algorithm, as hex or base64, bare or labelled (GitHub's sha256=…, a Stripe-Signature header)."},
+		}})
 }
 
 // hmacAlgs are the hashAlgs ids offered as HMACs, in display order.

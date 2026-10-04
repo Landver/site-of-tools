@@ -16,7 +16,6 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -272,22 +271,7 @@ func readInput(c *echo.Context) (Input, error) {
 		if err := json.NewDecoder(r.Body).Decode(&obj); err != nil {
 			return in, fmt.Errorf("body: %w", jsonError(err))
 		}
-		for k, v := range obj {
-			switch t := v.(type) {
-			case string:
-				in.Fields.Set(k, t)
-			case float64:
-				// 'f', not fmt.Sprint: that writes 1e6 as "1e+06", which no
-				// integer field reads (and "now" read as 1 second past 1970).
-				in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64))
-			case bool:
-				in.Fields.Set(k, strconv.FormatBool(t))
-			case nil:
-			default:
-				return in, fmt.Errorf("field %q: want a string, number or boolean", k)
-			}
-		}
-		return in, nil
+		return InputFromJSON(obj)
 	}
 	if err := r.ParseMultipartForm(maxBody); err != nil && !errors.Is(err, http.ErrNotMultipart) {
 		return in, fmt.Errorf("body: %w", err)

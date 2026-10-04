@@ -32,9 +32,48 @@ import (
 // too, because there the parameters come from the pasted string.
 
 func init() {
-	register(Op{Name: "password-hash", Path: "/password/hash", Page: "password", Fragment: "cipher/password-hashed", Heavy: true, Run: runPasswordHash})
-	register(Op{Name: "password-verify", Path: "/password/verify", Page: "password", Fragment: "cipher/password-verified", Heavy: true, Run: runPasswordVerify})
+	register(Op{Name: "password-hash", Path: "/password/hash", Page: "password", Fragment: "cipher/password-hashed", Heavy: true, Run: runPasswordHash,
+		Fields: []Field{
+			{Name: "password", Kind: KindString,
+				Description: "The password to hash, read per password_enc; whitespace is part of it, and bcrypt refuses more than 72 bytes."},
+			passwordEncField,
+			{Name: "algo", Kind: KindEnum, Enum: []string{AlgoBcrypt, AlgoArgon2id, AlgoScrypt, AlgoPBKDF2SHA256, AlgoPBKDF2SHA512}, Default: AlgoBcrypt,
+				Description: "The algorithm; each reads only its own cost fields, and argon2id is what OWASP recommends for new systems."},
+			bcryptCostField, argon2MField, argon2TField, argon2PField, scryptNField, scryptRField, scryptPField, pbkdf2IterField,
+		}})
+	register(Op{Name: "password-verify", Path: "/password/verify", Page: "password", Fragment: "cipher/password-verified", Heavy: true, Run: runPasswordVerify,
+		Fields: []Field{
+			{Name: "hash", Kind: KindString, Required: true,
+				Description: "The stored hash to read and check: bcrypt ($2b$…), Argon2 ($argon2id$…), scrypt ($scrypt$…) or PBKDF2 ($pbkdf2-sha256$…, Django's pbkdf2_sha256$…); other crypt(3) formats are named but not verified."},
+			{Name: "password", Kind: KindString,
+				Description: "The password to check against hash, read per password_enc; omit it to only read the hash's algorithm, parameters and salt."},
+			passwordEncField,
+		}})
 }
+
+var (
+	passwordEncField = Field{Name: "password_enc", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+		Description: "How password is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first."}
+	bcryptCostField = Field{Name: "bcrypt_cost", Kind: KindInt, Default: strconv.Itoa(bcryptDefaultCost),
+		Min: ptr(bcryptMinCost), Max: ptr(bcryptMaxCost),
+		Description: "bcrypt's cost when algo is bcrypt: 2^cost rounds, each step doubling the time; OWASP's minimum is 10."}
+	argon2MField = Field{Name: "argon2_m", Kind: KindInt, Default: strconv.Itoa(argon2DefaultMemory),
+		Min: ptr(argon2MinMemory), Max: ptr(argon2MaxMemory),
+		Description: "Argon2id's memory in KiB when algo is argon2id, at least 8 per lane, e.g. 19456 (19 MiB, OWASP's minimum with argon2_t 2)."}
+	argon2TField = Field{Name: "argon2_t", Kind: KindInt, Default: strconv.Itoa(argon2DefaultTime), Min: ptr(1), Max: ptr(argon2MaxTime),
+		Description: "Argon2id's passes over its memory when algo is argon2id."}
+	argon2PField = Field{Name: "argon2_p", Kind: KindInt, Default: strconv.Itoa(argon2DefaultThreads), Min: ptr(1), Max: ptr(argon2MaxThreads),
+		Description: "Argon2id's lanes (parallelism) when algo is argon2id."}
+	scryptNField = Field{Name: "scrypt_n", Kind: KindInt, Default: strconv.Itoa(1 << scryptDefaultLogN),
+		Min: ptr(1 << scryptMinLogN), Max: ptr(1 << scryptMaxLogN),
+		Description: "scrypt's cost N when algo is scrypt: a power of two, and 128 × N × scrypt_r bytes of memory may not pass 128 MiB."}
+	scryptRField = Field{Name: "scrypt_r", Kind: KindInt, Default: strconv.Itoa(scryptDefaultR), Min: ptr(1), Max: ptr(scryptMaxR),
+		Description: "scrypt's block size r when algo is scrypt."}
+	scryptPField = Field{Name: "scrypt_p", Kind: KindInt, Default: strconv.Itoa(scryptDefaultP), Min: ptr(1), Max: ptr(scryptMaxP),
+		Description: "scrypt's parallelism p when algo is scrypt: how many times the memory-hard step runs."}
+	pbkdf2IterField = Field{Name: "pbkdf2_iterations", Kind: KindInt, Min: ptr(pbkdf2MinIter), Max: ptr(pbkdf2MaxIter),
+		Description: "PBKDF2's iterations when algo is pbkdf2-sha256 or pbkdf2-sha512; the default is OWASP's minimum, 600000 and 210000 respectively."}
+)
 
 // Algorithm ids: the algo field's values, and PasswordHashInfo.Algorithm.
 const (
@@ -112,15 +151,12 @@ func runPasswordHash(in Input) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("password: %w", err)
 	}
-	algo := strings.ToLower(strings.TrimSpace(in.Get("algo")))
-	if algo == "" {
-		algo = AlgoBcrypt
-	}
+	algo := passwordAlgo(in)
 	salt := make([]byte, passwordSaltBytes)
 	if _, err := rand.Read(salt); err != nil {
 		return nil, err
 	}
-	derive, err := passwordHasher(algo, in, pw, salt)
+	derive, _, err := passwordHasher(algo, in, pw, salt)
 	if err != nil {
 		return nil, err
 	}
@@ -151,18 +187,26 @@ func runPasswordHash(in Input) (any, error) {
 	return r, nil
 }
 
+func passwordAlgo(in Input) string {
+	if algo := strings.ToLower(strings.TrimSpace(in.Get("algo"))); algo != "" {
+		return algo
+	}
+	return AlgoBcrypt
+}
+
 // passwordHasher checks the chosen algorithm's parameters and returns the
-// derivation to time. Everything that can be refused is refused here, before
-// any expensive work starts.
-func passwordHasher(algo string, in Input, pw, salt []byte) (func() (string, error), error) {
+// derivation to time, and for Argon2 and scrypt the bytes it will allocate.
+// Everything that can be refused is refused here, before any expensive work
+// starts.
+func passwordHasher(algo string, in Input, pw, salt []byte) (derive func() (string, error), mem int64, err error) {
 	switch algo {
 	case AlgoBcrypt:
-		cost, err := intField(in, "bcrypt_cost", bcryptDefaultCost, bcryptMinCost, bcryptMaxCost)
+		cost, err := intField(in, bcryptCostField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if len(pw) > bcryptMaxPassword {
-			return nil, bcryptTooLong(pw)
+			return nil, 0, bcryptTooLong(pw)
 		}
 		return func() (string, error) {
 			h, err := bcrypt.GenerateFromPassword(pw, cost)
@@ -177,48 +221,48 @@ func passwordHasher(algo string, in Input, pw, salt []byte) (func() (string, err
 				s = "$2b$" + rest
 			}
 			return s, nil
-		}, nil
+		}, 0, nil
 
 	case AlgoArgon2id:
-		m, err := intField(in, "argon2_m", argon2DefaultMemory, argon2MinMemory, argon2MaxMemory)
+		m, err := intField(in, argon2MField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		t, err := intField(in, "argon2_t", argon2DefaultTime, 1, argon2MaxTime)
+		t, err := intField(in, argon2TField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		p, err := intField(in, "argon2_p", argon2DefaultThreads, 1, argon2MaxThreads)
+		p, err := intField(in, argon2PField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if m < 8*p {
-			return nil, fmt.Errorf("argon2_m: Argon2 needs at least 8 KiB per lane, so p=%d needs m of at least %d", p, 8*p)
+			return nil, 0, fmt.Errorf("argon2_m: Argon2 needs at least 8 KiB per lane, so p=%d needs m of at least %d", p, 8*p)
 		}
 		return func() (string, error) {
 			sum := argon2.IDKey(pw, salt, uint32(t), uint32(m), uint8(p), passwordKeyBytes)
 			return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, m, t, p,
 				phcB64.EncodeToString(salt), phcB64.EncodeToString(sum)), nil
-		}, nil
+		}, int64(m) << 10, nil
 
 	case AlgoScrypt:
-		n, err := intField(in, "scrypt_n", 1<<scryptDefaultLogN, 1<<scryptMinLogN, 1<<scryptMaxLogN)
+		n, err := intField(in, scryptNField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if n&(n-1) != 0 {
-			return nil, fmt.Errorf("scrypt_n: N must be a power of two (1024, 2048, … 131072), got %d", n)
+			return nil, 0, fmt.Errorf("scrypt_n: N must be a power of two (1024, 2048, … 131072), got %d", n)
 		}
-		r, err := intField(in, "scrypt_r", scryptDefaultR, 1, scryptMaxR)
+		r, err := intField(in, scryptRField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		p, err := intField(in, "scrypt_p", scryptDefaultP, 1, scryptMaxP)
+		p, err := intField(in, scryptPField)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if 128*n*r > scryptMaxMemory {
-			return nil, fmt.Errorf("scrypt: N=%d with r=%d needs %s of memory (128 × N × r bytes); the limit is %s",
+			return nil, 0, fmt.Errorf("scrypt: N=%d with r=%d needs %s of memory (128 × N × r bytes); the limit is %s",
 				n, r, bytesText(128*n*r), bytesText(scryptMaxMemory))
 		}
 		return func() (string, error) {
@@ -228,13 +272,13 @@ func passwordHasher(algo string, in Input, pw, salt []byte) (func() (string, err
 			}
 			return fmt.Sprintf("$scrypt$ln=%d,r=%d,p=%d$%s$%s", bits.TrailingZeros(uint(n)), r, p,
 				phcB64.EncodeToString(salt), phcB64.EncodeToString(sum)), nil
-		}, nil
+		}, scryptMemory(n, r, p), nil
 
 	case AlgoPBKDF2SHA256, AlgoPBKDF2SHA512:
 		ph := pbkdf2Hashes[strings.TrimPrefix(algo, "pbkdf2-")]
-		iter, err := intField(in, "pbkdf2_iterations", ph.owasp, pbkdf2MinIter, pbkdf2MaxIter)
+		iter, err := intField(in, pbkdf2IterField.withDefault(ph.owasp))
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		return func() (string, error) {
 			sum, err := pbkdf2.Key(ph.new, string(pw), salt, iter, ph.size)
@@ -243,9 +287,38 @@ func passwordHasher(algo string, in Input, pw, salt []byte) (func() (string, err
 			}
 			return fmt.Sprintf("$pbkdf2-%s$i=%d,l=%d$%s$%s", ph.id, iter, ph.size,
 				phcB64.EncodeToString(salt), phcB64.EncodeToString(sum)), nil
-		}, nil
+		}, 0, nil
 	}
-	return nil, fmt.Errorf("algo: want bcrypt, argon2id, scrypt, pbkdf2-sha256 or pbkdf2-sha512, got %q", algo)
+	return nil, 0, fmt.Errorf("algo: want bcrypt, argon2id, scrypt, pbkdf2-sha256 or pbkdf2-sha512, got %q", algo)
+}
+
+// scryptMemory is what x/crypto/scrypt allocates: V, 128·N·r bytes, once for
+// all p lanes (they run one after another), beside B (128·r·p) and XY (256·r).
+func scryptMemory(n, r, p int) int64 { return 128 * int64(r) * int64(n+p+2) }
+
+// flatMemory is MemoryCost's charge for every op whose memory doesn't follow
+// its parameters.
+const flatMemory = 16 << 20
+
+// MemoryCost is roughly how many bytes running op name on in allocates, for a
+// budget shared by concurrent calls: Argon2 and scrypt are charged what their
+// parameters make them allocate, chosen (password-hash) or read from the
+// pasted hash (password-verify); everything else, and any input the op would
+// refuse before hashing, a flat 16 MiB.
+func MemoryCost(name string, in Input) int64 {
+	var mem int64
+	switch name {
+	case "password-hash":
+		_, mem, _ = passwordHasher(passwordAlgo(in), in, nil, nil)
+	case "password-verify":
+		if h, err := ParsePasswordHash(in.Get("hash")); err == nil && h.Unsupported == "" && h.Refused == "" && in.Get("password") != "" {
+			mem = h.mem
+		}
+	}
+	if mem == 0 {
+		return flatMemory
+	}
+	return mem
 }
 
 // bcryptTooLong is the refusal for a password bcrypt would not read in full.
@@ -338,6 +411,7 @@ type PasswordHashInfo struct {
 
 	warnings []Warning
 	check    func(pw []byte) (bool, error)
+	mem      int64 // bytes check allocates (Argon2 and scrypt), for MemoryCost
 }
 
 func (h *PasswordHashInfo) warn(level, text string) {
@@ -633,7 +707,7 @@ func parseArgon2(p []part) (*PasswordHashInfo, error) {
 	if len(sum) < 4 {
 		return nil, fmt.Errorf("%s: the hash is %d bytes; Argon2 outputs at least 4", id, len(sum))
 	}
-	h.SaltBytes, h.HashBytes = len(salt), len(sum)
+	h.SaltBytes, h.HashBytes, h.mem = len(salt), len(sum), int64(m)<<10
 	h.Params = []Row{
 		{Name: "v", Value: strconv.Itoa(version), Meaning: map[int]string{0x10: "Argon2 version 1.0", 0x13: "Argon2 version 1.3"}[version]},
 		{Name: "m", Value: strconv.Itoa(m), Meaning: "memory in KiB: " + kibText(m)},
@@ -750,6 +824,9 @@ func parseScrypt(p []part) (*PasswordHashInfo, error) {
 		h.Refused = fmt.Sprintf("p=%d is above this page's limit of %d.", par, scryptMaxP)
 	case 128*n*r > scryptMaxMemory:
 		h.Refused = fmt.Sprintf("N=2^%d with r=%d needs %s of memory; this page's limit is %s.", ln, r, bytesText(128*n*r), bytesText(scryptMaxMemory))
+	default:
+		// Within the caps only: past them 128·N·r can overflow.
+		h.mem = scryptMemory(n, r, par)
 	}
 	if !meetsOWASPScrypt(n, r, par) {
 		h.warn(LevelWarn, "Below OWASP's minimum for scrypt: N=2^17 with r=8 and p=1, or an equivalent such as N=2^16 with p=2, or N=2^15 with p=3.")

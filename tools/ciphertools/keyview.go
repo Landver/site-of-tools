@@ -31,9 +31,21 @@ import (
 
 func init() {
 	register(Op{Name: "keys-generate", Path: "/keys/generate", Page: "keys", Fragment: "cipher/keys-generated",
-		Heavy: true, Run: runKeysGenerate})
+		Heavy: true, Run: runKeysGenerate,
+		Fields: []Field{
+			{Name: "type", Kind: KindEnum, Enum: keyTypeIDs(), Default: KeyTypes[0].ID,
+				Description: "The key pair to generate: Ed25519, ECDSA on P-256, P-384 or P-521, or RSA of 2048, 3072 or 4096 bits (RSA-4096 takes seconds)."},
+			{Name: "comment", Kind: KindString,
+				Description: "The comment ending the OpenSSH public key line, one printable line of up to 256 characters; default cipher-tools-test-key."},
+			{Name: "passphrase", Kind: KindString,
+				Description: "A passphrase to encrypt the private key with: it then comes back only in OpenSSH format (bcrypt_pbkdf and AES-256-CTR), without the unencrypted PKCS#8 and JWK forms."},
+		}})
 	register(Op{Name: "keys-inspect", Path: "/keys/inspect", Page: "keys", Fragment: "cipher/keys-inspected",
-		Run: runKeysInspect})
+		Run: runKeysInspect,
+		Fields: []Field{
+			{Name: "key", Kind: KindString, Required: true,
+				Description: "The key or keys to convert and fingerprint: PEM (PKCS#8, PKCS#1, SEC 1, SPKI, an OpenSSH private key or a certificate), a JWK or JWKS, or OpenSSH public key lines; up to 64 keys."},
+		}})
 }
 
 // KeyTypes are what generate accepts, in the form's menu order (the template
@@ -180,11 +192,15 @@ func generateKey(typ string) (crypto.Signer, error) {
 		_, priv, err := ed25519.GenerateKey(rand.Reader)
 		return priv, err
 	}
+	return nil, fmt.Errorf("type: want one of %s, got %q", strings.Join(keyTypeIDs(), ", "), typ)
+}
+
+func keyTypeIDs() []string {
 	ids := make([]string, len(KeyTypes))
 	for i, t := range KeyTypes {
 		ids[i] = t.ID
 	}
-	return nil, fmt.Errorf("type: want one of %s, got %q", strings.Join(ids, ", "), typ)
+	return ids
 }
 
 func runKeysInspect(in Input) (any, error) {
