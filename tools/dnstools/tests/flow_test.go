@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// Opening the five pages asks no resolver anything, so it must not spend the
-// budget the lookup a moment later needs.
+// Bare pages don't count against the rate limit.
 func TestBarePagesAreNotRateLimited(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
@@ -26,8 +25,7 @@ func TestBarePagesAreNotRateLimited(t *testing.T) {
 	}
 }
 
-// A browser that hits the limit keeps the nav and gets the refused request
-// back as a link, rather than a dead end that sends it to the lookup page.
+// The full-page 429 keeps the nav and links the refused request.
 func TestRateLimitedPageOffersTheSameRequest(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
@@ -54,9 +52,7 @@ func TestRateLimitedPageOffersTheSameRequest(t *testing.T) {
 	}
 }
 
-// An htmx swap replaces only the result slot, so the fragment carries the nav
-// (its links on the name just looked up), the tab title and the screen-reader
-// line out of band; and a pasted URL leaves the clean one in history.
+// htmx fragments carry nav, title and status out of band, and push the clean URL.
 func TestFragmentCarriesNavTitleAndCleanURL(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
@@ -81,7 +77,7 @@ func TestFragmentCarriesNavTitleAndCleanURL(t *testing.T) {
 		t.Errorf("HX-Push-Url = %q, want the clean URL", got)
 	}
 
-	// A full page has all three in place already: no out-of-band copies.
+	// A full page has no out-of-band copies.
 	page := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html"}).Body.String()
 	if n := strings.Count(page, `id="dns-nav"`); n != 1 {
 		t.Errorf("full page renders %d navs, want 1", n)

@@ -1,9 +1,7 @@
 {{/* Route-neutral error fragment. The rate limiter can fire on any of the five
      pages, so its response must not be one specific page's result template. */}}
 {{define "dns/error"}}
-{{/* id: the input points at it (aria-describedby), so the reason is read
-     with the field it is about. An IP where a domain was needed has
-     somewhere better to go, and says where. */}}
+{{/* id: the input's aria-describedby points here. */}}
 <div id="dns-error" class="alert-error sm:col-span-2">
   {{.Error}}
   {{if .ErrIP}}
@@ -13,21 +11,14 @@
 </div>
 {{end}}
 
-{{/* The rate limiter's htmx answer. A wait is not a fault, so it is a notice
-     in the "needs attention" colour rather than the red error box, and it
-     says how long: the bucket refills a lookup every half second. */}}
+{{/* The rate limiter's htmx answer: an amber notice above the last result,
+     kept out of history (data-transient). */}}
 {{define "dns/slowdown"}}
-{{/* Said through the page's one status line, like every other answer; a
-     role=status inserted with its text already in it is announced
-     unreliably. The lighter tint keeps the amber text at AA in light theme. */}}
 {{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{.Error}}</p>{{end}}
-{{/* Inserted above the last result (HX-Reswap: afterbegin), never saved
-     into history (data-transient). */}}
 <div data-transient class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn">{{.Error}}</div>
 {{end}}
 
-{{/* The same, as a whole page: the nav stays, and the request that was
-     refused is one click away rather than a retype. */}}
+{{/* The same as a whole page, with the nav and a retry link. */}}
 {{define "dns/ratelimited"}}
 <!DOCTYPE html>
 <html lang="en">

@@ -28,8 +28,7 @@ func TestRedactURI(t *testing.T) {
 		{"curl", "/curl?curl=curl%20-H%20%27Authorization%3A%20SECRET%27%20https%3A%2F%2Fx", "SECRET"},
 		{"extract", "/extract?text=see%20https%3A%2F%2Fx%3Ft%3DSECRET", "SECRET"},
 		{"encode", "/encode?v=eyJhbGciOiJIUzI1NiJ9.SECRET.sig", "SECRET"},
-		// The DNS box takes a pasted URL or email and looks up the domain in
-		// it; the paste itself must not be logged.
+		// A pasted URL or email in the DNS box.
 		{"dns pasted url", "/email?name=https%3A%2F%2Fapp.example.com%2Freset%3Ftoken%3DSECRET", "SECRET"},
 		{"dns pasted email", "/email?name=SECRET%40example.com", "SECRET"},
 	}
@@ -164,7 +163,7 @@ func TestRedactionLeavesOrdinaryRequestsLegible(t *testing.T) {
 	}
 }
 
-// A plain domain or IP in the DNS ?name= is what the corpus is for: it stays.
+// A plain domain or IP in the DNS ?name= stays readable.
 func TestRedactURIKeepsAPlainDNSName(t *testing.T) {
 	for _, in := range []string{"/?name=example.com&type=A", "/?name=8.8.8.8", "/?name=2001%3Adb8%3A%3A1"} {
 		if got := platform.RedactURI(in); got != in {
@@ -173,9 +172,7 @@ func TestRedactURIKeepsAPlainDNSName(t *testing.T) {
 	}
 }
 
-// A URL typed unencoded into the address bar splits at its own "&", so its
-// parameters arrive as pairs of their own. They are the paste's tail and are
-// redacted with it; the DNS tool's own parameters stay readable.
+// An unencoded pasted URL's tail ("&token=…") is redacted; DNS params stay.
 func TestRedactURIDropsAnUnencodedURLsTail(t *testing.T) {
 	got := platform.RedactURI("/email?name=https://app.example.com/reset?a=b&token=SECRET&type=MX")
 	if strings.Contains(got, "SECRET") {

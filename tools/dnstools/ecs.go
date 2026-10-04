@@ -689,7 +689,4 @@ func (e *ECS) notes() {
 		add("warn", fmt.Sprintf("%d of the %d networks that answered were given no %s record at all, while %d were given records; they are separate groups above.",
 			e.Answered-e.WithRecords, e.Answered, e.Type, e.WithRecords))
 	}
-	// The geography caveat and the scope-0 caveat used to be notes too, and
-	// both are already said in the card's folded reasoning: the same claim
-	// three times on one card is reading, not information.
 }

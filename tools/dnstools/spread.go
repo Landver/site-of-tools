@@ -87,8 +87,7 @@ type Spread struct {
 	// reporting the SAME zone version. That is one zone answering differently
 	// per query (round-robin, latency steering), not a change mid-rollout —
 	// the exact false alarm this feature exists to avoid. The serial is the
-	// only discriminator a single vantage point can honestly use, so a split
-	// between two providers, whose serials can't be compared, never sets it.
+	// only discriminator a single vantage point can honestly use.
 	Rotation bool `json:"rotation,omitempty"`
 	// SerialsAgree: nameservers run by the SAME provider report the same SOA
 	// serial. Compared per provider on purpose: two independent DNS providers
@@ -570,8 +569,7 @@ func (sp *Spread) summarise() {
 	}
 	sp.MultiProvider = len(byProvider) > 1
 
-	// Do the zone's own servers agree among themselves? Kept per provider as
-	// well, because only a disagreement inside one provider can be read.
+	// Do the zone's own servers agree among themselves?
 	authKeys := map[string]bool{}
 	perProvider := map[string]map[string]bool{}
 	var authKey string
@@ -603,11 +601,7 @@ func (sp *Spread) summarise() {
 	// second query. Read per provider for the same reason SerialsAgree is:
 	// independent providers keep independent serials, so a global comparison
 	// would rule out rotation on every multi-provider zone.
-	//
-	// And witnessed inside one provider: two of its servers, on one serial,
-	// returning different sets. A difference that only runs along the line
-	// between two providers has no serial to settle it, and one provider still
-	// holding the old zone looks exactly like that.
+	// Witnessed inside one provider: across providers serials can't be compared.
 	sp.Rotation = splitInside && sp.AuthAnswered > 1 &&
 		sp.SerialsAgree && sp.SerialsSeen > 1
 
@@ -680,7 +674,7 @@ func unanimousRcode(all []ServerAnswer) string {
 	return code
 }
 
-// nsCount: "zone's 4 nameservers", for a sentence that states its denominator.
+// nsCount: "zone's 4 nameservers".
 func nsCount(n int) string { return fmt.Sprintf("zone's %d nameservers", n) }
 
 // health derives delegation findings from what the probes already saw. Pure
@@ -712,8 +706,7 @@ func (sp *Spread) health() {
 		// stops at the registrable domain instead of climbing to the registry.
 		// Saying "none answered" would blame servers that were never found.
 		add("fail", "No nameservers are delegated for this name, so nothing serves it.")
-	// The denominator, every time: one live server out of four delegated is
-	// three lame ones, and "add a second nameserver" would be the wrong fix.
+	// With the denominator: 1 live of 4 is 3 lame, not "add a second server".
 	case live == 0:
 		add("fail", fmt.Sprintf("None of the %s answered.", nsCount(len(sp.Authoritative))))
 	case live == 1 && len(sp.Authoritative) == 1:

@@ -12,12 +12,8 @@
 
      A tool's own error fragment is HTML. Echo's default is JSON. Swapping only
      HTML keeps every deliberate fragment working and leaves the accidental
-     ones exactly where they were: unswapped.
-
-     A request that never got a response at all (offline, a dropped
-     connection) fires sendError instead, with nothing to swap: the button
-     came back and the page just sat there. It now says so in the slot the
-     answer would have filled. sm:col-span-2 is a no-op outside a grid. */}}
+     ones exactly where they were: unswapped. sendError (no response at all)
+     gets a notice above the last result. */}}
 {{define "partials/htmx-errors"}}
 <script>
   document.body.addEventListener('htmx:beforeSwap', (e) => {
@@ -31,8 +27,7 @@
   document.body.addEventListener('htmx:sendError', (e) => {
     const target = e.detail.target
     if (!target) return
-    // Above the last result, not instead of it, and data-transient so it
-    // is not saved into history (partials/htmx-history).
+    // Transient: kept out of history (partials/htmx-history).
     target.querySelectorAll(':scope > [data-transient]').forEach((el) => el.remove())
     const box = document.createElement('div')
     box.className = 'alert-error sm:col-span-2'

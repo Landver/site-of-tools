@@ -1,7 +1,6 @@
 {{define "partials/header"}}
 <header class="border-b border-line">
-  <!-- Tighter on a phone: at 320px wide the header used to be 336px and push
-       the whole page sideways (WCAG 1.4.10). The wordmark gives way first. -->
+  <!-- Tighter on phones, so the header fits at 320px. -->
   <div class="w-full px-4 py-4 flex items-center gap-4 sm:px-6">
     <!-- Logo always → apex (corpberry.com), even from tool subdomain. -->
     <a href="{{apexURL}}" class="flex min-w-0 items-center gap-2 text-sm font-medium text-muted hover:text-strong">
@@ -13,10 +12,7 @@
       <!-- Blog lives on apex only → absolute apex URL, like the logo. -->
       <a href="{{apexURL}}/blog" class="text-muted hover:text-strong">Blog</a>
 
-      <!-- Tools: dropdown of tool catalog (single source: site.Tools). It says
-           whether it is open (aria-expanded), closes when focus leaves it so
-           it can't hide what Tab moves on to, and Escape hands focus back to
-           the button instead of dropping it on the page. -->
+      <!-- Tools: dropdown of tool catalog (single source: site.Tools). -->
       <div class="relative" x-data="{ open: false }"
            @click.outside="open = false"
            @focusout="if (!$el.contains($event.relatedTarget)) open = false"

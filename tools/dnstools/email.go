@@ -38,8 +38,7 @@ type EmailAuth struct {
 	TLSRPT string        `json:"tls_rpt,omitempty"`
 	BIMI   string        `json:"bimi,omitempty"`
 	HasMX  bool          `json:"has_mx"`
-	// NXDomain: the name itself does not exist, so there is no mail setup to
-	// judge. Said instead of the advice a domain without records would get.
+	// NXDomain: the name does not exist.
 	NXDomain bool `json:"nxdomain,omitempty"`
 	// MailHosts: the MX hosts with their forward-confirmed reverse DNS result.
 	// Receivers weigh FCrDNS heavily, and a mail server whose PTR doesn't
@@ -75,10 +74,7 @@ type Note struct {
 	Text  string `json:"text"`
 }
 
-// sortNotes puts what needs doing first: fail, then warn, then info, then ok.
-// Stable, so findings at one level keep the order their checks ran in. A list
-// read top to bottom should answer "what is wrong" before "what is fine", and
-// it used to interleave the two in whatever order the checks happened to run.
+// sortNotes orders findings fail, warn, info, ok; stable within a level.
 func sortNotes(notes []Note) {
 	slices.SortStableFunc(notes, func(a, b Note) int { return noteRank(a.Level) - noteRank(b.Level) })
 }
@@ -214,9 +210,7 @@ type MTASTSResult struct {
 	PolicyError string   `json:"policy_error,omitempty"`
 }
 
-// MaxAgeHuman is the policy's max_age as a duration with the raw seconds
-// beside it, the way the lookup page writes a TTL. The raw value comes back
-// untouched if it isn't a number of seconds.
+// MaxAgeHuman: max_age as a duration plus raw seconds, or raw if not a number.
 func (m *MTASTSResult) MaxAgeHuman() string {
 	n, err := strconv.ParseUint(m.MaxAge, 10, 32)
 	if err != nil {
@@ -929,8 +923,6 @@ func dnsFqdn(s string) string {
 func (e *EmailAuth) judge() {
 	add := func(level, text string) { e.Notes = append(e.Notes, Note{Level: level, Text: text}) }
 
-	// A name that doesn't exist has no mail setup to judge, and "publish SPF
-	// and DMARC" advice for it reads as if it did.
 	if e.NXDomain {
 		add("warn", "This name does not exist (NXDOMAIN), so there is no mail setup to check.")
 		return
@@ -951,7 +943,7 @@ func (e *EmailAuth) judge() {
 	case e.SPF == nil && e.HasMX:
 		add("fail", "No SPF record. Receivers have no way to know which servers may send mail as this domain.")
 	case e.SPF == nil:
-		// No MX either: said once, with the fix, after DMARC below.
+		// Handled with DMARC below.
 	default:
 		if len(e.SPF.Extra) > 0 {
 			all := append([]string{e.SPF.Record}, e.SPF.Extra...)
@@ -1026,9 +1018,7 @@ func (e *EmailAuth) judge() {
 		}
 	}
 
-	// A domain that takes no mail is told so calmly, not scolded: nothing is
-	// broken. But it is still a forged sender's favourite, and the fix is two
-	// records anyone can publish in a minute, so the note carries it.
+	// Calm (info), but with the two-record fix.
 	if !e.HasMX && (e.SPF == nil || e.DMARC == nil) {
 		missing := "SPF or DMARC record"
 		switch {
@@ -1077,10 +1067,8 @@ func (e *EmailAuth) judge() {
 
 	switch {
 	case e.DKIMWildcard && len(e.DKIM) == 0:
-		// The same record everywhere, and it is a revoked key: the wildcard
-		// is "v=DKIM1; p=", which makes every selector without a record of
-		// its own fail verification. For a domain that sends no mail that is
-		// the recommended record, not a problem.
+		// A wildcard empty key revokes every unlisted selector: right for a
+		// domain that sends no mail.
 		add("ok", "Every selector probed returns a DKIM record with an empty key: a wildcard under _domainkey that revokes every selector without a record of its own. That is the recommended setup for a domain that sends no mail; a selector you do sign with needs its own record.")
 	case e.DKIMWildcard:
 		add("warn", "Every selector probed returns the same DKIM record, so there is a wildcard TXT under _domainkey. Any selector a sender invents will appear to be published, which tells a receiver nothing.")

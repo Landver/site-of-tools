@@ -170,15 +170,10 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 // the whole policy is the containment layer that turns the next refactor slip
 // in a template from stored XSS into a blocked load
 // (tools/linktools/docs/06-security-and-abuse.md §8).
-// negotiationHeaders tells caches what every page here varies on. One URL is
-// answered three ways (page, htmx fragment, JSON) chosen by request headers,
-// and with no Vary a browser's HTTP cache keys on the URL alone: Back after
-// an htmx swap served the cached FRAGMENT as the whole document, an unstyled
-// card with no header, nav or form. A fragment is never worth caching at all,
-// so it is also no-store, which keeps it out even of a cache ignoring Vary.
-//
-// Static files are left alone: they vary on nothing, and a Vary on them would
-// only split the CDN's cache.
+// negotiationHeaders: one URL answers as a page, a fragment or JSON depending
+// on request headers, so caches must Vary on them, or Back serves a cached
+// fragment as the page. Fragments are never cached; static files vary on
+// nothing.
 func negotiationHeaders() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {

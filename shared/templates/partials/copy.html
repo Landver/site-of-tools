@@ -29,10 +29,8 @@
     // How long the confirmation stays before the label goes back.
     var RESET_MS = 1600
 
-    // One status line for the whole page, in the accessibility tree before
-    // it changes: a button that carries an aria-label never announces its
-    // own new text, so "Copied" is said here. Looked up by id each time,
-    // because Back and Forward replace the body it was put in.
+    // A labelled button never announces its new text, so "Copied" goes to a
+    // status line, found by id (Back replaces the body).
     function live() {
       var el = document.getElementById('copy-status')
       if (!el) {

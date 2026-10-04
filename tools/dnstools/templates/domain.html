@@ -41,7 +41,6 @@
   <div class="mt-3 border-t border-line pt-3">
     <div class="text-xs text-faint">Nameservers on record at the registry</div>
     <div class="mt-1 font-mono text-xs text-muted">{{range $i, $n := .Nameservers}}{{if $i}}<br>{{end}}{{$n}}{{end}}</div>
-    {{/* The question these lead to, one click away. */}}
     {{with $page.NavName}}
     <a href="/consistency?name={{.}}" class="mt-2 inline-block text-xs link-brand">Are they all serving the same records?</a>
     {{end}}
@@ -71,9 +70,8 @@
   <h2 class="eyebrow">registration</h2>
   {{if .RegAbsent}}
     {{/* The registry answered and holds no object for this name. Saying "we
-         couldn't look it up" here would contradict the answer we got. And a
-         name with nameservers delegated to it is registered, whatever its
-         TLD's RDAP says: never offer "unregistered" for one. */}}
+         couldn't look it up" here would contradict the answer we got. A name
+         with nameservers is never offered as "unregistered". */}}
     {{if .RegHasNS}}
     <p class="text-sm text-muted">Registered, but its registry publishes no RDAP record.</p>
     <p class="mt-1 text-xs text-faint"><span class="font-mono">{{or .RegFor .Query}}</span> has nameservers delegated to it. Some TLDs (.de, for one) run no RDAP service, and their WHOIS is the only place the registration details are published.</p>
@@ -138,8 +136,7 @@
 </div>
 {{end}}
 {{else if .CertError}}
-{{/* Couldn't check is amber, as everywhere else on these pages, and it
-     offers the two ways forward: ask again, or ask crt.sh directly. */}}
+{{/* Couldn't check: amber, with both ways forward. */}}
 <div class="card sm:col-span-2">
   <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
   <p class="text-sm text-warn">crt.sh didn't return the certificate list.</p>
@@ -157,8 +154,6 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  {{/* Skip link: the first thing a keyboard reaches, and invisible until it
-       does. Jumps past the site header to the tool. */}}
   <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
   {{template "partials/header" .}}
 
@@ -176,8 +171,6 @@
       <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
              aria-label="Domain name" placeholder="example.com" class="field basis-full sm:basis-0">
       <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
-        {{/* Both labels share one grid cell, so swapping them in flight
-             never changes the button's width or shoves the input. */}}
         <span class="inline-grid">
           <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Look up</span>
           <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Looking up…</span>
@@ -194,8 +187,6 @@
     </details>
 
     {{template "dns/status" .}}
-    {{/* The previous result dims while the next is fetched: still readable,
-         plainly on its way out. */}}
     <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
       <div id="result" class="contents">
         {{template "dns/domaininfo" .}}

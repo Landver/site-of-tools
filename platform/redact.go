@@ -10,12 +10,10 @@ import (
 // the request URI *is* the visitor's input — and that input routinely carries a
 // session token, a password-reset link or a signed URL.
 //
-// ip.corpberry.com logs an IP. dns.corpberry.com logs a domain name, and
-// keeps logging it: but its box now also takes a pasted URL or an email
-// address and looks up the domain inside, so a "name" shaped like either of
-// those is redacted too (redactedName). link.corpberry.com logs whatever
-// someone pasted, which is a different class of data and does not belong in a
-// 30-day corpus (tools/linktools/docs/06-security-and-abuse.md §5).
+// ip.corpberry.com logs an IP, dns.corpberry.com a domain name (a ?name= that
+// is a pasted URL or address is redacted: redactedName). link.corpberry.com
+// logs whatever someone pasted, which is a different class of data and does
+// not belong in a 30-day corpus (tools/linktools/docs/06-security-and-abuse.md §5).
 var redactedParams = map[string]bool{
 	"u":    true, // linktools: every page's input
 	"a":    true, // linktools /diff
@@ -25,14 +23,11 @@ var redactedParams = map[string]bool{
 	"v":    true, // linktools /encode — the likeliest place someone pastes a JWT
 }
 
-// dnsParams: the DNS tool's own query keys, the ones a pasted URL's tail can't
-// be mistaken for.
+// dnsParams: the DNS tool's own query keys.
 var dnsParams = map[string]bool{"name": true, "type": true, "resolver": true}
 
-// redactedName: a DNS ?name= that is not just a name. A domain or an IP is
-// what the corpus is for and stays readable; a value carrying a path, a query,
-// a fragment or an @ is a pasted URL or email address, and those are exactly
-// the shapes that carry a token or a person.
+// redactedName: a DNS ?name= with a path, query, fragment or @ is a pasted URL
+// or email address, the shapes that carry a token or a person.
 func redactedName(key, rawValue string) bool {
 	if strings.ToLower(key) != "name" {
 		return false
@@ -79,10 +74,8 @@ func RedactURI(uri string) string {
 	// here. (Same lesson as tools/linktools/url.go's parser.)
 	pairs := strings.Split(query, "&")
 	changed := false
-	// A URL typed unencoded into ?name= splits at its own "&": everything
-	// after it arrives as pairs of its own ("&token=SECRET"). Once a name
-	// has been redacted as a URL, any later pair that isn't one of the DNS
-	// tool's own parameters is the rest of that URL, and goes too.
+	// An unencoded pasted URL splits at its own "&": after a redacted name,
+	// any pair that isn't a DNS parameter is the rest of that URL.
 	pastedURL := false
 	for i, pair := range pairs {
 		if pair == "" {

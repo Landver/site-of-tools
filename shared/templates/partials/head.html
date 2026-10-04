@@ -2,9 +2,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  {{/* .TitleName: the thing a result page is about ("github.com"), put first
-       so a tab, a history entry and a shared link say which result it is.
-       Only a page that has one sets it; the rest keep their bare title. */}}
+  {{/* .TitleName, when a page sets one, leads the title: "github.com · DNS trace". */}}
   {{$title := .Title}}{{with .TitleName}}{{$title = printf "%s · %s" . $title}}{{end}}
   <title>{{$title}}</title>
   {{$desc := or .Desc "Open-source web tools by Stas: a transparent bot-detection self-test and IP tools. One Go binary, no tracking."}}

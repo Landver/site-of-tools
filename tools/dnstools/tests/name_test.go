@@ -9,8 +9,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-// Every shape here is one people paste into a lookup box. Each must come out
-// as the name they meant, or unchanged for validDomain to refuse with a reason.
+// Pasted shapes come out as the name meant, or unchanged for validDomain.
 func TestNormalizeName(t *testing.T) {
 	t.Parallel()
 
@@ -26,20 +25,19 @@ func TestNormalizeName(t *testing.T) {
 		{"alice@example.com", "example.com"},
 		{"mailto:alice@example.com?subject=hi", "example.com"},
 		{"_dmarc.example.com", "_dmarc.example.com"},
-		// IDN: asked in the ASCII spelling DNS carries, label by label, so an
-		// underscore label beside a Unicode one still converts.
+		// IDN, label by label.
 		{"bücher.de", "xn--bcher-kva.de"},
 		{"BÜCHER.de", "xn--bcher-kva.de"},
 		{"https://bücher.de/", "xn--bcher-kva.de"},
 		{"_dmarc.bücher.de", "_dmarc.xn--bcher-kva.de"},
 		{"例え。テスト", "xn--r8jz45g.xn--zckzah"},
-		// IP literals stay literals: the lookup page reverses them.
+		// IP literals stay literals.
 		{"8.8.8.8", "8.8.8.8"},
 		{"2001:db8::1", "2001:db8::1"},
 		{"[2001:db8::1]", "2001:db8::1"},
 		{"[2001:db8::1]:53", "2001:db8::1"},
 		{"http://[2001:db8::1]:8080/", "2001:db8::1"},
-		// Not names, and not made into names: validDomain says why.
+		// Not names, left for validDomain.
 		{"not a domain", "not a domain"},
 		{"alice@", "alice@"},
 		{"", ""},
@@ -56,7 +54,6 @@ func TestUnicodeName(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"xn--bcher-kva.de", "bücher.de"},
 		{"_dmarc.xn--bcher-kva.de", "_dmarc.bücher.de"},
-		// Nothing to add: the caller prints it only when it differs.
 		{"example.com", ""},
 		{"", ""},
 	} {
@@ -66,8 +63,7 @@ func TestUnicodeName(t *testing.T) {
 	}
 }
 
-// The handlers hand the service the cleaned name, so a pasted URL is looked
-// up rather than refused, on every route.
+// Handlers pass the service the cleaned name.
 func TestHandlerNormalizesPastedInput(t *testing.T) {
 	t.Parallel()
 	f := &fakeLooker{set: sampleSet()}
@@ -82,8 +78,7 @@ func TestHandlerNormalizesPastedInput(t *testing.T) {
 	}
 }
 
-// An IP on /domain is refused by name, before RDAP is asked: the registry's
-// empty answer for an address used to read as "this domain is unregistered".
+// An IP on /domain is refused before RDAP is asked.
 func TestDomainRefusesAnIP(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
@@ -97,8 +92,7 @@ func TestDomainRefusesAnIP(t *testing.T) {
 	}
 }
 
-// The registry holds a record for the registrable domain only, so a subdomain
-// is asked about its parent: www.github.com used to get "no record".
+// A subdomain's registry record is its registrable domain's.
 func TestRegistrableDomain(t *testing.T) {
 	t.Parallel()
 

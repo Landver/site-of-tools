@@ -116,9 +116,7 @@ func svcbFields(rr dns.RR) []Field {
 			f = append(f, Field{"Protocols", humanALPN(val)})
 		case dns.SVCB_PORT:
 			f = append(f, Field{"Port", val})
-		// The presentation form joins addresses with a bare comma, and a line
-		// break at that comma left half an IPv6 address on each line, reading
-		// as two addresses. A space gives the wrap somewhere honest to land.
+		// A space after each comma lets a long hint list wrap between addresses.
 		case dns.SVCB_IPV4HINT:
 			f = append(f, Field{"IPv4 hint", strings.ReplaceAll(val, ",", ", ")})
 		case dns.SVCB_IPV6HINT:
@@ -319,9 +317,8 @@ var providers = []struct{ suffix, name string }{
 //
 // The answer is the operator most of the nameservers belong to, not whichever
 // record came back first: a zone delegated to three Netlify servers and one
-// legacy NS1 one is logged into at Netlify. A zone that really is split
-// between providers names each of them ("NS1 + Amazon Route 53"): naming the
-// one that won a tie said the zone lived somewhere it only half did.
+// legacy NS1 one is logged into at Netlify. A zone split between providers
+// names each ("NS1 + AWS Route 53").
 func providerOf(records []Record) string {
 	seen := map[string]int{}
 	var order []string
@@ -344,8 +341,7 @@ func providerOf(records []Record) string {
 	if len(order) == 0 {
 		return ""
 	}
-	// Most nameservers first; a lone straggler beside a provider holding
-	// several is the legacy server above, not a second home for the zone.
+	// A lone straggler beside a provider with several is the legacy case above.
 	slices.SortStableFunc(order, func(a, b string) int { return seen[b] - seen[a] })
 	names := order[:1]
 	for _, n := range order[1:] {

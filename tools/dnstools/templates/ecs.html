@@ -22,9 +22,7 @@
      own absence on a page that is already dense. */}}
 {{define "dns/ecs"}}
 {{with .ECS}}
-{{/* A name that doesn't exist is already said twice on the page (verdict,
-     delegation health); a third card saying every network was told so adds
-     nothing. */}}
+{{/* Hidden for a name that doesn't exist: the page already says so. */}}
 {{if not (and (eq .Verdict "no-records") (eq .Rcode "NXDOMAIN"))}}
 <div class="card">
   <h2 class="eyebrow">answers by client network</h2>

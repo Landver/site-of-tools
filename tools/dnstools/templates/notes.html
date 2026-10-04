@@ -3,9 +3,7 @@
      Call it with the note slice itself: {{template "dns/notes" .Notes}}.
 
      The dot is the whole severity ranking, and a dot has no text, so without a
-     name on it the ranking exists for sighted users only (WCAG 1.4.1). An
-     info dot is faint grey, not the border colour: at 1.2:1 it vanished and
-     the row read as unbulleted. */}}
+     name on it the ranking exists for sighted users only (WCAG 1.4.1). */}}
 {{define "dns/notes"}}
 <ul class="flex flex-col divide-y divide-line text-sm">
   {{range .}}

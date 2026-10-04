@@ -198,9 +198,7 @@ func TestECSNeverCallsAnUnmeasuredNameNotSteered(t *testing.T) {
 
 // ecsTemplates parses this tool's own templates. Only this package's, not the
 // shared partials: the card is a fragment, the shared set needs the renderer's
-// function map, and nothing here is testing the site chrome. The one function
-// the DNS templates call themselves (toolURL, for links into the IP tool) is
-// stubbed.
+// function map, and nothing here is testing the site chrome. toolURL is stubbed.
 func ecsTemplates(t *testing.T) *template.Template {
 	t.Helper()
 	sub, err := fs.Sub(dnstools.Templates, "templates")
@@ -249,12 +247,7 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	for _, want := range []string{
 		// One card in one of the consistency page's two stacking columns, at
 		// the same width as the public resolvers card it deliberately mirrors.
-		// This assertion has now outlived four layouts (a CSS multi-column
-		// flow wanted "mb-4 break-inside-avoid", a full-width row wanted
-		// "sm:col-span-2", a phone ordering added and then dropped
-		// "order-7"), so it pins the width the card claims and nothing about
-		// the page around it: a card, and never a full-width one (checked
-		// below).
+		// A one-column card, never full width (checked below).
 		`class="card"`,
 		"answers by client network",
 		"This answer depends on the network that asks",
@@ -378,8 +371,6 @@ func TestECSCardSaysNoRecordsRatherThanSameRecords(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
-	// Bounded by what was asked: six prefixes through one resolver are not
-	// "anywhere".
 	if !strings.Contains(out, "No A record for any of the 6 networks") {
 		t.Errorf("the card does not say the name published nothing:\n%s", out)
 	}

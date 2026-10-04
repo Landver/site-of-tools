@@ -164,10 +164,7 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	req.Header.Set("Accept", "application/rdap+json, application/json")
 	resp, err := d.client.Do(req)
 	if err != nil {
-		// The page shows this error, and the raw one is a Go string with the
-		// whole request URL in it ("Get \"https://crt.sh/?exclude=...\":
-		// context deadline exceeded (Client.Timeout ...)"): unreadable, and
-		// wide enough to push a phone screen sideways.
+		// Plain words: the raw error embeds the whole request URL.
 		var nerr net.Error
 		if errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("%s timed out", req.URL.Host)

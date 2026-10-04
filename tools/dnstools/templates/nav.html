@@ -1,13 +1,8 @@
 {{/* Sub-nav for the DNS Tools suite, styled as a segmented control so it reads
      as a view switcher, not body text. Same markup as link/nav and cipher/nav.
      .Active = the current page's key. Links are relative → they stay on
-     dns.corpberry.com.
-
-     Every link carries the domain on screen (.NavName, a domain only: the
-     other pages refuse an IP), so checking one name across the five pages is
-     one click per page, not a retype per page. An htmx submit swaps only the
-     result slot, so the nav rides along out of band (dns/oob) to keep those
-     links on the name just looked up; .OOB is set only on that path.
+     dns.corpberry.com. They carry ?name= (.NavName); after an htmx swap the
+     nav comes back out of band (dns/oob).
 
      Five pages ship today. Adding the next one (see
      tools/dnstools/docs/01-feature-inventory.md) is a new route + one entry
@@ -33,14 +28,7 @@
 </nav>
 {{end}}
 
-{{/* What lives outside the htmx result slot but has to follow a result. Put
-     first in every result fragment; renders nothing on a full page, which
-     has all three in place already.
-
-       nav      its links carry the name just looked up
-       title    the tab and the history entry name the domain
-       status   one short line for a screen reader, instead of the live
-                region reading out the whole result */}}
+{{/* Out-of-band updates for htmx fragments: nav, title, status line. */}}
 {{define "dns/oob"}}
 {{if .OOB}}
 <title>{{with .TitleName}}{{.}} · {{end}}{{.Title}}</title>
@@ -54,10 +42,7 @@
 <p id="dns-status" role="status" class="sr-only"></p>
 {{end}}
 
-{{/* Said once, above the results, when the input took reading: a host taken
-     out of a pasted URL, a domain out of an email address, a Unicode name in
-     the spelling DNS uses. Without it the box keeps the paste while the
-     results quietly answer a different string. */}}
+{{/* Shown when the input was read as something else (a URL's host, punycode). */}}
 {{define "dns/asked"}}
 {{if .Unicode}}
 <p class="-mb-2 text-xs text-faint wrap-anywhere sm:col-span-2">
@@ -70,16 +55,8 @@
 {{end}}
 {{end}}
 
-{{/* The page's small behaviours, all keyed off htmx events. #dns-status is
-     the one live region; every message about what is happening goes there,
-     once, so a screen reader hears "Checking…" then the result.
-
-       beforeRequest   the form's data-busy text, while the request runs
-       afterSwap       the name field marked invalid when the answer is an
-                       error (the full page renders that server-side), and
-                       on a phone the keyboard folded away once a result is in
-       historyRestore  Back and Forward said out loud: the page changed
-                       under the reader without a request of theirs */}}
+{{/* Status-line text in flight, aria-invalid after an error, the phone
+     keyboard folded once a result arrives. */}}
 {{define "dns/script"}}
 <script>
   (function () {
@@ -104,9 +81,7 @@
           input.removeAttribute('aria-describedby')
         }
       }
-      // On a phone the keyboard stays up after a submit (the page doesn't
-      // navigate), covering the result it just asked for. A mouse and
-      // keyboard user keeps the caret, to type the next name straight away.
+      // Fold the phone keyboard over the result; keyboard users keep the caret.
       if (!matchMedia('(pointer: coarse)').matches) return
       var el = document.activeElement
       if (el && el.matches('main form input')) el.blur()
@@ -114,14 +89,12 @@
     document.body.addEventListener('htmx:historyRestore', function () {
       status(document.title)
     })
-    // A second rate-limit notice replaces the first rather than stacking
-    // above it (they are inserted, afterbegin, over the last result).
+    // Don't stack rate-limit notices.
     document.body.addEventListener('htmx:beforeSwap', function (e) {
       if (e.detail.xhr.status !== 429) return
       document.querySelectorAll('#result > [data-transient]').forEach(function (el) { el.remove() })
     })
-    // The offline box announces itself (role=alert); the status line must
-    // not go on saying "Querying…".
+    // The offline box announces itself (role=alert).
     document.body.addEventListener('htmx:sendError', function () {
       status('')
     })

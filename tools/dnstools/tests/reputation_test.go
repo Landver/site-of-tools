@@ -193,9 +193,7 @@ func TestMXReputationAgainstALiveDomain(t *testing.T) {
 	if len(repNotes(m, "ok")) == 0 {
 		t.Errorf("a clean result produced no positive finding; notes: %+v", m.Notes)
 	}
-	// The caveat travels with the data, not only with the HTML, and names
-	// both lists the way a reader knows them (the feed slugs are ours), and
-	// that they are not a live query of every blocklist.
+	// The caveat travels with the data, not only with the HTML.
 	for _, want := range []string{"IPsum", "Spamhaus DROP", "not a live query"} {
 		if !strings.Contains(m.Corpus, want) {
 			t.Errorf("Corpus caveat %q is missing %q", m.Corpus, want)
@@ -273,8 +271,7 @@ func TestMXReputationOnADomainWithNoMailLive(t *testing.T) {
 // with the result under "MXRep".
 func renderMXRep(t *testing.T, vm map[string]any) string {
 	t.Helper()
-	// toolURL is the one renderer function the card calls (an address links
-	// to the IP tool); stubbed, since this test is about the card's claims.
+	// toolURL stubbed: this test is about the card's claims.
 	tpl, err := template.New("mxrep").Funcs(template.FuncMap{
 		"toolURL": func(sub string) string { return "https://" + sub + ".example" },
 	}).ParseFS(dnstools.Templates, "templates/reputation.html", "templates/notes.html")

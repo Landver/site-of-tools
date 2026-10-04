@@ -618,9 +618,7 @@ func repCheckIP(ctx context.Context, ip string, bl BlockChecker) MXRepAddr {
 	return a
 }
 
-// Show reports whether the card has anything to say: a mail server to report
-// on, or a problem with the check. A domain with no MX used to get a whole
-// card saying "nothing checked" under a note saying it has no mail servers.
+// Show reports whether the card has a mail server or a problem to report.
 func (m *MXReputation) Show() bool {
 	if m == nil {
 		return false

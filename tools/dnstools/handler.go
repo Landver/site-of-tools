@@ -126,23 +126,15 @@ func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag st
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
 	case platform.IsHTMX(c):
-		// The fragment also carries what lives outside its slot and has to
-		// follow the result (dns/oob): the nav's links, the tab title and
-		// the screen-reader status line.
+		// Fragments also carry the nav, title and status line (dns/oob).
 		vm["OOB"] = true
 		return c.Render(code, frag, vm)
 	}
 	return c.Render(code, page, vm)
 }
 
-// readName normalises ?name= and reports what the visitor typed when reading
-// it took more than trimming or case: a host taken out of a pasted URL, a
-// domain out of an email address, a Unicode name in the spelling DNS uses.
-//
-// When the clean name differs from what was sent, htmx's history entry is
-// pointed at the clean URL (HX-Push-Url), so the address bar, Back and a
-// copied link carry "example.com" rather than a pasted URL that may hold a
-// token.
+// readName normalises ?name= and returns what was typed when reading it took
+// more than trimming. For htmx, history gets the clean URL (HX-Push-Url).
 func readName(c *echo.Context) (name, typed string) {
 	raw := c.QueryParam("name")
 	name = NormalizeName(raw)
@@ -162,10 +154,7 @@ func readName(c *echo.Context) (name, typed string) {
 	return name, typed
 }
 
-// withName adds the view-model keys every page derives from the name: the one
-// the nav carries to the other pages (a domain only, since every other page
-// refuses an IP), what the input was read as, and the readable spelling of a
-// punycode name.
+// withName adds the view-model keys every page derives from the name.
 func withName(vm map[string]any, name, typed string) map[string]any {
 	if needDomain(name) == nil {
 		vm["NavName"] = name
@@ -188,9 +177,7 @@ func needName(c *echo.Context, name string, vm map[string]any, page, frag, examp
 		})
 	}
 	if platform.IsHTMX(c) {
-		// A blank (whitespace) submit from a page already showing a result:
-		// leave the result, the URL and the nav as they are, and only clear
-		// the "Querying…" the status line was given when it was sent.
+		// A blank submit changes nothing but the status line.
 		c.Response().Header().Set("HX-Reswap", "none")
 		c.Response().Header().Set("HX-Push-Url", "false")
 		return true, c.HTML(http.StatusOK, `<p id="dns-status" hx-swap-oob="innerHTML"></p>`)
@@ -213,20 +200,15 @@ func unavailable(c *echo.Context, vm map[string]any, page, frag string) error {
 func answered(c *echo.Context, name string, body any, err error, vm map[string]any, page, frag string) error {
 	if err != nil {
 		vm["Error"] = sentence(err.Error())
-		// An IP where a domain was needed has somewhere better to go: the
-		// error offers the reverse lookup and IP Tools.
 		vm["ErrIP"] = errors.Is(err, ErrNeedDomain)
 		vm["TitleName"] = "Error"
 		return reply(c, statusFor(err), map[string]string{"name": name, "error": err.Error()}, vm, page, frag)
 	}
-	// The tab and the history entry say which domain this was, as a person
-	// writes it rather than in punycode.
 	vm["TitleName"] = displayName(name)
 	return reply(c, http.StatusOK, body, vm, page, frag)
 }
 
-// displayName is the name as a person writes it: the Unicode spelling of a
-// punycode name, the name itself otherwise.
+// displayName: the Unicode spelling of a punycode name, else the name.
 func displayName(name string) string {
 	if u := UnicodeName(name); u != "" {
 		return u
@@ -234,9 +216,7 @@ func displayName(name string) string {
 	return name
 }
 
-// sentence makes an error string (Go style: lowercase, no full stop, so it
-// composes inside other errors) read as a sentence on the page. The JSON keeps
-// the Go form.
+// sentence capitalises a Go-style error for the page; the JSON keeps the Go form.
 func sentence(s string) string {
 	if s == "" {
 		return s
@@ -331,18 +311,14 @@ func (h *handler) domain(c *echo.Context) error {
 		return err
 	}
 	// The other routes are validated inside the domain layer; this one reaches
-	// HTTP upstreams directly, so it does its own check first. An IP must be
-	// refused here by name: it passes validDomain as four numeric labels, and
-	// the registry's empty answer then read as "this domain is unregistered".
+	// HTTP upstreams directly, so it does its own check first (an IP included).
 	if err := needDomain(name); err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
 	}
 
 	ctx := c.Request().Context()
-	// The registry is asked about the registrable domain, which is the only
-	// name it holds a record for: www.github.com used to come back "the
-	// registry has no record", true and useless. Certificate Transparency is
-	// still asked about the name as typed.
+	// Registries hold records for registrable domains only; CT is asked about
+	// the name as typed.
 	regName := RegistrableDomain(name)
 	if regName != name {
 		vm["RegFor"] = regName
@@ -401,16 +377,13 @@ func (h *handler) domain(c *echo.Context) error {
 		// from "the lookup failed". Only the latter deserves the disclaimer.
 		absent := errors.Is(regErr, errNoRDAPRecord)
 		vm["RegAbsent"] = absent
-		// And "holds nothing" from "unregistered": a name with nameservers
-		// delegated to it is registered, whatever its TLD's RDAP says, and
-		// .de is the large TLD with no RDAP service at all.
+		// A name with nameservers is registered whatever its TLD's RDAP says
+		// (.de has none).
 		if absent {
 			if set, err := h.svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
 				vm["RegHasNS"] = true
 				out["delegated"] = true
-				// Registered, and known to be: the JSON must not offer
-				// "unregistered" beside "delegated", and the answer is not a
-				// total failure because crt.sh happened to be down too.
+				// Known registered: neither "unregistered" nor a total failure.
 				out["registration_error"] = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
 				if code == http.StatusBadGateway {
 					code = http.StatusOK
@@ -543,8 +516,7 @@ func rateLimiter() echo.MiddlewareFunc {
 		},
 	)
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		// A bare page asks no resolver anything, so opening the five tabs
-		// must not spend the budget a real lookup needs a moment later.
+		// Bare pages query nothing, so they don't count.
 		Skipper: func(c *echo.Context) bool { return strings.TrimSpace(c.QueryParam("name")) == "" },
 		Store:   store,
 		IdentifierExtractor: func(c *echo.Context) (string, error) {
@@ -553,9 +525,7 @@ func rateLimiter() echo.MiddlewareFunc {
 		DenyHandler: func(c *echo.Context, _ string, _ error) error {
 			// Negotiated three ways like every other response here. Rendering
 			// one route's fragment to everyone gave browsers an unstyled
-			// partial and htmx nothing it would swap. A wait is not a fault,
-			// so htmx gets a notice rather than the red error box, and the
-			// page keeps its nav and offers the same request again.
+			// partial and htmx nothing it would swap.
 			const msg = "Too many lookups from your IP address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
 			active := strings.TrimPrefix(c.Request().URL.Path, "/")
 			if active == "" {
@@ -565,12 +535,9 @@ func rateLimiter() echo.MiddlewareFunc {
 			vm := withName(map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
 				"Active": active, "Query": name, "Retry": c.Request().URL.RequestURI()}, name, "")
 			if platform.IsHTMX(c) {
-				// A refused request is not a place to go Back to: keep it out
-				// of the history htmx would otherwise push.
+				// Not a history entry.
 				c.Response().Header().Set("HX-Push-Url", "false")
-				// Anywhere else the notice goes above the result rather than
-				// over it: the last answer stays on screen, and the notice is
-				// dropped before htmx snapshots the page for Back.
+				// Above the last result, not over it.
 				c.Response().Header().Set("HX-Reswap", "afterbegin")
 			}
 			return reply(c, http.StatusTooManyRequests,

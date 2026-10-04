@@ -1,11 +1,8 @@
 {{/* The receipt: what was actually asked, who answered, how fast. Naming the
      answering server is what makes the result falsifiable. Its own template so
      it can sit directly under the answer in both the found and NXDOMAIN cases
-     without duplicating the markup.
-
-     Called with the page view model, not the ResultSet: the trace link needs
-     the page's NavName, and inside the template $ is whatever it was called
-     with. */}}
+     without duplicating the markup. Called with the page view model, for
+     $.NavName. */}}
 {{define "dns/querycard"}}
 {{with .Result}}
 {{/* A fan-out routinely mixes fresh and cached answers, so the set-wide flag
@@ -20,13 +17,7 @@
   <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
   {{/* Honest states, not a green tick: validated / partly validated /
        signed but not validated / unsigned. Most names are unsigned, which is
-       not a fault. "Validated" is every answer carrying AD; one AD bit used
-       to speak for a whole set it did not cover.
-
-       All three resolvers on offer validate, so a signed answer without AD is
-       a chain of trust that doesn't reach it, not a lazy resolver. The two
-       states that need a "where does it break" get a link to the page that
-       answers it. */}}
+       not a fault. */}}
   <dt>DNSSEC</dt>
   <dd>
     {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate.</span>
@@ -57,9 +48,7 @@
 {{end}}
 {{end}}
 
-{{/* One value, linked to the next question about it: an address to the IP
-     tool, a hostname to a lookup of that host. Underlined faintly at rest so
-     a link reads as one without forty underlines shouting. */}}
+{{/* A value linked onward: an address to IP Tools, a host to its lookup. */}}
 {{define "dns/value"}}
 {{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
 {{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
@@ -79,9 +68,7 @@
   {{$qname := .QName}}
   {{$alias := .AliasTarget}}
 
-  {{/* A name that doesn't exist gets said once, not repeated per type. Amber,
-       as on the other pages: a typo and a name not yet created look the
-       same, and neither is a fault of the tool's making. */}}
+  {{/* A name that doesn't exist gets said once, not repeated per type. */}}
   {{if .NXDomain}}
     <div class="card sm:col-span-2">
       <h2 class="eyebrow">not found</h2>
@@ -93,16 +80,14 @@
       <p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>
       {{end}}
     </div>
-    {{/* The receipt takes the full width unless the "no answer" card is there
-         to pair with it: alone in one column it strands the other. */}}
+    {{/* Full width unless the "no answer" card pairs with it. */}}
     <div class="card {{if not .Failed}}sm:col-span-2{{end}}">
       {{template "dns/querycard" $page}}
     </div>
     {{if .Failed}}{{template "dns/failed" .}}{{end}}
   {{else}}
 
-    {{/* Nothing came back for any type: that is the answer, and it leads,
-         rather than a "Broken" in the fifth row of the receipt. */}}
+    {{/* Nothing answered for any type: that leads. */}}
     {{if and (not .Found) (not .Missing) .Failed}}
     <div class="card sm:col-span-2">
       <h2 class="eyebrow">no answer</h2>
@@ -116,8 +101,8 @@
 
     {{/* Every answer in ONE table, spanning both columns. The type is a column,
          not a card boundary: splitting a zone's records across eight cards
-         makes you reassemble them by eye. One <tbody> per type, so a long one
-         can fold away after its first rows. */}}
+         makes you reassemble them by eye. One <tbody> per type, so long ones
+         can fold. */}}
     {{if .Found}}
     <div class="card sm:col-span-2">
       <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -126,8 +111,7 @@
              the raw records says it. */}}
         {{if .Provider}}<div class="text-sm text-muted">DNS hosted by <span class="font-medium text-strong">{{.Provider}}</span></div>{{end}}
       </div>
-      {{/* An alias is said once, with every hop, instead of an "on <target>"
-           tag on each of the target's forty records. */}}
+      {{/* An alias, said once with every hop. */}}
       {{if and .Chain (gt .Asked 1)}}
       <p class="mb-3 text-xs text-muted">
         <span class="font-mono text-strong">{{$page.Query}}</span> is an alias
@@ -153,9 +137,7 @@
         <tbody class="group/more border-t border-line">
           {{range $ri, $rec := $res.Records}}
           <tr class="align-top {{if $ri}}border-t border-line/60{{end}} {{if $res.FoldsRow $ri}}hidden group-has-[:checked]/more:table-row{{end}}">
-            {{/* The type heads its group, said once like the cache flag, as the
-                 header of its row group. A screen reader moving down the
-                 column still hears it on every row. */}}
+            {{/* The type heads its row group; screen readers get it on every row. */}}
             {{if not $ri}}
             <th scope="rowgroup" class="py-2 pr-4 text-left font-mono text-xs font-normal text-muted whitespace-nowrap">{{.Type}}
               {{if $res.Cached}}<span class="block font-sans text-faint">cached</span>{{end}}
@@ -167,8 +149,7 @@
               {{/* What this record is for, above the value it decorates: a wall
                    of verification tokens reads as the integrations it is. */}}
               {{if .Label}}<span class="block font-sans text-xs text-muted">{{.Label}}</span>{{end}}
-              {{/* Owned by neither the name nor the alias target the card
-                   already named: worth a tag. */}}
+              {{/* Tag only owners other than the name and the alias target. */}}
               {{if and .Owner (ne .Owner $qname) (ne .Owner $alias)}}<span class="block font-sans text-xs text-faint">on {{.Owner}}</span>{{end}}
               {{template "dns/value" .}}
               {{if or .ASN .Country}}
@@ -186,17 +167,13 @@
               {{/* No room for a TTL column on a phone; it rides with the value. */}}
               {{if not $ri}}<span class="block font-sans text-xs text-faint tabular-nums sm:hidden">TTL {{.TTLHuman}}{{if ge .TTL 60}} ({{.TTL}}s){{end}}</span>{{end}}
             </td>
-            {{/* Raw seconds kept next to the human duration, never replaced —
-                 except under a minute, where the two say the same thing. */}}
+            {{/* Raw seconds kept next to the human duration (not under a minute). */}}
             <td class="hidden py-2 whitespace-nowrap text-right text-muted tabular-nums sm:table-cell">
               {{.TTLHuman}}{{if ge .TTL 60}} <span class="text-faint">({{.TTL}}s)</span>{{end}}
             </td>
           </tr>
           {{end}}
-          {{/* The fold, as a checkbox and :has() rather than script: it works
-               before Alpine loads and with JavaScript off. A visible checkbox
-               with one fixed label, so "checked" means what it says: every
-               record of this type is showing. */}}
+          {{/* The fold is a checkbox and :has(): it works without JavaScript. */}}
           {{if $res.Folded}}
           <tr class="border-t border-line/60">
             <td></td>
@@ -219,9 +196,7 @@
          follow one another down their own side rather than being pinned into
          rows where a short card strands the space beside a tall one. The wide
          answer table above keeps the full width, because it is a table. */}}
-    {{/* With nothing for the right-hand column (a single type that answered,
-         a reverse lookup), the left one takes the row rather than leave half
-         of it empty. */}}
+    {{/* Full width when nothing goes in the right-hand column. */}}
     {{$side := or .Missing .Dangling .Failed}}
     <div class="grid gap-4 content-start {{if not $side}}sm:col-span-2{{end}}">
     {{/* An explicit ?type= filters the CNAME out as the wrong type, so the
@@ -287,9 +262,7 @@
     {{end}}
 
     {{/* The receipt made checkable: the exact commands that reproduce this,
-         the answers in zone-file form, and the same result as JSON. Full
-         width, because a zone file is wide and a half column made it scroll
-         sideways beside an empty column. */}}
+         the answers in zone-file form, and the same result as JSON. */}}
     {{if .Dig}}
     <details class="card sm:col-span-2">
       <summary class="cursor-pointer text-sm text-muted hover:text-strong">
@@ -334,12 +307,9 @@
 {{end}}
 {{end}}
 
-{{/* Types the resolver could not answer, one entry per WAY they failed: a
-     zone with broken DNSSEC fails all nine types with one SERVFAIL and one
-     resolver explanation, which nine copies made read as nine problems. */}}
+{{/* Failed types, one entry per way they failed. */}}
 {{define "dns/failed"}}
-{{/* When nothing answered at all, the lead card above already says so: this
-     one is then only the resolver's reason, titled as such. */}}
+{{/* Under the lead card ($all), this is only the resolver's reason. */}}
 {{$all := and (not .Found) (not .Missing)}}
 <div class="card">
   <h2 class="eyebrow">{{if $all}}the resolver's reason{{else}}no answer{{end}}</h2>

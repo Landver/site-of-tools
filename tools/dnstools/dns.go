@@ -54,10 +54,8 @@ type Record struct {
 	// prefix naming the service that asked for it. Empty when the value speaks
 	// for itself.
 	Label string `json:"label,omitempty"`
-	// Target: the host this record points at (NS, CNAME, MX, PTR, SRV, and a
-	// ServiceMode HTTPS/SVCB endpoint), without the trailing dot. The next
-	// question anyone asks about a record like that is about the host it
-	// names, so the page links it; empty for the root, which names nothing.
+	// Target: the host this record points at (NS, CNAME, MX, PTR, SRV, SVCB),
+	// without the root dot; the page links it.
 	Target string `json:"target,omitempty"`
 	// Detail: decoded sub-fields for a packed value (SOA).
 	Detail []Field `json:"detail,omitempty"`
@@ -121,10 +119,7 @@ var (
 	// ErrBadName: the input cannot be a DNS name at all. Rejected before it
 	// costs an upstream query, since nothing downstream can make it one.
 	ErrBadName = errors.New("not a domain name")
-	// ErrNeedDomain: an IP address on a check that only makes sense for a
-	// domain (a zone to walk, a registration, mail policy). Its own error, not
-	// ErrBadType's: nothing was wrong with the type, and "unsupported record
-	// type" sent people looking for a type to change.
+	// ErrNeedDomain: an IP on a check that needs a domain.
 	ErrNeedDomain = errors.New("this check needs a domain name, not an IP address")
 )
 
@@ -142,16 +137,13 @@ const maxNameLabels = 10
 // an upstream resolver. The size bounds are RFC 1035's own (253 bytes total,
 // 63 per label); the label-count bound is ours.
 //
-// A Unicode label is refused rather than queried: NormalizeName has already
-// converted every label IDNA accepts, so one still here is one it refused, and
-// sent as raw UTF-8 it would come back NXDOMAIN, a false "does not exist".
+// A Unicode label left here is one IDNA refused (NormalizeName converts the
+// rest); sent raw it would come back as a false NXDOMAIN.
 func validDomain(name string) error {
 	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
 	if name == "" {
 		return ErrEmptyName
 	}
-	// Each message names the problem the way someone looking at what they
-	// typed would see it: "contains a space", not `contains " "`.
 	if len(name) > 253 {
 		return nameError{"that name is longer than the 253 characters DNS allows"}
 	}
@@ -188,10 +180,8 @@ func validDomain(name string) error {
 	return nil
 }
 
-// nameError: why some input isn't a domain name, worded for the person who
-// typed it ("example com" isn't a domain name: it contains a space). Is()
-// makes it ErrBadName to errors.Is, so the status mapping and every caller's
-// check are unchanged; only the sentence is better.
+// nameError is ErrBadName to errors.Is, with a message worded for the person
+// who typed the input.
 type nameError struct{ msg string }
 
 func (e nameError) Error() string        { return e.msg }
@@ -326,16 +316,11 @@ type ResultSet struct {
 	// nothing in the raw records says it.
 	Provider string `json:"provider,omitempty"`
 	// Signed: the zone returned DNSSEC signatures. Authenticated: the resolver
-	// set AD on every answer, i.e. it validated all of them. Signed but not
-	// authenticated is a real state (signatures that chain to nothing, most
-	// often a DS record never added at the registrar); neither is a failure,
-	// most names simply aren't signed at all.
+	// set AD on every answer. Signed-but-not-authenticated is a real state;
+	// neither is a failure, most names simply aren't signed at all.
 	Signed        bool `json:"signed"`
 	Authenticated bool `json:"authenticated"`
-	// Unvalidated: the types whose answer did NOT carry AD, when at least one
-	// other type's did. A name signed in one zone and aliased into an unsigned
-	// one validates its CNAME and not its addresses, and one AD bit used to
-	// mark the whole set "Validated" over the very records that weren't.
+	// Unvalidated: types whose answer lacked AD while another type's had it.
 	Unvalidated []string `json:"unvalidated,omitempty"`
 	// Bogus: at least one type failed validation (proven by the CD=1 retry).
 	// Distinct from Signed: a zone whose DNSSEC is broken never gets far enough
@@ -498,8 +483,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		// tracked apart from them: a node that answered without an identifier
 		// must not bury the one a later type's response did carry. Signed is
 		// per-answer: an unsigned NODATA answer arriving first must not mask a
-		// signed one behind it. AD is counted per answer below, because it
-		// only speaks for the response it arrived on.
+		// signed one behind it.
 		if set.Flags == "" && m.flags != "" {
 			set.Flags = m.flags
 		}
@@ -515,8 +499,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		results[i].Cached = m.cached
 		var rcode rcodeError
 		err := errs[i]
-		// AD is a claim about one response, so it is tallied over the ones
-		// that answered: a SERVFAIL or a timeout validated nothing either way.
+		// AD counts only over responses that answered.
 		if err == nil || errors.Is(err, errNXDomain) || errors.Is(err, errNoData) {
 			if m.authenticated {
 				validated++
@@ -557,9 +540,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	// failed, where "couldn't find out" is the honest verdict.
 	set.NXDomain = answered > 0 && nx == answered && answered*2 >= len(types)
 
-	// Validated means every answer was. A partial set names what wasn't, and
-	// only beside something that was: with no AD anywhere the list would just
-	// be every type, which "Signed" or "Unsigned" already says.
+	// Unvalidated is only listed beside at least one validated answer.
 	set.Authenticated = validated > 0 && len(set.Unvalidated) == 0
 	if validated == 0 {
 		set.Unvalidated = nil
@@ -611,10 +592,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 
 	set.Cached = cached > 0 && cached == len(types)
 
-	// SPF first, then the TXT records that say what they are for (a site
-	// verification), then the rest. An RRset has no order, the resolver's is
-	// arbitrary, and the page folds a long one after its first few rows: those
-	// rows should be the ones someone came to read, not a run of opaque tokens.
+	// SPF first, then labelled TXT records: the page folds long sets.
 	for i := range set.Found {
 		if set.Found[i].Type == "TXT" {
 			slices.SortStableFunc(set.Found[i].Records, func(a, b Record) int {
@@ -673,10 +651,7 @@ func txtRank(r Record) int {
 	return 2
 }
 
-// AliasTarget is where the name's alias chain ends, as an owner name (with
-// the root dot) so the page can compare it against Record.Owner: records
-// owned there are the alias target's, which the page says once rather than on
-// every row. Empty when the name is not an alias.
+// AliasTarget: where the alias chain ends, as an owner name, or "" if none.
 func (r *ResultSet) AliasTarget() string {
 	if len(r.Chain) == 0 {
 		return ""
@@ -684,13 +659,10 @@ func (r *ResultSet) AliasTarget() string {
 	return dns.Fqdn(r.Chain[len(r.Chain)-1].Target)
 }
 
-// foldAfter rows of one type are shown before the rest fold away, and only
-// once a type has more than foldOver: hiding two rows behind a click costs
-// more than reading them.
+// The page folds a type with more than foldOver records after foldAfter.
 const foldAfter, foldOver = 5, 8
 
-// Folded is how many of this type's records the lookup page folds behind
-// "show N more": none unless there are enough to be worth folding.
+// Folded: how many of this type's records the page folds away.
 func (r Result) Folded() int {
 	if len(r.Records) > foldOver {
 		return len(r.Records) - foldAfter
@@ -701,16 +673,13 @@ func (r Result) Folded() int {
 // FoldsRow reports whether record i is one of the folded ones.
 func (r Result) FoldsRow(i int) bool { return r.Folded() > 0 && i >= foldAfter }
 
-// FailureGroup: types that failed the same way, said once. A zone whose DNSSEC
-// is broken fails every type with one SERVFAIL and one EDE, and nine copies of
-// that block read as nine problems.
+// FailureGroup: types that failed the same way, shown once.
 type FailureGroup struct {
 	Types []string
 	TypeFailure
 }
 
-// FailureGroups folds Failed by how each type failed, in first-seen order.
-// For the page only: the JSON keeps one entry per type.
+// FailureGroups folds Failed by failure, in first-seen order (page only).
 func (r *ResultSet) FailureGroups() []FailureGroup {
 	var out []FailureGroup
 	key := func(f TypeFailure) string {
@@ -1044,8 +1013,7 @@ func toRecord(rr dns.RR) Record {
 		rec.Target = v.Target
 	case *dns.MX:
 		rec.Target = v.Mx
-		// "0 ." is not a mail server called ".": it is the domain saying it
-		// takes no mail at all (RFC 7505), which the raw value hides.
+		// "0 ." is a null MX (RFC 7505): the domain takes no mail.
 		if v.Mx == "." {
 			rec.Label = "Null MX: this domain accepts no mail"
 		}

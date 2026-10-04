@@ -19,24 +19,19 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  /* Accent — corpberry magenta (identical in both themes) as a FILL: white
-     text on it is 5.7:1. As small TEXT on a dark surface it is 3.2:1, so
-     text that carries the accent (.eyebrow) uses brand-ink, which the dark
-     theme lifts to a lighter pink. Same hue, legible size. */
+  /* Accent — corpberry magenta (identical in both themes). Small accent text
+     uses brand-ink, lighter in the dark theme for contrast. */
   --color-brand: #b83266;
   --color-brand-ink: #b83266;
 
   /* Semantic tokens — LIGHT values (default). Markup only ever names these
      (bg-canvas, text-body, border-line, …); switching theme flips variable
-     values → no per-element dark: duplication anywhere.
-
-     Every text colour clears WCAG AA (4.5:1) on both canvas and surface, in
-     both themes. faint/ok/warn/danger used not to: amber verdicts were
-     2.9:1 on a light card, the faintest text on the page. */
+     values → no per-element dark: duplication anywhere. Text colours clear
+     WCAG AA (4.5:1) on canvas and surface. */
   --color-canvas:  #ffffff; /* page background          */
   --color-surface: #f4f4f5; /* raised bg: cards, inputs */
   --color-line:    #e4e4e7; /* borders, dividers        */
-  --color-line-strong: #8a8a93; /* form-control borders: 3:1, so a field reads as a field */
+  --color-line-strong: #8a8a93; /* form-control borders (3:1)  */
   --color-strong:  #18181b; /* headings, emphasis       */
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
@@ -48,9 +43,7 @@
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
    re-pointing variables re-themes entire site w/ zero markup churn. */
-/* Native controls (checkboxes, select popups, scrollbars) follow the theme
-   too: without color-scheme they render light on the dark page, and a white
-   checkbox was the loudest thing in a results table. */
+/* Native controls (checkboxes, popups, scrollbars) follow the theme. */
 :root {
   color-scheme: light;
 }
@@ -78,8 +71,7 @@
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
   }
-  /* One focus ring everywhere, the one fields already use: links, buttons,
-     tabs and summaries used to show the OS ring beside the brand one. */
+  /* One focus ring everywhere. */
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
@@ -107,15 +99,10 @@
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by lookup and CIDR forms. The border
-     is line-strong (3:1, WCAG 1.4.11): at the card's line colour a filled-in
-     field read as plain text. Focus is a real 2px ring, not a 1px border tint,
-     and a field the page marks aria-invalid turns its border red. */
+  /* Text input + primary button, shared by lookup and CIDR forms. */
   .field {
     @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger;
   }
-  /* Disabled = in flight (hx-disabled-elt): dimmed with a wait cursor, so a
-     second click visibly has nothing to land on. */
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white enabled:hover:opacity-90 disabled:cursor-wait disabled:opacity-60;
   }

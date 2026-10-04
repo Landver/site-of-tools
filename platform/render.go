@@ -27,8 +27,7 @@ type Tool struct {
 var navBaseFuncs = template.FuncMap{
 	"apexURL":  func() string { return "/" },
 	"navTools": func() []Tool { return nil },
-	// Origin of a sibling tool by subdomain, for a result that hands off to
-	// it (an address on the DNS page → the IP tool).
+	// Origin of a sibling tool, for links that hand off to it.
 	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
@@ -138,19 +137,15 @@ func (r *Renderer) Render(c *echo.Context, w io.Writer, name string, data any) e
 
 // --- content negotiation ---------------------------------------------------
 
-// IsHTMX reports whether the request came from htmx and wants an HTML
-// fragment. A history restore is the one htmx request that doesn't: when its
-// snapshot cache misses on Back, htmx re-fetches the URL and swaps the
-// response in as the WHOLE body, so a fragment there replaced the page with a
-// lone unstyled card. htmx 2 sends HX-Request on that fetch too, so the
-// restore header is what tells the two apart.
+// IsHTMX reports whether the request wants an HTML fragment. A history
+// restore doesn't: htmx swaps that response in as the whole body.
 func IsHTMX(c *echo.Context) bool {
 	h := c.Request().Header
 	return h.Get("HX-Request") == "true" && h.Get("HX-History-Restore-Request") != "true"
 }
 
-// prefersHTML reports whether caller wants HTML: anything htmx sends does
-// (fragment or restore), browsers send Accept header containing text/html.
+// prefersHTML reports whether caller wants HTML: htmx always does,
+// browsers send Accept header containing text/html.
 // Everything else (curl's default */*, explicit application/json, API
 // clients) gets JSON.
 func prefersHTML(c *echo.Context) bool {

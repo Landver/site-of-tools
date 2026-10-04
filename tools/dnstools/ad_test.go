@@ -10,9 +10,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-// serveADZone is serveZone with one more knob: which query types the server
-// marks AD. A signed name aliased into an unsigned zone is exactly this shape
-// on the wire, its CNAME validated and its addresses not.
+// serveADZone is serveZone that also sets AD on the given query types.
 func serveADZone(t *testing.T, z testZone, ad map[string]bool) string {
 	t.Helper()
 
@@ -56,8 +54,7 @@ func serveADZone(t *testing.T, z testZone, ad map[string]bool) string {
 	return key
 }
 
-// One AD bit used to mark the whole set "Validated". Validated now means every
-// answer was, and a partial set names the types that weren't.
+// Validated means every answer carried AD; a partial set names the rest.
 func TestAuthenticatedMeansEveryAnswer(t *testing.T) {
 	t.Parallel()
 
@@ -88,8 +85,7 @@ func TestAuthenticatedMeansEveryAnswer(t *testing.T) {
 		t.Errorf("every answer validated: Authenticated = %v, Unvalidated = %v", set.Authenticated, set.Unvalidated)
 	}
 
-	// No AD anywhere is "not validated", which Signed/unsigned already says;
-	// listing every type as unvalidated would add nothing.
+	// No AD anywhere: nothing to list.
 	none := serveADZone(t, z, nil)
 	set, err = newTestService().LookupSet(context.Background(), "alias.test", none, types)
 	if err != nil {
@@ -100,8 +96,7 @@ func TestAuthenticatedMeansEveryAnswer(t *testing.T) {
 	}
 }
 
-// Problems first: a findings list read top to bottom answers "what is wrong"
-// before "what is fine", and within a level the checks keep their own order.
+// Problems first; stable within a level.
 func TestSortNotesPutsProblemsFirst(t *testing.T) {
 	t.Parallel()
 
@@ -120,8 +115,7 @@ func TestSortNotesPutsProblemsFirst(t *testing.T) {
 	}
 }
 
-// A record that names a host carries it as Target, without the root dot, so
-// the page can link the next question; the root itself names nothing.
+// Target is the named host without the root dot; the root names nothing.
 func TestRecordTargetNamesTheHost(t *testing.T) {
 	t.Parallel()
 
@@ -143,8 +137,7 @@ func TestRecordTargetNamesTheHost(t *testing.T) {
 	}
 }
 
-// A zone with broken DNSSEC fails every type the same way; the page says that
-// once, with the types listed, rather than nine identical blocks.
+// Identical failures fold into one group.
 func TestFailureGroupsFoldIdenticalFailures(t *testing.T) {
 	t.Parallel()
 
@@ -167,8 +160,7 @@ func TestFailureGroupsFoldIdenticalFailures(t *testing.T) {
 	}
 }
 
-// SPF first, then the TXT records that say what they are for, then the rest:
-// the rows a long TXT set shows before it folds are the ones worth reading.
+// SPF first, then labelled TXT records, then the rest.
 func TestTXTRankPutsSPFFirst(t *testing.T) {
 	t.Parallel()
 
