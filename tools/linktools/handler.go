@@ -353,6 +353,11 @@ func (h *handler) diff(c *echo.Context) error {
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
+	for _, side := range []string{a, b} {
+		if done, err := h.wrongTool(c, vm, side, "link/diff"); done {
+			return err
+		}
+	}
 	// Each error says which side it is about. "not a URL" alone left the
 	// reader to work out which of the two boxes to fix.
 	ia, err := h.svc.Parse(a)
@@ -699,6 +704,9 @@ func (h *handler) curl(c *echo.Context) error {
 
 	if done, err := h.needURL(c, raw, vm, "link/curl", "link/curled",
 		"?u=https%3A%2F%2Fexample.com%2F"); done {
+		return err
+	}
+	if done, err := h.wrongTool(c, vm, raw, "link/curl"); done {
 		return err
 	}
 	opt := CurlOptions{

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -239,11 +240,16 @@ func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 	e := newLinkApp(t, nil, nil)
 
 	for _, tc := range []struct{ page, input, action, field string }{
-		{"/", "curl 'https://api.example.com/x' -H 'cookie: s=1'", "/curl", "curl"},
-		{"/clean", `<a href="https://example.com/">x</a>`, "/extract", "text"},
-		{"/utm", "see https://a.example and https://b.example", "/extract", "text"},
+		{"/?u=", "curl 'https://api.example.com/x' -H 'cookie: s=1'", "/curl", "curl"},
+		{"/clean?u=", `<a href="https://example.com/">x</a>`, "/extract", "text"},
+		{"/utm?u=", "see https://a.example and https://b.example", "/extract", "text"},
+		{"/?u=", "https://a.example/\nhttps://b.example/", "/extract", "text"},
+		// Diff has two boxes and the build half of curl has its own; each
+		// used to send a pasted command on to the parser and into the URL.
+		{"/diff?b=https%3A%2F%2Fexample.com%2F&a=", "curl https://example.com/ -H 'cookie: s=1'", "/curl", "curl"},
+		{"/curl?u=", "curl https://example.com/ -b 's=1'", "/curl", "curl"},
 	} {
-		target := tc.page + "?u=" + urlEscape(tc.input)
+		target := tc.page + urlEscape(tc.input)
 		rec := request(t, e, http.MethodGet, target, asHTMX)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%s = %d, want 400", target, rec.Code)
@@ -256,6 +262,44 @@ func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 		if !strings.Contains(body, `name="`+tc.field+`"`) {
 			t.Errorf("%s: the form does not carry the input as %q", target, tc.field)
 		}
+	}
+}
+
+// TestOneURLIsNeverSentAway: the wrong-tool check must never refuse a URL.
+// Its first version did, on every one of these: a query parameter called href
+// (Facebook's share links, click trackers), a raw space (SharePoint and
+// file-name links) and a URL carried unencoded in another's query.
+func TestOneURLIsNeverSentAway(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+
+	for _, raw := range []string{
+		"https://www.facebook.com/plugins/share_button.php?href=https%3A%2F%2Fexample.com%2F&layout=button",
+		"https://click.example.com/track?href=https%3A%2F%2Fexample.com%2Fsale&utm_source=mail",
+		"https://example.com/r?pagehref=1",
+		"https://example.com/My Document.pdf",
+		"https://example.com/login?next=https://other.example/x",
+		"https://example.com/?q=red shoes&next=https://other.example/",
+	} {
+		if got := linktools.WrongTool(raw); got != "" {
+			t.Errorf("WrongTool(%q) = %q, want \"\"", raw, got)
+		}
+		for _, page := range []string{"/", "/clean", "/utm"} {
+			rec := request(t, e, http.MethodGet, page+"?u="+urlEscape(raw), asJSON)
+			if rec.Code != http.StatusOK {
+				t.Errorf("%s?u=%s = %d, want 200 (body %s)", page, raw, rec.Code, truncate(rec.Body.String()))
+			}
+		}
+	}
+
+	// The space is let through, and Inspect says what is wrong with it.
+	var in linktools.Inspection
+	rec := request(t, e, http.MethodGet, "/?u="+urlEscape("https://example.com/My Document.pdf"), asJSON)
+	if err := json.Unmarshal(rec.Body.Bytes(), &in); err != nil {
+		t.Fatalf("not an Inspection: %v (body %s)", err, rec.Body)
+	}
+	if !hasNote(in.Notes, linktools.SevWarn, "Unencoded spaces") {
+		t.Errorf("no Unencoded spaces note: %+v", in.Notes)
 	}
 }
 

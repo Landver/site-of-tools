@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -68,21 +69,39 @@ const (
 // URL. Without this the commonest wrong paste, a command copied out of
 // DevTools, got "first path segment in URL cannot contain colon" on the page
 // people land on first.
+//
+// It must never refuse a URL, so every test is for something a single URL
+// cannot be: markup needs a QUOTED href (a query parameter can be called href,
+// as Facebook's share links and click trackers' are), and text needs words
+// BEFORE the first link, or a second link that starts after whitespace. A lone
+// URL with a raw space in it is still one URL (SharePoint links are pasted
+// like that), and so is one carrying another URL unencoded in its query; both
+// go on to Inspect, which says what is wrong with them.
 func WrongTool(raw string) string {
 	t := strings.TrimSpace(raw)
 	low := strings.ToLower(t)
 	switch {
 	case strings.HasPrefix(low, "curl ") || strings.HasPrefix(low, "curl\t") || strings.HasPrefix(low, "curl\n"):
 		return ToolCurl
-	case strings.Contains(low, "<a ") || strings.Contains(low, "href=") || strings.Contains(t, "](http"):
+	case strings.Contains(low, "<a ") || strings.Contains(low, `href="`) || strings.Contains(low, "href='") || strings.Contains(t, "](http"):
 		return ToolExtract
-	case strings.Contains(t, "://") && strings.ContainsAny(t, " \t\n"):
-		// A URL has no whitespace in it. Text around a link, or a list of
-		// links, does.
-		return ToolExtract
+	}
+	first := strings.Index(t, "://")
+	switch {
+	case first < 0:
+		return ""
+	case strings.ContainsAny(t[:first], " \t\r\n"):
+		return ToolExtract // words before the first link: "see https://…"
+	case laterLink.MatchString(t[first+3:]):
+		return ToolExtract // a list of links
 	}
 	return ""
 }
+
+// laterLink is a scheme:// that starts after whitespace: the second link in a
+// list. One inside a query ("?next=https://…") follows "=", not whitespace.
+// templates/live.html carries the same expression.
+var laterLink = regexp.MustCompile(`[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*://`)
 
 // Parse takes a URL apart. It never fetches anything.
 //
@@ -133,6 +152,13 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 			detail = "This scheme executes rather than navigates. It is shown as text and is never rendered as a clickable link."
 		}
 		in.Notes = append(in.Notes, Note{sev, "Scheme is " + u.Scheme + ", not http(s)", detail})
+	}
+
+	// WrongTool lets a lone URL with a raw space through, so say what is
+	// wrong with it here. SharePoint and file-name links arrive like this.
+	if strings.ContainsAny(raw, " \t") {
+		in.Notes = append(in.Notes, Note{SevWarn, "Unencoded spaces",
+			"A URL cannot contain a raw space. A browser sends each one as %20, but in an email or a chat message the link usually stops at the first space. Replace them with %20 before sharing it."})
 	}
 
 	s.describeHost(in, u)

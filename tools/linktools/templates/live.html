@@ -60,12 +60,15 @@
       status.textContent = src ? src.getAttribute('data-announce') : ''
     })
 
-    // Mirrors url.go's WrongTool.
+    // Mirrors url.go's WrongTool, test for test: never refuse a single URL.
     function wrongTool(v) {
       var t = v.trim(), low = t.toLowerCase()
       if (/^curl[ \t\n]/.test(low)) return 'curl'
-      if (low.indexOf('<a ') >= 0 || low.indexOf('href=') >= 0 || t.indexOf('](http') >= 0) return 'extract'
-      if (t.indexOf('://') >= 0 && /[ \t\n]/.test(t)) return 'extract'
+      if (low.indexOf('<a ') >= 0 || low.indexOf('href="') >= 0 || low.indexOf("href='") >= 0 || t.indexOf('](http') >= 0) return 'extract'
+      var first = t.indexOf('://')
+      if (first < 0) return ''
+      if (/[ \t\r\n]/.test(t.slice(0, first))) return 'extract'
+      if (/[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*:\/\//.test(t.slice(first + 3))) return 'extract'
       return ''
     }
 
@@ -98,20 +101,26 @@
       if (status) status.textContent = msg
     }
 
+    // Every one-URL box is checked: u everywhere, and Diff's a and b.
     document.body.addEventListener('htmx:confirm', function (e) {
       var form = e.detail.elt
       if (!form || form.tagName !== 'FORM' || e.detail.verb !== 'get') return
       var u = form.elements.namedItem('u')
-      if (!u || typeof u.value !== 'string') return
       var ev = e.detail.triggeringEvent
-      if (ev && ev.type === 'change' && !u.value.trim()) {
+      if (u && typeof u.value === 'string' && ev && ev.type === 'change' && !u.value.trim()) {
         e.preventDefault()
         return
       }
-      var tool = wrongTool(u.value)
-      if (tool && isResult(e.detail.target)) {
-        e.preventDefault()
-        suggest(e.detail.target, tool, u.value.trim())
+      var boxes = ['u', 'a', 'b']
+      for (var i = 0; i < boxes.length; i++) {
+        var box = form.elements.namedItem(boxes[i])
+        if (!box || typeof box.value !== 'string') continue
+        var tool = wrongTool(box.value)
+        if (tool && isResult(e.detail.target)) {
+          e.preventDefault()
+          suggest(e.detail.target, tool, box.value.trim())
+          return
+        }
       }
     })
 
