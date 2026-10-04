@@ -27,7 +27,7 @@
         <label class="block text-sm text-muted">Message
           <textarea name="text" rows="4" autofocus autocomplete="off" spellcheck="false"
                     placeholder="{&quot;action&quot;:&quot;opened&quot;, …} (the raw request body)"
-                    class="field mt-1 w-full font-mono text-xs">
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
         </label>
         <label class="block text-sm text-muted">Message is
@@ -41,7 +41,7 @@
       <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
         <label class="block text-sm text-muted">Key
           <input name="key" value="{{.Form.Get "key"}}" autocomplete="off" spellcheck="false"
-                 placeholder="the webhook secret" class="field mt-1 w-full font-mono text-xs">
+                 placeholder="the webhook secret" class="field mt-1 w-full font-mono text-base sm:text-xs">
         </label>
         <label class="block text-sm text-muted">Key is
           <select name="key_enc" class="field mt-1 w-full">
@@ -55,7 +55,7 @@
       </div>
       <label class="block text-sm text-muted">Expected signature <span class="text-faint">(optional)</span>
         <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
-               placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-xs">
+               placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-base sm:text-xs">
       </label>
       <details class="text-xs text-muted">
         <summary class="cursor-pointer hover:text-strong">Checking a GitHub, Stripe or Slack webhook?</summary>
