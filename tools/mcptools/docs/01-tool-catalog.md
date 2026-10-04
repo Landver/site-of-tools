@@ -77,6 +77,8 @@ JSON routes are deliberate exclusions (below).
 - **Errors are tool errors** (`isError: true`) with the REST API's own message.
 - **Rate class per tool**, priced by upstream cost, on stores shared with the
   REST twin ([security §6](02-security-and-ops.md#6-rate-limits-and-capacity-d12)).
+  The one exception is `site_blog`, whose limiter is MCP-only: the REST blog
+  has none and is static.
 - **Hints**, all set explicitly (the spec defaults make an unannotated tool
   look destructive and open-world). `destructiveHint` and `idempotentHint`
   only mean something on tools that aren't read-only. Columns below:
@@ -93,7 +95,7 @@ JSON routes are deliberate exclusions (below).
 | `…/mcp/cipher` | 15 | anonymous |
 | `…/mcp/botcheck` | 1 | anonymous |
 | `…/mcp/site` | 1 | anonymous |
-| `…/mcp/owner` | 3 short-link writes | `MCP_OWNER_KEY` as `X-Api-Key` or `Authorization: Bearer`, else 403 |
+| `…/mcp/owner` | 3 short-link tools (create, list, revoke) | `MCP_OWNER_KEY` as `X-Api-Key` or `Authorization: Bearer`, else 403 |
 
 Public lists are identical for every caller (`cacheScope: "public"`). The
 owner endpoint is its own URL serving only the owner tools (`"private"`), so
@@ -186,7 +188,8 @@ Deviations and traps:
 - **`link_short_resolve` is for our own short links**: any other host is a tool
   error pointing at `link_redirect_chain`. It answers "no such link" for
   expired, revoked and unknown alike, like `/s/:code`, and records no hit
-  (D10).
+  (D10). It is listed only when `LINK_API_KEY` is set, the same condition under
+  which `/s/:code` answers at all (otherwise 503).
 - **`link_short_create` is destructive** although it only adds a row: it
   publishes a redirect on corpberry.com, and a steered agent minting one to a
   phishing page is the threat. Clients ask first.
@@ -269,7 +272,7 @@ and its golden file is what review reads. One generic adapter builds a
 - REST returns the page's view model (no JSON tags, every post's rendered
   HTML), so the parity test compares a declared projection. MCP returns the
   post's Markdown without frontmatter, image paths made absolute: what the post
-  is, at a fraction of the tokens. The blog loader keeps the source (floor 1a).
+  is, at a fraction of the tokens. The blog loader keeps the source (floor 7).
 
 ## Not tools
 

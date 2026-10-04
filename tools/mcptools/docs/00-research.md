@@ -126,7 +126,9 @@ the plan pins it with a test.
 |---|---|---|
 | GHSA-xw59-hvm2-8pj6 / CVE-2026-34742 (High) | DNS-rebinding protection off by default | v1.4.0 |
 | GHSA-89xv-2j6f-qhc8 / CVE-2026-33252 (High) | cross-site tool execution on HTTP servers without auth, "especially stateless" | v1.4.1 (Content-Type check + `CrossOriginProtection`) |
-| CVE-2026-27896, GHSA-q382-vc8q-7jhj | — | v1.3.1, v1.4.1 |
+
+Two further advisories, CVE-2026-27896 and GHSA-q382-vc8q-7jhj, were fixed in
+v1.3.1 and v1.4.1; v1.8.0 carries every fix above.
 
 **v1.6.0 turned the Origin check back off by default** (the Content-Type check
 stays); the SDK's advice is to wrap the handler, e.g. in Go 1.25's

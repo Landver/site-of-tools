@@ -79,9 +79,9 @@ order:
 | Step | Rule | Why |
 |---|---|---|
 | 1 | `defer recover()` → for `tools/call` an `isError` "internal error" result, otherwise a JSON-RPC internal error; stack logged, arguments not | **blocker** (round 1): the SDK runs handlers in their own goroutines with no `recover` anywhere in v1.8.0, and Echo's `Recover` only guards the HTTP goroutine. A panic that REST turns into a 500 would kill every subdomain. Only `ciphertools.Run` and one dnstools path recover today |
-| 2 | Deadline per class (pure 5 s, upstream 25 s, fetch 20 s, heavy 15 s) and `context.AfterFunc` on the HTTP request context | `PropagateRequestCancellation` only cancels 2026-07-28 requests; older clients' work would run to completion |
+| 2 | A deadline for every class in §6: `pure`, `protocol` and `resolve` 5 s; `heavy` 15 s; `fetch` 20 s; `dns`, `dns-walk` and `upstream` 25 s (the RDAP/CT client alone allows 20 s). Plus `context.AfterFunc` on the HTTP request context | `PropagateRequestCancellation` only cancels 2026-07-28 requests; older clients' work would run to completion |
 | 3 | Rate limit: `tools/call` → the tool's class; **every other method** (`server/discover`, `initialize`, `tools/list`, …) → a `protocol` class | list floods; and anything a future SDK lets through |
-| 4 | Concurrency caps from the tool package's `Limits`, **the same ones its REST routes use** (floor 1c): `x/sync/semaphore.Weighted` with `TryAcquire`, so a full cap answers "busy, retry in a few seconds" instead of queueing. `upstream` 8, `fetch` 4, `heavy` by memory (≈256 MiB budget; `ciphertools.MemoryCost(op, in)` charges Argon2 and scrypt their own parameters, everything else a flat 16 MiB) | per-IP limits don't bound the box: ten IPs × burst 5 of Argon2 at 64 MiB × 4 threads would, and caps on MCP alone would leave `POST /password/hash` open |
+| 4 | Concurrency caps from the tool package's `Limits`, **the same ones its REST routes use** (floor 1c): `x/sync/semaphore.Weighted` with `TryAcquire`, so a full cap answers "busy, retry in a few seconds" instead of queueing. `upstream` 8, `dns-walk` 4 (the costliest class), `fetch` 4, `heavy` by memory (≈256 MiB budget; `ciphertools.MemoryCost(op, in)` charges Argon2 and scrypt their own parameters, everything else a flat 16 MiB) | per-IP limits don't bound the box: ten IPs × burst 5 of Argon2 at 64 MiB × 4 threads would, and caps on MCP alone would leave `POST /password/hash` open |
 | 5 | Call the tool | |
 | 6 | Output post-processing (§7) | |
 | 7 | Per-call record (§8), through the existing `RequestLog` repository and slog | rule #5: storage stays below, in the repository that already exists |
@@ -228,6 +228,7 @@ report calls re-display a grey area). So:
    site's `curl` users suggest it is off today: confirm. Optional backstop: one
    generous Cloudflare rate-limit rule on `mcp.*`, sized for shared connector
    IPs.
-4. **`.env`:** `MCP_OWNER_KEY` (new; unset disables `/mcp/owner`).
+4. **`.env`:** `MCP_OWNER_KEY` (new, floor 2a; unset disables `/mcp/owner`) and
+   the host's public IPs for the egress deny set (new, floor 1b).
 5. **Floor 8:** a TXT record on `corpberry.com` for the MCP Registry's domain
    proof.

@@ -1,9 +1,9 @@
 # MCP server (`mcp.corpberry.com`): build plan
 
-**Status: planned, not built (2026-10-04).** Decisions marked *lean* are waiting
-for the owner. Reviewed by four independent agents in two rounds before
-handover; every finding and what it changed is in the [review
-log](03-review-log.md).
+**Status: planned, not built (2026-10-04).** The six **bold** decisions in §2
+wait for the owner; the rest stand unless the owner objects. Reviewed by five
+independent agents in three rounds before handover; every finding and what it
+changed is in the [review log](03-review-log.md).
 
 | Doc | What's in it |
 |---|---|
@@ -16,21 +16,28 @@ log](03-review-log.md).
 ## 1. What this is
 
 Every tool on the site already speaks two representations from one domain call:
-HTML for browsers and JSON for `curl` (ARCHITECTURE §4). MCP is a **third
+HTML for browsers and JSON for `curl` ([ARCHITECTURE §4](../../../docs/ARCHITECTURE.md)). MCP is a **third
 transport over the same domain code**, so an AI agent (Claude Code, Claude
 Desktop and claude.ai, Cursor, VS Code, ChatGPT, Codex, Gemini CLI) can call the
 tools as tools instead of being told how to `curl` them.
 
 - **One new subdomain**, `mcp.corpberry.com`, served by the same binary like
   every other host: one `*echo.Echo`, one vhost entry, one nginx block.
-- **Every REST endpoint covered, by 35 public tools**: one per distinct task,
-  generated where the domain already holds the contract
-  ([catalog](01-tool-catalog.md#how-rest-maps-to-tools)). The owner's three
-  short-link writes live on their own key-gated endpoint.
+- **Every JSON endpoint has a decision**: 40 routes become 35 public tools +
+  3 owner tools, one per distinct task, generated where the domain already
+  holds the contract ([catalog](01-tool-catalog.md#how-rest-maps-to-tools)).
+  Two JSON routes are deliberately not tools: `ip.corpberry.com/history` (D9,
+  the owner's call) and the apex JSON catalog (replaced by `tools/list`). A
+  coverage test fails CI on any route without an entry. The owner's three
+  short-link tools (create, list, revoke) live on their own key-gated
+  endpoint.
 - **Endpoints:** `https://mcp.corpberry.com/mcp` (all 35, for clients with tool
   search such as Claude Code); `/mcp/ip`, `/mcp/dns`, `/mcp/link`,
   `/mcp/cipher`, `/mcp/botcheck`, `/mcp/site` (1–15 tools each, for every other
   client); `/mcp/owner` (3 tools, key required).
+- **The pages that prompted this point to it as soon as it works**: each tool
+  page's "Using this from the terminal" block gains an MCP line in the same
+  floor as its toolset, starting with IP Tools in floor 2a.
 - **Same results as the REST API**, projected where a token budget demands it;
   each projection is declared per tool and checked by a parity test.
 - **Nothing new reaches the network.** No tool dials anything a REST route
@@ -62,12 +69,27 @@ the owner are **bold**; the rest stand as leaned unless the owner objects.
 | **D9** | `GET /history` (recent lookups by web visitors) | **Not a tool** | 60% | One small tool for strict parity; it costs a slot in every context for data no agent task needs: addresses *other* people looked up. |
 | D10 | `link_short_resolve` counts a hit? | No | 75% | Yes: hit counts then include agents that only asked where a link goes. |
 | D11 | `botcheck_score` semantics | Scores the fingerprint/headers/IP the agent supplies; what wasn't supplied is **skipped, not failed**, and the result says how much was evaluated; no corpus reads or writes | 75% | Score the MCP request itself (REST `GET /` parity): that describes Anthropic's or OpenAI's HTTP client. Score as-is: absent headers fire rules, and a headers-only call can read "human" with 59 of 68 rules skipped. |
-| **D12** | Rate limits and capacity | Limiter stores **and concurrency caps** built once per tool package and shared by REST and MCP, keyed the same way; classes priced by upstream cost, which REST adopts too; every JSON-RPC message counted ([security §6](02-security-and-ops.md#6-rate-limits-and-capacity-d12)) | 70% | MCP-only limiters and caps: simpler, but each transport gets its own budget, and the plan's own Argon2 attack still works through REST. |
+| **D12** | Rate limits and capacity | Limiter stores **and concurrency caps** built once per tool package and shared by REST and MCP, keyed the same way; classes priced by upstream cost, which REST adopts too; every JSON-RPC message counted ([security §6](02-security-and-ops.md#6-rate-limits-and-capacity-d12)). **REST changes too:** `/consistency` and `/trace` go from 2/s (burst 10) to 1 per 2 s (burst 3); IP lookups and botcheck get limits for the first time (2/s); `POST /jwt/sign` drops from 10/s to 1/s | 70% | MCP-only limiters and caps: simpler, but each transport gets its own budget, and someone could still exhaust the box's memory through REST's `POST /password/hash`, which MCP-only caps don't cover. |
 | D13 | Discovery | Landing page at `/` (HTML + JSON, also on a browser `GET /mcp`), an MCP line on every page's "Using this from the terminal" block, an apex catalog entry, then the official MCP Registry (`com.corpberry/tools`, DNS-verified) | 80% | Registry first: it is still preview, and names should be stable before they're announced. |
 | **D14** | Tool granularity | **One tool per distinct task, 35 tools**; no operation switches; cipher tools generated from field specs the ops export ([catalog rules](01-tool-catalog.md#how-rest-maps-to-tools)) | 70% | Merged tools with an `operation` argument (29, the first draft): reviewers found the merged contracts couldn't be stated honestly (defaults, enums and bounds differ per op) and hid a mode switch. Harder merging (~20): fewer tools, each harder to use correctly. |
 | D15 | Origin check (a spec MUST) | Two steps: floor 2b rejects browser cross-site requests by `Sec-Fetch-Site` and **logs** foreign `Origin`s; floor 3 adds an allowlist from those logs and 403 for the rest ([security §3](02-security-and-ops.md#3-browsers-and-dns-rebinding-d15)) | 70% | Strict from day one (`http.NewCrossOriginProtection`): compliant at once, but Anthropic warns strict Origin checks break its connectors, and we don't know what Origin they send. |
-| **D16** | Harden REST's outbound paths before MCP exposes them | Yes (floor 1b): nameserver probes and RDAP/CT redirects through the one guard, MTA-STS through it on 443 with no proxy; Shodan only where its data is shown, under a process-wide limiter; third-party strings bounded at the source ([security §5](02-security-and-ops.md#5-outbound-reach)) | 80% | Ship MCP first, harden later: faster, but it automates access to paths review found weak, and one can get the site's IP banned by Shodan. |
+| **D16** | Harden REST's outbound paths before MCP exposes them | Today several REST features can be steered into connecting to private networks or to this server; fix them before agents can call them at machine speed. Yes (floor 1b): nameserver probes and RDAP/CT redirects through the one guard, MTA-STS through it on 443 with no proxy; Shodan only where its data is shown, under a process-wide limiter; third-party strings bounded at the source ([security §5](02-security-and-ops.md#5-outbound-reach)) | 80% | Ship MCP first, harden later: faster, but it automates access to paths review found weak, and one can get the site's IP banned by Shodan. |
 | **D17** | Licensed data in MCP results (IP2Location LITE, Spamhaus DROP, Shodan InternetDB) | Keep, with an `attribution` list in each result built from the same credits the footer shows ([security §9](02-security-and-ops.md#9-licensed-data-d17)) | 60% | Drop Shodan's open ports from MCP: cleanest under its non-commercial terms, loses the one live-scan signal `ip_lookup` has. |
+
+### Terms used below
+
+- **Golden test**: saves today's output to a file and fails when a change
+  alters it; the diff is then reviewed like code.
+- **AST test**: a test that reads the Go source itself (its syntax tree) to
+  check something, here that every field an op reads is declared.
+- **Pointer-typed argument**: `*bool` instead of `bool`, so "not sent" (`nil`)
+  differs from `false`.
+- **Semaphore + `TryAcquire`**: a counter of jobs in flight; when it is full,
+  the call answers "busy" at once instead of queueing.
+- **Receiving middleware**: code the SDK runs around every MCP message, like
+  FastAPI middleware around every request.
+- **Projection**: the REST JSON with declared fields dropped or reshaped for
+  MCP (a concise default, a wrapper, an added `attribution`).
 
 ## 3. Architecture
 
@@ -123,25 +145,38 @@ tag, so its wasm build is untouched.
 ```go
 // One subdomain list feeds both the vhost map and the trace guard's deny list,
 // so a new subdomain can't be left out of either (floor 1b).
-ipLim, dnsLim, linkLim, cipherLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits(), ciphertools.NewLimits()
-// … each REST Register(…, xxxLim) as today, plus the shared value:
+ipLim, dnsLim, linkLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits()
+cipherLim, botLim := ciphertools.NewLimits(), botcheck.NewLimits()
+// … each REST Register(…, xxxLim) as today, then MCP gets the same values.
+
+// The owner's Shortener: same store, its own key, and the same cleaner the
+// REST one gets (without it, create with clean: true fails).
+owner := linktools.NewShortener(linkStore, cfg.MCPOwnerKey, cfg.URL("link"))
+if owner != nil {
+    owner.CleanTarget = linktools.CleanTargetFunc(linkSvc)
+}
+
 mcpApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-err := mcptools.Register(mcpApp, mcptools.Deps{
+if err := mcptools.Register(mcpApp, mcptools.Deps{
     Geo: geo, Blocklist: iptools.CheckerFrom(blocklist), // never a nil *BlockList in an interface
     DNS: dnsSvc, Domain: domainClient,
     Link: linkSvc, Tracer: tracer,
-    Owner: linktools.NewShortener(linkStore, cfg.MCPOwnerKey, cfg.URL("link")), // its own key
-    Blog: blog,
-    IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim,
+    Short: shortener, // public resolve; nil without LINK_API_KEY, like /s/:code's 503
+    Owner: owner,     // nil without MCP_OWNER_KEY → /mcp/owner is 404
+    Blog:  blog,
+    IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim,
     RequestLog: reqlog,
-}, cfg.URL("mcp"))
+}, cfg.URL("mcp")); err != nil {
+    return err
+}
 platform.RegisterSEO(mcpApp, cfg.URL("mcp"), mcptools.SitemapPages)
 hosts[cfg.VHost("mcp")] = mcpApp
 ```
 
-A dependency that is off at boot (nil tracer, nil owner shortener, Mongo down)
-**removes its tools** from the list rather than leaving tools that can only
-fail; a dependency that fails at call time is a tool error, the same split the
+`site_blog` is the one tool with an MCP-only limiter: the REST blog has none
+and is static. A dependency that is off at boot (nil tracer, nil shortener, nil
+owner shortener, Mongo down) **removes its tools** from the list rather than
+leaving tools that can only fail; a dependency that fails at call time is a tool error, the same split the
 handlers make between 503 and 502. Each list is fixed per process, which is
 what the spec's "MUST NOT vary per-connection" asks.
 
@@ -184,7 +219,7 @@ first by a golden test of the current REST JSON, compared semantically):
 | dnstools | `show` + `enrich`; `consistency` (Spread ∥ ECS, delegation health, envelope); `domain` (validation, RDAP ∥ CT); `email` + MX reputation; resolver/type defaults and lower-casing | `LookupEnriched`, `Consistency`, `DomainInfo` (a struct whose fields are declared in the map's alphabetical key order so the JSON stays identical, each half's error kept as `json:"-"` for the handler's 503/502/`RegAbsent`), `EmailReport` |
 | linktools | `utm` (with **absent = keep** support); the curl → URL branch; `diff`; the owner create path (body, TTL parsing, sentinel → fixed sentence) | `BuildUTM(raw, changes)`, `ParseCurl(cmd)` (alphabetical fields), `Diff(a, b)`, `Shortener.CreateFrom(req, ip)`, `PublicError(err)`, `CodeFromShortURL`; `RuleCatalog` lookups for a `param` and for a URL's verdict |
 | ciphertools | the JSON → `Input` conversion (with its `FormatFloat 'f'` trap); field names, defaults and bounds scattered as literals | `InputFromJSON`; **per-op field specs** (name, type, enum, default, min, max, description) that the ops' parsers and MCP's `schema.go` both read, guarded by an AST test; `MemoryCost(op, in)` for 1c. All pure, wasm-safe |
-| botcheck | header → `Signals` mapping, `Now`, `EgressIP` (a zero `Now` silently skips the timezone checks); IP → timezone/ASN/proxy/blocklist | a constructor in a new file (the scorer's file imports only stdlib) and `AddIPSignals`; header and IP rules **skip** when not supplied, and `Report` counts evaluated / skipped / fired per tier (D11) |
+| botcheck | header → `Signals` mapping, `Now`, `EgressIP` (a zero `Now` silently skips the timezone checks); IP → timezone/ASN/proxy/blocklist | a constructor in a new file (the scorer's file imports only stdlib) and `AddIPSignals`; header and IP rules **skip** when not supplied, and `Report` counts evaluated / skipped / fired per tier (D11). Over HTTP the request's own headers always count as supplied (a missing header stays evidence), so REST verdicts don't change; REST JSON gains the counts, as one reviewed golden diff |
 
 **1b: outbound hardening, three PRs** (D16; REST benefits): (1) egress:
 nameserver probes and trace through `PubliclyRoutable`, RDAP/CT redirect hops
@@ -265,8 +300,8 @@ Full detail in [02-security-and-ops.md](02-security-and-ops.md).
 surveyed answers with a raw JSON-RPC error) follows golden rule #2: a page for
 browsers, JSON for `curl`, both rendered from the live registry, so the page
 can't list a tool that doesn't exist. The page's view model and JSON body
-differ, so it uses the `reply` helper that dnstools and linktools each carry; a
-third copy is the moment to promote it to `platform`.
+differ, so floor 2a moves the `reply` helper (copied today in dnstools and
+linktools) into `platform` and uses it here.
 
 - **Page:** the endpoints with copy buttons; per-client setup ([research
   §5](00-research.md#5-clients-and-install-snippets)): `/mcp` only for Claude
@@ -284,10 +319,11 @@ third copy is the moment to promote it to `platform`.
 - **Plumbing:** `templates/` registered as a `TemplateSource` in `main.go` and as
   an `@source` line in `input.css` (Tailwind sees only literal class names).
 - **Per-page MCP line:** today each tool page carries its own "Using this from
-  the terminal" block inline (about 25 templates, hard-coded URLs), not a
-  shared partial. Floor 8 adds one partial; any template function it needs goes
-  into `navBaseFuncs` and the cipher `FragmentTemplates` stubs too, or the wasm
-  engine fails to parse its templates.
+  the terminal" block inline (26 templates, hard-coded URLs), not a shared
+  partial. Floor 2a adds one partial and the IP pages' line; each toolset's
+  floor then adds the line to its own pages. Any template function the partial
+  needs goes into `navBaseFuncs` and the cipher `FragmentTemplates` stubs too,
+  or the wasm engine fails to parse its templates.
 - **Apex catalog:** `site.Tools` gains "MCP server" (last, keeping A→Z).
 - **Official MCP Registry** in floor 8: `server.json` in the repo, name
   `com.corpberry/tools`, one `streamable-http` remote per public endpoint,
@@ -336,18 +372,18 @@ own.
 
 | Floor | Ships | Done when |
 |---|---|---|
-| 0 | Owner answers the **bold** decisions (D4, D9, D12, D14, D16, D17) | no *lean* left in §2 |
-| 1a ×5 | Push-down, one PR each: iptools, dnstools, linktools, ciphertools (field specs + AST test), botcheck (skip-not-fail + coverage counts) | golden REST tests green before and after |
+| 0 | Owner answers the six **bold** decisions (D4, D9, D12, D14, D16, D17) | each bold row answered |
+| 1a ×5 | Push-down, one PR each: iptools, dnstools, linktools, ciphertools (field specs + AST test), botcheck (skip-not-fail + coverage counts) | golden REST tests green before and after; botcheck's JSON gains its coverage counts as one reviewed golden diff |
 | 1b ×3 | Egress (incl. `EgressGuard` literal addresses + config, one subdomain list); Shodan (`Offline()` + process-wide limiter); string bounds at the source + credits in Go | egress tests green; DNS makes no Shodan calls |
 | 1c | `platform/ratelimit.go`, per-package `Limits` with caps, REST on the new classes, `RateLimitKey` fail-closed | limits tests green, incl. updated `netgate_test` |
-| 2a | `tools/mcptools`: SDK pinned, vhost, gate, middleware, sanitizer, landing page, per-call records, coverage test with *planned* entries, **`ip` toolset**; config (`MCP_OWNER_KEY`, origin IPs) + `.env.example` + `config_test`; docs | all tests green locally |
+| 2a | `tools/mcptools`: SDK pinned, vhost, gate, middleware, sanitizer, landing page, per-call records, coverage test with *planned* entries, **`ip` toolset**; `reply` moved into `platform`; the shared terminal-block partial + the IP pages' MCP line; config (`MCP_OWNER_KEY`) + `.env.example` + `config_test`; docs | all tests green locally |
 | 2b | Launch: Cloudflare DNS, nginx block, deploy. **Gates:** nginx accepts only Cloudflare; Bot Fight Mode off | `claude mcp add` lists and calls the `ip` tools against prod, **and a claude.ai custom connector does too**; its `Origin` is in the log |
-| 3 | Origin allowlist (D15 step 2); `dns` toolset with its concise defaults | parity + golden list green; live smoke |
-| 4 | `link` toolset, public tools | same; egress tests |
+| 3 | Origin allowlist (D15 step 2); `dns` toolset with its concise defaults; the DNS pages' MCP line | parity + golden list green; live smoke |
+| 4 | `link` toolset, public tools; the link pages' MCP line | same; egress tests |
 | 5 | `/mcp/owner` with its own `Shortener` | owner tests green; public lists unchanged |
-| 6 | `cipher` toolset, generated from the field specs (15 tools) | every op called through MCP with its existing test vectors |
-| 7 | `botcheck` + `site` toolsets (blog keeps Markdown as `json:"-"`; `site.Register` returns the blog) | no corpus writes from MCP (test) |
-| 8 | Discovery: shared terminal-block partial, apex entry, repo README, MCP Registry | listing live; domain verified |
+| 6 | `cipher` toolset, generated from the field specs (15 tools); the cipher pages' MCP line | every op called through MCP with its existing test vectors |
+| 7 | `botcheck` + `site` toolsets (blog keeps Markdown as `json:"-"`; `site.Register` returns the blog); the botcheck page's MCP line | no corpus writes from MCP (test) |
+| 8 | Discovery: apex catalog entry, repo README, MCP Registry | listing live; domain verified |
 | 9 | *Optional*: resources (tracking rules, encoding reference, blog posts) and prompts (`audit_domain`, `inspect_link`) | only if call logs show agents need them |
 
 ## 9. Docs and config to update (in the floors that change them)
