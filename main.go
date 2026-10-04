@@ -137,6 +137,7 @@ func run() error {
 	navFuncs := template.FuncMap{
 		"apexURL":  func() string { return cfg.URL("") },
 		"navTools": func() []platform.Tool { return site.Tools(cfg) },
+		"toolURL":  cfg.URL,
 		"asset":    asset,
 	}
 

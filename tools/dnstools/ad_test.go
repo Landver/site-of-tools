@@ -119,3 +119,66 @@ func TestSortNotesPutsProblemsFirst(t *testing.T) {
 		t.Errorf("order = %v, want %v", got, want)
 	}
 }
+
+// A record that names a host carries it as Target, without the root dot, so
+// the page can link the next question; the root itself names nothing.
+func TestRecordTargetNamesTheHost(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ rr, want string }{
+		{"example.com. 300 IN MX 10 Mail.Example.net.", "mail.example.net"},
+		{"example.com. 300 IN NS ns1.example.net.", "ns1.example.net"},
+		{"www.example.com. 300 IN CNAME example.com.", "example.com"},
+		{"4.3.2.1.in-addr.arpa. 300 IN PTR host.example.com.", "host.example.com"},
+		{"example.com. 300 IN MX 0 .", ""},
+		{"example.com. 300 IN A 192.0.2.1", ""},
+	} {
+		rr, err := dns.NewRR(tc.rr)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.rr, err)
+		}
+		if got := toRecord(rr).Target; got != tc.want {
+			t.Errorf("%s: Target = %q, want %q", tc.rr, got, tc.want)
+		}
+	}
+}
+
+// A zone with broken DNSSEC fails every type the same way; the page says that
+// once, with the types listed, rather than nine identical blocks.
+func TestFailureGroupsFoldIdenticalFailures(t *testing.T) {
+	t.Parallel()
+
+	bogus := &EDE{Code: 6, Text: "DNSSEC Bogus"}
+	set := &ResultSet{Failed: []TypeFailure{
+		{Type: "A", Rcode: "SERVFAIL", EDE: bogus, Bogus: true},
+		{Type: "AAAA", Rcode: "SERVFAIL", EDE: bogus, Bogus: true},
+		{Type: "TXT", Error: "i/o timeout"},
+		{Type: "MX", Rcode: "SERVFAIL", EDE: bogus, Bogus: true},
+	}}
+	groups := set.FailureGroups()
+	if len(groups) != 2 {
+		t.Fatalf("got %d groups, want 2: %+v", len(groups), groups)
+	}
+	if got := strings.Join(groups[0].Types, ","); got != "A,AAAA,MX" {
+		t.Errorf("first group types = %s, want A,AAAA,MX", got)
+	}
+	if !groups[0].Bogus || groups[1].Error != "i/o timeout" {
+		t.Errorf("groups lost their failure detail: %+v", groups)
+	}
+}
+
+// SPF first, then the TXT records that say what they are for, then the rest:
+// the rows a long TXT set shows before it folds are the ones worth reading.
+func TestTXTRankPutsSPFFirst(t *testing.T) {
+	t.Parallel()
+
+	recs := []Record{
+		{Value: `"opaque-token"`},
+		{Value: `"google-site-verification=x"`, Label: "Google"},
+		{Value: `"v=spf1 -all"`, Label: "SPF"},
+	}
+	slices.SortStableFunc(recs, func(a, b Record) int { return txtRank(a) - txtRank(b) })
+	if recs[0].Value != `"v=spf1 -all"` || recs[2].Value != `"opaque-token"` {
+		t.Errorf("order = %v", recs)
+	}
+}

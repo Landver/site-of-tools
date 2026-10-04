@@ -27,6 +27,9 @@ type Tool struct {
 var navBaseFuncs = template.FuncMap{
 	"apexURL":  func() string { return "/" },
 	"navTools": func() []Tool { return nil },
+	// Origin of a sibling tool by subdomain, for a result that hands off to
+	// it (an address on the DNS page → the IP tool).
+	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
 	"asset": StaticURL,

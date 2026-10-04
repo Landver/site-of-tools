@@ -54,6 +54,11 @@ type Record struct {
 	// prefix naming the service that asked for it. Empty when the value speaks
 	// for itself.
 	Label string `json:"label,omitempty"`
+	// Target: the host this record points at (NS, CNAME, MX, PTR, SRV, and a
+	// ServiceMode HTTPS/SVCB endpoint), without the trailing dot. The next
+	// question anyone asks about a record like that is about the host it
+	// names, so the page links it; empty for the root, which names nothing.
+	Target string `json:"target,omitempty"`
 	// Detail: decoded sub-fields for a packed value (SOA).
 	Detail []Field `json:"detail,omitempty"`
 
@@ -584,6 +589,18 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 
 	set.Cached = cached > 0 && cached == len(types)
 
+	// SPF first, then the TXT records that say what they are for (a site
+	// verification), then the rest. An RRset has no order, the resolver's is
+	// arbitrary, and the page folds a long one after its first few rows: those
+	// rows should be the ones someone came to read, not a run of opaque tokens.
+	for i := range set.Found {
+		if set.Found[i].Type == "TXT" {
+			slices.SortStableFunc(set.Found[i].Records, func(a, b Record) int {
+				return txtRank(a) - txtRank(b)
+			})
+		}
+	}
+
 	// Reproduction commands + zone-file rendering of what we found.
 	var zone strings.Builder
 	// +nsid only when we got one back: the page prints an "Answered by" row
@@ -622,6 +639,76 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	// counted: they are queries this request made and the user waited for them.
 	set.QueryMS = time.Since(start).Milliseconds()
 	return set, nil
+}
+
+func txtRank(r Record) int {
+	switch {
+	case strings.HasPrefix(strings.ToLower(strings.TrimLeft(r.Value, `"`)), "v=spf1"):
+		return 0
+	case r.Label != "":
+		return 1
+	}
+	return 2
+}
+
+// AliasTarget is where the name's alias chain ends, as an owner name (with
+// the root dot) so the page can compare it against Record.Owner: records
+// owned there are the alias target's, which the page says once rather than on
+// every row. Empty when the name is not an alias.
+func (r *ResultSet) AliasTarget() string {
+	if len(r.Chain) == 0 {
+		return ""
+	}
+	return dns.Fqdn(r.Chain[len(r.Chain)-1].Target)
+}
+
+// foldAfter rows of one type are shown before the rest fold away, and only
+// once a type has more than foldOver: hiding two rows behind a click costs
+// more than reading them.
+const foldAfter, foldOver = 5, 8
+
+// Folded is how many of this type's records the lookup page folds behind
+// "show N more": none unless there are enough to be worth folding.
+func (r Result) Folded() int {
+	if len(r.Records) > foldOver {
+		return len(r.Records) - foldAfter
+	}
+	return 0
+}
+
+// FoldsRow reports whether record i is one of the folded ones.
+func (r Result) FoldsRow(i int) bool { return r.Folded() > 0 && i >= foldAfter }
+
+// FailureGroup: types that failed the same way, said once. A zone whose DNSSEC
+// is broken fails every type with one SERVFAIL and one EDE, and nine copies of
+// that block read as nine problems.
+type FailureGroup struct {
+	Types []string
+	TypeFailure
+}
+
+// FailureGroups folds Failed by how each type failed, in first-seen order.
+// For the page only: the JSON keeps one entry per type.
+func (r *ResultSet) FailureGroups() []FailureGroup {
+	var out []FailureGroup
+	key := func(f TypeFailure) string {
+		k := f.Rcode + "|" + f.Error + "|" + fmt.Sprint(f.Bogus)
+		if f.EDE != nil {
+			k += "|" + fmt.Sprint(f.EDE.Code) + "|" + f.EDE.Extra
+		}
+		return k
+	}
+	index := map[string]int{}
+	for _, f := range r.Failed {
+		k := key(f)
+		if i, ok := index[k]; ok {
+			out[i].Types = append(out[i].Types, f.Type)
+			continue
+		}
+		index[k] = len(out)
+		out = append(out, FailureGroup{Types: []string{f.Type}, TypeFailure: f})
+	}
+	return out
 }
 
 // lookup resolves one type against an already-validated resolver address.
@@ -923,9 +1010,24 @@ func toRecord(rr dns.RR) Record {
 		rec.Label = txtLabel(strings.Join(v.Txt, ""))
 	case *dns.CAA:
 		rec.Detail = caaFields(v)
-	case *dns.HTTPS, *dns.SVCB:
+	case *dns.HTTPS:
 		rec.Detail = svcbFields(rr)
+		rec.Target = v.Target
+	case *dns.SVCB:
+		rec.Detail = svcbFields(rr)
+		rec.Target = v.Target
+	case *dns.NS:
+		rec.Target = v.Ns
+	case *dns.CNAME:
+		rec.Target = v.Target
+	case *dns.MX:
+		rec.Target = v.Mx
+	case *dns.PTR:
+		rec.Target = v.Ptr
+	case *dns.SRV:
+		rec.Target = v.Target
 	}
+	rec.Target = strings.ToLower(strings.TrimSuffix(rec.Target, "."))
 	return rec
 }
 

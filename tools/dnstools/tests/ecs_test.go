@@ -198,14 +198,18 @@ func TestECSNeverCallsAnUnmeasuredNameNotSteered(t *testing.T) {
 
 // ecsTemplates parses this tool's own templates. Only this package's, not the
 // shared partials: the card is a fragment, the shared set needs the renderer's
-// function map, and nothing here is testing the site chrome.
+// function map, and nothing here is testing the site chrome. The one function
+// the DNS templates call themselves (toolURL, for links into the IP tool) is
+// stubbed.
 func ecsTemplates(t *testing.T) *template.Template {
 	t.Helper()
 	sub, err := fs.Sub(dnstools.Templates, "templates")
 	if err != nil {
 		t.Fatalf("sub FS: %v", err)
 	}
-	tmpl, err := template.ParseFS(sub, "*.html")
+	tmpl, err := template.New("dns").Funcs(template.FuncMap{
+		"toolURL": func(sub string) string { return "https://" + sub + ".example" },
+	}).ParseFS(sub, "*.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
