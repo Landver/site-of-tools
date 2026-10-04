@@ -148,7 +148,8 @@ fields** (`dom *DomainClient`, and `iptools` does the same with `shodan
   for the one dependency that must never be nil.
 - **`*Tracer` and `*Shortener` are concrete pointers** with nil-receiver-safe
   methods and a `linktools.ErrDisabled` sentinel, in the `dnstools.DomainClient`
-  shape. `NewShortener` returns `nil` when `links == nil || apiKey == ""`;
+  shape. `NewShortener` returns `nil` when `links == nil`; with an empty
+  `apiKey` it still resolves but refuses create, list and revoke.
   `NewTracer` returns `nil` when handed a nil guard.
 - **`svc` is not optional.** A nil one is a wiring mistake, so `Register`
   panics on it — exactly as `dnstools.Register` does for `svc`.
@@ -341,7 +342,7 @@ links := linktools.NewLinkStore(idxCtx, mdb.DB()) // nil db -> nil store -> crea
 // (2) after the dnstools app block:
 // link.corpberry.com — URL inspect / clean / trace / short links. Parsing is
 // pure; only /trace dials out, and only through the egress gate in trace.go.
-short := linktools.NewShortener(links, cfg.LinkAPIKey, cfg.URL("link")) // nil when either is absent; ShortURL owns the "/s/" prefix
+short := linktools.NewShortener(links, cfg.LinkAPIKey, cfg.URL("link")) // nil without a store; keyless = resolve only; ShortURL owns the "/s/" prefix
 tracer := linktools.NewTracer(10 * time.Second)                              // nil -> /trace answers 503
 linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 linktools.Register(linkApp, linktools.NewService(), tracer, short)
