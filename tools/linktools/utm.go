@@ -156,7 +156,7 @@ func upsertParam(ps []Param, key, value string) []Param {
 			continue
 		}
 		p.Value, p.RawValue, p.Layers, p.List, p.Delimiter = value, "", nil, nil, ""
-		p.Valueless, p.Warn, p.AltValue = false, "", ""
+		p.Valueless, p.Warn, p.AltValue, p.Nested = false, "", "", ""
 		out = append(out, p)
 		done = true
 	}

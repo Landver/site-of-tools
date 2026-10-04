@@ -634,16 +634,22 @@ func (h *handler) curl(c *echo.Context) error {
 	vm["Personas"], vm["Persona"] = Personas(), c.QueryParam("ua")
 
 	if cmd != "" {
-		u, headers, err := h.svc.FromCurl(cmd)
+		req, err := h.svc.FromCurlRequest(cmd)
 		if err != nil {
 			return h.badRequest(c, vm, err, "link/curl")
 		}
-		in, perr := h.svc.Parse(u)
+		in, perr := h.svc.Parse(req.URL)
 		if perr != nil {
 			return h.badRequest(c, vm, perr, "link/curl")
 		}
-		out := map[string]any{"url": u, "headers": headers, "inspection": in}
-		vm["FromCurl"], vm["Headers"], vm["Result"] = u, headers, in
+		out := map[string]any{
+			"url": req.URL, "headers": req.Headers, "inspection": in,
+			"method": req.Method, "method_why": req.MethodWhy,
+		}
+		if req.BodyBytes > 0 {
+			out["body_bytes"] = req.BodyBytes
+		}
+		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = req.URL, req.Headers, in, req
 		return reply(c, http.StatusOK, out, vm, "link/curl", "link/curled")
 	}
 

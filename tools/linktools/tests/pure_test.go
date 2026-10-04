@@ -953,3 +953,65 @@ func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
 		t.Errorf("no summary note: %+v", res.Notes)
 	}
 }
+
+// TestNestedLinkIsReadable: a redirect parameter encoded twice shows its
+// still-encoded form as the value; the link it carries is reported decoded, so
+// the page can offer to inspect, clean or trace it. Only http(s) counts.
+func TestNestedLinkIsReadable(t *testing.T) {
+	t.Parallel()
+	in, err := linktools.NewService().Parse("https://example.com/out?next=https%253A%252F%252Fshop.example%252Fcart%253Fid%253D42&plain=https%3A%2F%2Fa.example%2F&js=javascript%3Aalert(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"next": "https://shop.example/cart?id=42", "plain": "https://a.example/", "js": ""}
+	for _, p := range in.Params {
+		if p.Nested != want[p.Key] {
+			t.Errorf("%s: nested = %q, want %q", p.Key, p.Nested, want[p.Key])
+		}
+	}
+}
+
+// TestQueryTokensAreFlagged: a token in the fragment was always called out;
+// the same token in the query, which reaches servers and logs, was not.
+func TestQueryTokensAreFlagged(t *testing.T) {
+	t.Parallel()
+	in, err := linktools.NewService().Parse("https://example.com/cb?access_token=abc&state=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasNote(in.Notes, linktools.SevWarn, "Credentials in the query string") {
+		t.Errorf("no warning for a token in the query: %+v", in.Notes)
+	}
+	clean, _ := linktools.NewService().Parse("https://example.com/search?q=token")
+	if hasNote(clean.Notes, linktools.SevWarn, "Credentials in the query string") {
+		t.Error("a query whose VALUE is the word token was flagged; only credential-named keys count")
+	}
+}
+
+// TestCurlCommandSaysHowItSends: a command whose body makes it a POST used to
+// come back looking like a GET. The method is curl's own choice, with the
+// reason, and the body is measured but never echoed.
+func TestCurlCommandSaysHowItSends(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	for _, tc := range []struct{ cmd, method, why string }{
+		{`curl 'https://api.example.com/x' --data-raw '{"a":1}'`, "POST", "implied by --data-raw"},
+		{`curl -X PUT https://api.example.com/x -d a=1`, "PUT", "set with -X"},
+		{`curl -sI https://example.com/`, "HEAD", "implied by -I"},
+		{`curl -G https://example.com/search -d q=shoes`, "GET", "-G moves the -d data into the query string"},
+		{`curl https://example.com/`, "GET", "curl's default"},
+	} {
+		r, err := svc.FromCurlRequest(tc.cmd)
+		if err != nil {
+			t.Errorf("%s: %v", tc.cmd, err)
+			continue
+		}
+		if r.Method != tc.method || r.MethodWhy != tc.why {
+			t.Errorf("%s: %s (%s), want %s (%s)", tc.cmd, r.Method, r.MethodWhy, tc.method, tc.why)
+		}
+	}
+	r, _ := svc.FromCurlRequest(`curl https://a.example/ --data-raw 'password=hunter2'`)
+	if r.BodyBytes != len("password=hunter2") {
+		t.Errorf("body measured as %d bytes", r.BodyBytes)
+	}
+}

@@ -315,3 +315,24 @@ func TestAlpineAttributesAreExpressions(t *testing.T) {
 		}
 	}
 }
+
+// TestCleanFormSendsUnwrapOnlyWhenTurnedOff: the control is "leave wrappers as
+// they are", so a default submit sends nothing for it and a shared Clean URL
+// stays clean. The old ticked-by-default box needed a hidden "false"
+// companion, which put unwrap=true&unwrap=false into every result URL.
+func TestCleanFormSendsUnwrapOnlyWhenTurnedOff(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+
+	page := request(t, e, http.MethodGet, "/clean", asHTML).Body.String()
+	if strings.Contains(page, `type="hidden" name="unwrap"`) {
+		t.Error("the Clean form still carries a hidden unwrap companion")
+	}
+	if !strings.Contains(page, `name="unwrap" value="false"`) {
+		t.Error("the unwrap control does not send unwrap=false when ticked")
+	}
+	off := request(t, e, http.MethodGet, "/clean?unwrap=false&u=https%3A%2F%2Fexample.com%2F", asHTML).Body.String()
+	if !regexp.MustCompile(`name="unwrap" value="false"[^>]*checked`).MatchString(off) {
+		t.Error("with unwrap=false the box does not show as ticked")
+	}
+}

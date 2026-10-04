@@ -117,6 +117,13 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 			res.Notes = append(res.Notes, Note{SevWarn, "Host changed by unwrapping",
 				fmt.Sprintf("The %s wrapper was removed, so this no longer points at the same host as the input. Re-check the destination before trusting it; nothing about the wrapper vouched for it.", name)})
 		}
+	} else if _, name, _, ok := unwrapAll(raw); ok {
+		// Unwrapping is off and this IS a wrapper, so the result is the
+		// wrapper's own query with nothing a rule matches, which read as
+		// "nothing to remove" with no hint why. Say what was left alone.
+		res.Wrapper = name
+		res.Notes = append(res.Notes, Note{SevInfo, "Wrapper left in place",
+			fmt.Sprintf("This is a %s link and unwrapping is turned off, so it was cleaned as it stands. The real destination inside it was not touched.", name)})
 	}
 
 	u, err := url.Parse(work)

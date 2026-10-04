@@ -83,6 +83,7 @@ type Param struct {
 	Tracking  string   `json:"tracking,omitempty"`  // rule name, when Clean would strip this
 	AltValue  string   `json:"alt_value,omitempty"` // the other reading of an ambiguous "+"
 	Warn      string   `json:"warn,omitempty"`      // bad escape, ambiguous "+", non-UTF8
+	Nested    string   `json:"nested,omitempty"`    // the http(s) URL inside, once decoded
 }
 
 // Inspection is one parsed URL. Field order mirrors the URL's own left-to-right

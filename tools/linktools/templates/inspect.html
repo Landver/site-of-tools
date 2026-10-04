@@ -104,6 +104,21 @@
               </span>
             {{end}}
             {{if .Warn}}<span class="mt-1 block text-xs text-warn">{{.Warn}}</span>{{end}}
+            {{/* A link inside the value, decoded, with somewhere to take it.
+                 Same-origin tool links only: the nested URL itself is never an
+                 href (see the file comment). Shown in full only when it took
+                 decoding to reach; a plain URL value is already readable. */}}
+            {{if .Nested}}
+            <span class="mt-1 block text-xs">
+              {{if .Layers}}<span class="text-muted">Decodes to</span> <span class="wrap-anywhere font-mono text-strong">{{.Nested}}</span><br>{{end}}
+              <a href="/?u={{.Nested}}" class="text-brand-ink hover:underline">Inspect</a>
+              <span class="text-muted">&middot;</span>
+              <a href="/clean?u={{.Nested}}" class="text-brand-ink hover:underline">Clean</a>
+              <span class="text-muted">&middot;</span>
+              <a href="/trace?u={{.Nested}}" class="text-brand-ink hover:underline">Trace</a>
+              <span class="text-muted">the link inside</span>
+            </span>
+            {{end}}
             {{if .Layers}}
             <details class="mt-1">
               <summary class="cursor-pointer text-xs text-brand-ink">Decodes further ({{len .Layers}} more {{if eq (len .Layers) 1}}layer{{else}}layers{{end}})</summary>

@@ -119,6 +119,15 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 
 	// Query. Hand-split so order, repeats and broken escapes all survive.
 	in.Params = parsePairs(u.RawQuery, true)
+	// The fragment check below has always existed; the same token in the query
+	// string went unremarked, though the query is the half that reaches the
+	// server, its logs and every Referer. A warning, not a failure: presigned
+	// URLs and magic links carry one on purpose. The point is to treat the URL
+	// as a password, not to call it wrong.
+	if keys := secretishNames(in.Params); len(keys) > 0 {
+		in.Notes = append(in.Notes, Note{SevWarn, "Credentials in the query string",
+			strings.Join(keys, ", ") + " looks like a token or a session. A query string reaches the server and its logs, stays in browser history, and can leak to other sites in the Referer header: share this URL as you would a password."})
+	}
 	if strings.Contains(u.RawQuery, ";") && !strings.Contains(u.RawQuery, "&") &&
 		strings.Count(u.RawQuery, ";") >= 1 && len(in.Params) == 1 {
 		in.Notes = append(in.Notes, Note{SevWarn, "Semicolon separators",
@@ -300,6 +309,23 @@ func enrichParam(p *Param, rawVal string) {
 	p.Tracking = TrackingRuleFor(p.Key)
 	p.Layers = decodeLadder(p.Value)
 	p.Kind = classify(p.Value)
+	p.Nested = nestedLink(p)
+}
+
+// nestedLink is the http(s) URL a parameter carries, once decoded: the value
+// itself, or the last rung of its ladder. A redirect= that was encoded twice
+// used to show its still-encoded form as the value, with the readable link
+// folded away under "decodes further" and nothing to do with it there.
+func nestedLink(p *Param) string {
+	cand := p.Value
+	if len(p.Layers) > 0 {
+		cand = p.Layers[len(p.Layers)-1].Value
+	}
+	u, err := url.Parse(cand)
+	if err != nil || u.Host == "" || !linkableSchemes[strings.ToLower(u.Scheme)] {
+		return ""
+	}
+	return cand
 }
 
 // splitList recognises a delimited list. The delimiter is returned so the page
@@ -449,12 +475,22 @@ var secretishKeys = map[string]bool{
 }
 
 func containsSecretish(ps []Param) bool {
+	return len(secretishNames(ps)) > 0
+}
+
+// secretishNames lists the keys in ps that name a credential and carry a
+// value, each once, in order.
+func secretishNames(ps []Param) []string {
+	var out []string
+	seen := map[string]bool{}
 	for _, p := range ps {
-		if secretishKeys[strings.ToLower(p.Key)] && p.Value != "" {
-			return true
+		k := strings.ToLower(p.Key)
+		if secretishKeys[k] && p.Value != "" && !seen[k] {
+			seen[k] = true
+			out = append(out, p.Key)
 		}
 	}
-	return false
+	return out
 }
 
 func isDangerousScheme(s string) bool {

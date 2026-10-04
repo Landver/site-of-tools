@@ -11,13 +11,14 @@
         docs/06-security-and-abuse.md §8. data-copy is not an href either: the
         copy partial puts it on the clipboard as text.
 
-     2. The "unwrap" checkbox ships a hidden companion placed AFTER it, not
-        before. The handler reads unwrap as `!= "false"` — on by default — and an
-        unchecked box sends nothing at all, which would silently mean "on". The
-        companion supplies the "false". Echo's QueryParam returns the FIRST
-        value, so the checkbox must sit first in DOM order for a checked box to
-        win with "true". Swapping the two turns the control permanently off.
-        "sort" and "affiliate" default to off and need no companion.
+     2. The unwrap control is phrased as the exception, "Leave wrappers as
+        they are", and posts unwrap=false only when ticked. The handler reads
+        unwrap as `!= "false"`, on by default, so an unticked box sending
+        nothing means exactly what it should. It used to be a ticked-by-default
+        "Unwrap…" box with a hidden "false" companion, which worked but put
+        unwrap=true&unwrap=false into every shared Clean URL, and on a live
+        form into the address bar on every keystroke. "sort" and "affiliate"
+        default to off and were always this shape.
 
      The removal table is the page's whole promise: A4 says the output names
      every parameter removed AND the rule that removed it, so a wrong rule is
@@ -54,10 +55,9 @@
 
       <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
         <label class="flex items-start gap-2">
-          {{/* Checkbox first, hidden companion second. See the file comment. */}}
-          <input type="checkbox" name="unwrap" value="true" class="mt-1"{{if .Unwrap}} checked{{end}}>
-          <input type="hidden" name="unwrap" value="false">
-          <span>Unwrap Safe Links, urldefense and friends</span>
+          {{/* Ticked = unwrap=false. See the file comment. */}}
+          <input type="checkbox" name="unwrap" value="false" class="mt-1"{{if not .Unwrap}} checked{{end}}>
+          <span>Leave Safe Links and other wrappers as they are</span>
         </label>
         <label class="flex items-start gap-2">
           <input type="checkbox" name="affiliate" value="true" class="mt-1"{{if .Affiliate}} checked{{end}}>
@@ -89,9 +89,10 @@
           ship scoped to a host or they do not ship at all.
         </p>
         <p>
-          Affiliate tags are off by default because removing one is a different act from removing a click
+          Affiliate tags are kept by default because removing one is a different act from removing a click
           ID: it takes the commission from whoever published the link. Sorting is off because it breaks any
-          URL whose signature covers the query string as written.
+          URL whose signature covers the query string as written. Wrappers are unwrapped unless you say
+          otherwise, because the wrapper's own query is the one part of the link nobody wants.
         </p>
         <p>
           Nothing here is a black box. <a href="/clean/rules" class="link-inline">The whole
@@ -126,21 +127,15 @@
 <section class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4"
          data-announce="{{if .Removed}}Clean URL ready, {{len .Removed}} removed.{{else}}Nothing to remove.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-    <h2 class="text-sm font-semibold text-strong">{{if .Removed}}Clean URL{{else}}Nothing to remove{{end}}</h2>
+    <h2 class="text-sm font-semibold text-strong">Clean URL</h2>
     <p class="text-xs text-muted">
-      {{if .Removed}}{{len .Removed}} {{if eq (len .Removed) 1}}parameter{{else}}parameters{{end}} removed{{else}}No parameter matched a rule{{end}}{{if .Unwrapped}} &middot; unwrapped from {{.Wrapper}}{{end}}
+      {{if .Removed}}{{len .Removed}} {{if eq (len .Removed) 1}}parameter{{else}}parameters{{end}} removed{{else}}Nothing removed{{end}}{{if .Unwrapped}} &middot; unwrapped from {{.Wrapper}}{{end}}
     </p>
   </div>
   <div class="mt-2 flex flex-wrap items-start gap-3">
     <pre class="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Output}}</pre>
     <button type="button" class="btn-copy" data-copy="{{.Output}}">Copy</button>
   </div>
-  {{if not .Removed}}
-  <p class="mt-2 text-xs text-muted">
-    The output is the input, byte for byte. That is not the same as &ldquo;this URL does not track
-    you&rdquo;: the catalog is curated, not complete.
-  </p>
-  {{end}}
 </section>
 
 {{if .Notes}}

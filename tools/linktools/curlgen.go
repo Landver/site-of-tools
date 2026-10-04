@@ -128,11 +128,34 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 // curl would assume http there; Parse says so in a note instead, and inventing
 // the scheme here would hide the fact that the pasted command relied on it.
 func (s *Service) FromCurl(cmd string) (string, []Header, error) {
+	r, err := s.FromCurlRequest(cmd)
+	if err != nil {
+		return "", nil, err
+	}
+	return r.URL, r.Headers, nil
+}
+
+// CurlRequest is a pasted command taken apart: where it goes, what it sends,
+// and how. Method is what curl itself would send, with the reason, because a
+// command whose --data-raw silently made it a POST used to come back looking
+// exactly like a GET. The body is measured, never echoed: it is the part of a
+// copied command most likely to carry a password.
+type CurlRequest struct {
+	URL       string   `json:"url"`
+	Headers   []Header `json:"headers"`
+	Method    string   `json:"method"`
+	MethodWhy string   `json:"method_why"`
+	BodyBytes int      `json:"body_bytes,omitempty"`
+	BodyFlag  string   `json:"body_flag,omitempty"` // the first flag that carried a body
+}
+
+// FromCurlRequest is FromCurl with the method and body accounted for.
+func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 	if strings.TrimSpace(cmd) == "" {
-		return "", nil, fmt.Errorf("no command given")
+		return nil, fmt.Errorf("no command given")
 	}
 	if len(cmd) > maxInput {
-		return "", nil, fmt.Errorf("command is %d bytes; the limit is %d", len(cmd), maxInput)
+		return nil, fmt.Errorf("command is %d bytes; the limit is %d", len(cmd), maxInput)
 	}
 
 	toks := shellSplit(cmd)
@@ -144,8 +167,9 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 		i++
 	}
 
-	var target string
-	var headers []Header
+	r := &CurlRequest{}
+	var explicit string // -X
+	var get, head bool  // -G, -I
 	for i < len(toks) {
 		t := toks[i]
 		i++
@@ -153,8 +177,8 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 			// End of flags: whatever follows is an operand, even if it starts
 			// with a dash.
 			for ; i < len(toks); i++ {
-				if target == "" && looksLikeURL(toks[i]) {
-					target = toks[i]
+				if r.URL == "" && looksLikeURL(toks[i]) {
+					r.URL = toks[i]
 				}
 			}
 			break
@@ -162,13 +186,29 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 		if !strings.HasPrefix(t, "-") || t == "-" {
 			// curl accepts several URLs; this tool inspects one, so the first
 			// wins and the rest are left alone.
-			if target == "" && looksLikeURL(t) {
-				target = t
+			if r.URL == "" && looksLikeURL(t) {
+				r.URL = t
 			}
 			continue
 		}
 
 		name, val, hasVal := splitCurlFlag(t)
+		switch {
+		case name == "--get":
+			get = true
+		case name == "--head":
+			head = true
+		case !strings.HasPrefix(t, "--"):
+			// A short cluster, "-sSLG" or "-GXPOST": G and I count wherever
+			// they sit among the booleans before any letter that takes an
+			// argument.
+			bools := t[1:]
+			if j := strings.IndexAny(bools, curlArgShorts); j >= 0 {
+				bools = bools[:j]
+			}
+			get = get || strings.ContainsRune(bools, 'G')
+			head = head || strings.ContainsRune(bools, 'I')
+		}
 		if !hasVal && curlFlagTakesArg(name) && i < len(toks) {
 			// Consuming the argument matters even for flags we ignore: without
 			// it, the filename after -o or the body after -d becomes the URL.
@@ -181,32 +221,54 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 		switch name {
 		case "-H", "--header":
 			if h, ok := parseHeaderArg(val); ok {
-				headers = append(headers, h)
+				r.Headers = append(r.Headers, h)
 			}
 		case "--url":
-			if target == "" {
-				target = val
+			if r.URL == "" {
+				r.URL = val
 			}
 		case "-A", "--user-agent":
-			headers = append(headers, Header{"User-Agent", val})
+			r.Headers = append(r.Headers, Header{"User-Agent", val})
 		case "-e", "--referer":
-			headers = append(headers, Header{"Referer", strings.TrimSuffix(val, ";auto")})
+			r.Headers = append(r.Headers, Header{"Referer", strings.TrimSuffix(val, ";auto")})
 		case "-b", "--cookie":
 			// curl reads this as a file when it has no "=" in it, and a file
 			// name is not a header.
 			if strings.Contains(val, "=") {
-				headers = append(headers, Header{"Cookie", val})
+				r.Headers = append(r.Headers, Header{"Cookie", val})
 			}
+		case "-X", "--request":
+			explicit = strings.ToUpper(val)
+		case "-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--data-urlencode", "-F", "--form", "--form-string", "--json":
+			if r.BodyFlag == "" {
+				r.BodyFlag = name
+			}
+			r.BodyBytes += len(val)
 		}
 	}
 
-	if target == "" {
-		return "", nil, fmt.Errorf("no URL in that command")
+	if r.URL == "" {
+		return nil, fmt.Errorf("no URL in that command")
 	}
-	if _, err := url.Parse(target); err != nil {
-		return "", nil, fmt.Errorf("the URL in that command is not a URL: %w", parseReason(err))
+	if _, err := url.Parse(r.URL); err != nil {
+		return nil, fmt.Errorf("the URL in that command is not a URL: %w", parseReason(err))
 	}
-	return target, headers, nil
+
+	// curl's own order of precedence: -X wins, then -I, then -G (which turns a
+	// body into the query string), then a body means POST.
+	switch {
+	case explicit != "":
+		r.Method, r.MethodWhy = explicit, "set with -X"
+	case head:
+		r.Method, r.MethodWhy = "HEAD", "implied by -I"
+	case get && r.BodyFlag != "":
+		r.Method, r.MethodWhy = "GET", "-G moves the "+r.BodyFlag+" data into the query string"
+	case r.BodyFlag != "":
+		r.Method, r.MethodWhy = "POST", "implied by "+r.BodyFlag
+	default:
+		r.Method, r.MethodWhy = "GET", "curl's default"
+	}
+	return r, nil
 }
 
 // shellQuote wraps s in single quotes for POSIX sh.
@@ -391,7 +453,7 @@ func ansiCDecode(s string) string {
 var curlArgFlags = map[string]bool{
 	"--header": true, "--url": true, "--request": true, "--data": true,
 	"--data-raw": true, "--data-binary": true, "--data-urlencode": true,
-	"--data-ascii": true, "--form": true, "--form-string": true, "--user": true,
+	"--data-ascii": true, "--form": true, "--form-string": true, "--json": true, "--user": true,
 	"--user-agent": true, "--referer": true, "--cookie": true, "--cookie-jar": true,
 	"--output": true, "--dump-header": true, "--proxy": true, "--proxy-user": true,
 	"--cert": true, "--key": true, "--cacert": true, "--capath": true,
