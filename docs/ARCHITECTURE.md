@@ -137,11 +137,19 @@ duplication.
 // platform/render.go
 func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 
-// prefersHTML: htmx always wants HTML; browsers send Accept: text/html.
+// prefersHTML: anything htmx sends wants HTML; browsers send Accept: text/html.
 // Everything else (curl's */*, application/json, API clients) gets JSON.
 func prefersHTML(c *echo.Context) bool {
-    if IsHTMX(c) { return true }
-    return strings.Contains(c.Request().Header.Get("Accept"), "text/html")
+    h := c.Request().Header
+    if h.Get("HX-Request") == "true" || h.Get("HX-History-Restore-Request") == "true" { return true }
+    return strings.Contains(h.Get("Accept"), "text/html")
+}
+
+// IsHTMX: a fragment, EXCEPT a history restore — htmx swaps that response in
+// as the whole body, so it must get the page.
+func IsHTMX(c *echo.Context) bool {
+    h := c.Request().Header
+    return h.Get("HX-Request") == "true" && h.Get("HX-History-Restore-Request") != "true"
 }
 
 func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) error {
@@ -156,6 +164,14 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 Result: `curl 'https://ip.corpberry.com/?ip=8.8.8.8'` auto-returns JSON (curl
 sends `Accept: */*`, no `text/html`); browser at same URL gets page.
 See [tools/iptools/](../tools/iptools/docs/README.md).
+
+One URL, three bodies, chosen by headers → every non-static response carries
+`Vary: Accept, HX-Request, HX-History-Restore-Request`, and fragments are
+`Cache-Control: no-store` (`negotiationHeaders` in `platform/app.go`). Without
+it the browser cache keyed on the URL alone and Back after an htmx swap showed
+the cached fragment as the whole document. A page whose forms push history
+also includes `partials/htmx-history`, which resets the fields from the URL on
+restore (htmx snapshots markup, and markup holds the value first rendered).
 
 > Real, documented, versioned **public JSON API** later → add **Huma**
 > (`humaecho` adapter) on `/api/v1` of relevant sub-app. Reuses same domain fns —
