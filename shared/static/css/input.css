@@ -35,6 +35,10 @@
   --color-danger:  #dc2626; /* proxy / threat / error   */
   --color-ok:      #059669; /* not-a-proxy / looks human */
   --color-warn:    #d97706; /* suspicious (bot-check band) */
+  /* Notable but not bad: a parameter that only moved, a wrapper that was read
+     through. Brand magenta did this job before and sat too close to danger
+     red to be read as anything but an error, in the dark theme especially. */
+  --color-info:    #2563eb;
 }
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
@@ -50,6 +54,7 @@
   --color-danger:  #f87171;
   --color-ok:      #34d399;
   --color-warn:    #fbbf24;
+  --color-info:    #60a5fa;
 }
 
 @layer base {
@@ -88,6 +93,11 @@
   }
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
+  }
+  /* Same box as .btn-primary, quiet colours: for the second action on a page
+     that already has a primary one, so the two never compete. */
+  .btn-secondary {
+    @apply rounded-md border border-line bg-surface px-4 py-2 text-sm font-medium text-strong hover:border-brand;
   }
   /* Small secondary control that sits beside the thing it acts on. Driven by
      partials/copy, which toggles is-copied / is-failed and nothing else: names

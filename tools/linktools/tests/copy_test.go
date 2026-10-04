@@ -35,10 +35,12 @@ func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 	e := newLinkApp(t, nil, nil)
 
 	for _, target := range []string{
+		"/?u=https%3A%2F%2Fexample.com%2Fp%3Fa%3D1",
 		"/clean?u=https%3A%2F%2Fexample.com%2Fp%3Futm_source%3Dx",
 		"/utm?u=https%3A%2F%2Fexample.com%2Fp&utm_source=n&utm_medium=email",
 		"/curl?u=https%3A%2F%2Fexample.com%2Fp",
 		"/encode?v=a+b",
+		"/extract?text=see+https%3A%2F%2Fexample.com%2F",
 	} {
 		body := request(t, e, http.MethodGet, target, asHTML).Body.String()
 		if !strings.Contains(body, "data-copy=") {
@@ -58,6 +60,14 @@ func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "navigator.clipboard") {
 		t.Error("the console does not ship partials/copy when short links are off")
+	}
+
+	// /trace likewise: its final destination has a Copy button, and with no
+	// tracer wired it renders none, but the template is the one a configured
+	// server serves.
+	rec = request(t, e, http.MethodGet, "/trace", asHTML)
+	if !strings.Contains(rec.Body.String(), "navigator.clipboard") {
+		t.Error("the trace page does not ship partials/copy")
 	}
 }
 

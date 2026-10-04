@@ -8,7 +8,8 @@
         The only anchors here are same-origin tool links (/?u=…, /diff?a=…),
         where the destination is this site and html/template percent-escapes the
         value into the query. Same rule as inspect.html's header comment,
-        docs/06-security-and-abuse.md §8.
+        docs/06-security-and-abuse.md §8. data-copy is not an href either: the
+        copy partial puts it on the clipboard as text.
 
      2. The "unwrap" checkbox ships a hidden companion placed AFTER it, not
         before. The handler reads unwrap as `!= "false"` — on by default — and an
@@ -20,7 +21,9 @@
 
      The removal table is the page's whole promise: A4 says the output names
      every parameter removed AND the rule that removed it, so a wrong rule is
-     reportable instead of invisible. It is never collapsed to a count. */}}
+     reportable instead of invisible. It is never collapsed to a count. It is
+     grouped by rule (handler.go's groupRemovals), which prints each reason once
+     but still names every parameter and every value. */}}
 {{define "link/clean"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -32,14 +35,14 @@
     {{template "link/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Strip the tracking parameters out of a URL and see exactly which rule removed what. Mail-gateway
-      wrappers are unwrapped first, straight out of the link text. Nothing is fetched, here or at any
-      point: the destination host never learns you looked.
+      Strip the tracking parameters out of a URL, unwrap Safe Links and other mail-gateway wrappers, and see
+      which rule removed what. Nothing is fetched: the destination never learns you looked.
     </p>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
-
-    <form hx-get="/clean" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    {{/* Live, like Inspect: the result follows the input and the options, so a
+         paste or a ticked box is the whole interaction. See index.html. */}}
+    <form action="/clean" hx-get="/clean" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+          hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6">
       <div class="flex flex-wrap gap-2">
         <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
@@ -50,25 +53,31 @@
         <span role="status" class="htmx-indicator self-center text-sm text-muted">Stripping…</span>
       </div>
 
-      <div class="mt-3 flex flex-col gap-2 text-sm text-muted">
+      <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
         <label class="flex items-start gap-2">
           {{/* Checkbox first, hidden companion second. See the file comment. */}}
           <input type="checkbox" name="unwrap" value="true" class="mt-1"{{if .Unwrap}} checked{{end}}>
           <input type="hidden" name="unwrap" value="false">
-          <span>Unwrap mail-gateway links first <span class="text-faint">(Safe Links, urldefense and friends — read out of the link, not fetched)</span></span>
+          <span>Unwrap Safe Links, urldefense and friends</span>
         </label>
         <label class="flex items-start gap-2">
           <input type="checkbox" name="affiliate" value="true" class="mt-1"{{if .Affiliate}} checked{{end}}>
-          <span>Also strip affiliate tags <span class="text-faint">(off by default: deleting a click ID costs an advertiser a data point, deleting an affiliate tag takes money from whoever published the link — different decisions)</span></span>
+          <span>Also strip affiliate tags <span class="text-faint">(they pay whoever shared the link)</span></span>
         </label>
         <label class="flex items-start gap-2">
           <input type="checkbox" name="sort" value="true" class="mt-1"{{if .Sort}} checked{{end}}>
-          <span>Sort the parameters that remain <span class="text-faint">(off by default: it makes two URLs comparable and breaks any URL whose signature covers the literal query string)</span></span>
+          <span>Sort what remains <span class="text-faint">(breaks signed URLs)</span></span>
         </label>
       </div>
     </form>
 
-    <details class="mt-4 text-sm">
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+      {{template "link/cleaned" .}}
+    </div>
+
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">Which parameters does this touch?</summary>
       <div class="mt-2 space-y-2 text-muted">
         <p>
@@ -77,6 +86,11 @@
           functional on some sites. A name alone does not settle it: <code class="font-mono">ref=facebook</code>
           is a tracker and <code class="font-mono">ref=main</code> picks a git branch, so the ambiguous names
           ship scoped to a host or they do not ship at all.
+        </p>
+        <p>
+          Affiliate tags are off by default because removing one is a different act from removing a click
+          ID: it takes the commission from whoever published the link. Sorting is off because it breaks any
+          URL whose signature covers the query string as written.
         </p>
         <p>
           Nothing here is a black box. <a href="/clean/rules" class="text-brand hover:underline">The whole
@@ -91,10 +105,6 @@
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/clean?u=https%3A%2F%2Fexample.com%2F%3Futm_source%3Dx'</pre>
       <p class="mt-1 text-xs text-muted">Same URL, same rules. The removals come back as an ordered array carrying the rule name and the reason, not as a count.</p>
     </details>
-
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/cleaned" .}}
-    </div>
   </main>
 
   {{template "partials/htmx-errors" .}}
@@ -104,15 +114,31 @@
 </html>
 {{end}}
 
-{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
+{{/* Result fragment — the htmx swap target, and the body of the page above.
+     The clean URL leads, with its Copy button: it is what nearly everyone came
+     for, and it used to sit below a summary strip, the findings and a "Before"
+     card, under the fold on a laptop. */}}
 {{define "link/cleaned"}}
 {{with .Result}}
 
-<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
-  <span class="text-muted">Removed <span class="font-mono text-strong">{{len .Removed}}</span></span>
-  {{if .Wrapper}}<span class="text-muted">Wrapper <span class="font-mono text-strong">{{.Wrapper}}</span></span>{{end}}
-  {{if eq .Output .Input}}<span class="text-muted">Output is the input, byte for byte</span>{{end}}
-</div>
+<section class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4">
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    <h2 class="text-sm font-semibold text-strong">{{if .Removed}}Clean URL{{else}}Nothing to remove{{end}}</h2>
+    <p class="text-xs text-muted">
+      {{if .Removed}}{{len .Removed}} {{if eq (len .Removed) 1}}parameter{{else}}parameters{{end}} removed{{else}}No parameter matched a rule{{end}}{{if .Unwrapped}} &middot; unwrapped from {{.Wrapper}}{{end}}
+    </p>
+  </div>
+  <div class="mt-2 flex flex-wrap items-start gap-3">
+    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Output}}</pre>
+    <button type="button" class="btn-copy" data-copy="{{.Output}}">Copy</button>
+  </div>
+  {{if not .Removed}}
+  <p class="mt-2 text-xs text-muted">
+    The output is the input, byte for byte. That is not the same as &ldquo;this URL does not track
+    you&rdquo;: the catalog is curated, not complete.
+  </p>
+  {{end}}
+</section>
 
 {{if .Notes}}
 <section class="mt-6">
@@ -123,88 +149,60 @@
 </section>
 {{end}}
 
-{{/* Before and after, side by side. Both are text: a CleanResult has no
-     Linkable flag, so nothing here is ever made clickable. */}}
-<section class="mt-6 grid gap-4 sm:grid-cols-2">
-  <div class="rounded-lg border border-line bg-surface p-4">
-    <h2 class="text-sm font-semibold text-strong">Before</h2>
-    <p class="mt-2 break-all font-mono text-sm text-muted">{{.Input}}</p>
-  </div>
-  <div class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4">
-    <h2 class="text-sm font-semibold text-strong">After</h2>
-    <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-sm text-strong">{{.Output}}</pre>
-    <button type="button" class="btn-copy mt-3" data-copy="{{.Output}}">Copy</button>
-  </div>
-</section>
-
-{{if .Unwrapped}}
-<section class="mt-6 rounded-lg border border-brand bg-surface p-4">
-  <h2 class="text-sm font-semibold text-strong">A {{.Wrapper}} wrapper was removed first</h2>
-  <p class="mt-1 text-sm text-muted">
-    The real destination was read straight out of the link, with no request to anyone. Cleaning then ran on
-    that destination rather than on the wrapper's own bookkeeping, which is the only order that removes
-    anything useful.
-  </p>
-  <p class="mt-2 break-all font-mono text-sm text-strong">{{.Unwrapped}}</p>
-  <p class="mt-2 text-xs text-muted">
-    This no longer points at the host you pasted. Nothing about the wrapper vouched for where it goes.
-  </p>
-</section>
-{{end}}
-
-{{if .Removed}}
+{{if $.Groups}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">What was removed, and why</h2>
-  <p class="mt-1 text-xs text-muted">
-    Every deletion names the rule that made it. The value is echoed back, so a wrong rule is something you
-    can see and undo rather than something you have to trust.
-  </p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
           <th class="px-3 py-2 font-medium">Parameter</th>
-          <th class="px-3 py-2 font-medium">Value</th>
           <th class="px-3 py-2 font-medium">Rule</th>
-          <th class="px-3 py-2 font-medium">Why</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-line">
-        {{range .Removed}}
+        {{range $.Groups}}
         <tr class="align-top">
-          <td class="px-3 py-2 font-mono text-strong">{{.Key}}</td>
-          <td class="px-3 py-2 break-all font-mono text-xs text-muted">
-            {{if eq .Value ""}}<span class="italic">empty string</span>{{else}}{{.Value}}{{end}}
+          <td class="w-2/5 px-3 py-2">
+            <ul class="space-y-1">
+              {{range .Params}}
+              <li class="break-all font-mono text-xs">
+                <span class="text-sm text-strong">{{.Key}}</span><span class="text-faint">=</span>{{if eq .Value ""}}<span class="font-sans italic text-muted">empty</span>{{else}}<span class="text-muted">{{.Value}}</span>{{end}}
+              </li>
+              {{end}}
+            </ul>
           </td>
-          <td class="px-3 py-2 font-mono text-xs text-strong">{{.Rule}}</td>
-          <td class="px-3 py-2 text-xs text-muted">{{.Why}}</td>
+          <td class="px-3 py-2 text-xs text-muted">
+            <span class="font-mono text-strong">{{.Pattern}}</span>
+            <span class="block">{{.Why}}</span>
+          </td>
         </tr>
         {{end}}
       </tbody>
     </table>
   </div>
 </section>
-{{else}}
-<section class="mt-6 rounded-lg border border-line bg-surface p-4">
-  <h2 class="text-sm font-semibold text-strong">Nothing was removed</h2>
-  <p class="mt-1 text-sm text-muted">
-    No parameter in this URL matched a rule, so the output is the input byte for byte. That is not the same
-    claim as &ldquo;this URL does not track you&rdquo;: the catalog is curated, not complete.
-  </p>
-</section>
 {{end}}
 
-<p class="mt-6 text-sm">
+{{/* What went in, and what the wrapper was hiding. Text only, per the file
+     comment: the wrapped link is exactly the kind of URL nobody should be one
+     click away from following. */}}
+<dl class="mt-6 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[7rem_1fr]">
+  <dt class="text-faint">You pasted</dt>
+  <dd class="break-all font-mono text-muted">{{.Input}}</dd>
+  {{if .Unwrapped}}
+  <dt class="text-faint">Unwrapped</dt>
+  <dd class="break-all font-mono text-muted">{{.Unwrapped}}</dd>
+  {{end}}
+</dl>
+
+<p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/?u={{.Output}}" class="text-brand hover:underline">Inspect the result</a>
-  <span class="text-muted">&middot;</span>
-  <a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand hover:underline">Diff it against the original</a>
-  <span class="text-muted">&middot;</span>
+  {{if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand hover:underline">Diff it against the original</a>{{end}}
   <a href="/clean/rules" class="text-brand hover:underline">Read the rules</a>
 </p>
-<p class="mt-2 text-xs text-muted">
-  The cleaned URL is shown as text, never as a link. Only the Inspect page makes a pasted URL clickable, and
-  only when its scheme passed the http(s) allowlist.
-</p>
 
+{{else}}
+{{template "link/examples" .}}
 {{end}}
 {{end}}

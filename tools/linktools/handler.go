@@ -147,11 +147,25 @@ func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag st
 	return c.Render(code, page, vm)
 }
 
-// vm builds the view-model keys every page needs.
-func (h *handler) vm(active, title, desc, query string) map[string]any {
+// vm builds the view-model keys every page needs. heading is the page's own
+// name, which is what the <h1> says; the suite name rides on the <title> only,
+// where a tab strip or a search result needs it and a heading does not.
+// Examples are the page's "try it" links, nil for pages without any.
+func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	return map[string]any{
-		"Active": active, "Title": title, "Desc": desc,
-		"Heading": title, "Query": query, "Base": h.base,
+		"Active": active, "Title": heading + " — Link Tools", "Desc": desc,
+		"Heading": heading, "Query": query, "Base": h.base,
+		"Examples": examples[active],
+	}
+}
+
+// listChanged tells the console's alias list to reload itself. An htmx
+// response header, so it fires only for the console: a JSON caller never sees
+// an event it has no use for, and a revoked link stops looking alive without
+// the operator having to remember to press anything.
+func listChanged(c *echo.Context) {
+	if platform.IsHTMX(c) {
+		c.Response().Header().Set("HX-Trigger", "link-list-changed")
 	}
 }
 
@@ -174,7 +188,7 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 
 func (h *handler) inspect(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	vm := h.vm("inspect", "Inspect a URL — Link Tools", inspectDesc, raw)
+	vm := h.vm("inspect", "Inspect a URL", inspectDesc, raw)
 
 	if done, err := h.needURL(c, raw, vm, "link/index", "link/inspect",
 		"?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1"); done {
@@ -198,7 +212,7 @@ func (h *handler) clean(c *echo.Context) error {
 		StripAffiliate: c.QueryParam("affiliate") == "true",
 		Unwrap:         c.QueryParam("unwrap") != "false", // on by default: it is the whole point
 	}
-	vm := h.vm("clean", "Clean a URL — Link Tools", cleanDesc, raw)
+	vm := h.vm("clean", "Clean a URL", cleanDesc, raw)
 	vm["Sort"], vm["Affiliate"], vm["Unwrap"] = opt.Sort, opt.StripAffiliate, opt.Unwrap
 
 	if done, err := h.needURL(c, raw, vm, "link/clean", "link/cleaned",
@@ -210,8 +224,38 @@ func (h *handler) clean(c *echo.Context) error {
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/clean")
 	}
-	vm["Result"] = res
+	vm["Result"], vm["Groups"] = res, groupRemovals(res.Removed)
 	return reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
+}
+
+// removalGroup is the page's view of the Removals one rule made: the reason
+// printed once beside every parameter it took, not once per row. utm_source,
+// utm_medium and utm_campaign are one decision, and three copies of the same
+// paragraph made the table read like three separate problems. The JSON keeps
+// the flat per-parameter list, which is the API contract.
+type removalGroup struct {
+	Pattern string // the rule's parameter pattern, e.g. "utm_*"
+	Why     string
+	Params  []Removal
+}
+
+// groupRemovals folds Removals by rule, in order of first appearance. Rule is
+// "pattern · origin" (Rule.name), and Why already opens with the origin, so
+// only the pattern is kept to stand beside it.
+func groupRemovals(rs []Removal) []removalGroup {
+	var out []removalGroup
+	at := map[string]int{}
+	for _, r := range rs {
+		i, ok := at[r.Rule]
+		if !ok {
+			pattern, _, _ := strings.Cut(r.Rule, " · ")
+			i = len(out)
+			at[r.Rule] = i
+			out = append(out, removalGroup{Pattern: pattern, Why: r.Why})
+		}
+		out[i].Params = append(out[i].Params, r)
+	}
+	return out
 }
 
 // rules serves the rule table. Content-negotiated rather than a ".json"
@@ -221,7 +265,7 @@ func (h *handler) clean(c *echo.Context) error {
 // discharges the promise to state the catalog's scope rather than being magic.
 func (h *handler) rules(c *echo.Context) error {
 	cat := Rules()
-	vm := h.vm("clean", "Tracking rules — Link Tools", rulesDesc, "")
+	vm := h.vm("clean", "Tracking rules", rulesDesc, "")
 	vm["Catalog"] = cat
 	// Cheap validator for the extension's daily refresh.
 	c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
@@ -239,7 +283,7 @@ func (h *handler) rules(c *echo.Context) error {
 func (h *handler) diff(c *echo.Context) error {
 	a := strings.TrimSpace(c.QueryParam("a"))
 	b := strings.TrimSpace(c.QueryParam("b"))
-	vm := h.vm("diff", "Compare two URLs — Link Tools", diffDesc, "")
+	vm := h.vm("diff", "Compare two URLs", diffDesc, "")
 	vm["A"], vm["B"] = a, b
 
 	if a == "" || b == "" {
@@ -266,7 +310,7 @@ func (h *handler) diff(c *echo.Context) error {
 func (h *handler) traceRoute(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	persona := strings.TrimSpace(c.QueryParam("ua"))
-	vm := h.vm("trace", "Trace a redirect chain — Link Tools", traceDesc, raw)
+	vm := h.vm("trace", "Trace a redirect chain", traceDesc, raw)
 	vm["Personas"], vm["Persona"] = Personas(), persona
 	vm["Disabled"] = h.trace == nil
 
@@ -297,7 +341,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 // which defeats the code entropy outright and turns the hit counter into a
 // read-receipt oracle (docs/04-short-links.md §8).
 func (h *handler) shortConsole(c *echo.Context) error {
-	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	vm := h.vm("short", "Short links", shortDesc, "")
 	vm["Disabled"] = h.short == nil
 	authed := h.short != nil && h.short.Authorized(c.Request().Header.Get("X-Api-Key"))
 	vm["Authed"] = authed
@@ -336,7 +380,7 @@ type createRequest struct {
 }
 
 func (h *handler) shortCreate(c *echo.Context) error {
-	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	vm := h.vm("short", "Short links", shortDesc, "")
 	if h.short == nil {
 		return h.disabled(c, vm, "link/short", "Short links are not enabled on this server.")
 	}
@@ -376,7 +420,8 @@ func (h *handler) shortCreate(c *echo.Context) error {
 	if len(link.Cleaned) > 0 {
 		out["cleaned"] = link.Cleaned
 	}
-	vm["Created"] = map[string]any{"Short": h.short.ShortURL(link.Code), "Cleaned": link.Cleaned}
+	vm["Created"] = map[string]any{"Short": h.short.ShortURL(link.Code), "Target": link.Target, "Cleaned": link.Cleaned}
+	listChanged(c)
 	return reply(c, http.StatusCreated, out, vm, "link/short", "link/created")
 }
 
@@ -446,7 +491,7 @@ func consoleRows(s *Shortener, links []Link) []consoleRow {
 // re-registered to a different target silently changes where every existing
 // copy of that link goes (docs/04-short-links.md §4).
 func (h *handler) shortRevoke(c *echo.Context) error {
-	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	vm := h.vm("short", "Short links", shortDesc, "")
 	if h.short == nil {
 		return h.disabled(c, vm, "link/short", "Short links are not enabled on this server.")
 	}
@@ -461,6 +506,7 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 		return h.storageError(c, vm, err, "link/short")
 	}
 	vm["Revoked"] = c.Param("code")
+	listChanged(c)
 	return reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
 		vm, "link/short", "link/revoked")
 }
@@ -516,7 +562,7 @@ const curlDesc = "Turn a URL into a runnable curl command, or paste a curl comma
 func (h *handler) curl(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	cmd := strings.TrimSpace(c.QueryParam("curl"))
-	vm := h.vm("curl", "URL and curl — Link Tools", curlDesc, raw)
+	vm := h.vm("curl", "URL and curl", curlDesc, raw)
 	vm["Cmd"] = cmd
 	// Set before the empty-input branch below, not only on the ?u= path: the
 	// bare page renders the form too, and without these the "Ask as" select had
@@ -569,7 +615,7 @@ func (h *handler) extract(c *echo.Context) error {
 		text = c.FormValue("text")
 	}
 	text = strings.TrimSpace(text)
-	vm := h.vm("extract", "Extract links — Link Tools", extractDesc, "")
+	vm := h.vm("extract", "Extract links", extractDesc, "")
 	vm["Text"] = text
 
 	if text == "" {
@@ -590,20 +636,42 @@ func (h *handler) extract(c *echo.Context) error {
 
 const utmDesc = "Build a campaign-tagged URL from its parts. The inverse of the Clean page, on the same rule table, so the parameters it adds are exactly the ones Clean knows how to remove."
 
+// utmField is one campaign parameter as the builder's form shows it. The
+// placeholder and hint live here beside the name, rather than as one template
+// branch per literal name, so adding a field is one line and cannot leave a
+// field without its hint. Value is filled per request.
+type utmField struct {
+	Name, Placeholder, Hint, Value string
+}
+
 // utmFields are the five standard campaign parameters, in the order Google
-// documents them.
-var utmFields = []string{"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
+// documents them. The form shows the first three and folds the last two away:
+// term and content are for paid search and A/B tests, and most links have
+// neither.
+var utmFields = []utmField{
+	{Name: "utm_source", Placeholder: "newsletter", Hint: "Where the traffic comes from. The one most analytics tools require."},
+	{Name: "utm_medium", Placeholder: "email", Hint: "How it arrives: email, cpc, social, referral."},
+	{Name: "utm_campaign", Placeholder: "spring-launch", Hint: "Which campaign the link belongs to."},
+	{Name: "utm_term", Placeholder: "running+shoes", Hint: "The paid keyword, for search ads."},
+	{Name: "utm_content", Placeholder: "header-button", Hint: "Which link it was, when a campaign has several. The A/B field."},
+}
+
+// utmCommon is how many of utmFields the form shows unfolded.
+const utmCommon = 3
 
 func (h *handler) utm(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	vm := h.vm("utm", "Campaign URL builder — Link Tools", utmDesc, raw)
-	vm["Fields"] = utmFields
+	vm := h.vm("utm", "Campaign URL builder", utmDesc, raw)
 
+	fields := append([]utmField(nil), utmFields...)
 	values := map[string]string{}
-	for _, f := range utmFields {
-		values[f] = strings.TrimSpace(c.QueryParam(f))
+	rare := false // a folded field has a value, so the fold opens
+	for i := range fields {
+		fields[i].Value = strings.TrimSpace(c.QueryParam(fields[i].Name))
+		values[fields[i].Name] = fields[i].Value
+		rare = rare || (i >= utmCommon && fields[i].Value != "")
 	}
-	vm["Values"] = values
+	vm["Common"], vm["Rare"], vm["RareOpen"] = fields[:utmCommon], fields[utmCommon:], rare
 
 	if done, err := h.needURL(c, raw, vm, "link/utm", "link/utmbuilt",
 		"?u=https%3A%2F%2Fexample.com%2F&utm_source=newsletter"); done {
@@ -618,8 +686,7 @@ func (h *handler) utm(c *echo.Context) error {
 	// utm_source parameters is a real bug and building one deliberately would
 	// be an odd thing for this page to do.
 	for _, f := range utmFields {
-		v := values[f]
-		in.Params = upsertParam(in.Params, f, v)
+		in.Params = upsertParam(in.Params, f.Name, values[f.Name])
 	}
 	built, err := h.svc.Rebuild(in)
 	if err != nil {
@@ -662,7 +729,7 @@ const encodeDesc = "Percent-encode and decode with the right rules for where the
 
 func (h *handler) encode(c *echo.Context) error {
 	v := c.QueryParam("v")
-	vm := h.vm("encode", "Encode and decode — Link Tools", encodeDesc, "")
+	vm := h.vm("encode", "Encode and decode", encodeDesc, "")
 	vm["Value"] = v
 	if v == "" {
 		if platform.WantsJSON(c) {
@@ -684,12 +751,12 @@ func (h *handler) encode(c *echo.Context) error {
 // hx-get — adding one would need a fragment first (golden rule #2).
 func (h *handler) encoding(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/encoding",
-		h.vm("encoding", "Percent-encoding reference — Link Tools", encodingDesc, ""))
+		h.vm("encoding", "Percent-encoding reference", encodingDesc, ""))
 }
 
 func (h *handler) privacy(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/privacy",
-		h.vm("", "Extension privacy — Link Tools", privacyDesc, ""))
+		h.vm("", "Extension privacy", privacyDesc, ""))
 }
 
 // --- shared error paths ----------------------------------------------------

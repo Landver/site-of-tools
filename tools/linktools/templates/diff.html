@@ -34,30 +34,43 @@
     {{template "link/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Two URLs in, a field-by-field and parameter-by-parameter comparison out. The tool for
-      &ldquo;why does staging behave differently from production&rdquo;, where the answer is almost always
-      one parameter that is present on one side, or reordered, or subtly different. Neither URL is fetched.
+      Two URLs in, a part-by-part and parameter-by-parameter comparison out: what was added, removed, changed
+      or only moved. For &ldquo;why does staging behave differently from production&rdquo;. Neither URL is fetched.
     </p>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
-
-    <form hx-get="/diff" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    {{/* Live, like Inspect (see index.html). Each input is labelled A or B on
+         screen, not only for a screen reader, because every row of the result
+         is written in terms of A and B. */}}
+    <form action="/diff" hx-get="/diff" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+          hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-col gap-2">
-      <input name="a" value="{{.A}}" autofocus autocomplete="off" spellcheck="false"
-             aria-label="First URL"
-             placeholder="https://example.com/search?q=hello&amp;page=1"
-             class="field min-w-0">
-      <input name="b" value="{{.B}}" autocomplete="off" spellcheck="false"
-             aria-label="Second URL"
-             placeholder="https://staging.example.com/search?page=1&amp;q=hello"
-             class="field min-w-0">
-      <div class="flex flex-wrap items-center gap-2">
+      <label class="flex items-center gap-3">
+        <span class="w-4 shrink-0 text-center font-mono text-sm font-semibold text-muted">A</span>
+        <input name="a" value="{{.A}}" autofocus autocomplete="off" spellcheck="false"
+               aria-label="URL A"
+               placeholder="https://example.com/search?q=hello&amp;page=1"
+               class="field min-w-0">
+      </label>
+      <label class="flex items-center gap-3">
+        <span class="w-4 shrink-0 text-center font-mono text-sm font-semibold text-muted">B</span>
+        <input name="b" value="{{.B}}" autocomplete="off" spellcheck="false"
+               aria-label="URL B"
+               placeholder="https://staging.example.com/search?page=1&amp;q=hello"
+               class="field min-w-0">
+      </label>
+      <div class="flex flex-wrap items-center gap-2 pl-7">
         <button type="submit" class="btn-primary">Compare</button>
         <span role="status" class="htmx-indicator self-center text-sm text-muted">Comparing…</span>
       </div>
     </form>
 
-    <details class="mt-4 text-sm">
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+      {{template "link/diffed" .}}
+    </div>
+
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">How repeated keys are compared</summary>
       <div class="mt-2 space-y-2 text-muted">
         <p>
@@ -73,9 +86,11 @@
       </div>
     </details>
 
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/diffed" .}}
-    </div>
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/diff?a=https%3A%2F%2Fexample.com%2F%3Fq%3D1&amp;b=https%3A%2F%2Fexample.com%2F%3Fq%3D2'</pre>
+      <p class="mt-1 text-xs text-muted">Components and parameters come back as ordered arrays, each row carrying its <code class="font-mono">kind</code>: added, removed, modified, moved or same.</p>
+    </details>
   </main>
 
   {{template "partials/htmx-errors" .}}
@@ -108,8 +123,8 @@
 {{if .Fields}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Components</h2>
-  <p class="mt-1 text-xs text-muted">Everything outside the query string. A differing host or scheme usually makes the parameter table below beside the point.</p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <p class="mt-1 text-xs text-muted">Everything outside the query string.</p>
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -143,7 +158,7 @@
     In the order the keys appear across A then B. The <span class="font-mono">#</span> columns are the
     position each value held in its own query string.
   </p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -166,7 +181,7 @@
             {{else if eq .Kind "modified"}}
               <span class="rounded bg-warn/20 px-1.5 py-0.5 font-mono text-xs text-warn">changed</span>
             {{else if eq .Kind "moved"}}
-              <span class="rounded bg-brand/20 px-1.5 py-0.5 font-mono text-xs text-brand">moved only</span>
+              <span class="rounded bg-info/20 px-1.5 py-0.5 font-mono text-xs text-info">moved only</span>
               <span class="mt-1 block text-xs text-muted">
                 Same value, position {{.IndexA}} &rarr; {{.IndexB}}.
               </span>
@@ -211,7 +226,7 @@
 {{$moved := false}}
 {{range .Params}}{{if eq .Kind "moved"}}{{$moved = true}}{{end}}{{end}}
 {{if $moved}}
-<section class="mt-6 rounded-lg border border-brand bg-surface p-4">
+<section class="mt-6 rounded-lg border border-info bg-surface p-4">
   <h2 class="text-sm font-semibold text-strong">Some parameters only moved</h2>
   <p class="mt-1 text-sm text-muted">
     Same key, same value, different position. Almost every server reads a query string as an unordered set
@@ -233,17 +248,12 @@
 </section>
 {{end}}
 
-<p class="mt-6 text-sm">
+<p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/?u={{.A}}" class="text-brand hover:underline">Inspect A</a>
-  <span class="text-muted">&middot;</span>
   <a href="/?u={{.B}}" class="text-brand hover:underline">Inspect B</a>
-  <span class="text-muted">&middot;</span>
   <a href="/diff?a={{.B}}&amp;b={{.A}}" class="text-brand hover:underline">Swap sides</a>
 </p>
-<p class="mt-2 text-xs text-muted">
-  Neither URL is rendered as a link to itself. Only the Inspect page makes a pasted URL clickable, and only
-  when its scheme passed the http(s) allowlist.
-</p>
-
+{{else}}
+{{template "link/examples" .}}
 {{end}}
 {{end}}

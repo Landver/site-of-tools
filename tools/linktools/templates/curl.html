@@ -29,30 +29,63 @@
     {{template "link/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      A URL in, a runnable curl command out. Or the useful direction: paste a curl command, including the
-      twenty-flag thing Chrome's &ldquo;Copy as cURL&rdquo; produces, and get the URL and its headers taken
-      apart. Nothing is executed and nothing is fetched. The pasted command is read as text by a tokeniser
-      that understands quoting and nothing else: no variables, no substitution, no shell.
+      Paste a curl command, including the twenty-flag one Chrome's &ldquo;Copy as cURL&rdquo; produces, and get
+      its URL and headers taken apart. Or turn a URL into a safely quoted command. Nothing is run and nothing is
+      fetched.
     </p>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+    {{/* Two directions, one shown at a time: a segmented control made of two
+         radios, the same look as Cipher Tools' Encrypt|Decrypt, and the panel
+         switch is CSS (group-has), not script. So it works with JavaScript off
+         and cannot flash both panels while a script loads. The radios are not
+         inside either form and are never submitted. Paste is the default
+         because it is the useful direction; Build opens when the page was
+         asked to build (?u=). The result renders under whichever panel is
+         showing, instead of under both forms as it used to, two screens away
+         from the one in use. relative: the sr-only radios are absolutely
+         positioned and must not escape to the page (see short.html). */}}
+    {{$build := and .Query (not .Cmd)}}
+    <div class="group/curl mt-6">
+      <div class="relative inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="radiogroup" aria-label="Direction">
+        <label class="cursor-pointer rounded-md px-3 py-1.5 has-[:checked]:bg-canvas has-[:checked]:text-strong has-[:checked]:shadow-sm has-[:checked]:ring-1 has-[:checked]:ring-line has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand text-muted hover:text-strong">
+          <input type="radio" name="curl-mode" id="curl-mode-paste" class="sr-only"{{if not $build}} checked{{end}}> Take a command apart
+        </label>
+        <label class="cursor-pointer rounded-md px-3 py-1.5 has-[:checked]:bg-canvas has-[:checked]:text-strong has-[:checked]:shadow-sm has-[:checked]:ring-1 has-[:checked]:ring-line has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand text-muted hover:text-strong">
+          <input type="radio" name="curl-mode" id="curl-mode-build" class="sr-only"{{if $build}} checked{{end}}> Build a command
+        </label>
+      </div>
 
-    <section class="mt-6">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">URL &rarr; command</h2>
-      <form hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
-            class="mt-2">
+      <form action="/curl" hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+            hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
+            class="mt-4 hidden group-has-[#curl-mode-paste:checked]/curl:block">
+        <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"{{if not $build}} autofocus{{end}}
+                  aria-label="curl command to take apart"
+                  placeholder="curl 'https://example.com/api/thing?id=1' -H 'Accept: application/json'"
+                  class="field w-full font-mono text-xs">{{.Cmd}}</textarea>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <button type="submit" class="btn-primary">Take it apart</button>
+          <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
+        </div>
+        <p class="mt-2 text-xs text-muted">
+          A command copied out of DevTools usually carries a session cookie or a bearer token, and it is shown
+          back to you here in full. It is redacted from this server's logs, but don't paste a live credential
+          into a web tool, this one included.
+        </p>
+      </form>
+
+      <form action="/curl" hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+            hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
+            class="mt-4 hidden group-has-[#curl-mode-build:checked]/curl:block">
         <div class="flex flex-wrap gap-2">
-          <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+          <input name="u" value="{{.Query}}" autocomplete="off" spellcheck="false"{{if $build}} autofocus{{end}}
                  aria-label="URL to turn into a curl command"
                  placeholder="https://example.com/api/thing?id=1"
                  class="field min-w-0 flex-1">
-          {{if .Personas}}
           <select name="ua" aria-label="Ask as"
                   class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
             {{$p := .Persona}}
             {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
           </select>
-          {{end}}
           <button type="submit" class="btn-primary">Build</button>
           <span role="status" class="htmx-indicator self-center text-sm text-muted">Building…</span>
         </div>
@@ -67,37 +100,22 @@
           </label>
         </div>
       </form>
-    </section>
+    </div>
 
-    <section class="mt-8">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Command &rarr; URL</h2>
-      <form hx-get="/curl" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
-            class="mt-2">
-        <textarea name="curl" rows="5" autocomplete="off" spellcheck="false"
-                  aria-label="curl command to take apart"
-                  placeholder="curl 'https://example.com/api/thing?id=1' -H 'Accept: application/json'"
-                  class="field w-full font-mono text-xs">{{.Cmd}}</textarea>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
-          <button type="submit" class="btn-primary">Take it apart</button>
-          <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
-        </div>
-      </form>
-      <p class="mt-2 text-xs text-muted">
-        A command copied out of DevTools usually carries a session cookie or a bearer token in its
-        <code class="font-mono">-H</code> flags, and they are shown back to you here in full. The value of
-        <code class="font-mono">curl</code> is redacted before anything is written to this server's logs, but
-        the same advice applies as everywhere else: don't paste a live credential into a web tool, this one
-        included.
-      </p>
-    </section>
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
 
-    <details class="mt-4 text-sm">
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+      {{template "link/curled" .}}
+    </div>
+
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">What the parser does and does not do</summary>
       <div class="mt-2 space-y-2 text-muted">
         <p>
           <strong class="text-strong">It is a tokeniser, not a shell.</strong> It understands the quoting
-          forms that actually appear in a copied command and refuses everything else. The input is untrusted
-          text and the only safe way to read untrusted text is to not evaluate it.
+          forms that actually appear in a copied command and refuses everything else: no variables, no
+          substitution. The input is untrusted text and the only safe way to read untrusted text is to not
+          evaluate it.
         </p>
         <p>
           <strong class="text-strong">The URL comes back exactly as written</strong>, including a missing
@@ -113,10 +131,6 @@
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/curl?u=https%3A%2F%2Fexample.com%2F'</pre>
       <p class="mt-1 text-xs text-muted">The paste direction answers on the same URL with <code class="font-mono">?curl=</code>, and returns the URL, the headers in the order they were written, and the full parse of the URL.</p>
     </details>
-
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/curled" .}}
-    </div>
   </main>
 
   {{template "partials/htmx-errors" .}}
@@ -134,9 +148,11 @@
 {{if .Curl}}
 <section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The command</h2>
-  <div class="mt-2">
-    <pre class="overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.Curl}}</pre>
-    <button type="button" class="btn-copy mt-2" data-copy="{{.Curl}}">Copy</button>
+  <div class="mt-2 rounded-lg border border-ok bg-surface p-3">
+    <div class="flex flex-wrap items-start gap-3">
+      <pre class="min-w-0 flex-1 overflow-x-auto font-mono text-xs text-strong">{{.Curl}}</pre>
+      <button type="button" class="btn-copy" data-copy="{{.Curl}}">Copy</button>
+    </div>
   </div>
   <p class="mt-2 text-xs text-muted">
     Every value is single-quoted, and an embedded single quote is closed, escaped and reopened. That is not
@@ -163,7 +179,7 @@
     In the order they were written, not merged into a map: a pasted command can repeat a header, and the
     order is part of what was pasted.
   </p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -199,5 +215,7 @@
 </section>
 {{end}}
 {{end}}
+
+{{if not (or .Curl .FromCurl)}}{{template "link/examples" .}}{{end}}
 
 {{end}}

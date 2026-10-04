@@ -28,20 +28,22 @@
     {{template "link/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Paste HTML, Markdown, an email body or any text at all, and get every URL out of it: deduplicated,
-      counted, with the anchor text where there is one. Nothing is fetched. This is for auditing the links in
-      something before it goes out, not for checking whether they work.
+      Paste HTML, Markdown, an email or any text and get every link out of it: deduplicated, counted, with its
+      anchor text. Nothing is fetched. For auditing links before something goes out, not for checking that
+      they work.
     </p>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
-
     {{/* No hx-push-url: htmx pushes the request path whatever the method,
-           so a POST here would rewrite the address bar to a bare /extract and
-           the pasted text would be gone on reload. GET /extract?text= stays
-           the shareable form. */}}
-      <form hx-post="/extract" hx-target="#result" hx-swap="innerHTML" hx-disabled-elt="find button"
+         so a POST here would rewrite the address bar to a bare /extract and
+         the pasted text would be gone on reload. GET /extract?text= stays
+         the shareable form. method="post" so the no-JS submit posts too, for
+         the same reason: a pasted email does not belong in a URL. Live, with
+         a longer pause than the one-line pages, because a paste here is the
+         whole input and typing into it is the exception. */}}
+    <form method="post" action="/extract" hx-post="/extract" hx-target="#result" hx-swap="innerHTML"
+          hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
           class="mt-6">
-      <textarea name="text" rows="12" autofocus autocomplete="off" spellcheck="false"
+      <textarea name="text" rows="10" autofocus autocomplete="off" spellcheck="false"
                 aria-label="Text to pull links out of"
                 placeholder="Paste an email body, a Markdown file, an HTML fragment…"
                 class="field w-full font-mono text-xs">{{.Text}}</textarea>
@@ -51,7 +53,13 @@
       </div>
     </form>
 
-    <details class="mt-4 text-sm">
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+      {{template "link/extracted" .}}
+    </div>
+
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">How the input is read</summary>
       <div class="mt-2 space-y-2 text-muted">
         <p>
@@ -79,13 +87,10 @@
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/extract' --data-urlencode 'text=see https://example.com'</pre>
       <p class="mt-1 text-xs text-muted">GET with <code class="font-mono">?text=</code> works too, for anything small enough to fit in a URL.</p>
     </details>
-
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/extracted" .}}
-    </div>
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -95,10 +100,15 @@
 {{define "link/extracted"}}
 {{with .Result}}
 
+{{/* The Copy button carries every distinct URL, one per line, in the order
+     they were found: the usual next step is pasting the list into a sheet or
+     a checker. &#10; is a newline inside the attribute; the copy partial
+     reads it back through dataset as a real one. */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
   <span class="text-muted">Read as <span class="font-mono text-strong">{{.Source}}</span></span>
   <span class="text-muted">Occurrences <span class="font-mono text-strong">{{.Total}}</span></span>
   <span class="text-muted">Distinct URLs <span class="font-mono text-strong">{{.Unique}}</span></span>
+  {{if .URLs}}<button type="button" class="btn-copy sm:ml-auto" data-copy="{{range $i, $u := .URLs}}{{if $i}}&#10;{{end}}{{$u.URL}}{{end}}">Copy all {{len .URLs}}</button>{{end}}
 </div>
 
 {{if .Notes}}
@@ -117,7 +127,7 @@
     In the order each was first seen. None of them is clickable here, deliberately: hand a row to Inspect or
     Clean instead.
   </p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -137,7 +147,7 @@
           </td>
           <td class="px-3 py-2 font-mono text-xs
             {{if gt .Count 1}}text-warn{{else}}text-muted{{end}}">{{.Count}}</td>
-          <td class="px-3 py-2 text-xs">
+          <td class="whitespace-nowrap px-3 py-2 text-xs">
             <a href="/?u={{.URL}}" class="text-brand hover:underline">Inspect</a>
             <span class="text-muted">&middot;</span>
             <a href="/clean?u={{.URL}}" class="text-brand hover:underline">Clean</a>
@@ -159,5 +169,7 @@
 </section>
 {{end}}
 
+{{else}}
+{{template "link/examples" .}}
 {{end}}
 {{end}}

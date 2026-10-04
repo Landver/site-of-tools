@@ -33,14 +33,14 @@
     {{template "link/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Every reading of one value at once, rather than a dropdown you have to guess at. Percent-encoding with
-      query rules and with path rules together, base64 and its URL-safe variant, HTML entities, unicode
-      escapes, and the decode ladder for anything that was encoded more than once.
+      Every reading of one value at once, instead of a dropdown to guess at: percent-encoding for a query and
+      for a path side by side, base64 and its URL-safe variant, HTML entities, unicode escapes, and the decode
+      ladder for anything encoded more than once.
     </p>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
-
-    <form hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    {{/* Live, like Inspect (see index.html). */}}
+    <form action="/encode" hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
+          hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">
       <input name="v" value="{{.Value}}" autofocus autocomplete="off" spellcheck="false"
              aria-label="Value to encode and decode"
@@ -50,7 +50,13 @@
       <span role="status" class="htmx-indicator self-center text-sm text-muted">Converting…</span>
     </form>
 
-    <details class="mt-4 text-sm">
+    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
+
+    <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">
+      {{template "link/encoded" .}}
+    </div>
+
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">Why a query and a path encode differently</summary>
       <div class="mt-2 space-y-2 text-muted">
         <p>
@@ -78,10 +84,6 @@
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/encode?v=a%20b'</pre>
       <p class="mt-1 text-xs text-muted">Both lists come back as ordered arrays carrying the note and, where one failed, the reason it failed.</p>
     </details>
-
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/encoded" .}}
-    </div>
   </main>
 
   {{template "partials/htmx-errors" .}}
@@ -95,14 +97,13 @@
 {{define "link/encoded"}}
 {{with .Result}}
 
-<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
-  <span class="text-muted">Input <span class="break-all font-mono text-strong">{{.Input}}</span></span>
-  {{if .Kind}}<span class="text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></span>{{end}}
-</div>
+{{/* The input is not echoed back: it is in the box right above. Only the
+     guess about what it is earns a line. */}}
+{{if .Kind}}<p class="mb-4 text-sm text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></p>{{end}}
 
 {{/* THE point of the page. Matched by name, never by index — see the file
      comment. */}}
-<section class="mt-6">
+<section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query rules vs path rules</h2>
   <p class="mt-1 text-xs text-muted">
     The same value, encoded for the two places it might go. If these two differ, putting one where the other
@@ -130,7 +131,7 @@
 
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Encoded</h2>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -168,7 +169,7 @@
     Every reading attempted, including the ones that failed. A failure is said out loud rather than shown as
     an empty cell, because an empty cell would claim the value decodes to nothing.
   </p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
@@ -218,11 +219,12 @@
 </section>
 {{end}}
 
-<p class="mt-6 text-sm">
+<p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/encoding" class="text-brand hover:underline">What percent-encoding actually reserves</a>
-  <span class="text-muted">&middot;</span>
   <a href="/" class="text-brand hover:underline">Inspect a whole URL instead</a>
 </p>
 
+{{else}}
+{{template "link/examples" .}}
 {{end}}
 {{end}}
