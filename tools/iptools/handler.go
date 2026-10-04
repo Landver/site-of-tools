@@ -61,6 +61,7 @@ func (h *handler) index(c *echo.Context) error {
 		}
 	}
 	if ip == "" {
+		platform.SetNegotiationHeaders(c, http.StatusOK)
 		switch {
 		case platform.WantsJSON(c):
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no routable IP to look up; pass ?ip=, e.g. /?ip=8.8.8.8"})
@@ -77,6 +78,7 @@ func (h *handler) index(c *echo.Context) error {
 // cidr serves subnet / CIDR calculator (GET /cidr, ?cidr=…). Pure math, no
 // databases → no IP2Location attribution on this page.
 func (h *handler) cidr(c *echo.Context) error {
+	platform.SetNegotiationHeaders(c, http.StatusOK) // HTML or JSON from one URL
 	input := strings.TrimSpace(c.QueryParam("cidr"))
 	if input == "" {
 		if platform.WantsJSON(c) {
@@ -109,6 +111,7 @@ func (h *handler) cidr(c *echo.Context) error {
 func (h *handler) history(c *echo.Context) error {
 	const limit = 50
 	entries, err := h.hist.Recent(c.Request().Context(), limit)
+	platform.SetNegotiationHeaders(c, http.StatusOK) // HTML or JSON from one URL
 
 	if platform.WantsJSON(c) {
 		if err != nil {
@@ -156,6 +159,12 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		}
 	}
 
+	code := http.StatusOK
+	if err != nil {
+		code = statusFor(err)
+	}
+	platform.SetNegotiationHeaders(c, code)
+
 	// API / CLI: raw JSON — geolocation result or error.
 	if wantsJSON {
 		if err != nil {
@@ -169,10 +178,8 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// databases (see shared/templates/partials/footer.html). Scoped to this
 	// tool via VM flag → apex (no such data) omits it.
 	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true, "SpamhausAttribution": true}
-	code := http.StatusOK
 	if err != nil {
-		vm["Error"] = err.Error()
-		code = statusFor(err)
+		vm["Error"] = pageError(err)
 	} else {
 		vm["Result"] = res
 		// Shodan ToS wants visible credit wherever their data appears. Gate
@@ -194,6 +201,14 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	}
 	vm["Conn"] = conn
 	return c.Render(code, "ip/index", vm)
+}
+
+// pageError is a lookup error for the page; the JSON keeps the Go string.
+func pageError(err error) string {
+	if errors.Is(err, ErrUnavailable) {
+		return "IP lookups are unavailable right now: this server's geolocation databases are not loaded. Try again later."
+	}
+	return err.Error()
 }
 
 func statusFor(err error) int {

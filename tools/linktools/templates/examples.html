@@ -1,0 +1,13 @@
+{{/* "Try an example" chips, a page's empty state: {{template "link/examples"
+     .Examples}}. Plain GET links, so they work without JavaScript. */}}
+{{define "link/examples"}}
+{{with .}}
+<div class="flex flex-wrap items-center gap-2 text-sm">
+  <span class="text-faint">Try an example:</span>
+  {{range .}}
+  <a href="{{.Href}}"
+     class="rounded-full border border-line px-3 py-1 text-muted transition hover:border-brand hover:text-strong">{{.Label}}</a>
+  {{end}}
+</div>
+{{end}}
+{{end}}

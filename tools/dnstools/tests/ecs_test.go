@@ -29,7 +29,7 @@ func TestECSRejectsInputThatCannotBeMeasured(t *testing.T) {
 		want             error
 	}{
 		{"no name at all", "", "A", dnstools.ErrEmptyName},
-		{"an IP literal has no zone to steer", "8.8.8.8", "A", dnstools.ErrBadType},
+		{"an IP literal has no zone to steer", "8.8.8.8", "A", dnstools.ErrNeedDomain},
 		{"MX is the same record everywhere", "example.com", "MX", dnstools.ErrBadType},
 		{"TXT is not a steering target", "example.com", "TXT", dnstools.ErrBadType},
 		{"PTR is a reverse question", "example.com", "PTR", dnstools.ErrBadType},
@@ -198,14 +198,16 @@ func TestECSNeverCallsAnUnmeasuredNameNotSteered(t *testing.T) {
 
 // ecsTemplates parses this tool's own templates. Only this package's, not the
 // shared partials: the card is a fragment, the shared set needs the renderer's
-// function map, and nothing here is testing the site chrome.
+// function map, and nothing here is testing the site chrome. toolURL is stubbed.
 func ecsTemplates(t *testing.T) *template.Template {
 	t.Helper()
 	sub, err := fs.Sub(dnstools.Templates, "templates")
 	if err != nil {
 		t.Fatalf("sub FS: %v", err)
 	}
-	tmpl, err := template.ParseFS(sub, "*.html")
+	tmpl, err := template.New("dns").Funcs(template.FuncMap{
+		"toolURL": func(sub string) string { return "https://" + sub + ".example" },
+	}).ParseFS(sub, "*.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
@@ -245,10 +247,7 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	for _, want := range []string{
 		// One card in one of the consistency page's two stacking columns, at
 		// the same width as the public resolvers card it deliberately mirrors.
-		// This assertion has now outlived two layouts (a CSS multi-column flow
-		// wanted "mb-4 break-inside-avoid", a full-width row wanted
-		// "sm:col-span-2"), so it pins the width the card claims and nothing
-		// about the page around it.
+		// A one-column card, never full width (checked below).
 		`class="card"`,
 		"answers by client network",
 		"This answer depends on the network that asks",
@@ -264,6 +263,9 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered card is missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "col-span-2") {
+		t.Errorf("the card claims the full width; it belongs in one column:\n%s", out)
 	}
 }
 
@@ -369,7 +371,7 @@ func TestECSCardSaysNoRecordsRatherThanSameRecords(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "No A record anywhere") {
+	if !strings.Contains(out, "No A record for any of the 6 networks") {
 		t.Errorf("the card does not say the name published nothing:\n%s", out)
 	}
 	// The eyebrow is the card's title and always reads "answers by location";

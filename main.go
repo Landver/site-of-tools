@@ -137,6 +137,7 @@ func run() error {
 	navFuncs := template.FuncMap{
 		"apexURL":  func() string { return cfg.URL("") },
 		"navTools": func() []platform.Tool { return site.Tools(cfg) },
+		"toolURL":  cfg.URL,
 		"asset":    asset,
 	}
 
@@ -196,8 +197,9 @@ func run() error {
 	// platform.RedactURI strips the ?u= value before anything is written down
 	// (tools/linktools/docs/06-security-and-abuse.md §5).
 	linkSvc := linktools.NewService()
-	// Shortener is nil unless BOTH a store and a key exist — fail-closed, so an
-	// unset LINK_API_KEY means nobody can create links rather than anybody can.
+	// Shortener is nil without a store. Without a key it still resolves existing
+	// links, but create, list and revoke stay off — fail-closed, so an unset
+	// LINK_API_KEY means nobody can create links rather than anybody can.
 	// Base origin only: Shortener.ShortURL owns the "/s/" prefix, so adding it
 	// here would mint links at /s/s/.
 	shortener := linktools.NewShortener(linkStore, cfg.LinkAPIKey, cfg.URL("link"))

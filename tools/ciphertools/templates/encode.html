@@ -47,7 +47,7 @@
         <label class="block text-sm text-muted">Input
           <textarea name="text" rows="5" autofocus autocomplete="off" spellcheck="false"
                     placeholder="SGVsbG8sIHdvcmxkIQ== or 48656c6c6f or plain text"
-                    class="field mt-1 w-full font-mono text-xs">
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
         </label>
         <label class="block text-sm text-muted">Input is
@@ -81,11 +81,11 @@
             <input type="hidden" name="mode" value="build">
             <label class="block text-sm text-muted">User name
               <input name="user" value="{{if eq $mode "build"}}{{.Form.Get "user"}}{{end}}" autocomplete="off" spellcheck="false"
-                     placeholder="Aladdin" class="field mt-1 w-full font-mono text-xs">
+                     placeholder="Aladdin" class="field mt-1 w-full font-mono text-base sm:text-xs">
             </label>
             <label class="block text-sm text-muted">Password
               <input name="password" value="{{if eq $mode "build"}}{{.Form.Get "password"}}{{end}}" autocomplete="off" spellcheck="false"
-                     placeholder="open sesame" class="field mt-1 w-full font-mono text-xs">
+                     placeholder="open sesame" class="field mt-1 w-full font-mono text-base sm:text-xs">
             </label>
             <button type="submit" class="btn-primary">Build</button>
           </form>
@@ -100,7 +100,7 @@
             <label class="block text-sm text-muted">Header, value or bare base64
               <textarea name="header" rows="3" autocomplete="off" spellcheck="false"
                         placeholder="Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
-                        class="field mt-1 w-full font-mono text-xs">{{if eq $mode "decode"}}{{.Form.Get "header"}}{{end}}</textarea>
+                        class="field mt-1 w-full font-mono text-base sm:text-xs">{{if eq $mode "decode"}}{{.Form.Get "header"}}{{end}}</textarea>
             </label>
             <button type="submit" class="btn-primary">Decode</button>
           </form>
@@ -138,7 +138,7 @@
             <button type="button" class="btn-copy" data-copy="{{.Text}}">Copy</button>
           </div>
           {{else if .TextNote}}
-          <span class="text-xs text-warn">{{.TextNote}}</span>
+          <span class="text-xs text-warn-ink">{{.TextNote}}</span>
           {{else}}
           <span class="text-xs italic text-muted">empty</span>
           {{end}}

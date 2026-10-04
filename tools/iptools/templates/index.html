@@ -74,15 +74,18 @@
 
   {{template "partials/footer" .}}
 
+  {{template "partials/htmx-errors" .}}
+
   <script>
-    // Bad IP → HTTP 400 w/ error fragment (same alert CIDR page shows). htmx
-    // won't swap 4xx by default → w/o this, box silently keeps previous result;
-    // tell it to render our validation error.
-    document.body.addEventListener('htmx:beforeSwap', (e) => {
-      if (e.detail.xhr.status === 400) {
-        e.detail.shouldSwap = true
-        e.detail.isError = false
-      }
+    // A non-HTML error (echo's JSON for a panic), which partials/htmx-errors
+    // never swaps in. Text nodes only: nothing from the response is parsed.
+    document.body.addEventListener('htmx:responseError', (e) => {
+      const area = e.detail.target
+      if (!area || area.id !== 'result') return
+      const alert = document.createElement('div')
+      alert.className = 'alert-error w-full'
+      alert.textContent = 'The lookup failed (HTTP ' + e.detail.xhr.status + '). Try again in a moment.'
+      area.replaceChildren(alert)
     })
 
     // IPv6 support probe (Alpine, hybrid). Step 1: hit IPv6-only echo — resolves

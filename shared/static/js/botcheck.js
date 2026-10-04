@@ -790,7 +790,7 @@
   // best-effort — must never break result flow.
   const HISTORY_KEY = "botcheck:history";
   const HISTORY_MAX = 20;
-  const VERDICT_CLASS = { human: "text-ok", suspicious: "text-warn", "good-bot": "text-brand" };
+  const VERDICT_CLASS = { human: "text-ok", suspicious: "text-warn-ink", "good-bot": "text-brand-ink" };
 
   const readHistory = () => safe(() => {
     const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");

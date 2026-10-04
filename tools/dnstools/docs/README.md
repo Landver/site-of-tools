@@ -23,7 +23,9 @@ Suite of DNS tools on one subdomain, switched by sub-nav. **Five pages ship toda
   resolver's AD bit.
 - **Domain** (`/domain`) — registration via RDAP and subdomains from
   Certificate Transparency. Both public, both free, and neither sends a packet
-  at the domain itself.
+  at the domain itself. A subdomain is looked up as its registrable domain
+  (Public Suffix List), and a name with nameservers is never offered as
+  "unregistered" (.de, for one, runs no RDAP at all).
 - **Email** (`/email`) — SPF including the RFC 7208 ten-lookup limit that
   silently breaks it, DMARC policy strength (including a policy inherited from
   a parent via `sp=`), DKIM keys at twelve common selectors, MTA-STS policy
@@ -146,6 +148,23 @@ and an HTML fragment to htmx. A bare hit with no `?name=` is the empty form to
 a browser and `400` to a JSON caller. A route whose upstream is switched off
 answers `503`, not `502`: nothing failed, the feature simply isn't running.
 
+`?name=` takes what people paste, not just a bare name (`NormalizeName`): the
+host out of a URL, the domain out of an email address, `host:port`, capitals
+and a trailing root dot, and a Unicode name converted to the punycode DNS
+carries (`bücher.de` is asked as `xn--bcher-kva.de`, label by label so
+`_dmarc.bücher.de` works). An htmx request whose name needed cleaning gets
+`HX-Push-Url` with the clean URL, so history and a copied link carry
+`example.com` rather than the paste; the request log redacts a `?name=` shaped
+like a URL or address (`platform/redact.go`). An IP on a route that needs a
+domain (everything but `/`) is `ErrNeedDomain`, `400`.
+
+JSON fields added by the UX pass, all additive: `target` on every record
+that names a host, `unvalidated` (types without AD beside some that had it),
+`keys_without_ds` on a trace chain link,
+`registrable_domain` and `delegated` on `/domain`, and `nxdomain` on
+`/email`.
+
+
 `?type=` on `/`, `/consistency` and `/trace` is checked against this package's
 own `Types` list, not `miekg`'s RR registry, so `ANY` and `AXFR` are `400` on
 all three. The steering card narrows further, to the types location steering
@@ -246,9 +265,11 @@ calls non-negotiable are in place:
 - **Type allowlist.** `ANY` and `AXFR` are rejected with `400` on `/`,
   `/consistency` and `/trace` — the amplification shape, and on the latter two
   it would be aimed at nameservers the caller's name picks out.
-- **Name validation.** One `validDomain` on all five routes: 253 bytes, ten
-  labels, 63-byte labels, hostname shape. It also bounds the zone walk's input
-  and, on `/trace`, the number of zone cuts there can be.
+- **Name validation.** One `validDomain` on all five routes, after
+  `NormalizeName`: 253 bytes, ten labels, 63-byte labels, hostname shape, and
+  no label IDNA refused (raw UTF-8 would only come back as a false NXDOMAIN).
+  It also bounds the zone walk's input and, on `/trace`, the number of zone
+  cuts there can be.
 - **Publicly-routable-only egress.** `/consistency` and `/trace` are where a
   request decides which address we send packets to: a nameserver name
   resolving to a loopback, private or link-local address is refused rather
@@ -259,7 +280,10 @@ calls non-negotiable are in place:
   `/email`'s MTA-STS fetch gates the same way at dial time, after resolution,
   and refuses to follow redirects (RFC 8461 §3.3).
 - **Rate limit**, per client IP (`c.RealIP()`, Cloudflare-aware), 2/s with a
-  burst of 10, in-process. 429s are content-negotiated like everything else.
+  burst of 10, in-process. A bare page (no `?name=`) asks no upstream anything
+  and is not counted. 429s are content-negotiated like everything else: an
+  amber notice to htmx, and to a browser a page that keeps the nav and offers
+  the refused request again.
   This is the first rate limiter in the repo.
 - **Answer cache** (`cache.go`) **+ single-flight** (`Service.inflight`, in
   `dns.go`). Answers are held for the

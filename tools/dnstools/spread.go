@@ -83,7 +83,7 @@ type Spread struct {
 	// AuthAnswered: how many of the zone's own nameservers returned a set that
 	// could be compared at all. The denominator behind AuthConsistent.
 	AuthAnswered int `json:"auth_answered"`
-	// Rotation: the zone's servers returned different answer sets while
+	// Rotation: servers of one provider returned different answer sets while
 	// reporting the SAME zone version. That is one zone answering differently
 	// per query (round-robin, latency steering), not a change mid-rollout —
 	// the exact false alarm this feature exists to avoid. The serial is the
@@ -206,7 +206,7 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	}
 	// A reverse lookup has no zone to canvass in a useful way.
 	if _, isIP := reverseName(name); isIP {
-		return nil, fmt.Errorf("%w: give a domain name, not an IP", ErrBadType)
+		return nil, ErrNeedDomain
 	}
 
 	if err := validDomain(name); err != nil {
@@ -571,6 +571,7 @@ func (sp *Spread) summarise() {
 
 	// Do the zone's own servers agree among themselves?
 	authKeys := map[string]bool{}
+	perProvider := map[string]map[string]bool{}
 	var authKey string
 	for _, a := range sp.Authoritative {
 		if a.Error != "" || len(a.Values) == 0 {
@@ -582,6 +583,15 @@ func (sp *Spread) summarise() {
 			authKey = k
 		}
 		authKeys[k] = true
+		p := providerKey(a.Label)
+		if perProvider[p] == nil {
+			perProvider[p] = map[string]bool{}
+		}
+		perProvider[p][k] = true
+	}
+	splitInside := false
+	for _, keys := range perProvider {
+		splitInside = splitInside || len(keys) > 1
 	}
 	sp.AuthConsistent = len(authKeys) <= 1
 	// Different records, one zone version: the servers are rotating a pool,
@@ -591,7 +601,8 @@ func (sp *Spread) summarise() {
 	// second query. Read per provider for the same reason SerialsAgree is:
 	// independent providers keep independent serials, so a global comparison
 	// would rule out rotation on every multi-provider zone.
-	sp.Rotation = len(authKeys) > 1 && sp.AuthAnswered > 1 &&
+	// Witnessed inside one provider: across providers serials can't be compared.
+	sp.Rotation = splitInside && sp.AuthAnswered > 1 &&
 		sp.SerialsAgree && sp.SerialsSeen > 1
 
 	// The authoritative TTL is the yardstick for cache age, and only earns
@@ -663,6 +674,9 @@ func unanimousRcode(all []ServerAnswer) string {
 	return code
 }
 
+// nsCount: "zone's 4 nameservers".
+func nsCount(n int) string { return fmt.Sprintf("zone's %d nameservers", n) }
+
 // health derives delegation findings from what the probes already saw. Pure
 // judgement over collected data: no extra queries.
 func (sp *Spread) health() {
@@ -692,13 +706,17 @@ func (sp *Spread) health() {
 		// stops at the registrable domain instead of climbing to the registry.
 		// Saying "none answered" would blame servers that were never found.
 		add("fail", "No nameservers are delegated for this name, so nothing serves it.")
+	// With the denominator: 1 live of 4 is 3 lame, not "add a second server".
 	case live == 0:
-		add("fail", "None of the zone's nameservers answered.")
+		add("fail", fmt.Sprintf("None of the %s answered.", nsCount(len(sp.Authoritative))))
+	case live == 1 && len(sp.Authoritative) == 1:
+		add("fail", "Only one nameserver is delegated. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
 	case live == 1:
-		add("fail", "Only one nameserver answered. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
+		add("fail", fmt.Sprintf("Only 1 of the %s answered. The rest are lame, and the one left is a single point of failure for the whole domain.", nsCount(len(sp.Authoritative))))
 	default:
 		add("ok", fmt.Sprintf("%d nameservers answered, so the zone survives losing one.", live))
 	}
+	sortNotes(sp.Health)
 }
 
 // AddDelegationHealth appends the findings that need data the DNS probes
@@ -779,10 +797,11 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 		// counts cannot be compared: doing so reported every zone with 9+
 		// nameservers as mis-delegated when the cause was our own sampling.
 	case len(atRegistry) != sp.NSTotal:
-		add("warn", fmt.Sprintf("The registry lists %d nameservers but the zone serves %d. A delegation mismatch sends some queries to servers that won't answer.", len(atRegistry), sp.NSTotal))
+		add("warn", fmt.Sprintf("The registry lists %d nameservers but the zone's own NS records name %d. Resolvers start from the registry's list, so check that every server on it still serves this zone.", len(atRegistry), sp.NSTotal))
 	default:
 		add("ok", "The registry's delegation matches the nameservers the zone serves.")
 	}
+	sortNotes(sp.Health)
 	return usedASN
 }
 

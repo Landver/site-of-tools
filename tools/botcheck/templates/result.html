@@ -31,11 +31,11 @@
     <div class="eyebrow">verdict</div>
     <div class="flex items-baseline gap-3">
       <span class="text-4xl font-semibold
-        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn{{else if eq .Report.Verdict "good-bot"}}text-brand{{else}}text-danger{{end}}">
+        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
         {{.Report.Score}}<span class="text-xl text-faint">/100</span>
       </span>
       <span class="text-lg font-medium
-        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn{{else if eq .Report.Verdict "good-bot"}}text-brand{{else}}text-danger{{end}}">
+        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
         {{if eq .Report.Verdict "human"}}Looks human{{else if eq .Report.Verdict "suspicious"}}Suspicious{{else if eq .Report.Verdict "good-bot"}}Verified {{if eq .Report.Bot.Kind "ai-agent"}}AI agent{{else}}crawler{{end}}{{else}}Looks like a bot{{end}}
       </span>
     </div>
@@ -52,11 +52,11 @@
     {{with .Report.Bot}}
     <div class="mt-3 pt-3 border-t border-line text-sm">
       {{if .Verified}}
-        <span class="text-brand font-medium">Verified {{if eq .Kind "ai-agent"}}AI agent{{else}}search crawler{{end}}:</span>
+        <span class="text-brand-ink font-medium">Verified {{if eq .Kind "ai-agent"}}AI agent{{else}}search crawler{{end}}:</span>
         {{.Name}}. The request comes from this operator's own network, so its bot-shaped
         signals are expected, not penalised.
       {{else}}
-        <span class="text-warn font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
+        <span class="text-warn-ink font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
         {{.Name}}, declared by the User-Agent but not corroborated by the network, so it is
         still scored as automation. A scraper can copy this User-Agent; only traffic from the
         operator's own network reads as verified.
@@ -65,24 +65,24 @@
     {{end}}
   </div>
 
-  <div class="mt-4 inline-flex rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <div class="mt-4 inline-flex flex-wrap gap-y-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
     <button type="button" @click="tab = 'breakdown'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'breakdown' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Score breakdown
     </button>
     <button type="button" @click="tab = 'raw'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'raw' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Raw fingerprint
     </button>
     <button type="button" @click="tab = 'request'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'request' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Your request
     </button>
     <button type="button" @click="tab = 'history'"
-       class="rounded-md px-4 py-1.5 transition"
+       class="grow rounded-md px-4 py-1.5 transition"
        :class="tab === 'history' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
       Recent checks
     </button>

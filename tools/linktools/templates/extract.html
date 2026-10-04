@@ -22,38 +22,42 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
 
-  <main class="page-main">
+  <main class="page-main" hx-history-elt hx-history="false">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Paste HTML, Markdown, an email body or any text at all, and get every URL out of it: deduplicated,
-      counted, with the anchor text where there is one. Nothing is fetched. This is for auditing the links in
-      something before it goes out, not for checking whether they work.
+      Paste HTML, Markdown, an email or any text and get every link out of it: deduplicated, counted, with its
+      link text, and anything suspicious marked. Nothing is fetched. For checking links before something goes
+      out, not for testing that they work.
     </p>
 
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
-
-    {{/* No hx-push-url: htmx pushes the request path whatever the method,
-           so a POST here would rewrite the address bar to a bare /extract and
-           the pasted text would be gone on reload. GET /extract?text= stays
-           the shareable form. */}}
-      <form hx-post="/extract" hx-target="#result" hx-swap="innerHTML" hx-disabled-elt="find button"
+    {{/* POST, with or without JavaScript: a pasted email does not belong in a
+         URL. GET /extract?text= stays the shareable form. */}}
+    <form method="post" action="/extract" hx-post="/extract" hx-target="#result" hx-swap="innerHTML"
+          hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
           class="mt-6">
-      <textarea name="text" rows="12" autofocus autocomplete="off" spellcheck="false"
+      <textarea name="text" rows="10"{{if not .Text}} autofocus{{end}} spellcheck="false"
                 aria-label="Text to pull links out of"
                 placeholder="Paste an email body, a Markdown file, an HTML fragment…"
-                class="field w-full font-mono text-xs">{{.Text}}</textarea>
+                class="field w-full font-mono text-base sm:text-xs">{{.Text}}</textarea>
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <button type="submit" class="btn-primary">Pull the links out</button>
-        <span role="status" class="htmx-indicator self-center text-sm text-muted">Reading…</span>
       </div>
     </form>
 
-    <details class="mt-4 text-sm">
+
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6" data-result>
+      {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/extracted" .}}{{end}}
+    </div>
+
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">How the input is read</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           The shape of the input is detected rather than asked for: markup is parsed as HTML so the anchor
           text travels with the link, Markdown link syntax is read as Markdown, and anything else is scanned
@@ -61,15 +65,13 @@
           gets found.
         </p>
         <p>
-          <strong class="text-strong">Nothing is fetched.</strong> Every surveyed tool that does this job also
-          requests every URL it finds, which is slower and is a different, riskier promise: it tells each
-          destination that someone is auditing the links, from this server's address, before you have decided
-          anything.
+          <strong class="text-strong">Nothing is fetched.</strong> Requesting each link would tell every
+          destination that someone is checking it, before you've decided anything.
         </p>
         <p>
-          The pasted text is redacted before this server writes anything down, and the form posts rather than
-          putting the paste in a URL. It still reaches the server to be parsed. Don't paste anything you
-          would not send.
+          The form posts, so the paste never goes into a URL, and it is redacted before this server logs
+          anything. It still reaches the server to be read. Don't paste live credentials into any web tool,
+          this one included.
         </p>
       </div>
     </details>
@@ -79,13 +81,11 @@
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/extract' --data-urlencode 'text=see https://example.com'</pre>
       <p class="mt-1 text-xs text-muted">GET with <code class="font-mono">?text=</code> works too, for anything small enough to fit in a URL.</p>
     </details>
-
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/extracted" .}}
-    </div>
   </main>
 
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
@@ -95,10 +95,13 @@
 {{define "link/extracted"}}
 {{with .Result}}
 
-<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
-  <span class="text-muted">Read as <span class="font-mono text-strong">{{.Source}}</span></span>
-  <span class="text-muted">Occurrences <span class="font-mono text-strong">{{.Total}}</span></span>
-  <span class="text-muted">Distinct URLs <span class="font-mono text-strong">{{.Unique}}</span></span>
+{{/* &#10; is a newline in the attribute; the copy partial reads back a real one. */}}
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
+     data-announce="{{.Unique}} distinct {{if eq .Unique 1}}link{{else}}links{{end}} found.">
+  <span class="text-muted">Read as <span class="text-strong">{{if eq .Source "html"}}HTML{{else if eq .Source "markdown"}}Markdown{{else}}plain text{{end}}</span></span>
+  <span class="text-muted">Found <span class="font-mono text-strong">{{.Total}}</span></span>
+  <span class="text-muted">Unique <span class="font-mono text-strong">{{.Unique}}</span></span>
+  {{if .URLs}}<button type="button" class="btn-copy sm:ml-auto" data-copy="{{range $i, $u := .URLs}}{{if $i}}&#10;{{end}}{{$u.URL}}{{end}}">Copy all {{len .URLs}}</button>{{end}}
 </div>
 
 {{if .Notes}}
@@ -114,33 +117,42 @@
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Links found</h2>
   <p class="mt-1 text-xs text-muted">
-    In the order each was first seen. None of them is clickable here, deliberately: hand a row to Inspect or
-    Clean instead.
+    In order of first appearance. Not clickable, on purpose: Inspect and Clean open in a new tab, so this list
+    stays put.
   </p>
-  <div class="mt-2 overflow-x-auto rounded-lg border border-line">
+  <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Links found">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
           <th class="px-3 py-2 font-medium">URL</th>
           <th class="px-3 py-2 font-medium">Link text</th>
-          <th class="px-3 py-2 font-medium">Times</th>
-          <th class="px-3 py-2 font-medium">Hand it to</th>
+          <th class="px-3 py-2 font-medium">Count</th>
+          <th class="px-3 py-2 font-medium">Open in</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-line">
         {{range .URLs}}
         <tr class="align-top">
           {{/* Text, never an anchor. See the file comment. */}}
-          <td class="px-3 py-2 break-all font-mono text-xs text-strong">{{.URL}}</td>
-          <td class="px-3 py-2 text-xs text-muted">
-            {{if .Anchor}}{{.Anchor}}{{else}}<span class="italic">none</span>{{end}}
+          <td class="px-3 py-2">
+            <span class="wrap-anywhere font-mono text-xs text-strong">{{.URL}}</span>
+            {{if .Flags}}
+            <ul class="mt-1 space-y-0.5">
+              {{range .Flags}}
+              <li class="text-xs {{if eq .Severity "fail"}}text-danger{{else if eq .Severity "warn"}}text-warn-ink{{else}}text-muted{{end}}">{{.Title}}</li>
+              {{end}}
+            </ul>
+            {{end}}
           </td>
-          <td class="px-3 py-2 font-mono text-xs
-            {{if gt .Count 1}}text-warn{{else}}text-muted{{end}}">{{.Count}}</td>
-          <td class="px-3 py-2 text-xs">
-            <a href="/?u={{.URL}}" class="text-brand hover:underline">Inspect</a>
+          <td class="px-3 py-2 text-xs text-muted">
+            {{if .Anchors}}{{range $i, $a := .Anchors}}{{if $i}}<br>{{end}}{{$a}}{{end}}{{else}}<span class="italic">none</span>{{end}}
+          </td>
+          <td class="px-3 py-2 font-mono text-xs text-muted">{{.Count}}</td>
+          {{/* A new tab: the paste lives only in this page. */}}
+          <td class="whitespace-nowrap px-3 py-2 text-xs">
+            <a href="/?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand-ink hover:underline">Inspect</a>
             <span class="text-muted">&middot;</span>
-            <a href="/clean?u={{.URL}}" class="text-brand hover:underline">Clean</a>
+            <a href="/clean?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand-ink hover:underline">Clean</a>
           </td>
         </tr>
         {{end}}
@@ -148,16 +160,9 @@
     </table>
   </div>
 </section>
-{{else}}
-<section class="mt-6 rounded-lg border border-line bg-surface p-4">
-  <h2 class="text-sm font-semibold text-strong">No links in that</h2>
-  <p class="mt-1 text-sm text-muted">
-    Nothing in the text parsed as a URL. A link written without a scheme
-    (<code class="font-mono">example.com/thing</code>) is not one as far as this page is concerned, because
-    guessing the scheme is how a tool invents links that were never there.
-  </p>
-</section>
 {{end}}
 
+{{else}}
+{{template "link/examples" .Examples}}
 {{end}}
 {{end}}

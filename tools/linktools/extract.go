@@ -2,6 +2,7 @@ package linktools
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -26,12 +27,15 @@ type Extraction struct {
 	Notes  []Note         `json:"notes,omitempty"`
 }
 
-// ExtractedURL is one distinct URL, in the order it was first seen.
+// ExtractedURL is one distinct URL, in the order it was first seen. Flags are
+// what, read off its text alone, should stop someone sending it.
 type ExtractedURL struct {
-	URL       string `json:"url"`
-	Anchor    string `json:"anchor,omitempty"`    // first non-empty link text, whitespace collapsed
-	Count     int    `json:"count"`               // occurrences, including the first
-	Positions []int  `json:"positions,omitempty"` // byte offsets into the input, capped
+	URL       string   `json:"url"`
+	Anchor    string   `json:"anchor,omitempty"`    // first non-empty link text, whitespace collapsed
+	Anchors   []string `json:"anchors,omitempty"`   // every distinct link text, first one first, capped
+	Count     int      `json:"count"`               // occurrences, including the first
+	Positions []int    `json:"positions,omitempty"` // byte offsets into the input, capped
+	Flags     []Note   `json:"flags,omitempty"`
 }
 
 // Source values, named rather than inlined because the template branches on them.
@@ -55,6 +59,7 @@ const (
 	maxPositions = 100
 	// maxAnchorText keeps one runaway link text from owning the table.
 	maxAnchorText = 200
+	maxAnchors    = 5
 )
 
 // Extract pulls every URL out of pasted text, deduplicated and counted.
@@ -99,9 +104,7 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 			row := &out.URLs[i]
 			row.Count++
 			out.Total++
-			if row.Anchor == "" {
-				row.Anchor = tidyAnchor(f.anchor)
-			}
+			row.addAnchor(tidyAnchor(f.anchor))
 			if len(row.Positions) < maxPositions {
 				row.Positions = append(row.Positions, f.pos)
 			}
@@ -111,10 +114,26 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 			continue
 		}
 		seen[u] = len(out.URLs)
-		out.URLs = append(out.URLs, ExtractedURL{
-			URL: u, Anchor: tidyAnchor(f.anchor), Count: 1, Positions: []int{f.pos},
-		})
+		row := ExtractedURL{URL: u, Count: 1, Positions: []int{f.pos}}
+		row.addAnchor(tidyAnchor(f.anchor))
+		out.URLs = append(out.URLs, row)
 		out.Total++
+	}
+
+	worth := 0 // rows with something more than a note
+	for i := range out.URLs {
+		row := &out.URLs[i]
+		row.Flags = auditLink(row.URL, row.Anchors)
+		for _, f := range row.Flags {
+			if f.Severity == SevFail || f.Severity == SevWarn {
+				worth++
+				break
+			}
+		}
+	}
+	if worth > 0 {
+		out.Notes = append(out.Notes, Note{SevWarn, plural(worth, "link") + " worth a second look",
+			"Marked in the table below: what each one shows against where it goes, wrappers, and schemes that run code instead of going anywhere."})
 	}
 
 	out.Unique = len(out.URLs)
@@ -123,10 +142,102 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 			"More distinct URLs were found than are shown. The ones listed are the first ones in the text."})
 	}
 	if out.Unique == 0 {
-		out.Notes = append(out.Notes, Note{SevInfo, "No URLs found",
-			"Read as " + out.Source + ". A bare host like \"example.com\" is not extracted: without a scheme it cannot be told apart from ordinary prose."})
+		out.Notes = append(out.Notes, Note{SevInfo, "No links found",
+			"Nothing here parsed as a URL. Links written without https:// (like example.com/thing) are skipped on purpose: guessing the scheme invents links that were never there."})
 	}
 	return out, nil
+}
+
+// addAnchor keeps the first text as Anchor and every distinct one in Anchors:
+// two texts are two claims about where a link goes.
+func (r *ExtractedURL) addAnchor(a string) {
+	if a == "" || slices.Contains(r.Anchors, a) || len(r.Anchors) >= maxAnchors {
+		return
+	}
+	if r.Anchor == "" {
+		r.Anchor = a
+	}
+	r.Anchors = append(r.Anchors, a)
+}
+
+// auditLink flags a link from its text alone; nothing is fetched or resolved.
+func auditLink(raw string, anchors []string) []Note {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return []Note{{SevWarn, "Not a valid URL", parseReason(err).Error()}}
+	}
+	var notes []Note
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	switch {
+	case isDangerousScheme(scheme):
+		notes = append(notes, Note{SevFail, scheme + ": link",
+			"Runs or embeds something instead of going anywhere. Nothing that is sent out should carry one."})
+	case scheme == "" && host == "":
+		notes = append(notes, Note{SevInfo, "Relative link",
+			"Where it goes depends on the page it ends up on; in an email it usually goes nowhere."})
+	}
+	if u.User != nil && host != "" {
+		notes = append(notes, Note{SevFail, "Credentials before the host",
+			"Everything before the @ is a username. This goes to " + host + "."})
+	}
+	// Only text that reads as a URL or domain makes a claim to compare.
+	for _, a := range anchors {
+		if shown := hostInText(a); shown != "" && host != "" && !sameSite(shown, host) {
+			notes = append(notes, Note{SevFail, "Text shows " + shown + ", link goes to " + host,
+				"What the reader sees is not where the click goes."})
+			break
+		}
+	}
+	if target, name, partial, ok := unwrapAll(raw); ok || partial {
+		dest := "a destination it does not reveal"
+		if t, err := url.Parse(target); err == nil && t.Hostname() != "" {
+			dest = t.Hostname()
+		} else if partial && target != "" {
+			dest = target
+		}
+		notes = append(notes, Note{SevWarn, name + " wrapper, really goes to " + dest,
+			"Unwrapped from the link text, not fetched. The wrapper vouches for nothing about the destination."})
+	}
+	trackers := 0
+	for _, pair := range strings.Split(u.RawQuery, "&") {
+		k, _, _ := strings.Cut(pair, "=")
+		if key, err := url.QueryUnescape(k); err == nil && key != "" && TrackingRuleFor(key) != "" {
+			trackers++
+		}
+	}
+	if trackers > 0 {
+		notes = append(notes, Note{SevInfo, plural(trackers, "tracking parameter"), "Clean would remove them."})
+	}
+	return notes
+}
+
+// textHostRe: link text that reads as a bare domain, optionally with a path.
+var textHostRe = regexp.MustCompile(`(?i)^(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}(?:[/?#]\S*)?$`)
+
+// hostInText is the host a link text claims to be, or "".
+func hostInText(a string) string {
+	a = strings.TrimSpace(a)
+	if strings.Contains(a, "://") {
+		if u, err := url.Parse(a); err == nil {
+			return strings.ToLower(u.Hostname())
+		}
+		return ""
+	}
+	if !textHostRe.MatchString(a) {
+		return ""
+	}
+	host, _, _ := strings.Cut(a, "/")
+	host, _, _ = strings.Cut(host, "?")
+	host, _, _ = strings.Cut(host, "#")
+	return strings.ToLower(host)
+}
+
+// sameSite: the link goes where its text says, or to a subdomain of it.
+// "www.paypal.com" over paypal.com.example.net is not.
+func sameSite(shown, host string) bool {
+	shown, host = strings.TrimPrefix(shown, "www."), strings.TrimPrefix(host, "www.")
+	return host == shown || strings.HasSuffix(host, "."+shown)
 }
 
 // found is one URL as located in the input, before de-duplication.

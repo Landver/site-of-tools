@@ -23,11 +23,14 @@ import (
 // code generation and expiry; storage sits below it in LinkStore, per CLAUDE.md
 // rule #5, and HTTP sits above it in handler.go.
 //
-// Nil *Shortener means the feature is off, and every method reports ErrDisabled
-// so the handler answers 503 without a single nil check of its own.
+// Nil *Shortener means no storage: every method reports ErrDisabled or does
+// nothing, and every route answers 503. Built without an API key it still
+// resolves, but Create, Recent and Revoke report ErrDisabled and Authorized
+// refuses everyone: the key gates writes and the list, never the redirect.
 type Shortener struct {
 	store   *LinkStore
 	keyHash [sha256.Size]byte
+	hasKey  bool // false: keyHash is the zero value and must never be compared
 	baseURL string
 
 	// CleanTarget is the seam to clean.go, injected at wiring time: it takes a
@@ -63,16 +66,16 @@ type CreateOptions struct {
 var (
 	// ErrInvalidTarget: the destination is not a URL we will ever redirect to.
 	// 400 (docs/04-short-links.md §9).
-	ErrInvalidTarget = errors.New("target URL is not acceptable")
+	ErrInvalidTarget = errors.New("destination URL not allowed")
 	// ErrInvalidSlug: the custom slug is malformed, reserved, or shaped like a
 	// generated code. 400.
-	ErrInvalidSlug = errors.New("custom slug is not acceptable")
+	ErrInvalidSlug = errors.New("custom code not allowed")
 	// ErrInvalidNote: note over the cap. 400.
 	ErrInvalidNote = errors.New("note is too long")
 	// ErrSlugTaken: the slug exists. 409, never a silent suffix — a caller who
 	// asked for /s/q4-report and got /s/q4-report-2 will paste the one they
 	// asked for.
-	ErrSlugTaken = errors.New("that slug is already taken")
+	ErrSlugTaken = errors.New("that code is already taken")
 )
 
 const (
@@ -122,37 +125,46 @@ var reservedSlugs = map[string]bool{
 }
 
 // NewShortener wires the domain service. It returns nil — the feature off —
-// when there is no store or no API key.
+// when there is no store.
 //
-// The empty-key case is the one worth stating: an unset LINK_API_KEY means
-// nobody can create, never that anybody can (docs/04-short-links.md §5). A
-// public shortener is found by scanners within days, and when one is used for
-// phishing the blocklists take the whole domain, not the offending path: the
-// portfolio, the blog and all four tools, with an appeal measured in weeks. So
-// the write path fails closed on a wiring mistake, exactly as it does on a
-// missing MONGODB_URI.
+// An empty apiKey still builds one, because resolving never needs the key and
+// links already handed out must keep working. What it switches off is
+// everything the key gates. An unset LINK_API_KEY means nobody can create,
+// never that anybody can (docs/04-short-links.md §5). A public shortener is
+// found by scanners within days, and when one is used for phishing the
+// blocklists take the whole domain, not the offending path: the portfolio, the
+// blog and all four tools, with an appeal measured in weeks.
 //
 // baseURL is the origin aliases are handed out under, config-driven so moving
 // to a dedicated short domain stays a one-line change (§2).
 func NewShortener(store *LinkStore, apiKey, baseURL string) *Shortener {
-	if store == nil || apiKey == "" {
+	if store == nil {
 		return nil
 	}
-	return &Shortener{
+	s := &Shortener{
 		store:   store,
-		keyHash: sha256.Sum256([]byte(apiKey)),
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 	}
+	if apiKey != "" {
+		s.keyHash, s.hasKey = sha256.Sum256([]byte(apiKey)), true
+	}
+	return s
+}
+
+// HasKey reports whether an API key is configured, i.e. whether create, list
+// and revoke can run at all. Nil-safe.
+func (s *Shortener) HasKey() bool {
+	return s != nil && s.hasKey
 }
 
 // Authorized reports whether key is the configured API key.
 //
 // Both sides are SHA-256'd first. subtle.ConstantTimeCompare returns 0
 // immediately on a length mismatch, so comparing the raw strings would leak the
-// key's length; hashing makes both operands fixed-length (§5). A nil receiver
-// authorises nobody.
+// key's length; hashing makes both operands fixed-length (§5). A nil receiver,
+// or one with no key configured, authorises nobody.
 func (s *Shortener) Authorized(key string) bool {
-	if s == nil {
+	if !s.HasKey() {
 		return false
 	}
 	got := sha256.Sum256([]byte(key))
@@ -175,7 +187,7 @@ func (s *Shortener) ShortURL(code string) string {
 // "cleaned" array is the handler's to report from CleanTarget's second return,
 // and Link.Original is set whenever cleaning changed the URL.
 func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions) (*Link, error) {
-	if s == nil {
+	if !s.HasKey() {
 		return nil, ErrDisabled
 	}
 	note := strings.TrimSpace(opt.Note)
@@ -237,7 +249,7 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		l.Code = slug
 		if err := s.store.Insert(ctx, l); err != nil {
 			if errors.Is(err, ErrCodeTaken) {
-				return nil, fmt.Errorf("%w: %s", ErrSlugTaken, slug)
+				return nil, fmt.Errorf("%w: %s, and codes are never reissued, even after a link is revoked", ErrSlugTaken, slug)
 			}
 			return nil, err
 		}
@@ -326,7 +338,7 @@ func (s *Shortener) RecordHit(code string) {
 // (docs/04-short-links.md §4). Until this existed Revoke had no caller at all,
 // so the kill switch §10 promises was not reachable by any route.
 func (s *Shortener) Revoke(ctx context.Context, code string) error {
-	if s == nil {
+	if !s.HasKey() {
 		return ErrDisabled
 	}
 	// Validated before it reaches a Mongo filter, like every other code path.
@@ -341,7 +353,7 @@ func (s *Shortener) Revoke(ctx context.Context, code string) error {
 // is key-gated precisely because this list defeats §3's entropy argument
 // outright and turns hits/last_hit_at into a read-receipt oracle.
 func (s *Shortener) Recent(ctx context.Context, n int64) ([]Link, error) {
-	if s == nil {
+	if !s.HasKey() {
 		return nil, ErrDisabled
 	}
 	return s.store.Recent(ctx, n)
@@ -450,13 +462,13 @@ func validateTarget(raw string) (*url.URL, error) {
 func validateSlug(slug string) (string, error) {
 	s := strings.TrimSpace(slug)
 	if !slugPattern.MatchString(s) {
-		return "", fmt.Errorf("%w: must be 2-64 characters of lowercase a-z, 0-9 and -, starting with a letter or digit", ErrInvalidSlug)
+		return "", fmt.Errorf("%w: use 2–64 lowercase letters, digits and hyphens, starting with a letter or digit", ErrInvalidSlug)
 	}
 	if reservedSlugs[s] {
 		return "", fmt.Errorf("%w: %q is reserved for a page name", ErrInvalidSlug, s)
 	}
 	if isGeneratedShape(s) {
-		return "", fmt.Errorf("%w: %q has the shape of a generated code", ErrInvalidSlug, s)
+		return "", fmt.Errorf("%w: %q looks like a generated code; make it longer or shorter, or add a hyphen", ErrInvalidSlug, s)
 	}
 	return s, nil
 }

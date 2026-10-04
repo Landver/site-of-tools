@@ -19,37 +19,56 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  /* Accent — corpberry magenta (identical in both themes). */
+  /* Accent — corpberry magenta (identical in both themes). Small accent text
+     uses brand-ink, lighter in the dark theme for contrast. */
   --color-brand: #b83266;
+  --color-brand-ink: #b83266;
 
   /* Semantic tokens — LIGHT values (default). Markup only ever names these
      (bg-canvas, text-body, border-line, …); switching theme flips variable
-     values → no per-element dark: duplication anywhere. */
+     values → no per-element dark: duplication anywhere. Text colours clear
+     WCAG AA (4.5:1) on canvas and surface. */
   --color-canvas:  #ffffff; /* page background          */
   --color-surface: #f4f4f5; /* raised bg: cards, inputs */
   --color-line:    #e4e4e7; /* borders, dividers        */
+  --color-line-strong: #8a8a93; /* form-control borders (3:1)  */
   --color-strong:  #18181b; /* headings, emphasis       */
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
-  --color-faint:   #71717a; /* labels, footer, hints    */
-  --color-danger:  #dc2626; /* proxy / threat / error   */
-  --color-ok:      #059669; /* not-a-proxy / looks human */
-  --color-warn:    #d97706; /* suspicious (bot-check band) */
+  --color-faint:   #68686f; /* labels, footer, hints    */
+  /* Warn is split like brand: amber fill, warn-ink for text (7:1 on a warn tint). */
+  --color-danger:  #b91c1c; /* proxy / threat / error   */
+  --color-ok:      #047857; /* not-a-proxy / looks human */
+  --color-warn:    #b45309; /* suspicious (bot-check band) */
+  --color-warn-ink: #92400e;
+  /* Notable but not bad: a parameter that only moved, a wrapper read through. */
+  --color-info:    #1d4ed8;
 }
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
    re-pointing variables re-themes entire site w/ zero markup churn. */
+/* Native controls (checkboxes, popups, scrollbars) follow the theme. */
+:root {
+  color-scheme: light;
+  accent-color: var(--color-brand);
+}
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand-ink: #e0619a;
   --color-canvas:  #0a0a0a;
   --color-surface: #171717;
   --color-line:    #262626;
+  --color-line-strong: #6b6b6b;
   --color-strong:  #ffffff;
   --color-body:    #e5e5e5;
   --color-muted:   #a3a3a3;
-  --color-faint:   #737373;
+  --color-faint:   #8a8a8a;
   --color-danger:  #f87171;
   --color-ok:      #34d399;
   --color-warn:    #fbbf24;
+  --color-warn-ink: #fbbf24;
+  --color-info:    #60a5fa;
 }
 
 @layer base {
@@ -58,6 +77,11 @@
      pages instead of repeating the cluster. */
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
+  }
+  /* One focus ring everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
   /* Alpine's cloak: hide x-cloak elements until Alpine initialises. */
   [x-cloak] {
@@ -75,26 +99,35 @@
   }
   /* Small brand-magenta uppercase label above section headings and card titles. */
   .eyebrow {
-    @apply font-mono text-xs uppercase tracking-widest text-brand;
+    @apply font-mono text-xs uppercase tracking-widest text-brand-ink;
   }
   /* …and as card title always gets same bottom margin — baked in → call
      sites stay bare `eyebrow` (same precedent as .spec > dt). */
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by lookup and CIDR forms. */
+  /* Text input + primary button, shared by lookup and CIDR forms. 16px on a
+     phone: iOS zooms into any smaller input. */
   .field {
-    @apply flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus:border-brand focus:outline-none;
+    @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-base text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger sm:text-sm;
+  }
+  /* A native <select> ignores line-height; pinned to the input's height. */
+  select.field {
+    @apply min-h-[2.625rem] sm:min-h-[2.375rem];
   }
   .btn-primary {
-    @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
+    @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white enabled:hover:opacity-90 disabled:cursor-wait disabled:opacity-60;
+  }
+  /* The quieter second action beside a .btn-primary. */
+  .btn-secondary {
+    @apply rounded-md border border-line-strong bg-canvas px-4 py-2 text-sm font-medium text-strong hover:border-brand;
   }
   /* Small secondary control that sits beside the thing it acts on. Driven by
      partials/copy, which toggles is-copied / is-failed and nothing else: names
      Tailwind does not own, so the confirmation never depends on the scanner
      having found a utility name inside a JS string. */
   .btn-copy {
-    @apply shrink-0 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-brand;
+    @apply shrink-0 rounded-md border border-line-strong bg-canvas px-3 py-1.5 text-xs font-medium text-strong hover:border-brand;
   }
   .btn-copy.is-copied {
     @apply border-ok text-ok;
@@ -104,7 +137,7 @@
   }
   /* Inline error alert; add a layout util inline. */
   .alert-error {
-    @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger;
+    @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger wrap-anywhere;
   }
   /* Two-column label/value grid for result cards' <dl>. Override column width
      inline where needed, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */
@@ -115,16 +148,29 @@
   .spec > dt {
     @apply text-faint;
   }
+  /* Label/value rows (<div><dt><dd></div>) whose value can be long: it sits
+     beside the label when it fits and drops below it when it doesn't. */
+  .pairs {
+    @apply grid gap-y-3 text-sm;
+  }
+  .pairs > div {
+    @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1;
+  }
 
   /* Page scaffolding shared by every page: centred column, capped width,
      vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */
   .page-main {
-    @apply mx-auto w-full max-w-4xl px-6 py-12 flex-1;
+    @apply mx-auto w-full max-w-4xl px-4 py-8 flex-1 sm:px-6 sm:py-12;
   }
 
   /* Underlined brand link (apex contact rows, history IP links). */
   .link-brand {
-    @apply border-b border-brand text-strong hover:text-brand;
+    @apply border-b border-brand text-strong hover:text-brand-ink;
+  }
+  /* A link inside a sentence: underlined, since colour alone does not set it
+     apart from the words around it (WCAG 1.4.1). */
+  .link-inline {
+    @apply text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink;
   }
 
   /* Rendered blog markdown body — bare tags straight from goldmark, so all
@@ -142,7 +188,7 @@
     @apply mt-8 text-xl font-semibold text-strong;
   }
   .post-body a {
-    @apply border-b border-brand text-strong hover:text-brand;
+    @apply border-b border-brand text-strong hover:text-brand-ink;
   }
   .post-body ul {
     @apply list-disc pl-6;

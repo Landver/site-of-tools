@@ -22,31 +22,33 @@
      own absence on a page that is already dense. */}}
 {{define "dns/ecs"}}
 {{with .ECS}}
+{{/* Hidden for a name that doesn't exist: the page already says so. */}}
+{{if not (and (eq .Verdict "no-records") (eq .Rcode "NXDOMAIN"))}}
 <div class="card">
-  <div class="eyebrow">answers by client network</div>
+  <h2 class="eyebrow">answers by client network</h2>
 
   {{/* The verdict headline and the one number behind it. Every branch
        quantifies over the subset it was derived from, never over "every
        response", because responses that carried no scope measured nothing.
        Anything longer than a line belongs in the toggle below. */}}
-  <p class="text-sm">
+  <p class="text-sm font-medium">
     {{if eq .Verdict "answers-differ"}}
       {{if .ScopeDistinct}}
         <span class="text-ok">This answer depends on the network that asks.</span>
       {{else}}
-        <span class="text-warn">These networks were given different answers.</span>
+        <span class="text-warn-ink">These networks were given different answers.</span>
       {{end}}
     {{else if eq .Verdict "answers-match"}}
       <span class="text-ok">Every network was given the same answer.</span>
     {{else if eq .Verdict "untailored"}}
-      {{if .Rotation}}<span class="text-warn">Different answers, and no client-subnet tailoring behind them.</span>
+      {{if .Rotation}}<span class="text-warn-ink">Different answers, and no client-subnet tailoring behind them.</span>
       {{else}}<span class="text-ok">No client-subnet tailoring on this path.</span>{{end}}
     {{else if eq .Verdict "no-records"}}
-      <span class="text-warn">No {{.Type}} record anywhere.</span>
+      <span class="text-warn-ink">No {{.Type}} record for any of the {{.Asked}} networks.</span>
     {{else if eq .Verdict "unsupported"}}
-      <span class="text-warn">Could not tell.</span>
+      <span class="text-warn-ink">Could not tell.</span>
     {{else}}
-      <span class="text-warn">Not enough answers to judge.</span>
+      <span class="text-warn-ink">Not enough answers to judge.</span>
     {{end}}
   </p>
 
@@ -134,8 +136,9 @@
     </p>
 
     {{/* Per-network rows: the same shape the public resolvers card uses. */}}
-    <dl class="spec mt-3 grid-cols-[1fr_auto]">
+    <dl class="pairs mt-3">
       {{range .Vantages}}
+      <div>
       <dt class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
         {{.Place}}
         <span class="block font-mono text-faint">{{.Subnet}}</span>
@@ -144,22 +147,23 @@
           {{/* A well-formed scope about a network we never probed. Printing it
                as if it described this row is how someone else's cached answer
                ends up carrying our verdict, so the prefix is named. */}}
-          <span class="block text-warn">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
+          <span class="block text-warn-ink">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
         {{else if .Echoed}}
           {{if not .Scope}}<span class="block text-faint">scope 0, not tailored</span>
           {{else if eq .Scope .SourceNetmask}}<span class="block text-faint">scope /{{.Scope}}, the length we sent</span>
           {{else}}<span class="block text-ok">scope /{{.Scope}}, the zone's own block</span>{{end}}
         {{else}}<span class="block text-faint">no scope</span>{{end}}
       </dt>
-      <dd class="text-right">
+      <dd>
         {{if .Error}}<span class="text-danger">{{.Error}}</span>
-        {{else}}<span class="font-mono text-xs text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
+        {{else}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
           {{/* An empty answer set is a real outcome (NODATA), and printing
                nothing beside a row reads as "this vantage said nothing". */}}
           {{if not .Values}}<span class="text-xs text-muted">no {{$.ECS.Type}} record{{if .Rcode}} ({{.Rcode}}){{end}}</span>{{end}}
           {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
-          <span class="block text-xs text-faint">{{.RTTMS}} ms</span>{{end}}
+          <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
       </dd>
+      </div>
       {{end}}
     </dl>
   </details>
@@ -171,9 +175,10 @@
   {{end}}
 
   <p class="mt-2 text-xs text-faint">
-    {{.Answered}} of {{.Asked}} client subnets answered · {{.QueryMS}} ms ·
+    {{.Answered}} of {{.Asked}} client subnets answered · {{.QueryMS}}&nbsp;ms ·
     fixed public prefixes, one query each, never your address
   </p>
 </div>
+{{end}}
 {{end}}
 {{end}}

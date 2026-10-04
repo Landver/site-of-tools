@@ -46,7 +46,7 @@
     <section class="mt-8">
       <h2 class="text-lg font-semibold text-strong">Generate a test key pair</h2>
       <p class="mt-1 text-sm text-muted">
-        <span class="font-semibold text-warn">For testing.</span> The key is generated in your browser (on this server
+        <span class="font-semibold text-warn-ink">For testing.</span> The key is generated in your browser (on this server
         with JavaScript off). Anything real should come from your own machine or a KMS.
       </p>
       <details class="mt-1 text-xs">
@@ -90,7 +90,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out key.pem</pre>
         <label class="block text-sm text-muted">Key: PEM, JWK, JWKS or an OpenSSH public key
           <textarea name="key" rows="7" autocomplete="off" spellcheck="false"
                     placeholder="-----BEGIN PUBLIC KEY-----, {&quot;kty&quot;:&quot;EC&quot;,…}, or ssh-ed25519 AAAA… user@host"
-                    class="field mt-1 w-full font-mono text-xs">{{if eq .Op "keys-inspect"}}{{.Form.Get "key"}}{{end}}</textarea>
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{if eq .Op "keys-inspect"}}{{.Form.Get "key"}}{{end}}</textarea>
         </label>
         <p class="text-xs text-faint">
           Reads PKCS#8, PKCS#1, SEC 1, SPKI and unencrypted OpenSSH PEM, a certificate's key, JWK and JWKS, and
@@ -126,7 +126,7 @@ ssh-keygen -lf id_ed25519.pub                          # OpenSSH SHA256: fingerp
 {{define "cipher/keys-generated"}}
 {{with .Result}}
 <p class="text-sm text-muted">
-  <span class="font-semibold text-warn">{{.Key.Name}} test key,</span> generated {{if eq .Where "browser"}}in your
+  <span class="font-semibold text-warn-ink">{{.Key.Name}} test key,</span> generated {{if eq .Where "browser"}}in your
   browser{{else}}on this server and sent back to you, not stored{{end}} in {{.Took}}. It's for testing: anything real
   belongs in a KMS, or comes from ssh-keygen or openssl on your own machine.
 </p>

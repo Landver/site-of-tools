@@ -148,7 +148,8 @@ fields** (`dom *DomainClient`, and `iptools` does the same with `shodan
   for the one dependency that must never be nil.
 - **`*Tracer` and `*Shortener` are concrete pointers** with nil-receiver-safe
   methods and a `linktools.ErrDisabled` sentinel, in the `dnstools.DomainClient`
-  shape. `NewShortener` returns `nil` when `links == nil || apiKey == ""`;
+  shape. `NewShortener` returns `nil` when `links == nil`; with an empty
+  `apiKey` it still resolves but refuses create, list and revoke.
   `NewTracer` returns `nil` when handed a nil guard.
 - **`svc` is not optional.** A nil one is a wiring mistake, so `Register`
   panics on it — exactly as `dnstools.Register` does for `svc`.
@@ -168,6 +169,9 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 GET  /                 Inspect              ?u=<url>                  [p0]
 GET  /diff             Compare two URLs     ?a=<url>&b=<url>          [p0]
 GET  /curl             URL <-> curl         ?u=<url> | ?curl=<cmd>    [p0]
+POST /curl             The paste direction from the page: a copied command
+                       carries cookies and tokens, which a query string would
+                       put in the address bar, history and proxy logs
 GET  /encoding         Percent-encoding reference (static)            [p0]
 GET  /clean            Clean                ?u=<url>&sort=&strip=     [p1]
 GET  /clean/rules      The rule table, versioned — the extension caches this
@@ -176,7 +180,8 @@ GET  /encode           Encode / decode playground                     [p1]
 GET  /short            Short-link console                [X-Api-Key]  [p2]
 POST /short            Create an alias                   [X-Api-Key]  [p2]
 DEL  /short/:code      Revoke an alias (soft)            [X-Api-Key]  [p2]
-GET  /s/:code          The redirect itself                            [p2]
+GET  /s/:code          The redirect itself; a dead code is one 404 for
+                       every cause, a page for a browser       [p2]
 GET  /trace            Trace                ?u=<url>&ua=<persona>     [p3]
 GET  /extract          URLs out of pasted text
 POST /extract          Same, for input too large for a query string
@@ -265,22 +270,29 @@ names — and because a page template renders its own fragment inline
 infinite recursion rather than reuse. Hence the `-ed` pairs:
 
 ```
-nav.html        link/nav                       suite sub-nav: four primary entries + a "More" group
+nav.html        link/nav                       suite sub-nav: every tool, in task order, Short last; then the suite eyebrow
+examples.html   link/examples                  "Try an example" chips, the empty state of each result fragment (examples.go);
+                                               called with the list, so curl can give each panel its own
+live.html       link/live                      shared page script: one-line screen-reader status, aria-busy, history snapshot sync,
+                                               the wrong-tool gate, Enter-submits for data-enter-submits textareas
 index.html      link/index                     Inspect, page
 inspect.html    link/inspect                   Inspect, fragment — also rendered inside link/curled
 clean.html      link/clean + link/cleaned      page + fragment
 rules.html      link/rules + link/rulerow      the rule table, human-readable; rulerow is one row, reused per class
 trace.html      link/trace                     page
 chain.html      link/chain                     Trace fragment
-short.html      link/short + link/created      console page + the created-alias fragment
+short.html      link/short + link/created      console page + the created-alias fragment; also link/shortlist,
+                                               link/rowactions (Copy and Revoke, placed per breakpoint),
+                                               link/revoked and link/gone (a dead short link, as a browser sees it)
 privacy.html    link/privacy                   extension privacy policy
 diff.html       link/diff + link/diffed        A13, a second view over two Inspections
 curl.html       link/curl + link/curled        A19
 encoding.html   link/encoding                  A20, static reference
-utm.html        link/utm + link/utmbuilt       A11
-encode.html     link/encode + link/encoded     A14
+utm.html        link/utm + link/utmbuilt       A11; link/utmfield is one campaign field
+encode.html     link/encode + link/encoded     A14; link/enc-pair, enc-table, dec-table and dec-ladder are its sections,
+                                               ordered by whether the input was already percent-encoded
 extract.html    link/extract + link/extracted  A18
-notes.html      link/notes                     the shared severity-note list
+notes.html      link/notes + link/note         the shared severity-note list, worst first, one glyph badge per severity
 error.html      link/error + link/ratelimited  the generic error fragment, and the 429 one
 ```
 
@@ -341,7 +353,7 @@ links := linktools.NewLinkStore(idxCtx, mdb.DB()) // nil db -> nil store -> crea
 // (2) after the dnstools app block:
 // link.corpberry.com — URL inspect / clean / trace / short links. Parsing is
 // pure; only /trace dials out, and only through the egress gate in trace.go.
-short := linktools.NewShortener(links, cfg.LinkAPIKey, cfg.URL("link")) // nil when either is absent; ShortURL owns the "/s/" prefix
+short := linktools.NewShortener(links, cfg.LinkAPIKey, cfg.URL("link")) // nil without a store; keyless = resolve only; ShortURL owns the "/s/" prefix
 tracer := linktools.NewTracer(10 * time.Second)                              // nil -> /trace answers 503
 linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 linktools.Register(linkApp, linktools.NewService(), tracer, short)
@@ -370,7 +382,7 @@ API included", because all three are true of every tool on the site:
 ```go
 {
 	Name: "Link Tools",
-	Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then strip its tracking parameters, follow where it redirects, and shorten what's left.",
+	Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then remove its tracking parameters, follow where it redirects, or compare it with another.",
 	URL:  cfg.URL("link"),
 },
 ```

@@ -56,13 +56,13 @@
         <label class="block text-sm text-muted">Token
           <textarea name="token" rows="4" autofocus autocomplete="off" spellcheck="false"
                     placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMifQ.…"
-                    class="field mt-1 w-full font-mono text-xs">{{.Form.Get "token"}}</textarea>
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "token"}}</textarea>
         </label>
         <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
           <label class="block text-sm text-muted">Secret, public key, JWK or JWKS <span class="text-faint">(optional)</span>
             <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
                       placeholder="your-256-bit-secret, or -----BEGIN PUBLIC KEY-----, or {&quot;keys&quot;:[…]}"
-                      class="field mt-1 w-full font-mono text-xs">{{if ne .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
+                      class="field mt-1 w-full font-mono text-base sm:text-xs">{{if ne .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
           </label>
           <label class="block text-sm text-muted">Secret is
             {{/* Detect is the default: a token doesn't say how its secret was
@@ -116,19 +116,19 @@
         </label>
         <label class="block text-sm text-muted">Payload (claims, JSON)
           <textarea name="payload" rows="5" autocomplete="off" spellcheck="false"
-                    class="field mt-1 w-full font-mono text-xs">{{with .Form.Get "payload"}}{{.}}{{else}}{"sub": "1234567890", "name": "Test User"}{{end}}</textarea>
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{with .Form.Get "payload"}}{{.}}{{else}}{"sub": "1234567890", "name": "Test User"}{{end}}</textarea>
         </label>
         <details class="text-sm">
           <summary class="cursor-pointer text-muted hover:text-strong">Extra header members</summary>
           <textarea name="header" rows="3" autocomplete="off" spellcheck="false" placeholder='{"cty": "JWT"}'
-                    class="field mt-2 w-full font-mono text-xs">{{.Form.Get "header"}}</textarea>
+                    class="field mt-2 w-full font-mono text-base sm:text-xs">{{.Form.Get "header"}}</textarea>
           <p class="mt-1 text-xs text-faint"><span class="font-mono">alg</span> always comes from the menu above.</p>
         </details>
         <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
           <label class="block text-sm text-muted">Secret, or private key (PEM / JWK)
             <textarea name="key" rows="4" autocomplete="off" spellcheck="false"
                       placeholder="a long random secret, or -----BEGIN PRIVATE KEY-----"
-                      class="field mt-1 w-full font-mono text-xs">{{if eq .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
+                      class="field mt-1 w-full font-mono text-base sm:text-xs">{{if eq .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
           </label>
           <label class="block text-sm text-muted">Secret is
             <select name="key_enc" class="field mt-1 w-full">
@@ -191,13 +191,13 @@
   {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
   {{if .SigBytes}}<span>Signature <span class="text-strong">{{.SigBytes}} bytes</span></span>{{end}}
   {{with .Validity}}
-  <span class="{{if eq .State "valid"}}text-ok{{else if eq .State "no-expiry"}}text-warn{{else}}text-danger{{end}}">{{.Detail}}</span>
+  <span class="{{if eq .State "valid"}}text-ok{{else if eq .State "no-expiry"}}text-warn-ink{{else}}text-danger{{end}}">{{.Detail}}</span>
   {{end}}
 </div>
 
 {{template "cipher/warnings" .Warnings}}
 
-<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
+<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand-ink{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-2">
   <section class="min-w-0">
@@ -233,7 +233,7 @@
           <td class="py-2 pr-4 font-mono text-strong">{{.Name}}</td>
           <td class="py-2 pr-4"><span class="break-all font-mono text-strong">{{.Value}}</span>
             {{if .When}}<span class="block text-xs text-muted">{{.When}}</span>{{end}}
-            {{if .Note}}<span class="block text-xs text-warn">{{.Note}}</span>{{end}}</td>
+            {{if .Note}}<span class="block text-xs text-warn-ink">{{.Note}}</span>{{end}}</td>
           <td class="py-2 text-xs text-muted">{{.Meaning}}</td>
         </tr>
         {{end}}

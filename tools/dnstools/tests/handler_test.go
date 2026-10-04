@@ -266,7 +266,7 @@ func TestEmptyAnswerStatesRenderDistinctly(t *testing.T) {
 	}
 	e := newApp(t, &fakeLooker{set: nodata}, nil)
 	body := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html"}).Body.String()
-	if !strings.Contains(body, "nothing published") {
+	if !strings.Contains(body, ">not published<") {
 		t.Error("empty types should collapse into one grouped card")
 	}
 	for _, typ := range []string{"MX", "CNAME", "CAA"} {
@@ -285,7 +285,7 @@ func TestEmptyAnswerStatesRenderDistinctly(t *testing.T) {
 	if !strings.Contains(body, "does not exist") {
 		t.Error("NXDOMAIN should say the name does not exist")
 	}
-	if strings.Contains(body, "nothing published") {
+	if strings.Contains(body, ">not published<") {
 		t.Error("NXDOMAIN must not also render the per-type missing card")
 	}
 }
@@ -535,5 +535,26 @@ func TestConsistencyRefusesAnEmptyBody(t *testing.T) {
 	}
 	if got := strings.TrimSpace(rec.Body.String()); got == "null" {
 		t.Errorf("body = null; the endpoint published an empty object")
+	}
+}
+
+// TestLookupFragmentIsNeverCached: Vary and no-store keep Back from showing the
+// pushed fragment bare.
+func TestLookupFragmentIsNeverCached(t *testing.T) {
+	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
+	page := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html"})
+	if vary := strings.Join(page.Header().Values("Vary"), ","); !strings.Contains(vary, "HX-Request") || !strings.Contains(vary, "Accept") {
+		t.Errorf("Vary = %q, want HX-Request and Accept", vary)
+	}
+	frag := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if got := frag.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("fragment Cache-Control = %q, want no-store", got)
+	}
+	bad := do(t, newApp(t, &fakeLooker{err: dnstools.ErrBadName}, nil), "/?name=not..a..name", map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if bad.Code < 400 {
+		t.Fatalf("an invalid name = %d; the test needs an error", bad.Code)
+	}
+	if got := bad.Header().Get("HX-Push-Url"); got != "false" {
+		t.Errorf("htmx error HX-Push-Url = %q, want false: an error is not a history entry", got)
 	}
 }

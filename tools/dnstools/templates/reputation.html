@@ -9,10 +9,11 @@
      cards in email.html on purpose — this is another finding about the same
      domain, not a different kind of thing. */}}
 {{define "dns/mxrep"}}
-{{with .MXRep}}
+{{with .MXRep}}{{if .Show}}
 <div class="card sm:col-span-2">
-  <div class="flex items-baseline justify-between gap-4">
-    <div class="eyebrow">mail server reputation</div>
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    {{/* Inbound: these servers receive the mail; senders may be other machines. */}}
+    <h2 class="eyebrow">inbound mx on blocklists</h2>
     {{/* The headline number, and only ever over the denominator that was
          actually read. "3 clean" is a claim about three addresses, which is
          what Checked counts — distinct addresses, so one IP shared by two MX
@@ -28,12 +29,12 @@
            feeds, and the shorter phrase is a claim about every blocklist in
            the world. Same words as the per-address rows below. */}}
       {{else if and .Checked .CorpusUsable}}<span class="text-ok">{{.Checked}} checked, none in this corpus</span>
-      {{else if .Checked}}<span class="text-warn">{{.Checked}} read, corpus not usable</span>
+      {{else if .Checked}}<span class="text-warn-ink">{{.Checked}} read, corpus not usable</span>
       {{else}}<span class="text-muted">nothing checked</span>{{end}}
       {{/* An address the corpus couldn't be read for is neither listed nor
            clean, so it gets counted next to the verdict rather than inside
            it. */}}
-      {{if .Unread}}<span class="text-faint"> · </span><span class="text-warn">{{.Unread}} unread</span>{{end}}
+      {{if .Unread}}<span class="text-faint"> · </span><span class="text-warn-ink">{{.Unread}} unread</span>{{end}}
     </div>
   </div>
 
@@ -45,28 +46,30 @@
   <p class="mb-3 text-xs text-faint">
     {{.Corpus}}
     {{if not .CorpusSynced.IsZero}} Corpus last updated {{.CorpusSynced.Format "2006-01-02 15:04 UTC"}}.{{end}}
+    These servers receive this domain's mail; the ones that send it may be other machines.
   </p>
 
   {{if .Hosts}}
-  <dl class="spec grid-cols-[1fr_auto]">
+  <dl class="pairs">
     {{range .Hosts}}
-    <dt class="font-mono text-xs break-all {{if .Error}}text-faint{{else}}text-muted{{end}}">
+    <div>
+    <dt class="font-mono text-xs wrap-anywhere {{if .Error}}text-faint{{else}}text-muted{{end}}">
       {{.Host}}
       <span class="block text-faint">preference {{.Preference}}</span>
     </dt>
-    <dd class="text-right">
+    <dd>
       {{/* A host with no address is a finding about the lookup, not about the
            machine's reputation, so it is warn rather than danger: "does not
            exist" and "the lookup failed" are both reasons we know nothing,
            and neither is a listing. */}}
-      {{if .Error}}<span class="text-xs text-warn">{{.Error}}</span>{{end}}
+      {{if .Error}}<span class="text-xs text-warn-ink">{{.Error}}</span>{{end}}
       {{range .Addrs}}
-      <span class="block font-mono text-xs break-all text-strong">{{.IP}}</span>
+      <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.IP}}<span class="sr-only"> in IP Tools</span></a>
       {{if .Error}}
         {{/* Not clean, and not listed either: the corpus was unreadable for
              this address. Anything that looked like a verdict here would be
              the tool inventing one. */}}
-        <span class="block text-xs text-warn">{{.Error}}</span>
+        <span class="block text-xs text-warn-ink">{{.Error}}</span>
       {{else if .Listed}}
         <span class="block text-xs text-danger">listed by {{.Sources}}{{if .Count}} · confidence {{.Count}}{{end}}</span>
       {{else}}
@@ -79,6 +82,7 @@
       {{if .Duplicate}}<span class="block text-xs text-faint">same address as above, counted once</span>{{end}}
       {{end}}
     </dd>
+    </div>
     {{end}}
   </dl>
   {{end}}
@@ -89,5 +93,5 @@
   </div>
   {{end}}
 </div>
-{{end}}
+{{end}}{{end}}
 {{end}}

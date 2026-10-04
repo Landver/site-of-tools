@@ -54,6 +54,9 @@ type Record struct {
 	// prefix naming the service that asked for it. Empty when the value speaks
 	// for itself.
 	Label string `json:"label,omitempty"`
+	// Target: the host this record points at (NS, CNAME, MX, PTR, SRV, SVCB),
+	// without the root dot; the page links it.
+	Target string `json:"target,omitempty"`
 	// Detail: decoded sub-fields for a packed value (SOA).
 	Detail []Field `json:"detail,omitempty"`
 
@@ -116,6 +119,8 @@ var (
 	// ErrBadName: the input cannot be a DNS name at all. Rejected before it
 	// costs an upstream query, since nothing downstream can make it one.
 	ErrBadName = errors.New("not a domain name")
+	// ErrNeedDomain: an IP on a check that needs a domain.
+	ErrNeedDomain = errors.New("this check needs a domain name, not an IP address")
 )
 
 // errPanic stands in for a result a recovered goroutine never produced. A
@@ -132,37 +137,58 @@ const maxNameLabels = 10
 // an upstream resolver. The size bounds are RFC 1035's own (253 bytes total,
 // 63 per label); the label-count bound is ours.
 //
-// Bytes above 0x7f pass through untouched: a raw Unicode name is a different
-// problem (it needs IDNA, not rejection) and belongs to whoever queries it.
+// A Unicode label left here is one IDNA refused (NormalizeName converts the
+// rest); sent raw it would come back as a false NXDOMAIN.
 func validDomain(name string) error {
 	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
 	if name == "" {
 		return ErrEmptyName
 	}
 	if len(name) > 253 {
-		return fmt.Errorf("%w: longer than 253 bytes", ErrBadName)
+		return nameError{"that name is longer than the 253 characters DNS allows"}
 	}
 	labels := strings.Split(name, ".")
 	if len(labels) > maxNameLabels {
-		return fmt.Errorf("%w: more than %d labels", ErrBadName, maxNameLabels)
+		return badName(name, fmt.Sprintf("it has more than %d dot-separated parts", maxNameLabels))
 	}
 	for _, l := range labels {
-		if l == "" || len(l) > 63 {
-			return fmt.Errorf("%w: %q is not a usable label", ErrBadName, l)
+		if l == "" {
+			return badName(name, "it has an empty part (two dots in a row, or a leading dot)")
+		}
+		if len(l) > 63 {
+			return badName(name, fmt.Sprintf("its part %q is longer than the 63 characters a part may have", l))
 		}
 		if l[0] == '-' || l[len(l)-1] == '-' {
-			return fmt.Errorf("%w: %q starts or ends with a hyphen", ErrBadName, l)
+			return badName(name, fmt.Sprintf("its part %q starts or ends with a hyphen", l))
+		}
+		if !isASCII(l) {
+			return badName(name, fmt.Sprintf("its part %q isn't a valid internationalised name", l))
 		}
 		for i := 0; i < len(l); i++ {
 			c := l[i]
 			ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
-				c == '-' || c == '_' || c >= 0x80
+				c == '-' || c == '_'
 			if !ok {
-				return fmt.Errorf("%w: %q contains %q", ErrBadName, l, string(c))
+				what := fmt.Sprintf("%q", string(c))
+				if c == ' ' {
+					what = "a space"
+				}
+				return badName(name, "it contains "+what)
 			}
 		}
 	}
 	return nil
+}
+
+// nameError is ErrBadName to errors.Is, with a message worded for the person
+// who typed the input.
+type nameError struct{ msg string }
+
+func (e nameError) Error() string        { return e.msg }
+func (e nameError) Is(target error) bool { return target == ErrBadName }
+
+func badName(input, why string) error {
+	return nameError{fmt.Sprintf("%q isn't a domain name: %s", input, why)}
 }
 
 // safe runs f and turns a panic into a log line instead of a dead process.
@@ -290,11 +316,12 @@ type ResultSet struct {
 	// nothing in the raw records says it.
 	Provider string `json:"provider,omitempty"`
 	// Signed: the zone returned DNSSEC signatures. Authenticated: the resolver
-	// set AD, i.e. it actually validated them. Signed-but-not-authenticated is
-	// a real state (e.g. the resolver isn't validating); neither is a failure,
-	// most names simply aren't signed at all.
+	// set AD on every answer. Signed-but-not-authenticated is a real state;
+	// neither is a failure, most names simply aren't signed at all.
 	Signed        bool `json:"signed"`
 	Authenticated bool `json:"authenticated"`
+	// Unvalidated: types whose answer lacked AD while another type's had it.
+	Unvalidated []string `json:"unvalidated,omitempty"`
 	// Bogus: at least one type failed validation (proven by the CD=1 retry).
 	// Distinct from Signed: a zone whose DNSSEC is broken never gets far enough
 	// to return a signature, so it must not be reported as "unsigned" — that is
@@ -446,7 +473,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		Missing:      []string{},
 	}
 
-	answered, nx, cached := 0, 0, 0
+	answered, nx, cached, validated := 0, 0, 0, 0
 	for i, t := range types {
 		m := results[i].meta
 		if m.cached {
@@ -454,9 +481,9 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		}
 		// Flags describe one whole response, so first-wins is right. NSID is
 		// tracked apart from them: a node that answered without an identifier
-		// must not bury the one a later type's response did carry. Signed and
-		// Authenticated are per-answer: an unsigned NODATA answer arriving
-		// first must not mask a signed one behind it.
+		// must not bury the one a later type's response did carry. Signed is
+		// per-answer: an unsigned NODATA answer arriving first must not mask a
+		// signed one behind it.
 		if set.Flags == "" && m.flags != "" {
 			set.Flags = m.flags
 		}
@@ -464,7 +491,6 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 			set.NSID = m.nsid
 		}
 		set.Signed = set.Signed || m.signed
-		set.Authenticated = set.Authenticated || m.authenticated
 		// The chain describes the name, not the type, so any type that saw one
 		// has seen all of it.
 		if len(set.Chain) == 0 {
@@ -472,7 +498,16 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		}
 		results[i].Cached = m.cached
 		var rcode rcodeError
-		switch err := errs[i]; {
+		err := errs[i]
+		// AD counts only over responses that answered.
+		if err == nil || errors.Is(err, errNXDomain) || errors.Is(err, errNoData) {
+			if m.authenticated {
+				validated++
+			} else {
+				set.Unvalidated = append(set.Unvalidated, t)
+			}
+		}
+		switch {
 		case err == nil:
 			answered++
 			set.Found = append(set.Found, results[i])
@@ -504,6 +539,12 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	// stops one surviving NXDOMAIN from speaking for a fan-out that mostly
 	// failed, where "couldn't find out" is the honest verdict.
 	set.NXDomain = answered > 0 && nx == answered && answered*2 >= len(types)
+
+	// Unvalidated is only listed beside at least one validated answer.
+	set.Authenticated = validated > 0 && len(set.Unvalidated) == 0
+	if validated == 0 {
+		set.Unvalidated = nil
+	}
 
 	// Dangling-CNAME check. Runs before the timing and cache verdict below,
 	// because it issues its own queries and those must be counted honestly.
@@ -551,6 +592,15 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 
 	set.Cached = cached > 0 && cached == len(types)
 
+	// SPF first, then labelled TXT records: the page folds long sets.
+	for i := range set.Found {
+		if set.Found[i].Type == "TXT" {
+			slices.SortStableFunc(set.Found[i].Records, func(a, b Record) int {
+				return txtRank(a) - txtRank(b)
+			})
+		}
+	}
+
 	// Reproduction commands + zone-file rendering of what we found.
 	var zone strings.Builder
 	// +nsid only when we got one back: the page prints an "Answered by" row
@@ -589,6 +639,67 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	// counted: they are queries this request made and the user waited for them.
 	set.QueryMS = time.Since(start).Milliseconds()
 	return set, nil
+}
+
+func txtRank(r Record) int {
+	switch {
+	case strings.HasPrefix(strings.ToLower(strings.TrimLeft(r.Value, `"`)), "v=spf1"):
+		return 0
+	case r.Label != "":
+		return 1
+	}
+	return 2
+}
+
+// AliasTarget: where the alias chain ends, as an owner name, or "" if none.
+func (r *ResultSet) AliasTarget() string {
+	if len(r.Chain) == 0 {
+		return ""
+	}
+	return dns.Fqdn(r.Chain[len(r.Chain)-1].Target)
+}
+
+// The page folds a type with more than foldOver records after foldAfter.
+const foldAfter, foldOver = 5, 8
+
+// Folded: how many of this type's records the page folds away.
+func (r Result) Folded() int {
+	if len(r.Records) > foldOver {
+		return len(r.Records) - foldAfter
+	}
+	return 0
+}
+
+// FoldsRow reports whether record i is one of the folded ones.
+func (r Result) FoldsRow(i int) bool { return r.Folded() > 0 && i >= foldAfter }
+
+// FailureGroup: types that failed the same way, shown once.
+type FailureGroup struct {
+	Types []string
+	TypeFailure
+}
+
+// FailureGroups folds Failed by failure, in first-seen order (page only).
+func (r *ResultSet) FailureGroups() []FailureGroup {
+	var out []FailureGroup
+	key := func(f TypeFailure) string {
+		k := f.Rcode + "|" + f.Error + "|" + fmt.Sprint(f.Bogus)
+		if f.EDE != nil {
+			k += "|" + fmt.Sprint(f.EDE.Code) + "|" + f.EDE.Extra
+		}
+		return k
+	}
+	index := map[string]int{}
+	for _, f := range r.Failed {
+		k := key(f)
+		if i, ok := index[k]; ok {
+			out[i].Types = append(out[i].Types, f.Type)
+			continue
+		}
+		index[k] = len(out)
+		out = append(out, FailureGroup{Types: []string{f.Type}, TypeFailure: f})
+	}
+	return out
 }
 
 // lookup resolves one type against an already-validated resolver address.
@@ -890,9 +1001,28 @@ func toRecord(rr dns.RR) Record {
 		rec.Label = txtLabel(strings.Join(v.Txt, ""))
 	case *dns.CAA:
 		rec.Detail = caaFields(v)
-	case *dns.HTTPS, *dns.SVCB:
+	case *dns.HTTPS:
 		rec.Detail = svcbFields(rr)
+		rec.Target = v.Target
+	case *dns.SVCB:
+		rec.Detail = svcbFields(rr)
+		rec.Target = v.Target
+	case *dns.NS:
+		rec.Target = v.Ns
+	case *dns.CNAME:
+		rec.Target = v.Target
+	case *dns.MX:
+		rec.Target = v.Mx
+		// "0 ." is a null MX (RFC 7505): the domain takes no mail.
+		if v.Mx == "." {
+			rec.Label = "Null MX: this domain accepts no mail"
+		}
+	case *dns.PTR:
+		rec.Target = v.Ptr
+	case *dns.SRV:
+		rec.Target = v.Target
 	}
+	rec.Target = strings.ToLower(strings.TrimSuffix(rec.Target, "."))
 	return rec
 }
 

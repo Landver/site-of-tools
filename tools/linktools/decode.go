@@ -146,8 +146,11 @@ func jwtPayload(s string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return string(out) + "\n\n(signature not verified — this tool only decodes)", true
+	return string(out) + jwtUnverified, true
 }
+
+// jwtUnverified ends every decoded JWT; Encode's reading trims it.
+const jwtUnverified = "\n\n(signature not verified — this tool only decodes)"
 
 // prettyJSON reformats s when it is a JSON object or array. Scalars are
 // excluded: "1" is valid JSON and reporting a number as JSON is noise.
@@ -207,10 +210,36 @@ func classify(v string) Kind {
 	if hexRe.MatchString(v) {
 		return KindHex
 	}
-	if looksBase64(v) {
+	if looksBase64(v) && (decodesToText(v) || encodedLooking(v)) {
 		return KindBase64
 	}
 	return ""
+}
+
+// decodesToText: base64 of something a person could read.
+func decodesToText(v string) bool {
+	_, _, ok := tryBase64(v)
+	return ok
+}
+
+// encodedLooking tells base64 of binary from a plain word ("facebook" is valid
+// base64): real encodings mix digits and both cases, or carry +, / or =.
+func encodedLooking(v string) bool {
+	if strings.ContainsAny(v, "+/=") {
+		return true
+	}
+	var digit, lower, upper bool
+	for i := 0; i < len(v); i++ {
+		switch c := v[i]; {
+		case c >= '0' && c <= '9':
+			digit = true
+		case c >= 'a' && c <= 'z':
+			lower = true
+		case c >= 'A' && c <= 'Z':
+			upper = true
+		}
+	}
+	return digit && lower && upper
 }
 
 // isTimestamp reports whether n is plausibly a Unix time in seconds or

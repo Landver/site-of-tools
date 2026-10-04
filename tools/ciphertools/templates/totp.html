@@ -34,7 +34,7 @@
         <label class="block text-sm text-muted">Secret (base32) or otpauth:// URI
           <textarea name="secret" rows="2" autofocus autocomplete="off" spellcheck="false"
                     placeholder="JBSW Y3DP EHPK 3PXP, or otpauth://totp/Example:alice@example.com?secret=…"
-                    class="field mt-1 w-full font-mono text-xs">{{.Form.Get "secret"}}</textarea>
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "secret"}}</textarea>
           <span class="mt-1 block text-xs text-faint">Spaces, dashes and lower case are fine. A pasted URI brings its own settings.</span>
         </label>
         <label class="block text-sm text-muted">Code to check <span class="text-faint">(optional)</span>
@@ -72,11 +72,11 @@
             </label>
             <label class="block text-sm text-muted">Account <span class="text-faint">(for the URI)</span>
               <input name="label" value="{{.Form.Get "label"}}" autocomplete="off" spellcheck="false"
-                     placeholder="alice@example.com" class="field mt-1 w-full font-mono text-xs">
+                     placeholder="alice@example.com" class="field mt-1 w-full font-mono text-base sm:text-xs">
             </label>
             <label class="block text-sm text-muted">Issuer <span class="text-faint">(for the URI)</span>
               <input name="issuer" value="{{.Form.Get "issuer"}}" autocomplete="off" spellcheck="false"
-                     placeholder="Example" class="field mt-1 w-full font-mono text-xs">
+                     placeholder="Example" class="field mt-1 w-full font-mono text-base sm:text-xs">
             </label>
           </div>
         </div>

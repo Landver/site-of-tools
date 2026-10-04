@@ -1,0 +1,135 @@
+{{/* Behaviour every Link Tools form page shares, delegated from document so
+     it survives htmx swaps. Include once per page. A result area is any
+     element with data-result.
+
+     - Result areas are not live regions: a live form would re-read the whole
+       result on every pause. Each fragment's data-announce line goes to
+       #result-status instead.
+     - Wrong-tool input is caught before the GET is sent, because the request
+       line itself is the leak. The button carries the input on by POST.
+     - The history snapshot takes control values from its own URL: by then the
+       form has been edited for the next request.
+     - A 429 on a live form retries once after Retry-After. */}}
+{{define "link/live"}}
+<script>
+  (function () {
+    function isResult(el) { return el && el.hasAttribute && el.hasAttribute('data-result') }
+
+    document.body.addEventListener('htmx:beforeRequest', function (e) {
+      if (isResult(e.detail.target)) e.detail.target.setAttribute('aria-busy', 'true')
+    })
+    document.body.addEventListener('htmx:afterRequest', function (e) {
+      if (isResult(e.detail.target)) e.detail.target.removeAttribute('aria-busy')
+    })
+
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+      var status = document.getElementById('result-status')
+      if (!status || !isResult(e.detail.target)) return
+      var src = e.detail.target.querySelector('[data-announce]')
+      status.textContent = src ? src.getAttribute('data-announce') : ''
+    })
+
+    // Mirrors url.go's WrongTool; keep the two in step.
+    function wrongTool(v) {
+      var t = v.trim(), low = t.toLowerCase()
+      if (/^curl[ \t\n]/.test(low)) return 'curl'
+      if (low.indexOf('<a ') >= 0 || low.indexOf('href="') >= 0 || low.indexOf("href='") >= 0 || t.indexOf('](http') >= 0) return 'extract'
+      var first = t.indexOf('://')
+      if (first < 0) return ''
+      if (/[ \t\r\n]/.test(t.slice(0, first))) return 'extract'
+      if (/[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*:\/\//.test(t.slice(first + 3))) return 'extract'
+      return ''
+    }
+
+    // link/error's suggestion, built from text nodes: the input is never parsed as HTML.
+    function suggest(area, tool, value) {
+      var curl = tool === 'curl'
+      var msg = curl ? 'That looks like a curl command, not a URL.' : 'That looks like text with links in it, not one URL.'
+      var alert = document.createElement('div')
+      alert.className = 'alert-error'
+      alert.setAttribute('data-announce', msg)
+      alert.textContent = msg
+      var form = document.createElement('form')
+      form.method = 'post'
+      form.action = curl ? '/curl' : '/extract'
+      form.className = 'mt-3'
+      form.setAttribute('rel', 'noreferrer')
+      var input = document.createElement('input')
+      input.type = 'hidden'
+      input.name = curl ? 'curl' : 'text'
+      input.value = value
+      var button = document.createElement('button')
+      button.type = 'submit'
+      button.className = 'btn-secondary'
+      button.textContent = (curl ? 'Take it apart on the curl page' : 'Pull the links out on the Extract page') + ' →'
+      form.appendChild(input)
+      form.appendChild(button)
+      area.replaceChildren(alert, form)
+      var status = document.getElementById('result-status')
+      if (status) status.textContent = msg
+    }
+
+    document.body.addEventListener('htmx:confirm', function (e) {
+      var form = e.detail.elt
+      if (!form || form.tagName !== 'FORM' || e.detail.verb !== 'get') return
+      var u = form.elements.namedItem('u')
+      var ev = e.detail.triggeringEvent
+      if (u && typeof u.value === 'string' && ev && ev.type === 'change' && !u.value.trim()) {
+        e.preventDefault()
+        return
+      }
+      var boxes = ['u', 'a', 'b']
+      for (var i = 0; i < boxes.length; i++) {
+        var box = form.elements.namedItem(boxes[i])
+        if (!box || typeof box.value !== 'string') continue
+        var tool = wrongTool(box.value)
+        if (tool && isResult(e.detail.target)) {
+          e.preventDefault()
+          suggest(e.detail.target, tool, box.value.trim())
+          return
+        }
+      }
+    })
+
+    document.body.addEventListener('keydown', function (e) {
+      var t = e.target
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !t.form || !t.hasAttribute('data-enter-submits')) return
+      e.preventDefault()
+      t.form.requestSubmit()
+    })
+
+    document.body.addEventListener('htmx:configRequest', function (e) {
+      if (e.detail.verb !== 'get') return
+      var p = e.detail.parameters
+      Object.keys(p).forEach(function (k) {
+        if (p[k] === '') delete p[k]
+      })
+    })
+
+    document.body.addEventListener('htmx:beforeHistorySave', function (e) {
+      var params = new URL(e.detail.path || location.href, location.origin).searchParams
+      document.querySelectorAll('main form[hx-get] [name]').forEach(function (el) {
+        if (el.type === 'password' || el.type === 'hidden' || el.type === 'submit') return
+        var v = params.getAll(el.name)
+        if (el.tagName === 'TEXTAREA') {
+          el.textContent = v[0] || ''
+        } else if (el.tagName === 'SELECT') {
+          Array.prototype.forEach.call(el.options, function (o) { o.toggleAttribute('selected', o.value === (v[0] || '')) })
+        } else if (el.type === 'checkbox' || el.type === 'radio') {
+          el.toggleAttribute('checked', v.indexOf(el.value) >= 0)
+        } else {
+          el.setAttribute('value', v[0] || '')
+        }
+      })
+    })
+
+    document.body.addEventListener('htmx:afterRequest', function (e) {
+      var xhr = e.detail.xhr, form = e.detail.elt
+      if (!xhr || xhr.status !== 429 || !form || !form.hasAttribute || !form.hasAttribute('hx-replace-url')) return
+      var wait = Math.min(parseInt(xhr.getResponseHeader('Retry-After'), 10) || 1, 5)
+      clearTimeout(form._linkRetry)
+      form._linkRetry = setTimeout(function () { htmx.trigger(form, 'submit') }, wait * 1000)
+    })
+  })()
+</script>
+{{end}}

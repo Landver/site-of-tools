@@ -1,19 +1,36 @@
-{{/* Route-neutral error fragment. The rate limiter can fire on any of the four
+{{/* Route-neutral error fragment. The rate limiter can fire on any of the five
      pages, so its response must not be one specific page's result template. */}}
 {{define "dns/error"}}
-<div class="alert-error sm:col-span-2">{{.Error}}</div>
+{{/* id: the input's aria-describedby points here. */}}
+<div id="dns-error" class="alert-error sm:col-span-2">
+  {{.Error}}
+  {{if .ErrIP}}
+  <span class="mt-1 block text-strong">For an address, try its <a href="/?name={{.Query}}" class="link-brand">reverse lookup</a>
+    or <a href="{{toolURL "ip"}}/?ip={{.Query}}" class="link-brand">IP Tools</a>.</span>
+  {{end}}
+</div>
 {{end}}
 
+{{/* The rate limiter's htmx answer: an amber notice above the last result,
+     kept out of history (data-transient). */}}
+{{define "dns/slowdown"}}
+{{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{.Error}}</p>{{end}}
+<div data-transient class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn-ink">{{.Error}}</div>
+{{end}}
+
+{{/* The same as a whole page, with the nav and a retry link. */}}
 {{define "dns/ratelimited"}}
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
   {{template "partials/header" .}}
-  <main class="page-main">
+  <main id="main" class="page-main">
+    {{template "dns/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">Slow down a moment</h1>
     <p class="mt-3 text-sm text-muted">{{.Error}}</p>
-    <p class="mt-4 text-sm"><a href="/" class="text-brand hover:underline">Back to DNS lookup</a></p>
+    {{with .Retry}}<p class="mt-4 text-sm"><a href="{{.}}" class="link-brand">Try again</a></p>{{end}}
   </main>
   {{template "partials/footer" .}}
 </body>

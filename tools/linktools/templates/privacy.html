@@ -5,16 +5,15 @@
 <body>
   {{template "partials/header" .}}
   <main class="page-main">
-    <h1 class="text-2xl font-semibold text-strong">Corpberry Link extension — privacy</h1>
-    <p class="mt-2 text-sm text-muted">Served from the application so it versions with the code rather than rotting in a document somewhere.</p>
+    <h1 class="text-2xl font-semibold text-strong">Corpberry Link extension: privacy</h1>
 
     <section class="mt-8 space-y-4 text-sm text-muted">
       <div>
         <h2 class="font-semibold text-strong">What the extension sends</h2>
         <p class="mt-1">
           When you choose <strong class="text-strong">Copy Short Link Address</strong>, the address of the link
-          you right-clicked is sent to <code class="font-mono">link.corpberry.com</code> so an alias can be created
-          for it. That is the whole feature; it cannot work without sending the URL.
+          you right-clicked is sent to <code class="font-mono">link.corpberry.com</code> so a short link can be
+          created for it. That is the whole feature; it cannot work without sending the URL.
         </p>
         <p class="mt-1">
           When you choose <strong class="text-strong">Copy Clean Link Address</strong>, <em>nothing is sent</em>.
@@ -29,7 +28,7 @@
         </p>
         <p class="mt-1">
           The extension stores your API key and server setting in the browser's own extension storage.
-          That storage is not encrypted, and if you are signed into the browser it syncs to your other profiles.
+          That storage is not encrypted, and if you're signed in to the browser it syncs to your other devices.
         </p>
       </div>
       <div>
@@ -46,7 +45,10 @@
       </div>
       <div>
         <h2 class="font-semibold text-strong">Contact</h2>
-        <p class="mt-1">Via the repository linked in the footer.</p>
+        <p class="mt-1">
+          Through the project's
+          <a href="https://github.com/Landver/site-of-tools/issues" class="link-inline" rel="noopener">issue tracker on GitHub</a>.
+        </p>
       </div>
     </section>
   </main>

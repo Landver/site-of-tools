@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -120,13 +122,47 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 //
 // page is the whole document a browser gets; frag is the slot htmx swaps.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
+	platform.SetNegotiationHeaders(c, code)
 	switch {
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
 	case platform.IsHTMX(c):
+		// Fragments also carry the nav, title and status line (dns/oob).
+		vm["OOB"] = true
 		return c.Render(code, frag, vm)
 	}
 	return c.Render(code, page, vm)
+}
+
+// readName normalises ?name= and returns what was typed when reading it took
+// more than trimming. For htmx, history gets the clean URL (HX-Push-Url).
+func readName(c *echo.Context) (name, typed string) {
+	raw := c.QueryParam("name")
+	name = NormalizeName(raw)
+	if name == "" || raw == name {
+		return name, ""
+	}
+	if platform.IsHTMX(c) {
+		u := *c.Request().URL
+		q := u.Query()
+		q.Set("name", name)
+		u.RawQuery = q.Encode()
+		c.Response().Header().Set("HX-Push-Url", u.RequestURI())
+	}
+	if t := strings.TrimSpace(raw); !strings.EqualFold(strings.TrimSuffix(t, "."), name) {
+		typed = t
+	}
+	return name, typed
+}
+
+// withName adds the view-model keys every page derives from the name.
+func withName(vm map[string]any, name, typed string) map[string]any {
+	if needDomain(name) == nil {
+		vm["NavName"] = name
+	}
+	vm["Typed"] = typed
+	vm["Unicode"] = UnicodeName(name)
+	return vm
 }
 
 // needName answers the bare hit: the empty form to a browser, an empty result
@@ -142,7 +178,10 @@ func needName(c *echo.Context, name string, vm map[string]any, page, frag, examp
 		})
 	}
 	if platform.IsHTMX(c) {
-		return true, c.Render(http.StatusOK, frag, vm)
+		// A blank submit changes nothing but the status line.
+		c.Response().Header().Set("HX-Reswap", "none")
+		c.Response().Header().Set("HX-Push-Url", "false")
+		return true, c.HTML(http.StatusOK, `<p id="dns-status" hx-swap-oob="innerHTML"></p>`)
 	}
 	return true, c.Render(http.StatusOK, page, vm)
 }
@@ -161,23 +200,47 @@ func unavailable(c *echo.Context, vm map[string]any, page, frag string) error {
 // view-model keys first, and only when err is nil.
 func answered(c *echo.Context, name string, body any, err error, vm map[string]any, page, frag string) error {
 	if err != nil {
-		vm["Error"] = err.Error()
+		vm["Error"] = sentence(err.Error())
+		vm["ErrIP"] = errors.Is(err, ErrNeedDomain)
+		vm["TitleName"] = "Error"
 		return reply(c, statusFor(err), map[string]string{"name": name, "error": err.Error()}, vm, page, frag)
 	}
+	vm["TitleName"] = displayName(name)
 	return reply(c, http.StatusOK, body, vm, page, frag)
+}
+
+// displayName: the Unicode spelling of a punycode name, else the name.
+func displayName(name string) string {
+	if u := UnicodeName(name); u != "" {
+		return u
+	}
+	return name
+}
+
+// sentence capitalises a Go-style error for the page; the JSON keeps the Go form.
+func sentence(s string) string {
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	s = string(unicode.ToUpper(r)) + s[size:]
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
 }
 
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
 func (h *handler) email(c *echo.Context) error {
-	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	name, typed := readName(c)
 	// Page-scoped, like every other credit here: the footer sits outside the
 	// htmx target, so a per-result flag never reaches the DOM on a form submit.
 	// Spamhaus only — the reputation card reads the blocklist corpus, and
 	// nothing on this page consults IP2Location.
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name,
 		"SpamhausAttribution": true,
-	}
+	}, name, typed)
 
 	if done, err := needName(c, name, vm, "dns/email", "dns/emailauth", "/email?name=example.com"); done {
 		return err
@@ -235,28 +298,35 @@ func (h *handler) delegationHealth(ctx context.Context, sp *Spread) (usedGeo, us
 // this name, and what subdomains exist under it. Both halves are independent
 // and best-effort, so one upstream failing still leaves the other rendered.
 func (h *handler) domain(c *echo.Context) error {
-	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	name, typed := readName(c)
 	// Credits ride on the PAGE, not the result: the footer lives outside the
 	// htmx target, so a per-result flag never reaches the DOM on a form
 	// submit — which is how these pages are actually used. iptools does the
 	// same. IP2Location's licence makes this an obligation, not a nicety.
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "Domain info", "Desc": domainDesc, "Active": "domain", "Query": name,
 		"CertsAttribution": true, "RDAPAttribution": true,
-	}
+	}, name, typed)
 
 	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
 		return err
 	}
-	// The other three routes are validated inside the domain layer; this one
-	// reaches HTTP upstreams directly, so it does its own check first.
-	if err := validDomain(name); err != nil {
+	// The other routes are validated inside the domain layer; this one reaches
+	// HTTP upstreams directly, so it does its own check first (an IP included).
+	if err := needDomain(name); err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
+	}
+
+	ctx := c.Request().Context()
+	// Registries hold records for registrable domains only; CT is asked about
+	// the name as typed.
+	regName := RegistrableDomain(name)
+	if regName != name {
+		vm["RegFor"] = regName
 	}
 
 	// Two independent upstreams, fetched concurrently: neither should wait on
 	// the other, and either failing must not cost the other's result.
-	ctx := c.Request().Context()
 	var (
 		wg     sync.WaitGroup
 		reg    *Registration
@@ -268,7 +338,7 @@ func (h *handler) domain(c *echo.Context) error {
 	go safe(func() {
 		defer wg.Done()
 		regErr = errPanic
-		reg, regErr = h.dom.Registration(ctx, name)
+		reg, regErr = h.dom.Registration(ctx, regName)
 	})
 	go safe(func() {
 		defer wg.Done()
@@ -288,9 +358,14 @@ func (h *handler) domain(c *echo.Context) error {
 	code := http.StatusOK
 	if regErr != nil && ctErr != nil {
 		code = http.StatusBadGateway
+	} else {
+		vm["TitleName"] = displayName(name)
 	}
 
 	out := map[string]any{"name": name}
+	if regName != name {
+		out["registrable_domain"] = regName
+	}
 	if regErr == nil {
 		out["registration"] = reg
 		vm["Registration"] = reg
@@ -301,7 +376,22 @@ func (h *handler) domain(c *echo.Context) error {
 		vm["RegError"] = regErr.Error()
 		// Distinguish "the registry answered, and holds nothing for this name"
 		// from "the lookup failed". Only the latter deserves the disclaimer.
-		vm["RegAbsent"] = errors.Is(regErr, errNoRDAPRecord)
+		absent := errors.Is(regErr, errNoRDAPRecord)
+		vm["RegAbsent"] = absent
+		// A name with nameservers is registered whatever its TLD's RDAP says
+		// (.de has none).
+		if absent {
+			if set, err := h.svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
+				vm["RegHasNS"] = true
+				out["delegated"] = true
+				// Known registered: neither "unregistered" nor a total failure.
+				out["registration_error"] = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
+				if code == http.StatusBadGateway {
+					code = http.StatusOK
+					vm["TitleName"] = displayName(name)
+				}
+			}
+		}
 	}
 	if ctErr == nil {
 		out["certificate_names"] = ct
@@ -317,18 +407,18 @@ func (h *handler) domain(c *echo.Context) error {
 // nameservers asked directly, plus the public resolvers, grouped by what they
 // actually returned.
 func (h *handler) consistency(c *echo.Context) error {
-	name := strings.TrimSpace(c.QueryParam("name"))
+	name, typed := readName(c)
 	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
 	if qtype == "" {
 		qtype = "A"
 	}
 
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "DNS consistency", "Desc": consistencyDesc, "Active": "consistency",
 		"Query": name, "QType": qtype, "Types": Types,
 		// Page-scoped credits, same reason as /domain above.
 		"Attribution": true, "RDAPAttribution": true,
-	}
+	}, name, typed)
 	if done, err := needName(c, name, vm, "dns/consistency", "dns/spread", "/consistency?name=example.com"); done {
 		return err
 	}
@@ -390,16 +480,16 @@ func (h *handler) consistency(c *echo.Context) error {
 // trace serves the delegation walk from the root, with the chain of trust
 // validated in the domain layer rather than taken from a resolver's AD bit.
 func (h *handler) trace(c *echo.Context) error {
-	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	name, typed := readName(c)
 	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
 	if qtype == "" {
 		qtype = "A"
 	}
 
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "DNS trace", "Desc": traceDesc, "Active": "trace",
 		"Query": name, "QType": qtype, "Types": Types,
-	}
+	}, name, typed)
 	if done, err := needName(c, name, vm, "dns/trace", "dns/tracewalk", "/trace?name=example.com"); done {
 		return err
 	}
@@ -427,7 +517,9 @@ func rateLimiter() echo.MiddlewareFunc {
 		},
 	)
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store: store,
+		// Bare pages query nothing, so they don't count.
+		Skipper: func(c *echo.Context) bool { return strings.TrimSpace(c.QueryParam("name")) == "" },
+		Store:   store,
 		IdentifierExtractor: func(c *echo.Context) (string, error) {
 			return c.RealIP(), nil
 		},
@@ -435,11 +527,23 @@ func rateLimiter() echo.MiddlewareFunc {
 			// Negotiated three ways like every other response here. Rendering
 			// one route's fragment to everyone gave browsers an unstyled
 			// partial and htmx nothing it would swap.
-			const msg = "Too many lookups from your address. One lookup asks several upstream resolvers, so this endpoint is rate limited. Try again in a few seconds."
+			const msg = "Too many lookups from your IP address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
+			active := strings.TrimPrefix(c.Request().URL.Path, "/")
+			if active == "" {
+				active = "lookup"
+			}
+			name := NormalizeName(c.QueryParam("name"))
+			vm := withName(map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
+				"Active": active, "Query": name, "Retry": c.Request().URL.RequestURI()}, name, "")
+			if platform.IsHTMX(c) {
+				// Not a history entry.
+				c.Response().Header().Set("HX-Push-Url", "false")
+				// Above the last result, not over it.
+				c.Response().Header().Set("HX-Reswap", "afterbegin")
+			}
 			return reply(c, http.StatusTooManyRequests,
-				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down", "Desc": msg, "Error": msg},
-				"dns/ratelimited", "dns/error")
+				map[string]string{"error": msg}, vm,
+				"dns/ratelimited", "dns/slowdown")
 		},
 	})
 }
@@ -448,7 +552,7 @@ func rateLimiter() echo.MiddlewareFunc {
 // Bare hit renders the empty form to a browser, an empty result fragment to
 // htmx, and 400 to a JSON caller — same contract iptools' /cidr follows.
 func (h *handler) index(c *echo.Context) error {
-	name := strings.TrimSpace(c.QueryParam("name"))
+	name, typed := readName(c)
 	// Blank or "all" = the default fan-out. Naming one type narrows to it, so
 	// a ?type= permalink still works, but nobody has to click through nine
 	// types to find out what a domain publishes.
@@ -461,7 +565,7 @@ func (h *handler) index(c *echo.Context) error {
 		resolver = DefaultResolver
 	}
 
-	vm := h.vm(name, qtype, resolver)
+	vm := withName(h.vm(name, qtype, resolver), name, typed)
 	if done, err := needName(c, name, vm, "dns/index", "dns/result", "/?name=example.com&type=A"); done {
 		return err
 	}
@@ -541,7 +645,7 @@ func (h *handler) enrich(set *ResultSet) bool {
 func statusFor(err error) int {
 	switch {
 	case errors.Is(err, ErrBadType), errors.Is(err, ErrBadResolver),
-		errors.Is(err, ErrEmptyName), errors.Is(err, ErrBadName):
+		errors.Is(err, ErrEmptyName), errors.Is(err, ErrBadName), errors.Is(err, ErrNeedDomain):
 		return http.StatusBadRequest
 	default:
 		return http.StatusBadGateway

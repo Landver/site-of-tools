@@ -159,7 +159,7 @@ func TestSummariseNothingAnswered(t *testing.T) {
 	if len(sp.Groups) != 0 {
 		t.Errorf("built %d groups from no answers", len(sp.Groups))
 	}
-	if !hasNote(sp.Health, "fail", "None of the zone's nameservers answered") {
+	if !hasNote(sp.Health, "fail", "None of the zone's") {
 		t.Errorf("health notes %v do not report that nothing answered", sp.Health)
 	}
 }
@@ -175,7 +175,7 @@ func TestSummariseSingleLiveNameserverIsAFinding(t *testing.T) {
 	}}
 	sp.summarise()
 
-	if !hasNote(sp.Health, "fail", "Only one nameserver answered") {
+	if !hasNote(sp.Health, "fail", "Only 1 of the zone's") {
 		t.Errorf("health notes %v do not flag a single surviving nameserver", sp.Health)
 	}
 }
@@ -226,4 +226,35 @@ func hasNote(notes []Note, level, substr string) bool {
 		}
 	}
 	return false
+}
+
+// Rotation needs a witness inside one provider. Two providers that each agree
+// with themselves and differ from each other could be one of them still on the
+// old zone, and their serials can't be compared to tell.
+func TestRotationIsWitnessedInsideOneProvider(t *testing.T) {
+	t.Parallel()
+
+	across := &Spread{Authoritative: []ServerAnswer{
+		answer("dns1.p08.nsone.net.", 100, "192.0.2.1"),
+		answer("dns2.p08.nsone.net.", 100, "192.0.2.1"),
+		answer("ns-520.awsdns-01.net.", 7, "192.0.2.2"),
+		answer("ns-1707.awsdns-21.co.uk.", 7, "192.0.2.2"),
+	}}
+	across.summarise()
+	if across.Rotation {
+		t.Error("a split only between two providers was read as rotation")
+	}
+	if !across.MultiProvider || across.AuthConsistent {
+		t.Errorf("MultiProvider = %v, AuthConsistent = %v; want a disagreeing two-provider zone", across.MultiProvider, across.AuthConsistent)
+	}
+
+	inside := &Spread{Authoritative: []ServerAnswer{
+		answer("dns1.p08.nsone.net.", 100, "192.0.2.1"),
+		answer("dns2.p08.nsone.net.", 100, "192.0.2.3"),
+		answer("ns-520.awsdns-01.net.", 7, "192.0.2.2"),
+	}}
+	inside.summarise()
+	if !inside.Rotation {
+		t.Error("two servers of one provider on one serial with different sets is rotation")
+	}
 }

@@ -264,3 +264,18 @@ func TestInspectMarksKnownTrackers(t *testing.T) {
 		}
 	}
 }
+
+// TestCleanSaysWhenItLeftAWrapper: with unwrapping off, a wrapper is named.
+func TestCleanSaysWhenItLeftAWrapper(t *testing.T) {
+	res := clean(t, "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2F%3Futm_source%3Dx&data=1", linktools.CleanOptions{Unwrap: false})
+	found := false
+	for _, n := range res.Notes {
+		found = found || n.Title == "Wrapper left in place"
+	}
+	if !found {
+		t.Errorf("no note about the wrapper that was left alone: %+v", res.Notes)
+	}
+	if res.Unwrapped != "" {
+		t.Errorf("unwrapping is off but the result was unwrapped to %q", res.Unwrapped)
+	}
+}

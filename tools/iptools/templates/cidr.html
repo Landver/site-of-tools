@@ -45,11 +45,11 @@
             <dt>Network</dt>      <dd class="font-mono break-all text-strong">{{.CIDR}}</dd>
             <dt>Network addr</dt> <dd class="font-mono break-all">{{.Network}}</dd>
             {{if .Broadcast}}<dt>Broadcast</dt> <dd class="font-mono break-all">{{.Broadcast}}</dd>{{end}}
-            {{if .Netmask}}<dt>Netmask</dt>   <dd class="font-mono">{{.Netmask}}</dd>{{end}}
-            {{if .Wildcard}}<dt>Wildcard</dt>  <dd class="font-mono">{{.Wildcard}}</dd>{{end}}
+            {{if .Netmask}}<dt>Netmask</dt>   <dd class="font-mono break-all">{{.Netmask}}</dd>{{end}}
+            {{if .Wildcard}}<dt>Wildcard</dt>  <dd class="font-mono break-all">{{.Wildcard}}</dd>{{end}}
             <dt>Host range</dt>   <dd class="font-mono break-all">{{.FirstHost}} – {{.LastHost}}</dd>
-            <dt>Usable hosts</dt> <dd class="font-mono">{{.Usable}}</dd>
-            <dt>Total addrs</dt>  <dd class="font-mono">{{.Total}}</dd>
+            <dt>Usable hosts</dt> <dd class="font-mono break-all">{{.Usable}}</dd>
+            <dt>Total addrs</dt>  <dd class="font-mono break-all">{{.Total}}</dd>
           </dl>
         </div>
       </div>

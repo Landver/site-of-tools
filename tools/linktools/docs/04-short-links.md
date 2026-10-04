@@ -154,8 +154,12 @@ POST /short      X-Api-Key: <key>
 GET  /short      X-Api-Key: <key>      (see §8)
 ```
 
-- The key comes from `LINK_API_KEY`. **Empty means creation is disabled**, not
-  open — the same contract as an empty `MONGODB_URI`.
+- The key comes from `LINK_API_KEY`. **Empty means everything the key gates is
+  off**, not open: `Authorized` refuses every key, `""` included, and create, the
+  console and revoke answer `503`. Resolving never needs the key, so
+  `/s/:code` keeps redirecting links that already exist. An empty `MONGODB_URI`
+  is stricter: with no storage there is nothing to resolve, and `/s/:code`
+  answers `503` too.
 - **Compare SHA-256 digests of both sides**, not the raw strings.
   `crypto/subtle.ConstantTimeCompare` returns 0 immediately on a length
   mismatch, so comparing raw keys leaks the key length. Hashing first makes both
@@ -319,5 +323,5 @@ part of `clean: true` on the create path.
 and auditable.
 
 Errors: `400` bad or non-http(s) URL, or an IP literal · `401` bad key ·
-`409` slug taken · `429` rate limited · `503` storage off. All
-content-negotiated.
+`409` slug taken · `429` rate limited · `503` storage off or no key configured.
+All content-negotiated.

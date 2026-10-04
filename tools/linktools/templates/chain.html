@@ -11,11 +11,32 @@
 {{define "link/chain"}}
 {{with .Result}}
 
-<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
-  <span class="text-muted">Hops <span class="font-mono text-strong">{{len .Hops}}</span></span>
-  <span class="text-muted">Took <span class="font-mono text-strong">{{.Elapsed}}ms</span></span>
-  {{if .Persona}}<span class="text-muted">Asked as <span class="font-mono text-strong">{{.Persona}}</span></span>{{end}}
-</div>
+<section class="rounded-lg border {{if and .Final (lt .FinalStatus 400)}}border-line{{else}}border-warn{{end}} bg-surface p-4"
+         data-announce="{{if .Final}}Final destination: {{.Final}}{{if ge .FinalStatus 400}}, which answers {{.FinalStatus}} {{.FinalReason}}{{end}}{{else}}No final destination; see the findings.{{end}}">
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    <h2 class="text-sm font-semibold text-strong">{{if .Final}}{{if ge .FinalStatus 400}}Ends at {{.FinalStatus}} {{.FinalReason}}{{else}}Final destination{{end}}{{else}}No final destination{{end}}</h2>
+    <p class="text-xs text-muted">
+      {{len .Hops}} {{if eq (len .Hops) 1}}hop{{else}}hops{{end}} &middot; {{.Elapsed}} ms{{if .Persona}}{{$k := .Persona}} &middot; asked as {{range $.Personas}}{{if eq .Key $k}}{{.Name}}{{end}}{{end}}{{end}}
+    </p>
+  </div>
+  {{if .Final}}
+    <div class="mt-2 flex flex-wrap items-start gap-3">
+      <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.Final}}</p>
+      <button type="button" class="btn-copy" data-copy="{{.Final}}">Copy</button>
+    </div>
+    <p class="mt-2 text-xs text-muted">{{if ge .FinalStatus 400}}Where the chain ended: an error page, not the page the link promised.{{else}}Where the chain ended. Not a verdict on whether it's safe.{{end}}</p>
+    {{/* Clean too: redirectors add tracking parameters on the way through. */}}
+    <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      <a href="/?u={{.Final}}" class="text-brand-ink hover:underline">Inspect it</a>
+      <a href="/clean?u={{.Final}}" class="text-brand-ink hover:underline">Clean it</a>
+    </p>
+  {{else}}
+    <p class="mt-2 text-sm text-muted">
+      The trace stopped before a final page, and the findings below say why. The last URL reached isn't
+      shown as the destination, because it may not be one.
+    </p>
+  {{end}}
+</section>
 
 {{if .Notes}}
 <section class="mt-6">
@@ -25,6 +46,7 @@
 {{end}}
 
 {{if .Hops}}
+{{$findings := .Notes}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The chain</h2>
   <ol class="mt-2 space-y-2">
@@ -32,42 +54,34 @@
     <li class="rounded-lg border border-line bg-surface p-3">
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="font-mono text-muted">{{.Index}}</span>
-        <span class="rounded px-1.5 py-0.5 font-mono text-xs
-          {{if ge .Status 500}}bg-danger/20 text-danger
-          {{else if ge .Status 400}}bg-warn/20 text-warn
+        {{/* Status 0 is no response at all. */}}
+        {{if eq .Status 0}}
+        <span class="whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">no response</span>
+        {{else}}
+        <span class="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs
+          {{if ge .Status 500}}bg-danger/10 text-danger
+          {{else if ge .Status 400}}bg-warn/10 text-warn-ink
           {{else if ge .Status 300}}bg-line text-strong
-          {{else}}bg-ok/20 text-ok{{end}}">{{.Status}}</span>
-        {{if .SetCookie}}<span title="This response set a cookie" role="img" aria-label="sets a cookie">&#127850;</span>{{end}}
-        <span class="text-xs text-muted">{{.ElapsedMS}}ms</span>
-        {{if .Server}}<span class="text-xs text-muted">{{.Server}}</span>{{end}}
-        {{if .ContentType}}<span class="text-xs text-muted">{{.ContentType}}</span>{{end}}
+          {{else}}bg-ok/10 text-ok{{end}}">{{.Status}}{{if .Reason}} {{.Reason}}{{end}}</span>
+        <span class="text-xs text-muted">{{.ElapsedMS}} ms</span>
+        {{end}}
+        {{if .SetCookie}}<span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-muted"><span aria-hidden="true">&#127850;</span> sets a cookie</span>{{end}}
+        {{/* Labelled: "gws" or "github.com" alone is a riddle. */}}
+        {{if .Server}}<span class="text-xs text-faint">server <span class="text-muted">{{.Server}}</span></span>{{end}}
+        {{if .ContentType}}<span class="text-xs text-faint">type <span class="text-muted">{{.ContentType}}</span></span>{{end}}
       </div>
       {{/* Text, never an anchor. See the file comment. */}}
-      <p class="mt-1 break-all font-mono text-sm text-strong">{{.URL}}</p>
-      {{if .Location}}<p class="mt-1 break-all font-mono text-xs text-muted">&rarr; {{.Location}}</p>{{end}}
-      {{if .Notes}}<div class="mt-2">{{template "link/notes" .Notes}}</div>{{end}}
+      <p class="mt-1 wrap-anywhere font-mono text-sm text-strong">{{.URL}}</p>
+      {{if .Location}}<p class="mt-1 wrap-anywhere font-mono text-xs text-muted"><span aria-hidden="true">&rarr;</span><span class="sr-only">redirects to</span> {{.Location}}</p>{{end}}
+      {{/* Not again what Findings shows; the JSON keeps both. */}}
+      {{with .Unlisted $findings}}<div class="mt-2">{{template "link/notes" .}}</div>{{end}}
     </li>
     {{end}}
   </ol>
 </section>
 {{end}}
 
-<section class="mt-6 rounded-lg border {{if .Final}}border-line{{else}}border-warn{{end}} bg-surface p-4">
-  {{if .Final}}
-    <h2 class="text-sm font-semibold text-strong">Final destination</h2>
-    <p class="mt-2 break-all font-mono text-sm text-strong">{{.Final}}</p>
-    <p class="mt-2 text-xs text-muted">
-      This is where the chain actually ended. Nothing about whether it is safe to visit is claimed here.
-    </p>
-    <a href="/?u={{.Final}}" class="mt-2 inline-block text-sm text-brand hover:underline">Inspect it</a>
-  {{else}}
-    <h2 class="text-sm font-semibold text-strong">No final destination</h2>
-    <p class="mt-2 text-sm text-muted">
-      The chain continues somewhere this tool did not follow &mdash; see the findings above for what and why.
-      The last URL reached is deliberately <em>not</em> shown as the destination, because it isn't one.
-    </p>
-  {{end}}
-</section>
-
+{{else}}
+{{if not .Disabled}}{{template "link/examples" .Examples}}{{end}}
 {{end}}
 {{end}}
