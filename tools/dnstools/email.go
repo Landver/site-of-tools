@@ -41,9 +41,6 @@ type EmailAuth struct {
 	// NXDomain: the name itself does not exist, so there is no mail setup to
 	// judge. Said instead of the advice a domain without records would get.
 	NXDomain bool `json:"nxdomain,omitempty"`
-	// DKIMBad: selectors given that can't be one, reported as a finding
-	// rather than failing the whole check over an optional extra.
-	DKIMBad []string `json:"dkim_selectors_invalid,omitempty"`
 	// MailHosts: the MX hosts with their forward-confirmed reverse DNS result.
 	// Receivers weigh FCrDNS heavily, and a mail server whose PTR doesn't
 	// round-trip gets scored down without anything in DNS looking wrong.
@@ -66,13 +63,9 @@ type EmailAuth struct {
 	// DKIMWildcard: every probed selector returned the same record, so the
 	// zone has a wildcard TXT under _domainkey and the selector list below
 	// says nothing about which selectors exist.
-	DKIMWildcard bool `json:"dkim_wildcard,omitempty"`
-	// DKIMAsked: selectors the caller named on top of the common ones. DNS
-	// can't list a domain's selectors, so a key at one nobody guesses (a
-	// provider's random token) is invisible unless someone who knows it asks.
-	DKIMAsked []string `json:"dkim_selectors_asked,omitempty"`
-	Notes     []Note   `json:"notes,omitempty"`
-	QueryMS   int64    `json:"query_ms"`
+	DKIMWildcard bool   `json:"dkim_wildcard,omitempty"`
+	Notes        []Note `json:"notes,omitempty"`
+	QueryMS      int64  `json:"query_ms"`
 }
 
 // Note: one finding, severity-tagged. "ok" states a thing is right, because a
@@ -251,9 +244,8 @@ var commonDKIMSelectors = []string{
 // with deeply nested includes turns one click into unbounded DNS traffic.
 const maxSPFIncludes = 15
 
-// EmailAuth runs every check concurrently. selectors are DKIM selectors to
-// probe on top of the common ones.
-func (s *Service) EmailAuth(ctx context.Context, domain string, selectors ...string) (*EmailAuth, error) {
+// EmailAuth runs every check concurrently.
+func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, error) {
 	domain = strings.TrimSpace(strings.ToLower(domain))
 	if domain == "" {
 		return nil, ErrEmptyName
@@ -264,28 +256,8 @@ func (s *Service) EmailAuth(ctx context.Context, domain string, selectors ...str
 	if err := validDomain(domain); err != nil {
 		return nil, err
 	}
-	var asked, bad []string
-	for _, sel := range selectors {
-		sel = strings.Trim(strings.ToLower(strings.TrimSpace(sel)), ".")
-		// DNS providers show the whole record name; the selector is the part
-		// before "._domainkey".
-		if i := strings.Index(sel, "._domainkey"); i >= 0 {
-			sel = sel[:i]
-		}
-		if sel == "" || slices.Contains(asked, sel) {
-			continue
-		}
-		// A selector is one or more labels under _domainkey, so the name it
-		// makes is what has to be a valid name. One that isn't is a finding
-		// on the report, not a reason to throw the report away.
-		if err := validDomain(sel + "._domainkey." + domain); err != nil {
-			bad = append(bad, sel)
-			continue
-		}
-		asked = append(asked, sel)
-	}
 	addr, _ := resolverAddr(DefaultResolver)
-	out := &EmailAuth{Domain: domain, DKIMAsked: asked, DKIMBad: bad}
+	out := &EmailAuth{Domain: domain}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -316,7 +288,7 @@ func (s *Service) EmailAuth(ctx context.Context, domain string, selectors ...str
 		mu.Unlock()
 	})
 	run(func() {
-		keys, revoked, wildcard := s.checkDKIM(ctx, domain, addr, asked)
+		keys, revoked, wildcard := s.checkDKIM(ctx, domain, addr)
 		mu.Lock()
 		out.DKIM, out.DKIMRevoked, out.DKIMWildcard = keys, revoked, wildcard
 		mu.Unlock()
@@ -730,20 +702,13 @@ func parseDMARC(rec string) *DMARCResult {
 // Presence proves less than it looks, too, which is why the two qualifiers
 // come back with it: a record with an empty p= is a revoked key, and a zone
 // with a wildcard TXT under _domainkey answers for every selector ever probed.
-func (s *Service) checkDKIM(ctx context.Context, domain, addr string, extra []string) (keys []DKIMKey, revoked []string, wildcard bool) {
-	// The visitor's own selectors first, then the common guesses.
-	probe := slices.Clone(extra)
-	for _, sel := range commonDKIMSelectors {
-		if !slices.Contains(probe, sel) {
-			probe = append(probe, sel)
-		}
-	}
+func (s *Service) checkDKIM(ctx context.Context, domain, addr string) (keys []DKIMKey, revoked []string, wildcard bool) {
 	// Written at a fixed index rather than appended, so the selector list is
-	// the order of probe and not the order goroutines finished.
-	recs := make([]string, len(probe))
+	// the order of commonDKIMSelectors and not the order goroutines finished.
+	recs := make([]string, len(commonDKIMSelectors))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 6)
-	for i, sel := range probe {
+	for i, sel := range commonDKIMSelectors {
 		wg.Add(1)
 		go safe(func() {
 			defer wg.Done()
@@ -758,9 +723,9 @@ func (s *Service) checkDKIM(ctx context.Context, domain, addr string, extra []st
 		switch {
 		case rec == "":
 		case dkimHasKey(rec):
-			keys = append(keys, DKIMKey{Selector: probe[i], Found: true})
+			keys = append(keys, DKIMKey{Selector: commonDKIMSelectors[i], Found: true})
 		default:
-			revoked = append(revoked, probe[i])
+			revoked = append(revoked, commonDKIMSelectors[i])
 		}
 	}
 	// Twelve unrelated selectors answering with one record is a wildcard, not
@@ -970,9 +935,6 @@ func (e *EmailAuth) judge() {
 		add("warn", "This name does not exist (NXDOMAIN), so there is no mail setup to check.")
 		return
 	}
-	for _, sel := range e.DKIMBad {
-		add("warn", fmt.Sprintf("%q isn't a DKIM selector: it has to be a name, like s1 or google. The record lives at <selector>._domainkey.%s.", sel, e.Domain))
-	}
 
 	// The DMARC policy that applies here, read once: BIMI is judged against
 	// the same answer further down, and the two used to disagree.
@@ -1127,27 +1089,9 @@ func (e *EmailAuth) judge() {
 		for _, k := range e.DKIM {
 			sels = append(sels, k.Selector)
 		}
-		add("ok", "DKIM keys found at selectors: "+strings.Join(sels, ", ")+".")
-	case e.HasMX && len(e.DKIMAsked) == 0:
-		add("info", "No DKIM key at the common selectors. DNS can't list selectors, so that is not proof there is none: if you know yours, check it below.")
-	}
-	// A selector someone named gets a straight answer about itself, whatever
-	// the common guesses turned up. A revoked one is covered just below.
-	if !e.DKIMWildcard {
-		var missing []string
-		for _, sel := range e.DKIMAsked {
-			if !slices.ContainsFunc(e.DKIM, func(k DKIMKey) bool { return k.Selector == sel }) && !slices.Contains(e.DKIMRevoked, sel) {
-				missing = append(missing, sel)
-			}
-		}
-		if len(missing) > 0 {
-			tail := ""
-			if len(e.DKIM) == 0 {
-				tail = ", nor at any common one"
-			}
-			where := missing[0] + "._domainkey." + e.Domain
-			add("warn", "No DKIM key at "+strings.Join(missing, ", ")+", the selector you gave"+tail+". Check it in your mail provider's DKIM settings: the record belongs at "+where+".")
-		}
+		add("ok", "DKIM keys found at common selectors: "+strings.Join(sels, ", ")+".")
+	case e.HasMX:
+		add("info", "No DKIM key at the common selectors. DNS can't list selectors, so that is not proof there is none.")
 	}
 	if len(e.DKIMRevoked) > 0 && !e.DKIMWildcard {
 		add("warn", "These selectors publish a revoked key (an empty p=): "+strings.Join(e.DKIMRevoked, ", ")+". Nothing signed with them can verify, so drop the records once no mail still carries those signatures.")

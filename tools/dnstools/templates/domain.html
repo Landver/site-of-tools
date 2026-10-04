@@ -88,63 +88,15 @@
 </div>
 {{end}}
 
-{{/* The subdomains card lives in a #ct section. The loading version below
-     fetches the real one and is replaced by it whole (outerHTML), so what
-     htmx saves for Back is a finished card with nothing left to trigger: a
-     restored page used to fetch crt.sh again on every Back. "Try again"
-     replaces the section the same way, and dns/script puts focus on the new
-     card's heading when the link it was on went with the old one.
-     display:contents keeps the card itself the grid item. */}}
-{{if .CertsLazy}}
-<section id="ct" class="contents" aria-labelledby="ct-h"
-  hx-get="/domain?name={{.Query}}&amp;part=certs" hx-trigger="load" hx-target="this" hx-swap="outerHTML">
-{{/* Certificate Transparency is the slow half (crt.sh can take twenty
-     seconds, and often fails), so on the page it fetches itself once the
-     registration is on screen. Without JavaScript the link loads the whole
-     result in one go, and the "searching" line, which would be false, is
-     hidden. */}}
-<div class="card sm:col-span-2" aria-busy="true">
-  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
-  <p class="ct-searching text-sm text-muted">Searching the certificate logs…</p>
-  <noscript>
-    <style>.ct-searching{display:none}</style>
-    <p class="text-xs"><a href="/domain?name={{.Query}}&amp;part=certs" class="link-brand">Load the subdomains</a></p>
-  </noscript>
-</div>
-</section>
-{{else}}
 {{template "dns/certs" .}}
 {{end}}
 {{end}}
-{{end}}
 
-{{/* The Certificate Transparency card: inline on a no-JavaScript page and in
-     the JSON-shaped full render, and on its own as the answer to the card's
-     ?part=certs fetch. */}}
 {{define "dns/certs"}}
-{{/* Fetched on its own, the card says what it found on the page's status
-     line too: it can land many seconds after the rest. */}}
-{{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{if .Certs}}Subdomains: {{.Certs.Total}} found.{{else if .CertsLimited}}{{.Error}}{{else if .CertError}}Couldn't get the subdomains from Certificate Transparency.{{end}}</p>{{end}}
-<section id="ct" class="contents" aria-labelledby="ct-h">
-{{if .CertsLimited}}
-{{/* Our own rate limit, not crt.sh's: the card keeps its heading and both
-     ways forward instead of turning into a notice with no way back. */}}
-<div class="card sm:col-span-2">
-  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
-  <p class="text-sm text-warn">Too many lookups from your IP address just now.</p>
-  <p class="mt-1 text-xs text-faint">This card is one more request; it can be retried in a second.</p>
-  <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-    <a href="/domain?name={{.Query}}&amp;part=certs" hx-get="/domain?name={{.Query}}&amp;part=certs" hx-target="#ct" hx-swap="outerHTML" class="link-brand">
-      <span class="in-[.htmx-request]:hidden">Try again<span class="sr-only">, loading the subdomains</span></span>
-      <span class="hidden in-[.htmx-request]:inline">Searching…</span>
-    </a>
-    <a href="https://crt.sh/?q=%25.{{.Query}}" target="_blank" rel="noopener" class="link-brand">Search crt.sh directly<span class="sr-only"> (opens in a new tab)</span></a>
-  </p>
-</div>
-{{else if .Certs}}{{with .Certs}}
+{{if .Certs}}{{with .Certs}}
 <div class="card sm:col-span-2">
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-    <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
+    <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
     <div class="text-sm text-muted tabular-nums">{{.Total}} found</div>
   </div>
   <p class="mb-3 text-xs text-faint">
@@ -189,19 +141,15 @@
 {{/* Couldn't check is amber, as everywhere else on these pages, and it
      offers the two ways forward: ask again, or ask crt.sh directly. */}}
 <div class="card sm:col-span-2">
-  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
+  <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
   <p class="text-sm text-warn">crt.sh didn't return the certificate list.</p>
   <p class="mt-1 text-xs text-faint wrap-anywhere">{{.CertError}}: it is often slow or briefly down, and this says nothing about the domain.</p>
   <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-    <a href="/domain?name={{.Query}}&amp;part=certs" hx-get="/domain?name={{.Query}}&amp;part=certs" hx-target="#ct" hx-swap="outerHTML" class="link-brand">
-      <span class="in-[.htmx-request]:hidden">Try again<span class="sr-only">, loading the subdomains</span></span>
-      <span class="hidden in-[.htmx-request]:inline">Searching…</span>
-    </a>
+    <a href="/domain?name={{.Query}}" class="link-brand">Try again</a>
     <a href="https://crt.sh/?q=%25.{{.Query}}" target="_blank" rel="noopener" class="link-brand">Search crt.sh directly<span class="sr-only"> (opens in a new tab)</span></a>
   </p>
 </div>
 {{end}}
-</section>
 {{end}}
 
 {{define "dns/domain"}}

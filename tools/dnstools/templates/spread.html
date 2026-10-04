@@ -65,9 +65,7 @@
         {{if gt .AuthAnswered 1}}
           <span class="block text-base font-medium text-ok">Your nameservers are in step.</span>
           <span class="mt-1 block text-faint">All {{.AuthAnswered}} that answered return the same {{.Type}} records{{if and (gt .SerialsSeen 1) .SerialsAgree}} with matching serials{{end}}.
-          {{if .Varies}}The zone hands out different answers from one query to the next (the client-network card saw several), so a resolver holding another one is no sign of a stale cache.
-          {{else if .ResolversStale}}The public resolvers agree with each other and all of them hold a different answer, so the change has left your nameservers and is now waiting out a cache.
-          {{else if .Stale}}Some public resolvers already give that answer and some still hold an older one, so the change has left your nameservers and is waiting out the rest of the caches.
+          {{if .ResolversStale}}The public resolvers agree with each other and all of them hold a different answer, so the change has left your nameservers and is now waiting out a cache.
           {{else if gt .ResolverGroups 1}}Public resolvers see {{.ResolverGroups}} different answers, which means this zone answers differently depending on who asks (anycast or geo steering), not a change still rolling out.
           {{else}}The public resolvers hold something else; compare the two panels below.{{end}}</span>
         {{else if gt .ResolverGroups 1}}
@@ -179,17 +177,13 @@
   </div>
   {{end}}
 
-  {{/* The action a stale answer leads to. Linking out beats reimplementing
-       three vendors' purge endpoints. Only when some resolver really holds
-       an answer the zone has moved on from (.Stale): with every server on one
-       answer, a rotating zone, or a name that exists nowhere, there is
-       nothing a purge can help with. */}}
-  {{if .Stale}}
+  {{/* The action a stale answer leads to. Not when every server agrees, the
+       zone rotates, or nothing answered: a purge can't help there. */}}
+  {{if and (gt .Answered 0) (not .Consistent) (not .Rotation)}}
   <div class="card">
     <h2 class="eyebrow">stale answer?</h2>
     <p class="text-sm text-muted">
-      {{range $i, $s := .Stale}}{{if $i}}, {{end}}<span class="text-strong">{{$s}}</span>{{end}}
-      {{if eq (len .Stale) 1}}still holds{{else}}still hold{{end}} an answer your nameservers no longer give{{if .StaleFor}}, for up to {{.StaleFor}} more{{end}}.
+      A resolver holding an old answer will keep serving it until its TTL runs out{{if .StaleFor}} (up to {{.StaleFor}} here){{end}}.
       The big resolvers let you evict a name early:
     </p>
     <div class="mt-3 flex flex-wrap gap-2 text-sm">

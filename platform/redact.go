@@ -27,7 +27,7 @@ var redactedParams = map[string]bool{
 
 // dnsParams: the DNS tool's own query keys, the ones a pasted URL's tail can't
 // be mistaken for.
-var dnsParams = map[string]bool{"name": true, "type": true, "resolver": true, "selector": true, "part": true}
+var dnsParams = map[string]bool{"name": true, "type": true, "resolver": true}
 
 // redactedName: a DNS ?name= that is not just a name. A domain or an IP is
 // what the corpus is for and stays readable; a value carrying a path, a query,

@@ -346,10 +346,6 @@ type ctRow struct {
 
 // CertNames pulls every name Certificate Transparency has seen under a domain
 // and rolls the per-certificate rows up per name.
-// certsOn reports whether the Certificate Transparency half is configured, so
-// the page can promise a subdomains card before it asks for one.
-func (d *DomainClient) certsOn() bool { return d != nil && d.ctURL != "" }
-
 func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames, error) {
 	if d == nil || d.ctURL == "" {
 		return nil, ErrDisabled

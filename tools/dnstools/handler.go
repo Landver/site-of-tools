@@ -31,7 +31,7 @@ const lookupDesc = "Look up DNS records for any domain: A, AAAA, CNAME, MX, NS, 
 
 // Mailer: handler dependency for the email-auth page.
 type Mailer interface {
-	EmailAuth(ctx context.Context, domain string, selectors ...string) (*EmailAuth, error)
+	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
 }
 
 // Spreader: handler dependency for the consistency check. Separate from Looker
@@ -268,10 +268,7 @@ func (h *handler) email(c *echo.Context) error {
 		return unavailable(c, vm, "dns/email", "dns/emailauth")
 	}
 
-	// A DKIM selector the visitor knows, probed on top of the common guesses.
-	selector := strings.ToLower(strings.TrimSpace(c.QueryParam("selector")))
-	vm["Selector"] = selector
-	res, err := h.mail.EmailAuth(c.Request().Context(), name, selector)
+	res, err := h.mail.EmailAuth(c.Request().Context(), name)
 	if err == nil {
 		vm["Email"] = res
 		vm["OK"], vm["Warn"], vm["Fail"] = res.Score()
@@ -351,21 +348,8 @@ func (h *handler) domain(c *echo.Context) error {
 		vm["RegFor"] = regName
 	}
 
-	// crt.sh is the slow half, and often the failing one: on the HTML page
-	// the registration renders as soon as RDAP answers, and the subdomains
-	// card fetches itself (?part=certs). JSON callers, and a browser without
-	// JavaScript following that card's fallback link, get both in one answer.
-	part := c.QueryParam("part")
-	if part == "certs" && platform.IsHTMX(c) {
-		ct, ctErr := h.dom.CertNames(ctx, name)
-		h.certsVM(vm, ct, ctErr)
-		return reply(c, http.StatusOK, nil, vm, "dns/domain", "dns/certs")
-	}
-	lazy := !platform.WantsJSON(c) && part != "certs"
-
-	// Otherwise two independent upstreams, fetched concurrently: neither
-	// should wait on the other, and either failing must not cost the other's
-	// result.
+	// Two independent upstreams, fetched concurrently: neither should wait on
+	// the other, and either failing must not cost the other's result.
 	var (
 		wg     sync.WaitGroup
 		reg    *Registration
@@ -373,26 +357,17 @@ func (h *handler) domain(c *echo.Context) error {
 		ct     *CertNames
 		ctErr  error
 	)
-	wg.Add(1)
+	wg.Add(2)
 	go safe(func() {
 		defer wg.Done()
 		regErr = errPanic
 		reg, regErr = h.dom.Registration(ctx, regName)
 	})
-	if lazy {
-		ctErr = ErrDisabled
-		if h.dom.certsOn() {
-			ctErr = nil
-			vm["CertsLazy"] = true
-		}
-	} else {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			ctErr = errPanic
-			ct, ctErr = h.dom.CertNames(ctx, name)
-		})
-	}
+	go safe(func() {
+		defer wg.Done()
+		ctErr = errPanic
+		ct, ctErr = h.dom.CertNames(ctx, name)
+	})
 	wg.Wait()
 
 	// A nil client answers ErrDisabled from both halves, and so does one whose
@@ -444,24 +419,14 @@ func (h *handler) domain(c *echo.Context) error {
 			}
 		}
 	}
-	if !lazy {
-		if ctErr == nil {
-			out["certificate_names"] = ct
-		} else {
-			out["certificate_names_error"] = ctErr.Error()
-		}
-		h.certsVM(vm, ct, ctErr)
+	if ctErr == nil {
+		out["certificate_names"] = ct
+		vm["Certs"] = ct
+	} else {
+		out["certificate_names_error"] = ctErr.Error()
+		vm["CertError"] = ctErr.Error()
 	}
 	return reply(c, code, out, vm, "dns/domain", "dns/domaininfo")
-}
-
-// certsVM puts the Certificate Transparency half on the page.
-func (h *handler) certsVM(vm map[string]any, ct *CertNames, err error) {
-	if err == nil {
-		vm["Certs"] = ct
-		return
-	}
-	vm["CertError"] = err.Error()
 }
 
 // consistency serves the "is my change live yet" check: the zone's own
@@ -521,9 +486,6 @@ func (h *handler) consistency(c *echo.Context) error {
 
 	var body any
 	if err == nil {
-		// The probes are more samples of the same zone, and they settle what
-		// one sample per server cannot: rotation versus a stale cache.
-		sp.Reconcile(steer)
 		vm["Spread"] = sp
 		// Nil is falsy to {{with}}, so the card renders nothing when the check
 		// did not run.
@@ -606,12 +568,6 @@ func rateLimiter() echo.MiddlewareFunc {
 				// A refused request is not a place to go Back to: keep it out
 				// of the history htmx would otherwise push.
 				c.Response().Header().Set("HX-Push-Url", "false")
-				// The subdomains card refused on its own keeps its shape:
-				// heading, "Try again", and the way out to crt.sh.
-				if c.QueryParam("part") == "certs" {
-					vm["CertsLimited"] = true
-					return c.Render(http.StatusTooManyRequests, "dns/certs", vm)
-				}
 				// Anywhere else the notice goes above the result rather than
 				// over it: the last answer stays on screen, and the notice is
 				// dropped before htmx snapshots the page for Back.

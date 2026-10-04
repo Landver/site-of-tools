@@ -28,8 +28,7 @@ Suite of DNS tools on one subdomain, switched by sub-nav. **Five pages ship toda
   "unregistered" (.de, for one, runs no RDAP at all).
 - **Email** (`/email`) — SPF including the RFC 7208 ten-lookup limit that
   silently breaks it, DMARC policy strength (including a policy inherited from
-  a parent via `sp=`), DKIM keys at twelve common selectors plus any the
-  visitor names (`?selector=`), MTA-STS policy
+  a parent via `sp=`), DKIM keys at twelve common selectors, MTA-STS policy
   **fetched over HTTPS** rather than just its DNS pointer, TLS-RPT and BIMI.
   Plus the one question the records cannot answer: the MX hosts are resolved
   and their addresses read against the blocklist corpus this repo already
@@ -142,9 +141,7 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
 | `GET /trace?name=example.com` | Delegation walk from a root server, chain of trust checked here |
 | `GET /trace?name=example.com&type=MX` | Same walk, for one record type (default `A`) |
 | `GET /domain?name=example.com` | RDAP registration + CT subdomains |
-| `GET /domain?name=example.com&part=certs` | The CT card alone, for htmx (the HTML page loads it after the registration) |
 | `GET /email?name=example.com` | SPF / DMARC / DKIM / MTA-STS / TLS-RPT / BIMI |
-| `GET /email?name=example.com&selector=s1` | Same, also probing a DKIM selector the caller knows |
 
 Every one of those serves JSON to anything that doesn't ask for `text/html`,
 and an HTML fragment to htmx. A bare hit with no `?name=` is the empty form to
@@ -163,17 +160,10 @@ domain (everything but `/`) is `ErrNeedDomain`, `400`.
 
 JSON fields added by the UX pass, all additive: `target` on every record
 that names a host, `unvalidated` (types without AD beside some that had it),
-`stale_resolvers` and `answers_vary` on `/consistency` (a resolver is only
-named stale when the client-subnet probes in the same run don't show the zone
-varying its answers), `keys_without_ds` on a trace chain link,
-`registrable_domain` and `delegated` on `/domain`, and `nxdomain`,
-`dkim_selectors_asked` and `dkim_selectors_invalid` on `/email`.
+`keys_without_ds` on a trace chain link,
+`registrable_domain` and `delegated` on `/domain`, and `nxdomain` on
+`/email`.
 
-`/domain` on the HTML page renders the registration as soon as RDAP answers
-and lets the CT card fetch itself (`?part=certs`, `hx-trigger="load"`): crt.sh
-is the slow half and often the failing one. JSON callers, and a browser
-without JavaScript following the card's fallback link, still get both in one
-response.
 
 `?type=` on `/`, `/consistency` and `/trace` is checked against this package's
 own `Types` list, not `miekg`'s RR registry, so `ANY` and `AXFR` are `400` on

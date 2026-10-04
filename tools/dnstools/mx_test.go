@@ -110,22 +110,3 @@ func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 		t.Errorf("wildcard with a real key: level %q, want warn; notes %+v", got, keyed.Notes)
 	}
 }
-
-// A selector the visitor named gets an answer about itself, even when the
-// common guesses found other keys.
-func TestAskedDKIMSelectorIsAnswered(t *testing.T) {
-	t.Parallel()
-
-	e := &EmailAuth{Domain: "example.com", HasMX: true,
-		DKIM: []DKIMKey{{Selector: "google", Found: true}}, DKIMAsked: []string{"s1"}}
-	e.judge()
-	var got string
-	for _, n := range e.Notes {
-		if strings.Contains(n.Text, "No DKIM key at s1") {
-			got = n.Level
-		}
-	}
-	if got != "warn" {
-		t.Errorf("asked selector with no key: level %q, want warn; notes %+v", got, e.Notes)
-	}
-}

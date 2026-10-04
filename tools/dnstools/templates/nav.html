@@ -78,8 +78,6 @@
        afterSwap       the name field marked invalid when the answer is an
                        error (the full page renders that server-side), and
                        on a phone the keyboard folded away once a result is in
-       afterSettle     focus put back when a swap removed the control that
-                       had it (the subdomains card's "Try again")
        historyRestore  Back and Forward said out loud: the page changed
                        under the reader without a request of theirs */}}
 {{define "dns/script"}}
@@ -112,24 +110,6 @@
       if (!matchMedia('(pointer: coarse)').matches) return
       var el = document.activeElement
       if (el && el.matches('main form input')) el.blur()
-    })
-    // Only a swap that took the focused element with it earns a focus move;
-    // a card loading in on its own must never pull the reader away.
-    var lost = null
-    document.body.addEventListener('htmx:beforeSwap', function (e) {
-      var a = document.activeElement
-      lost = a && a !== document.body && e.detail.target.contains(a) ? e.detail.target : null
-    })
-    document.body.addEventListener('htmx:afterSettle', function (e) {
-      var target = lost
-      lost = null
-      if (!target || target !== e.detail.target || document.activeElement !== document.body) return
-      // An outerHTML swap leaves the old element detached: its replacement
-      // carries the same id.
-      if (!target.isConnected) target = target.id && document.getElementById(target.id)
-      if (!target) return
-      var spot = target.matches('[tabindex="-1"]') ? target : target.querySelector('[tabindex="-1"]')
-      if (spot) spot.focus()
     })
     document.body.addEventListener('htmx:historyRestore', function () {
       status(document.title)

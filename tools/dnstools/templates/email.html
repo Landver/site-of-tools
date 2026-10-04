@@ -87,31 +87,7 @@
       <dd>
         {{if .DKIM}}{{range $i, $k := .DKIM}}{{if $i}}, {{end}}<span class="font-mono">{{$k.Selector}}</span>{{end}}
         {{else}}<span class="text-faint">no key at the selectors tried</span>{{end}}
-        <span class="block text-xs text-faint">Found by trying common selectors{{if .DKIMAsked}} and yours{{end}}. DNS can't list selectors, so others may exist.</span>
-        {{/* The way out of a guess: the visitor usually knows the selector,
-             it's in the mail provider's DKIM settings. */}}
-        {{/* The ids are what let htmx put focus back in the field after the
-             swap replaces the whole result, this form included. */}}
-        <form action="/email" hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Checking the selector…"
-              class="mt-2 flex flex-wrap gap-2">
-          <input type="hidden" name="name" value="{{$page.Query}}">
-          <input id="dkim-selector" name="selector" value="{{$page.Selector}}" required autocomplete="off" spellcheck="false"
-                 aria-label="DKIM selector to check" placeholder="your selector"
-                 {{if .DKIMBad}}aria-invalid="true"{{end}}
-                 class="min-w-0 max-w-40 flex-1 rounded-md border border-line-strong bg-canvas px-2 py-1 font-mono text-xs text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger">
-          <button id="dkim-check" type="submit" class="btn-copy border-line-strong">Check</button>
-        </form>
-        {{/* The answer for the selector asked, here where it was asked: the
-             finding at the top of the page is a screen away on a phone. */}}
-        {{$e := .}}
-        {{range .DKIMAsked}}{{$sel := .}}
-          {{$found := false}}{{range $e.DKIM}}{{if eq .Selector $sel}}{{$found = true}}{{end}}{{end}}
-          {{$revoked := false}}{{range $e.DKIMRevoked}}{{if eq . $sel}}{{$revoked = true}}{{end}}{{end}}
-          <span class="mt-1 block text-xs {{if $found}}text-ok{{else}}text-warn{{end}}">
-            <span class="font-mono">{{$sel}}</span>: {{if $found}}key published{{else if $revoked}}revoked key (empty p=){{else}}no key{{end}}
-          </span>
-        {{end}}
-        {{range .DKIMBad}}<span class="mt-1 block text-xs text-warn wrap-anywhere">"{{.}}" isn't a selector name.</span>{{end}}
+        <span class="block text-xs text-faint">Found by trying common selectors. DNS can't list selectors, so others may exist.</span>
       </dd>
       <dt>MTA-STS</dt>
       <dd>
@@ -173,7 +149,6 @@
         <p>Same URL, content-negotiated: browsers get the page, everything else gets JSON.</p>
         <div class="space-y-2 font-mono text-xs wrap-anywhere">
           <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com'</span></p>
-          <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com&selector=s1'</span></p>
         </div>
       </div>
     </details>
