@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 // NormalizeName turns what a visitor pastes into the name they meant. The
@@ -93,6 +94,17 @@ func needDomain(name string) error {
 		return ErrNeedDomain
 	}
 	return validDomain(name)
+}
+
+// RegistrableDomain is the part of a name a registry holds a record for:
+// github.com for www.github.com, example.co.uk for a.b.example.co.uk, per the
+// Public Suffix List. A name that is itself a public suffix, or that the list
+// can't place, comes back unchanged.
+func RegistrableDomain(name string) string {
+	if d, err := publicsuffix.EffectiveTLDPlusOne(name); err == nil {
+		return d
+	}
+	return name
 }
 
 // UnicodeName is the readable spelling of a punycode name, for showing beside

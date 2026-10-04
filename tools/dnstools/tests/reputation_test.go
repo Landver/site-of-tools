@@ -271,8 +271,11 @@ func TestMXReputationOnADomainWithNoMailLive(t *testing.T) {
 // with the result under "MXRep".
 func renderMXRep(t *testing.T, vm map[string]any) string {
 	t.Helper()
-	tpl, err := template.New("mxrep").ParseFS(dnstools.Templates,
-		"templates/reputation.html", "templates/notes.html")
+	// toolURL is the one renderer function the card calls (an address links
+	// to the IP tool); stubbed, since this test is about the card's claims.
+	tpl, err := template.New("mxrep").Funcs(template.FuncMap{
+		"toolURL": func(sub string) string { return "https://" + sub + ".example" },
+	}).ParseFS(dnstools.Templates, "templates/reputation.html", "templates/notes.html")
 	if err != nil {
 		t.Fatalf("parse the card template: %v", err)
 	}

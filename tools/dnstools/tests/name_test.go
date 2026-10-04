@@ -96,3 +96,20 @@ func TestDomainRefusesAnIP(t *testing.T) {
 		t.Errorf("body = %s, want the needs-a-domain error", rec.Body)
 	}
 }
+
+// The registry holds a record for the registrable domain only, so a subdomain
+// is asked about its parent: www.github.com used to get "no record".
+func TestRegistrableDomain(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ in, want string }{
+		{"www.github.com", "github.com"},
+		{"github.com", "github.com"},
+		{"a.b.example.co.uk", "example.co.uk"},
+		{"co.uk", "co.uk"}, // a public suffix itself: left alone
+	} {
+		if got := dnstools.RegistrableDomain(tc.in); got != tc.want {
+			t.Errorf("RegistrableDomain(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

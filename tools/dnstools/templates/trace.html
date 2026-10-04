@@ -102,19 +102,20 @@
     <div class="eyebrow">verdict</div>
     <p class="text-sm">
       {{if eq .DNSSEC "secure"}}
-        <span class="text-ok">Signed, and the chain checks out.</span>
+        <span class="block text-base font-medium text-ok">Signed, and the chain checks out.</span>
       {{else if eq .DNSSEC "insecure"}}
-        <span class="text-strong">Not signed with DNSSEC.</span>
+        <span class="block text-base font-medium text-strong">Not signed with DNSSEC.</span>
       {{else if eq .DNSSEC "indeterminate"}}
-        <span class="text-warn">No verdict: this walk could not check it.</span>
+        <span class="block text-base font-medium text-warn">No verdict: this walk could not check it.</span>
       {{else}}
-        <span class="text-danger">The chain of trust is broken.</span>
+        <span class="block text-base font-medium text-danger">The chain of trust is broken.</span>
       {{end}}
-      <span class="text-faint">{{.Verdict.Text}}</span>
+      <span class="mt-1 block text-faint">{{.Verdict.Text}}</span>
     </p>
 
     {{if .Answer}}
-    <div class="mt-3 font-mono text-sm text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{$v}}{{end}}</div>
+    {{$addr := or (eq .Type "A") (eq .Type "AAAA")}}
+    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-faint/40 underline-offset-4 hover:text-brand hover:decoration-brand">{{$v}}</a>{{else}}{{$v}}{{end}}{{end}}</div>
     {{else if .CNAME}}
     <div class="mt-3 font-mono text-sm text-strong">alias → {{.CNAME}}</div>
     {{else if .AnswerRcode}}
@@ -128,12 +129,12 @@
     </div>
     {{end}}
 
-    <p class="mt-2 text-xs text-faint">
+    <p class="mt-3 text-xs text-faint tabular-nums">
       {{len .Hops}} hop{{if ne (len .Hops) 1}}s{{end}} from {{.RootServer}}
       {{/* "Queries", not "packets": one query that had to be repeated over TCP
            is one here and two on the wire. */}}
       · {{.Queries}} quer{{if eq .Queries 1}}y{{else}}ies{{end}}
-      · {{.QueryMS}} ms
+      · {{.QueryMS}}&nbsp;ms
       {{if .Truncated}}· the walk stopped at its own ceiling{{end}}
     </p>
   </div>
@@ -141,7 +142,11 @@
   {{/* The ladder. Full width on purpose: a hop is a wide row (zone, server,
        referral, timing) and squeezing it into a half column wraps every line.
        The rail is a left border with a dot per rung, so the descent reads as
-       one continuous walk rather than as a list of unrelated cards. */}}
+       one continuous walk rather than as a list of unrelated cards. The dots
+       are neutral: green on the rung that answered ended an unsigned or a
+       broken name's walk on a "success" colour, and the verdict above is the
+       only place this page grades anything. Red still marks a rung that
+       failed. */}}
   <div class="card sm:col-span-2">
     <div class="eyebrow">the walk</div>
     <p class="mb-4 text-xs text-faint">
@@ -151,11 +156,11 @@
       {{range .Hops}}
       <li class="relative border-l border-line pb-6 pl-6 last:border-transparent last:pb-0">
         <span class="absolute left-[-5px] top-1.5 inline-block h-2.5 w-2.5 rounded-full
-              {{if .Error}}bg-danger{{else if .Authoritative}}bg-ok{{else}}bg-brand{{end}}"></span>
+              {{if .Error}}bg-danger{{else if .Authoritative}}bg-strong{{else}}bg-faint{{end}}"></span>
 
         <div class="flex flex-wrap items-baseline gap-x-2">
           <span class="font-mono text-sm text-strong">{{if eq .Zone "."}}. (root){{else}}{{.Zone}}{{end}}</span>
-          {{if .Authoritative}}<span class="text-xs text-ok">authoritative answer</span>
+          {{if .Authoritative}}<span class="text-xs text-muted">authoritative answer</span>
           {{else if .Referral}}<span class="text-xs text-muted">referral</span>{{end}}
           {{if .Rcode}}<span class="font-mono text-xs text-faint">{{.Rcode}}</span>{{end}}
         </div>
@@ -175,7 +180,7 @@
         <div class="mt-1 text-xs text-muted">
           asked <span class="font-mono text-strong">{{.Server}}</span>
           {{if .ServerIP}}<span class="font-mono text-faint">({{.ServerIP}})</span>{{end}}
-          · {{.RTTMS}} ms
+          · <span class="tabular-nums">{{.RTTMS}}&nbsp;ms</span>
         </div>
         {{end}}
 
@@ -185,7 +190,7 @@
           to {{len .Nameservers}} nameserver{{if ne (len .Nameservers) 1}}s{{end}}{{if .Glue}}, with {{len .Glue}} glue address{{if ne (len .Glue) 1}}es{{end}}{{end}}
         </div>
         {{if .Nameservers}}
-        <div class="mt-1 font-mono text-xs break-all text-faint">{{range $i, $n := .Nameservers}}{{if $i}} · {{end}}{{$n}}{{end}}</div>
+        <div class="mt-1 font-mono text-xs text-faint">{{range $i, $n := .Nameservers}}{{if $i}} · {{end}}<span class="whitespace-nowrap">{{$n}}</span>{{end}}</div>
         {{end}}
         {{end}}
 
@@ -198,7 +203,7 @@
         </div>
         {{end}}
         {{if .SideLookups}}
-        <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}{{$s}}{{end}}</div>
+        <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}<span class="whitespace-nowrap">{{$s}}</span>{{end}}</div>
         {{end}}
 
         {{/* The records themselves are not repeated here. They are in the
@@ -245,13 +250,13 @@
                reads as "not checked" — which is the whole claim. */}}
           <span class="text-xs
                 {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if eq .Status "indeterminate"}}text-warn{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else}}{{.Status}}{{end}}</span>
-          <span class="text-xs text-faint">vouched for by {{.Parent}}</span>
+          <span class="text-xs text-faint">vouched for by {{if eq .Parent "."}}. (root){{else}}{{.Parent}}{{end}}</span>
         </div>
         <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>
         {{/* A link that could not be checked has to name who would not talk to
              us, or "indeterminate" reads as a shrug. */}}
         {{if .Unanswered}}
-        <p class="mt-1 font-mono text-xs text-faint">{{range $i, $s := .Unanswered}}{{if $i}} · {{end}}{{$s}}{{end}}</p>
+        <p class="mt-1 font-mono text-xs text-faint">{{range $i, $s := .Unanswered}}{{if $i}} · {{end}}<span class="whitespace-nowrap">{{$s}}</span>{{end}}</p>
         {{end}}
         {{if .DSKeyTags}}
         <p class="mt-1 font-mono text-xs text-faint">

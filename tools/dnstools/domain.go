@@ -70,15 +70,15 @@ type Status struct {
 
 // eppMeanings decodes the EPP status codes a registry reports. Static data.
 var eppMeanings = map[string]string{
-	"client transfer prohibited": "Locked by your registrar against transfers. Normal, and the usual anti-hijacking default.",
+	"client transfer prohibited": "Locked against transfers by the registrar: the usual anti-hijacking default. To move the domain, its owner asks the registrar to lift the lock and send the transfer (auth) code.",
 	"server transfer prohibited": "Locked by the registry against transfers.",
-	"client delete prohibited":   "Your registrar is blocking deletion.",
+	"client delete prohibited":   "The registrar is blocking deletion.",
 	"server delete prohibited":   "The registry is blocking deletion.",
-	"client update prohibited":   "Your registrar is blocking changes to the record.",
+	"client update prohibited":   "The registrar is blocking changes to the record.",
 	"server update prohibited":   "The registry is blocking changes to the record.",
-	"client renew prohibited":    "Your registrar is blocking renewal.",
+	"client renew prohibited":    "The registrar is blocking renewal.",
 	"server renew prohibited":    "The registry is blocking renewal.",
-	"client hold":                "Your registrar has pulled this domain from DNS. It will not resolve.",
+	"client hold":                "The registrar has pulled this domain from DNS. It will not resolve.",
 	"server hold":                "The registry has pulled this domain from DNS. It will not resolve.",
 	"pending create":             "The registration is still being processed.",
 	"pending renew":              "A renewal is in progress.",
@@ -337,6 +337,10 @@ type ctRow struct {
 
 // CertNames pulls every name Certificate Transparency has seen under a domain
 // and rolls the per-certificate rows up per name.
+// certsOn reports whether the Certificate Transparency half is configured, so
+// the page can promise a subdomains card before it asks for one.
+func (d *DomainClient) certsOn() bool { return d != nil && d.ctURL != "" }
+
 func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames, error) {
 	if d == nil || d.ctURL == "" {
 		return nil, ErrDisabled

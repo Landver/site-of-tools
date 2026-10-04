@@ -603,6 +603,24 @@ func repCheckIP(ctx context.Context, ip string, bl BlockChecker) MXRepAddr {
 	return a
 }
 
+// Show reports whether the card has anything to say: a mail server to report
+// on, or a problem with the check. A domain with no MX used to get a whole
+// card saying "nothing checked" under a note saying it has no mail servers.
+func (m *MXReputation) Show() bool {
+	if m == nil {
+		return false
+	}
+	if len(m.Hosts) > 0 {
+		return true
+	}
+	for _, n := range m.Notes {
+		if n.Level == "warn" || n.Level == "fail" {
+			return true
+		}
+	}
+	return false
+}
+
 // note appends a finding. Same severity vocabulary as email.go's judge(), so
 // the shared dns/notes template renders both.
 func (m *MXReputation) note(level, text string) {

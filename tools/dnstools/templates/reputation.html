@@ -9,10 +9,13 @@
      cards in email.html on purpose — this is another finding about the same
      domain, not a different kind of thing. */}}
 {{define "dns/mxrep"}}
-{{with .MXRep}}
+{{with .MXRep}}{{if .Show}}
 <div class="card sm:col-span-2">
-  <div class="flex items-baseline justify-between gap-4">
-    <div class="eyebrow">mail server reputation</div>
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    {{/* Inbound, said in the title: these are the servers that RECEIVE this
+         domain's mail. "Why does my mail go to spam" is about the addresses
+         it is sent from, which can be different machines entirely. */}}
+    <div class="eyebrow">inbound mail servers (mx) on blocklists</div>
     {{/* The headline number, and only ever over the denominator that was
          actually read. "3 clean" is a claim about three addresses, which is
          what Checked counts — distinct addresses, so one IP shared by two MX
@@ -45,12 +48,13 @@
   <p class="mb-3 text-xs text-faint">
     {{.Corpus}}
     {{if not .CorpusSynced.IsZero}} Corpus last updated {{.CorpusSynced.Format "2006-01-02 15:04 UTC"}}.{{end}}
+    These servers receive this domain's mail; the ones that send it may be other machines.
   </p>
 
   {{if .Hosts}}
   <dl class="spec grid-cols-[1fr_auto]">
     {{range .Hosts}}
-    <dt class="font-mono text-xs break-all {{if .Error}}text-faint{{else}}text-muted{{end}}">
+    <dt class="font-mono text-xs wrap-anywhere {{if .Error}}text-faint{{else}}text-muted{{end}}">
       {{.Host}}
       <span class="block text-faint">preference {{.Preference}}</span>
     </dt>
@@ -61,7 +65,7 @@
            and neither is a listing. */}}
       {{if .Error}}<span class="text-xs text-warn">{{.Error}}</span>{{end}}
       {{range .Addrs}}
-      <span class="block font-mono text-xs break-all text-strong">{{.IP}}</span>
+      <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-faint/40 underline-offset-4 hover:text-brand hover:decoration-brand">{{.IP}}</a>
       {{if .Error}}
         {{/* Not clean, and not listed either: the corpus was unreadable for
              this address. Anything that looked like a verdict here would be
@@ -89,5 +93,5 @@
   </div>
   {{end}}
 </div>
-{{end}}
+{{end}}{{end}}
 {{end}}

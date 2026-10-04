@@ -29,7 +29,7 @@ const lookupDesc = "Look up DNS records for any domain: A, AAAA, CNAME, MX, NS, 
 
 // Mailer: handler dependency for the email-auth page.
 type Mailer interface {
-	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
+	EmailAuth(ctx context.Context, domain string, selectors ...string) (*EmailAuth, error)
 }
 
 // Spreader: handler dependency for the consistency check. Separate from Looker
@@ -232,7 +232,10 @@ func (h *handler) email(c *echo.Context) error {
 		return unavailable(c, vm, "dns/email", "dns/emailauth")
 	}
 
-	res, err := h.mail.EmailAuth(c.Request().Context(), name)
+	// A DKIM selector the visitor knows, probed on top of the common guesses.
+	selector := strings.ToLower(strings.TrimSpace(c.QueryParam("selector")))
+	vm["Selector"] = selector
+	res, err := h.mail.EmailAuth(c.Request().Context(), name, selector)
 	if err == nil {
 		vm["Email"] = res
 		vm["OK"], vm["Warn"], vm["Fail"] = res.Score()
@@ -302,9 +305,31 @@ func (h *handler) domain(c *echo.Context) error {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
 	}
 
-	// Two independent upstreams, fetched concurrently: neither should wait on
-	// the other, and either failing must not cost the other's result.
 	ctx := c.Request().Context()
+	// The registry is asked about the registrable domain, which is the only
+	// name it holds a record for: www.github.com used to come back "the
+	// registry has no record", true and useless. Certificate Transparency is
+	// still asked about the name as typed.
+	regName := RegistrableDomain(name)
+	if regName != name {
+		vm["RegFor"] = regName
+	}
+
+	// crt.sh is the slow half, and often the failing one: on the HTML page
+	// the registration renders as soon as RDAP answers, and the subdomains
+	// card fetches itself (?part=certs). JSON callers, and a browser without
+	// JavaScript following that card's fallback link, get both in one answer.
+	part := c.QueryParam("part")
+	if part == "certs" && platform.IsHTMX(c) {
+		ct, ctErr := h.dom.CertNames(ctx, name)
+		h.certsVM(vm, ct, ctErr)
+		return reply(c, http.StatusOK, nil, vm, "dns/domain", "dns/certs")
+	}
+	lazy := !platform.WantsJSON(c) && part != "certs"
+
+	// Otherwise two independent upstreams, fetched concurrently: neither
+	// should wait on the other, and either failing must not cost the other's
+	// result.
 	var (
 		wg     sync.WaitGroup
 		reg    *Registration
@@ -312,17 +337,26 @@ func (h *handler) domain(c *echo.Context) error {
 		ct     *CertNames
 		ctErr  error
 	)
-	wg.Add(2)
+	wg.Add(1)
 	go safe(func() {
 		defer wg.Done()
 		regErr = errPanic
-		reg, regErr = h.dom.Registration(ctx, name)
+		reg, regErr = h.dom.Registration(ctx, regName)
 	})
-	go safe(func() {
-		defer wg.Done()
-		ctErr = errPanic
-		ct, ctErr = h.dom.CertNames(ctx, name)
-	})
+	if lazy {
+		ctErr = ErrDisabled
+		if h.dom.certsOn() {
+			ctErr = nil
+			vm["CertsLazy"] = true
+		}
+	} else {
+		wg.Add(1)
+		go safe(func() {
+			defer wg.Done()
+			ctErr = errPanic
+			ct, ctErr = h.dom.CertNames(ctx, name)
+		})
+	}
 	wg.Wait()
 
 	// A nil client answers ErrDisabled from both halves, and so does one whose
@@ -341,6 +375,9 @@ func (h *handler) domain(c *echo.Context) error {
 	}
 
 	out := map[string]any{"name": name}
+	if regName != name {
+		out["registrable_domain"] = regName
+	}
 	if regErr == nil {
 		out["registration"] = reg
 		vm["Registration"] = reg
@@ -351,16 +388,36 @@ func (h *handler) domain(c *echo.Context) error {
 		vm["RegError"] = regErr.Error()
 		// Distinguish "the registry answered, and holds nothing for this name"
 		// from "the lookup failed". Only the latter deserves the disclaimer.
-		vm["RegAbsent"] = errors.Is(regErr, errNoRDAPRecord)
+		absent := errors.Is(regErr, errNoRDAPRecord)
+		vm["RegAbsent"] = absent
+		// And "holds nothing" from "unregistered": a name with nameservers
+		// delegated to it is registered, whatever its TLD's RDAP says, and
+		// .de is the large TLD with no RDAP service at all.
+		if absent {
+			if set, err := h.svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
+				vm["RegHasNS"] = true
+				out["delegated"] = true
+			}
+		}
 	}
-	if ctErr == nil {
-		out["certificate_names"] = ct
-		vm["Certs"] = ct
-	} else {
-		out["certificate_names_error"] = ctErr.Error()
-		vm["CertError"] = ctErr.Error()
+	if !lazy {
+		if ctErr == nil {
+			out["certificate_names"] = ct
+		} else {
+			out["certificate_names_error"] = ctErr.Error()
+		}
+		h.certsVM(vm, ct, ctErr)
 	}
 	return reply(c, code, out, vm, "dns/domain", "dns/domaininfo")
+}
+
+// certsVM puts the Certificate Transparency half on the page.
+func (h *handler) certsVM(vm map[string]any, ct *CertNames, err error) {
+	if err == nil {
+		vm["Certs"] = ct
+		return
+	}
+	vm["CertError"] = err.Error()
 }
 
 // consistency serves the "is my change live yet" check: the zone's own

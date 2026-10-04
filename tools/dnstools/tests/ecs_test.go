@@ -249,11 +249,12 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	for _, want := range []string{
 		// One card in one of the consistency page's two stacking columns, at
 		// the same width as the public resolvers card it deliberately mirrors.
-		// This assertion has now outlived two layouts (a CSS multi-column flow
-		// wanted "mb-4 break-inside-avoid", a full-width row wanted
-		// "sm:col-span-2"), so it pins the width the card claims and nothing
-		// about the page around it.
-		`class="card"`,
+		// This assertion has now outlived three layouts (a CSS multi-column
+		// flow wanted "mb-4 break-inside-avoid", a full-width row wanted
+		// "sm:col-span-2", the phone ordering added "order-7"), so it pins
+		// the width the card claims and nothing about the page around it:
+		// a card, and never a full-width one (checked below).
+		`class="card `,
 		"answers by client network",
 		"This answer depends on the network that asks",
 		// A scope the zone chose has to read differently from one that merely
@@ -268,6 +269,9 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered card is missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "col-span-2") {
+		t.Errorf("the card claims the full width; it belongs in one column:\n%s", out)
 	}
 }
 
