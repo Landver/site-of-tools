@@ -36,9 +36,13 @@
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
   --color-faint:   #68686f; /* labels, footer, hints    */
+  /* Warn is split like brand: amber fill, warn-ink for text (7:1 on a warn tint). */
   --color-danger:  #b91c1c; /* proxy / threat / error   */
   --color-ok:      #047857; /* not-a-proxy / looks human */
   --color-warn:    #b45309; /* suspicious (bot-check band) */
+  --color-warn-ink: #92400e;
+  /* Notable but not bad: a parameter that only moved, a wrapper read through. */
+  --color-info:    #1d4ed8;
 }
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
@@ -46,6 +50,7 @@
 /* Native controls (checkboxes, popups, scrollbars) follow the theme. */
 :root {
   color-scheme: light;
+  accent-color: var(--color-brand);
 }
 
 :root[data-theme="dark"] {
@@ -62,6 +67,8 @@
   --color-danger:  #f87171;
   --color-ok:      #34d399;
   --color-warn:    #fbbf24;
+  --color-warn-ink: #fbbf24;
+  --color-info:    #60a5fa;
 }
 
 @layer base {
@@ -99,19 +106,28 @@
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by lookup and CIDR forms. */
+  /* Text input + primary button, shared by lookup and CIDR forms. 16px on a
+     phone: iOS zooms into any smaller input. */
   .field {
-    @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger;
+    @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-base text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger sm:text-sm;
+  }
+  /* A native <select> ignores line-height; pinned to the input's height. */
+  select.field {
+    @apply min-h-[2.625rem] sm:min-h-[2.375rem];
   }
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white enabled:hover:opacity-90 disabled:cursor-wait disabled:opacity-60;
+  }
+  /* The quieter second action beside a .btn-primary. */
+  .btn-secondary {
+    @apply rounded-md border border-line-strong bg-canvas px-4 py-2 text-sm font-medium text-strong hover:border-brand;
   }
   /* Small secondary control that sits beside the thing it acts on. Driven by
      partials/copy, which toggles is-copied / is-failed and nothing else: names
      Tailwind does not own, so the confirmation never depends on the scanner
      having found a utility name inside a JS string. */
   .btn-copy {
-    @apply shrink-0 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-brand;
+    @apply shrink-0 rounded-md border border-line-strong bg-canvas px-3 py-1.5 text-xs font-medium text-strong hover:border-brand;
   }
   .btn-copy.is-copied {
     @apply border-ok text-ok;
@@ -144,12 +160,17 @@
   /* Page scaffolding shared by every page: centred column, capped width,
      vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */
   .page-main {
-    @apply mx-auto w-full max-w-4xl px-6 py-12 flex-1;
+    @apply mx-auto w-full max-w-4xl px-4 py-8 flex-1 sm:px-6 sm:py-12;
   }
 
   /* Underlined brand link (apex contact rows, history IP links). */
   .link-brand {
-    @apply border-b border-brand text-strong hover:text-brand;
+    @apply border-b border-brand text-strong hover:text-brand-ink;
+  }
+  /* A link inside a sentence: underlined, since colour alone does not set it
+     apart from the words around it (WCAG 1.4.1). */
+  .link-inline {
+    @apply text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink;
   }
 
   /* Rendered blog markdown body — bare tags straight from goldmark, so all
@@ -167,7 +188,7 @@
     @apply mt-8 text-xl font-semibold text-strong;
   }
   .post-body a {
-    @apply border-b border-brand text-strong hover:text-brand;
+    @apply border-b border-brand text-strong hover:text-brand-ink;
   }
   .post-body ul {
     @apply list-disc pl-6;

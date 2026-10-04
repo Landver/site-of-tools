@@ -285,3 +285,61 @@ func TestTransportStaysClosed(t *testing.T) {
 		t.Errorf("MaxResponseHeaderBytes = %d; Go's default is 10 MB and must be lowered", transport.MaxResponseHeaderBytes)
 	}
 }
+
+// TestTraceSaysWhenTheChainEndsAtAnError: a 404 is still Final, with its status
+// and a finding that it is an error page.
+func TestTraceSaysWhenTheChainEndsAtAnError(t *testing.T) {
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer gone.Close()
+
+	ch := trace(t, testTracer(t), gone.URL)
+	if ch.Final != gone.URL || ch.FinalStatus != http.StatusNotFound || ch.FinalReason != "Not Found" {
+		t.Errorf("final = %q %d %q, want %q 404 Not Found", ch.Final, ch.FinalStatus, ch.FinalReason, gone.URL)
+	}
+	if len(ch.Notes) != 1 || ch.Notes[0].Title != "Ends at an error page" {
+		t.Errorf("notes = %+v, want one \"Ends at an error page\"", ch.Notes)
+	}
+}
+
+// TestTraceLiftsTheReasonIntoFindings: a chain that stops short has the reason
+// in its own findings, where the page points.
+func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer first.Close()
+
+	ch := trace(t, testTracer(t), first.URL)
+	if ch.Final != "" {
+		t.Fatalf("final = %q, want none", ch.Final)
+	}
+	found := false
+	for _, n := range ch.Notes {
+		found = found || n.Title == "Refused before connecting"
+	}
+	if !found {
+		t.Errorf("chain notes %+v lack the last hop's refusal", ch.Notes)
+	}
+}
+
+// TestHopUnlistedSkipsWhatFindingsSay: the page prints the reason once; the
+// JSON keeps both.
+func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer first.Close()
+
+	ch := trace(t, testTracer(t), first.URL)
+	last := ch.Hops[len(ch.Hops)-1]
+	if len(last.Notes) == 0 {
+		t.Fatal("the refused hop has no notes; the JSON must keep them")
+	}
+	for _, n := range last.Unlisted(ch.Notes) {
+		if n.Title == "Refused before connecting" {
+			t.Errorf("Unlisted still carries %q, which Findings already shows", n.Title)
+		}
+	}
+}

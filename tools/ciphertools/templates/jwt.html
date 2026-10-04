@@ -191,13 +191,13 @@
   {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
   {{if .SigBytes}}<span>Signature <span class="text-strong">{{.SigBytes}} bytes</span></span>{{end}}
   {{with .Validity}}
-  <span class="{{if eq .State "valid"}}text-ok{{else if eq .State "no-expiry"}}text-warn{{else}}text-danger{{end}}">{{.Detail}}</span>
+  <span class="{{if eq .State "valid"}}text-ok{{else if eq .State "no-expiry"}}text-warn-ink{{else}}text-danger{{end}}">{{.Detail}}</span>
   {{end}}
 </div>
 
 {{template "cipher/warnings" .Warnings}}
 
-<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
+<pre class="mt-6 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-4 font-mono text-xs">{{range $i, $p := .Parts}}{{if $i}}<span class="text-faint">.</span>{{end}}<span title="{{$p.Label}}" class="{{if eq $p.Label "header"}}text-brand-ink{{else if eq $p.Label "payload"}}text-strong{{else}}text-muted{{end}}">{{$p.Value}}</span>{{end}}</pre>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-2">
   <section class="min-w-0">
@@ -233,7 +233,7 @@
           <td class="py-2 pr-4 font-mono text-strong">{{.Name}}</td>
           <td class="py-2 pr-4"><span class="break-all font-mono text-strong">{{.Value}}</span>
             {{if .When}}<span class="block text-xs text-muted">{{.When}}</span>{{end}}
-            {{if .Note}}<span class="block text-xs text-warn">{{.Note}}</span>{{end}}</td>
+            {{if .Note}}<span class="block text-xs text-warn-ink">{{.Note}}</span>{{end}}</td>
           <td class="py-2 text-xs text-muted">{{.Meaning}}</td>
         </tr>
         {{end}}

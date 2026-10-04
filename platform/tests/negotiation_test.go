@@ -55,3 +55,52 @@ func TestNegotiation(t *testing.T) {
 		})
 	}
 }
+
+// TestNegotiationHeaders: Vary, no-store on fragments, and no history entry for
+// an htmx error.
+func TestNegotiationHeaders(t *testing.T) {
+	e := echo.New()
+	e.GET("/h", func(c *echo.Context) error {
+		code := http.StatusOK
+		if c.QueryParam("fail") != "" {
+			code = http.StatusBadRequest
+		}
+		platform.SetNegotiationHeaders(c, code)
+		return c.String(code, "x")
+	})
+	get := func(target string, hdr map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		return rec
+	}
+	browser := map[string]string{"Accept": "text/html"}
+	htmx := map[string]string{"Accept": "text/html", "HX-Request": "true"}
+
+	page := get("/h", browser)
+	vary := page.Header().Values("Vary")
+	for _, want := range []string{"Accept", "HX-Request"} {
+		found := false
+		for _, v := range vary {
+			found = found || v == want
+		}
+		if !found {
+			t.Errorf("Vary = %q, missing %s", vary, want)
+		}
+	}
+	if got := page.Header().Get("Cache-Control"); got != "" {
+		t.Errorf("a page got Cache-Control %q; only fragments are kept out of the cache", got)
+	}
+	if got := get("/h", htmx).Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("fragment Cache-Control = %q, want no-store", got)
+	}
+	if got := get("/h?fail=1", htmx).Header().Get("HX-Push-Url"); got != "false" {
+		t.Errorf("htmx error HX-Push-Url = %q, want false", got)
+	}
+	if got := get("/h", htmx).Header().Get("HX-Push-Url"); got != "" {
+		t.Errorf("a successful fragment carries HX-Push-Url %q; only errors opt out of history", got)
+	}
+}

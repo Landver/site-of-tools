@@ -36,19 +36,19 @@
       {{if .ScopeDistinct}}
         <span class="text-ok">This answer depends on the network that asks.</span>
       {{else}}
-        <span class="text-warn">These networks were given different answers.</span>
+        <span class="text-warn-ink">These networks were given different answers.</span>
       {{end}}
     {{else if eq .Verdict "answers-match"}}
       <span class="text-ok">Every network was given the same answer.</span>
     {{else if eq .Verdict "untailored"}}
-      {{if .Rotation}}<span class="text-warn">Different answers, and no client-subnet tailoring behind them.</span>
+      {{if .Rotation}}<span class="text-warn-ink">Different answers, and no client-subnet tailoring behind them.</span>
       {{else}}<span class="text-ok">No client-subnet tailoring on this path.</span>{{end}}
     {{else if eq .Verdict "no-records"}}
-      <span class="text-warn">No {{.Type}} record for any of the {{.Asked}} networks.</span>
+      <span class="text-warn-ink">No {{.Type}} record for any of the {{.Asked}} networks.</span>
     {{else if eq .Verdict "unsupported"}}
-      <span class="text-warn">Could not tell.</span>
+      <span class="text-warn-ink">Could not tell.</span>
     {{else}}
-      <span class="text-warn">Not enough answers to judge.</span>
+      <span class="text-warn-ink">Not enough answers to judge.</span>
     {{end}}
   </p>
 
@@ -147,7 +147,7 @@
           {{/* A well-formed scope about a network we never probed. Printing it
                as if it described this row is how someone else's cached answer
                ends up carrying our verdict, so the prefix is named. */}}
-          <span class="block text-warn">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
+          <span class="block text-warn-ink">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
         {{else if .Echoed}}
           {{if not .Scope}}<span class="block text-faint">scope 0, not tailored</span>
           {{else if eq .Scope .SourceNetmask}}<span class="block text-faint">scope /{{.Scope}}, the length we sent</span>

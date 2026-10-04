@@ -83,6 +83,7 @@ type Param struct {
 	Tracking  string   `json:"tracking,omitempty"`  // rule name, when Clean would strip this
 	AltValue  string   `json:"alt_value,omitempty"` // the other reading of an ambiguous "+"
 	Warn      string   `json:"warn,omitempty"`      // bad escape, ambiguous "+", non-UTF8
+	Nested    string   `json:"nested,omitempty"`    // the http(s) URL inside, once decoded
 }
 
 // Inspection is one parsed URL. Field order mirrors the URL's own left-to-right
@@ -110,6 +111,7 @@ type Inspection struct {
 	Fragment    string    `json:"fragment,omitempty"`
 	FragParams  []Param   `json:"fragment_params,omitempty"` // OAuth implicit flow lives here
 	Unwrapped   string    `json:"unwrapped,omitempty"`       // A16: real target behind a wrapper
+	Absolute    string    `json:"absolute,omitempty"`        // no scheme: the same input with https:// in front
 	Wrapper     string    `json:"wrapper,omitempty"`         // which wrapper was recognised
 	Linkable    bool      `json:"linkable"`                  // scheme passed the allowlist
 	Notes       []Note    `json:"notes,omitempty"`

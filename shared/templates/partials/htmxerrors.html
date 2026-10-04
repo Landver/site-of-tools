@@ -30,7 +30,7 @@
     // Transient: kept out of history (partials/htmx-history).
     target.querySelectorAll(':scope > [data-transient]').forEach((el) => el.remove())
     const box = document.createElement('div')
-    box.className = 'alert-error sm:col-span-2'
+    box.className = 'alert-error w-full sm:col-span-2'
     box.setAttribute('role', 'alert')
     box.dataset.transient = ''
     box.textContent = "Couldn't reach the server. Check your connection and try again."

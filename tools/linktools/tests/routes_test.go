@@ -313,6 +313,18 @@ func TestRulesCatalogIsCacheableAndComplete(t *testing.T) {
 	if again.Code != http.StatusNotModified {
 		t.Errorf("conditional GET = %d, want 304 (ETag %s)", again.Code, etag)
 	}
+
+	// The page is NOT validated by the catalog version: a deploy can change the
+	// page and leave the rules alone.
+	page := request(t, e, http.MethodGet, "/clean/rules", map[string]string{
+		"Accept": "text/html", "If-None-Match": etag,
+	})
+	if page.Code != http.StatusOK {
+		t.Errorf("conditional GET of the HTML = %d, want 200: the catalog's ETag must not stand for the page", page.Code)
+	}
+	if got := page.Header().Get("ETag"); got != "" {
+		t.Errorf("the HTML carries the catalog's ETag %s", got)
+	}
 }
 
 // TestBadInputIsAFourHundredNotACrash across every route that parses something.
@@ -393,12 +405,12 @@ func TestSitemapListsOnlyIndexablePages(t *testing.T) {
 		t.Fatalf("/sitemap.xml = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, forbidden := range []string{"/s/", "/extension/privacy"} {
+	for _, forbidden := range []string{"/s/", "/short", "/extension/privacy"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the sitemap advertises %q", forbidden)
 		}
 	}
-	for _, want := range []string{"/clean", "/diff", "/encoding"} {
+	for _, want := range []string{"/clean", "/trace", "/diff", "/extract", "/utm", "/curl", "/encode", "/encoding"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the sitemap omits %q", want)
 		}

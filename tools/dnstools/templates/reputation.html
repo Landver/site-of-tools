@@ -29,12 +29,12 @@
            feeds, and the shorter phrase is a claim about every blocklist in
            the world. Same words as the per-address rows below. */}}
       {{else if and .Checked .CorpusUsable}}<span class="text-ok">{{.Checked}} checked, none in this corpus</span>
-      {{else if .Checked}}<span class="text-warn">{{.Checked}} read, corpus not usable</span>
+      {{else if .Checked}}<span class="text-warn-ink">{{.Checked}} read, corpus not usable</span>
       {{else}}<span class="text-muted">nothing checked</span>{{end}}
       {{/* An address the corpus couldn't be read for is neither listed nor
            clean, so it gets counted next to the verdict rather than inside
            it. */}}
-      {{if .Unread}}<span class="text-faint"> · </span><span class="text-warn">{{.Unread}} unread</span>{{end}}
+      {{if .Unread}}<span class="text-faint"> · </span><span class="text-warn-ink">{{.Unread}} unread</span>{{end}}
     </div>
   </div>
 
@@ -62,14 +62,14 @@
            machine's reputation, so it is warn rather than danger: "does not
            exist" and "the lookup failed" are both reasons we know nothing,
            and neither is a listing. */}}
-      {{if .Error}}<span class="text-xs text-warn">{{.Error}}</span>{{end}}
+      {{if .Error}}<span class="text-xs text-warn-ink">{{.Error}}</span>{{end}}
       {{range .Addrs}}
-      <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.IP}}<span class="sr-only"> in IP Tools</span></a>
+      <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.IP}}<span class="sr-only"> in IP Tools</span></a>
       {{if .Error}}
         {{/* Not clean, and not listed either: the corpus was unreadable for
              this address. Anything that looked like a verdict here would be
              the tool inventing one. */}}
-        <span class="block text-xs text-warn">{{.Error}}</span>
+        <span class="block text-xs text-warn-ink">{{.Error}}</span>
       {{else if .Listed}}
         <span class="block text-xs text-danger">listed by {{.Sources}}{{if .Count}} · confidence {{.Count}}{{end}}</span>
       {{else}}

@@ -7,10 +7,11 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
   <main class="page-main">
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">Percent-encoding, and where it differs by position</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       The same character does not mean the same thing in a path, a query and a fragment.
       That is the source of most URL bugs, and it is why this tool decodes each position with different rules.
@@ -18,7 +19,7 @@
 
     <section class="mt-8">
       <h2 class="text-lg font-semibold text-strong">The one that catches everyone: <code class="font-mono">+</code></h2>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="How + decodes, by position">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr><th class="px-3 py-2 font-medium">Position</th><th class="px-3 py-2 font-medium">Input</th><th class="px-3 py-2 font-medium">Decodes to</th></tr>
@@ -37,16 +38,15 @@
       </p>
       <p class="mt-2 text-sm text-muted">
         This matters beyond cosmetics: <code class="font-mono">+</code> is a real character in the standard base64
-        alphabet. A parser that form-decodes a base64 value destroys it. Two well-built hosted parsers
-        return opposite answers for <code class="font-mono">?q=a+b</code> and neither says the value is ambiguous,
-        which is why this tool shows both readings instead of choosing.
+        alphabet, and a parser that form-decodes a base64 value destroys it. So when a value could be either,
+        Inspect shows both readings instead of choosing.
       </p>
     </section>
 
     <section class="mt-8">
       <h2 class="text-lg font-semibold text-strong">Reserved characters (RFC 3986 §2.2)</h2>
       <p class="mt-1 text-sm text-muted">These delimit parts of a URL. Encode them when they are data rather than structure.</p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Reserved characters">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -63,7 +63,7 @@
             <tr><td class="px-3 py-2 font-mono">@</td><td class="px-3 py-2 font-mono">%40</td><td class="px-3 py-2 text-muted">Ends userinfo. Everything before it is a username, not the host</td></tr>
             <tr><td class="px-3 py-2 font-mono">&amp;</td><td class="px-3 py-2 font-mono">%26</td><td class="px-3 py-2 text-muted">Separates query pairs</td></tr>
             <tr><td class="px-3 py-2 font-mono">=</td><td class="px-3 py-2 font-mono">%3D</td><td class="px-3 py-2 text-muted">Separates a key from its value</td></tr>
-            <tr><td class="px-3 py-2 font-mono">;</td><td class="px-3 py-2 font-mono">%3B</td><td class="px-3 py-2 text-muted">A legacy pair separator. Go and most modern servers stopped accepting it in 2021</td></tr>
+            <tr><td class="px-3 py-2 font-mono">;</td><td class="px-3 py-2 font-mono">%3B</td><td class="px-3 py-2 text-muted">A legacy pair separator. Most modern servers no longer accept it</td></tr>
           </tbody>
         </table>
       </div>
@@ -84,8 +84,7 @@
       <p class="mt-2 text-sm text-muted">
         <code class="font-mono">%2520</code> is <code class="font-mono">%20</code> encoded again, which is a space
         encoded twice. It usually means a URL passed through one system that encoded it and then another that
-        encoded it again. The Inspect page peels these one layer at a time and shows each rung, rather than
-        flattening them silently.
+        encoded it again. Inspect peels these one layer at a time and shows each one.
       </p>
       <p class="mt-2 text-sm text-muted">
         The opposite mistake is just as common: decoding a wrapper parameter twice. A link wrapped by a mail
@@ -98,14 +97,13 @@
       <h2 class="text-lg font-semibold text-strong">Malformed escapes</h2>
       <p class="mt-2 text-sm text-muted">
         <code class="font-mono">%zz</code> is not valid, and neither is a trailing <code class="font-mono">%2</code>.
-        Go's <code class="font-mono">url.QueryUnescape</code> returns the <em>empty string</em> plus an error for
-        these, so a decoder that ignores the error silently turns
-        <code class="font-mono">?bad=%zz</code> into <code class="font-mono">?bad=</code> &mdash; which looks like a
-        real, empty value. This tool keeps the raw text and says the escape is broken.
+        Many decoders return an empty string for these, silently turning
+        <code class="font-mono">?bad=%zz</code> into <code class="font-mono">?bad=</code>, which looks like a real,
+        empty value. This tool keeps the raw text and says the escape is broken.
       </p>
     </section>
 
-    <p class="mt-8 text-sm"><a href="/" class="text-brand hover:underline">Inspect a URL</a></p>
+    <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-sm"><a href="/" class="text-brand-ink hover:underline">Inspect a URL</a><a href="/encode" class="text-brand-ink hover:underline">Encode or decode a value</a></p>
   </main>
   {{template "partials/htmx-errors" .}}
   {{template "partials/footer" .}}

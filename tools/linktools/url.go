@@ -1,9 +1,12 @@
 package linktools
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -37,6 +40,54 @@ var linkableSchemes = map[string]bool{"http": true, "https": true}
 // defaultPorts: ports that add nothing when written out.
 var defaultPorts = map[string]string{"http": "80", "https": "443", "ftp": "21", "ws": "80", "wss": "443"}
 
+// parseReason drops url.Error's `parse "<input>": ` prefix: the input is
+// already in the box above the message.
+func parseReason(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	if msg := err.Error(); strings.HasPrefix(msg, "net/url: ") {
+		return errors.New(strings.TrimPrefix(msg, "net/url: "))
+	}
+	return err
+}
+
+// WrongTool's answers.
+const (
+	ToolCurl    = "curl"
+	ToolExtract = "extract"
+)
+
+// WrongTool names the page an input belongs on when it is plainly not one URL
+// (a curl command, or text with links), else "". It must never refuse a URL:
+// markup needs a quoted href (share and tracking links use ?href=), and text
+// needs words before the first link or a second link after whitespace.
+func WrongTool(raw string) string {
+	t := strings.TrimSpace(raw)
+	low := strings.ToLower(t)
+	switch {
+	case strings.HasPrefix(low, "curl ") || strings.HasPrefix(low, "curl\t") || strings.HasPrefix(low, "curl\n"):
+		return ToolCurl
+	case strings.Contains(low, "<a ") || strings.Contains(low, `href="`) || strings.Contains(low, "href='") || strings.Contains(t, "](http"):
+		return ToolExtract
+	}
+	first := strings.Index(t, "://")
+	switch {
+	case first < 0:
+		return ""
+	case strings.ContainsAny(t[:first], " \t\r\n"):
+		return ToolExtract // words before the first link: "see https://…"
+	case laterLink.MatchString(t[first+3:]):
+		return ToolExtract // a list of links
+	}
+	return ""
+}
+
+// laterLink is a scheme:// after whitespace: a second link, where one inside a
+// query follows "=". templates/live.html carries the same expression.
+var laterLink = regexp.MustCompile(`[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*://`)
+
 // Parse takes a URL apart. It never fetches anything.
 //
 // Deliberately does NOT use url.ParseQuery for the parameter list: that returns
@@ -50,28 +101,43 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 		return nil, fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("not a URL: %w", err)
+		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 
 	in := &Inspection{Input: raw, Scheme: u.Scheme, Opaque: u.Opaque}
-	in.Linkable = linkableSchemes[strings.ToLower(u.Scheme)]
+	// A browser rewrites a bad escape ("%zz" to "%25zz") before following it,
+	// so the link would go somewhere other than the URL on screen.
+	in.Linkable = linkableSchemes[strings.ToLower(u.Scheme)] && !hasBadEscape(raw)
 
 	if u.Scheme == "" {
 		in.Notes = append(in.Notes, Note{SevWarn, "No scheme",
-			"This is a relative reference, not an absolute URL. A browser would resolve it against whatever page it appeared on."})
+			"Read as a relative path, so the first part is a folder name, not a host. Add https:// to the front to inspect it as a web address."})
+		if alt, err := url.Parse("https://" + raw); err == nil && strings.Contains(alt.Hostname(), ".") {
+			in.Absolute = "https://" + raw
+		}
 	}
 	if !in.Linkable && u.Scheme != "" {
 		sev, detail := SevInfo, "Shown as text, never as a link."
-		if isDangerousScheme(u.Scheme) {
+		switch {
+		case strings.EqualFold(u.Scheme, "file"):
+			sev = SevWarn
+			detail = "A file: URL opens a file on the visitor's own computer. It is shown as text and is never rendered as a clickable link."
+		case isDangerousScheme(u.Scheme):
 			sev = SevFail
 			detail = "This scheme executes rather than navigates. It is shown as text and is never rendered as a clickable link."
 		}
 		in.Notes = append(in.Notes, Note{sev, "Scheme is " + u.Scheme + ", not http(s)", detail})
+	}
+
+	// WrongTool lets a lone URL with spaces through; this says what is wrong.
+	if strings.ContainsAny(raw, " \t") {
+		in.Notes = append(in.Notes, Note{SevWarn, "Unencoded spaces",
+			"A URL cannot contain a raw space. A browser sends each one as %20, but in an email or a chat message the link usually stops at the first space. Replace them with %20 before sharing it."})
 	}
 
 	s.describeHost(in, u)
@@ -79,10 +145,15 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 
 	// Query. Hand-split so order, repeats and broken escapes all survive.
 	in.Params = parsePairs(u.RawQuery, true)
+	// A warning, not a failure: presigned URLs and magic links carry one on purpose.
+	if keys := secretishNames(in.Params); len(keys) > 0 {
+		in.Notes = append(in.Notes, Note{SevWarn, "Credentials in the query string",
+			strings.Join(keys, ", ") + " looks like a token or a session. A query string reaches the server and its logs, stays in browser history, and can leak to other sites in the Referer header: share this URL as you would a password."})
+	}
 	if strings.Contains(u.RawQuery, ";") && !strings.Contains(u.RawQuery, "&") &&
 		strings.Count(u.RawQuery, ";") >= 1 && len(in.Params) == 1 {
 		in.Notes = append(in.Notes, Note{SevWarn, "Semicolon separators",
-			"This query separates pairs with ';', which Go and most modern servers stopped accepting in 2021 (Go 1.17). It is shown as a single parameter because that is how a server would now read it."})
+			"This query separates pairs with ';', which most modern servers no longer accept. It is shown as a single parameter because that is how a server would now read it."})
 	}
 
 	// Fragment. Both hosted parsers surveyed discard everything after '#'
@@ -93,10 +164,14 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 		if strings.Contains(frag, "=") {
 			in.FragParams = parsePairs(frag, true)
 			if containsSecretish(in.FragParams) {
-				in.Notes = append(in.Notes, Note{SevFail, "Credentials in the fragment",
-					"This fragment carries what looks like a token. Fragments are not sent to servers, but they do land in browser history and in anything that logs a full URL."})
+				in.Notes = append(in.Notes, Note{SevFail, "A token in the fragment",
+					"Browsers never send the fragment to a server, but they keep it in history, and anything that logs a full URL keeps it too."})
 			}
 		}
+	}
+
+	if target, name, partial, ok := unwrapAll(raw); ok && !partial {
+		in.Unwrapped, in.Wrapper = target, name
 	}
 
 	in.Canonical = canonicalise(u)
@@ -131,7 +206,7 @@ func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	}
 	if in.HostASCII != "" && in.HostUnicode != "" && in.HostASCII != in.HostUnicode {
 		in.Notes = append(in.Notes, Note{SevWarn, "Internationalised domain name",
-			fmt.Sprintf("Displays as %s, resolves as %s. Both forms are shown because they are the same host and only one of them is what you read.", in.HostUnicode, in.HostASCII)})
+			fmt.Sprintf("Displays as %s; DNS looks it up as %s. Check every letter before you trust it.", in.HostUnicode, in.HostASCII)})
 	}
 	if label, scripts := mixedScriptLabel(in.HostUnicode); label != "" {
 		in.Notes = append(in.Notes, Note{SevFail, "Mixed scripts in one label",
@@ -139,7 +214,61 @@ func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	}
 	if ip := net.ParseIP(in.Host); ip != nil {
 		in.Notes = append(in.Notes, Note{SevInfo, "Host is an IP address", "No DNS lookup is involved."})
+	} else if addr, ok := numericIPv4(in.Host); ok {
+		in.Notes = append(in.Notes, Note{SevWarn, "Host is an IP address in disguise",
+			fmt.Sprintf("Browsers read %s as the IPv4 address %s. Writing an address as one number, in hex or in octal is a common way to hide where a link goes.", in.Host, addr)})
 	}
+}
+
+// numericIPv4 reads a host as inet_aton and browsers do: "2130706433",
+// "0x7f000001", "0177.1" and "127.1" are all 127.0.0.1. A plain dotted quad is
+// left to net.ParseIP.
+func numericIPv4(h string) (string, bool) {
+	if h == "" || net.ParseIP(h) != nil {
+		return "", false
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) > 4 {
+		return "", false
+	}
+	vals := make([]uint64, len(parts))
+	for i, p := range parts {
+		base := 10
+		switch {
+		case len(p) > 2 && (p[:2] == "0x" || p[:2] == "0X"):
+			base, p = 16, p[2:]
+		case len(p) > 1 && p[0] == '0':
+			base, p = 8, p[1:]
+		}
+		v, err := strconv.ParseUint(p, base, 32)
+		if err != nil {
+			return "", false
+		}
+		vals[i] = v
+	}
+	var ip uint64
+	last := len(vals) - 1
+	for i := 0; i < last; i++ {
+		if vals[i] > 255 {
+			return "", false
+		}
+		ip |= vals[i] << (8 * (3 - i))
+	}
+	if vals[last] >= 1<<(8*(4-last)) {
+		return "", false
+	}
+	ip |= vals[last]
+	return fmt.Sprintf("%d.%d.%d.%d", ip>>24, ip>>16&255, ip>>8&255, ip&255), true
+}
+
+// hasBadEscape reports a "%" not followed by two hex digits.
+func hasBadEscape(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && (i+2 >= len(s) || !isHexDigit(s[i+1]) || !isHexDigit(s[i+2])) {
+			return true
+		}
+	}
+	return false
 }
 
 // describePath splits the path into segments and resolves dot segments.
@@ -246,7 +375,7 @@ func enrichParam(p *Param, rawVal string) {
 	// rather than choosing one.
 	if strings.Contains(rawVal, "+") && looksBase64(strings.ReplaceAll(rawVal, "%3D", "=")) {
 		p.AltValue = rawVal
-		p.Warn = "Contains '+', which is a space in a query string but a real character in base64. Both readings are shown because this value looks like base64 and only one of them preserves it."
+		p.Warn = "'+' means a space in a query but is a real character in base64. This value looks like base64, so both readings are shown."
 	}
 	if d, list := splitList(p.Value); d != "" {
 		p.Delimiter, p.List = d, list
@@ -260,6 +389,20 @@ func enrichParam(p *Param, rawVal string) {
 	p.Tracking = TrackingRuleFor(p.Key)
 	p.Layers = decodeLadder(p.Value)
 	p.Kind = classify(p.Value)
+	p.Nested = nestedLink(p)
+}
+
+// nestedLink is the http(s) URL a parameter carries once decoded, or "".
+func nestedLink(p *Param) string {
+	cand := p.Value
+	if len(p.Layers) > 0 {
+		cand = p.Layers[len(p.Layers)-1].Value
+	}
+	u, err := url.Parse(cand)
+	if err != nil || u.Host == "" || !linkableSchemes[strings.ToLower(u.Scheme)] {
+		return ""
+	}
+	return cand
 }
 
 // splitList recognises a delimited list. The delimiter is returned so the page
@@ -379,6 +522,9 @@ func canonicalise(u *url.URL) string {
 		}
 		if port := c.Port(); port != "" && defaultPorts[c.Scheme] != port {
 			c.Host = net.JoinHostPort(host, port)
+		} else if strings.Contains(host, ":") {
+			// Hostname() strips IPv6 brackets, and "http://::1/" is not a URL.
+			c.Host = "[" + host + "]"
 		} else {
 			c.Host = host
 		}
@@ -409,12 +555,21 @@ var secretishKeys = map[string]bool{
 }
 
 func containsSecretish(ps []Param) bool {
+	return len(secretishNames(ps)) > 0
+}
+
+// secretishNames lists the credential-like keys in ps that carry a value.
+func secretishNames(ps []Param) []string {
+	var out []string
+	seen := map[string]bool{}
 	for _, p := range ps {
-		if secretishKeys[strings.ToLower(p.Key)] && p.Value != "" {
-			return true
+		k := strings.ToLower(p.Key)
+		if secretishKeys[k] && p.Value != "" && !seen[k] {
+			seen[k] = true
+			out = append(out, p.Key)
 		}
 	}
-	return false
+	return out
 }
 
 func isDangerousScheme(s string) bool {

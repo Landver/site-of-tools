@@ -97,7 +97,7 @@ func TestHandlerBadIPRendersErrorFragment(t *testing.T) {
 	// Malformed IP → domain Lookup fails w/ validation error (not ErrUnavailable).
 	// htmx path must return 400 + error-alert fragment → box shows "not a valid
 	// IP" instead of silently keeping prev result. (Client swaps this 400 in via
-	// htmx:beforeSwap — see ip/index.html; htmx otherwise drops 4xx response.)
+	// partials/htmx-errors; htmx otherwise drops 4xx response.)
 	app := newTestApp(fakeLooker{err: errors.New(`"104.253.63." is not a valid IP address`)})
 	rec := do(app, "/?ip=104.253.63.", map[string]string{"HX-Request": "true"})
 	if rec.Code != http.StatusBadRequest {
@@ -113,6 +113,48 @@ func TestHandlerErrorStatus(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4", map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("ErrUnavailable → code %d, want 503", rec.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["error"] != iptools.ErrUnavailable.Error() {
+		t.Errorf("JSON body = %s, want error %q", rec.Body, iptools.ErrUnavailable.Error())
+	}
+}
+
+// TestUnavailableLookupShowsItsReason: a 503 is a readable error fragment, never
+// a history entry.
+func TestUnavailableLookupShowsItsReason(t *testing.T) {
+	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4",
+		map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="alert-error`) || !strings.Contains(body, "unavailable right now") {
+		t.Errorf("503 fragment does not say what happened:\n%s", body)
+	}
+	if strings.Contains(body, "<html") {
+		t.Error("htmx got a full page instead of a fragment")
+	}
+	if got := rec.Header().Get("HX-Push-Url"); got != "false" {
+		t.Errorf("HX-Push-Url = %q, want false: a failed lookup must not become a history entry", got)
+	}
+}
+
+// TestLookupPageSwapsEveryError: the shared htmx error handler is included, not
+// a 400-only one, plus the fallback for a non-HTML error.
+func TestLookupPageSwapsEveryError(t *testing.T) {
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
+	page := rec.Body.String()
+	if !strings.Contains(page, "[400, 401, 404, 409, 429, 500, 502, 503]") {
+		t.Error("the page does not include partials/htmx-errors")
+	}
+	if strings.Contains(page, "status === 400") {
+		t.Error("the page still carries its own 400-only swap handler")
+	}
+	for _, event := range []string{"htmx:responseError", "htmx:sendError"} {
+		if !strings.Contains(page, event) {
+			t.Errorf("no %s fallback: a failure without a fragment would leave the result area as it was", event)
+		}
 	}
 }
 
@@ -360,5 +402,23 @@ func TestOGTags(t *testing.T) {
 				t.Errorf("GET %s <head> missing %q", tc.target, want)
 			}
 		}
+	}
+}
+
+// TestLookupFragmentIsNeverCached: Vary and no-store keep Back from showing the
+// pushed fragment bare.
+func TestLookupFragmentIsNeverCached(t *testing.T) {
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}})
+	page := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
+	if vary := strings.Join(page.Header().Values("Vary"), ","); !strings.Contains(vary, "HX-Request") || !strings.Contains(vary, "Accept") {
+		t.Errorf("Vary = %q, want HX-Request and Accept", vary)
+	}
+	frag := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if got := frag.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("fragment Cache-Control = %q, want no-store", got)
+	}
+	bad := do(newTestApp(fakeLooker{err: errors.New("not an IP address")}), "/?ip=nope", map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if bad.Code != http.StatusBadRequest || bad.Header().Get("HX-Push-Url") != "false" {
+		t.Errorf("htmx error = %d with HX-Push-Url %q, want 400 and false", bad.Code, bad.Header().Get("HX-Push-Url"))
 	}
 }

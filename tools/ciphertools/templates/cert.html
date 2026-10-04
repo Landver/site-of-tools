@@ -120,7 +120,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
   </div>
   <ul class="mt-3 space-y-1 text-sm">
     {{range .Links}}
-    <li class="{{if and .Issued (eq .Signature "valid")}}text-ok{{else if .Issued}}text-warn{{else}}text-danger{{end}}">
+    <li class="{{if and .Issued (eq .Signature "valid")}}text-ok{{else if .Issued}}text-warn-ink{{else}}text-danger{{end}}">
       <span class="font-mono">{{.Child}} → {{.Issuer}}</span>
       <span class="text-body">{{.Detail}}</span>
     </li>
@@ -151,7 +151,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
   {{if .URI}}<dt>URI</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .URI}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
 </dl>
 {{else}}
-<p class="mt-2 text-sm text-warn">None.</p>
+<p class="mt-2 text-sm text-warn-ink">None.</p>
 {{end}}
 {{end}}
 
@@ -160,7 +160,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
 <section class="mt-6 rounded-lg border border-line p-4">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <h3 class="text-base font-semibold text-strong">Certificate {{.N}}: <span class="break-all font-mono">{{.Title}}</span></h3>
-    <span class="text-sm {{if eq .Validity.State "valid"}}text-ok{{else if eq .Validity.State "expired"}}text-danger{{else}}text-warn{{end}}">{{.Validity.Detail}}</span>
+    <span class="text-sm {{if eq .Validity.State "valid"}}text-ok{{else if eq .Validity.State "expired"}}text-danger{{else}}text-warn-ink{{end}}">{{.Validity.Detail}}</span>
   </div>
   <p class="mt-1 text-xs text-muted">{{if .IsCA}}CA certificate{{else}}End-entity certificate{{end}}{{if .SelfSigned}}, self-signed{{end}}, X.509 v{{.Version}}</p>
   {{template "cipher/warnings" .Warnings}}
@@ -200,7 +200,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
 <section class="mt-6 rounded-lg border border-line p-4">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <h3 class="text-base font-semibold text-strong">Request {{.N}}: <span class="break-all font-mono">{{.Title}}</span></h3>
-    <span class="text-sm {{if .SigOK}}text-ok{{else if .SigUnverifiable}}text-warn{{else}}text-danger{{end}}">{{if .SigOK}}Signature valid{{else if .SigUnverifiable}}Signature not checked{{else}}Signature invalid{{end}}</span>
+    <span class="text-sm {{if .SigOK}}text-ok{{else if .SigUnverifiable}}text-warn-ink{{else}}text-danger{{end}}">{{if .SigOK}}Signature valid{{else if .SigUnverifiable}}Signature not checked{{else}}Signature invalid{{end}}</span>
   </div>
   <p class="mt-1 text-xs text-muted">{{.SigDetail}}</p>
   {{template "cipher/warnings" .Warnings}}

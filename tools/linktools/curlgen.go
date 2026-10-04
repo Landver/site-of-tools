@@ -63,11 +63,11 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		return "", fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return "", fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return "", fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("not a URL: %w", err)
+		return "", fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 	if isDangerousScheme(u.Scheme) {
 		// Checked before the host, because "javascript:alert(1)" has no host
@@ -108,6 +108,10 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		}
 		args = append(args, "-H", shellQuote("User-Agent: "+p.UA))
 	}
+	// curl globs [] and {} in a URL ("ids[]=1" fails, exit 3) unless told not to.
+	if strings.ContainsAny(raw, "[]{}") {
+		args = append(args, "-g")
+	}
 	args = append(args, shellQuote(raw))
 	return strings.Join(args, " "), nil
 }
@@ -128,24 +132,80 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 // curl would assume http there; Parse says so in a note instead, and inventing
 // the scheme here would hide the fact that the pasted command relied on it.
 func (s *Service) FromCurl(cmd string) (string, []Header, error) {
+	r, err := s.FromCurlRequest(cmd)
+	if err != nil {
+		return "", nil, err
+	}
+	return r.URL, r.Headers, nil
+}
+
+// CurlRequest is a pasted command taken apart. The body is measured, never
+// echoed: it is where a copied command keeps its passwords.
+type CurlRequest struct {
+	URL       string   `json:"url"`
+	Headers   []Header `json:"headers"`
+	Method    string   `json:"method"`
+	MethodWhy string   `json:"method_why"`
+	BodyBytes int      `json:"body_bytes,omitempty"`
+	BodyFlag  string   `json:"body_flag,omitempty"` // the first flag that carried a body
+	Notes     []Note   `json:"notes,omitempty"`
+}
+
+// urlencodeData encodes a --data-urlencode argument as curl does; "@file" is
+// left alone.
+func urlencodeData(v string) string {
+	esc := func(x string) string { return strings.ReplaceAll(url.QueryEscape(x), "+", "%20") }
+	if strings.HasPrefix(v, "@") || strings.Contains(v, "@") && !strings.Contains(v, "=") {
+		return v
+	}
+	if name, content, ok := strings.Cut(v, "="); ok {
+		if name == "" {
+			return esc(content)
+		}
+		return name + "=" + esc(content)
+	}
+	return esc(v)
+}
+
+// FromCurlRequest is FromCurl with the method and body accounted for.
+func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 	if strings.TrimSpace(cmd) == "" {
-		return "", nil, fmt.Errorf("no command given")
+		return nil, fmt.Errorf("no command given")
 	}
 	if len(cmd) > maxInput {
-		return "", nil, fmt.Errorf("command is %d bytes; the limit is %d", len(cmd), maxInput)
+		return nil, fmt.Errorf("command is %d bytes, over the %d KB limit", len(cmd), maxInput>>10)
 	}
 
-	toks := shellSplit(cmd)
+	toks, info := shellSplit(cmd)
+	if info.unterminated {
+		// A shell would wait for more input; any parse would be a guess.
+		return nil, fmt.Errorf("the command has a quote that is never closed")
+	}
+	r := &CurlRequest{}
 	i := 0
 	for i < len(toks) && isPromptNoise(toks[i]) {
 		i++
 	}
 	if i < len(toks) && isCurlWord(toks[i]) {
 		i++
+	} else if i == len(toks)-1 && looksLikeURL(toks[i]) {
+		r.Notes = append(r.Notes, Note{SevInfo, "Only a URL",
+			"There is no command here, just a URL, so it was read as a bare curl call. To turn it into a command, use Build a command."})
+	} else if i < len(toks) && !looksLikeURL(toks[i]) && !strings.HasPrefix(toks[i], "-") {
+		r.Notes = append(r.Notes, Note{SevWarn, "Not a curl command",
+			"It starts with " + toks[i] + ", and was read as if it were curl. Flags can mean something else to another program."})
 	}
-
-	var target string
-	var headers []Header
+	if info.stoppedAt != "" {
+		r.Notes = append(r.Notes, Note{SevWarn, "The command ends at an unquoted " + info.stoppedAt,
+			"A shell would stop curl's arguments there and treat the rest as another command, so only the part before it is read. If it belongs to a URL, the URL needs quotes."})
+	}
+	if info.expansion {
+		r.Notes = append(r.Notes, Note{SevInfo, "Shell expansion left as written",
+			"The command contains $… or backticks outside single quotes. A shell would replace them before curl runs; they are shown literally here, and nothing is ever executed."})
+	}
+	var explicit string // -X
+	var get, head bool  // -G, -I
+	var data []string   // body arguments, for -G, which moves them into the query
 	for i < len(toks) {
 		t := toks[i]
 		i++
@@ -153,8 +213,8 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 			// End of flags: whatever follows is an operand, even if it starts
 			// with a dash.
 			for ; i < len(toks); i++ {
-				if target == "" && looksLikeURL(toks[i]) {
-					target = toks[i]
+				if r.URL == "" && looksLikeURL(toks[i]) {
+					r.URL = toks[i]
 				}
 			}
 			break
@@ -162,13 +222,28 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 		if !strings.HasPrefix(t, "-") || t == "-" {
 			// curl accepts several URLs; this tool inspects one, so the first
 			// wins and the rest are left alone.
-			if target == "" && looksLikeURL(t) {
-				target = t
+			if r.URL == "" && looksLikeURL(t) {
+				r.URL = t
 			}
 			continue
 		}
 
 		name, val, hasVal := splitCurlFlag(t)
+		switch {
+		case name == "--get":
+			get = true
+		case name == "--head":
+			head = true
+		case !strings.HasPrefix(t, "--"):
+			// "-sSLG", "-GXPOST": G and I count among the booleans before any
+			// letter that takes an argument.
+			bools := t[1:]
+			if j := strings.IndexAny(bools, curlArgShorts); j >= 0 {
+				bools = bools[:j]
+			}
+			get = get || strings.ContainsRune(bools, 'G')
+			head = head || strings.ContainsRune(bools, 'I')
+		}
 		if !hasVal && curlFlagTakesArg(name) && i < len(toks) {
 			// Consuming the argument matters even for flags we ignore: without
 			// it, the filename after -o or the body after -d becomes the URL.
@@ -181,32 +256,68 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 		switch name {
 		case "-H", "--header":
 			if h, ok := parseHeaderArg(val); ok {
-				headers = append(headers, h)
+				r.Headers = append(r.Headers, h)
 			}
 		case "--url":
-			if target == "" {
-				target = val
+			if r.URL == "" {
+				r.URL = val
 			}
 		case "-A", "--user-agent":
-			headers = append(headers, Header{"User-Agent", val})
+			r.Headers = append(r.Headers, Header{"User-Agent", val})
 		case "-e", "--referer":
-			headers = append(headers, Header{"Referer", strings.TrimSuffix(val, ";auto")})
+			r.Headers = append(r.Headers, Header{"Referer", strings.TrimSuffix(val, ";auto")})
 		case "-b", "--cookie":
 			// curl reads this as a file when it has no "=" in it, and a file
 			// name is not a header.
 			if strings.Contains(val, "=") {
-				headers = append(headers, Header{"Cookie", val})
+				r.Headers = append(r.Headers, Header{"Cookie", val})
 			}
+		case "-X", "--request":
+			explicit = strings.ToUpper(val)
+		case "-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--data-urlencode", "-F", "--form", "--form-string", "--json":
+			if r.BodyFlag == "" {
+				r.BodyFlag = name
+			}
+			r.BodyBytes += len(val)
+			if name == "--data-urlencode" {
+				val = urlencodeData(val)
+			}
+			data = append(data, val)
+		case "-u", "--user":
+			// Shown as the header curl would build, never with the password.
+			user, _, _ := strings.Cut(val, ":")
+			r.Headers = append(r.Headers, Header{"Authorization", "Basic, from -u (user " + user + ", password not shown)"})
 		}
 	}
 
-	if target == "" {
-		return "", nil, fmt.Errorf("no URL in that command")
+	if r.URL == "" {
+		return nil, fmt.Errorf("no URL in that command")
 	}
-	if _, err := url.Parse(target); err != nil {
-		return "", nil, fmt.Errorf("the command's URL is not a URL: %w", err)
+	if _, err := url.Parse(r.URL); err != nil {
+		return nil, fmt.Errorf("couldn't read the URL in that command: %w", parseReason(err))
 	}
-	return target, headers, nil
+
+	// curl's own order of precedence: -X wins, then -I, then -G (which turns a
+	// body into the query string), then a body means POST.
+	switch {
+	case explicit != "":
+		r.Method, r.MethodWhy = explicit, "set with -X"
+	case head:
+		r.Method, r.MethodWhy = "HEAD", "implied by -I"
+	case get && r.BodyFlag != "":
+		r.Method, r.MethodWhy = "GET", "-G moves the "+r.BodyFlag+" data into the query string"
+		sep := "?"
+		if strings.Contains(r.URL, "?") {
+			sep = "&"
+		}
+		r.URL += sep + strings.ReplaceAll(strings.Join(data, "&"), " ", "%20")
+		r.BodyBytes = 0
+	case r.BodyFlag != "":
+		r.Method, r.MethodWhy = "POST", "implied by "+r.BodyFlag
+	default:
+		r.Method, r.MethodWhy = "GET", "curl's default"
+	}
+	return r, nil
 }
 
 // shellQuote wraps s in single quotes for POSIX sh.
@@ -225,8 +336,9 @@ func shellQuote(s string) string {
 // browsers and the documentation actually emit: '…', "…" with backslash
 // escapes, $'…' ANSI-C quoting, bare backslash escapes, and line continuations
 // in all three flavours a "Copy as cURL" produces.
-func shellSplit(s string) []string {
+func shellSplit(s string) ([]string, shellInfo) {
 	var out []string
+	var info shellInfo
 	var cur strings.Builder
 	open := false // a token is in progress, even when it is the empty ''
 
@@ -235,6 +347,15 @@ func shellSplit(s string) []string {
 			out = append(out, cur.String())
 			cur.Reset()
 			open = false
+		}
+	}
+	// A shell substitutes these before curl runs, so the text is not what curl gets.
+	expansion := func(i int) {
+		if i+1 < len(s) {
+			n := s[i+1]
+			if n == '(' || n == '{' || n == '_' || n >= 'A' && n <= 'Z' || n >= 'a' && n <= 'z' {
+				info.expansion = true
+			}
 		}
 	}
 
@@ -264,6 +385,9 @@ func shellSplit(s string) []string {
 				raw.WriteByte(s[j])
 				j++
 			}
+			if j >= len(s) {
+				info.unterminated = true
+			}
 			cur.WriteString(ansiCDecode(raw.String()))
 			open = true
 			i = j + 1
@@ -272,6 +396,9 @@ func shellSplit(s string) []string {
 			for j < len(s) && s[j] != '\'' {
 				cur.WriteByte(s[j]) // nothing is special inside single quotes
 				j++
+			}
+			if j >= len(s) {
+				info.unterminated = true
 			}
 			open = true
 			i = j + 1
@@ -289,22 +416,52 @@ func shellSplit(s string) []string {
 						continue
 					}
 				}
+				if s[j] == '$' {
+					expansion(j)
+				}
+				if s[j] == '`' {
+					info.expansion = true
+				}
 				cur.WriteByte(s[j])
 				j++
 			}
+			if j >= len(s) {
+				info.unterminated = true
+			}
 			open = true
 			i = j + 1
+		case c == ';' || c == '&' || c == '|':
+			// A shell ends the command here; curl never sees the rest.
+			push()
+			info.stoppedAt = string(c)
+			if i+1 < len(s) && (s[i+1] == '&' || s[i+1] == '|') {
+				info.stoppedAt += string(s[i+1])
+			}
+			return out, info
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			push()
 			i++
 		default:
+			if c == '$' {
+				expansion(i)
+			}
+			if c == '`' {
+				info.expansion = true
+			}
 			cur.WriteByte(c)
 			open = true
 			i++
 		}
 	}
 	push()
-	return out
+	return out, info
+}
+
+// shellInfo is the shell syntax shellSplit noticed but does not run.
+type shellInfo struct {
+	unterminated bool
+	stoppedAt    string // the operator the command ended at: ";", "&&", "|", …
+	expansion    bool
 }
 
 // ansiCDecode expands the escapes inside bash's $'…' quoting. An escape it does
@@ -391,7 +548,7 @@ func ansiCDecode(s string) string {
 var curlArgFlags = map[string]bool{
 	"--header": true, "--url": true, "--request": true, "--data": true,
 	"--data-raw": true, "--data-binary": true, "--data-urlencode": true,
-	"--data-ascii": true, "--form": true, "--form-string": true, "--user": true,
+	"--data-ascii": true, "--form": true, "--form-string": true, "--json": true, "--user": true,
 	"--user-agent": true, "--referer": true, "--cookie": true, "--cookie-jar": true,
 	"--output": true, "--dump-header": true, "--proxy": true, "--proxy-user": true,
 	"--cert": true, "--key": true, "--cacert": true, "--capath": true,

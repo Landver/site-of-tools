@@ -231,7 +231,7 @@ func TestFragmentParams(t *testing.T) {
 	if in.FragParams[0].Key != "access_token" {
 		t.Errorf("first fragment param = %q, want access_token", in.FragParams[0].Key)
 	}
-	if !hasNote(in.Notes, linktools.SevFail, "Credentials in the fragment") {
+	if !hasNote(in.Notes, linktools.SevFail, "A token in the fragment") {
 		t.Error("no note for a token sitting in the fragment")
 	}
 }

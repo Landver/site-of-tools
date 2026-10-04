@@ -56,17 +56,22 @@ type Chain struct {
 	// pre-redirect URL as the destination is the wrong answer in the
 	// security-relevant direction (docs/02-build-fit.md §5), so in those cases
 	// the Note names the target instead and this stays blank.
-	Final   string `json:"final,omitempty"`
-	Notes   []Note `json:"notes,omitempty"`
-	Persona string `json:"persona,omitempty"`
-	Elapsed int64  `json:"elapsed_ms"`
+	Final string `json:"final,omitempty"`
+	// FinalStatus is the status Final answered with: a 404 is still where it ends.
+	FinalStatus int    `json:"final_status,omitempty"`
+	FinalReason string `json:"-"`
+	Notes       []Note `json:"notes,omitempty"`
+	Persona     string `json:"persona,omitempty"`
+	Elapsed     int64  `json:"elapsed_ms"`
 }
 
 // Hop is one request/response pair in the chain.
 type Hop struct {
-	Index    int    `json:"index"`
-	URL      string `json:"url"`
-	Status   int    `json:"status"`
+	Index  int    `json:"index"`
+	URL    string `json:"url"`
+	Status int    `json:"status"`
+	// Reason is the status code's standard name ("Moved Permanently").
+	Reason   string `json:"reason,omitempty"`
 	Location string `json:"location,omitempty"`
 	// ElapsedMS covers the whole hop: dial, TLS, request, response headers.
 	ElapsedMS int64 `json:"elapsed_ms"`
@@ -242,7 +247,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 		return nil, fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 	p := personaFor(persona)
 	cur, startNotes, err := parseTarget(raw)
@@ -258,6 +263,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 	ch = &Chain{Input: raw, Persona: p.Key, Notes: startNotes}
 	began := time.Now()
 	defer func() { ch.Elapsed = time.Since(began).Milliseconds() }()
+	defer ch.liftLastHop()
 
 	seen := map[string]bool{}
 	for {
@@ -284,7 +290,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 			// Terminal hop. step has already attached whatever it found; Final
 			// stays empty when the chain plainly continues elsewhere.
 			if !continuesElsewhere(hop.Notes) {
-				ch.Final = hop.URL
+				ch.Final, ch.FinalStatus, ch.FinalReason = hop.URL, hop.Status, hop.Reason
 			}
 			return ch, nil
 		}
@@ -307,6 +313,55 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 		}
 		cur = next
 	}
+}
+
+// liftLastHop copies the last hop's warnings into the chain's findings, where
+// the page says the reason is, and adds one for a chain ending at an error page.
+func (ch *Chain) liftLastHop() {
+	if ch == nil || len(ch.Hops) == 0 {
+		return
+	}
+	last := ch.Hops[len(ch.Hops)-1]
+	lifted := false
+	for _, n := range last.Notes {
+		if n.Severity != SevFail && n.Severity != SevWarn {
+			continue
+		}
+		lifted = true
+		dup := false
+		for _, have := range ch.Notes {
+			dup = dup || have.Title == n.Title
+		}
+		if !dup {
+			ch.Notes = append(ch.Notes, n)
+		}
+	}
+	if lifted || ch.Final == "" || ch.FinalStatus < 400 {
+		return
+	}
+	status := strings.TrimSpace(fmt.Sprintf("%d %s", ch.FinalStatus, ch.FinalReason))
+	if ch.FinalStatus >= 500 {
+		ch.Notes = append(ch.Notes, Note{SevWarn, "Ends at a server error",
+			"The last page answered " + status + ". The site may be down for now: try again later."})
+		return
+	}
+	ch.Notes = append(ch.Notes, Note{SevWarn, "Ends at an error page",
+		"The last page answered " + status + ": the link is broken, or the site turns this kind of visitor away. Asking as someone else tells the two apart."})
+}
+
+// Unlisted is the hop's notes not already among findings, by title.
+func (h Hop) Unlisted(findings []Note) []Note {
+	var out []Note
+	for _, n := range h.Notes {
+		listed := false
+		for _, f := range findings {
+			listed = listed || f.Title == n.Title
+		}
+		if !listed {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // step performs one hop, fills in the response fields and notes, and returns
@@ -348,6 +403,7 @@ func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) stri
 	defer resp.Body.Close()
 
 	hop.Status = resp.StatusCode
+	hop.Reason = http.StatusText(resp.StatusCode)
 	hop.Server = resp.Header.Get("Server")
 	hop.ContentType = resp.Header.Get("Content-Type")
 	// Recorded, never kept: this is the per-hop cookie marker, not a jar.
@@ -396,8 +452,8 @@ func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) 
 	// not have (docs/02-build-fit.md §5). Detect and NAME it; never present the
 	// pre-redirect URL as the destination.
 	if what, ok := jsRedirect(body); ok {
-		hop.Notes = append(hop.Notes, Note{SevWarn, "JavaScript redirect, which we cannot follow",
-			fmt.Sprintf("The page runs %s. Following it needs a browser; this is an HTTP client, so the real destination is unknown rather than this URL.", what)})
+		hop.Notes = append(hop.Notes, Note{SevWarn, "JavaScript redirect, not followed",
+			fmt.Sprintf("The page runs %s. Following it needs a browser, so the real destination is unknown: it is not this URL.", what)})
 	}
 
 	switch {
@@ -406,14 +462,14 @@ func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) 
 			"HTTP 429. The link is not dead; the server declined to answer this client right now."})
 	case hop.Status == http.StatusForbidden || hop.Status == http.StatusServiceUnavailable ||
 		hop.Status == http.StatusUnauthorized:
-		detail := fmt.Sprintf("HTTP %d to an automated request from a datacentre address. That reads as the target refusing us, not as a dead link.", hop.Status)
+		detail := fmt.Sprintf("HTTP %d to an automated request from a datacentre address. That reads as a refusal, not a dead link.", hop.Status)
 		if vendor, ok := botWall(resp.Header, body); ok {
 			detail = fmt.Sprintf("HTTP %d with %s. That is bot protection turning away an automated client, not evidence that the link is broken.", hop.Status, vendor)
 		}
 		if p.Key == personas[0].Key {
 			detail += " Re-running as Googlebot or Slackbot shows whether the target discriminates by user agent."
 		} else {
-			detail += fmt.Sprintf(" This run presented as %s.", p.Name)
+			detail += fmt.Sprintf(" This run asked as %s.", p.Name)
 		}
 		hop.Notes = append(hop.Notes, Note{SevWarn, "The target refused an automated request", detail})
 	}
@@ -452,25 +508,28 @@ func parseTarget(raw string) (*url.URL, []Note, error) {
 	var notes []Note
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, nil, fmt.Errorf("not a URL: %w", err)
+		return nil, nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 	if !strings.Contains(raw, "://") && !isHTTPScheme(u.Scheme) {
 		// "example.com/x" is what people paste. Assume https and say so,
 		// rather than refusing on a technicality.
 		if u2, err2 := url.Parse("https://" + raw); err2 == nil && u2.Host != "" {
 			u = u2
-			notes = append(notes, Note{SevInfo, "No scheme given", "Traced as https://" + raw + "."})
+			notes = append(notes, Note{SevInfo, "No scheme", "Traced as https://" + raw + "."})
 		}
 	}
+	if u.Scheme == "" {
+		return nil, nil, fmt.Errorf("not a whole link: paste all of it, starting with http:// or https://")
+	}
 	if !isHTTPScheme(u.Scheme) {
-		return nil, nil, fmt.Errorf("only http and https can be traced; this is %q", u.Scheme)
+		return nil, nil, fmt.Errorf("trace only follows http and https links, and this one is %s", u.Scheme)
 	}
 	if u.Host == "" {
 		return nil, nil, fmt.Errorf("no host to trace")
 	}
 	if stripUserinfo(u) {
 		notes = append(notes, Note{SevWarn, "Credentials in the URL were dropped",
-			"Everything before the @ was removed before fetching. It is a username, not the destination, and net/http would otherwise have turned it into an Authorization header sent to the host that follows."})
+			"Everything before the @ was removed before fetching: it is a username, not the destination, and sending it would hand it to that host as a login."})
 	}
 	return u, notes, nil
 }
@@ -542,11 +601,20 @@ func transportNote(ctx context.Context, err error) Note {
 func refusalDetail(err error) string {
 	switch {
 	case errors.Is(err, platform.ErrBlockedPort):
-		return fmt.Sprintf("%v. Only ports 80 and 443 are ever dialled, so this tool cannot be pointed at anything else.", err)
+		return "Port " + afterColon(err) + " isn't allowed. Trace only connects to ports 80 and 443."
 	case errors.Is(err, platform.ErrBlockedAddress):
-		return fmt.Sprintf("%v. Private, loopback, link-local and reserved addresses, this service's own hosts, and anything not publicly routable are all refused.", err)
+		return afterColon(err) + " isn't on the public internet (not publicly routable), so Trace won't contact it. Private, loopback and reserved addresses, and this site's own hosts, are always refused."
 	}
 	return err.Error()
+}
+
+// afterColon is the port or address an egress-guard error names.
+func afterColon(err error) string {
+	msg := err.Error()
+	if i := strings.LastIndex(msg, ": "); i >= 0 {
+		return msg[i+2:]
+	}
+	return "That address"
 }
 
 // continuesElsewhere reports whether a terminal hop's notes say the chain does
@@ -555,7 +623,7 @@ func continuesElsewhere(notes []Note) bool {
 	for _, n := range notes {
 		switch n.Title {
 		case "Refresh header, not a redirect", "Meta refresh, not a redirect",
-			"JavaScript redirect, which we cannot follow", "Refused before connecting",
+			"JavaScript redirect, not followed", "Refused before connecting",
 			"TLS verification failed", "The host does not resolve", "This hop timed out",
 			"Ran out of time", "The request failed", "Could not build the request":
 			return true

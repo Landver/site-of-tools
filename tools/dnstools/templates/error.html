@@ -15,7 +15,7 @@
      kept out of history (data-transient). */}}
 {{define "dns/slowdown"}}
 {{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{.Error}}</p>{{end}}
-<div data-transient class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn">{{.Error}}</div>
+<div data-transient class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn-ink">{{.Error}}</div>
 {{end}}
 
 {{/* The same as a whole page, with the nav and a retry link. */}}

@@ -18,7 +18,7 @@
            so a findings list made only of those needs a line of its own. */}}
       <div class="text-sm tabular-nums">
         {{if $.Fail}}<span class="text-danger">{{$.Fail}} failing</span>{{end}}
-        {{if $.Warn}}{{if $.Fail}}<span class="text-faint"> · </span>{{end}}<span class="text-warn">{{$.Warn}} to improve</span>{{end}}
+        {{if $.Warn}}{{if $.Fail}}<span class="text-faint"> · </span>{{end}}<span class="text-warn-ink">{{$.Warn}} to improve</span>{{end}}
         {{if $.OK}}{{if or $.Fail $.Warn}}<span class="text-faint"> · </span>{{end}}<span class="text-ok">{{$.OK}} good</span>{{end}}
         {{if and (not (or $.Fail $.Warn $.OK)) .Notes}}<span class="text-muted">{{len .Notes}} note{{if ne (len .Notes) 1}}s{{end}}</span>{{end}}
       </div>
@@ -43,14 +43,14 @@
     <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
     <dl class="spec mt-3">
       <dt>DNS lookups</dt>
-      <dd class="tabular-nums {{if gt .Lookups $.Email.SPF.Limit}}text-danger{{else if ge .Lookups 8}}text-warn{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
+      <dd class="tabular-nums {{if gt .Lookups $.Email.SPF.Limit}}text-danger{{else if ge .Lookups 8}}text-warn-ink{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
       {{if .All}}<dt>Ends with</dt> <dd class="font-mono">{{.All}}</dd>{{end}}
     </dl>
     {{if .Chain}}
     <div class="mt-3 border-t border-line pt-3">
       <div class="text-xs text-faint">Expanded through</div>
       <div class="mt-1 font-mono text-xs wrap-anywhere text-muted">{{range $i, $c := .Chain}}{{if $i}}<br>{{end}}{{$c}}{{end}}</div>
-      {{if .Truncated}}<p class="mt-2 text-xs text-warn">Stopped expanding here: the record is already past the limit, so resolving further includes can't change the verdict.</p>{{end}}
+      {{if .Truncated}}<p class="mt-2 text-xs text-warn-ink">Stopped expanding here: the record is already past the limit, so resolving further includes can't change the verdict.</p>{{end}}
     </div>
     {{end}}
   </div>
@@ -66,7 +66,7 @@
     <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
     <dl class="spec mt-3">
       <dt>Policy</dt>
-      <dd class="font-mono {{if eq .Policy "none"}}text-warn{{else}}text-ok{{end}}">p={{.Policy}}</dd>
+      <dd class="font-mono {{if eq .Policy "none"}}text-warn-ink{{else}}text-ok{{end}}">p={{.Policy}}</dd>
       {{if .SubPolicy}}<dt>Subdomains</dt> <dd class="font-mono">sp={{.SubPolicy}}</dd>{{end}}
       {{if .Percent}}<dt>Applies to</dt> <dd class="tabular-nums">{{.Percent}}% of mail</dd>{{end}}
       {{if .Aggregate}}<dt>Reports to</dt> <dd class="wrap-anywhere">{{.Aggregate}}</dd>{{end}}

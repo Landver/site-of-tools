@@ -28,7 +28,7 @@
            Unknown, "expires today" and "already expired" are three answers. */}}
       {{if .DaysKnown}}
         {{if lt .Days 0}}<span class="text-danger"> — expired</span>
-        {{else}}<span class="whitespace-nowrap {{if lt .Days 30}}text-danger{{else if lt .Days 90}}text-warn{{else}}text-faint{{end}}"> — {{.Days}}&nbsp;days</span>{{end}}
+        {{else}}<span class="whitespace-nowrap {{if lt .Days 30}}text-danger{{else if lt .Days 90}}text-warn-ink{{else}}text-faint{{end}}"> — {{.Days}}&nbsp;days</span>{{end}}
       {{end}}
     </dd>
     {{end}}
@@ -80,7 +80,7 @@
     <p class="mt-1 text-xs text-faint">It is unregistered, or its TLD publishes no RDAP service.</p>
     {{end}}
   {{else}}
-    <p class="text-sm text-warn">Couldn't read the registry record.</p>
+    <p class="text-sm text-warn-ink">Couldn't read the registry record.</p>
     <p class="mt-1 text-xs text-faint wrap-anywhere">{{.RegError}}: that's a failure to look it up, not evidence the domain is unregistered.</p>
   {{end}}
 </div>
@@ -113,7 +113,7 @@
     <tbody>
       {{range .Names}}
       <tr class="border-t border-line">
-        <td class="py-1.5 pr-4 font-mono wrap-anywhere text-strong"><a href="/?name={{.Name}}" title="Look up {{.Name}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Name}}</a></td>
+        <td class="py-1.5 pr-4 font-mono wrap-anywhere text-strong"><a href="/?name={{.Name}}" title="Look up {{.Name}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Name}}</a></td>
         <td class="py-1.5 pr-4 text-xs text-muted tabular-nums whitespace-nowrap">{{.FirstSeen}}</td>
         <td class="py-1.5 text-right text-xs text-muted tabular-nums">{{.Certs}}</td>
       </tr>
@@ -126,7 +126,7 @@
   {{/* State the method's blind spot rather than letting the list imply
        completeness. */}}
   {{if .Truncated}}
-  <p class="mt-3 text-xs text-warn">Showing the first {{len .Names}} of {{.Total}} names.</p>
+  <p class="mt-3 text-xs text-warn-ink">Showing the first {{len .Names}} of {{.Total}} names.</p>
   {{end}}
   {{if .Wildcard}}
   <p class="mt-2 text-xs text-faint">
@@ -139,7 +139,7 @@
 {{/* Couldn't check: amber, with both ways forward. */}}
 <div class="card sm:col-span-2">
   <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
-  <p class="text-sm text-warn">crt.sh didn't return the certificate list.</p>
+  <p class="text-sm text-warn-ink">crt.sh didn't return the certificate list.</p>
   <p class="mt-1 text-xs text-faint wrap-anywhere">{{.CertError}}: it is often slow or briefly down, and this says nothing about the domain.</p>
   <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
     <a href="/domain?name={{.Query}}" class="link-brand">Try again</a>

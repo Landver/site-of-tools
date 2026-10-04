@@ -98,7 +98,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		return nil, fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 
 	res := &CleanResult{Input: raw}
@@ -114,15 +114,39 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		case ok:
 			res.Unwrapped, res.Wrapper = target, name
 			work = target
-			res.Notes = append(res.Notes, Note{SevWarn, "Host changed by unwrapping",
-				fmt.Sprintf("The %s wrapper was removed, so this no longer points at the same host as the input. Re-check the destination before trusting it; nothing about the wrapper vouched for it.", name)})
+			host := target
+			if t, err := url.Parse(target); err == nil && t.Hostname() != "" {
+				host = t.Hostname()
+			}
+			res.Notes = append(res.Notes, Note{SevWarn, "New host after unwrapping",
+				fmt.Sprintf("Now pointing at %s. %s did not vouch for it, so check the host before you trust it.", host, name)})
 		}
+	} else if _, name, _, ok := unwrapAll(raw); ok {
+		res.Wrapper = name
+		res.Notes = append(res.Notes, Note{SevInfo, "Wrapper left in place",
+			fmt.Sprintf("This is a %s link and unwrapping is turned off, so it was cleaned as it stands. The real destination inside it was not touched.", name)})
 	}
 
 	u, err := url.Parse(work)
 	if err != nil {
-		return nil, fmt.Errorf("not a URL: %w", err)
+		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
+	// A relative reference is valid and comes back untouched
+	// (TestCleanRejectsEmptyInput); with no query, say what it is.
+	if u.Scheme == "" && u.Host == "" && u.RawQuery == "" {
+		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
+			"There is no scheme, host or query here, so there was nothing to clean. If you meant to paste a link, paste all of it, starting with https://."})
+	}
+	// The rules are for web links; only those can pass with nothing to remove.
+	isHTTP := strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
+	if u.Scheme != "" && !isHTTP {
+		sev, detail := SevInfo, "The rules are written for web links, so this was cleaned as it stands."
+		if isDangerousScheme(u.Scheme) {
+			sev, detail = SevFail, "This scheme runs code instead of opening a page. There is nothing to clean in it, and it is not safe to share as a link."
+		}
+		res.Notes = append(res.Notes, Note{sev, "Scheme is " + u.Scheme + ", not http(s)", detail})
+	}
+	web := isHTTP && u.Host != ""
 	host := u.Hostname()
 
 	prefix, query, frag, hasQuery, hasFrag := splitParts(work)
@@ -186,10 +210,10 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	res.Output = out
 
 	if len(affiliate) > 0 {
-		res.Notes = append(res.Notes, Note{SevInfo, "Affiliate parameters left in place",
-			fmt.Sprintf("%s pays whoever published this link. It was kept because affiliate stripping is off by default; turn it on to remove it.", strings.Join(affiliate, ", "))})
+		res.Notes = append(res.Notes, Note{SevInfo, "Affiliate tag kept",
+			fmt.Sprintf("Kept: %s pays whoever shared this link. Tick “Also remove affiliate tags” to drop it.", strings.Join(affiliate, ", "))})
 	}
-	if len(res.Removed) == 0 && res.Unwrapped == "" {
+	if len(res.Removed) == 0 && res.Unwrapped == "" && web {
 		res.Notes = append(res.Notes, Note{SevOK, "Nothing to remove", catalogScope})
 	}
 	return res, nil

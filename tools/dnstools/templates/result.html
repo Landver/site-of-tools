@@ -23,8 +23,8 @@
     {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate.</span>
     {{else if .NXDomain}}<span class="text-faint">Not applicable: there is no record to validate</span>
     {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures</span>
-    {{else if .Unvalidated}}<span class="text-warn">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
-    {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
+    {{else if .Unvalidated}}<span class="text-warn-ink">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
+    {{else if .Signed}}<span class="text-warn-ink">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
     {{else}}<span class="text-faint">Unsigned</span>{{end}}
     {{/* Not when the lead card above already carries the same link. */}}
     {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName (or .Found .Missing)}}
@@ -50,8 +50,8 @@
 
 {{/* A value linked onward: an address to IP Tools, a host to its lookup. */}}
 {{define "dns/value"}}
-{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
-{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
+{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
+{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
 {{else}}{{.Value}}{{end}}
 {{end}}
 
@@ -73,7 +73,7 @@
     <div class="card sm:col-span-2">
       <h2 class="eyebrow">not found</h2>
       <p class="text-sm">
-        <span class="block text-base font-medium text-warn">This name does not exist.</span>
+        <span class="block text-base font-medium text-warn-ink">This name does not exist.</span>
         <span class="mt-1 block text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
       </p>
       {{with $page.NavName}}
@@ -115,7 +115,7 @@
       {{if and .Chain (gt .Asked 1)}}
       <p class="mb-3 text-xs text-muted">
         <span class="font-mono text-strong">{{$page.Query}}</span> is an alias
-        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-line-strong underline-offset-4 hover:text-brand">{{.Target}}</a> {{end}}
+        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-line-strong underline-offset-4 hover:text-brand-ink">{{.Target}}</a> {{end}}
         <span class="text-faint">· apart from the CNAME itself, every record below is the last name's.</span>
       </p>
       {{end}}

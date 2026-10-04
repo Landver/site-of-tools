@@ -99,14 +99,14 @@
       {{if eq .DNSSEC "secure"}}
         <span class="block text-base font-medium text-ok">Signed, and the chain checks out.</span>
       {{else if and (eq .DNSSEC "insecure") (eq .Verdict.Level "warn")}}
-        <span class="block text-base font-medium text-warn">Signed, but the parent has no DS record for it.</span>
+        <span class="block text-base font-medium text-warn-ink">Signed, but the parent has no DS record for it.</span>
       {{else if eq .DNSSEC "insecure"}}
         <span class="block text-base font-medium text-strong">Not signed with DNSSEC.</span>
       {{else if and (eq .DNSSEC "indeterminate") .AnswerRcode}}
         {{/* The walk finished and found nothing; the paragraph has the caveat. */}}
         <span class="block text-base font-medium text-strong">{{if eq .AnswerRcode "NXDOMAIN"}}The zone says this name does not exist.{{else}}The zone says it has no {{.Type}} record.{{end}}</span>
       {{else if eq .DNSSEC "indeterminate"}}
-        <span class="block text-base font-medium text-warn">No verdict: this walk could not check it.</span>
+        <span class="block text-base font-medium text-warn-ink">No verdict: this walk could not check it.</span>
       {{else}}
         <span class="block text-base font-medium text-danger">The chain of trust is broken.</span>
       {{end}}
@@ -115,7 +115,7 @@
 
     {{if .Answer}}
     {{$addr := or (eq .Type "A") (eq .Type "AAAA")}}
-    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{$v}}<span class="sr-only"> in IP Tools</span></a>{{else}}{{$v}}{{end}}{{end}}</div>
+    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{$v}}<span class="sr-only"> in IP Tools</span></a>{{else}}{{$v}}{{end}}{{end}}</div>
     {{else if .CNAME}}
     <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">alias → {{.CNAME}}</div>
     <a href="/trace?name={{.CNAME}}{{if ne .Type "A"}}&amp;type={{.Type}}{{end}}" class="mt-1 inline-block text-xs link-brand">Trace where it points</a>
@@ -193,7 +193,7 @@
              resolver has to go and find the child's own nameservers somewhere
              else before it can carry on. */}}
         {{if .GlueMissing}}
-        <div class="mt-1 text-xs text-warn">
+        <div class="mt-1 text-xs text-warn-ink">
           No glue for a nameserver inside the zone being delegated, so resolving this name needs an extra detour before it can continue.
         </div>
         {{end}}
@@ -244,7 +244,7 @@
                place, and it is also the one a lost packet produces, so it
                reads as "not checked" — which is the whole claim. */}}
           <span class="text-xs
-                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if or (eq .Status "indeterminate") .KeysWithoutDS}}text-warn{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else if .KeysWithoutDS}}keys, but no DS{{else if eq .Status "secure"}}verified{{else if eq .Status "insecure"}}unsigned{{else if eq .Status "bogus"}}broken{{else}}{{.Status}}{{end}}</span>
+                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if or (eq .Status "indeterminate") .KeysWithoutDS}}text-warn-ink{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else if .KeysWithoutDS}}keys, but no DS{{else if eq .Status "secure"}}verified{{else if eq .Status "insecure"}}unsigned{{else if eq .Status "bogus"}}broken{{else}}{{.Status}}{{end}}</span>
           <span class="text-xs text-faint">vouched for by {{if eq .Parent "."}}. (root){{else if eq .Parent "IANA trust anchor"}}the IANA trust anchor{{else}}{{.Parent}}{{end}}</span>
         </div>
         <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>

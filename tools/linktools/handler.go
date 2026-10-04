@@ -2,9 +2,12 @@ package linktools
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -16,12 +19,12 @@ import (
 // shared/templates/partials/head.html via the "Desc" view-model key.
 const (
 	inspectDesc  = "Take a URL apart: every query parameter decoded and kept in order, repeated keys shown as repeats, comma-lists split and counted, double-encoded values peeled layer by layer, and the fragment parsed instead of thrown away. Nothing is fetched. Free, open source, JSON API included."
-	cleanDesc    = "Strip tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
+	cleanDesc    = "Remove tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
 	traceDesc    = "Follow a link hop by hop without opening it: every redirect with its status, timing and cookies, and an honest answer when the chain continues somewhere an HTTP client cannot follow. Ask as Googlebot, Slackbot or a browser."
 	shortDesc    = "Short links on a domain I own. Not a public shortener: creating one needs a key, deliberately and permanently."
-	diffDesc     = "Compare two URLs parameter by parameter: what was added, removed, changed or merely reordered. The tool for 'why does staging behave differently from production'."
+	diffDesc     = "Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved. The tool for 'why does staging behave differently from production'."
 	encodingDesc = "What percent-encoding actually reserves, and why the same characters mean different things in a path, a query and a fragment. Including the '+' that is a space in one and a literal plus in the other."
-	rulesDesc    = "Every tracking parameter this tool strips, who sets it, and what it identifies. Curated and hand-maintained, not exhaustive, and here in full so you can check it."
+	rulesDesc    = "Every tracking parameter this tool removes, who sets it, and what it identifies. Curated and hand-maintained, not exhaustive, and here in full so you can check it."
 	privacyDesc  = "What the Corpberry Link browser extension sends, stores and does not collect."
 )
 
@@ -54,6 +57,8 @@ const (
 // recentLimit bounds the key-gated console list.
 const recentLimit = 50
 
+const minTTL = time.Minute
+
 // handler: transport-layer dependencies for link.corpberry.com.
 //
 // svc is required — a nil one can only be a wiring mistake, and left to be
@@ -82,6 +87,7 @@ type handler struct {
 //	POST /short             Create an alias (key required)
 //	GET  /s/:code           The redirect itself
 //	GET  /curl              URL <-> curl command, both directions
+//	POST /curl              The paste direction, from the page's form
 //	GET  /extract           Pull every URL out of pasted text
 //	GET  /utm               Campaign URL builder
 //	GET  /encode            Encode / decode playground
@@ -101,6 +107,9 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/clean/rules", h.rules, pure)
 	e.GET("/diff", h.diff, pure)
 	e.GET("/curl", h.curl, pure)
+	// POST keeps a pasted command's cookies and tokens out of URLs, history and
+	// proxy logs, which the request-log redactor never sees. GET ?curl= stays.
+	e.POST("/curl", h.curl, pure)
 	e.GET("/extract", h.extract, pure)
 	e.POST("/extract", h.extract, pure)
 	e.GET("/utm", h.utm, pure)
@@ -108,7 +117,10 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/encoding", h.encoding)
 	e.GET("/extension/privacy", h.privacy)
 
-	e.GET("/trace", h.traceRoute, fetch)
+	// An empty form dials nothing, so it does not spend the trace budget.
+	e.GET("/trace", h.traceRoute, rateLimiterExcept(fetchRatePerSecond, fetchRateBurst, func(c *echo.Context) bool {
+		return strings.TrimSpace(c.QueryParam("u")) == ""
+	}))
 
 	// Both /short routes are on the strict limiter, not the pure one: the console
 	// is key-gated and reads the corpus, so it is not a cheap page (doc 06 §4).
@@ -138,6 +150,7 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 // html/template fail the render, while handing it the view-model map would leak
 // Title/Desc into the JSON body. Same split dnstools uses.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
+	platform.SetNegotiationHeaders(c, code)
 	switch {
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
@@ -148,10 +161,17 @@ func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag st
 }
 
 // vm builds the view-model keys every page needs.
-func (h *handler) vm(active, title, desc, query string) map[string]any {
+func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	return map[string]any{
-		"Active": active, "Title": title, "Desc": desc,
-		"Heading": title, "Query": query, "Base": h.base,
+		"Active": active, "Title": heading + " — Link Tools", "Desc": desc,
+		"Heading": heading, "Query": query, "Base": h.base,
+		"Examples": examples[active],
+	}
+}
+
+func listChanged(c *echo.Context) {
+	if platform.IsHTMX(c) {
+		c.Response().Header().Set("HX-Trigger", "link-list-changed")
 	}
 }
 
@@ -163,24 +183,57 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 		return false, nil
 	}
 	if platform.WantsJSON(c) {
-		return true, c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "no URL; pass ?u=, e.g. " + example,
-		})
+		return true, apiError(c, http.StatusBadRequest, "no URL; pass ?u=, e.g. "+example)
 	}
 	return true, reply(c, http.StatusOK, nil, vm, page, frag)
+}
+
+func apiError(c *echo.Context, code int, msg string) error {
+	platform.SetNegotiationHeaders(c, code)
+	return c.JSON(code, map[string]string{"error": msg})
+}
+
+type suggestion struct {
+	Label, Action, Field, Value string
+}
+
+// wrongTool answers input that belongs on another page with a 400 and a POST
+// button there, so a curl command's cookies never ride in a URL. Reports
+// whether it answered.
+func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string) (bool, error) {
+	var msg string
+	switch WrongTool(raw) {
+	case ToolCurl:
+		msg = "That looks like a curl command, not a URL."
+		label := "Take it apart on the curl page"
+		if page == "link/curl" {
+			label = "Take it apart instead"
+		}
+		vm["Suggest"] = suggestion{Label: label, Action: "/curl", Field: "curl", Value: raw}
+	case ToolExtract:
+		msg = "That looks like text with links in it, not one URL."
+		vm["Suggest"] = suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: raw}
+	default:
+		return false, nil
+	}
+	vm["Error"] = msg
+	return true, reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
 // --- inspect ---------------------------------------------------------------
 
 func (h *handler) inspect(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	vm := h.vm("inspect", "Inspect a URL — Link Tools", inspectDesc, raw)
+	vm := h.vm("inspect", "Inspect a URL", inspectDesc, raw)
 
 	if done, err := h.needURL(c, raw, vm, "link/index", "link/inspect",
 		"?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1"); done {
 		return err
 	}
 
+	if done, err := h.wrongTool(c, vm, raw, "link/index"); done {
+		return err
+	}
 	res, err := h.svc.Parse(raw)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/index")
@@ -198,7 +251,7 @@ func (h *handler) clean(c *echo.Context) error {
 		StripAffiliate: c.QueryParam("affiliate") == "true",
 		Unwrap:         c.QueryParam("unwrap") != "false", // on by default: it is the whole point
 	}
-	vm := h.vm("clean", "Clean a URL — Link Tools", cleanDesc, raw)
+	vm := h.vm("clean", "Clean a URL", cleanDesc, raw)
 	vm["Sort"], vm["Affiliate"], vm["Unwrap"] = opt.Sort, opt.StripAffiliate, opt.Unwrap
 
 	if done, err := h.needURL(c, raw, vm, "link/clean", "link/cleaned",
@@ -206,12 +259,40 @@ func (h *handler) clean(c *echo.Context) error {
 		return err
 	}
 
+	if done, err := h.wrongTool(c, vm, raw, "link/clean"); done {
+		return err
+	}
 	res, err := h.svc.Clean(raw, opt)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/clean")
 	}
-	vm["Result"] = res
+	vm["Result"], vm["Groups"] = res, groupRemovals(res.Removed)
 	return reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
+}
+
+// removalGroup is one rule's removals, so the page prints its reason once.
+// The JSON keeps the flat list.
+type removalGroup struct {
+	Pattern string // the rule's parameter pattern, e.g. "utm_*"
+	Why     string
+	Params  []Removal
+}
+
+// groupRemovals folds Removals by rule, in order of first appearance.
+func groupRemovals(rs []Removal) []removalGroup {
+	var out []removalGroup
+	at := map[string]int{}
+	for _, r := range rs {
+		i, ok := at[r.Rule]
+		if !ok {
+			pattern, _, _ := strings.Cut(r.Rule, " · ")
+			i = len(out)
+			at[r.Rule] = i
+			out = append(out, removalGroup{Pattern: pattern, Why: r.Why})
+		}
+		out[i].Params = append(out[i].Params, r)
+	}
+	return out
 }
 
 // rules serves the rule table. Content-negotiated rather than a ".json"
@@ -221,12 +302,17 @@ func (h *handler) clean(c *echo.Context) error {
 // discharges the promise to state the catalog's scope rather than being magic.
 func (h *handler) rules(c *echo.Context) error {
 	cat := Rules()
-	vm := h.vm("clean", "Tracking rules — Link Tools", rulesDesc, "")
+	vm := h.vm("clean", "Tracking rules", rulesDesc, "")
 	vm["Catalog"] = cat
-	// Cheap validator for the extension's daily refresh.
-	c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
-	if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
-		return c.NoContent(http.StatusNotModified)
+	// Cheap validator for the extension's daily refresh. JSON only: the
+	// catalog version says nothing about the page template around it.
+	if platform.WantsJSON(c) {
+		c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
+		if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
+			// A 304 carries the Vary its 200 would have (RFC 9110 §15.4.5).
+			platform.SetNegotiationHeaders(c, http.StatusNotModified)
+			return c.NoContent(http.StatusNotModified)
+		}
 	}
 	// Page and fragment differ, as on /short: serving the page to htmx would
 	// swap a whole <html> document into a div.
@@ -239,26 +325,35 @@ func (h *handler) rules(c *echo.Context) error {
 func (h *handler) diff(c *echo.Context) error {
 	a := strings.TrimSpace(c.QueryParam("a"))
 	b := strings.TrimSpace(c.QueryParam("b"))
-	vm := h.vm("diff", "Compare two URLs — Link Tools", diffDesc, "")
+	vm := h.vm("diff", "Compare two URLs", diffDesc, "")
 	vm["A"], vm["B"] = a, b
 
 	if a == "" || b == "" {
 		if platform.WantsJSON(c) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "pass both ?a= and ?b="})
+			return apiError(c, http.StatusBadRequest, "pass both ?a= and ?b=")
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
+	for _, side := range []string{a, b} {
+		if done, err := h.wrongTool(c, vm, side, "link/diff"); done {
+			return err
+		}
+	}
 	ia, err := h.svc.Parse(a)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/diff")
+		return h.badRequest(c, vm, sideError("A", err), "link/diff")
 	}
 	ib, err := h.svc.Parse(b)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/diff")
+		return h.badRequest(c, vm, sideError("B", err), "link/diff")
 	}
 	res := DiffInspections(ia, ib)
 	vm["Result"] = res
 	return reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
+}
+
+func sideError(side string, err error) error {
+	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
 
 // --- trace -----------------------------------------------------------------
@@ -266,7 +361,7 @@ func (h *handler) diff(c *echo.Context) error {
 func (h *handler) traceRoute(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	persona := strings.TrimSpace(c.QueryParam("ua"))
-	vm := h.vm("trace", "Trace a redirect chain — Link Tools", traceDesc, raw)
+	vm := h.vm("trace", "Trace a redirect chain", traceDesc, raw)
 	vm["Personas"], vm["Persona"] = Personas(), persona
 	vm["Disabled"] = h.trace == nil
 
@@ -279,6 +374,9 @@ func (h *handler) traceRoute(c *echo.Context) error {
 		return err
 	}
 
+	if done, err := h.wrongTool(c, vm, raw, "link/trace"); done {
+		return err
+	}
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
 		if errors.Is(err, ErrDisabled) {
@@ -309,7 +407,7 @@ func (h *handler) shortOff(c *echo.Context, vm map[string]any) error {
 // which defeats the code entropy outright and turns the hit counter into a
 // read-receipt oracle (docs/04-short-links.md §8).
 func (h *handler) shortConsole(c *echo.Context) error {
-	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	vm := h.vm("short", "Short links", shortDesc, "")
 	if !h.short.HasKey() {
 		return h.shortOff(c, vm)
 	}
@@ -346,7 +444,7 @@ type createRequest struct {
 }
 
 func (h *handler) shortCreate(c *echo.Context) error {
-	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	vm := h.vm("short", "Short links", shortDesc, "")
 	if !h.short.HasKey() {
 		return h.shortOff(c, vm)
 	}
@@ -368,6 +466,10 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		if err != nil {
 			return h.badRequest(c, vm, errors.New("ttl is not a duration, e.g. 720h"), "link/short")
 		}
+		// CreateOptions reads <= 0 as permanent; leaving ttl out asks for that.
+		if d < minTTL {
+			return h.badRequest(c, vm, errors.New("ttl must be at least 1m; leave it out for a link that never expires"), "link/short")
+		}
 		opt.TTL = d
 	}
 
@@ -386,7 +488,11 @@ func (h *handler) shortCreate(c *echo.Context) error {
 	if len(link.Cleaned) > 0 {
 		out["cleaned"] = link.Cleaned
 	}
-	vm["Created"] = map[string]any{"Short": h.short.ShortURL(link.Code), "Cleaned": link.Cleaned}
+	vm["Created"] = map[string]any{
+		"Short": h.short.ShortURL(link.Code), "Target": link.Target, "Cleaned": link.Cleaned,
+		"Note": link.Note, "ExpiresAt": link.ExpiresAt,
+	}
+	listChanged(c)
 	return reply(c, http.StatusCreated, out, vm, "link/short", "link/created")
 }
 
@@ -398,11 +504,11 @@ func (h *handler) createError(c *echo.Context, vm map[string]any, err error) err
 	case errors.Is(err, ErrSlugTaken):
 		// 409, never a silently-suffixed slug: guessing what the caller meant
 		// is how "my-link-2" ends up in someone's slide deck.
-		return h.fail(c, vm, http.StatusConflict, err.Error(), "link/short")
+		return h.failErr(c, vm, http.StatusConflict, err, "link/short")
 	case errors.Is(err, ErrDisabled):
-		return h.fail(c, vm, http.StatusServiceUnavailable, err.Error(), "link/short")
+		return h.failErr(c, vm, http.StatusServiceUnavailable, err, "link/short")
 	case errors.Is(err, ErrInvalidTarget), errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidNote):
-		return h.fail(c, vm, http.StatusBadRequest, err.Error(), "link/short")
+		return h.failErr(c, vm, http.StatusBadRequest, err, "link/short")
 	}
 	// Anything else is a storage or driver failure. Those messages can carry
 	// connection strings and internal topology, so the client gets a fixed
@@ -422,6 +528,13 @@ func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page s
 	return reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
+// failErr gives JSON the Go error string, as the API always has, and the page
+// a sentence.
+func (h *handler) failErr(c *echo.Context, vm map[string]any, code int, err error, page string) error {
+	vm["Error"] = sentence(err.Error())
+	return reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
+}
+
 // consoleRow is the console's view of a Link: everything the page renders and
 // nothing it does not. Exists so CreatedIP cannot reach a template at all.
 type consoleRow struct {
@@ -437,15 +550,27 @@ type consoleRow struct {
 	CreatedAt time.Time
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
+	// Expires carries the time only within two days of the expiry.
+	Expired bool
+	Expires string
 }
 
 func consoleRows(s *Shortener, links []Link) []consoleRow {
+	now := time.Now()
 	out := make([]consoleRow, 0, len(links))
 	for _, l := range links {
-		out = append(out, consoleRow{
+		row := consoleRow{
 			Code: l.Code, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note, Hits: l.Hits,
-			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt,
-		})
+			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt, Expires: "Never",
+		}
+		if e := l.ExpiresAt; e != nil {
+			row.Expired = !e.After(now)
+			row.Expires = e.UTC().Format("2 Jan 2006")
+			if d := e.Sub(now); d > -48*time.Hour && d < 48*time.Hour {
+				row.Expires = e.UTC().Format("2 Jan 2006, 15:04 UTC")
+			}
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -456,7 +581,7 @@ func consoleRows(s *Shortener, links []Link) []consoleRow {
 // re-registered to a different target silently changes where every existing
 // copy of that link goes (docs/04-short-links.md §4).
 func (h *handler) shortRevoke(c *echo.Context) error {
-	vm := h.vm("short", "Short links — Link Tools", shortDesc, "")
+	vm := h.vm("short", "Short links", shortDesc, "")
 	if !h.short.HasKey() {
 		return h.shortOff(c, vm)
 	}
@@ -466,11 +591,12 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 	}
 	if err := h.short.Revoke(c.Request().Context(), c.Param("code")); err != nil {
 		if errors.Is(err, ErrLinkNotFound) {
-			return h.fail(c, vm, http.StatusNotFound, "no such link", "link/short")
+			return h.fail(c, vm, http.StatusNotFound, "No such short link.", "link/short")
 		}
 		return h.storageError(c, vm, err, "link/short")
 	}
 	vm["Revoked"] = c.Param("code")
+	listChanged(c)
 	return reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
 		vm, "link/short", "link/revoked")
 }
@@ -502,6 +628,9 @@ func (h *handler) redirect(c *echo.Context) error {
 	if err != nil {
 		// One status for expired, revoked and never-existed. Telling them apart
 		// is an existence oracle over the guessable custom-slug namespace.
+		if !platform.WantsJSON(c) {
+			return c.Render(http.StatusNotFound, "link/gone", h.vm("", "Short link not found", shortDesc, ""))
+		}
 		return c.String(http.StatusNotFound, "no such link")
 	}
 
@@ -518,7 +647,7 @@ func (h *handler) redirect(c *echo.Context) error {
 
 // --- curl ------------------------------------------------------------------
 
-const curlDesc = "Turn a URL into a runnable curl command, or paste a curl command (including Chrome's Copy as cURL) and get the URL and headers taken apart. The second direction is the useful one."
+const curlDesc = "Paste a curl command, including Chrome's Copy as cURL, and get its URL, method and headers taken apart. Or turn a URL into a safely quoted curl command."
 
 // curl runs both ways. The inverse — pasting a command and getting the URL
 // parsed — is the genuinely useful half: people copy curl lines out of
@@ -526,30 +655,58 @@ const curlDesc = "Turn a URL into a runnable curl command, or paste a curl comma
 func (h *handler) curl(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	cmd := strings.TrimSpace(c.QueryParam("curl"))
-	vm := h.vm("curl", "URL and curl — Link Tools", curlDesc, raw)
+	if cmd == "" && c.Request().Method == http.MethodPost {
+		cmd = strings.TrimSpace(c.FormValue("curl"))
+	}
+	vm := h.vm("curl", "Take apart or build a curl command", curlDesc, raw)
 	vm["Cmd"] = cmd
+	var paste, build []Example
+	for _, e := range examples["curl"] {
+		if strings.Contains(e.Href, "?curl=") {
+			paste = append(paste, e)
+		} else {
+			build = append(build, e)
+		}
+	}
+	vm["Examples"], vm["BuildExamples"], vm["EmptyExamples"] = paste, build, build
+	if c.Request().Method == http.MethodPost {
+		vm["EmptyExamples"] = paste
+	}
 	// Set before the empty-input branch below, not only on the ?u= path: the
 	// bare page renders the form too, and without these the "Ask as" select had
 	// nothing to list, so the persona feature was unreachable until after a
 	// first conversion.
 	vm["Personas"], vm["Persona"] = Personas(), c.QueryParam("ua")
 
+	postReset(c, "/curl")
 	if cmd != "" {
-		u, headers, err := h.svc.FromCurl(cmd)
+		req, err := h.svc.FromCurlRequest(cmd)
 		if err != nil {
 			return h.badRequest(c, vm, err, "link/curl")
 		}
-		in, perr := h.svc.Parse(u)
+		in, perr := h.svc.Parse(req.URL)
 		if perr != nil {
 			return h.badRequest(c, vm, perr, "link/curl")
 		}
-		out := map[string]any{"url": u, "headers": headers, "inspection": in}
-		vm["FromCurl"], vm["Headers"], vm["Result"] = u, headers, in
+		out := map[string]any{
+			"url": req.URL, "headers": req.Headers, "inspection": in,
+			"method": req.Method, "method_why": req.MethodWhy,
+		}
+		if req.BodyBytes > 0 {
+			out["body_bytes"] = req.BodyBytes
+		}
+		if len(req.Notes) > 0 {
+			out["notes"] = req.Notes
+		}
+		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = req.URL, req.Headers, in, req
 		return reply(c, http.StatusOK, out, vm, "link/curl", "link/curled")
 	}
 
 	if done, err := h.needURL(c, raw, vm, "link/curl", "link/curled",
 		"?u=https%3A%2F%2Fexample.com%2F"); done {
+		return err
+	}
+	if done, err := h.wrongTool(c, vm, raw, "link/curl"); done {
 		return err
 	}
 	opt := CurlOptions{
@@ -566,6 +723,14 @@ func (h *handler) curl(c *echo.Context) error {
 	return reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
+// postReset drops an example chip's ?curl= or ?text= from the address bar
+// after an htmx POST, so a reload doesn't bring the example back.
+func postReset(c *echo.Context, path string) {
+	if c.Request().Method == http.MethodPost && platform.IsHTMX(c) {
+		c.Response().Header().Set("HX-Replace-Url", path)
+	}
+}
+
 // --- extract ---------------------------------------------------------------
 
 const extractDesc = "Paste HTML, Markdown or an email and get every link out, deduplicated and counted, with its anchor text. Nothing is fetched: this is for auditing links before they go out, not for checking whether they work."
@@ -579,12 +744,13 @@ func (h *handler) extract(c *echo.Context) error {
 		text = c.FormValue("text")
 	}
 	text = strings.TrimSpace(text)
-	vm := h.vm("extract", "Extract links — Link Tools", extractDesc, "")
+	vm := h.vm("extract", "Extract links", extractDesc, "")
 	vm["Text"] = text
+	postReset(c, "/extract")
 
 	if text == "" {
 		if platform.WantsJSON(c) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no text; pass ?text= or POST a text field"})
+			return apiError(c, http.StatusBadRequest, "no text; pass ?text= or POST a text field")
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/extract", "link/extracted")
 	}
@@ -598,85 +764,66 @@ func (h *handler) extract(c *echo.Context) error {
 
 // --- utm -------------------------------------------------------------------
 
-const utmDesc = "Build a campaign-tagged URL from its parts. The inverse of the Clean page, on the same rule table, so the parameters it adds are exactly the ones Clean knows how to remove."
+const utmDesc = "Add UTM campaign tags to a URL: the utm_ parameters Google Analytics and most analytics tools read to credit a visit to a campaign. Tags already on the URL are kept unless you replace them."
 
-// utmFields are the five standard campaign parameters, in the order Google
-// documents them.
-var utmFields = []string{"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
+type utmField struct {
+	Name, Placeholder, Hint, Value string
+}
+
+var utmHelp = map[string][2]string{
+	"utm_source":   {"newsletter", "Where the traffic comes from. The one most analytics tools require."},
+	"utm_medium":   {"email", "How it arrives: email, cpc, social, referral."},
+	"utm_campaign": {"spring-launch", "Which campaign the link belongs to."},
+	"utm_term":     {"running-shoes", "The paid keyword, for search ads."},
+	"utm_content":  {"header-button", "Which link it was, when a campaign has several. The A/B field."},
+}
+
+// utmCommon fields show unfolded; term and content are for paid search and A/B tests.
+const utmCommon = 3
 
 func (h *handler) utm(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	vm := h.vm("utm", "Campaign URL builder — Link Tools", utmDesc, raw)
-	vm["Fields"] = utmFields
+	vm := h.vm("utm", "Build a campaign URL", utmDesc, raw)
 
-	values := map[string]string{}
-	for _, f := range utmFields {
-		values[f] = strings.TrimSpace(c.QueryParam(f))
+	fields := make([]utmField, len(UTMKeys))
+	typed := map[string]string{}
+	rare, anyTag := false, false // a folded field has a value / any field does
+	for i, key := range UTMKeys {
+		v := strings.TrimSpace(c.QueryParam(key))
+		fields[i] = utmField{Name: key, Placeholder: utmHelp[key][0], Hint: utmHelp[key][1], Value: v}
+		typed[key] = v
+		rare = rare || (i >= utmCommon && v != "")
+		anyTag = anyTag || v != ""
 	}
-	vm["Values"] = values
+	vm["Common"], vm["Rare"], vm["RareOpen"], vm["AnyTag"] = fields[:utmCommon], fields[utmCommon:], rare, anyTag
 
 	if done, err := h.needURL(c, raw, vm, "link/utm", "link/utmbuilt",
 		"?u=https%3A%2F%2Fexample.com%2F&utm_source=newsletter"); done {
 		return err
 	}
 
-	in, err := h.svc.Parse(raw)
+	if done, err := h.wrongTool(c, vm, raw, "link/utm"); done {
+		return err
+	}
+	res, err := h.svc.BuildUTM(raw, typed)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/utm")
 	}
-	// Replace an existing value rather than appending a second copy: two
-	// utm_source parameters is a real bug and building one deliberately would
-	// be an odd thing for this page to do.
-	for _, f := range utmFields {
-		v := values[f]
-		in.Params = upsertParam(in.Params, f, v)
-	}
-	built, err := h.svc.Rebuild(in)
-	if err != nil {
-		return h.badRequest(c, vm, err, "link/utm")
-	}
-	vm["Built"] = built
-	return reply(c, http.StatusOK, map[string]any{"url": built}, vm, "link/utm", "link/utmbuilt")
-}
-
-// upsertParam sets key to value, replacing the first occurrence and dropping
-// the rest; an empty value removes the key entirely.
-func upsertParam(ps []Param, key, value string) []Param {
-	out := make([]Param, 0, len(ps)+1)
-	done := false
-	for _, p := range ps {
-		if p.Key != key {
-			out = append(out, p)
-			continue
-		}
-		if done || value == "" {
-			continue
-		}
-		p.Value, p.RawValue, p.Layers, p.List, p.Delimiter = value, "", nil, nil, ""
-		p.Valueless, p.Warn, p.AltValue = false, "", ""
-		out = append(out, p)
-		done = true
-	}
-	if !done && value != "" {
-		out = append(out, Param{Index: len(out) + 1, Key: key, Value: value})
-	}
-	for i := range out {
-		out[i].Index = i + 1
-	}
-	return out
+	vm["Result"] = res
+	return reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
 }
 
 // --- encode ----------------------------------------------------------------
 
-const encodeDesc = "Percent-encode and decode with the right rules for where the value goes: a query and a path escape differently, and the difference is what breaks base64 values. Plus base64, base64url and the decode ladder."
+const encodeDesc = "Percent-encode and decode with the right rules for where the value goes: a query and a path escape differently, and the difference is what breaks base64 values. Plus base64, base64url and multi-layer decoding."
 
 func (h *handler) encode(c *echo.Context) error {
 	v := c.QueryParam("v")
-	vm := h.vm("encode", "Encode and decode — Link Tools", encodeDesc, "")
+	vm := h.vm("encode", "Encode and decode", encodeDesc, "")
 	vm["Value"] = v
 	if v == "" {
 		if platform.WantsJSON(c) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no value; pass ?v="})
+			return apiError(c, http.StatusBadRequest, "no value; pass ?v=")
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/encode", "link/encoded")
 	}
@@ -694,19 +841,33 @@ func (h *handler) encode(c *echo.Context) error {
 // hx-get — adding one would need a fragment first (golden rule #2).
 func (h *handler) encoding(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/encoding",
-		h.vm("encoding", "Percent-encoding reference — Link Tools", encodingDesc, ""))
+		h.vm("encoding", "Percent-encoding reference", encodingDesc, ""))
 }
 
 func (h *handler) privacy(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/privacy",
-		h.vm("", "Extension privacy — Link Tools", privacyDesc, ""))
+		h.vm("", "Extension privacy", privacyDesc, ""))
 }
 
 // --- shared error paths ----------------------------------------------------
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
-	vm["Error"] = err.Error()
-	return reply(c, http.StatusBadRequest, map[string]string{"error": err.Error()}, vm, page, "link/error")
+	return h.failErr(c, vm, http.StatusBadRequest, err, page)
+}
+
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	// curl is a command's name, and keeps its case at the start of one too.
+	if r, size := utf8.DecodeRuneInString(s); unicode.IsLower(r) && !strings.HasPrefix(s, "curl ") {
+		s = string(unicode.ToUpper(r)) + s[size:]
+	}
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
 }
 
 // disabled answers 503, never 502: nothing failed, the feature is not running.
@@ -718,11 +879,16 @@ func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string)
 // --- middleware ------------------------------------------------------------
 
 func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
+	return rateLimiterExcept(rate, burst, nil)
+}
+
+func rateLimiterExcept(rate float64, burst int, skip func(*echo.Context) bool) echo.MiddlewareFunc {
 	store := middleware.NewRateLimiterMemoryStoreWithConfig(
 		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
 	)
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store: store,
+		Skipper: skip,
+		Store:   store,
 		IdentifierExtractor: func(c *echo.Context) (string, error) {
 			// Normalised, not the bare IP: an ordinary IPv6 client holds a /64,
 			// so a per-address bucket is not a limit at all.
@@ -730,9 +896,14 @@ func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
 		},
 		DenyHandler: func(c *echo.Context, _ string, _ error) error {
 			const msg = "Too many requests from your address. Try again in a few seconds."
+			// A link back to the refused page; a POST can't be replayed by one.
+			retry := c.Request().URL.Path
+			if c.Request().Method == http.MethodGet {
+				retry = c.Request().URL.RequestURI()
+			}
 			return reply(c, http.StatusTooManyRequests,
 				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down", "Desc": msg, "Error": msg},
+				map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
 				"link/ratelimited", "link/error")
 		},
 	})
@@ -757,12 +928,13 @@ func globalLimiter(rate float64, burst int) echo.MiddlewareFunc {
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
 //
 // Tool pages only. /s/:code is a redirect carrying X-Robots-Tag: noindex,
-// POST /short is not a page, and the privacy policy is a document nobody
+// /short is the owner's console, and the privacy policy is a document nobody
 // searches for — platform.BuildSitemap's own comment says transient and
 // non-page URLs have no business here.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
-		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"},
-		{Path: "/diff"}, {Path: "/trace"}, {Path: "/short"}, {Path: "/encoding"},
+		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"}, {Path: "/trace"},
+		{Path: "/diff"}, {Path: "/extract"}, {Path: "/utm"}, {Path: "/curl"},
+		{Path: "/encode"}, {Path: "/encoding"},
 	}, nil
 }

@@ -122,6 +122,7 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 //
 // page is the whole document a browser gets; frag is the slot htmx swaps.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
+	platform.SetNegotiationHeaders(c, code)
 	switch {
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)

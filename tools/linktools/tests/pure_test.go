@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -299,7 +300,7 @@ func TestExtractSaysSoWhenItFoundNothing(t *testing.T) {
 	if ex.Unique != 0 {
 		t.Fatalf("extracted %d URLs from prose containing a bare hostname; guessing invents links that are not in the text", ex.Unique)
 	}
-	if !hasNote(ex.Notes, linktools.SevInfo, "No URLs found") {
+	if !hasNote(ex.Notes, linktools.SevInfo, "No links found") {
 		t.Errorf("no note explaining the empty table: %+v", ex.Notes)
 	}
 }
@@ -600,7 +601,7 @@ func TestDiffNamesEveryKindOfChange(t *testing.T) {
 		{"added", "https://example.com/?a=1", "https://example.com/?a=1&b=2", "b", linktools.ChangeAdded},
 		{"removed", "https://example.com/?a=1&b=2", "https://example.com/?a=1", "b", linktools.ChangeRemoved},
 		{"modified", "https://example.com/?a=1", "https://example.com/?a=2", "a", linktools.ChangeModified},
-		{"moved", "https://example.com/?a=1&b=2", "https://example.com/?b=2&a=1", "a", linktools.ChangeMoved},
+		{"moved", "https://example.com/?a=1&b=2&c=3", "https://example.com/?b=2&c=3&a=1", "a", linktools.ChangeMoved},
 		{"same", "https://example.com/?a=1&b=2", "https://example.com/?a=1&b=3", "a", linktools.ChangeSame},
 	} {
 		got := changeFor(t, diffOf(t, tc.a, tc.b), tc.key).Kind
@@ -614,7 +615,7 @@ func TestDiffNamesEveryKindOfChange(t *testing.T) {
 // TestDiffReportsAReorderAsMoved, with the warning that makes it actionable.
 // Harmless to most servers and fatal to any URL whose signature covers the
 // literal query string, which is exactly why "nothing changed" is the wrong
-// answer here.
+// answer here. Only the parameter that moved is called moved.
 func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/?a=1&b=2&c=3", "https://example.com/?c=3&a=1&b=2")
@@ -624,13 +625,61 @@ func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	if len(d.Fields) != 0 {
 		t.Errorf("reordering the query reported a component change: %+v", d.Fields)
 	}
+	want := map[string]linktools.ChangeKind{"a": linktools.ChangeSame, "b": linktools.ChangeSame, "c": linktools.ChangeMoved}
 	for _, c := range d.Params {
-		if c.Kind != linktools.ChangeMoved {
-			t.Errorf("%q reported as %q; nothing was added, removed or changed", c.Key, c.Kind)
+		if c.Kind != want[c.Key] {
+			t.Errorf("%q reported as %q, want %q", c.Key, c.Kind, want[c.Key])
 		}
 	}
 	if !hasNote(d.Notes, linktools.SevWarn, "Only the order changed") {
 		t.Errorf("no note naming the reorder: %+v", d.Notes)
+	}
+}
+
+// TestDiffDoesNotCallARemovalAReorder: dropping the first parameter shifts the
+// rest without moving them, as every cleaned URL's diff does.
+func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
+	t.Parallel()
+	d := diffOf(t, "https://example.com/p?utm_source=x&id=42&page=2&lang=en", "https://example.com/p?id=42&page=2&lang=en")
+	for _, c := range d.Params {
+		want := linktools.ChangeSame
+		if c.Key == "utm_source" {
+			want = linktools.ChangeRemoved
+		}
+		if c.Kind != want {
+			t.Errorf("%q reported as %q, want %q", c.Key, c.Kind, want)
+		}
+	}
+	if got := d.Summary(); got != "Parameters: 1 removed." {
+		t.Errorf("summary %q, want just the removal", got)
+	}
+}
+
+// TestDiffCallsSpellingCosmetic: host case, a default port and a dot segment
+// are listed but not counted as differences.
+func TestDiffCallsSpellingCosmetic(t *testing.T) {
+	t.Parallel()
+	d := diffOf(t, "HTTPS://Example.com:443/a/./b?x=%7e", "https://example.com/a/b?x=~")
+	if !d.Identical {
+		t.Errorf("two spellings of one request reported as different: %s %+v", d.Summary(), d.Fields)
+	}
+	for _, f := range d.Fields {
+		if !f.Cosmetic {
+			t.Errorf("%s: %q vs %q is a spelling difference but was not marked cosmetic", f.Field, f.A, f.B)
+		}
+	}
+	if !hasNote(d.Notes, linktools.SevInfo, "Different text, same URL") {
+		t.Errorf("no note explaining the spelling difference: %+v", d.Notes)
+	}
+
+	// A real port is still a real difference, and so is %2F against a slash.
+	for _, pair := range [][2]string{
+		{"https://example.com:8443/", "https://example.com/"},
+		{"https://example.com/a%2Fb", "https://example.com/a/b"},
+	} {
+		if diffOf(t, pair[0], pair[1]).Identical {
+			t.Errorf("%s and %s called identical", pair[0], pair[1])
+		}
 	}
 }
 
@@ -769,5 +818,303 @@ func TestEncodeRunsTheSameLadderAsInspect(t *testing.T) {
 	}
 	if r.Input != "%2520" {
 		t.Errorf("input not echoed back unchanged: %q", r.Input)
+	}
+}
+
+// TestOrdinaryWordsAreNotBase64: eight base64-alphabet letters are as often a
+// word ("facebook") as an encoding.
+func TestOrdinaryWordsAreNotBase64(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	in, err := svc.Parse("https://example.com/?a=facebook&b=campaign&c=linkedin&d=aGVsbG8gd29ybGQ%3D&e=IwAR0Zx3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]linktools.Kind{"a": "", "b": "", "c": "", "d": linktools.KindBase64, "e": linktools.KindBase64}
+	for _, p := range in.Params {
+		if p.Kind != want[p.Key] {
+			t.Errorf("%s=%s classified %q, want %q", p.Key, p.Value, p.Kind, want[p.Key])
+		}
+	}
+}
+
+// TestUTMKeepsWhatItWasNotGiven: an empty field keeps the URL's tag, a typed one
+// replaces it, and the result says which was which.
+func TestUTMKeepsWhatItWasNotGiven(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.BuildUTM("https://example.com/landing?utm_source=old&utm_medium=email&x=1",
+		map[string]string{"utm_source": "newsletter", "utm_content": "header"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"utm_source=newsletter", "utm_medium=email", "x=1", "utm_content=header"} {
+		if !strings.Contains(res.URL, want) {
+			t.Errorf("built %q, missing %s", res.URL, want)
+		}
+	}
+	if strings.Contains(res.URL, "utm_source=old") {
+		t.Errorf("built %q: the typed utm_source did not replace the old one", res.URL)
+	}
+	got := map[string]linktools.UTMTag{}
+	for _, tag := range res.Tags {
+		got[tag.Key] = tag
+	}
+	if tag := got["utm_source"]; tag.Source != linktools.TagReplaced || tag.Was != "old" {
+		t.Errorf("utm_source = %+v, want replaced, was old", tag)
+	}
+	if tag := got["utm_medium"]; tag.Source != linktools.TagKept {
+		t.Errorf("utm_medium = %+v, want kept", tag)
+	}
+	if tag := got["utm_content"]; tag.Source != linktools.TagSet {
+		t.Errorf("utm_content = %+v, want set", tag)
+	}
+}
+
+// TestUTMAssumesHTTPSAndNamesItsWorries: a scheme-less URL gets https://, and
+// the hygiene notes come with the link.
+func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.BuildUTM("example.com/landing", map[string]string{"utm_medium": "Email", "utm_campaign": "fall sale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(res.URL, "https://example.com/landing?") {
+		t.Errorf("built %q, want an absolute https URL", res.URL)
+	}
+	for _, title := range []string{"No scheme", "No utm_source", "Capital letters in utm_medium", "Spaces in utm_campaign"} {
+		found := false
+		for _, n := range res.Notes {
+			found = found || n.Title == title
+		}
+		if !found {
+			t.Errorf("no %q note: %+v", title, res.Notes)
+		}
+	}
+
+	// The notes describe this URL: %20 for the space, the field's own noun.
+	for _, n := range res.Notes {
+		switch n.Title {
+		case "Spaces in utm_campaign":
+			if !strings.Contains(res.URL, "fall%20sale") || !strings.Contains(n.Detail, "%20") {
+				t.Errorf("space note %q does not match the URL %q", n.Detail, res.URL)
+			}
+		case "Capital letters in utm_medium":
+			if !strings.Contains(n.Detail, "“Email” and “email”") || !strings.Contains(n.Detail, "mediums") {
+				t.Errorf("capitals note = %q", n.Detail)
+			}
+		}
+	}
+	src, err := svc.BuildUTM("https://example.com/", map[string]string{"utm_source": "News"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range src.Notes {
+		if n.Title == "Capital letters in utm_source" && !strings.Contains(n.Detail, "two different sources") {
+			t.Errorf("capitals note on utm_source = %q, want it to say sources", n.Detail)
+		}
+	}
+}
+
+// TestExtractFlagsWhatAnAuditIsFor: a host mismatch, a javascript: link and a
+// mail wrapper are flagged on their rows; an honest link is not.
+func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	res, err := svc.Extract(`<p>
+		<a href="https://paypal.com.example.net/login">https://www.paypal.com/</a>
+		<a href="https://www.paypal.com/help">paypal.com</a>
+		<a href="javascript:alert(1)">open</a>
+		<a href="https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fevil.example%2F&amp;data=1">report</a>
+		<a href="https://example.com/sale?utm_source=x&amp;fbclid=y">our store</a>
+		<a href="https://example.com/sale?utm_source=x&amp;fbclid=y">fall sale</a>
+	</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string][]string{}
+	anchors := map[string][]string{}
+	for _, u := range res.URLs {
+		for _, f := range u.Flags {
+			flags[u.URL] = append(flags[u.URL], f.Severity+": "+f.Title)
+		}
+		anchors[u.URL] = u.Anchors
+	}
+	expect := map[string]string{
+		"https://paypal.com.example.net/login": "fail: Text shows www.paypal.com, link goes to paypal.com.example.net",
+		"javascript:alert(1)":                  "fail: javascript: link",
+		"https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fevil.example%2F&data=1": "warn: Microsoft Safe Links wrapper, really goes to evil.example",
+		"https://example.com/sale?utm_source=x&fbclid=y":                                           "info: 2 tracking parameters",
+	}
+	for u, want := range expect {
+		if !slices.Contains(flags[u], want) {
+			t.Errorf("%s: flags %q, want %q among them", u, flags[u], want)
+		}
+	}
+	if got := flags["https://www.paypal.com/help"]; len(got) != 0 {
+		t.Errorf("an honest link (paypal.com over www.paypal.com) was flagged: %q", got)
+	}
+	if got := anchors["https://example.com/sale?utm_source=x&fbclid=y"]; !slices.Equal(got, []string{"our store", "fall sale"}) {
+		t.Errorf("anchors = %q, want both link texts", got)
+	}
+	if !hasNote(res.Notes, linktools.SevWarn, "3 links worth a second look") {
+		t.Errorf("no summary note: %+v", res.Notes)
+	}
+}
+
+// TestNestedLinkIsReadable: a doubly encoded redirect parameter reports its link
+// decoded; only http(s) counts.
+func TestNestedLinkIsReadable(t *testing.T) {
+	t.Parallel()
+	in, err := linktools.NewService().Parse("https://example.com/out?next=https%253A%252F%252Fshop.example%252Fcart%253Fid%253D42&plain=https%3A%2F%2Fa.example%2F&js=javascript%3Aalert(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"next": "https://shop.example/cart?id=42", "plain": "https://a.example/", "js": ""}
+	for _, p := range in.Params {
+		if p.Nested != want[p.Key] {
+			t.Errorf("%s: nested = %q, want %q", p.Key, p.Nested, want[p.Key])
+		}
+	}
+}
+
+// TestQueryTokensAreFlagged: a token in the query is flagged, as one in the
+// fragment always was.
+func TestQueryTokensAreFlagged(t *testing.T) {
+	t.Parallel()
+	in, err := linktools.NewService().Parse("https://example.com/cb?access_token=abc&state=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasNote(in.Notes, linktools.SevWarn, "Credentials in the query string") {
+		t.Errorf("no warning for a token in the query: %+v", in.Notes)
+	}
+	clean, _ := linktools.NewService().Parse("https://example.com/search?q=token")
+	if hasNote(clean.Notes, linktools.SevWarn, "Credentials in the query string") {
+		t.Error("a query whose VALUE is the word token was flagged; only credential-named keys count")
+	}
+}
+
+// TestCurlCommandSaysHowItSends: the method is curl's own choice, with the
+// reason, and the body is measured but never echoed.
+func TestCurlCommandSaysHowItSends(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+	for _, tc := range []struct{ cmd, method, why string }{
+		{`curl 'https://api.example.com/x' --data-raw '{"a":1}'`, "POST", "implied by --data-raw"},
+		{`curl -X PUT https://api.example.com/x -d a=1`, "PUT", "set with -X"},
+		{`curl -sI https://example.com/`, "HEAD", "implied by -I"},
+		{`curl -G https://example.com/search -d q=shoes`, "GET", "-G moves the -d data into the query string"},
+		{`curl https://example.com/`, "GET", "curl's default"},
+	} {
+		r, err := svc.FromCurlRequest(tc.cmd)
+		if err != nil {
+			t.Errorf("%s: %v", tc.cmd, err)
+			continue
+		}
+		if r.Method != tc.method || r.MethodWhy != tc.why {
+			t.Errorf("%s: %s (%s), want %s (%s)", tc.cmd, r.Method, r.MethodWhy, tc.method, tc.why)
+		}
+	}
+	r, _ := svc.FromCurlRequest(`curl https://a.example/ --data-raw 'password=hunter2'`)
+	if r.BodyBytes != len("password=hunter2") {
+		t.Errorf("body measured as %d bytes", r.BodyBytes)
+	}
+}
+
+// TestParserEdgeCases pins parser corner cases.
+func TestParserEdgeCases(t *testing.T) {
+	t.Parallel()
+	svc := linktools.NewService()
+
+	// curl globs [] and {} unless told not to.
+	line, err := svc.ToCurl("https://example.com/?filter[status]=open&ids[]=1", linktools.CurlOptions{})
+	if err != nil || !strings.Contains(line, " -g ") {
+		t.Errorf("ToCurl with brackets = %q, %v; want -g", line, err)
+	}
+	if line, _ := svc.ToCurl("https://example.com/?a=1", linktools.CurlOptions{}); strings.Contains(line, "-g") {
+		t.Errorf("ToCurl added -g with nothing to glob: %q", line)
+	}
+
+	// The canonical form keeps an IPv6 literal's brackets.
+	if in, _ := svc.Parse("http://[::1]:80/"); in.Canonical != "http://[::1]/" {
+		t.Errorf("canonical = %q, want http://[::1]/", in.Canonical)
+	}
+
+	// A host that is an IPv4 address written as a number is named.
+	for _, host := range []string{"2130706433", "0x7f000001", "0177.1", "127.1"} {
+		in, _ := svc.Parse("http://" + host + "/")
+		if !hasNote(in.Notes, linktools.SevWarn, "Host is an IP address in disguise") {
+			t.Errorf("%s: no disguised-address note: %+v", host, in.Notes)
+		}
+	}
+	if in, _ := svc.Parse("http://example.com/"); hasNote(in.Notes, linktools.SevWarn, "Host is an IP address in disguise") {
+		t.Error("an ordinary host was called a disguised address")
+	}
+
+	// A browser rewrites a broken escape, so the page must not offer to open it.
+	if in, _ := svc.Parse("https://example.com/?a=%zz"); in.Linkable {
+		t.Error("a URL with a broken escape is marked linkable")
+	}
+
+	// The curl tokeniser says what a shell would have done.
+	if _, err := svc.FromCurlRequest(`curl 'https://example.com/`); err == nil {
+		t.Error("an unclosed quote was accepted")
+	}
+	r, err := svc.FromCurlRequest(`curl 'https://example.com/'; rm -rf /`)
+	if err != nil || r.URL != "https://example.com/" || !hasNote(r.Notes, linktools.SevWarn, "The command ends at an unquoted ;") {
+		t.Errorf("command with ; = %+v, %v", r, err)
+	}
+	r, _ = svc.FromCurlRequest(`curl "https://example.com/$HOME"`)
+	if !hasNote(r.Notes, linktools.SevInfo, "Shell expansion left as written") {
+		t.Errorf("no expansion note: %+v", r.Notes)
+	}
+	r, _ = svc.FromCurlRequest(`curl -u alice:hunter2 https://example.com/`)
+	found := false
+	for _, h := range r.Headers {
+		if h.Name == "Authorization" {
+			found = true
+			if strings.Contains(h.Value, "hunter2") {
+				t.Errorf("-u printed the password: %q", h.Value)
+			}
+		}
+	}
+	if !found {
+		t.Error("-u produced no Authorization row")
+	}
+	r, _ = svc.FromCurlRequest(`curl -G https://example.com/search --data-urlencode 'q=hello world'`)
+	if r.URL != "https://example.com/search?q=hello%20world" {
+		t.Errorf("-G URL = %q, want the data in the query", r.URL)
+	}
+	r, _ = svc.FromCurlRequest(`wget https://example.com/`)
+	if !hasNote(r.Notes, linktools.SevWarn, "Not a curl command") {
+		t.Errorf("a wget command was not called out: %+v", r.Notes)
+	}
+}
+
+// TestEncodeLeadsWithTheReading: base64 and JWTs lead with their decoding, the
+// ladder skips what is shown, and a trailing line break is named.
+func TestEncodeLeadsWithTheReading(t *testing.T) {
+	t.Parallel()
+	r := linktools.EncodeAll("aGVsbG8gd29ybGQ=")
+	if r.Reading == nil || r.Reading.Value != "hello world" {
+		t.Fatalf("Reading = %+v, want hello world", r.Reading)
+	}
+	for _, l := range r.Ladder {
+		if l.Value == "hello world" {
+			t.Errorf("the ladder repeats the reading: %+v", r.Ladder)
+		}
+	}
+	jwt := linktools.EncodeAll("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI0MiJ9.c2ln")
+	if jwt.Reading == nil || !strings.Contains(jwt.Reading.Value, `"sub": "42"`) || strings.Contains(jwt.Reading.Value, "signature not verified") {
+		t.Errorf("JWT reading = %+v", jwt.Reading)
+	}
+	if plain := linktools.EncodeAll("hello world"); plain.Reading != nil || len(plain.Notes) != 0 {
+		t.Errorf("plain text got a reading %+v or notes %+v", plain.Reading, plain.Notes)
+	}
+	nl := linktools.EncodeAll("a b\n")
+	if len(nl.Notes) != 1 || nl.Notes[0].Title != "Ends in a line break" {
+		t.Errorf("trailing newline notes = %+v", nl.Notes)
 	}
 }

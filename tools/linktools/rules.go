@@ -31,7 +31,7 @@ import (
 // RulesVersion is bumped by hand whenever either table changes. The extension
 // caches the catalog keyed on it (docs/05-extension.md §3), so it is part of the
 // API, not a comment. Date form because the tables are dated evidence.
-const RulesVersion = "2026-09-25"
+const RulesVersion = "2026-10-04"
 
 // catalogScope is the honest scope statement the rules page must show, verbatim
 // from the report §3.5. It is shipped as data so the page and the JSON API
@@ -170,13 +170,13 @@ type Deny struct {
 var trackingRules = []Rule{
 	// --- Google Ads and Analytics (report §1.1) ---
 	{Param: "gclid", Origin: "Google Ads", Class: ClassClick, Note: "Auto-tagged onto every ad click.", Doc: "https://support.google.com/google-ads/answer/6305348"},
-	{Param: "gclsrc", Origin: "Google Ads", Class: ClassClick, Note: "Names the click source (aw.ds, 3p.ds). Absent from all 733 ClearURLs rules."},
-	{Param: "gbraid", Origin: "Google Ads", Class: ClassClick, Note: "iOS web-to-app click cohort, added after ATT. Absent from ClearURLs.", Doc: "https://support.google.com/google-ads/answer/16297842"},
-	{Param: "wbraid", Origin: "Google Ads", Class: ClassClick, Note: "iOS app-to-web click cohort. Absent from ClearURLs.", Doc: "https://support.google.com/google-ads/answer/10417364"},
+	{Param: "gclsrc", Origin: "Google Ads", Class: ClassClick, Note: "Names the click source (aw.ds, 3p.ds)."},
+	{Param: "gbraid", Origin: "Google Ads", Class: ClassClick, Note: "iOS web-to-app click cohort, added after Apple's tracking prompt (ATT).", Doc: "https://support.google.com/google-ads/answer/16297842"},
+	{Param: "wbraid", Origin: "Google Ads", Class: ClassClick, Note: "iOS app-to-web click cohort.", Doc: "https://support.google.com/google-ads/answer/10417364"},
 	{Param: "dclid", Origin: "Campaign Manager 360", Class: ClassClick, Note: "Display click ID."},
 	{Param: "srsltid", Origin: "Google Merchant Center", Class: ClassClick, Note: "Attached to free product listings in search."},
-	{Param: "gad_source", Origin: "Google Ads", Class: ClassClick, Note: "Click surface, added 2023. Absent from ClearURLs."},
-	{Param: "gad_campaignid", Origin: "Google Ads", Class: ClassSession, Note: "Campaign ID, added 2024. Absent from ClearURLs."},
+	{Param: "gad_source", Origin: "Google Ads", Class: ClassClick, Note: "Click surface, added 2023."},
+	{Param: "gad_campaignid", Origin: "Google Ads", Class: ClassSession, Note: "Campaign ID, added 2024."},
 	{Param: "_gl", Origin: "Google Analytics 4", Class: ClassPerson, Note: "The cross-domain linker: Google's own docs say the cookies' client ID and session ID are passed between domains in this parameter.", Doc: "https://support.google.com/analytics/answer/10071811"},
 	{Param: "_ga", Origin: "Google Analytics", Class: ClassPerson, Note: "Legacy linker form of the client ID."},
 	{Param: "ga_", Prefix: true, Origin: "Google Analytics for email", Class: ClassSession, Note: "Legacy campaign family."},
@@ -198,7 +198,7 @@ var trackingRules = []Rule{
 
 	// --- Microsoft, TikTok, X, Yandex (report §1.3) ---
 	{Param: "msclkid", Origin: "Microsoft Advertising", Class: ClassClick, Note: "A 32-character GUID, unique per click, auto-tagged on by default.", Doc: "https://learn.microsoft.com/en-us/advertising/msa-help/hlp_ba_proc_microsoftclickid"},
-	{Param: "ttclid", Origin: "TikTok Ads", Class: ClassClick, Note: "TikTok tells advertisers to store it 28 days or more and replay it to the Events API. Absent from ClearURLs.", Doc: "https://ads.tiktok.com/help/article/tiktok-click-id"},
+	{Param: "ttclid", Origin: "TikTok Ads", Class: ClassClick, Note: "TikTok tells advertisers to store it 28 days or more and replay it to the Events API.", Doc: "https://ads.tiktok.com/help/article/tiktok-click-id"},
 	{Param: "tt_medium", Origin: "TikTok", Class: ClassSession},
 	{Param: "tt_content", Origin: "TikTok", Class: ClassSession},
 	{Param: "share_app_name", Hosts: []string{"tiktok.com"}, Origin: "TikTok", Class: ClassSession},
@@ -210,7 +210,7 @@ var trackingRules = []Rule{
 	// `t` is a share token on x.com and a video timestamp on YouTube, where it
 	// is in the deny set below.
 	{Param: "s", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Names the surface the link was shared from (s=20, s=46)."},
-	{Param: "t", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Opaque share token. On YouTube the same name is a timestamp and is never stripped."},
+	{Param: "t", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Opaque share token. On YouTube the same name is a timestamp and is never removed."},
 	{Param: "ref_src", Hosts: []string{"x.com", "twitter.com"}, Origin: "X embeds", Class: ClassSession},
 	{Param: "ref_url", Hosts: []string{"x.com", "twitter.com"}, Origin: "X embeds", Class: ClassSession, Note: "Carries the referring page's own URL."},
 	{Param: "yclid", Origin: "Yandex.Direct", Class: ClassClick},
@@ -218,7 +218,7 @@ var trackingRules = []Rule{
 
 	// --- Email and marketing automation (report §1.4) ---
 	{Param: "mc_cid", Origin: "Mailchimp", Class: ClassSession, Note: "The Mailchimp ID for the campaign that generated the link.", Doc: "https://mailchimp.com/developer/marketing/docs/e-commerce/"},
-	{Param: "mc_eid", Origin: "Mailchimp", Class: ClassPerson, Note: "The recipient's unique email ID: this names the person who was mailed.", Doc: "https://mailchimp.com/developer/marketing/docs/e-commerce/"},
+	{Param: "mc_eid", Origin: "Mailchimp", Class: ClassPerson, Note: "Your subscriber ID in the sender's Mailchimp list.", Doc: "https://mailchimp.com/developer/marketing/docs/e-commerce/"},
 	{Param: "mc_tc", Origin: "Mailchimp", Class: ClassSession},
 	{Param: "__hstc", Origin: "HubSpot", Class: ClassPerson, Note: "HubSpot's main visitor cookie, carrying hubspotutk.", Doc: "https://knowledge.hubspot.com/reports/what-cookies-does-hubspot-set-in-a-visitor-s-browser"},
 	{Param: "__hssc", Origin: "HubSpot", Class: ClassSession, Doc: "https://knowledge.hubspot.com/reports/what-cookies-does-hubspot-set-in-a-visitor-s-browser"},
@@ -256,7 +256,7 @@ var trackingRules = []Rule{
 	// the names are Instagram inventions that collide with nothing.
 	{Param: "igshid", Origin: "Instagram", Class: ClassSession, Note: "Share ID, added to links shared out of the app."},
 	{Param: "igsh", Origin: "Instagram", Class: ClassSession, Note: "Share ID, newer form."},
-	{Param: "si", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession, Note: "Share-attribution token. Not stripped on Spotify: there it is reported to gate access on playlist invites."},
+	{Param: "si", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession, Note: "Share-attribution token. Not removed on Spotify: there it is reported to gate access on playlist invites."},
 	{Param: "feature", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession},
 	{Param: "kw", Hosts: []string{"youtube.com"}, Origin: "YouTube", Class: ClassSession},
 	{Param: "pp", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession},
@@ -267,7 +267,7 @@ var trackingRules = []Rule{
 	{Param: "qid", Hosts: []string{"amazon."}, Origin: "Amazon", Class: ClassSession, Note: "Search-result context."},
 	{Param: "crid", Hosts: []string{"amazon."}, Origin: "Amazon", Class: ClassSession, Note: "Search-result context."},
 	{Param: "sprefix", Hosts: []string{"amazon."}, Origin: "Amazon", Class: ClassSession, Note: "What was typed before the search ran."},
-	{Param: "tag", Hosts: []string{"amazon."}, Origin: "Amazon Associates", Class: ClassAffiliate, Note: "The Associates tag. Deleting it takes the commission from whoever wrote the review you followed."},
+	{Param: "tag", Hosts: []string{"amazon."}, Origin: "Amazon Associates", Class: ClassAffiliate, Note: "Removing it takes their commission."},
 	{Param: "linkcode", Hosts: []string{"amazon."}, Origin: "Amazon Associates", Class: ClassAffiliate},
 	{Param: "ascsubtag", Hosts: []string{"amazon."}, Origin: "Amazon Associates", Class: ClassAffiliate, Note: "Publisher's own sub-tag; often identifies the article."},
 	{Param: "creativeasin", Hosts: []string{"amazon."}, Origin: "Amazon Associates", Class: ClassAffiliate},
@@ -319,7 +319,7 @@ var denyList = []Deny{
 	{Param: "redirect_uri", Why: "OAuth 2.0 authorization request (RFC 6749 §3.1.2). invalid_request, or a silent fall-back to a registered default that is not where the user was going."},
 	{Param: "nonce", Why: "OpenID Connect ID-token validation fails."},
 	{Param: "session", Why: "Logged out."},
-	{Param: "sid", Why: "Logged out. One letter from Shopify's _sid, and the opposite verdict."},
+	{Param: "sid", Why: "Removing it logs you out."},
 	{Param: "sessionid", Why: "Logged out."},
 	{Param: "jsessionid", Why: "Logged out."},
 	{Param: "phpsessid", Why: "Logged out."},
@@ -346,15 +346,15 @@ var denyList = []Deny{
 	{Param: "sp", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL. Note sp is also a Bing tracking parameter."},
 	{Param: "st", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL."},
 	{Param: "sr", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL."},
-	{Param: "v", Hosts: []string{"youtube.com"}, Why: "?v= is the video ID. Strip it and the URL is the YouTube homepage."},
-	{Param: "t", Hosts: []string{"youtube.com", "youtu.be"}, Why: "The timestamp: ?t=90 is a deep link into the middle of the video. The same name on x.com is a share token, and is stripped there."},
+	{Param: "v", Hosts: []string{"youtube.com"}, Why: "?v= is the video ID. Remove it and the URL is the YouTube homepage."},
+	{Param: "t", Hosts: []string{"youtube.com", "youtu.be"}, Why: "The timestamp: ?t=90 is a deep link into the middle of the video. The same name on x.com is a share token, and is removed there."},
 	{Param: "start", Hosts: []string{"youtube.com", "youtu.be"}, Why: "The timestamp for an embed."},
-	{Param: "si", Hosts: []string{"spotify.com"}, Why: "Reported to gate access on collaborative and private playlist invites: the recipient gets a permission error instead of the playlist. Believed, not confirmed — verify before ever making si global."},
-	{Param: "u", Hosts: []string{"list-manage.com"}, Why: "The unsubscribe silently does nothing. An anti-tracking tool that breaks the opt-out link is the worst outcome this feature has."},
+	{Param: "si", Hosts: []string{"spotify.com"}, Why: "Reported to gate access on collaborative and private playlist invites: the recipient gets a permission error instead of the playlist. Reported, not confirmed."},
+	{Param: "u", Hosts: []string{"list-manage.com"}, Why: "The unsubscribe link silently stops working."},
 	{Param: "e", Hosts: []string{"list-manage.com"}, Why: "The unsubscribe silently does nothing."},
 	{Param: "c", Hosts: []string{"list-manage.com"}, Why: "The unsubscribe silently does nothing."},
 	{Param: "hash", Hosts: []string{"list-manage.com"}, Why: "The unsubscribe silently does nothing."},
-	{Param: "ref", Hosts: []string{"github.com", "gitlab.com", "codeberg.org", "bitbucket.org", "gitea.com", "git.sr.ht"}, Why: "?ref=main picks a branch. Wrong branch, or a 404. ClearURLs carries three separate exceptions for this exact case."},
+	{Param: "ref", Hosts: []string{"github.com", "gitlab.com", "codeberg.org", "bitbucket.org", "gitea.com", "git.sr.ht"}, Why: "?ref=main picks a branch: without it, the wrong branch, or a 404."},
 	{Param: "format", Why: "Wrong content type."},
 	{Param: "output", Why: "Wrong content type."},
 	{Param: "callback", Why: "A JSONP call that never invokes its callback."},
@@ -363,7 +363,7 @@ var denyList = []Deny{
 	{Param: "lang", Why: "Wrong language."},
 	{Param: "hl", Why: "Wrong language."},
 	{Param: "locale", Why: "Wrong language."},
-	{Param: "gl", Why: "Wrong region. One underscore from _gl, which is stripped."},
+	{Param: "gl", Why: "Wrong region. One underscore from _gl, which is removed."},
 	{Param: "cid", Why: "Adobe's conventional campaign slot, and also customer ID, conversation ID and channel ID on countless apps. The ambiguous case that most looks safe and is not."},
 	{Param: "icid", Why: "Same ambiguity as cid."},
 	{Param: "int_cid", Why: "Same ambiguity as cid."},

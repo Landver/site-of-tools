@@ -78,6 +78,8 @@
     })
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
+      // A history restore fires afterSwap with no target.
+      if (!e.detail.target) return
       var el = e.detail.target.querySelector('[data-copy][data-copy-auto]')
       // Swallowed on purpose: a browser that refuses an unattended write has
       // not failed, it has just left the button to do the job.

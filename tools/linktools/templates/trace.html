@@ -3,13 +3,14 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  {{template "link/skip" .}}
   {{template "partials/header" .}}
-  <main class="page-main">
+  <main class="page-main" hx-history-elt>
     {{template "link/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Follow a link hop by hop without opening it. Every redirect is requested separately, so you see each
-      status code, where it pointed, how long it took, and which responses set a cookie.
+      Follow a link hop by hop without opening it: every redirect's status code, where it pointed, how long it
+      took, and which responses set a cookie.
     </p>
 
     {{if .Disabled}}
@@ -17,31 +18,48 @@
         Tracing is switched off on this server. Nothing failed &mdash; the feature simply is not running.
       </div>
     {{else}}
-    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
+    {{/* Not live: every trace dials out, and the route allows one a second.
+         hx-sync="this:queue last", not hx-disabled-elt: disabling the focused
+         button throws focus to <body>. */}}
+    <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
+          hx-trigger="submit, change from:find select" hx-sync="this:queue last"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+      <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
              aria-label="URL to trace" placeholder="http://bit.ly/example"
-             class="field min-w-0 flex-1">
-      <select name="ua" aria-label="Ask as"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
-        {{$p := .Persona}}
-        {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
-      </select>
-      <button type="submit" class="btn-primary">Trace</button>
-      <span role="status" class="htmx-indicator self-center text-sm text-muted">Following…</span>
+             class="field min-w-0 basis-full sm:basis-0">
+      <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
+        <span class="shrink-0">Ask as</span>
+        <select name="ua" class="field min-w-0 flex-1">
+          {{$p := .Persona}}
+          {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <button type="submit" class="btn-primary">
+        <span class="in-[.htmx-request]:hidden">Trace</span>
+        <span class="hidden in-[.htmx-request]:inline" role="status">Following…</span>
+      </button>
     </form>
+    {{end}}
 
-    <details class="mt-4 text-sm">
+
+    {{/* Not a live region: see link/live. */}}
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6" data-result>
+      {{if (and .Error (not .Disabled))}}{{template "link/error" .}}{{else}}{{template "link/chain" .}}{{end}}
+    </div>
+
+    {{if not .Disabled}}
+    <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">What this cannot do</summary>
-      <div class="mt-2 space-y-2 text-muted">
+      <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
           <strong class="text-strong">JavaScript redirects are not followed.</strong> Following one needs a real
           browser engine. When a page redirects with script, that is said plainly and no destination is claimed.
         </p>
         <p>
           <strong class="text-strong">Some targets refuse automated requests.</strong> A 403 from a bot-protection
-          service is reported as a refusal, not as a dead link &mdash; they are different facts. Changing
-          &ldquo;ask as&rdquo; above often changes the answer, which is itself worth knowing.
+          service is reported as a refusal, not as a dead link: they are different facts. Changing
+          &ldquo;ask as&rdquo; often changes the answer, which is itself worth knowing.
         </p>
         <p>
           <strong class="text-strong">Nothing here judges whether a link is safe.</strong> It reports where the
@@ -53,17 +71,17 @@
         </p>
       </div>
     </details>
+
+    <details class="mt-2 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/trace?u=http%3A%2F%2Fexample.com%2F&amp;ua=googlebot'</pre>
+      <p class="mt-1 text-xs text-muted"><code class="font-mono">ua</code> takes the same names as the menu: <code class="font-mono">browser</code>, <code class="font-mono">googlebot</code>, <code class="font-mono">bingbot</code>, <code class="font-mono">twitterbot</code>, <code class="font-mono">slackbot</code>, <code class="font-mono">facebook</code>, <code class="font-mono">gptbot</code>, <code class="font-mono">curl</code>. Hops come back in order, each with its status, timing and notes, and <code class="font-mono">final</code> is absent when the chain did not end.</p>
+    </details>
     {{end}}
-
-    {{/* Without this a non-htmx error (a bad URL, a 503 when the feature is
-         off) rendered an empty form and looked like nothing happened. */}}
-    {{if .Error}}<div class="mt-6 alert-error">{{.Error}}</div>{{end}}
-
-    <div id="result" class="mt-8" aria-live="polite" aria-atomic="false">
-      {{template "link/chain" .}}
-    </div>
   </main>
   {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
+  {{template "partials/copy" .}}
   {{template "partials/footer" .}}
 </body>
 </html>

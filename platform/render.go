@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -159,10 +160,39 @@ func prefersHTML(c *echo.Context) bool {
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.
 func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 
+// SetNegotiationHeaders repeats negotiationHeaders' Vary and fragment no-store
+// (app.go) for handlers run without it, as in tests, and stops htmx pushing an
+// error's URL: partials/htmx-errors swaps errors in as successes.
+func SetNegotiationHeaders(c *echo.Context, code int) {
+	h := c.Response().Header()
+	for _, v := range []string{"Accept", "HX-Request", "HX-History-Restore-Request"} {
+		addVary(h, v)
+	}
+	if IsHTMX(c) {
+		h.Set("Cache-Control", "no-store")
+		if code >= 400 {
+			h.Set("HX-Push-Url", "false")
+		}
+	}
+}
+
+// addVary adds v to the Vary header unless it is already listed.
+func addVary(h http.Header, v string) {
+	for _, line := range h.Values("Vary") {
+		for _, have := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(have), v) {
+				return
+			}
+		}
+	}
+	h.Add("Vary", v)
+}
+
 // Respond renders one domain result in representation caller wants:
 // JSON (API/CLI), HTML fragment (htmx), or full HTML page (browser).
 // Pass same template name for page + fragment when feature has no fragment.
 func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) error {
+	SetNegotiationHeaders(c, code)
 	switch {
 	case WantsJSON(c):
 		return c.JSON(code, data)

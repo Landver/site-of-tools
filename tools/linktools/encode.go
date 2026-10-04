@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"html"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -30,18 +31,35 @@ type Encoding struct {
 }
 
 // EncodeResult is every reading of one value at once, rather than a dropdown.
-// Seeing them together is the entire value of the page.
+// Seeing them together is the entire value of the page. AlreadyEncoded and
+// Reading pick what the page leads with; Ladder is Layers without a first rung
+// already on screen.
 type EncodeResult struct {
-	Input   string     `json:"input"`
-	Encoded []Encoding `json:"encoded"`
-	Decoded []Encoding `json:"decoded"`
-	Layers  []Layer    `json:"layers,omitempty"`
-	Kind    Kind       `json:"kind,omitempty"`
+	Input          string     `json:"input"`
+	Encoded        []Encoding `json:"encoded"`
+	Decoded        []Encoding `json:"decoded"`
+	Layers         []Layer    `json:"layers,omitempty"`
+	Kind           Kind       `json:"kind,omitempty"`
+	AlreadyEncoded bool       `json:"already_encoded,omitempty"`
+	Reading        *Layer     `json:"reading,omitempty"`
+	Notes          []Note     `json:"notes,omitempty"`
+	Ladder         []Layer    `json:"-"`
+}
+
+var escapeRe = regexp.MustCompile(`%[0-9A-Fa-f]{2}`)
+
+// alreadyEncoded reports valid escapes that decode to something different.
+func alreadyEncoded(v string) bool {
+	if !escapeRe.MatchString(v) {
+		return false
+	}
+	dec, err := url.PathUnescape(v)
+	return err == nil && dec != v
 }
 
 // EncodeAll computes every representation of v.
 func EncodeAll(v string) *EncodeResult {
-	r := &EncodeResult{Input: v, Kind: classify(v)}
+	r := &EncodeResult{Input: v, Kind: classify(v), AlreadyEncoded: alreadyEncoded(v)}
 
 	r.Encoded = []Encoding{
 		{Name: "Percent (query)", Value: url.QueryEscape(v),
@@ -76,7 +94,41 @@ func EncodeAll(v string) *EncodeResult {
 	// The same ladder the Inspect page runs per parameter, so a doubly-encoded
 	// value peels here too rather than needing a second paste.
 	r.Layers = decodeLadder(v)
+
+	if (r.Kind == KindBase64 || r.Kind == KindJWT) && len(r.Layers) > 0 {
+		switch first := r.Layers[0]; first.Method {
+		case "base64", "base64url", "jwt-payload":
+			first.Value = strings.TrimSuffix(first.Value, jwtUnverified)
+			r.Reading = &first
+		}
+	}
+	r.Ladder = r.Layers
+	if len(r.Ladder) > 0 && r.shown(strings.TrimSuffix(r.Ladder[0].Value, jwtUnverified)) {
+		r.Ladder = r.Ladder[1:]
+	}
+
+	if t := strings.TrimSpace(v); t != v && t != "" {
+		title := "Leading or trailing whitespace"
+		if strings.HasSuffix(v, "\n") {
+			title = "Ends in a line break"
+		}
+		r.Notes = append(r.Notes, Note{SevWarn, title,
+			"It is part of the value, so every result below encodes it too. Delete it unless it belongs there."})
+	}
 	return r
+}
+
+// shown reports whether a decoded value is already on the page.
+func (r *EncodeResult) shown(v string) bool {
+	if r.Reading != nil && r.Reading.Value == v {
+		return true
+	}
+	for _, d := range r.Decoded {
+		if d.Err == "" && d.Value == v {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeEntry(name, v string, fn func(string) (string, error), note string) Encoding {
