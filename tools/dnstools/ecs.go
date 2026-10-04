@@ -370,7 +370,7 @@ func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName st
 			ErrBadType, strings.Join(ecsSteerableTypes, ", "))
 	}
 	if _, isIP := reverseName(name); isIP {
-		return nil, fmt.Errorf("%w: give a domain name, not an IP", ErrBadType)
+		return nil, ErrNeedDomain
 	}
 	if err := validDomain(name); err != nil {
 		return nil, err
@@ -676,7 +676,11 @@ func (e *ECS) notes() {
 		add("warn", fmt.Sprintf("Only %d of %d answers carried a client-subnet option, so the rest neither support nor contradict the verdict.", e.Echoed, e.Answered))
 	}
 	if e.Mismatched > 0 {
-		add("warn", fmt.Sprintf("%d response(s) carried a scope for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched))
+		what := "response carried a scope"
+		if e.Mismatched > 1 {
+			what = "responses carried a scope"
+		}
+		add("warn", fmt.Sprintf("%d %s for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched, what))
 	}
 	// The signal the whole card exists to find, and the one the verdict can
 	// state only indirectly: a name that resolves in some regions and returns
@@ -684,12 +688,5 @@ func (e *ECS) notes() {
 	if e.WithRecords > 0 && e.WithRecords < e.Answered {
 		add("warn", fmt.Sprintf("%d of the %d networks that answered were given no %s record at all, while %d were given records; they are separate groups above.",
 			e.Answered-e.WithRecords, e.Answered, e.Type, e.WithRecords))
-	}
-	// What the headline sentence has no room for, never a second copy of it.
-	switch {
-	case e.Verdict == ECSVerdictDiffers:
-		add("info", "The place names are our labels for fixed prefixes. They can show that answers differed; they cannot show the split follows geography.")
-	case e.Verdict == ECSVerdictUntailored:
-		add("warn", "Scope 0 covers this resolver's path only: a zone steering on the resolver's own location, and a resolver that never forwarded the subnet, both report it too.")
 	}
 }

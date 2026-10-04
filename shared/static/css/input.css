@@ -19,34 +19,46 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  /* Accent — corpberry magenta (identical in both themes). */
+  /* Accent — corpberry magenta (identical in both themes). Small accent text
+     uses brand-ink, lighter in the dark theme for contrast. */
   --color-brand: #b83266;
+  --color-brand-ink: #b83266;
 
   /* Semantic tokens — LIGHT values (default). Markup only ever names these
      (bg-canvas, text-body, border-line, …); switching theme flips variable
-     values → no per-element dark: duplication anywhere. */
+     values → no per-element dark: duplication anywhere. Text colours clear
+     WCAG AA (4.5:1) on canvas and surface. */
   --color-canvas:  #ffffff; /* page background          */
   --color-surface: #f4f4f5; /* raised bg: cards, inputs */
   --color-line:    #e4e4e7; /* borders, dividers        */
+  --color-line-strong: #8a8a93; /* form-control borders (3:1)  */
   --color-strong:  #18181b; /* headings, emphasis       */
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
-  --color-faint:   #71717a; /* labels, footer, hints    */
-  --color-danger:  #dc2626; /* proxy / threat / error   */
-  --color-ok:      #059669; /* not-a-proxy / looks human */
-  --color-warn:    #d97706; /* suspicious (bot-check band) */
+  --color-faint:   #68686f; /* labels, footer, hints    */
+  --color-danger:  #b91c1c; /* proxy / threat / error   */
+  --color-ok:      #047857; /* not-a-proxy / looks human */
+  --color-warn:    #b45309; /* suspicious (bot-check band) */
 }
 
 /* DARK theme — override same tokens. Utilities compile to var(--color-*) →
    re-pointing variables re-themes entire site w/ zero markup churn. */
+/* Native controls (checkboxes, popups, scrollbars) follow the theme. */
+:root {
+  color-scheme: light;
+}
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand-ink: #e0619a;
   --color-canvas:  #0a0a0a;
   --color-surface: #171717;
   --color-line:    #262626;
+  --color-line-strong: #6b6b6b;
   --color-strong:  #ffffff;
   --color-body:    #e5e5e5;
   --color-muted:   #a3a3a3;
-  --color-faint:   #737373;
+  --color-faint:   #8a8a8a;
   --color-danger:  #f87171;
   --color-ok:      #34d399;
   --color-warn:    #fbbf24;
@@ -58,6 +70,11 @@
      pages instead of repeating the cluster. */
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
+  }
+  /* One focus ring everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
   /* Alpine's cloak: hide x-cloak elements until Alpine initialises. */
   [x-cloak] {
@@ -75,7 +92,7 @@
   }
   /* Small brand-magenta uppercase label above section headings and card titles. */
   .eyebrow {
-    @apply font-mono text-xs uppercase tracking-widest text-brand;
+    @apply font-mono text-xs uppercase tracking-widest text-brand-ink;
   }
   /* …and as card title always gets same bottom margin — baked in → call
      sites stay bare `eyebrow` (same precedent as .spec > dt). */
@@ -84,10 +101,10 @@
   }
   /* Text input + primary button, shared by lookup and CIDR forms. */
   .field {
-    @apply flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus:border-brand focus:outline-none;
+    @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger;
   }
   .btn-primary {
-    @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90;
+    @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white enabled:hover:opacity-90 disabled:cursor-wait disabled:opacity-60;
   }
   /* Small secondary control that sits beside the thing it acts on. Driven by
      partials/copy, which toggles is-copied / is-failed and nothing else: names
@@ -104,7 +121,7 @@
   }
   /* Inline error alert; add a layout util inline. */
   .alert-error {
-    @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger;
+    @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger wrap-anywhere;
   }
   /* Two-column label/value grid for result cards' <dl>. Override column width
      inline where needed, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */

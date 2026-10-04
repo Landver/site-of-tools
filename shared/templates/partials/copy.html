@@ -29,12 +29,28 @@
     // How long the confirmation stays before the label goes back.
     var RESET_MS = 1600
 
+    // A labelled button never announces its new text, so "Copied" goes to a
+    // status line, found by id (Back replaces the body).
+    function live() {
+      var el = document.getElementById('copy-status')
+      if (!el) {
+        el = document.createElement('p')
+        el.id = 'copy-status'
+        el.className = 'sr-only'
+        el.setAttribute('role', 'status')
+        document.body.appendChild(el)
+      }
+      return el
+    }
+    live()
+
     function flash(el, label, cls) {
       // Remember the real label once per flash cycle, not per call: a second
       // click inside the window would otherwise memorise "Copied" forever.
       if (el._copyTimer) clearTimeout(el._copyTimer)
       else el._copyLabel = el.textContent.trim()
       el.textContent = label
+      live().textContent = label
       el.classList.remove('is-copied', 'is-failed')
       el.classList.add(cls)
       el._copyTimer = setTimeout(function () {

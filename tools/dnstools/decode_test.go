@@ -309,3 +309,43 @@ func TestProviderOfNamesTheMajorityOperator(t *testing.T) {
 		t.Errorf("providerOf = %q for a zone with three Netlify nameservers and one NS1 one, want Netlify", got)
 	}
 }
+
+// A zone split evenly between two operators is hosted at both, so naming the
+// one that won the tie said it lived somewhere it only half did. A straggler
+// still loses to a provider holding several servers.
+func TestProviderOfNamesEverySubstantialOperator(t *testing.T) {
+	t.Parallel()
+
+	ns := func(hosts ...string) []Record {
+		var out []Record
+		for _, h := range hosts {
+			out = append(out, Record{Type: "NS", Value: h})
+		}
+		return out
+	}
+	cases := []struct {
+		name    string
+		records []Record
+		want    string
+	}{
+		{"an even split names both", ns(
+			"dns1.p08.nsone.net.", "dns2.p08.nsone.net.",
+			"ns-421.awsdns-52.com.", "ns-520.awsdns-01.net.",
+		), "NS1 + AWS Route 53"},
+		{"two real providers, uneven", ns(
+			"ada.ns.cloudflare.com.", "bob.ns.cloudflare.com.", "cid.ns.cloudflare.com.",
+			"dns1.p08.nsone.net.", "dns2.p08.nsone.net.",
+		), "Cloudflare + NS1"},
+		{"a lone legacy server is not a second home", ns(
+			"dns1.netlifydns.com.", "dns2.netlifydns.com.", "dns1.p05.nsone.net.",
+		), "Netlify"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := providerOf(tc.records); got != tc.want {
+				t.Errorf("providerOf = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

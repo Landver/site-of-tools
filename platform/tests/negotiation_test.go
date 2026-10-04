@@ -30,6 +30,11 @@ func TestNegotiation(t *testing.T) {
 		{"explicit json", map[string]string{"Accept": "application/json"}, true, false},
 		{"htmx", map[string]string{"HX-Request": "true", "Accept": "*/*"}, false, true},
 		{"htmx overrides json accept", map[string]string{"HX-Request": "true", "Accept": "application/json"}, false, true},
+		// Back with htmx's snapshot cache missed: htmx swaps the response in
+		// as the whole body, so it must get the page, not a fragment, and
+		// not JSON for its */* either.
+		{"htmx history restore", map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true", "Accept": "*/*"}, false, false},
+		{"history restore without HX-Request", map[string]string{"HX-History-Restore-Request": "true", "Accept": "*/*"}, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

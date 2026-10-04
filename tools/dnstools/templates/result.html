@@ -1,174 +1,218 @@
 {{/* The receipt: what was actually asked, who answered, how fast. Naming the
      answering server is what makes the result falsifiable. Its own template so
      it can sit directly under the answer in both the found and NXDOMAIN cases
-     without duplicating the markup. */}}
+     without duplicating the markup. Called with the page view model, for
+     $.NavName. */}}
 {{define "dns/querycard"}}
+{{with .Result}}
 {{/* A fan-out routinely mixes fresh and cached answers, so the set-wide flag
      only ever speaks for the all-cached case. */}}
 {{$anyCached := false}}
 {{range .Found}}{{if .Cached}}{{$anyCached = true}}{{end}}{{end}}
-{{/* Full width whenever the "nothing published" card isn't there to pair with
-     it, so the span-2 card that follows doesn't strand an empty half-row. */}}
-<div class="card">
-  <div class="eyebrow">the query</div>
-  <dl class="spec">
-    <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
-    <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
-    <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
-    <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
-    {{/* Three honest states, not a green tick: validated / signed but not
-         validated / unsigned. Most names are unsigned, which is not a fault. */}}
-    <dt>DNSSEC</dt>
-    <dd>
-      {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate</span>
-      {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures (AD)</span>
-      {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— this resolver didn't verify</span>
-      {{else}}<span class="text-faint">Unsigned</span>{{end}}
-    </dd>
-    {{if .NSID}}<dt>Answered by</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
-    {{/* Only claim parallelism when more than one type was actually asked. */}}
-    <dt>Took</dt>
-    <dd>
-      {{if .Cached}}<span class="text-ok">instant</span> <span class="text-faint">— every answer served from this server's cache, no upstream query</span>
-      {{else}}{{.QueryMS}} ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}
-        {{if $anyCached}}<span class="block text-xs text-faint">Some types were answered from this server's cache; those types are marked in the table.</span>{{end}}{{end}}
-    </dd>
-  </dl>
-  {{if .Reversed}}
-  <p class="mt-3 text-xs text-faint">
-    You pasted an IP, so this ran as a PTR lookup against its reverse name.
-  </p>
-  {{end}}
-</div>
+<h2 class="eyebrow">the query</h2>
+<dl class="spec">
+  <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
+  <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
+  <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
+  <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
+  {{/* Honest states, not a green tick: validated / partly validated /
+       signed but not validated / unsigned. Most names are unsigned, which is
+       not a fault. */}}
+  <dt>DNSSEC</dt>
+  <dd>
+    {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate.</span>
+    {{else if .NXDomain}}<span class="text-faint">Not applicable: there is no record to validate</span>
+    {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures</span>
+    {{else if .Unvalidated}}<span class="text-warn">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
+    {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
+    {{else}}<span class="text-faint">Unsigned</span>{{end}}
+    {{/* Not when the lead card above already carries the same link. */}}
+    {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName (or .Found .Missing)}}
+    <a href="/trace?name={{$.NavName}}" class="mt-1 block w-fit text-xs link-brand">See where the chain breaks</a>
+    {{end}}
+  </dd>
+  {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
+  {{/* Only claim parallelism when more than one type was actually asked. */}}
+  <dt>Took</dt>
+  <dd class="tabular-nums">
+    {{if .Cached}}<span class="text-strong">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
+    {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}
+      {{if $anyCached}}<span class="block text-xs text-faint">Some types came from this site's cache; the table marks which.</span>{{end}}{{end}}
+  </dd>
+</dl>
+{{if .Reversed}}
+<p class="mt-3 text-xs text-faint">
+  You entered an IP, so this ran as a PTR lookup against its reverse name.
+</p>
+{{end}}
+{{end}}
+{{end}}
+
+{{/* A value linked onward: an address to IP Tools, a host to its lookup. */}}
+{{define "dns/value"}}
+{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
+{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
+{{else}}{{.Value}}{{end}}
 {{end}}
 
 {{define "dns/result"}}
+{{template "dns/oob" .}}
 {{if .Error}}
   {{template "dns/error" .}}
 {{else if .Result}}
+  {{template "dns/asked" .}}
+  {{$page := .}}
   {{with .Result}}
   {{/* The records a CNAME'd query brings back are owned by the target, not by
        the name asked for, and RFC 1034 forbids them sharing an owner. */}}
   {{$qname := .QName}}
+  {{$alias := .AliasTarget}}
 
   {{/* A name that doesn't exist gets said once, not repeated per type. */}}
   {{if .NXDomain}}
     <div class="card sm:col-span-2">
-      <div class="eyebrow">not found</div>
+      <h2 class="eyebrow">not found</h2>
       <p class="text-sm">
-        <span class="text-danger">This name does not exist.</span>
-        <span class="text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
+        <span class="block text-base font-medium text-warn">This name does not exist.</span>
+        <span class="mt-1 block text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
       </p>
+      {{with $page.NavName}}
+      <p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>
+      {{end}}
     </div>
-    {{/* Two independent stacking columns, the same shape botcheck's breakdown
-         and /consistency use: each column is its own vertical flow, so cards
-         follow one another down their own side rather than being pinned into
-         rows where a short card strands the space beside a tall one. The wide
-         answer table above keeps the full width, because it is a table. */}}
-    <div class="grid gap-4">
-    {{template "dns/querycard" .}}
+    {{/* Full width unless the "no answer" card pairs with it. */}}
+    <div class="card {{if not .Failed}}sm:col-span-2{{end}}">
+      {{template "dns/querycard" $page}}
     </div>
+    {{if .Failed}}{{template "dns/failed" .}}{{end}}
+  {{else}}
 
-    <div class="grid gap-4">
-    {{/* Types the resolver could not answer are shown here too: without this
-         a filtered name, or a mix of NXDOMAIN and SERVFAIL, was hidden behind
-         a sentence claiming the name simply does not exist. */}}
-    {{if .Failed}}
-    <div class="card">
-      <div class="eyebrow">no answer</div>
-      <dl class="spec">
-        {{range .Failed}}
-        <dt class="font-mono">{{.Type}}</dt>
-        <dd>
-          <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
-          {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
-        </dd>
-        {{end}}
-      </dl>
-      <p class="mt-2 text-xs text-faint">A resolver that blocks a name reports it this way. That is filtering, not absence.</p>
+    {{/* Nothing answered for any type: that leads. */}}
+    {{if and (not .Found) (not .Missing) .Failed}}
+    <div class="card sm:col-span-2">
+      <h2 class="eyebrow">no answer</h2>
+      <p class="text-sm">
+        <span class="block text-base font-medium text-danger">This name doesn't resolve.</span>
+        <span class="mt-1 block text-faint">{{.ResolverName}} gave no usable answer for any type{{if .Bogus}}, because the name's DNSSEC signatures don't validate{{end}}.</span>
+      </p>
+      {{if .Bogus}}{{with $page.NavName}}<a href="/trace?name={{.}}" class="mt-2 inline-block text-xs link-brand">See where the chain breaks</a>{{end}}{{end}}
     </div>
     {{end}}
-    </div>
-{{else}}
 
     {{/* Every answer in ONE table, spanning both columns. The type is a column,
          not a card boundary: splitting a zone's records across eight cards
-         makes you reassemble them by eye. Record.Type is the actual RR type
-         returned, so a CNAME picked up while chasing an A shows as CNAME. */}}
+         makes you reassemble them by eye. One <tbody> per type, so long ones
+         can fold. */}}
     {{if .Found}}
     <div class="card sm:col-span-2">
-      <div class="flex items-baseline justify-between gap-4">
-        <div class="eyebrow">{{if .Reversed}}reverse lookup{{else}}records{{end}}</div>
+      <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="records-h" class="eyebrow">{{if .Reversed}}reverse lookup{{else}}records{{end}}</h2>
         {{/* Who runs this zone: the first thing anyone needs, and nothing in
              the raw records says it. */}}
         {{if .Provider}}<div class="text-sm text-muted">DNS hosted by <span class="font-medium text-strong">{{.Provider}}</span></div>{{end}}
       </div>
-      <table class="w-full text-sm">
+      {{/* An alias, said once with every hop. */}}
+      {{if and .Chain (gt .Asked 1)}}
+      <p class="mb-3 text-xs text-muted">
+        <span class="font-mono text-strong">{{$page.Query}}</span> is an alias
+        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-line-strong underline-offset-4 hover:text-brand">{{.Target}}</a> {{end}}
+        <span class="text-faint">· apart from the CNAME itself, every record below is the last name's.</span>
+      </p>
+      {{end}}
+      {{if .Reversed}}
+      <p class="mb-3 text-xs text-muted">
+        Who runs <span class="font-mono text-strong">{{$page.Query}}</span>?
+        <a href="{{toolURL "ip"}}/?ip={{$page.Query}}" class="link-brand">Look it up in IP Tools</a>
+      </p>
+      {{end}}
+      <table aria-labelledby="records-h" class="w-full text-sm">
         <thead>
           <tr class="text-left text-faint">
-            <th class="pb-2 pr-4 font-normal">Type</th>
-            <th class="pb-2 pr-4 font-normal">Value</th>
-            <th class="pb-2 text-right font-normal">TTL</th>
+            <th scope="col" class="w-px whitespace-nowrap pb-2 pr-4 font-normal">Type</th>
+            <th scope="col" class="pb-2 font-normal sm:pr-4">Value</th>
+            <th scope="col" class="hidden pb-2 text-right font-normal sm:table-cell">TTL</th>
           </tr>
         </thead>
-        <tbody>
-          {{range .Found}}{{$cached := .Cached}}{{range $ri, $_ := .Records}}
-          <tr class="border-t border-line align-top">
-            {{/* The cache flag belongs to the type, not to each of its
-                 records, so it is said once at the head of the group. */}}
-            <td class="py-2 pr-4 font-mono text-xs text-brand whitespace-nowrap">{{.Type}}
-              {{if and $cached (eq $ri 0)}}<span class="block font-sans text-faint">cached</span>{{end}}
-            </td>
-            <td class="py-2 pr-4 font-mono break-all text-strong">
+        {{range $res := .Found}}
+        <tbody class="group/more border-t border-line">
+          {{range $ri, $rec := $res.Records}}
+          <tr class="align-top {{if $ri}}border-t border-line/60{{end}} {{if $res.FoldsRow $ri}}hidden group-has-[:checked]/more:table-row{{end}}">
+            {{/* The type heads its row group; screen readers get it on every row. */}}
+            {{if not $ri}}
+            <th scope="rowgroup" class="py-2 pr-4 text-left font-mono text-xs font-normal text-muted whitespace-nowrap">{{.Type}}
+              {{if $res.Cached}}<span class="block font-sans text-faint">cached</span>{{end}}
+            </th>
+            {{else}}
+            <td class="py-2 pr-4"><span class="sr-only">{{.Type}}</span></td>
+            {{end}}
+            <td class="py-2 font-mono wrap-anywhere text-strong sm:pr-4">
               {{/* What this record is for, above the value it decorates: a wall
                    of verification tokens reads as the integrations it is. */}}
-              {{if .Label}}<span class="block font-sans text-xs text-brand">{{.Label}}</span>{{end}}
-              {{if and .Owner (ne .Owner $qname)}}<span class="block font-sans text-xs text-warn">on {{.Owner}}</span>{{end}}
-              {{.Value}}
+              {{if .Label}}<span class="block font-sans text-xs text-muted">{{.Label}}</span>{{end}}
+              {{/* Tag only owners other than the name and the alias target. */}}
+              {{if and .Owner (ne .Owner $qname) (ne .Owner $alias)}}<span class="block font-sans text-xs text-faint">on {{.Owner}}</span>{{end}}
+              {{template "dns/value" .}}
               {{if or .ASN .Country}}
               <span class="block font-sans text-xs text-faint">
                 {{if .ASN}}AS{{.ASN}}{{end}}{{if .ASName}} · {{.ASName}}{{end}}{{if .Country}} · {{.Country}}{{end}}
               </span>
               {{end}}
-              {{/* Packed values (SOA) decoded beneath, raw value kept above. */}}
+              {{/* Packed values (SOA, CAA, HTTPS) decoded beneath, raw value
+                   kept above. */}}
               {{if .Detail}}
               <span class="mt-1 block font-sans text-xs text-faint">
-                {{range $i, $f := .Detail}}{{if $i}} · {{end}}{{$f.Name}}: <span class="text-muted">{{$f.Value}}</span>{{end}}
+                {{range $i, $f := .Detail}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$f.Name}}: <span class="text-muted">{{$f.Value}}</span></span>{{end}}
               </span>
               {{end}}
+              {{/* No room for a TTL column on a phone; it rides with the value. */}}
+              {{if not $ri}}<span class="block font-sans text-xs text-faint tabular-nums sm:hidden">TTL {{.TTLHuman}}{{if ge .TTL 60}} ({{.TTL}}s){{end}}</span>{{end}}
             </td>
-            {{/* Raw seconds kept next to the human duration, never replaced. */}}
-            <td class="py-2 whitespace-nowrap text-right text-muted">
-              {{.TTLHuman}} <span class="text-faint">({{.TTL}}s)</span>
+            {{/* Raw seconds kept next to the human duration (not under a minute). */}}
+            <td class="hidden py-2 whitespace-nowrap text-right text-muted tabular-nums sm:table-cell">
+              {{.TTLHuman}}{{if ge .TTL 60}} <span class="text-faint">({{.TTL}}s)</span>{{end}}
             </td>
           </tr>
-          {{end}}{{end}}
+          {{end}}
+          {{/* The fold is a checkbox and :has(): it works without JavaScript. */}}
+          {{if $res.Folded}}
+          <tr class="border-t border-line/60">
+            <td></td>
+            <td colspan="2" class="py-1">
+              <label class="inline-flex cursor-pointer items-center gap-2 py-1 text-xs text-muted hover:text-strong">
+                <input type="checkbox" class="size-4 accent-brand">
+                Show all {{len $res.Records}} {{$res.Type}} records
+              </label>
+            </td>
+          </tr>
+          {{end}}
         </tbody>
+        {{end}}
       </table>
     </div>
     {{end}}
 
-    {{/* An explicit ?type= filters the CNAME out as the wrong type, so the
-         address above looks like it belongs to the name asked for. A fan-out
-         already shows the alias under CNAME, so this is for the narrowed
-         query only. */}}
     {{/* Two independent stacking columns, the same shape botcheck's breakdown
          and /consistency use: each column is its own vertical flow, so cards
          follow one another down their own side rather than being pinned into
          rows where a short card strands the space beside a tall one. The wide
          answer table above keeps the full width, because it is a table. */}}
-    <div class="grid gap-4">
+    {{/* Full width when nothing goes in the right-hand column. */}}
+    {{$side := or .Missing .Dangling .Failed}}
+    <div class="grid gap-4 content-start {{if not $side}}sm:col-span-2{{end}}">
+    {{/* An explicit ?type= filters the CNAME out as the wrong type, so the
+         address above looks like it belongs to the name asked for. A fan-out
+         says the alias in the table's own header instead. */}}
     {{if and .Chain (eq .Asked 1)}}
     <div class="card">
-      <div class="eyebrow">this name is an alias</div>
+      <h2 class="eyebrow">this name is an alias</h2>
       <p class="text-sm text-muted">
         <span class="font-mono text-strong">{{$qname}}</span> is an alias. The answer above was reached by
         following the CNAME below, and is published on the target rather than on the name you asked for.
       </p>
       <dl class="spec mt-3 grid-cols-[1fr_auto]">
         {{range .Chain}}
-        <dt class="font-mono text-xs break-all text-muted">{{.Owner}}</dt>
-        <dd class="text-right font-mono text-xs break-all text-strong">
+        <dt class="font-mono text-xs wrap-anywhere text-muted">{{.Owner}}</dt>
+        <dd class="text-right font-mono text-xs wrap-anywhere text-strong">
           → {{.Value}} <span class="text-faint">({{.TTLHuman}})</span>
         </dd>
         {{end}}
@@ -177,21 +221,21 @@
     {{end}}
 
     {{/* Directly under the answer. */}}
-    {{template "dns/querycard" .}}
+    <div class="card">
+      {{template "dns/querycard" $page}}
+    </div>
     </div>
 
-    <div class="grid gap-4">
+    {{if $side}}
+    <div class="grid gap-4 content-start">
     {{/* Every empty type collapsed into one line, instead of a wall of empty
          cards. Absence is still stated out loud, just once. */}}
     {{if .Missing}}
     <div class="card">
-      <div class="eyebrow">nothing published</div>
+      <h2 class="eyebrow">not published</h2>
       <p class="text-sm text-muted">
-        No records of {{if eq (len .Missing) 1}}this type{{else}}these types{{end}}:
-        <span class="font-mono text-strong">{{range $i, $t := .Missing}}{{if $i}}, {{end}}{{$t}}{{end}}</span>
-      </p>
-      <p class="mt-2 text-xs text-faint">
-        The name resolves, these types just aren't published on it.
+        <span class="font-mono text-strong">{{range $i, $t := .Missing}}{{if $i}}, {{end}}{{$t}}{{end}}</span>:
+        the name exists, but publishes no records of {{if eq (len .Missing) 1}}this type{{else}}these types{{end}}.
       </p>
     </div>
     {{end}}
@@ -200,10 +244,10 @@
          subdomain-takeover shape, so it gets said loudly. */}}
     {{if .Dangling}}
     <div class="card">
-      <div class="eyebrow">dangling cname</div>
+      <h2 class="eyebrow">dangling cname</h2>
       <p class="text-sm">
         <span class="text-danger">This name points somewhere that doesn't resolve:</span>
-        <span class="font-mono text-strong">{{range $i, $d := .Dangling}}{{if $i}}, {{end}}{{$d}}{{end}}</span>
+        <span class="font-mono text-strong wrap-anywhere">{{range $i, $d := .Dangling}}{{if $i}}, {{end}}{{$d}}{{end}}</span>
       </p>
       <p class="mt-2 text-xs text-faint">
         If that target is a deprovisioned bucket, app slot or CDN property, whoever registers the name next
@@ -213,58 +257,82 @@
     {{end}}
 
     {{/* "Couldn't find out" is deliberately not folded in with "isn't there". */}}
-    {{if .Failed}}
-    <div class="card">
-      <div class="eyebrow">no answer</div>
-      <p class="text-sm text-muted">The resolver didn't give a usable answer for:</p>
-      <dl class="spec mt-2">
-        {{range .Failed}}
-        <dt class="font-mono">{{.Type}}</dt>
-        <dd>
-          <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
-          {{/* RFC 8914: the resolver's own machine-readable reason. Almost no
-               consumer tool shows this, and it is the difference between
-               "something broke" and "the signature expired". */}}
-          {{with .EDE}}
-          <span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>
-          {{end}}
-          {{if .Bogus}}
-          <span class="block text-xs text-warn">DNSSEC validation failure: the same query succeeds with checking disabled, so the zone is bogus, not down.</span>
-          {{end}}
-        </dd>
-        {{end}}
-      </dl>
-      <p class="mt-2 text-xs text-faint">
-        That's a failure to answer, not proof the records are missing.
-      </p>
+    {{if .Failed}}{{template "dns/failed" .}}{{end}}
     </div>
     {{end}}
 
     {{/* The receipt made checkable: the exact commands that reproduce this,
-         and the answers in zone-file form. */}}
+         the answers in zone-file form, and the same result as JSON. */}}
     {{if .Dig}}
-    <details class="card">
+    <details class="card sm:col-span-2">
       <summary class="cursor-pointer text-sm text-muted hover:text-strong">
-        Show the <span class="font-mono text-strong">dig</span> commands that reproduce this, and the answers as a zone file
+        Reproduce this: the <span class="font-mono text-strong">dig</span> commands, the answers as a zone file, and the JSON
       </summary>
-      <div class="mt-3 space-y-3">
+      <div class="mt-4 space-y-4">
         <div>
-          <div class="text-xs text-faint">One command per type. `dig name A AAAA` would only query the last one.</div>
-          <pre class="mt-1 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{range .Dig}}{{.}}
+          <div class="flex items-center justify-between gap-4">
+            <div class="text-xs text-faint">{{if gt (len .Dig) 1}}One command per type: <code class="font-mono text-muted">dig name A AAAA</code> would only ask the last one.{{else}}The command{{end}}</div>
+            <button type="button" class="btn-copy" aria-label="Copy the dig commands" data-copy="{{range .Dig}}{{.}}
+{{end}}">Copy</button>
+          </div>
+          <pre tabindex="0" role="region" aria-label="dig commands" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{range .Dig}}{{.}}
 {{end}}</pre>
         </div>
         {{if .Zone}}
         <div>
-          <div class="text-xs text-faint">Zone-file format</div>
-          <pre class="mt-1 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{.Zone}}</pre>
+          <div class="flex items-center justify-between gap-4">
+            <div class="text-xs text-faint">Zone-file format</div>
+            <button type="button" class="btn-copy" aria-label="Copy the zone file" data-copy="{{.Zone}}">Copy</button>
+          </div>
+          <pre tabindex="0" role="region" aria-label="Zone file" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong [tab-size:8]">{{.Zone}}</pre>
         </div>
         {{end}}
+        {{$curl := printf "%s/?name=%s" (toolURL "dns") $page.Query}}
+        {{with $page.QType}}{{$curl = printf "%s&type=%s" $curl .}}{{end}}
+        {{if ne $page.Resolver "cloudflare"}}{{$curl = printf "%s&resolver=%s" $curl $page.Resolver}}{{end}}
+        {{$curl = printf "curl '%s'" $curl}}
+        <div>
+          <div class="flex items-center justify-between gap-4">
+            <div class="text-xs text-faint">The same result as JSON</div>
+            <button type="button" class="btn-copy" aria-label="Copy the curl command" data-copy="{{$curl}}">Copy</button>
+          </div>
+          <pre tabindex="0" role="region" aria-label="curl command" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{$curl}}</pre>
+        </div>
       </div>
     </details>
     {{end}}
-    </div>
 
   {{end}}
   {{end}}
 {{end}}
+{{end}}
+
+{{/* Failed types, one entry per way they failed. */}}
+{{define "dns/failed"}}
+{{/* Under the lead card ($all), this is only the resolver's reason. */}}
+{{$all := and (not .Found) (not .Missing)}}
+<div class="card">
+  <h2 class="eyebrow">{{if $all}}the resolver's reason{{else}}no answer{{end}}</h2>
+  <p class="text-sm text-muted">{{if $all}}For every type asked:{{else}}The resolver didn't give a usable answer for:{{end}}</p>
+  <div class="divide-y divide-line">
+  {{range .FailureGroups}}
+  <div class="py-3">
+    <div class="font-mono text-xs text-strong">{{range $i, $t := .Types}}{{if $i}} · {{end}}{{$t}}{{end}}</div>
+    <div class="mt-1 text-sm">
+      <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
+      {{/* RFC 8914: the resolver's own machine-readable reason. Almost no
+           consumer tool shows this, and it is the difference between
+           "something broke" and "the signature expired". */}}
+      {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
+      {{if .Bogus}}
+      <span class="block text-xs text-muted">The same query succeeds with DNSSEC checking disabled, so the signatures are broken, not the servers.</span>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  </div>
+  <p class="text-xs text-faint">
+    A failure to answer, not proof the records are missing.{{if not .Bogus}} A resolver that blocks a name reports it this way too.{{end}}
+  </p>
+</div>
 {{end}}

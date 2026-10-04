@@ -22,14 +22,16 @@
      own absence on a page that is already dense. */}}
 {{define "dns/ecs"}}
 {{with .ECS}}
+{{/* Hidden for a name that doesn't exist: the page already says so. */}}
+{{if not (and (eq .Verdict "no-records") (eq .Rcode "NXDOMAIN"))}}
 <div class="card">
-  <div class="eyebrow">answers by client network</div>
+  <h2 class="eyebrow">answers by client network</h2>
 
   {{/* The verdict headline and the one number behind it. Every branch
        quantifies over the subset it was derived from, never over "every
        response", because responses that carried no scope measured nothing.
        Anything longer than a line belongs in the toggle below. */}}
-  <p class="text-sm">
+  <p class="text-sm font-medium">
     {{if eq .Verdict "answers-differ"}}
       {{if .ScopeDistinct}}
         <span class="text-ok">This answer depends on the network that asks.</span>
@@ -42,7 +44,7 @@
       {{if .Rotation}}<span class="text-warn">Different answers, and no client-subnet tailoring behind them.</span>
       {{else}}<span class="text-ok">No client-subnet tailoring on this path.</span>{{end}}
     {{else if eq .Verdict "no-records"}}
-      <span class="text-warn">No {{.Type}} record anywhere.</span>
+      <span class="text-warn">No {{.Type}} record for any of the {{.Asked}} networks.</span>
     {{else if eq .Verdict "unsupported"}}
       <span class="text-warn">Could not tell.</span>
     {{else}}
@@ -158,7 +160,7 @@
                nothing beside a row reads as "this vantage said nothing". */}}
           {{if not .Values}}<span class="text-xs text-muted">no {{$.ECS.Type}} record{{if .Rcode}} ({{.Rcode}}){{end}}</span>{{end}}
           {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
-          <span class="block text-xs text-faint">{{.RTTMS}} ms</span>{{end}}
+          <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
       </dd>
       {{end}}
     </dl>
@@ -171,9 +173,10 @@
   {{end}}
 
   <p class="mt-2 text-xs text-faint">
-    {{.Answered}} of {{.Asked}} client subnets answered · {{.QueryMS}} ms ·
+    {{.Answered}} of {{.Asked}} client subnets answered · {{.QueryMS}}&nbsp;ms ·
     fixed public prefixes, one query each, never your address
   </p>
 </div>
+{{end}}
 {{end}}
 {{end}}

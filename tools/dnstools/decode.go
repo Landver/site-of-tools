@@ -2,6 +2,7 @@ package dnstools
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -115,10 +116,11 @@ func svcbFields(rr dns.RR) []Field {
 			f = append(f, Field{"Protocols", humanALPN(val)})
 		case dns.SVCB_PORT:
 			f = append(f, Field{"Port", val})
+		// A space after each comma lets a long hint list wrap between addresses.
 		case dns.SVCB_IPV4HINT:
-			f = append(f, Field{"IPv4 hint", val})
+			f = append(f, Field{"IPv4 hint", strings.ReplaceAll(val, ",", ", ")})
 		case dns.SVCB_IPV6HINT:
-			f = append(f, Field{"IPv6 hint", val})
+			f = append(f, Field{"IPv6 hint", strings.ReplaceAll(val, ",", ", ")})
 		case dns.SVCB_ECHCONFIG:
 			// The presentation form is base64, so its length is not a byte
 			// count; the parsed value carries the real config. An empty one
@@ -131,7 +133,7 @@ func svcbFields(rr dns.RR) []Field {
 				f = append(f, Field{"ECH", "parameter present but empty, so no ECH keys are published"})
 				break
 			}
-			f = append(f, Field{"ECH", fmt.Sprintf("published (%d bytes) — the TLS SNI is encrypted, so which site you visit isn't visible on the wire", n)})
+			f = append(f, Field{"ECH", fmt.Sprintf("published (%d bytes): browsers that support ECH can hide which site they're visiting from the network", n)})
 		case dns.SVCB_NO_DEFAULT_ALPN:
 			f = append(f, Field{"Default ALPN", "disabled"})
 		default:
@@ -315,10 +317,11 @@ var providers = []struct{ suffix, name string }{
 //
 // The answer is the operator most of the nameservers belong to, not whichever
 // record came back first: a zone delegated to three Netlify servers and one
-// legacy NS1 one is logged into at Netlify.
+// legacy NS1 one is logged into at Netlify. A zone split between providers
+// names each ("NS1 + AWS Route 53").
 func providerOf(records []Record) string {
 	seen := map[string]int{}
-	best, bestN := "", 0
+	var order []string
 	for _, r := range records {
 		if r.Type != "NS" {
 			continue
@@ -328,12 +331,23 @@ func providerOf(records []Record) string {
 			if !strings.Contains(ns, p.suffix) {
 				continue
 			}
-			seen[p.name]++
-			if seen[p.name] > bestN {
-				best, bestN = p.name, seen[p.name]
+			if seen[p.name] == 0 {
+				order = append(order, p.name)
 			}
+			seen[p.name]++
 			break
 		}
 	}
-	return best
+	if len(order) == 0 {
+		return ""
+	}
+	// A lone straggler beside a provider with several is the legacy case above.
+	slices.SortStableFunc(order, func(a, b string) int { return seen[b] - seen[a] })
+	names := order[:1]
+	for _, n := range order[1:] {
+		if seen[n] >= 2 || seen[n] == seen[order[0]] {
+			names = append(names, n)
+		}
+	}
+	return strings.Join(names, " + ")
 }

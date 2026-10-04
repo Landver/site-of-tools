@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -70,15 +71,15 @@ type Status struct {
 
 // eppMeanings decodes the EPP status codes a registry reports. Static data.
 var eppMeanings = map[string]string{
-	"client transfer prohibited": "Locked by your registrar against transfers. Normal, and the usual anti-hijacking default.",
-	"server transfer prohibited": "Locked by the registry against transfers.",
-	"client delete prohibited":   "Your registrar is blocking deletion.",
-	"server delete prohibited":   "The registry is blocking deletion.",
-	"client update prohibited":   "Your registrar is blocking changes to the record.",
-	"server update prohibited":   "The registry is blocking changes to the record.",
-	"client renew prohibited":    "Your registrar is blocking renewal.",
-	"server renew prohibited":    "The registry is blocking renewal.",
-	"client hold":                "Your registrar has pulled this domain from DNS. It will not resolve.",
+	"client transfer prohibited": "Locked against transfers by the registrar: the usual anti-hijacking default. To move the domain, its owner asks the registrar to lift the lock and send the transfer (auth) code.",
+	"server transfer prohibited": "Locked against transfers by the registry.",
+	"client delete prohibited":   "Locked against deletion by the registrar.",
+	"server delete prohibited":   "Locked against deletion by the registry.",
+	"client update prohibited":   "Locked by the registrar against changes to the registration (contacts, nameservers). DNS records are unaffected.",
+	"server update prohibited":   "Locked by the registry against changes to the registration (contacts, nameservers). DNS records are unaffected.",
+	"client renew prohibited":    "Locked against renewal by the registrar.",
+	"server renew prohibited":    "Locked against renewal by the registry.",
+	"client hold":                "The registrar has pulled this domain from DNS. It will not resolve.",
 	"server hold":                "The registry has pulled this domain from DNS. It will not resolve.",
 	"pending create":             "The registration is still being processed.",
 	"pending renew":              "A renewal is in progress.",
@@ -163,14 +164,19 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	req.Header.Set("Accept", "application/rdap+json, application/json")
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		// Plain words: the raw error embeds the whole request URL.
+		var nerr net.Error
+		if errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%s timed out", req.URL.Host)
+		}
+		return fmt.Errorf("couldn't reach %s", req.URL.Host)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		return errUpstreamNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("upstream returned %d", resp.StatusCode)
+		return fmt.Errorf("%s answered with an error (%d)", req.URL.Host, resp.StatusCode)
 	}
 	// A captive portal, a WAF or an upstream's own error page answers 200 with
 	// HTML; decoding that raises a JSON syntax error the page shows verbatim,

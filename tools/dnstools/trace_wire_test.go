@@ -254,3 +254,44 @@ func TestAnUncheckedLinkIsNotReportedAsAnUnsignedDelegation(t *testing.T) {
 		t.Errorf("an unsigned delegation gave %q, want %q: %s", u.out.DNSSEC, traceInsecure, u.out.Verdict.Text)
 	}
 }
+
+// No DS at the parent is usually an unsigned zone, and sometimes a zone signed
+// at its DNS host whose DS was never added at the registrar. The second is the
+// half-finished setup people come to a DNSSEC check to find, and the walk used
+// to call it "unsigned, most names are" without looking at the zone's keys.
+func TestValidateZoneOverTheWireFindsKeysWithoutADS(t *testing.T) {
+	t.Parallel()
+	key, _, _, _ := traceTestZone(t, "example.test")
+
+	look := func(h dns.HandlerFunc) TraceLink {
+		srv := serveNS(t, h)
+		w := &traceWalk{svc: NewService(2 * time.Second), ctx: context.Background(), out: &Trace{}}
+		link, _ := w.validateZone("example.test.", "test.", []traceServer{srv}, traceDS{status: traceDSAbsent}, true)
+		return link
+	}
+
+	signed := look(func(w dns.ResponseWriter, req *dns.Msg) {
+		m := new(dns.Msg).SetReply(req)
+		m.Authoritative = true
+		m.Answer = []dns.RR{key}
+		_ = w.WriteMsg(m)
+	})
+	if signed.Status != traceInsecure || !signed.KeysWithoutDS {
+		t.Errorf("keys and no DS: status %q, KeysWithoutDS %v; want insecure with the flag. Detail: %s", signed.Status, signed.KeysWithoutDS, signed.Detail)
+	}
+	if !strings.Contains(signed.Detail, "DS record at the registrar") {
+		t.Errorf("detail %q should name the missing step", signed.Detail)
+	}
+
+	unsigned := look(func(w dns.ResponseWriter, req *dns.Msg) {
+		m := new(dns.Msg).SetReply(req)
+		m.Authoritative = true
+		_ = w.WriteMsg(m)
+	})
+	if unsigned.Status != traceInsecure || unsigned.KeysWithoutDS {
+		t.Errorf("no keys and no DS: status %q, KeysWithoutDS %v; want plain insecure", unsigned.Status, unsigned.KeysWithoutDS)
+	}
+	if !strings.Contains(unsigned.Detail, "Most names are") {
+		t.Errorf("detail %q should still say unsigned is the common case", unsigned.Detail)
+	}
+}

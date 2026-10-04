@@ -1,0 +1,28 @@
+{{/* On Back/Forward, form fields are reset from the URL: htmx restores a markup
+     snapshot, which holds the value first rendered, not the one typed.
+     Requests still in flight are aborted (their element is detached, so
+     beforeSwap never sees them), and transient notices are dropped before
+     htmx snapshots a page. */}}
+{{define "partials/htmx-history"}}
+<script>
+  document.body.addEventListener('htmx:historyRestore', () => {
+    const params = new URLSearchParams(location.search)
+    document.querySelectorAll('main form [name]').forEach((el) => {
+      if (params.has(el.name)) el.value = params.get(el.name)
+    })
+  })
+  const pending = new Set()
+  document.body.addEventListener('htmx:beforeRequest', (e) => {
+    const xhr = e.detail.xhr
+    pending.add(xhr)
+    xhr.addEventListener('loadend', () => pending.delete(xhr))
+  })
+  document.body.addEventListener('htmx:historyRestore', () => {
+    pending.forEach((xhr) => xhr.abort())
+    pending.clear()
+  })
+  document.body.addEventListener('htmx:beforeHistorySave', () => {
+    document.querySelectorAll('[data-transient]').forEach((el) => el.remove())
+  })
+</script>
+{{end}}

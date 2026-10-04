@@ -27,6 +27,8 @@ type Tool struct {
 var navBaseFuncs = template.FuncMap{
 	"apexURL":  func() string { return "/" },
 	"navTools": func() []Tool { return nil },
+	// Origin of a sibling tool, for links that hand off to it.
+	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
 	"asset": StaticURL,
@@ -135,19 +137,23 @@ func (r *Renderer) Render(c *echo.Context, w io.Writer, name string, data any) e
 
 // --- content negotiation ---------------------------------------------------
 
-// IsHTMX reports whether the request came from htmx (wants an HTML fragment).
+// IsHTMX reports whether the request wants an HTML fragment. A history
+// restore doesn't: htmx swaps that response in as the whole body.
 func IsHTMX(c *echo.Context) bool {
-	return c.Request().Header.Get("HX-Request") == "true"
+	h := c.Request().Header
+	return h.Get("HX-Request") == "true" && h.Get("HX-History-Restore-Request") != "true"
 }
 
 // prefersHTML reports whether caller wants HTML: htmx always does,
-// browsers send Accept header containing text/html. Everything else
-// (curl's default */*, explicit application/json, API clients) gets JSON.
+// browsers send Accept header containing text/html.
+// Everything else (curl's default */*, explicit application/json, API
+// clients) gets JSON.
 func prefersHTML(c *echo.Context) bool {
-	if IsHTMX(c) {
+	h := c.Request().Header
+	if h.Get("HX-Request") == "true" || h.Get("HX-History-Restore-Request") == "true" {
 		return true
 	}
-	return strings.Contains(c.Request().Header.Get("Accept"), "text/html")
+	return strings.Contains(h.Get("Accept"), "text/html")
 }
 
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.
