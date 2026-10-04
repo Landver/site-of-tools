@@ -68,3 +68,59 @@ cookies, Referer or Authorization and re-gates every hop; the botcheck corpus
 is written only by `POST /check`; cipher bounds are checked before work; no
 request decompression; drafts are filtered at load; miekg/dns escapes control
 characters in DNS text.
+
+## Round 2A — architecture fit and implementability
+
+Checked against the repo, Echo v5.3.0 and go-sdk v1.8.0. No blockers; it also
+supplied the concrete Go shapes now in README §3.4.
+
+| # | Sev. | Finding | Change |
+|---|---|---|---|
+| 1 | major | Concurrency caps lived only in the MCP middleware, so the plan's own Argon2 attack still worked through `POST /password/hash`. | Caps move into each package's `Limits` (floor 1c), shared by REST and MCP: `x/sync/semaphore.Weighted` + `TryAcquire`; memory weight from a pure, wasm-safe `ciphertools.MemoryCost`. |
+| 2 | major | Floor 1b as written would break tests and target a path that never dials: a guarded RDAP/CT transport refuses the tests' loopback `httptest` servers; MX reputation only filters addresses before a corpus read, and `PubliclyRoutable` there breaks ~20 TEST-NET fixtures; "host IPs via config" needs an `EgressGuard` API change; "deny list from the hosts map" is impossible as ordered in `main.go`. | Guard RDAP/CT redirect hops only (HTTPS-only `CheckRedirect`, base host dialable); `PubliclyRoutable` only at `spread.go:438` and `traceRoutable`; MX row says "no change"; the guard takes literal addresses into its address set; one subdomain list feeds both vhosts and deny list. |
+| 3 | major | "Shared stores" don't give one budget unless both doors key alike: dnstools keys on the raw IP, linktools/ciphertools on `RateLimitKey`, so an IPv6 client gets two buckets; "pure" is four stores, not one. | `platform/ratelimit.go` (`Limiter` alias, `NewLimiter`, a `RateLimit` middleware always keyed by `RateLimitKey`); per-package `Limits` + `NewLimits()`; `Register(…, lim)` with nil = fresh (tests unchanged); `netgate_test` updated for fail-closed keys. |
+| 4 | major | The push-down table missed logic adapters would duplicate: cipher JSON → `Input` (with its float-format trap) and field bounds held as literals; the owner create path; the self-IP rule; DNS defaults; botcheck header mapping and `Now` (zero `Now` skips timezone checks); tracking-rule lookups; a fakeable blocklist interface. | README §3.4 is now a per-package table: `InputFromJSON` + field specs, `Shortener.CreateFrom`/`PublicError`, `Routable`, defaults inside `LookupEnriched`, a botcheck constructor in a new file, `RuleCatalog` lookups, `LookupWithReputation` over a `Checker` converted from nil (the nil-interface trap `reputation.go` warns about). |
+| 5 | minor | Structs replacing maps serialise in field order, maps in sorted key order. | Fields declared in the maps' alphabetical order; golden tests compare semantically; `DomainInfo` keeps each half's error as `json:"-"`. |
+| 6 | minor | The context carried only the limiter key, which for IPv6 is a `/64`. | Raw IP and key both go into the context. |
+| 7 | minor | A new exported `Markdown` field on `Post` would leak into REST JSON (no tags); the blog is built inside `site.Register`; floors disagreed (1a vs 7). | `json:"-"`; `site.Register` returns the blog; done in floor 7; `site_blog` parity is a declared projection. |
+| 8 | minor | `NewShortener` returns nil without `LINK_API_KEY`, so the owner endpoint wasn't independent of it. | A second `Shortener` over the same store with `MCP_OWNER_KEY`; the gate reuses its `Authorized`. |
+| 9 | minor | Missing plumbing: `@source` in `input.css`, a `TemplateSource`, new template funcs in `navBaseFuncs` and the cipher `FragmentTemplates` stubs (or the wasm engine fails to parse); the terminal block is inline in ~25 templates, not a partial; `platform.Respond` can't serve a page whose view model and JSON differ. | All in README §6; the landing page uses the `reply` pattern, promoted to `platform` on this third copy. |
+| 10 | minor | Floors 1a, 1b and 2 were several PRs each; the coverage test couldn't pass before floors 3–7; missing `.env.example`/config tests, a `jsonschema-go` pin, the stale `deploy/nginx/` reference, the per-call log's destination, `Register` returning an error. | Floors split (1a ×5, 1b ×3, 2a code / 2b launch); `Coverage` gains *planned*; README §9 lists the config/docs; records go through `RequestLog`; `mcptools.Register` returns an error. |
+| 11 | nit | Skipping gzip on `/mcp` is unnecessary and would put an MCP path into `platform/app.go`. | Dropped. |
+| 12 | nit | No custom writer needed for `no-store`. | Echo's `UnwrapResponse` + `Before` hook. |
+| 13 | nit | `x/oauth2` *is* linked (`mcp` imports it). | Research §2 corrected. |
+
+Verified as implementable: `WrapHandler` keeps path values; `e.Any`; header
+deletion and body swap persist; request-context values reach handlers; results
+reach the middleware as raw JSON + text (so the sanitizer can rewrite both);
+`e.Router().Routes()` lists routes; every `Register` builds offline with fakes;
+`geo.Offline()` needs no interface change; no import cycles; the wasm build is
+untouched; the SDK bumps no pinned module; layout and template names fit.
+
+## Round 2B — coverage completeness and agent usability
+
+Route coverage was **complete**: 40 mapped routes, the two exclusions, 15 ops,
+no route unmapped or mapped twice. The problems were in the contracts.
+
+| # | Sev. | Finding | Change |
+|---|---|---|---|
+| M1 | major | `botcheck_score` treated missing data as evidence: absent headers fire soft rules (a Chrome UA alone → "suspicious"), a hand-built fingerprint → "bot", and a call without one skips 59 of 68 rules yet can read "human". | D11 revised: the domain's existing "skipped" mechanism extends to headers and IP (floor 1a); `Report` counts evaluated/skipped/fired per tier; `fingerprint` must be a collector payload with its `v` stamp. |
+| M2 | major | The cipher contract was hand-copied and wrong in ~10 places (password `sets`, `now` on sign/cert/TOTP, `password_enc` on hashing, encrypt's optional key and algo, sign's defaults and `exp` presets, `passphrase` on generate only, invented `base64`/`cert_base64` args); per-op defaults and enums can't share one schema. | Cipher tools are **generated** from per-op field specs that the ops themselves read (floor 1a), with an AST test; the catalog's cipher table is now illustrative and corrected. |
+| M3 | major | Absent ≠ empty/false: `link_utm` deletes every utm field not supplied; `link_clean.unwrap` defaults to true but a plain `bool` defaults false. | Pointer-typed optional args; `link_utm` absent = keep, `""` = remove (declared deviation); a test omits each optional argument in turn. |
+| M4 | major | Hidden mode switches contradicted rule 2 (HMAC when `key` present; `link_curl` by which argument is set); hash and HMAC differ in algorithms, result shape and key handling. | **D14 reversed**: one tool per distinct task, no operation switches: `cipher_hmac` and the two `link_curl_*` tools split out; all cipher ops 1:1 (35 tools). |
+| M5 | major | Concise shapes were unspecified and several results blow the budget (`dns_consistency type=TXT` 25–60 KB, `link_extract` 30–60 KB, `dns_domain_info` ~22 KB, TXT-heavy `dns_lookup` 15–25 KB); a list-cutting sanitizer can drop the one disagreeing nameserver. | Concise defaults defined per tool in the catalog; one `detailed` flag; the sanitizer never cuts lists, over-cap results become a tool error. |
+| M6 | major | Snippets missing for ChatGPT, Codex and Gemini CLI (whose `url` means SSE); claude.ai plan limits; 35/29 tools exceed OpenAI's guidance and crowd Cursor's ~40 cap. | Research §5 now covers eight clients; `/mcp` recommended only for Claude Code, toolset URLs for the rest; owner tools need header-capable clients; Bearer accepted on `/mcp/owner`. |
+| m7 | minor | Parity can't hold literally for several tools (blog view model, a 302, `limit`, `self`, supplied headers). | Parity compares a declared projection per tool; exemptions listed with reasons. |
+| m8 | minor | `ip_lookup` without `ip` silently changes subject. | `ip` required; the literal `"self"` asks for the caller's address. |
+| m9 | minor | `link_tracking_rules(param)` underspecified (prefix, host-scoped, affiliate-gated, never-strip wins); the counts were wrong. | Returns exact, prefix and never-strip matches with hosts; optional `url` gives the verdict via `lookupTracking`; counts corrected (95 / 64 / 21). |
+| m10 | minor | Name collisions on `/mcp`: `dns_trace`/`link_trace`, `link_encode`/`cipher_encode`; descriptions naming tools absent from a toolset endpoint. | Renamed `link_redirect_chain`, `link_percent_encode`; descriptions name only same-toolset tools; cross-toolset routing in the `/mcp` instructions. |
+| m11 | minor | Agents will try `link_short_resolve` on bit.ly and use the tracer as a page fetcher. | Foreign hosts → error naming `link_redirect_chain`; its description says status and headers per hop, no body, fetched from our IP. |
+| m12 | minor | "Strictest operation" priced cheap ops as heavy. | Moot after M4: each op is its own tool with its own class. |
+| m13 | minor | Generated values (random, keys, encrypt's key) also pass through us and the provider. | "Test material only, in and out" on every cipher description. |
+| m14 | minor | Blog Markdown has frontmatter and relative image paths. | Stripped / made absolute. |
+| nits | | `botcheck_score` lacked the open-world hint; the key is `mx_reputation`; "≤ 8 queries" was wrong; Bearer for Codex; `--scope user`. | All fixed. |
+
+Also from this round's reading of the spec: `idempotentHint` and
+`destructiveHint` only mean something on tools that aren't read-only, so the
+first draft's "not idempotent where randomness is drawn" note was a misreading
+and is gone.

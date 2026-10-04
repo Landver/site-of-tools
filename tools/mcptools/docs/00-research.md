@@ -60,8 +60,9 @@ Current version **2026-07-28**; the two before it are 2025-11-25 and 2025-06-18
 **New modules** it brings into `go.mod` (from its v1.8.0 `go.mod`):
 `google/jsonschema-go` v0.4.3, `segmentio/encoding`, `yosida95/uritemplate/v3`,
 `golang-jwt/jwt/v5`, `golang.org/x/oauth2`, `golang.org/x/tools`. `go-cmp` and
-`x/time` are already ours. The JWT/OAuth ones serve the SDK's auth packages; only
-what `mcp` imports is linked.
+`x/time` are already ours, and none of the pinned modules gets bumped (review
+round 2 checked the requirement graph). The `mcp` package imports
+`x/oauth2` directly, so that one is linked; the footprint is still modest.
 
 **Server and typed tools** [S14][S15][S17]:
 
@@ -180,13 +181,19 @@ v1.14.0 pins `go-sdk v1.8.0` [S28].
 What the public servers below all document, and what the landing page will
 show [P3][P13][P9][P22][P39]:
 
-| Client | How |
-|---|---|
-| Claude Code | `claude mcp add --transport http corpberry https://mcp.corpberry.com/mcp` |
-| claude.ai / Claude Desktop | Customize → Connectors → add a custom connector by URL |
-| VS Code | `.vscode/mcp.json`: `{"servers": {"corpberry": {"type": "http", "url": "…"}}}` |
-| Cursor | `~/.cursor/mcp.json`: `{"mcpServers": {"corpberry": {"url": "…"}}}`, or a one-click deeplink |
-| stdio-only clients | `npx mcp-remote <url>` (their toolchain, not ours) |
+| Client | How | Endpoint to give it |
+|---|---|---|
+| Claude Code | `claude mcp add --scope user --transport http corpberry https://mcp.corpberry.com/mcp` | `/mcp` (it loads MCP tools through tool search) |
+| claude.ai / Claude Desktop | Customize → Connectors → add a custom connector by URL. Free plans allow one custom connector; on Team/Enterprise only owners add them [P42] | a toolset URL |
+| ChatGPT | Settings → Apps → Advanced → Developer mode → create an app, no auth; beta, paid plans [P43] | a toolset URL (OpenAI's guidance is under 20 tools per turn) |
+| VS Code | `.vscode/mcp.json`: `{"servers": {"corpberry": {"type": "http", "url": "…"}}}` [P44] | a toolset URL |
+| Cursor | `~/.cursor/mcp.json`: `{"mcpServers": {"corpberry": {"url": "…"}}}`, or a one-click deeplink; ~40-tool soft cap across all servers [P45] | a toolset URL |
+| Codex CLI | `codex mcp add corpberry --url …`, or `[mcp_servers.corpberry] url = "…"` in `config.toml`; `bearer_token_env_var` for keys [P46] | a toolset URL |
+| Gemini CLI | `gemini mcp add --transport http corpberry …`, or `httpUrl` in settings: **its `url` key means SSE**, which this server doesn't speak [P47] | a toolset URL |
+| stdio-only clients | `npx mcp-remote <url>` (their toolchain, not ours) | a toolset URL |
+
+Owner tools need a client that can send a header (Claude Code, Codex, VS Code,
+Cursor, Gemini CLI); claude.ai and ChatGPT connectors can't.
 
 What Anthropic's connector docs say a server must survive [P38][P39]:
 
@@ -370,3 +377,9 @@ Comparable servers and client docs:
 - [P39] https://claude.com/docs/connectors/building/testing (re-read directly)
 - [P40] https://smithery.ai/docs/build/publish
 - [P41] https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS/Errors/CORSNotSupportingCredentials
+- [P42] https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp
+- [P43] https://www.speakeasy.com/docs/mcp/build/integrate/clients/using-chatgpt-developer-mode-with-gram (secondary)
+- [P44] https://code.visualstudio.com/docs/copilot/customization/mcp-servers
+- [P45] https://forum.cursor.com/t/tools-limited-to-40-total/67976 (forum report)
+- [P46] https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+- [P47] https://geminicli.com/docs/tools/mcp-server/
