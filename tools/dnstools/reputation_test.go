@@ -159,8 +159,9 @@ func TestMXReputationCleanIsStatedNotImplied(t *testing.T) {
 	}
 	// The claim must be bounded by the corpus it was read from, not phrased as
 	// "not blocklisted".
-	if !repHasNote(m, "ok", iptools.BlocklistSourceIPsum) ||
-		!repHasNote(m, "ok", iptools.BlocklistSourceSpamhausDROP) {
+	// By the names a reader knows them; the feed slugs are ours.
+	if !repHasNote(m, "ok", "IPsum") ||
+		!repHasNote(m, "ok", "Spamhaus DROP") {
 		t.Errorf("the clean note doesn't name the corpus it read: %+v", repNoteAt(m, "ok"))
 	}
 	if !strings.Contains(m.Corpus, "not a live query") {

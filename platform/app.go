@@ -29,6 +29,7 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	e.Use(middleware.Recover())
 	e.Use(requestLogger(reqlog))
 	e.Use(securityHeaders())
+	e.Use(negotiationHeaders())
 	// Everything is gzipped per response except the cipher engine, which is ~12
 	// MB, arrives already compressed once, and would otherwise cost ~0.25 s of
 	// CPU per fetch (tools/ciphertools/handler.go, engine).
@@ -169,6 +170,27 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 // the whole policy is the containment layer that turns the next refactor slip
 // in a template from stored XSS into a blocked load
 // (tools/linktools/docs/06-security-and-abuse.md §8).
+// negotiationHeaders: one URL answers as a page, a fragment or JSON depending
+// on request headers, so caches must Vary on them, or Back serves a cached
+// fragment as the page. Fragments are never cached; static files vary on
+// nothing.
+func negotiationHeaders() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if !strings.HasPrefix(c.Request().URL.Path, "/static/") {
+				h := c.Response().Header()
+				h.Add("Vary", "Accept")
+				h.Add("Vary", "HX-Request")
+				h.Add("Vary", "HX-History-Restore-Request")
+				if IsHTMX(c) {
+					h.Set("Cache-Control", "no-store")
+				}
+			}
+			return next(c)
+		}
+	}
+}
+
 func securityHeaders() echo.MiddlewareFunc {
 	const csp = "default-src 'self'; " +
 		"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +

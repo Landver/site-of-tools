@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -27,6 +28,8 @@ type Tool struct {
 var navBaseFuncs = template.FuncMap{
 	"apexURL":  func() string { return "/" },
 	"navTools": func() []Tool { return nil },
+	// Origin of a sibling tool, for links that hand off to it.
+	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
 	"asset": StaticURL,
@@ -135,19 +138,23 @@ func (r *Renderer) Render(c *echo.Context, w io.Writer, name string, data any) e
 
 // --- content negotiation ---------------------------------------------------
 
-// IsHTMX reports whether the request came from htmx (wants an HTML fragment).
+// IsHTMX reports whether the request wants an HTML fragment. A history
+// restore doesn't: htmx swaps that response in as the whole body.
 func IsHTMX(c *echo.Context) bool {
-	return c.Request().Header.Get("HX-Request") == "true"
+	h := c.Request().Header
+	return h.Get("HX-Request") == "true" && h.Get("HX-History-Restore-Request") != "true"
 }
 
 // prefersHTML reports whether caller wants HTML: htmx always does,
-// browsers send Accept header containing text/html. Everything else
-// (curl's default */*, explicit application/json, API clients) gets JSON.
+// browsers send Accept header containing text/html.
+// Everything else (curl's default */*, explicit application/json, API
+// clients) gets JSON.
 func prefersHTML(c *echo.Context) bool {
-	if IsHTMX(c) {
+	h := c.Request().Header
+	if h.Get("HX-Request") == "true" || h.Get("HX-History-Restore-Request") == "true" {
 		return true
 	}
-	return strings.Contains(c.Request().Header.Get("Accept"), "text/html")
+	return strings.Contains(h.Get("Accept"), "text/html")
 }
 
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.
@@ -157,24 +164,36 @@ func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 // fragment or JSON depending on who asks. Every handler that picks a
 // representation calls it (Respond does), with the status it is about to send.
 //
-//   - Vary names both headers that decide the answer, so no cache hands one
-//     representation to a request for another.
-//   - A fragment is never stored. A form with hx-push-url / hx-replace-url
-//     leaves the fragment's response in the browser cache under the very
-//     address it puts in the bar; a Back that misses the back-forward cache
-//     then rendered that fragment bare: no styles, no header, no form.
+//   - Vary and a fragment's no-store are what negotiationHeaders (app.go)
+//     already sets on every response; they are repeated here, without
+//     duplicating a Vary value, so a handler is right on its own too (tests
+//     build a bare echo).
 //   - An htmx error asks htmx not to push its URL: a 400 or a 429 is a
-//     moment, not a place to come back to.
+//     moment, not a place to come back to. partials/htmx-errors swaps error
+//     fragments in as successes, and htmx pushes a success's URL.
 func SetNegotiationHeaders(c *echo.Context, code int) {
 	h := c.Response().Header()
-	h.Add("Vary", "Accept")
-	h.Add("Vary", "HX-Request")
+	for _, v := range []string{"Accept", "HX-Request", "HX-History-Restore-Request"} {
+		addVary(h, v)
+	}
 	if IsHTMX(c) {
 		h.Set("Cache-Control", "no-store")
 		if code >= 400 {
 			h.Set("HX-Push-Url", "false")
 		}
 	}
+}
+
+// addVary adds v to the Vary header unless it is already listed.
+func addVary(h http.Header, v string) {
+	for _, line := range h.Values("Vary") {
+		for _, have := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(have), v) {
+				return
+			}
+		}
+	}
+	h.Add("Vary", v)
 }
 
 // Respond renders one domain result in representation caller wants:

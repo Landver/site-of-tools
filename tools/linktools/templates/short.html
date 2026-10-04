@@ -403,12 +403,11 @@
      Copy is here too, not only on a freshly created link: coming back for a
      link made last week is the other half of the job. Dead rows get neither
      control: handing out a dead link is worse than making someone retype it.
-     aria-live on Copy because the list is not inside a live region, and a
-     silent label change would be silent twice. Revoke uses the same key
-     expression as the loader: the header is the only way a browser can
+     "Copied" is announced by partials/copy's status line. Revoke uses the same
+     key expression as the loader: the header is the only way a browser can
      authenticate. */}}
 {{define "link/rowactions"}}
-<button type="button" class="btn-copy" aria-live="polite" data-copy="{{.Short}}">Copy</button>
+<button type="button" class="btn-copy" data-copy="{{.Short}}">Copy</button>
 <button type="button" class="text-xs text-danger hover:underline"
         hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
         hx-confirm="Revoke {{.Code}}? Every copy of this link stops working. The code is never reissued."

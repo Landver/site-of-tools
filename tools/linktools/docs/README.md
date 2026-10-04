@@ -138,7 +138,7 @@ new page can follow them:
   carry a glyph as well as a colour; scrolling tables are labelled regions.
   Colour tokens in `shared/static/css/input.css` meet WCAG AA as text in both
   themes (`brand-ink` for brand-coloured text, `warn-ink` for warning text,
-  `field-line` for field edges; `brand` and `warn` stay the fills).
+  `line-strong` for field edges; `brand` and `warn` stay the fills).
 
 **Engine changes this required**, both shared by all four subdomains:
 

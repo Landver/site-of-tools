@@ -991,3 +991,28 @@ func TestFinishWillNotJudgeASignatureOverAFragment(t *testing.T) {
 		t.Errorf("a whole signed answer gave verified=%v dnssec=%q, want true/secure", w2.out.AnswerVerified, w2.out.DNSSEC)
 	}
 }
+
+// Keys without a DS is still insecure, which is what every validator makes of
+// it, but the verdict says what the owner most likely meant and the one step
+// missing, at warn rather than the calm "unsigned is ordinary".
+func TestVerdictNamesKeysWithoutADS(t *testing.T) {
+	t.Parallel()
+
+	chain := func(noDS bool) *traceWalk {
+		return &traceWalk{ctx: context.Background(), out: &Trace{
+			Answer: []string{"1.2.3.4"}, Notes: []Note{}, AnswerZone: "example.test.",
+			Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "test.", Status: traceSecure},
+				{Zone: "example.test.", Status: traceInsecure, KeysWithoutDS: noDS}},
+		}}
+	}
+	half := chain(true)
+	half.verdict()
+	if half.out.DNSSEC != traceInsecure || half.out.Verdict.Level != "warn" || !strings.Contains(half.out.Verdict.Text, "registrar") {
+		t.Errorf("keys without a DS: %q / %q: %s", half.out.DNSSEC, half.out.Verdict.Level, half.out.Verdict.Text)
+	}
+	plain := chain(false)
+	plain.verdict()
+	if plain.out.DNSSEC != traceInsecure || plain.out.Verdict.Level != "info" {
+		t.Errorf("unsigned: %q / %q, want insecure / info", plain.out.DNSSEC, plain.out.Verdict.Level)
+	}
+}

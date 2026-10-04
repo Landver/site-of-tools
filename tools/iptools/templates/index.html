@@ -81,28 +81,18 @@
   {{template "partials/htmx-errors" .}}
 
   <script>
-    // What no fragment covers: a response that is not this tool's HTML (echo
-    // answers a recovered panic with JSON, which partials/htmx-errors
-    // deliberately never swaps in) or no response at all. Either used to
-    // leave the result area as it was. Text nodes only: nothing from the
-    // response is parsed as HTML.
-    function lookupFailed(msg) {
-      const area = document.getElementById('result')
-      if (!area) return
+    // What no fragment covers and partials/htmx-errors does not either: a
+    // response that is not this tool's HTML (echo answers a recovered panic
+    // with JSON, which that partial deliberately never swaps in). It used to
+    // leave the result area as it was. No response at all is the partial's
+    // job. Text nodes only: nothing from the response is parsed as HTML.
+    document.body.addEventListener('htmx:responseError', (e) => {
+      const area = e.detail.target
+      if (!area || area.id !== 'result') return
       const alert = document.createElement('div')
       alert.className = 'alert-error w-full'
-      alert.textContent = msg
+      alert.textContent = 'The lookup failed (HTTP ' + e.detail.xhr.status + '). Try again in a moment.'
       area.replaceChildren(alert)
-    }
-    document.body.addEventListener('htmx:responseError', (e) => {
-      if (e.detail.target && e.detail.target.id === 'result') {
-        lookupFailed('The lookup failed (HTTP ' + e.detail.xhr.status + '). Try again in a moment.')
-      }
-    })
-    document.body.addEventListener('htmx:sendError', (e) => {
-      if (e.detail.target && e.detail.target.id === 'result') {
-        lookupFailed('Could not reach the server. Check your connection and try again.')
-      }
     })
 
     // IPv6 support probe (Alpine, hybrid). Step 1: hit IPv6-only echo — resolves

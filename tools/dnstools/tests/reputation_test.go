@@ -87,8 +87,8 @@ func TestMXReputationRejectsBadInput(t *testing.T) {
 	}{
 		{"", dnstools.ErrEmptyName},
 		{"   ", dnstools.ErrEmptyName},
-		{"8.8.8.8", dnstools.ErrBadType},
-		{"2606:4700:4700::1111", dnstools.ErrBadType},
+		{"8.8.8.8", dnstools.ErrNeedDomain},
+		{"2606:4700:4700::1111", dnstools.ErrNeedDomain},
 		{"not a domain!", dnstools.ErrBadName},
 		{strings.Repeat("a.", 12) + "example.com", dnstools.ErrBadName},
 	}
@@ -194,7 +194,7 @@ func TestMXReputationAgainstALiveDomain(t *testing.T) {
 		t.Errorf("a clean result produced no positive finding; notes: %+v", m.Notes)
 	}
 	// The caveat travels with the data, not only with the HTML.
-	for _, want := range []string{iptools.BlocklistSourceIPsum, iptools.BlocklistSourceSpamhausDROP, "not a live query"} {
+	for _, want := range []string{"IPsum", "Spamhaus DROP", "not a live query"} {
 		if !strings.Contains(m.Corpus, want) {
 			t.Errorf("Corpus caveat %q is missing %q", m.Corpus, want)
 		}
@@ -271,8 +271,10 @@ func TestMXReputationOnADomainWithNoMailLive(t *testing.T) {
 // with the result under "MXRep".
 func renderMXRep(t *testing.T, vm map[string]any) string {
 	t.Helper()
-	tpl, err := template.New("mxrep").ParseFS(dnstools.Templates,
-		"templates/reputation.html", "templates/notes.html")
+	// toolURL stubbed: this test is about the card's claims.
+	tpl, err := template.New("mxrep").Funcs(template.FuncMap{
+		"toolURL": func(sub string) string { return "https://" + sub + ".example" },
+	}).ParseFS(dnstools.Templates, "templates/reputation.html", "templates/notes.html")
 	if err != nil {
 		t.Fatalf("parse the card template: %v", err)
 	}

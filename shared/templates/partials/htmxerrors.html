@@ -12,7 +12,8 @@
 
      A tool's own error fragment is HTML. Echo's default is JSON. Swapping only
      HTML keeps every deliberate fragment working and leaves the accidental
-     ones exactly where they were: unswapped. */}}
+     ones exactly where they were: unswapped. sendError (no response at all)
+     gets a notice above the last result. */}}
 {{define "partials/htmx-errors"}}
 <script>
   document.body.addEventListener('htmx:beforeSwap', (e) => {
@@ -22,6 +23,18 @@
     if (!type.includes('text/html')) return
     e.detail.shouldSwap = true
     e.detail.isError = false
+  })
+  document.body.addEventListener('htmx:sendError', (e) => {
+    const target = e.detail.target
+    if (!target) return
+    // Transient: kept out of history (partials/htmx-history).
+    target.querySelectorAll(':scope > [data-transient]').forEach((el) => el.remove())
+    const box = document.createElement('div')
+    box.className = 'alert-error w-full sm:col-span-2'
+    box.setAttribute('role', 'alert')
+    box.dataset.transient = ''
+    box.textContent = "Couldn't reach the server. Check your connection and try again."
+    target.prepend(box)
   })
 </script>
 {{end}}

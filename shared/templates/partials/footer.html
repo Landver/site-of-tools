@@ -48,22 +48,22 @@
          Own flag, page-scoped: only the DNS tool's /domain page queries it,
          so the credit must not follow the visitor onto the other pages. */}}
     {{if .CertsAttribution}}
-    <p>
+    <span>
       Subdomain data from <a href="https://crt.sh" target="_blank" rel="noopener"
-        class="text-muted hover:text-strong underline decoration-line">crt.sh</a>,
+        class="underline hover:text-muted">crt.sh</a>,
       the Certificate Transparency log search operated by Sectigo.
-    </p>
+    </span>
     {{end}}
 
     {{/* RDAP registration data is fetched through rdap.org's bootstrap, which
          redirects to the registry actually responsible for the TLD. Same
          page-scoping rule. */}}
     {{if .RDAPAttribution}}
-    <p>
+    <span>
       Registration data via <a href="https://rdap.org" target="_blank" rel="noopener"
-        class="text-muted hover:text-strong underline decoration-line">rdap.org</a>,
+        class="underline hover:text-muted">rdap.org</a>,
       which bootstraps to each TLD's own RDAP registry.
-    </p>
+    </span>
     {{end}}
   </div>
 </footer>
