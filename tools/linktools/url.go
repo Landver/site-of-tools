@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -45,7 +46,13 @@ var defaultPorts = map[string]string{"http": "80", "https": "443", "ftp": "21", 
 func parseReason(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
-		return ue.Err
+		err = ue.Err
+	}
+	// The package name is Go's, not the reader's: "net/url: invalid control
+	// character in URL" says nothing a person needs that "invalid control
+	// character in URL" does not.
+	if msg := err.Error(); strings.HasPrefix(msg, "net/url: ") {
+		return errors.New(strings.TrimPrefix(msg, "net/url: "))
 	}
 	return err
 }
@@ -90,7 +97,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 		return nil, fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 
 	u, err := url.Parse(raw)
@@ -99,7 +106,11 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	}
 
 	in := &Inspection{Input: raw, Scheme: u.Scheme, Opaque: u.Opaque}
-	in.Linkable = linkableSchemes[strings.ToLower(u.Scheme)]
+	// Linkable also needs every escape to be well formed. A browser fixes a
+	// broken one ("%zz" becomes "%25zz") before following it, so an Open link
+	// would go somewhere other than the URL on screen; the parameter's own
+	// warning explains the escape.
+	in.Linkable = linkableSchemes[strings.ToLower(u.Scheme)] && !hasBadEscape(raw)
 
 	if u.Scheme == "" {
 		in.Notes = append(in.Notes, Note{SevWarn, "No scheme",
@@ -113,7 +124,11 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	}
 	if !in.Linkable && u.Scheme != "" {
 		sev, detail := SevInfo, "Shown as text, never as a link."
-		if isDangerousScheme(u.Scheme) {
+		switch {
+		case strings.EqualFold(u.Scheme, "file"):
+			sev = SevWarn
+			detail = "A file: URL opens a file on the visitor's own computer. It is shown as text and is never rendered as a clickable link."
+		case isDangerousScheme(u.Scheme):
 			sev = SevFail
 			detail = "This scheme executes rather than navigates. It is shown as text and is never rendered as a clickable link."
 		}
@@ -202,7 +217,63 @@ func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	}
 	if ip := net.ParseIP(in.Host); ip != nil {
 		in.Notes = append(in.Notes, Note{SevInfo, "Host is an IP address", "No DNS lookup is involved."})
+	} else if addr, ok := numericIPv4(in.Host); ok {
+		in.Notes = append(in.Notes, Note{SevWarn, "Host is an IP address in disguise",
+			fmt.Sprintf("Browsers read %s as the IPv4 address %s. Writing an address as one number, in hex or in octal is a common way to hide where a link goes.", in.Host, addr)})
 	}
+}
+
+// numericIPv4 reads a host the way inet_aton does, which is the way browsers
+// do: one to four parts, each decimal, 0x hex or 0-prefixed octal, the last
+// filling the bytes that remain. "2130706433", "0x7f000001", "0177.1" and
+// "127.1" are all 127.0.0.1. A dotted quad of plain decimals is excluded:
+// net.ParseIP already reads that as the address it plainly is.
+func numericIPv4(h string) (string, bool) {
+	if h == "" || net.ParseIP(h) != nil {
+		return "", false
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) > 4 {
+		return "", false
+	}
+	vals := make([]uint64, len(parts))
+	for i, p := range parts {
+		base := 10
+		switch {
+		case len(p) > 2 && (p[:2] == "0x" || p[:2] == "0X"):
+			base, p = 16, p[2:]
+		case len(p) > 1 && p[0] == '0':
+			base, p = 8, p[1:]
+		}
+		v, err := strconv.ParseUint(p, base, 32)
+		if err != nil {
+			return "", false
+		}
+		vals[i] = v
+	}
+	var ip uint64
+	last := len(vals) - 1
+	for i := 0; i < last; i++ {
+		if vals[i] > 255 {
+			return "", false
+		}
+		ip |= vals[i] << (8 * (3 - i))
+	}
+	if vals[last] >= 1<<(8*(4-last)) {
+		return "", false
+	}
+	ip |= vals[last]
+	return fmt.Sprintf("%d.%d.%d.%d", ip>>24, ip>>16&255, ip>>8&255, ip&255), true
+}
+
+// hasBadEscape reports a "%" not followed by two hex digits.
+func hasBadEscape(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && (i+2 >= len(s) || !isHexDigit(s[i+1]) || !isHexDigit(s[i+2])) {
+			return true
+		}
+	}
+	return false
 }
 
 // describePath splits the path into segments and resolves dot segments.
@@ -459,6 +530,11 @@ func canonicalise(u *url.URL) string {
 		}
 		if port := c.Port(); port != "" && defaultPorts[c.Scheme] != port {
 			c.Host = net.JoinHostPort(host, port)
+		} else if strings.Contains(host, ":") {
+			// Hostname() strips an IPv6 literal's brackets, and without them
+			// "http://::1/" is not a URL at all; JoinHostPort adds them back
+			// in the branch above, so this one must too.
+			c.Host = "[" + host + "]"
 		} else {
 			c.Host = host
 		}

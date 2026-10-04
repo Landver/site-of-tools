@@ -63,7 +63,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		return "", fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return "", fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return "", fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -108,6 +108,12 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		}
 		args = append(args, "-H", shellQuote("User-Agent: "+p.UA))
 	}
+	// curl reads [] and {} in a URL as a glob ("ids[]=1" is a bad range,
+	// exit 3) unless told not to. Only added when it matters, so the common
+	// command stays as short as it was.
+	if strings.ContainsAny(raw, "[]{}") {
+		args = append(args, "-g")
+	}
 	args = append(args, shellQuote(raw))
 	return strings.Join(args, " "), nil
 }
@@ -147,6 +153,24 @@ type CurlRequest struct {
 	MethodWhy string   `json:"method_why"`
 	BodyBytes int      `json:"body_bytes,omitempty"`
 	BodyFlag  string   `json:"body_flag,omitempty"` // the first flag that carried a body
+	Notes     []Note   `json:"notes,omitempty"`
+}
+
+// urlencodeData encodes a --data-urlencode argument the way curl does:
+// "content" whole, "name=content" after the "=", "@file" left alone (it names
+// a file this tool cannot read). Spaces become %20, as curl writes them.
+func urlencodeData(v string) string {
+	esc := func(x string) string { return strings.ReplaceAll(url.QueryEscape(x), "+", "%20") }
+	if strings.HasPrefix(v, "@") || strings.Contains(v, "@") && !strings.Contains(v, "=") {
+		return v
+	}
+	if name, content, ok := strings.Cut(v, "="); ok {
+		if name == "" {
+			return esc(content)
+		}
+		return name + "=" + esc(content)
+	}
+	return esc(v)
 }
 
 // FromCurlRequest is FromCurl with the method and body accounted for.
@@ -155,21 +179,37 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		return nil, fmt.Errorf("no command given")
 	}
 	if len(cmd) > maxInput {
-		return nil, fmt.Errorf("command is %d bytes; the limit is %d", len(cmd), maxInput)
+		return nil, fmt.Errorf("command is %d bytes, over the %d KB limit", len(cmd), maxInput>>10)
 	}
 
-	toks := shellSplit(cmd)
+	toks, info := shellSplit(cmd)
+	if info.unterminated {
+		// Read to the end anyway, the parse would be a guess about where the
+		// quote was meant to close. A shell would sit waiting for more input.
+		return nil, fmt.Errorf("the command has a quote that is never closed")
+	}
+	r := &CurlRequest{}
 	i := 0
 	for i < len(toks) && isPromptNoise(toks[i]) {
 		i++
 	}
 	if i < len(toks) && isCurlWord(toks[i]) {
 		i++
+	} else if i < len(toks) && !looksLikeURL(toks[i]) && !strings.HasPrefix(toks[i], "-") {
+		r.Notes = append(r.Notes, Note{SevWarn, "Not a curl command",
+			"It starts with " + toks[i] + ", and was read as if it were curl. Flags can mean something else to another program."})
 	}
-
-	r := &CurlRequest{}
+	if info.stoppedAt != "" {
+		r.Notes = append(r.Notes, Note{SevWarn, "The command ends at an unquoted " + info.stoppedAt,
+			"A shell would stop curl's arguments there and treat the rest as another command, so only the part before it is read. If it belongs to a URL, the URL needs quotes."})
+	}
+	if info.expansion {
+		r.Notes = append(r.Notes, Note{SevInfo, "Shell expansion left as written",
+			"The command contains $… or backticks outside single quotes. A shell would replace them before curl runs; they are shown literally here, and nothing is ever executed."})
+	}
 	var explicit string // -X
 	var get, head bool  // -G, -I
+	var data []string   // body arguments, for -G, which moves them into the query
 	for i < len(toks) {
 		t := toks[i]
 		i++
@@ -244,6 +284,14 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 				r.BodyFlag = name
 			}
 			r.BodyBytes += len(val)
+			if name == "--data-urlencode" {
+				val = urlencodeData(val)
+			}
+			data = append(data, val)
+		case "-u", "--user":
+			// Shown as the header curl would build, never with the password.
+			user, _, _ := strings.Cut(val, ":")
+			r.Headers = append(r.Headers, Header{"Authorization", "Basic, from -u (user " + user + ", password not shown)"})
 		}
 	}
 
@@ -263,6 +311,13 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		r.Method, r.MethodWhy = "HEAD", "implied by -I"
 	case get && r.BodyFlag != "":
 		r.Method, r.MethodWhy = "GET", "-G moves the "+r.BodyFlag+" data into the query string"
+		// …so the URL shown is the one curl would request, query included.
+		sep := "?"
+		if strings.Contains(r.URL, "?") {
+			sep = "&"
+		}
+		r.URL += sep + strings.ReplaceAll(strings.Join(data, "&"), " ", "%20")
+		r.BodyBytes = 0
 	case r.BodyFlag != "":
 		r.Method, r.MethodWhy = "POST", "implied by "+r.BodyFlag
 	default:
@@ -287,8 +342,9 @@ func shellQuote(s string) string {
 // browsers and the documentation actually emit: '…', "…" with backslash
 // escapes, $'…' ANSI-C quoting, bare backslash escapes, and line continuations
 // in all three flavours a "Copy as cURL" produces.
-func shellSplit(s string) []string {
+func shellSplit(s string) ([]string, shellInfo) {
 	var out []string
+	var info shellInfo
 	var cur strings.Builder
 	open := false // a token is in progress, even when it is the empty ''
 
@@ -297,6 +353,17 @@ func shellSplit(s string) []string {
 			out = append(out, cur.String())
 			cur.Reset()
 			open = false
+		}
+	}
+	// expansion notes "$VAR", "${…}", "$(…)" outside single quotes: a shell
+	// replaces them before curl ever runs, so the literal text shown here is
+	// not what curl would have received.
+	expansion := func(i int) {
+		if i+1 < len(s) {
+			n := s[i+1]
+			if n == '(' || n == '{' || n == '_' || n >= 'A' && n <= 'Z' || n >= 'a' && n <= 'z' {
+				info.expansion = true
+			}
 		}
 	}
 
@@ -326,6 +393,9 @@ func shellSplit(s string) []string {
 				raw.WriteByte(s[j])
 				j++
 			}
+			if j >= len(s) {
+				info.unterminated = true
+			}
 			cur.WriteString(ansiCDecode(raw.String()))
 			open = true
 			i = j + 1
@@ -334,6 +404,9 @@ func shellSplit(s string) []string {
 			for j < len(s) && s[j] != '\'' {
 				cur.WriteByte(s[j]) // nothing is special inside single quotes
 				j++
+			}
+			if j >= len(s) {
+				info.unterminated = true
 			}
 			open = true
 			i = j + 1
@@ -351,22 +424,56 @@ func shellSplit(s string) []string {
 						continue
 					}
 				}
+				if s[j] == '$' {
+					expansion(j)
+				}
+				if s[j] == '`' {
+					info.expansion = true
+				}
 				cur.WriteByte(s[j])
 				j++
 			}
+			if j >= len(s) {
+				info.unterminated = true
+			}
 			open = true
 			i = j + 1
+		case c == ';' || c == '&' || c == '|':
+			// A shell ends the command here: what follows runs separately, in
+			// the background, or with this one's output piped into it. curl
+			// never sees it, so neither does this parse; the note says so.
+			push()
+			info.stoppedAt = string(c)
+			if i+1 < len(s) && (s[i+1] == '&' || s[i+1] == '|') {
+				info.stoppedAt += string(s[i+1])
+			}
+			return out, info
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			push()
 			i++
 		default:
+			if c == '$' {
+				expansion(i)
+			}
+			if c == '`' {
+				info.expansion = true
+			}
 			cur.WriteByte(c)
 			open = true
 			i++
 		}
 	}
 	push()
-	return out
+	return out, info
+}
+
+// shellInfo is what shellSplit noticed about shell syntax it does not run:
+// an unclosed quote, a command that ends before the end of the paste, and
+// expansions a shell would have substituted.
+type shellInfo struct {
+	unterminated bool
+	stoppedAt    string // the operator the command ended at: ";", "&&", "|", …
+	expansion    bool
 }
 
 // ansiCDecode expands the escapes inside bash's $'…' quoting. An escape it does

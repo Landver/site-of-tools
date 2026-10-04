@@ -237,7 +237,7 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		l.Code = slug
 		if err := s.store.Insert(ctx, l); err != nil {
 			if errors.Is(err, ErrCodeTaken) {
-				return nil, fmt.Errorf("%w: %s", ErrSlugTaken, slug)
+				return nil, fmt.Errorf("%w: %s, and codes are never reissued, even after a link is revoked", ErrSlugTaken, slug)
 			}
 			return nil, err
 		}

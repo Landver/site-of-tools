@@ -103,7 +103,7 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 func tagHygiene(tags []UTMTag) []Note {
 	var notes []Note
 	has := map[string]bool{}
-	var caps, spaces []string
+	var caps, spaces, plus []string
 	for _, t := range tags {
 		has[t.Key] = true
 		if strings.ToLower(t.Value) != t.Value {
@@ -111,6 +111,9 @@ func tagHygiene(tags []UTMTag) []Note {
 		}
 		if strings.ContainsAny(t.Value, " \t") {
 			spaces = append(spaces, t.Key)
+		}
+		if strings.Contains(t.Value, "+") {
+			plus = append(plus, t.Key)
 		}
 	}
 	if len(tags) > 0 && !has["utm_source"] {
@@ -120,6 +123,10 @@ func tagHygiene(tags []UTMTag) []Note {
 	if len(caps) > 0 {
 		notes = append(notes, Note{SevWarn, "Capital letters in " + strings.Join(caps, ", "),
 			"Tags are case-sensitive in most analytics tools, so “Email” and “email” are reported as two different mediums. Lowercase keeps them together."})
+	}
+	if len(plus) > 0 {
+		notes = append(notes, Note{SevWarn, "A + in " + strings.Join(plus, ", "),
+			"A + typed here is a literal plus, encoded as %2B, and reports show it as one. For a space, type a space; for a separator, a dash."})
 	}
 	if len(spaces) > 0 {
 		notes = append(notes, Note{SevInfo, "Spaces in " + strings.Join(spaces, ", "),

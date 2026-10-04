@@ -57,6 +57,9 @@ const (
 // recentLimit bounds the key-gated console list.
 const recentLimit = 50
 
+// minTTL is the shortest expiry a create accepts.
+const minTTL = time.Minute
+
 // handler: transport-layer dependencies for link.corpberry.com.
 //
 // svc is required — a nil one can only be a wiring mistake, and left to be
@@ -117,7 +120,12 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/encoding", h.encoding)
 	e.GET("/extension/privacy", h.privacy)
 
-	e.GET("/trace", h.traceRoute, fetch)
+	// Trace has its own bucket, and an empty form does not spend from it:
+	// loading the bare page, or changing "Ask as" before there is a URL,
+	// dials nothing and used to burn the same 1/s budget as a real trace.
+	e.GET("/trace", h.traceRoute, rateLimiterExcept(fetchRatePerSecond, fetchRateBurst, func(c *echo.Context) bool {
+		return strings.TrimSpace(c.QueryParam("u")) == ""
+	}))
 
 	// Both /short routes are on the strict limiter, not the pure one: the console
 	// is key-gated and reads the corpus, so it is not a cheap page (doc 06 §4).
@@ -146,11 +154,25 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 // .Desc through partials/head, so handing it a bare domain struct makes
 // html/template fail the render, while handing it the view-model map would leak
 // Title/Desc into the JSON body. Same split dnstools uses.
+//
+// One URL answers three ways, so every answer says what it varies on, and a
+// fragment is never stored: the parsing pages replace the address bar with
+// each result, and without Vary the browser's cache held the htmx fragment
+// under that address and served it, bare and unstyled, when Back returned to
+// it. An htmx error never becomes a history entry either: a 400 or a 429 is a
+// moment, not a place to come back to.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
+	hdr := c.Response().Header()
+	hdr.Add("Vary", "Accept")
+	hdr.Add("Vary", "HX-Request")
 	switch {
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
 	case platform.IsHTMX(c):
+		hdr.Set("Cache-Control", "no-store")
+		if code >= 400 {
+			hdr.Set("HX-Push-Url", "false")
+		}
 		return c.Render(code, frag, vm)
 	}
 	return c.Render(code, page, vm)
@@ -460,6 +482,12 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		if err != nil {
 			return h.badRequest(c, vm, errors.New("ttl is not a duration, e.g. 720h"), "link/short")
 		}
+		// A negative ttl used to mean "permanent" (CreateOptions treats <= 0
+		// that way) and a tiny one made a link that was dead on arrival with
+		// a "created" card. Leaving ttl out is how a link is made permanent.
+		if d < minTTL {
+			return h.badRequest(c, vm, errors.New("ttl must be at least 1m; leave it out for a link that never expires"), "link/short")
+		}
 		opt.TTL = d
 	}
 
@@ -533,15 +561,31 @@ type consoleRow struct {
 	CreatedAt time.Time
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
+	// Expired: the link no longer resolves because its time is up. It used to
+	// look exactly like a live row, Copy and Revoke included, while /s/ for
+	// it was already a 404. Expires is the column's text: a date, with the
+	// time when the expiry is within two days, since "2026-10-04" says nothing
+	// about a link that expires at noon today.
+	Expired bool
+	Expires string
 }
 
 func consoleRows(s *Shortener, links []Link) []consoleRow {
+	now := time.Now()
 	out := make([]consoleRow, 0, len(links))
 	for _, l := range links {
-		out = append(out, consoleRow{
+		row := consoleRow{
 			Code: l.Code, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note, Hits: l.Hits,
-			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt,
-		})
+			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt, Expires: "never",
+		}
+		if e := l.ExpiresAt; e != nil {
+			row.Expired = !e.After(now)
+			row.Expires = e.UTC().Format("2006-01-02")
+			if d := e.Sub(now); d > -48*time.Hour && d < 48*time.Hour {
+				row.Expires = e.UTC().Format("2006-01-02 15:04 UTC")
+			}
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -837,11 +881,18 @@ func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string)
 // --- middleware ------------------------------------------------------------
 
 func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
+	return rateLimiterExcept(rate, burst, nil)
+}
+
+// rateLimiterExcept is rateLimiter with requests skip() approves left out of
+// the count entirely.
+func rateLimiterExcept(rate float64, burst int, skip func(*echo.Context) bool) echo.MiddlewareFunc {
 	store := middleware.NewRateLimiterMemoryStoreWithConfig(
 		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
 	)
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store: store,
+		Skipper: skip,
+		Store:   store,
 		IdentifierExtractor: func(c *echo.Context) (string, error) {
 			// Normalised, not the bare IP: an ordinary IPv6 client holds a /64,
 			// so a per-address bucket is not a limit at all.

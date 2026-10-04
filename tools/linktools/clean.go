@@ -98,7 +98,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		return nil, fmt.Errorf("no URL given")
 	}
 	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes; the limit is %d", len(raw), maxInput)
+		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
 	}
 
 	res := &CleanResult{Input: raw}
