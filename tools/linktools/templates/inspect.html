@@ -88,8 +88,12 @@
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
           <td class="px-3 py-2">
-            <span class="wrap-anywhere font-mono text-strong">{{.Key}}</span>
-            {{if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn">repeat</span>{{end}}
+            {{/* Short values break only between words (break-words keeps a
+                 word whole when the column narrows; wrap-anywhere split
+                 "utm_source" into "utm_sourc" and "e" at 375px). Only a long
+                 one may break anywhere, or a URL would widen the table. */}}
+            <span class="{{if gt (len .Key) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-strong">{{.Key}}</span>
+            {{if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn-ink">repeat</span>{{end}}
             {{if .Tracking}}<span class="ml-1 whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">tracker</span>{{end}}
           </td>
           <td class="px-3 py-2">
@@ -103,16 +107,16 @@
               </div>
               <span class="mt-1 block text-xs text-muted">{{len .List}} values, split on &ldquo;{{.Delimiter}}&rdquo;</span>
             {{else}}
-              <span class="wrap-anywhere font-mono text-strong">{{.Value}}</span>
+              <span class="{{if gt (len .Value) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-strong">{{.Value}}</span>
             {{end}}
             {{if .Kind}}<span class="ml-1 text-xs text-muted">{{template "link/kind" .Kind}}</span>{{end}}
             {{if .RawValue}}<span class="mt-1 block wrap-anywhere font-mono text-xs text-faint sm:hidden">raw {{.RawValue}}</span>{{end}}
             {{if .AltValue}}
-              <span class="mt-1 block text-xs text-warn">
+              <span class="mt-1 block text-xs text-warn-ink">
                 With &lsquo;+&rsquo; kept, as base64 needs it: <span class="font-mono">{{.AltValue}}</span>
               </span>
             {{end}}
-            {{if .Warn}}<span class="mt-1 block text-xs text-warn">{{.Warn}}</span>{{end}}
+            {{if .Warn}}<span class="mt-1 block text-xs text-warn-ink">{{.Warn}}</span>{{end}}
             {{/* A link inside the value, decoded, with somewhere to take it.
                  Same-origin tool links only: the nested URL itself is never an
                  href (see the file comment). Shown in full only when it took
@@ -128,7 +132,9 @@
               <span class="text-muted">the link inside</span>
             </span>
             {{end}}
-            {{if .Layers}}
+            {{/* Not when its one layer is the link just shown as "Decodes to":
+                 the disclosure opened onto the same URL a second time. */}}
+            {{if .Layers}}{{if not (and .Nested (eq (len .Layers) 1))}}
             <details class="mt-1">
               <summary class="cursor-pointer text-xs text-brand-ink">Decodes further ({{len .Layers}} more {{if eq (len .Layers) 1}}layer{{else}}layers{{end}})</summary>
               <ol class="mt-1 space-y-1 border-l border-line pl-3">
@@ -140,7 +146,7 @@
                 {{end}}
               </ol>
             </details>
-            {{end}}
+            {{end}}{{end}}
           </td>
           <td class="hidden px-3 py-2 wrap-anywhere font-mono text-xs text-muted sm:table-cell">{{if .RawValue}}{{.RawValue}}{{else}}<span aria-label="same as the value">&mdash;</span>{{end}}</td>
         </tr>
@@ -168,7 +174,7 @@
         {{range .FragParams}}
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
-          <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Key}}</td>
+          <td class="px-3 py-2 {{if gt (len .Key) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-strong">{{.Key}}</td>
           <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Value}}{{if .Kind}}<span class="ml-1 font-sans text-xs text-muted">{{template "link/kind" .Kind}}</span>{{end}}</td>
         </tr>
         {{end}}
@@ -203,8 +209,10 @@
   <div class="rounded-lg border border-line bg-surface p-4">
     <h2 class="text-sm font-semibold text-strong">Canonical form</h2>
     <p class="mt-1 text-xs text-muted">{{if .HasPass}}Lowercased scheme and host, default port dropped, dot segments resolved. The password is left out: it is never shown back.{{else}}Lossless only: lowercased scheme and host, default port dropped, dot segments resolved. Nothing removed.{{end}}</p>
-    <p class="mt-2 wrap-anywhere font-mono text-sm text-strong">{{.Canonical}}</p>
-    <button type="button" class="btn-copy mt-3" data-copy="{{.Canonical}}">Copy</button>
+    <div class="mt-2 flex flex-wrap items-start gap-3">
+      <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong">{{.Canonical}}</p>
+      <button type="button" class="btn-copy" data-copy="{{.Canonical}}">Copy</button>
+    </div>
   </div>
   {{end}}
   {{if .HostUnicode}}{{if ne .HostUnicode .HostASCII}}
@@ -226,7 +234,7 @@
 {{end}}
 
 {{else}}
-{{template "link/examples" .}}
+{{template "link/examples" .Examples}}
 {{end}}
 {{end}}
 

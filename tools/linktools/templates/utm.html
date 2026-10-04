@@ -133,6 +133,15 @@
 {{define "link/utmbuilt"}}
 {{with .Result}}
 
+{{/* No tag typed and none already on the URL is not a result: a green
+     "Tagged URL" card with a Copy button beside the untouched URL said it
+     was. */}}
+{{if not .Tags}}
+<section class="rounded-lg border border-line bg-surface p-4" data-announce="No tags yet.">
+  <h2 class="text-sm font-semibold text-strong">No tags yet</h2>
+  <p class="mt-1 text-sm text-muted">Fill in utm_source, and utm_medium and utm_campaign if your reports use them, and the tagged URL appears here.</p>
+</section>
+{{else}}
 <section class="rounded-lg border border-ok bg-surface p-4" data-announce="Tagged URL ready.">
   <h2 class="text-sm font-semibold text-strong">Tagged URL</h2>
   <div class="mt-2 flex flex-wrap items-start gap-3">
@@ -152,6 +161,7 @@
   </ul>
   {{end}}
 </section>
+{{end}}
 
 {{if .Notes}}
 <section class="mt-6">
@@ -172,7 +182,7 @@
 {{if and .AnyTag (not .Error)}}
 <p class="text-sm text-muted">Add the URL to tag above, and the tagged URL appears here.</p>
 {{else}}
-{{template "link/examples" .}}
+{{template "link/examples" .Examples}}
 {{end}}
 {{end}}
 {{end}}

@@ -142,6 +142,17 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
 			"There is no scheme, host or query here, so there was nothing to clean. If you meant to paste a link, paste all of it, starting with https://."})
 	}
+	// The rules are for web links. A javascript: URL used to come back with a
+	// green "Nothing to remove", as if it had been checked and passed.
+	isHTTP := strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
+	if u.Scheme != "" && !isHTTP {
+		sev, detail := SevInfo, "The rules are written for web links, so this was cleaned as it stands."
+		if isDangerousScheme(u.Scheme) {
+			sev, detail = SevFail, "This scheme runs code instead of opening a page. There is nothing to clean in it, and it is not safe to share as a link."
+		}
+		res.Notes = append(res.Notes, Note{sev, "Scheme is " + u.Scheme + ", not http(s)", detail})
+	}
+	web := isHTTP && u.Host != ""
 	host := u.Hostname()
 
 	prefix, query, frag, hasQuery, hasFrag := splitParts(work)
@@ -208,7 +219,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		res.Notes = append(res.Notes, Note{SevInfo, "Affiliate tag kept",
 			fmt.Sprintf("Kept: %s pays whoever shared this link. Tick “Also remove affiliate tags” to drop it.", strings.Join(affiliate, ", "))})
 	}
-	if len(res.Removed) == 0 && res.Unwrapped == "" {
+	if len(res.Removed) == 0 && res.Unwrapped == "" && web {
 		res.Notes = append(res.Notes, Note{SevOK, "Nothing to remove", catalogScope})
 	}
 	return res, nil

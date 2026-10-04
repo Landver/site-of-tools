@@ -200,11 +200,17 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 		return false, nil
 	}
 	if platform.WantsJSON(c) {
-		return true, c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "no URL; pass ?u=, e.g. " + example,
-		})
+		return true, apiError(c, http.StatusBadRequest, "no URL; pass ?u=, e.g. "+example)
 	}
 	return true, reply(c, http.StatusOK, nil, vm, page, frag)
+}
+
+// apiError answers a JSON caller's mistake without a page behind it, with the
+// same Vary as every other answer from these URLs: without it a cache could
+// keep this 400 under the address and hand it to a browser asking for the page.
+func apiError(c *echo.Context, code int, msg string) error {
+	platform.SetNegotiationHeaders(c, code)
+	return c.JSON(code, map[string]string{"error": msg})
 }
 
 // suggestion is a way out of a wrong-tool error: a button that carries the
@@ -222,7 +228,11 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 	switch WrongTool(raw) {
 	case ToolCurl:
 		msg = "That looks like a curl command, not a URL."
-		vm["Suggest"] = suggestion{Label: "Take it apart on the curl page", Action: "/curl", Field: "curl", Value: raw}
+		label := "Take it apart on the curl page"
+		if page == "link/curl" {
+			label = "Take it apart instead"
+		}
+		vm["Suggest"] = suggestion{Label: label, Action: "/curl", Field: "curl", Value: raw}
 	case ToolExtract:
 		msg = "That looks like text with links in it, not one URL."
 		vm["Suggest"] = suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: raw}
@@ -330,6 +340,8 @@ func (h *handler) rules(c *echo.Context) error {
 	if platform.WantsJSON(c) {
 		c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
 		if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
+			// A 304 carries the Vary its 200 would have (RFC 9110 §15.4.5).
+			platform.SetNegotiationHeaders(c, http.StatusNotModified)
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
@@ -349,7 +361,7 @@ func (h *handler) diff(c *echo.Context) error {
 
 	if a == "" || b == "" {
 		if platform.WantsJSON(c) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "pass both ?a= and ?b="})
+			return apiError(c, http.StatusBadRequest, "pass both ?a= and ?b=")
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
@@ -519,11 +531,11 @@ func (h *handler) createError(c *echo.Context, vm map[string]any, err error) err
 	case errors.Is(err, ErrSlugTaken):
 		// 409, never a silently-suffixed slug: guessing what the caller meant
 		// is how "my-link-2" ends up in someone's slide deck.
-		return h.fail(c, vm, http.StatusConflict, sentence(err.Error()), "link/short")
+		return h.failErr(c, vm, http.StatusConflict, err, "link/short")
 	case errors.Is(err, ErrDisabled):
-		return h.fail(c, vm, http.StatusServiceUnavailable, sentence(err.Error()), "link/short")
+		return h.failErr(c, vm, http.StatusServiceUnavailable, err, "link/short")
 	case errors.Is(err, ErrInvalidTarget), errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidNote):
-		return h.fail(c, vm, http.StatusBadRequest, sentence(err.Error()), "link/short")
+		return h.failErr(c, vm, http.StatusBadRequest, err, "link/short")
 	}
 	// Anything else is a storage or driver failure. Those messages can carry
 	// connection strings and internal topology, so the client gets a fixed
@@ -541,6 +553,15 @@ func (h *handler) storageError(c *echo.Context, vm map[string]any, err error, pa
 func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page string) error {
 	vm["Error"] = msg
 	return reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
+}
+
+// failErr answers an error in each reader's style: the Go string to a JSON
+// client, lowercase and unpunctuated as the API has always returned it and
+// as its other errors ("no URL; pass ?u=…") still read, and a sentence to a
+// person reading the page.
+func (h *handler) failErr(c *echo.Context, vm map[string]any, code int, err error, page string) error {
+	vm["Error"] = sentence(err.Error())
+	return reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
 }
 
 // consoleRow is the console's view of a Link: everything the page renders and
@@ -561,8 +582,9 @@ type consoleRow struct {
 	// Expired: the link no longer resolves because its time is up. It used to
 	// look exactly like a live row, Copy and Revoke included, while /s/ for
 	// it was already a 404. Expires is the column's text: a date, with the
-	// time when the expiry is within two days, since "2026-10-04" says nothing
-	// about a link that expires at noon today.
+	// time when the expiry is within two days, since "4 Oct 2026" says nothing
+	// about a link that expires at noon today. Same format as the card a new
+	// link arrives in, which used to say the same moment a second way.
 	Expired bool
 	Expires string
 }
@@ -573,13 +595,13 @@ func consoleRows(s *Shortener, links []Link) []consoleRow {
 	for _, l := range links {
 		row := consoleRow{
 			Code: l.Code, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note, Hits: l.Hits,
-			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt, Expires: "never",
+			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt, Expires: "Never",
 		}
 		if e := l.ExpiresAt; e != nil {
 			row.Expired = !e.After(now)
-			row.Expires = e.UTC().Format("2006-01-02")
+			row.Expires = e.UTC().Format("2 Jan 2006")
 			if d := e.Sub(now); d > -48*time.Hour && d < 48*time.Hour {
-				row.Expires = e.UTC().Format("2006-01-02 15:04 UTC")
+				row.Expires = e.UTC().Format("2 Jan 2006, 15:04 UTC")
 			}
 		}
 		out = append(out, row)
@@ -676,12 +698,28 @@ func (h *handler) curl(c *echo.Context) error {
 	}
 	vm := h.vm("curl", "Take apart or build a curl command", curlDesc, raw)
 	vm["Cmd"] = cmd
+	// Each panel offers its own direction's examples: a build chip under the
+	// paste box flipped the page into the other mode. An emptied box gets its
+	// own panel's back: the paste form posts, the build form gets.
+	var paste, build []Example
+	for _, e := range examples["curl"] {
+		if strings.Contains(e.Href, "?curl=") {
+			paste = append(paste, e)
+		} else {
+			build = append(build, e)
+		}
+	}
+	vm["Examples"], vm["BuildExamples"], vm["EmptyExamples"] = paste, build, build
+	if c.Request().Method == http.MethodPost {
+		vm["EmptyExamples"] = paste
+	}
 	// Set before the empty-input branch below, not only on the ?u= path: the
 	// bare page renders the form too, and without these the "Ask as" select had
 	// nothing to list, so the persona feature was unreachable until after a
 	// first conversion.
 	vm["Personas"], vm["Persona"] = Personas(), c.QueryParam("ua")
 
+	postReset(c, "/curl")
 	if cmd != "" {
 		req, err := h.svc.FromCurlRequest(cmd)
 		if err != nil {
@@ -697,6 +735,11 @@ func (h *handler) curl(c *echo.Context) error {
 		}
 		if req.BodyBytes > 0 {
 			out["body_bytes"] = req.BodyBytes
+		}
+		// The parse notes (a command cut short at an unquoted ";", a bare URL
+		// with no command) reached the page only.
+		if len(req.Notes) > 0 {
+			out["notes"] = req.Notes
 		}
 		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = req.URL, req.Headers, in, req
 		return reply(c, http.StatusOK, out, vm, "link/curl", "link/curled")
@@ -723,6 +766,16 @@ func (h *handler) curl(c *echo.Context) error {
 	return reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
+// postReset answers an htmx POST with HX-Replace-Url set to the bare path. A
+// posting page's address bar never carries its input, but after an example
+// chip (a GET with ?curl= or ?text=) it still held the example, and a reload
+// then replaced the visitor's own paste with it.
+func postReset(c *echo.Context, path string) {
+	if c.Request().Method == http.MethodPost && platform.IsHTMX(c) {
+		c.Response().Header().Set("HX-Replace-Url", path)
+	}
+}
+
 // --- extract ---------------------------------------------------------------
 
 const extractDesc = "Paste HTML, Markdown or an email and get every link out, deduplicated and counted, with its anchor text. Nothing is fetched: this is for auditing links before they go out, not for checking whether they work."
@@ -738,10 +791,11 @@ func (h *handler) extract(c *echo.Context) error {
 	text = strings.TrimSpace(text)
 	vm := h.vm("extract", "Extract links", extractDesc, "")
 	vm["Text"] = text
+	postReset(c, "/extract")
 
 	if text == "" {
 		if platform.WantsJSON(c) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no text; pass ?text= or POST a text field"})
+			return apiError(c, http.StatusBadRequest, "no text; pass ?text= or POST a text field")
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/extract", "link/extracted")
 	}
@@ -820,7 +874,7 @@ func (h *handler) encode(c *echo.Context) error {
 	vm["Value"] = v
 	if v == "" {
 		if platform.WantsJSON(c) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "no value; pass ?v="})
+			return apiError(c, http.StatusBadRequest, "no value; pass ?v=")
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/encode", "link/encoded")
 	}
@@ -849,9 +903,7 @@ func (h *handler) privacy(c *echo.Context) error {
 // --- shared error paths ----------------------------------------------------
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
-	msg := sentence(err.Error())
-	vm["Error"] = msg
-	return reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
+	return h.failErr(c, vm, http.StatusBadRequest, err, page)
 }
 
 // sentence turns an error string into a sentence for a person: capital first
@@ -863,7 +915,8 @@ func sentence(s string) string {
 	if s == "" {
 		return s
 	}
-	if r, size := utf8.DecodeRuneInString(s); unicode.IsLower(r) {
+	// curl is a command's name, and keeps its case at the start of one too.
+	if r, size := utf8.DecodeRuneInString(s); unicode.IsLower(r) && !strings.HasPrefix(s, "curl ") {
 		s = string(unicode.ToUpper(r)) + s[size:]
 	}
 	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
@@ -934,13 +987,15 @@ func globalLimiter(rate float64, burst int) echo.MiddlewareFunc {
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
 //
-// Tool pages only. /s/:code is a redirect carrying X-Robots-Tag: noindex,
-// POST /short is not a page, and the privacy policy is a document nobody
-// searches for — platform.BuildSitemap's own comment says transient and
-// non-page URLs have no business here.
+// Tool pages only, every one of them. /s/:code is a redirect carrying
+// X-Robots-Tag: noindex, the privacy policy is a document nobody searches for,
+// and /short is the owner's console: to anyone arriving from a search it is a
+// page explaining why they cannot use it. platform.BuildSitemap's own comment
+// says transient and non-page URLs have no business here.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
-		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"},
-		{Path: "/diff"}, {Path: "/trace"}, {Path: "/short"}, {Path: "/encoding"},
+		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"}, {Path: "/trace"},
+		{Path: "/diff"}, {Path: "/extract"}, {Path: "/utm"}, {Path: "/curl"},
+		{Path: "/encode"}, {Path: "/encoding"},
 	}, nil
 }

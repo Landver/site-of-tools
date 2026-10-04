@@ -123,12 +123,22 @@ new page can follow them:
   paste direction. The URL-shaped inputs stay GET, by design (docs/06 §5).
 - **Wrong-tool input is routed**: a curl command or text with links pasted
   where one URL goes gets a 400 saying what it looks like, and a POST button to
-  `/curl` or `/extract` (`WrongTool` in url.go).
+  `/curl` or `/extract` (`WrongTool` in url.go, mirrored in `link/live` so the
+  input never rides in a URL). It must never refuse a URL: markup needs a
+  quoted `href`, text needs words before the first link or a second link after
+  whitespace, and a lone URL with a raw space goes on to Inspect, which says so.
+- **A state that is not a result does not look like one.** UTM with nothing
+  to tag shows a prompt, not the green "Tagged URL" card; Trace ending at a
+  4xx/5xx says "Ends at 404 Not Found" with a warning border; Clean gives its
+  green "Nothing to remove" only to an http(s) link with a host.
+- **Errors**: a JSON client gets the Go string (lowercase, as the API always
+  returned it); the page gets it as a sentence (`failErr`, `sentence`).
 - **Accessibility**: results announce one line through a status region
   (`data-announce`, `link/live`), not by re-reading the whole result; findings
   carry a glyph as well as a colour; scrolling tables are labelled regions.
   Colour tokens in `shared/static/css/input.css` meet WCAG AA as text in both
-  themes (`brand-ink` for brand-coloured text, `field-line` for field edges).
+  themes (`brand-ink` for brand-coloured text, `warn-ink` for warning text,
+  `field-line` for field edges; `brand` and `warn` stay the fills).
 
 **Engine changes this required**, both shared by all four subdomains:
 

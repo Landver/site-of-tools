@@ -53,8 +53,14 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 
 	// "example.com/landing" is what people paste. Tagged as it stands it is a
 	// relative link, which works only on the page it is pasted into. Assume
-	// https and say so, the rule Trace already follows.
-	if in.Scheme == "" && in.Host == "" {
+	// https and say so, the rule Trace already follows. A path that starts
+	// with "/" is relative on purpose (a site's own links, an API caller
+	// templating them) and is tagged as it stands, as Clean cleans one.
+	switch {
+	case in.Scheme == "" && in.Host == "" && strings.HasPrefix(raw, "/"):
+		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
+			"This is a path, so the tagged URL is one too, and it works only on pages of the same site. To tag a link you can share, paste all of it, starting with https://."})
+	case in.Scheme == "" && in.Host == "":
 		alt, err := s.Parse("https://" + raw)
 		if err != nil || alt.Host == "" {
 			// Not a link with the scheme missing, just not a link: tagging
@@ -104,10 +110,14 @@ func tagHygiene(tags []UTMTag) []Note {
 	var notes []Note
 	has := map[string]bool{}
 	var caps, spaces, plus []string
+	var capsValue string
 	for _, t := range tags {
 		has[t.Key] = true
 		if strings.ToLower(t.Value) != t.Value {
 			caps = append(caps, t.Key)
+			if capsValue == "" {
+				capsValue = t.Value
+			}
 		}
 		if strings.ContainsAny(t.Value, " \t") {
 			spaces = append(spaces, t.Key)
@@ -121,8 +131,14 @@ func tagHygiene(tags []UTMTag) []Note {
 			"Most analytics tools need utm_source to attribute the visit at all; without it the other tags may be ignored."})
 	}
 	if len(caps) > 0 {
+		// The reader's own value and the field's own noun: "two different
+		// mediums" was said of every field, utm_source included.
+		noun := "values"
+		if n, ok := utmNouns[caps[0]]; ok && len(caps) == 1 {
+			noun = n
+		}
 		notes = append(notes, Note{SevWarn, "Capital letters in " + strings.Join(caps, ", "),
-			"Tags are case-sensitive in most analytics tools, so “Email” and “email” are reported as two different mediums. Lowercase keeps them together."})
+			"Most analytics tools are case-sensitive, so “" + capsValue + "” and “" + strings.ToLower(capsValue) + "” are reported as two different " + noun + ". Lowercase keeps them together."})
 	}
 	if len(plus) > 0 {
 		notes = append(notes, Note{SevWarn, "A + in " + strings.Join(plus, ", "),
@@ -130,9 +146,15 @@ func tagHygiene(tags []UTMTag) []Note {
 	}
 	if len(spaces) > 0 {
 		notes = append(notes, Note{SevInfo, "Spaces in " + strings.Join(spaces, ", "),
-			"A space is encoded as + in the URL and comes back as a space in reports. It works; dashes read better in both places."})
+			"Each space is written %20 in the URL and comes back as a space in reports. It works; dashes read better in both places."})
 	}
 	return notes
+}
+
+// utmNouns names what each tag's values are, for the capitals note.
+var utmNouns = map[string]string{
+	"utm_source": "sources", "utm_medium": "mediums", "utm_campaign": "campaigns",
+	"utm_term": "terms", "utm_content": "content values",
 }
 
 // firstValue returns key's first value in ps and how many times key appears.

@@ -56,10 +56,15 @@ type Chain struct {
 	// pre-redirect URL as the destination is the wrong answer in the
 	// security-relevant direction (docs/02-build-fit.md §5), so in those cases
 	// the Note names the target instead and this stays blank.
-	Final   string `json:"final,omitempty"`
-	Notes   []Note `json:"notes,omitempty"`
-	Persona string `json:"persona,omitempty"`
-	Elapsed int64  `json:"elapsed_ms"`
+	Final string `json:"final,omitempty"`
+	// FinalStatus is the status Final answered with. A link that ends at a 404
+	// still has a final destination, and the page has to say it is an error
+	// page rather than present it as neutrally as a 200.
+	FinalStatus int    `json:"final_status,omitempty"`
+	FinalReason string `json:"-"`
+	Notes       []Note `json:"notes,omitempty"`
+	Persona     string `json:"persona,omitempty"`
+	Elapsed     int64  `json:"elapsed_ms"`
 }
 
 // Hop is one request/response pair in the chain.
@@ -261,6 +266,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 	ch = &Chain{Input: raw, Persona: p.Key, Notes: startNotes}
 	began := time.Now()
 	defer func() { ch.Elapsed = time.Since(began).Milliseconds() }()
+	defer ch.liftLastHop()
 
 	seen := map[string]bool{}
 	for {
@@ -287,7 +293,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 			// Terminal hop. step has already attached whatever it found; Final
 			// stays empty when the chain plainly continues elsewhere.
 			if !continuesElsewhere(hop.Notes) {
-				ch.Final = hop.URL
+				ch.Final, ch.FinalStatus, ch.FinalReason = hop.URL, hop.Status, hop.Reason
 			}
 			return ch, nil
 		}
@@ -310,6 +316,43 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 		}
 		cur = next
 	}
+}
+
+// liftLastHop puts what went wrong at the end of the chain into the chain's
+// own findings. The page leads with the answer and then the findings, and
+// "No final destination; see the findings" used to point at a list without
+// the reason in it: that was in the last hop's notes, further down. A chain
+// that ends at an error page gets a finding even when the hop has no note.
+func (ch *Chain) liftLastHop() {
+	if ch == nil || len(ch.Hops) == 0 {
+		return
+	}
+	last := ch.Hops[len(ch.Hops)-1]
+	lifted := false
+	for _, n := range last.Notes {
+		if n.Severity != SevFail && n.Severity != SevWarn {
+			continue
+		}
+		lifted = true
+		dup := false
+		for _, have := range ch.Notes {
+			dup = dup || have.Title == n.Title
+		}
+		if !dup {
+			ch.Notes = append(ch.Notes, n)
+		}
+	}
+	if lifted || ch.Final == "" || ch.FinalStatus < 400 {
+		return
+	}
+	status := strings.TrimSpace(fmt.Sprintf("%d %s", ch.FinalStatus, ch.FinalReason))
+	if ch.FinalStatus >= 500 {
+		ch.Notes = append(ch.Notes, Note{SevWarn, "Ends at a server error",
+			"The last page answered " + status + ". The site may be down for now: try again later."})
+		return
+	}
+	ch.Notes = append(ch.Notes, Note{SevWarn, "Ends at an error page",
+		"The last page answered " + status + ": the link is broken, or the site turns this kind of visitor away. Asking as someone else tells the two apart."})
 }
 
 // step performs one hop, fills in the response fields and notes, and returns

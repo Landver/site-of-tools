@@ -151,7 +151,7 @@
             {{if .Flags}}
             <ul class="mt-1 space-y-0.5">
               {{range .Flags}}
-              <li class="text-xs {{if eq .Severity "fail"}}text-danger{{else if eq .Severity "warn"}}text-warn{{else}}text-muted{{end}}">{{.Title}}</li>
+              <li class="text-xs {{if eq .Severity "fail"}}text-danger{{else if eq .Severity "warn"}}text-warn-ink{{else}}text-muted{{end}}">{{.Title}}</li>
               {{end}}
             </ul>
             {{end}}
@@ -176,6 +176,6 @@
 {{end}}
 
 {{else}}
-{{template "link/examples" .}}
+{{template "link/examples" .Examples}}
 {{end}}
 {{end}}

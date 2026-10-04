@@ -195,6 +195,11 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 	}
 	if i < len(toks) && isCurlWord(toks[i]) {
 		i++
+	} else if i == len(toks)-1 && looksLikeURL(toks[i]) {
+		// A URL on its own is the other direction's input. Taking it apart
+		// as "GET, curl's default" answered a question nobody asked.
+		r.Notes = append(r.Notes, Note{SevInfo, "Only a URL",
+			"There is no command here, just a URL, so it was read as a bare curl call. To turn it into a command, use Build a command."})
 	} else if i < len(toks) && !looksLikeURL(toks[i]) && !strings.HasPrefix(toks[i], "-") {
 		r.Notes = append(r.Notes, Note{SevWarn, "Not a curl command",
 			"It starts with " + toks[i] + ", and was read as if it were curl. Flags can mean something else to another program."})

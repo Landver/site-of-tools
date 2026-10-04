@@ -73,7 +73,7 @@
     <div class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
       <span class="text-muted">Version <span class="font-mono text-strong">{{.Version}}</span></span>
       <span class="text-muted">Tracking rules <span class="font-mono text-strong">{{len .Tracking}}</span></span>
-      <span class="text-muted">Never stripped <span class="font-mono text-strong">{{len .NeverStrip}}</span></span>
+      <span class="text-muted">Never removed <span class="font-mono text-strong">{{len .NeverStrip}}</span></span>
       <span class="text-muted">Wrappers <span class="font-mono text-strong">{{len .Wrappers}}</span></span>
     </div>
 
@@ -87,7 +87,7 @@
         <summary class="cursor-pointer text-muted hover:text-strong">What that means in practice</summary>
         <p class="mt-2 text-sm text-muted">
           This catalog is hand-maintained from vendor documentation and it is deliberately conservative,
-          because a wrong deletion is worse than a missed one: a stripped parameter that turned out to be
+          because a wrong deletion is worse than a missed one: a removed parameter that turned out to be
           functional breaks the page you were trying to reach, silently, and you have no way of knowing that is
           what happened.
         </p>
@@ -218,7 +218,7 @@
     </section>
 
     <section id="affiliate" class="mt-10 scroll-mt-6">
-      <h2 class="text-lg font-semibold text-strong">Affiliate tags <span class="text-sm font-normal text-warn">off by default</span></h2>
+      <h2 class="text-lg font-semibold text-strong">Affiliate tags <span class="text-sm font-normal text-warn-ink">off by default</span></h2>
       <p class="mt-1 text-sm text-muted">
         These attribute a sale to whoever published the link. Removing one is not the same act as removing a
         click ID: it takes money from the person whose review you found useful. So it happens only when you
@@ -249,7 +249,7 @@
         Checked before any rule, so nothing ever removes them. They can look like tracking, but each does a
         job: the last column says what breaks without it.
       </p>
-      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Never stripped, whatever else matches">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Never removed, whatever else matches">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -304,7 +304,7 @@
             <tr class="align-top">
               <td class="px-3 py-2 text-strong">
                 {{.Name}}
-                {{if .Partial}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn">domain only</span>{{end}}
+                {{if .Partial}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn-ink">domain only</span>{{end}}
                 {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-xs text-brand-ink hover:underline">docs</a>{{end}}
               </td>
               <td class="px-3 py-2 wrap-anywhere text-xs text-muted">
@@ -324,7 +324,7 @@
                 {{if eq .Conf "high"}}
                   <span class="whitespace-nowrap rounded bg-ok/10 px-1.5 py-0.5 text-ok">high</span>
                 {{else}}
-                  <span class="whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-warn">{{.Conf}}</span>
+                  <span class="whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-warn-ink">{{.Conf}}</span>
                 {{end}}
               </td>
             </tr>

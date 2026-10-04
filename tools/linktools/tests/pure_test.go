@@ -904,6 +904,30 @@ func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 			t.Errorf("no %q note: %+v", title, res.Notes)
 		}
 	}
+
+	// The notes describe this URL: the space really is %20 in it, and the
+	// capitals note quotes the value and names the field's kind of value.
+	for _, n := range res.Notes {
+		switch n.Title {
+		case "Spaces in utm_campaign":
+			if !strings.Contains(res.URL, "fall%20sale") || !strings.Contains(n.Detail, "%20") {
+				t.Errorf("space note %q does not match the URL %q", n.Detail, res.URL)
+			}
+		case "Capital letters in utm_medium":
+			if !strings.Contains(n.Detail, "“Email” and “email”") || !strings.Contains(n.Detail, "mediums") {
+				t.Errorf("capitals note = %q", n.Detail)
+			}
+		}
+	}
+	src, err := svc.BuildUTM("https://example.com/", map[string]string{"utm_source": "News"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range src.Notes {
+		if n.Title == "Capital letters in utm_source" && !strings.Contains(n.Detail, "two different sources") {
+			t.Errorf("capitals note on utm_source = %q, want it to say sources", n.Detail)
+		}
+	}
 }
 
 // TestExtractFlagsWhatAnAuditIsFor: link text that shows one host over a link
@@ -1084,5 +1108,32 @@ func TestRound2EdgeCases(t *testing.T) {
 	r, _ = svc.FromCurlRequest(`wget https://example.com/`)
 	if !hasNote(r.Notes, linktools.SevWarn, "Not a curl command") {
 		t.Errorf("a wget command was not called out: %+v", r.Notes)
+	}
+}
+
+// TestEncodeLeadsWithTheReading: base64 and JWTs are pasted to be read, so the
+// decoded text comes first; the ladder never repeats a reading already on the
+// page; a trailing line break is named, since it is encoded into everything.
+func TestEncodeLeadsWithTheReading(t *testing.T) {
+	t.Parallel()
+	r := linktools.EncodeAll("aGVsbG8gd29ybGQ=")
+	if r.Reading == nil || r.Reading.Value != "hello world" {
+		t.Fatalf("Reading = %+v, want hello world", r.Reading)
+	}
+	for _, l := range r.Ladder {
+		if l.Value == "hello world" {
+			t.Errorf("the ladder repeats the reading: %+v", r.Ladder)
+		}
+	}
+	jwt := linktools.EncodeAll("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI0MiJ9.c2ln")
+	if jwt.Reading == nil || !strings.Contains(jwt.Reading.Value, `"sub": "42"`) || strings.Contains(jwt.Reading.Value, "signature not verified") {
+		t.Errorf("JWT reading = %+v", jwt.Reading)
+	}
+	if plain := linktools.EncodeAll("hello world"); plain.Reading != nil || len(plain.Notes) != 0 {
+		t.Errorf("plain text got a reading %+v or notes %+v", plain.Reading, plain.Notes)
+	}
+	nl := linktools.EncodeAll("a b\n")
+	if len(nl.Notes) != 1 || nl.Notes[0].Title != "Ends in a line break" {
+		t.Errorf("trailing newline notes = %+v", nl.Notes)
 	}
 }

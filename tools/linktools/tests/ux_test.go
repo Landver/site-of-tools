@@ -405,6 +405,19 @@ func TestFragmentsAreNeverCachedAsPages(t *testing.T) {
 	if bad.Code != http.StatusBadRequest || bad.Header().Get("HX-Push-Url") != "false" {
 		t.Errorf("htmx error = %d with HX-Push-Url %q; an error must not become a history entry", bad.Code, bad.Header().Get("HX-Push-Url"))
 	}
+
+	// The answers that return early, before the shared reply, vary the same.
+	early := map[string]*httptest.ResponseRecorder{}
+	for _, target := range []string{"/clean?u=", "/diff?a=x", "/encode?v=", "/extract"} {
+		early[target] = request(t, e, http.MethodGet, target, asJSON)
+	}
+	early["/clean/rules (304)"] = request(t, e, http.MethodGet, "/clean/rules",
+		map[string]string{"Accept": "application/json", "If-None-Match": `"` + linktools.RulesVersion + `"`})
+	for target, rec := range early {
+		if v := strings.Join(rec.Header().Values("Vary"), ","); !strings.Contains(v, "Accept") || !strings.Contains(v, "HX-Request") {
+			t.Errorf("%s (%d): Vary = %q", target, rec.Code, v)
+		}
+	}
 }
 
 // TestEmptyTraceCostsNothing: the bare Trace page, or "Ask as" changed before
@@ -434,5 +447,76 @@ func TestShortRefusesNonsenseTTLs(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "at least 1m") {
 			t.Errorf("ttl %s = %d %s, want 400 asking for at least 1m", ttl, rec.Code, rec.Body)
 		}
+	}
+}
+
+// TestRoundThreeAnswers pins what the final review asked of each page: the
+// state a reader is left in, not only that a request succeeds.
+func TestRoundThreeAnswers(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+	body := func(target string, headers map[string]string) string {
+		t.Helper()
+		return request(t, e, http.MethodGet, target, headers).Body.String()
+	}
+
+	// UTM with nothing to tag is a prompt, not a green "Tagged URL" card.
+	if b := body("/utm?u="+urlEscape("https://example.com/pricing"), asHTMX); !strings.Contains(b, "No tags yet") || strings.Contains(b, "Tagged URL") {
+		t.Errorf("untagged UTM:\n%s", truncate(b))
+	}
+	// A site-relative path is tagged as it stands, with a warning, as prod did.
+	rel := request(t, e, http.MethodGet, "/utm?u="+urlEscape("/landing?x=1")+"&utm_source=n", asJSON)
+	var tagged struct{ URL string }
+	if err := json.Unmarshal(rel.Body.Bytes(), &tagged); err != nil || rel.Code != http.StatusOK ||
+		tagged.URL != "/landing?x=1&utm_source=n" || !strings.Contains(rel.Body.String(), "Not a whole link") {
+		t.Errorf("relative UTM = %d %s", rel.Code, rel.Body)
+	}
+
+	// Clean never passes a javascript: URL with a green tick.
+	if b := body("/clean?u="+urlEscape("javascript:alert(1)"), asHTMX); strings.Contains(b, "Nothing to remove") || !strings.Contains(b, "Scheme is javascript, not http(s)") {
+		t.Errorf("javascript: on Clean:\n%s", truncate(b))
+	}
+
+	// Errors: the Go string to the API, as it always was; a sentence on the
+	// page, with curl keeping its lowercase name.
+	if b := body("/curl?curl="+urlEscape("curl -H 'a: b'"), asJSON); !strings.Contains(b, `"error":"no URL in that command"`) {
+		t.Errorf("JSON error = %s", b)
+	}
+	if b := body("/curl?curl="+urlEscape("curl -H 'a: b'"), asHTMX); !strings.Contains(b, "No URL in that command.") {
+		t.Errorf("page error:\n%s", truncate(b))
+	}
+	if b := body("/curl?curl="+urlEscape("curl example"), asHTMX); strings.Contains(b, "Curl needs") {
+		t.Errorf("curl capitalised at the start of a sentence:\n%s", truncate(b))
+	}
+
+	// A bare URL in the paste box says it is the other direction's input.
+	if b := body("/curl?curl="+urlEscape("https://example.com/x"), asJSON); !strings.Contains(b, "Only a URL") {
+		t.Errorf("bare URL pasted as a command: %s", truncate(b))
+	}
+	// Each curl panel offers its own direction's examples.
+	page := body("/curl", asHTML)
+	paste := page[strings.Index(page, `id="result"`):strings.Index(page, `id="result-build"`)]
+	if strings.Contains(paste, "/curl?u=") || !strings.Contains(paste, "/curl?curl=") {
+		t.Errorf("the paste panel's examples are not its own:\n%s", truncate(paste))
+	}
+
+	// An htmx POST resets the address bar: an example chip's ?curl= or
+	// ?text= stayed in it, and a reload replaced the visitor's own paste.
+	for path, field := range map[string]string{"/curl": "curl", "/extract": "text"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(field+"="+urlEscape("curl https://example.com/ see https://example.org/")))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "text/html")
+		req.Header.Set("HX-Request", "true")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if got := rec.Header().Get("HX-Replace-Url"); got != path {
+			t.Errorf("POST %s: HX-Replace-Url = %q, want %q", path, got, path)
+		}
+	}
+
+	// The sitemap and the rules catalog: a changed text ships a new version,
+	// or the extension keeps serving the cached one.
+	if linktools.RulesVersion == "2026-09-25" {
+		t.Error("the rules text changed, so RulesVersion must move off 2026-09-25")
 	}
 }

@@ -147,10 +147,12 @@
                  meaning does not (FieldChange.Cosmetic). */}}
             {{if .Cosmetic}}<span class="mt-1 block whitespace-nowrap font-sans text-xs text-muted">formatting only</span>{{end}}
           </td>
-          <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-muted">
+          {{/* break-words for a short value, which keeps a word whole; only a
+               long one may break anywhere. See inspect.html. */}}
+          <td class="px-3 py-2 {{if gt (len .A) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-xs text-muted">
             {{if eq .A ""}}<span class="italic">absent</span>{{else}}{{.A}}{{end}}
           </td>
-          <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-strong">
+          <td class="px-3 py-2 {{if gt (len .B) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-xs text-strong">
             {{if eq .B ""}}<span class="italic">absent</span>{{else}}{{.B}}{{end}}
           </td>
         </tr>
@@ -189,7 +191,7 @@
             {{else if eq .Kind "removed"}}
               <span class="whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 font-mono text-xs text-danger">removed</span>
             {{else if eq .Kind "modified"}}
-              <span class="whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 font-mono text-xs text-warn">changed</span>
+              <span class="whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 font-mono text-xs text-warn-ink">changed</span>
             {{else if eq .Kind "moved"}}
               <span class="whitespace-nowrap rounded bg-info/10 px-1.5 py-0.5 font-mono text-xs text-info">moved only</span>
               <span class="mt-1 block text-xs text-muted">
@@ -199,7 +201,7 @@
               <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 font-mono text-xs text-muted">same value</span>
             {{end}}
           </td>
-          <td class="px-3 py-2 wrap-anywhere font-mono text-xs
+          <td class="px-3 py-2 {{if gt (len .A) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-xs
             {{if eq .Kind "added"}}text-faint{{else if eq .Kind "removed"}}text-danger{{else}}text-muted{{end}}">
             {{if eq .Kind "added"}}
               <span class="italic">absent</span>
@@ -210,7 +212,7 @@
             {{end}}
             {{if .IndexA}}<span class="ml-1 text-faint">#{{.IndexA}}</span>{{end}}
           </td>
-          <td class="px-3 py-2 wrap-anywhere font-mono text-xs
+          <td class="px-3 py-2 {{if gt (len .B) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-xs
             {{if eq .Kind "removed"}}text-faint{{else if eq .Kind "added"}}text-ok{{else if eq .Kind "modified"}}text-strong{{else}}text-muted{{end}}">
             {{if eq .Kind "removed"}}
               <span class="italic">absent</span>
@@ -257,6 +259,6 @@
      is missing rather than showing nothing. */}}
 {{if .A}}<p class="text-sm text-muted">Paste a second URL into B to compare.</p>
 {{else if .B}}<p class="text-sm text-muted">Paste the first URL into A to compare.</p>
-{{else}}{{template "link/examples" .}}{{end}}
+{{else}}{{template "link/examples" .Examples}}{{end}}
 {{end}}
 {{end}}

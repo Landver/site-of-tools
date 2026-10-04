@@ -216,7 +216,7 @@ func auditLink(raw string, anchors []string) []Note {
 		}
 	}
 	if trackers > 0 {
-		notes = append(notes, Note{SevInfo, plural(trackers, "tracking parameter"), "Clean would strip them."})
+		notes = append(notes, Note{SevInfo, plural(trackers, "tracking parameter"), "Clean would remove them."})
 	}
 	return notes
 }

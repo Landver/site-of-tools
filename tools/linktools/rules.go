@@ -31,7 +31,7 @@ import (
 // RulesVersion is bumped by hand whenever either table changes. The extension
 // caches the catalog keyed on it (docs/05-extension.md §3), so it is part of the
 // API, not a comment. Date form because the tables are dated evidence.
-const RulesVersion = "2026-09-25"
+const RulesVersion = "2026-10-04"
 
 // catalogScope is the honest scope statement the rules page must show, verbatim
 // from the report §3.5. It is shipped as data so the page and the JSON API
@@ -210,7 +210,7 @@ var trackingRules = []Rule{
 	// `t` is a share token on x.com and a video timestamp on YouTube, where it
 	// is in the deny set below.
 	{Param: "s", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Names the surface the link was shared from (s=20, s=46)."},
-	{Param: "t", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Opaque share token. On YouTube the same name is a timestamp and is never stripped."},
+	{Param: "t", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Opaque share token. On YouTube the same name is a timestamp and is never removed."},
 	{Param: "ref_src", Hosts: []string{"x.com", "twitter.com"}, Origin: "X embeds", Class: ClassSession},
 	{Param: "ref_url", Hosts: []string{"x.com", "twitter.com"}, Origin: "X embeds", Class: ClassSession, Note: "Carries the referring page's own URL."},
 	{Param: "yclid", Origin: "Yandex.Direct", Class: ClassClick},
@@ -256,7 +256,7 @@ var trackingRules = []Rule{
 	// the names are Instagram inventions that collide with nothing.
 	{Param: "igshid", Origin: "Instagram", Class: ClassSession, Note: "Share ID, added to links shared out of the app."},
 	{Param: "igsh", Origin: "Instagram", Class: ClassSession, Note: "Share ID, newer form."},
-	{Param: "si", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession, Note: "Share-attribution token. Not stripped on Spotify: there it is reported to gate access on playlist invites."},
+	{Param: "si", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession, Note: "Share-attribution token. Not removed on Spotify: there it is reported to gate access on playlist invites."},
 	{Param: "feature", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession},
 	{Param: "kw", Hosts: []string{"youtube.com"}, Origin: "YouTube", Class: ClassSession},
 	{Param: "pp", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession},
@@ -346,8 +346,8 @@ var denyList = []Deny{
 	{Param: "sp", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL. Note sp is also a Bing tracking parameter."},
 	{Param: "st", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL."},
 	{Param: "sr", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL."},
-	{Param: "v", Hosts: []string{"youtube.com"}, Why: "?v= is the video ID. Strip it and the URL is the YouTube homepage."},
-	{Param: "t", Hosts: []string{"youtube.com", "youtu.be"}, Why: "The timestamp: ?t=90 is a deep link into the middle of the video. The same name on x.com is a share token, and is stripped there."},
+	{Param: "v", Hosts: []string{"youtube.com"}, Why: "?v= is the video ID. Remove it and the URL is the YouTube homepage."},
+	{Param: "t", Hosts: []string{"youtube.com", "youtu.be"}, Why: "The timestamp: ?t=90 is a deep link into the middle of the video. The same name on x.com is a share token, and is removed there."},
 	{Param: "start", Hosts: []string{"youtube.com", "youtu.be"}, Why: "The timestamp for an embed."},
 	{Param: "si", Hosts: []string{"spotify.com"}, Why: "Reported to gate access on collaborative and private playlist invites: the recipient gets a permission error instead of the playlist. Reported, not confirmed."},
 	{Param: "u", Hosts: []string{"list-manage.com"}, Why: "The unsubscribe link silently stops working."},
@@ -363,7 +363,7 @@ var denyList = []Deny{
 	{Param: "lang", Why: "Wrong language."},
 	{Param: "hl", Why: "Wrong language."},
 	{Param: "locale", Why: "Wrong language."},
-	{Param: "gl", Why: "Wrong region. One underscore from _gl, which is stripped."},
+	{Param: "gl", Why: "Wrong region. One underscore from _gl, which is removed."},
 	{Param: "cid", Why: "Adobe's conventional campaign slot, and also customer ID, conversation ID and channel ID on countless apps. The ambiguous case that most looks safe and is not."},
 	{Param: "icid", Why: "Same ambiguity as cid."},
 	{Param: "int_cid", Why: "Same ambiguity as cid."},

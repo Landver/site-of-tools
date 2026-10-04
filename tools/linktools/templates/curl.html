@@ -83,7 +83,7 @@
       <div id="result" class="mt-6" data-result>
         {{if and .Error (not $build)}}{{template "link/error" .}}
         {{else if .FromCurl}}{{template "link/curled" .}}
-        {{else if not .Curl}}{{template "link/examples" .}}{{end}}
+        {{else if not .Curl}}{{template "link/examples" .Examples}}{{end}}
       </div>
       </div>
 
@@ -126,7 +126,7 @@
       <div id="result-build" class="mt-6" data-result>
         {{if and .Error $build}}{{template "link/error" .}}
         {{else if .Curl}}{{template "link/curled" .}}
-        {{else if not .FromCurl}}{{template "link/examples" .}}{{end}}
+        {{else if not .FromCurl}}{{template "link/examples" .BuildExamples}}{{end}}
       </div>
       </div>
     </div>
@@ -136,22 +136,46 @@
 
     {{/* The address bar follows the direction on screen: the paste direction
          has no URL of its own (it posts), so switching to it leaves a bare
-         /curl, and switching back restores the build form's query. Without
-         this, a reload after switching opened the other direction. */}}
+         /curl, and switching back restores the build form's query, without
+         empty fields (link/live drops those from requests too). Without this,
+         a reload after switching opened the other direction.
+
+         A curl command typed into the build box is moved across to the paste
+         box and taken apart there, in the page. link/live would offer a
+         button to "the curl page" while on it, and the button reloaded the
+         page. Registered before link/live's listener, which this one stops. */}}
     <script>
       (function () {
         var paste = document.getElementById('curl-mode-paste')
         var build = document.getElementById('curl-mode-build')
         var form = document.querySelector('form[hx-target="#result-build"]')
+        var pasteForm = document.querySelector('form[hx-target="#result"]')
         function sync() {
           var qs = ''
           if (build.checked && form && form.elements.u.value.trim()) {
-            qs = '?' + new URLSearchParams(new FormData(form)).toString()
+            var p = new URLSearchParams()
+            new FormData(form).forEach(function (v, k) { if (v !== '') p.append(k, v) })
+            qs = '?' + p.toString()
           }
           history.replaceState(history.state, '', '/curl' + qs)
         }
         paste.addEventListener('change', sync)
         build.addEventListener('change', sync)
+        document.body.addEventListener('htmx:confirm', function (e) {
+          if (e.detail.elt !== form) return
+          var cmd = form.elements.u.value.trim()
+          if (!/^curl[ \t\n]/i.test(cmd)) return
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          form.elements.u.value = ''
+          pasteForm.elements.curl.value = cmd
+          paste.checked = true
+          sync()
+          var box = pasteForm.elements.curl
+          box.focus()
+          box.setSelectionRange(box.value.length, box.value.length)
+          htmx.trigger(pasteForm, 'submit')
+        })
       })()
     </script>
 
@@ -226,7 +250,10 @@
       <span class="ml-1">{{.MethodWhy}}{{if .BodyBytes}}, with a {{.BodyBytes}}-byte body (not shown){{end}}</span>
     </p>
     {{end}}
-    <p class="mt-2 wrap-anywhere font-mono text-sm text-strong">{{.FromCurl}}</p>
+    <div class="mt-2 flex flex-wrap items-start gap-3">
+      <p id="from-curl" class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.FromCurl}}</p>
+      <button type="button" class="btn-copy" aria-describedby="from-curl" data-copy="{{.FromCurl}}">Copy</button>
+    </div>
     <p class="mt-2 text-xs text-muted">Shown as text, exactly as it was written in the command. It is taken apart below.</p>
   </div>
 </section>
@@ -273,6 +300,6 @@
 {{end}}
 {{end}}
 
-{{if not (or .Curl .FromCurl)}}{{template "link/examples" .}}{{end}}
+{{if not (or .Curl .FromCurl)}}{{template "link/examples" .EmptyExamples}}{{end}}
 
 {{end}}

@@ -146,8 +146,12 @@ func jwtPayload(s string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return string(out) + "\n\n(signature not verified — this tool only decodes)", true
+	return string(out) + jwtUnverified, true
 }
+
+// jwtUnverified ends every decoded JWT. A page that shows the payload on its
+// own (Encode's reading) trims it and says so in its own words.
+const jwtUnverified = "\n\n(signature not verified — this tool only decodes)"
 
 // prettyJSON reformats s when it is a JSON object or array. Scalars are
 // excluded: "1" is valid JSON and reporting a number as JSON is noise.

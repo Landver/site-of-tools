@@ -16,10 +16,13 @@
 {{define "link/chain"}}
 {{with .Result}}
 
-<section class="rounded-lg border {{if .Final}}border-line{{else}}border-warn{{end}} bg-surface p-4"
-         data-announce="{{if .Final}}Final destination: {{.Final}}{{else}}No final destination; see the findings.{{end}}">
+{{/* An error page is still where the link ends, so it keeps the card, but
+     it says so first and takes the warning border: a 404 shown as neutrally
+     as a 200 read as "this link works". */}}
+<section class="rounded-lg border {{if and .Final (lt .FinalStatus 400)}}border-line{{else}}border-warn{{end}} bg-surface p-4"
+         data-announce="{{if .Final}}Final destination: {{.Final}}{{if ge .FinalStatus 400}}, which answers {{.FinalStatus}} {{.FinalReason}}{{end}}{{else}}No final destination; see the findings.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-    <h2 class="text-sm font-semibold text-strong">{{if .Final}}Final destination{{else}}No final destination{{end}}</h2>
+    <h2 class="text-sm font-semibold text-strong">{{if .Final}}{{if ge .FinalStatus 400}}Ends at {{.FinalStatus}} {{.FinalReason}}{{else}}Final destination{{end}}{{else}}No final destination{{end}}</h2>
     <p class="text-xs text-muted">
       {{len .Hops}} {{if eq (len .Hops) 1}}hop{{else}}hops{{end}} &middot; {{.Elapsed}} ms{{if .Persona}}{{$k := .Persona}} &middot; asked as {{range $.Personas}}{{if eq .Key $k}}{{.Name}}{{end}}{{end}}{{end}}
     </p>
@@ -29,7 +32,7 @@
       <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.Final}}</p>
       <button type="button" class="btn-copy" data-copy="{{.Final}}">Copy</button>
     </div>
-    <p class="mt-2 text-xs text-muted">Where the chain ended. Not a verdict on whether it's safe.</p>
+    <p class="mt-2 text-xs text-muted">{{if ge .FinalStatus 400}}Where the chain ended: an error page, not the page the link promised.{{else}}Where the chain ended. Not a verdict on whether it's safe.{{end}}</p>
     {{/* Clean as well as Inspect: redirectors are exactly where tracking
          parameters get added on the way through. */}}
     <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -38,8 +41,8 @@
     </p>
   {{else}}
     <p class="mt-2 text-sm text-muted">
-      The trace stopped before a final page, and the notes on the last hop say why. The last URL reached
-      isn't shown as the destination, because it may not be one.
+      The trace stopped before a final page, and the findings below say why. The last URL reached isn't
+      shown as the destination, because it may not be one.
     </p>
   {{end}}
 </section>
@@ -67,7 +70,7 @@
         {{else}}
         <span class="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs
           {{if ge .Status 500}}bg-danger/10 text-danger
-          {{else if ge .Status 400}}bg-warn/10 text-warn
+          {{else if ge .Status 400}}bg-warn/10 text-warn-ink
           {{else if ge .Status 300}}bg-line text-strong
           {{else}}bg-ok/10 text-ok{{end}}">{{.Status}}{{if .Reason}} {{.Reason}}{{end}}</span>
         <span class="text-xs text-muted">{{.ElapsedMS}} ms</span>
@@ -88,6 +91,6 @@
 {{end}}
 
 {{else}}
-{{if not .Disabled}}{{template "link/examples" .}}{{end}}
+{{if not .Disabled}}{{template "link/examples" .Examples}}{{end}}
 {{end}}
 {{end}}

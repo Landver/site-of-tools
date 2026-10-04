@@ -406,12 +406,12 @@ func TestSitemapListsOnlyIndexablePages(t *testing.T) {
 		t.Fatalf("/sitemap.xml = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, forbidden := range []string{"/s/", "/extension/privacy"} {
+	for _, forbidden := range []string{"/s/", "/short", "/extension/privacy"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the sitemap advertises %q", forbidden)
 		}
 	}
-	for _, want := range []string{"/clean", "/diff", "/encoding"} {
+	for _, want := range []string{"/clean", "/trace", "/diff", "/extract", "/utm", "/curl", "/encode", "/encoding"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the sitemap omits %q", want)
 		}

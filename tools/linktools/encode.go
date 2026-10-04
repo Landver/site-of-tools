@@ -38,6 +38,10 @@ type Encoding struct {
 // usual reason to paste an encoded value is to read it, and the encode cards
 // it used to lead with offered %2520 for %20 with a Copy button beside it: the
 // double encoding the reference page warns about, one click from a clipboard.
+//
+// Reading does the same for a base64 value or a JWT: its first decoding,
+// which is what the page leads with. Ladder is Layers as the page shows them,
+// without a first rung that only repeats a reading already on screen.
 type EncodeResult struct {
 	Input          string     `json:"input"`
 	Encoded        []Encoding `json:"encoded"`
@@ -45,6 +49,9 @@ type EncodeResult struct {
 	Layers         []Layer    `json:"layers,omitempty"`
 	Kind           Kind       `json:"kind,omitempty"`
 	AlreadyEncoded bool       `json:"already_encoded,omitempty"`
+	Reading        *Layer     `json:"reading,omitempty"`
+	Notes          []Note     `json:"notes,omitempty"`
+	Ladder         []Layer    `json:"-"`
 }
 
 // escapeRe: one well-formed percent escape.
@@ -96,7 +103,46 @@ func EncodeAll(v string) *EncodeResult {
 	// The same ladder the Inspect page runs per parameter, so a doubly-encoded
 	// value peels here too rather than needing a second paste.
 	r.Layers = decodeLadder(v)
+
+	// Base64 and JWTs are pasted to be read. Leading with their encodings put
+	// "hello world" 1,200px below a page that said "Looks like base64".
+	if (r.Kind == KindBase64 || r.Kind == KindJWT) && len(r.Layers) > 0 {
+		switch first := r.Layers[0]; first.Method {
+		case "base64", "base64url", "jwt-payload":
+			first.Value = strings.TrimSuffix(first.Value, jwtUnverified)
+			r.Reading = &first
+		}
+	}
+	r.Ladder = r.Layers
+	if len(r.Ladder) > 0 && r.shown(strings.TrimSuffix(r.Ladder[0].Value, jwtUnverified)) {
+		r.Ladder = r.Ladder[1:]
+	}
+
+	// A line break from the Enter key or a copied line is part of the value,
+	// and it was encoded into every result without a word (%0A at the end).
+	if t := strings.TrimSpace(v); t != v && t != "" {
+		title := "Leading or trailing whitespace"
+		if strings.HasSuffix(v, "\n") {
+			title = "Ends in a line break"
+		}
+		r.Notes = append(r.Notes, Note{SevWarn, title,
+			"It is part of the value, so every result below encodes it too. Delete it unless it belongs there."})
+	}
 	return r
+}
+
+// shown reports whether a decoded value is already on the page, as the
+// reading or a row of the Decoded table.
+func (r *EncodeResult) shown(v string) bool {
+	if r.Reading != nil && r.Reading.Value == v {
+		return true
+	}
+	for _, d := range r.Decoded {
+		if d.Err == "" && d.Value == v {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeEntry(name, v string, fn func(string) (string, error), note string) Encoding {

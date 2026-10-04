@@ -127,7 +127,7 @@
 {{with .Result}}
 
 <section class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4"
-         data-announce="{{if .Removed}}Clean URL ready, {{len .Removed}} removed.{{else}}Nothing to remove.{{end}}">
+         data-announce="{{if .Removed}}Clean URL ready, {{len .Removed}} removed.{{else if .Unwrapped}}Unwrapped from {{.Wrapper}}.{{else}}Nothing removed.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <h2 class="text-sm font-semibold text-strong">Clean URL</h2>
     <p class="text-xs text-muted">
@@ -201,11 +201,15 @@
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/?u={{.Output}}" class="text-brand-ink hover:underline">Inspect it</a>
-  {{if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Compare with the original</a>{{end}}
+  {{/* After unwrapping, the comparison worth seeing is against the link
+       that was inside: against the wrapper it listed the wrapper's own
+       parameters and never the trackers that were removed. */}}
+  {{if .Unwrapped}}{{if ne .Output .Unwrapped}}<a href="/diff?a={{.Unwrapped}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Compare with the unwrapped link</a>{{end}}
+  {{else if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Compare with the original</a>{{end}}
   <a href="/clean/rules" class="text-brand-ink hover:underline">See the rules</a>
 </p>
 
 {{else}}
-{{template "link/examples" .}}
+{{template "link/examples" .Examples}}
 {{end}}
 {{end}}

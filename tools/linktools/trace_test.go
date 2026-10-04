@@ -285,3 +285,43 @@ func TestTransportStaysClosed(t *testing.T) {
 		t.Errorf("MaxResponseHeaderBytes = %d; Go's default is 10 MB and must be lowered", transport.MaxResponseHeaderBytes)
 	}
 }
+
+// TestTraceSaysWhenTheChainEndsAtAnError: a 404 is still where the link ends,
+// so Final is set, but the status travels with it and a finding says it is an
+// error page. The page used to show it as neutrally as a 200.
+func TestTraceSaysWhenTheChainEndsAtAnError(t *testing.T) {
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer gone.Close()
+
+	ch := trace(t, testTracer(t), gone.URL)
+	if ch.Final != gone.URL || ch.FinalStatus != http.StatusNotFound || ch.FinalReason != "Not Found" {
+		t.Errorf("final = %q %d %q, want %q 404 Not Found", ch.Final, ch.FinalStatus, ch.FinalReason, gone.URL)
+	}
+	if len(ch.Notes) != 1 || ch.Notes[0].Title != "Ends at an error page" {
+		t.Errorf("notes = %+v, want one \"Ends at an error page\"", ch.Notes)
+	}
+}
+
+// TestTraceLiftsTheReasonIntoFindings: when the chain stops short, the reason
+// is in the chain's own findings, not only on the last hop further down: the
+// page announces "No final destination; see the findings".
+func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer first.Close()
+
+	ch := trace(t, testTracer(t), first.URL)
+	if ch.Final != "" {
+		t.Fatalf("final = %q, want none", ch.Final)
+	}
+	found := false
+	for _, n := range ch.Notes {
+		found = found || n.Title == "Refused before connecting"
+	}
+	if !found {
+		t.Errorf("chain notes %+v lack the last hop's refusal", ch.Notes)
+	}
+}

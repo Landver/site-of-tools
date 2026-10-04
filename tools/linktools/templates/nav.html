@@ -30,7 +30,7 @@
      class="mb-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium sm:mb-8">
   <a href="/" title="Take a URL apart"{{if eq .Active "inspect"}} aria-current="page"{{end}}
      class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
-  <a href="/clean" title="Strip tracking parameters and unwrap mail-gateway links"{{if eq .Active "clean"}} aria-current="page"{{end}}
+  <a href="/clean" title="Remove tracking parameters and unwrap mail-gateway links"{{if eq .Active "clean"}} aria-current="page"{{end}}
      class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
   <a href="/trace" title="Follow a redirect chain hop by hop"{{if eq .Active "trace"}} aria-current="page"{{end}}
      class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>

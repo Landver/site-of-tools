@@ -270,8 +270,10 @@ infinite recursion rather than reuse. Hence the `-ed` pairs:
 
 ```
 nav.html        link/nav                       suite sub-nav: every tool, in task order, Short last; then the suite eyebrow
-examples.html   link/examples                  "Try an example" chips, the empty state of each result fragment (examples.go)
-live.html       link/live                      shared page script: one-line screen-reader status, aria-busy, history snapshot sync
+examples.html   link/examples                  "Try an example" chips, the empty state of each result fragment (examples.go);
+                                               called with the list, so curl can give each panel its own
+live.html       link/live                      shared page script: one-line screen-reader status, aria-busy, history snapshot sync,
+                                               the wrong-tool gate, Enter-submits for data-enter-submits textareas
 index.html      link/index                     Inspect, page
 inspect.html    link/inspect                   Inspect, fragment — also rendered inside link/curled
 clean.html      link/clean + link/cleaned      page + fragment
@@ -279,6 +281,7 @@ rules.html      link/rules + link/rulerow      the rule table, human-readable; r
 trace.html      link/trace                     page
 chain.html      link/chain                     Trace fragment
 short.html      link/short + link/created      console page + the created-alias fragment; also link/shortlist,
+                                               link/rowactions (Copy and Revoke, placed per breakpoint),
                                                link/revoked and link/gone (a dead short link, as a browser sees it)
 privacy.html    link/privacy                   extension privacy policy
 diff.html       link/diff + link/diffed        A13, a second view over two Inspections

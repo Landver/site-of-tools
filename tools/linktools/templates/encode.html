@@ -46,8 +46,11 @@
       {{/* A textarea, growing with its content: a value with a newline in it
            (JSON, a PEM block, wrapped base64) lost the newline in a one-line
            input, and every encoding below was then of a different value. */}}
+      {{/* data-enter-submits: Enter converts, as the one-line input it
+           replaced did, and Shift+Enter types a newline (link/live). Enter
+           used to add a newline and silently change every result. */}}
       <textarea name="v" rows="1"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
-                aria-label="Value to encode and decode"
+                data-enter-submits aria-label="Value to encode and decode"
                 placeholder="hello world &amp; friends"
                 class="field field-sizing-content min-h-10 min-w-0 flex-1 resize-y">{{.Value}}</textarea>
       <button type="submit" class="btn-primary">Convert</button>
@@ -105,15 +108,30 @@
 {{with .Result}}
 
 {{/* The input is not echoed back: it is in the box right above. Only the
-     guess about what it is earns a line. */}}
-{{if .Kind}}<p class="mb-4 text-sm text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></p>{{end}}
+     guess about what it is earns a line, and the reading card below says it
+     itself. */}}
+{{if and .Kind (not .Reading)}}<p class="mb-4 text-sm text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></p>{{end}}
+{{with .Notes}}<div class="mb-4">{{template "link/notes" .}}</div>{{end}}
 
 {{/* Order follows what the value most likely is. Plain text leads with the
      query-vs-path pair, the point of the page. A value that is already
      percent-encoded leads with its decoded readings, because reading it is why
      anyone pastes one, and the pair it used to lead with offered %2520 for
      %20 with a Copy button beside it (EncodeResult.AlreadyEncoded). */}}
-{{if .AlreadyEncoded}}
+{{if .Reading}}
+<section class="rounded-lg border border-info bg-surface p-4" data-announce="Looks like {{.Kind}}; decoded first.">
+  <h2 id="reading" class="text-sm font-semibold text-strong">{{if eq .Kind "jwt"}}Decoded JWT: header and payload{{else}}Decoded {{.Reading.Method}}{{end}}</h2>
+  <div class="mt-2 flex flex-wrap items-start gap-3">
+    <pre class="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Reading.Value}}</pre>
+    <button type="button" class="btn-copy" aria-describedby="reading" data-copy="{{.Reading.Value}}">Copy</button>
+  </div>
+  {{if eq .Kind "jwt"}}<p class="mt-2 text-xs text-muted">The signature is not checked: this page only decodes.</p>{{end}}
+</section>
+<div class="mt-6">{{template "link/dec-table" .}}</div>
+{{template "link/dec-ladder" .}}
+<div class="mt-6">{{template "link/enc-pair" .}}</div>
+<div class="mt-6">{{template "link/enc-table" .}}</div>
+{{else if .AlreadyEncoded}}
 <section class="rounded-lg border border-info bg-surface p-4" data-announce="Already percent-encoded; decoded readings first.">
   <h2 class="text-sm font-semibold text-strong">This is already percent-encoded</h2>
   <p class="mt-1 text-sm text-muted">
@@ -138,7 +156,7 @@
 </p>
 
 {{else}}
-{{template "link/examples" .}}
+{{template "link/examples" .Examples}}
 {{end}}
 {{end}}
 
@@ -159,19 +177,23 @@
     {{range .Encoded}}{{if eq .Name "Percent (query)"}}
     <div class="rounded-lg border border-line bg-surface p-4">
       <h3 id="pair-query" class="text-sm font-semibold text-strong">After a <span class="font-mono">?</span></h3>
-      <pre class="mt-2 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Value}}</pre>
+      <div class="mt-2 flex flex-wrap items-start gap-3">
+        <pre class="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Value}}</pre>
+        <button type="button" class="btn-copy" aria-describedby="pair-query" data-copy="{{.Value}}">Copy</button>
+      </div>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
-      {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn">Already encoded: this encodes it a second time.</p>{{end}}
-      <button type="button" class="btn-copy mt-3" aria-describedby="pair-query" data-copy="{{.Value}}">Copy</button>
+      {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn-ink">Already encoded: this encodes it a second time.</p>{{end}}
     </div>
     {{end}}{{end}}
     {{range .Encoded}}{{if eq .Name "Percent (path)"}}
     <div class="rounded-lg border border-line bg-surface p-4">
       <h3 id="pair-path" class="text-sm font-semibold text-strong">Inside a path segment</h3>
-      <pre class="mt-2 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Value}}</pre>
+      <div class="mt-2 flex flex-wrap items-start gap-3">
+        <pre class="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere font-mono text-sm text-strong">{{.Value}}</pre>
+        <button type="button" class="btn-copy" aria-describedby="pair-path" data-copy="{{.Value}}">Copy</button>
+      </div>
       <p class="mt-2 text-xs text-muted">{{.Note}}</p>
-      {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn">Already encoded: this encodes it a second time.</p>{{end}}
-      <button type="button" class="btn-copy mt-3" aria-describedby="pair-path" data-copy="{{.Value}}">Copy</button>
+      {{if $.AlreadyEncoded}}<p class="mt-1 text-xs text-warn-ink">Already encoded: this encodes it a second time.</p>{{end}}
     </div>
     {{end}}{{end}}
   </div>
@@ -255,15 +277,17 @@
 </section>
 {{end}}
 
+{{/* .Ladder, not .Layers: a first rung equal to a reading already on the
+     page is dropped (encode.go), so "It decodes further" always does. */}}
 {{define "link/dec-ladder"}}
-{{if .Layers}}
+{{if .Ladder}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">It decodes further</h2>
   <p class="mt-1 text-xs text-muted">
     Each layer of encoding, peeled one at a time, with the method named.
   </p>
   <ol class="mt-2 space-y-1 rounded-lg border border-line bg-surface p-4">
-    {{range .Layers}}
+    {{range .Ladder}}
     <li class="text-sm">
       <span class="text-xs text-muted">{{.Depth}}. {{.Method}}</span>
       <pre class="mt-0.5 whitespace-pre-wrap wrap-anywhere font-mono text-strong">{{.Value}}</pre>

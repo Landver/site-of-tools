@@ -124,6 +124,15 @@
       }
     })
 
+    // Enter submits a textarea marked data-enter-submits (Encode's), as the
+    // one-line input it replaced did; Shift+Enter types the newline.
+    document.body.addEventListener('keydown', function (e) {
+      var t = e.target
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !t.form || !t.hasAttribute('data-enter-submits')) return
+      e.preventDefault()
+      t.form.requestSubmit()
+    })
+
     document.body.addEventListener('htmx:configRequest', function (e) {
       if (e.detail.verb !== 'get') return
       var p = e.detail.parameters

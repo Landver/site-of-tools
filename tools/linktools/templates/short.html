@@ -38,13 +38,14 @@
          navigation cannot carry a custom header, so the link list is loaded by
          htmx rather than rendered by the initial GET.
 
-         Alpine holds only "is there a key in the box", to keep Create and the
-         list out of sight of everyone who has none: to a visitor they are two
-         forms that can only ever fail. x-cloak, so neither flashes before
-         Alpine starts; without JavaScript they stay hidden, which loses
-         nothing, because without JavaScript there is no way to send the
-         header. Whether the key is RIGHT is the server's call, made on the
-         first request. */}}
+         Alpine holds the key as typed and the server's verdict on it, and
+         Create and the list appear only once the server has accepted it: to
+         a visitor they are two forms that can only ever fail, and showing
+         Create for a mistyped key let it fail too, with the reason rendered
+         under the list, out of sight. The verdict is said in the key card
+         itself. x-cloak, so nothing flashes before Alpine starts; without
+         JavaScript all of it stays hidden, which loses nothing, because
+         without JavaScript there is no way to send the header. */}}
     {{/* State lives in linkKey(), defined in the script at the end of this
          block, not in attribute code: Alpine evaluates x-init and @event
          values as EXPRESSIONS, so the try/catch that used to sit in them was a
@@ -55,25 +56,31 @@
         Everything else on this site works without it.
       </p>
     </noscript>
-    <div x-data="linkKey()">
+    <div x-data="linkKey()" @link-key.window="verdict($event.detail)">
     <section class="mt-6 rounded-lg border border-line bg-surface p-4">
       <h2 class="text-sm font-semibold text-strong">API key</h2>
       <p class="mt-1 text-xs text-muted">
-        Kept in this browser's local storage and sent as an <code class="font-mono">X-Api-Key</code> header,
-        never in a URL. Creating links and listing them both need it.
+        Kept in this browser's local storage and sent as an <code class="whitespace-nowrap font-mono">X-Api-Key</code>
+        header, never in a URL. Creating links and listing them both need it.
       </p>
       <form class="mt-3 flex flex-wrap gap-2"
             hx-get="/short" hx-target="#aliases" hx-swap="innerHTML"
             hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
-        <input id="apikey" type="password" autocomplete="off" spellcheck="false" x-model="key"
-               aria-label="API key" placeholder="X-Api-Key" class="field min-w-0 flex-1">
-        <button type="submit" class="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" :disabled="!key">Show links</button>
+        <input id="apikey" type="password" autocomplete="off" spellcheck="false" x-model="key" @input="state = ''"
+               aria-label="API key" aria-describedby="key-verdict" placeholder="X-Api-Key" class="field min-w-0 flex-1">
+        <button type="submit" class="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" :disabled="!key">Use this key</button>
       </form>
+      {{/* Always in the DOM, so a screen reader hears the verdict when the
+           text changes; text-danger and text-ok are literal here so
+           Tailwind sees them. */}}
+      <p id="key-verdict" class="mt-2 text-sm empty:mt-0" aria-live="polite"
+         :class="state === 'bad' ? 'text-danger' : 'text-ok'"
+         x-text="state === 'bad' ? 'That key was not accepted. Check it and try again.' : (state === 'ok' ? 'Key accepted.' : '')"></p>
       <button type="button" x-show="key" x-cloak @click="forget()"
               class="mt-2 text-xs text-muted underline-offset-2 hover:text-strong hover:underline">Forget the key on this browser</button>
     </section>
 
-    <section class="mt-4 rounded-lg border border-line bg-surface p-4" x-show="key" x-cloak>
+    <section class="mt-4 rounded-lg border border-line bg-surface p-4" x-show="state === 'ok'" x-cloak>
       <h2 class="text-sm font-semibold text-strong">Create a short link</h2>
       {{/* Cleared after a successful create, ready for the next link: the
            one just made is in the card below, with its own Copy button. A
@@ -126,9 +133,11 @@
           </label>
           {{/* Inside the form. It previously carried form="", which detaches a
                control from every form, so "clean" was never actually submitted. */}}
+          {{/* The words in one span: as bare text beside a span they were two
+               flex items, and on a phone the hint stood as a second column. */}}
           <label class="flex items-center gap-2 pb-2.5 text-xs text-muted">
             <input type="checkbox" name="clean" value="true" checked>
-            Remove tracking parameters first <span class="text-faint">(the uncleaned URL is saved too)</span>
+            <span>Remove tracking parameters first <span class="text-faint">(the uncleaned URL is saved too)</span></span>
           </label>
           <button type="submit" class="btn-primary w-full sm:ml-auto sm:w-auto">Shorten</button>
         </div>
@@ -142,7 +151,7 @@
          the event once htmx is up), and after every create or revoke
          (handler.go's listChanged sends it), so a revoked link never keeps
          looking alive until someone thinks to reload. */}}
-    <div id="aliases" class="mt-8" x-show="key" x-cloak
+    <div id="aliases" class="mt-8" x-show="state === 'ok'" x-cloak
          hx-get="/short" hx-swap="innerHTML" hx-trigger="link-list-changed from:body"
          hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'></div>
     </div>
@@ -179,11 +188,20 @@
         })
         // Saved only once the server has accepted it: the list fragment
         // marks itself data-key="ok" or "bad". Saving on every keystroke
-        // stored typos, and every reload then sent the wrong key again.
+        // stored typos, and every reload then sent the wrong key again. The
+        // verdict goes to linkKey() as a window event, which shows or hides
+        // the console and says it in the key card.
         document.body.addEventListener('htmx:afterSwap', function (e) {
           if (!e.detail.target || e.detail.target.id !== 'aliases') return
-          if (e.detail.target.querySelector('[data-key="ok"]')) save(document.getElementById('apikey').value)
-          else if (e.detail.target.querySelector('[data-key="bad"]')) save('')
+          var verdict = ''
+          if (e.detail.target.querySelector('[data-key="ok"]')) {
+            verdict = 'ok'
+            save(document.getElementById('apikey').value)
+          } else if (e.detail.target.querySelector('[data-key="bad"]')) {
+            verdict = 'bad'
+            save('')
+          }
+          if (verdict) window.dispatchEvent(new CustomEvent('link-key', { detail: verdict }))
         })
         // After a revoke the row's own button is gone, so focus goes to the
         // card that says what happened, not to <body>.
@@ -191,11 +209,16 @@
           var card = e.detail.target && e.detail.target.querySelector('[data-autofocus]')
           if (card) card.focus()
         })
+        // state: '' until the server has answered for the key in the box,
+        // then 'ok' or 'bad'. Typing in the box resets it.
         window.linkKey = function () {
           return {
             key: read(),
+            state: '',
+            verdict: function (v) { this.state = v },
             forget: function () {
               this.key = ''
+              this.state = ''
               save('')
               document.getElementById('aliases').innerHTML = ''
               document.getElementById('result').innerHTML = ''
@@ -268,9 +291,11 @@
      rendering anyway: a json:"-" tag means nothing to a template. */}}
 {{define "link/shortlist"}}
 {{if not .Authed}}
+  {{/* The marker the page reads; the key card says it in words. Kept as a
+       sentence for a client that renders this fragment on its own. */}}
   <div class="alert-error" data-key="bad">
-    That key was not accepted. Check it and try again: the list is never public, because publishing it would
-    hand over every destination without anyone having to guess a code.
+    That key was not accepted. The list is never public: publishing it would hand over every destination
+    without anyone having to guess a code.
   </div>
 {{else if not .Links}}
   <p class="text-sm text-muted" data-key="ok">No short links yet. The first one you create shows up here.</p>
@@ -285,52 +310,46 @@
   <table class="w-full text-left text-sm">
     <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
       <tr>
-        <th class="px-3 py-2 font-medium">Code</th>
-        <th class="px-3 py-2 font-medium">Destination</th>
-        <th class="px-3 py-2 font-medium">Note</th>
-        <th class="px-3 py-2 font-medium">Hits</th>
-        <th class="px-3 py-2 font-medium">Created</th>
-        <th class="px-3 py-2 font-medium">Expires</th>
-        <th class="px-3 py-2 font-medium"><span class="sr-only">Actions</span></th>
+        <th class="px-2 py-2 sm:px-3 font-medium">Code</th>
+        <th class="px-2 py-2 sm:px-3 font-medium">Destination</th>
+        <th class="hidden px-2 py-2 sm:px-3 font-medium sm:table-cell">Note</th>
+        <th class="px-2 py-2 sm:px-3 font-medium">Hits</th>
+        <th class="hidden px-2 py-2 sm:px-3 font-medium sm:table-cell">Created</th>
+        <th class="px-2 py-2 sm:px-3 font-medium">Expires</th>
+        <th class="hidden px-2 py-2 sm:px-3 font-medium sm:table-cell"><span class="sr-only">Actions</span></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-line">
       {{range .Links}}
-      {{/* A revoked row is dimmed as well as labelled: it is history now, and
-           the eye should slide past it to the links that still work. */}}
-      <tr class="align-top{{if or .RevokedAt .Expired}} opacity-60{{end}}">
-        <td class="px-3 py-2 font-mono text-strong">
-          <span class="whitespace-nowrap">{{.Code}}</span>{{if .RevokedAt}} <span class="block font-sans text-xs text-danger">revoked</span>{{else if .Expired}} <span class="block font-sans text-xs text-warn">expired</span>{{end}}
+      {{/* A dead row is marked as well as labelled: it is history now, and
+           the eye should slide past it to the links that still work. The
+           code is struck through in the faint colour rather than the whole row
+           dimmed: opacity took every cell below the contrast minimum. */}}
+      <tr class="align-top">
+        <td class="px-2 py-2 sm:px-3 font-mono {{if or .RevokedAt .Expired}}text-faint{{else}}text-strong{{end}}">
+          <span class="whitespace-nowrap{{if or .RevokedAt .Expired}} line-through{{end}}">{{.Code}}</span>{{if .RevokedAt}} <span class="block font-sans text-xs text-danger">revoked</span>{{else if .Expired}} <span class="block font-sans text-xs text-warn-ink">expired</span>{{end}}
+          {{/* On a phone the actions column is off-screen to the right of a
+               scrolling table, so the row's controls come here instead. */}}
+          {{if not (or .RevokedAt .Expired)}}<div class="mt-2 flex items-center gap-3 font-sans sm:hidden">{{template "link/rowactions" .}}</div>{{end}}
         </td>
         {{/* Text, never an anchor: these destinations are arbitrary and the
-             point of the page is reading them, not visiting them. */}}
-        <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-muted">{{.Target}}</td>
-        <td class="px-3 py-2 text-xs text-muted">{{.Note}}</td>
-        <td class="px-3 py-2 font-mono text-muted">{{.Hits}}</td>
-        <td class="whitespace-nowrap px-3 py-2 text-xs text-muted">{{.CreatedAt.Format "2006-01-02"}}</td>
-        <td class="whitespace-nowrap px-3 py-2 text-xs text-muted">{{.Expires}}</td>
-        <td class="px-3 py-2 text-right">
+             point of the page is reading them, not visiting them. On a phone
+             the note rides under it, without a column of its own. */}}
+        <td class="px-2 py-2 sm:px-3 text-xs text-muted">
+          <span class="wrap-anywhere font-mono">{{.Target}}</span>
+          {{if .Note}}<span class="mt-1 block break-words sm:hidden">{{.Note}}</span>{{end}}
+        </td>
+        <td class="hidden px-2 py-2 sm:px-3 text-xs text-muted sm:table-cell">{{.Note}}</td>
+        <td class="px-2 py-2 sm:px-3 font-mono text-muted">{{.Hits}}</td>
+        <td class="hidden whitespace-nowrap px-2 py-2 sm:px-3 text-xs text-muted sm:table-cell">{{.CreatedAt.UTC.Format "2 Jan 2006"}}</td>
+        <td class="px-2 py-2 sm:px-3 text-xs text-muted sm:whitespace-nowrap">{{.Expires}}</td>
+        <td class="hidden px-2 py-2 sm:px-3 text-right sm:table-cell">
           {{/* The kill switch had a route and no control, so it was curl-only,
                while the table below already rendered a "revoked" badge for a
                state the UI could not produce. Same key expression as the
                loader: the header is the only way a browser can authenticate. */}}
           {{if not (or .RevokedAt .Expired)}}
-          <div class="flex items-center justify-end gap-3">
-            {{/* Copy is here too, not only on a freshly created link: coming
-                 back for a link made last week is the other half of the job.
-                 Revoked rows get neither control — handing out a dead link is
-                 worse than making someone retype it. */}}
-            {{/* aria-live because this one is NOT inside a live region: the
-                 created link sits in #result, which is, but the list is its
-                 own div and a silent label change would be silent twice. */}}
-            <button type="button" class="btn-copy" aria-live="polite" data-copy="{{.Short}}">Copy</button>
-            <button type="button" class="text-xs text-danger hover:underline"
-                    hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
-                    hx-confirm="Revoke {{.Code}}? Every copy of this link stops working. The code is never reissued."
-                    hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
-              Revoke
-            </button>
-          </div>
+          <div class="flex items-center justify-end gap-3">{{template "link/rowactions" .}}</div>
           {{end}}
         </td>
       </tr>
@@ -339,6 +358,28 @@
   </table>
 </div>
 {{end}}
+{{end}}
+
+{{/* A live row's two controls, rendered twice per row: in the actions column
+     from sm up, and under the code on a phone, where that column sits off
+     the right edge of a scrolling table. display:none hides the other copy
+     from assistive tech as well as from sight.
+
+     Copy is here too, not only on a freshly created link: coming back for a
+     link made last week is the other half of the job. Dead rows get neither
+     control: handing out a dead link is worse than making someone retype it.
+     aria-live on Copy because the list is not inside a live region, and a
+     silent label change would be silent twice. Revoke uses the same key
+     expression as the loader: the header is the only way a browser can
+     authenticate. */}}
+{{define "link/rowactions"}}
+<button type="button" class="btn-copy" aria-live="polite" data-copy="{{.Short}}">Copy</button>
+<button type="button" class="text-xs text-danger hover:underline"
+        hx-delete="/short/{{.Code}}" hx-target="#result" hx-swap="innerHTML"
+        hx-confirm="Revoke {{.Code}}? Every copy of this link stops working. The code is never reissued."
+        hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'>
+  Revoke
+</button>
 {{end}}
 
 {{/* Revoke confirmation. Its own fragment because reusing link/created gave a
