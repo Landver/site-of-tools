@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -205,12 +207,41 @@ func unavailable(c *echo.Context, vm map[string]any, page, frag string) error {
 // view-model keys first, and only when err is nil.
 func answered(c *echo.Context, name string, body any, err error, vm map[string]any, page, frag string) error {
 	if err != nil {
-		vm["Error"] = err.Error()
+		vm["Error"] = sentence(err.Error())
+		// An IP where a domain was needed has somewhere better to go: the
+		// error offers the reverse lookup and IP Tools.
+		vm["ErrIP"] = errors.Is(err, ErrNeedDomain)
+		vm["TitleName"] = "Error"
 		return reply(c, statusFor(err), map[string]string{"name": name, "error": err.Error()}, vm, page, frag)
 	}
-	// The tab and the history entry say which domain this was.
-	vm["TitleName"] = name
+	// The tab and the history entry say which domain this was, as a person
+	// writes it rather than in punycode.
+	vm["TitleName"] = displayName(name)
 	return reply(c, http.StatusOK, body, vm, page, frag)
+}
+
+// displayName is the name as a person writes it: the Unicode spelling of a
+// punycode name, the name itself otherwise.
+func displayName(name string) string {
+	if u := UnicodeName(name); u != "" {
+		return u
+	}
+	return name
+}
+
+// sentence makes an error string (Go style: lowercase, no full stop, so it
+// composes inside other errors) read as a sentence on the page. The JSON keeps
+// the Go form.
+func sentence(s string) string {
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	s = string(unicode.ToUpper(r)) + s[size:]
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
 }
 
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
@@ -371,7 +402,7 @@ func (h *handler) domain(c *echo.Context) error {
 	if regErr != nil && ctErr != nil {
 		code = http.StatusBadGateway
 	} else {
-		vm["TitleName"] = name
+		vm["TitleName"] = displayName(name)
 	}
 
 	out := map[string]any{"name": name}
@@ -547,7 +578,7 @@ func rateLimiter() echo.MiddlewareFunc {
 			// partial and htmx nothing it would swap. A wait is not a fault,
 			// so htmx gets a notice rather than the red error box, and the
 			// page keeps its nav and offers the same request again.
-			const msg = "Too many lookups from your address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
+			const msg = "Too many lookups from your IP address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
 			active := strings.TrimPrefix(c.Request().URL.Path, "/")
 			if active == "" {
 				active = "lookup"

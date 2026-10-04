@@ -676,7 +676,11 @@ func (e *ECS) notes() {
 		add("warn", fmt.Sprintf("Only %d of %d answers carried a client-subnet option, so the rest neither support nor contradict the verdict.", e.Echoed, e.Answered))
 	}
 	if e.Mismatched > 0 {
-		add("warn", fmt.Sprintf("%d response(s) carried a scope for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched))
+		what := "response carried a scope"
+		if e.Mismatched > 1 {
+			what = "responses carried a scope"
+		}
+		add("warn", fmt.Sprintf("%d %s for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched, what))
 	}
 	// The signal the whole card exists to find, and the one the verdict can
 	// state only indirectly: a name that resolves in some regions and returns
@@ -685,11 +689,7 @@ func (e *ECS) notes() {
 		add("warn", fmt.Sprintf("%d of the %d networks that answered were given no %s record at all, while %d were given records; they are separate groups above.",
 			e.Answered-e.WithRecords, e.Answered, e.Type, e.WithRecords))
 	}
-	// What the headline sentence has no room for, never a second copy of it.
-	switch {
-	case e.Verdict == ECSVerdictDiffers:
-		add("info", "The place names are our labels for fixed prefixes. They can show that answers differed; they cannot show the split follows geography.")
-	case e.Verdict == ECSVerdictUntailored:
-		add("warn", "Scope 0 covers this resolver's path only: a zone steering on the resolver's own location, and a resolver that never forwarded the subnet, both report it too.")
-	}
+	// The geography caveat and the scope-0 caveat used to be notes too, and
+	// both are already said in the card's folded reasoning: the same claim
+	// three times on one card is reading, not information.
 }

@@ -234,9 +234,24 @@ func repFeeds() []string {
 
 // repCorpusLine is the honesty line, kept beside the feed list it describes.
 func repCorpusLine() string {
-	return "Checked against a locally synced copy of " +
-		strings.Join(repFeeds(), " and ") +
-		", not a live query to every DNSBL operator. A clean result here means these addresses are absent from that corpus, which is narrower than being absent from every blocklist."
+	return "Checked against a local copy of two lists, " + strings.Join(repFeedNames(repFeeds()), " and ") +
+		": not a live query of every blocklist, so a clean row means absent from these two and nothing wider."
+}
+
+// repFeedNames turns feed keys into the names a reader would recognise.
+func repFeedNames(feeds []string) []string {
+	out := make([]string, len(feeds))
+	for i, f := range feeds {
+		switch f {
+		case iptools.BlocklistSourceIPsum:
+			out[i] = "IPsum"
+		case iptools.BlocklistSourceSpamhausDROP:
+			out[i] = "Spamhaus DROP"
+		default:
+			out[i] = f
+		}
+	}
+	return out
 }
 
 // MXReputation resolves the domain's mail servers and reads each address
@@ -730,7 +745,7 @@ func (m *MXReputation) repJudge() {
 		if g.addr.Count > 0 {
 			text = strings.TrimSuffix(text, ".") + fmt.Sprintf(", with a confidence count of %d.", g.addr.Count)
 		}
-		m.note("fail", text+" Mail from "+subject+" is likely to be rejected or filtered. Find out why it was listed, fix it, then request delisting from that feed.")
+		m.note("fail", text+" Receivers that use this list may refuse or filter mail from "+subject+": find out why it was listed, fix it, then request removal from that list.")
 	}
 	if m.Listed > 0 && !m.CorpusUsable() {
 		m.note("info", "That listing comes from a corpus that is not being kept up to date ("+m.corpusAgeText()+"), so it may already have been removed upstream.")
@@ -767,9 +782,13 @@ func (m *MXReputation) repJudge() {
 		// The sentence names the corpus it read, every time. "Clean" on its
 		// own would be a claim about every blocklist in the world, which is
 		// several orders of magnitude wider than what was actually checked.
-		text := fmt.Sprintf("Clean: the one mail-server address checked is absent from the %s corpus.", feeds)
-		if m.Checked > 1 {
-			text = fmt.Sprintf("Clean: all %d mail-server addresses checked are absent from the %s corpus.", m.Checked, feeds)
+		lists := strings.Join(repFeedNames(m.Feeds), " and ")
+		text := "Clean: the one mail-server address checked is absent from " + lists + "."
+		switch {
+		case m.Checked == 2:
+			text = "Clean: both mail-server addresses checked are absent from " + lists + "."
+		case m.Checked > 2:
+			text = fmt.Sprintf("Clean: all %d mail-server addresses checked are absent from %s.", m.Checked, lists)
 		}
 		m.note("ok", text)
 		if len(m.StaleFeeds) > 0 {

@@ -153,24 +153,24 @@ func validDomain(name string) error {
 	// Each message names the problem the way someone looking at what they
 	// typed would see it: "contains a space", not `contains " "`.
 	if len(name) > 253 {
-		return fmt.Errorf("%w: it is longer than the 253 characters DNS allows", ErrBadName)
+		return nameError{"that name is longer than the 253 characters DNS allows"}
 	}
 	labels := strings.Split(name, ".")
 	if len(labels) > maxNameLabels {
-		return fmt.Errorf("%w: it has more than %d dot-separated parts", ErrBadName, maxNameLabels)
+		return badName(name, fmt.Sprintf("it has more than %d dot-separated parts", maxNameLabels))
 	}
 	for _, l := range labels {
 		if l == "" {
-			return fmt.Errorf("%w: %q has an empty part (two dots in a row, or a leading dot)", ErrBadName, name)
+			return badName(name, "it has an empty part (two dots in a row, or a leading dot)")
 		}
 		if len(l) > 63 {
-			return fmt.Errorf("%w: %q is longer than the 63 characters one part may have", ErrBadName, l)
+			return badName(name, fmt.Sprintf("its part %q is longer than the 63 characters a part may have", l))
 		}
 		if l[0] == '-' || l[len(l)-1] == '-' {
-			return fmt.Errorf("%w: %q starts or ends with a hyphen", ErrBadName, l)
+			return badName(name, fmt.Sprintf("its part %q starts or ends with a hyphen", l))
 		}
 		if !isASCII(l) {
-			return fmt.Errorf("%w: %q is not a valid internationalised name", ErrBadName, l)
+			return badName(name, fmt.Sprintf("its part %q isn't a valid internationalised name", l))
 		}
 		for i := 0; i < len(l); i++ {
 			c := l[i]
@@ -181,11 +181,24 @@ func validDomain(name string) error {
 				if c == ' ' {
 					what = "a space"
 				}
-				return fmt.Errorf("%w: %q contains %s", ErrBadName, name, what)
+				return badName(name, "it contains "+what)
 			}
 		}
 	}
 	return nil
+}
+
+// nameError: why some input isn't a domain name, worded for the person who
+// typed it ("example com" isn't a domain name: it contains a space). Is()
+// makes it ErrBadName to errors.Is, so the status mapping and every caller's
+// check are unchanged; only the sentence is better.
+type nameError struct{ msg string }
+
+func (e nameError) Error() string        { return e.msg }
+func (e nameError) Is(target error) bool { return target == ErrBadName }
+
+func badName(input, why string) error {
+	return nameError{fmt.Sprintf("%q isn't a domain name: %s", input, why)}
 }
 
 // safe runs f and turns a panic into a log line instead of a dead process.
@@ -1031,6 +1044,11 @@ func toRecord(rr dns.RR) Record {
 		rec.Target = v.Target
 	case *dns.MX:
 		rec.Target = v.Mx
+		// "0 ." is not a mail server called ".": it is the domain saying it
+		// takes no mail at all (RFC 7505), which the raw value hides.
+		if v.Mx == "." {
+			rec.Label = "Null MX: this domain accepts no mail"
+		}
 	case *dns.PTR:
 		rec.Target = v.Ptr
 	case *dns.SRV:

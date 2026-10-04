@@ -193,8 +193,10 @@ func TestMXReputationAgainstALiveDomain(t *testing.T) {
 	if len(repNotes(m, "ok")) == 0 {
 		t.Errorf("a clean result produced no positive finding; notes: %+v", m.Notes)
 	}
-	// The caveat travels with the data, not only with the HTML.
-	for _, want := range []string{iptools.BlocklistSourceIPsum, iptools.BlocklistSourceSpamhausDROP, "not a live query"} {
+	// The caveat travels with the data, not only with the HTML, and names
+	// both lists the way a reader knows them (the feed slugs are ours), and
+	// that they are not a live query of every blocklist.
+	for _, want := range []string{"IPsum", "Spamhaus DROP", "not a live query"} {
 		if !strings.Contains(m.Corpus, want) {
 			t.Errorf("Corpus caveat %q is missing %q", m.Corpus, want)
 		}

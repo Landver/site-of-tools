@@ -267,7 +267,7 @@ func (s *Service) EmailAuth(ctx context.Context, domain string, selectors ...str
 		// A selector is one or more labels under _domainkey, so the name it
 		// makes is what has to be a valid name.
 		if err := validDomain(sel + "._domainkey." + domain); err != nil {
-			return nil, fmt.Errorf("%w: %q is not a DKIM selector", ErrBadName, sel)
+			return nil, nameError{fmt.Sprintf("%q isn't a DKIM selector", sel)}
 		}
 		asked = append(asked, sel)
 	}
@@ -973,6 +973,8 @@ func (e *EmailAuth) judge() {
 		}
 		if e.SPF.Lookups > e.SPF.Limit {
 			add("fail", fmt.Sprintf("SPF needs %d DNS lookups but RFC 7208 allows %d. Over the limit receivers return permerror and SPF fails for every message, silently. Flatten or remove includes.", e.SPF.Lookups, e.SPF.Limit))
+		} else if e.SPF.Lookups == e.SPF.Limit {
+			add("warn", fmt.Sprintf("SPF uses all %d allowed DNS lookups: any further include will break it.", e.SPF.Limit))
 		} else if e.SPF.Lookups >= 8 {
 			add("warn", fmt.Sprintf("SPF uses %d of the %d allowed DNS lookups. Adding one more provider is likely to break it.", e.SPF.Lookups, e.SPF.Limit))
 		} else {
@@ -992,7 +994,7 @@ func (e *EmailAuth) judge() {
 		case "?all":
 			add("warn", "SPF ends in ?all (neutral), which asserts nothing. Receivers treat it much like no policy.")
 		case "~all":
-			add("ok", "SPF ends in ~all (softfail), the normal setting while you gain confidence.")
+			add("ok", "SPF ends in ~all (softfail), the common setting alongside DMARC.")
 		case "-all":
 			add("ok", "SPF ends in -all (hard fail), the strict setting.")
 		}
@@ -1021,12 +1023,12 @@ func (e *EmailAuth) judge() {
 			case dmarcFull:
 				add("ok", "DMARC p="+dmarcPolicy+": failing mail "+landing+".")
 			case dmarcPctOK:
-				add("warn", fmt.Sprintf("DMARC is p=%s but pct=%d, so only that share of failing mail %s. RFC 7489 gives the rest the next weaker policy (%s), which is what most of your spoofed mail actually meets. Move to pct=100 once the reports look clean.", dmarcPolicy, dmarcPct, landing, nextLower(dmarcPolicy)))
+				add("warn", fmt.Sprintf("DMARC is p=%s but pct=%d, so only %d%% of failing mail %s; RFC 7489 gives the other %d%% the next weaker policy (%s). Move to pct=100 once the reports look clean.", dmarcPolicy, dmarcPct, dmarcPct, landing, 100-dmarcPct, nextLower(dmarcPolicy)))
 			default:
 				add("warn", "DMARC pct= is \""+e.DMARC.Percent+"\", which is not a percentage. Receivers that reject the tag may discard the whole record, so the policy protects nothing.")
 			}
 		default:
-			add("warn", "DMARC record has no usable p= policy tag.")
+			add("warn", "DMARC record has no usable p= policy tag, so receivers treat it as p=none at best.")
 		}
 		// Only for a record read at its own name: on an inherited one, sp= is
 		// the policy judged above rather than an exemption from it.
@@ -1049,11 +1051,15 @@ func (e *EmailAuth) judge() {
 		case e.DMARC != nil:
 			missing = "SPF record"
 		}
-		add("info", "This domain receives no mail (it has no MX) and publishes no "+missing+", so nothing tells a receiver to refuse mail forged in its name. If it sends no mail either, v=spf1 -all and a DMARC record with p=reject say exactly that.")
+		add("info", "This domain publishes no MX record and no "+missing+", so nothing tells a receiver to refuse mail forged in its name. If it sends no mail, v=spf1 -all and a DMARC record with p=reject say so.")
 	}
 
 	if e.NullMX {
-		add("info", "This domain publishes a null MX (RFC 7505), so it is telling every sender that it receives no mail. If it sends none either, the matching declarations are v=spf1 -all and DMARC p=reject.")
+		if e.SPF != nil && e.SPF.All == "-all" && dmarcPolicy == "reject" {
+			add("ok", "This domain publishes a null MX (RFC 7505), SPF -all and DMARC p=reject: it declares that it neither sends nor receives mail.")
+		} else {
+			add("info", "This domain publishes a null MX (RFC 7505), so it is telling every sender that it receives no mail. If it sends none either, the matching declarations are v=spf1 -all and DMARC p=reject.")
+		}
 	}
 
 	var badPTR, unresolved []string
@@ -1079,7 +1085,7 @@ func (e *EmailAuth) judge() {
 		if len(badPTR) > 0 {
 			add("warn", "Reverse DNS doesn't round-trip for "+strings.Join(badPTR, ", ")+". Receivers weigh forward-confirmed reverse DNS on the address mail arrives from, so this costs deliverability for any mail these servers send, without anything else looking wrong."+partial)
 		} else if len(unresolved) == 0 {
-			add("ok", "Reverse DNS round-trips (FCrDNS) for "+scope+". Receivers weigh that on the address mail arrives from, so it counts wherever these servers send as well as receive. Only each host's first address is checked.")
+			add("ok", "Reverse DNS round-trips (FCrDNS) for "+scope+", checked on each host's first address.")
 		}
 	}
 
@@ -1099,7 +1105,7 @@ func (e *EmailAuth) judge() {
 		}
 		add("ok", "DKIM keys found at selectors: "+strings.Join(sels, ", ")+".")
 	case e.HasMX && len(e.DKIMAsked) == 0:
-		add("info", "No DKIM key found at any common selector. Selectors cannot be listed from DNS, so this is a guess, not proof there is none: if you know yours, check it below.")
+		add("info", "No DKIM key at the common selectors. DNS can't list selectors, so that is not proof there is none: if you know yours, check it below.")
 	}
 	// A selector someone named gets a straight answer about itself, whatever
 	// the common guesses turned up. A revoked one is covered just below.
@@ -1115,7 +1121,8 @@ func (e *EmailAuth) judge() {
 			if len(e.DKIM) == 0 {
 				tail = ", nor at any common one"
 			}
-			add("warn", "No DKIM key at "+strings.Join(missing, ", ")+", the selector you gave"+tail+". Check it in your mail provider's DKIM settings: the record belongs at <selector>._domainkey."+e.Domain+".")
+			where := missing[0] + "._domainkey." + e.Domain
+			add("warn", "No DKIM key at "+strings.Join(missing, ", ")+", the selector you gave"+tail+". Check it in your mail provider's DKIM settings: the record belongs at "+where+".")
 		}
 	}
 	if len(e.DKIMRevoked) > 0 && !e.DKIMWildcard {
@@ -1131,7 +1138,7 @@ func (e *EmailAuth) judge() {
 		case e.MTASTS.Mode == "enforce":
 			add("ok", "MTA-STS policy is live and in enforce mode.")
 		case e.MTASTS.Mode == "testing":
-			add("info", "MTA-STS policy is in testing mode: failures are reported but mail still flows unencrypted.")
+			add("info", "MTA-STS policy is in testing mode: failures are reported, but senders still deliver when TLS fails, so it protects nothing yet.")
 		case e.MTASTS.Mode == "none":
 			add("warn", "MTA-STS policy mode is none, which switches the policy off. Senders will not enforce TLS.")
 		}

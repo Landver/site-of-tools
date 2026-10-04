@@ -135,7 +135,7 @@ func svcbFields(rr dns.RR) []Field {
 				f = append(f, Field{"ECH", "parameter present but empty, so no ECH keys are published"})
 				break
 			}
-			f = append(f, Field{"ECH", fmt.Sprintf("published (%d bytes) — the TLS SNI is encrypted, so which site you visit isn't visible on the wire", n)})
+			f = append(f, Field{"ECH", fmt.Sprintf("published (%d bytes): browsers that support ECH can hide which site they're visiting from the network", n)})
 		case dns.SVCB_NO_DEFAULT_ALPN:
 			f = append(f, Field{"Default ALPN", "disabled"})
 		default:

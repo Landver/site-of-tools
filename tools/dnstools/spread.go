@@ -680,6 +680,9 @@ func unanimousRcode(all []ServerAnswer) string {
 	return code
 }
 
+// nsCount: "zone's 4 nameservers", for a sentence that states its denominator.
+func nsCount(n int) string { return fmt.Sprintf("zone's %d nameservers", n) }
+
 // health derives delegation findings from what the probes already saw. Pure
 // judgement over collected data: no extra queries.
 func (sp *Spread) health() {
@@ -709,10 +712,14 @@ func (sp *Spread) health() {
 		// stops at the registrable domain instead of climbing to the registry.
 		// Saying "none answered" would blame servers that were never found.
 		add("fail", "No nameservers are delegated for this name, so nothing serves it.")
+	// The denominator, every time: one live server out of four delegated is
+	// three lame ones, and "add a second nameserver" would be the wrong fix.
 	case live == 0:
-		add("fail", "None of the zone's nameservers answered.")
+		add("fail", fmt.Sprintf("None of the %s answered.", nsCount(len(sp.Authoritative))))
+	case live == 1 && len(sp.Authoritative) == 1:
+		add("fail", "Only one nameserver is delegated. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
 	case live == 1:
-		add("fail", "Only one nameserver answered. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
+		add("fail", fmt.Sprintf("Only 1 of the %s answered. The rest are lame, and the one left is a single point of failure for the whole domain.", nsCount(len(sp.Authoritative))))
 	default:
 		add("ok", fmt.Sprintf("%d nameservers answered, so the zone survives losing one.", live))
 	}
@@ -797,7 +804,7 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 		// counts cannot be compared: doing so reported every zone with 9+
 		// nameservers as mis-delegated when the cause was our own sampling.
 	case len(atRegistry) != sp.NSTotal:
-		add("warn", fmt.Sprintf("The registry lists %d nameservers but the zone serves %d. A delegation mismatch sends some queries to servers that won't answer.", len(atRegistry), sp.NSTotal))
+		add("warn", fmt.Sprintf("The registry lists %d nameservers but the zone's own NS records name %d. Resolvers start from the registry's list, so check that every server on it still serves this zone.", len(atRegistry), sp.NSTotal))
 	default:
 		add("ok", "The registry's delegation matches the nameservers the zone serves.")
 	}

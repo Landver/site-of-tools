@@ -159,7 +159,7 @@ func TestSummariseNothingAnswered(t *testing.T) {
 	if len(sp.Groups) != 0 {
 		t.Errorf("built %d groups from no answers", len(sp.Groups))
 	}
-	if !hasNote(sp.Health, "fail", "None of the zone's nameservers answered") {
+	if !hasNote(sp.Health, "fail", "None of the zone's") {
 		t.Errorf("health notes %v do not report that nothing answered", sp.Health)
 	}
 }
@@ -175,7 +175,7 @@ func TestSummariseSingleLiveNameserverIsAFinding(t *testing.T) {
 	}}
 	sp.summarise()
 
-	if !hasNote(sp.Health, "fail", "Only one nameserver answered") {
+	if !hasNote(sp.Health, "fail", "Only 1 of the zone's") {
 		t.Errorf("health notes %v do not flag a single surviving nameserver", sp.Health)
 	}
 }

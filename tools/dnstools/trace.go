@@ -826,7 +826,7 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 		return link, nil
 	case len(ds.set) == 0:
 		link.Status = traceInsecure
-		link.Detail = "The parent publishes no DS record for this zone, so the zone is unsigned. Most names are. (Proving an absence properly needs the parent's NSEC or NSEC3 records; this walk takes the parent's answer at face value.)"
+		link.Detail = "The parent publishes no DS record for this zone, so validators treat it as unsigned. Most names are. (Proving an absence properly needs the parent's NSEC or NSEC3 records; this walk takes the parent's answer at face value.)"
 		// Signed at the DNS host with the DS never added at the registrar is
 		// the commonest half-finished DNSSEC setup, and "unsigned, most names
 		// are" is the wrong thing to tell its owner. One query for the zone's
@@ -837,7 +837,7 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 					link.KeyTags = append(link.KeyTags, k.KeyTag())
 				}
 				link.KeysWithoutDS = true
-				link.Detail = "The zone publishes DNSSEC keys, but the parent has no DS record for any of them, so nothing vouches for those keys and every validating resolver treats the zone as unsigned. If DNSSEC is meant to be on, the missing step is publishing the DS record at the registrar."
+				link.Detail = "The zone publishes DNSSEC keys, but the parent has no DS record for any of them, so nothing vouches for those keys. If DNSSEC is meant to be on, the missing step is publishing the DS record at the registrar."
 			}
 		}
 		return link, nil
@@ -1502,12 +1502,12 @@ func (w *traceWalk) verdict() {
 	// that went missing above. Saying nothing is allowed; saying the wrong
 	// thing quietly is not.
 	case unknown:
-		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "One link of the chain could not be checked from here, so there is no verdict to give. See the chain below for which one and why. This is a statement about what this walk could reach, not about the zone: it is not evidence of anything being wrong."}
+		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "One link couldn't be checked from here; the chain below shows which and why. That is a gap in this walk, not a fault in the zone."}
 	case insecure && keysNoDS:
 		// Still "insecure": that is what every validator makes of it. But the
 		// owner of this zone very likely meant otherwise, and the fix is one
 		// record at the registrar.
-		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "warn", Text: "The zone publishes DNSSEC keys, but its parent has no DS record pointing at them, so nothing can validate it and resolvers treat it as unsigned. If you meant to turn DNSSEC on, the last step is adding the DS record at your registrar; the chain below shows where it stops."}
+		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "warn", Text: "Resolvers treat it as unsigned, because nothing vouches for its keys. If you meant to turn DNSSEC on, the last step is adding the DS record at your registrar; the chain below shows where it stops."}
 	case insecure:
 		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "info", Text: "Unsigned is the ordinary state of most of the internet and is not a fault: it simply means answers for this name cannot be cryptographically verified, only trusted to have come from the right servers."}
 	default:
@@ -1516,14 +1516,20 @@ func (w *traceWalk) verdict() {
 		// with the chain's own green tick.
 		switch w.answer {
 		case traceAnswerVerified:
-			out.DNSSEC, out.Verdict = traceSecure, Note{Level: "ok", Text: "Every link from the root trust anchor down to this zone verified here, and so did the signature over the answer itself. Nothing was taken on a resolver's word."}
+			// An alias into another zone: what verified is the CNAME, and the
+			// verdict must not reach past it to records this walk never saw.
+			over := "the answer itself"
+			if out.CNAME != "" && len(out.Answer) == 0 {
+				over = "the alias record; the name it points to is outside this zone and not part of this walk"
+			}
+			out.DNSSEC, out.Verdict = traceSecure, Note{Level: "ok", Text: "Every link from the root trust anchor down to this zone verified here, and so did the signature over " + over + ". Nothing was taken on a resolver's word."}
 		case traceAnswerNone:
 			out.DNSSEC = traceUnknown
 			absent := "there are no records of this type"
 			if out.AnswerRcode == "NXDOMAIN" {
 				absent = "the name does not exist"
 			}
-			out.Verdict = Note{Level: "warn", Text: "Every link from the root trust anchor down to this zone verified here, and the zone says " + absent + ". That last part is unproved: an absence is proved by the zone's NSEC or NSEC3 records, which this walk does not read. Take it as the server's word, which is all it is."}
+			out.Verdict = Note{Level: "warn", Text: "Every link from the root trust anchor down to " + strings.TrimSuffix(out.AnswerZone, ".") + " verified here, and the zone says " + absent + ". That absence is the zone's word: proving it takes NSEC or NSEC3 records, which this walk doesn't read."}
 		case traceAnswerForeign:
 			out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "The chain verified down to the zone this walk reached, but the records it returned are signed by a different zone below it — one whose keys this walk could not anchor. The signature may well be perfectly good; this walk simply is not in a position to say, and will not guess in either direction."}
 		case traceAnswerUnsigned:
@@ -1555,16 +1561,19 @@ func (w *traceWalk) verdict() {
 			" and stopped. What is shown above is the start of the delegation, not all of it. Slow or unresponsive nameservers are the usual cause."})
 	}
 	if out.CNAME != "" {
-		tail := "resolving that is a separate walk through whatever zone owns it."
+		// Subject: the name asked about. The zone used to be the subject, and
+		// "github.com answers with a CNAME pointing at github.com" read as a
+		// name pointing at itself.
+		name, target, zone := strings.TrimSuffix(out.QName, "."), strings.TrimSuffix(out.CNAME, "."), strings.TrimSuffix(out.AnswerZone, ".")
+		text := name + " is an alias (CNAME) for " + target + ", outside the " + zone + " zone, so resolving it is a separate walk: trace " + target + " to check it."
 		if len(out.Answer) > 0 {
 			// The target happens to live in the same zone, so the one server
 			// answered both halves. The records above are the target's, not
 			// this name's, which is worth saying before someone edits the
 			// wrong record.
-			tail = "the target is in the same zone, so this server answered both at once. The records above belong to the target, not to the name you asked for."
+			text = name + " is an alias (CNAME) for " + target + ". Both are in the " + zone + " zone, so one server answered both: the records above are " + target + "'s, not " + name + "'s."
 		}
-		out.Notes = append(out.Notes, Note{Level: "info", Text: "This name is an alias. " + strings.TrimSuffix(out.AnswerZone, ".") +
-			" answers with a CNAME pointing at " + strings.TrimSuffix(out.CNAME, ".") + ", and " + tail})
+		out.Notes = append(out.Notes, Note{Level: "info", Text: text})
 	}
 	sortNotes(out.Notes)
 }
