@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"golang.org/x/net/html"
+
+	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
 // Markup checks: the page on a phone, to a screen reader, and with JavaScript
@@ -94,6 +96,29 @@ func TestScrollingBlocksInGridsCanShrink(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// iOS Safari zooms the page into any field under 16px, so a field's own size
+// utility may only shrink it from sm: up.
+func TestFieldsAreNotShrunkOnPhones(t *testing.T) {
+	e := newCipherApp(t)
+	pages, _ := ciphertools.SitemapPages()
+	seen := 0
+	for _, p := range pages {
+		rec := do(t, e, http.MethodGet, p.Path, "", "", asBrowser)
+		for _, f := range findAll(parseHTML(t, rec.Body.String()), func(n *html.Node) bool { return hasClass(n, "field") }) {
+			seen++
+			for _, small := range []string{"text-xs", "text-sm"} {
+				if hasClass(f, small) {
+					name, _ := attr(f, "name")
+					t.Errorf("GET %s: field %q is %s on a phone", p.Path, name, small)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no fields on any page")
 	}
 }
 
