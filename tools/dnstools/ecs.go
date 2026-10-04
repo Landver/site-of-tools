@@ -370,7 +370,7 @@ func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName st
 			ErrBadType, strings.Join(ecsSteerableTypes, ", "))
 	}
 	if _, isIP := reverseName(name); isIP {
-		return nil, fmt.Errorf("%w: give a domain name, not an IP", ErrBadType)
+		return nil, ErrNeedDomain
 	}
 	if err := validDomain(name); err != nil {
 		return nil, err

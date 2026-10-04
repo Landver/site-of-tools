@@ -87,8 +87,8 @@ func TestMXReputationRejectsBadInput(t *testing.T) {
 	}{
 		{"", dnstools.ErrEmptyName},
 		{"   ", dnstools.ErrEmptyName},
-		{"8.8.8.8", dnstools.ErrBadType},
-		{"2606:4700:4700::1111", dnstools.ErrBadType},
+		{"8.8.8.8", dnstools.ErrNeedDomain},
+		{"2606:4700:4700::1111", dnstools.ErrNeedDomain},
 		{"not a domain!", dnstools.ErrBadName},
 		{strings.Repeat("a.", 12) + "example.com", dnstools.ErrBadName},
 	}

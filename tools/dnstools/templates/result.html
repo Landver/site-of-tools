@@ -16,13 +16,19 @@
     <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
     <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
     <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
-    {{/* Three honest states, not a green tick: validated / signed but not
-         validated / unsigned. Most names are unsigned, which is not a fault. */}}
+    {{/* Honest states, not a green tick: validated / partly validated /
+         signed but not validated / unsigned. Most names are unsigned, which
+         is not a fault. "Validated" is every answer carrying AD; one AD bit
+         used to speak for a whole set it did not cover.
+
+         All three resolvers on offer validate, so a signed answer without AD
+         is a chain of trust that doesn't reach it, not a lazy resolver. */}}
     <dt>DNSSEC</dt>
     <dd>
       {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate</span>
       {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures (AD)</span>
-      {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— this resolver didn't verify</span>
+      {{else if .Unvalidated}}<span class="text-warn">Partly validated</span> <span class="text-faint">— no AD on {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{if .Chain}}, answered through the alias{{end}}</span>
+      {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar</span>
       {{else}}<span class="text-faint">Unsigned</span>{{end}}
     </dd>
     {{if .NSID}}<dt>Answered by</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}

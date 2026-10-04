@@ -169,7 +169,7 @@ func answered(c *echo.Context, name string, body any, err error, vm map[string]a
 
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
 func (h *handler) email(c *echo.Context) error {
-	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	name := NormalizeName(c.QueryParam("name"))
 	// Page-scoped, like every other credit here: the footer sits outside the
 	// htmx target, so a per-result flag never reaches the DOM on a form submit.
 	// Spamhaus only — the reputation card reads the blocklist corpus, and
@@ -235,7 +235,7 @@ func (h *handler) delegationHealth(ctx context.Context, sp *Spread) (usedGeo, us
 // this name, and what subdomains exist under it. Both halves are independent
 // and best-effort, so one upstream failing still leaves the other rendered.
 func (h *handler) domain(c *echo.Context) error {
-	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	name := NormalizeName(c.QueryParam("name"))
 	// Credits ride on the PAGE, not the result: the footer lives outside the
 	// htmx target, so a per-result flag never reaches the DOM on a form
 	// submit — which is how these pages are actually used. iptools does the
@@ -248,9 +248,11 @@ func (h *handler) domain(c *echo.Context) error {
 	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
 		return err
 	}
-	// The other three routes are validated inside the domain layer; this one
-	// reaches HTTP upstreams directly, so it does its own check first.
-	if err := validDomain(name); err != nil {
+	// The other routes are validated inside the domain layer; this one reaches
+	// HTTP upstreams directly, so it does its own check first. An IP must be
+	// refused here by name: it passes validDomain as four numeric labels, and
+	// the registry's empty answer then read as "this domain is unregistered".
+	if err := needDomain(name); err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
 	}
 
@@ -317,7 +319,7 @@ func (h *handler) domain(c *echo.Context) error {
 // nameservers asked directly, plus the public resolvers, grouped by what they
 // actually returned.
 func (h *handler) consistency(c *echo.Context) error {
-	name := strings.TrimSpace(c.QueryParam("name"))
+	name := NormalizeName(c.QueryParam("name"))
 	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
 	if qtype == "" {
 		qtype = "A"
@@ -390,7 +392,7 @@ func (h *handler) consistency(c *echo.Context) error {
 // trace serves the delegation walk from the root, with the chain of trust
 // validated in the domain layer rather than taken from a resolver's AD bit.
 func (h *handler) trace(c *echo.Context) error {
-	name := strings.TrimSpace(strings.ToLower(c.QueryParam("name")))
+	name := NormalizeName(c.QueryParam("name"))
 	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
 	if qtype == "" {
 		qtype = "A"
@@ -448,7 +450,7 @@ func rateLimiter() echo.MiddlewareFunc {
 // Bare hit renders the empty form to a browser, an empty result fragment to
 // htmx, and 400 to a JSON caller — same contract iptools' /cidr follows.
 func (h *handler) index(c *echo.Context) error {
-	name := strings.TrimSpace(c.QueryParam("name"))
+	name := NormalizeName(c.QueryParam("name"))
 	// Blank or "all" = the default fan-out. Naming one type narrows to it, so
 	// a ?type= permalink still works, but nobody has to click through nine
 	// types to find out what a domain publishes.
@@ -541,7 +543,7 @@ func (h *handler) enrich(set *ResultSet) bool {
 func statusFor(err error) int {
 	switch {
 	case errors.Is(err, ErrBadType), errors.Is(err, ErrBadResolver),
-		errors.Is(err, ErrEmptyName), errors.Is(err, ErrBadName):
+		errors.Is(err, ErrEmptyName), errors.Is(err, ErrBadName), errors.Is(err, ErrNeedDomain):
 		return http.StatusBadRequest
 	default:
 		return http.StatusBadGateway

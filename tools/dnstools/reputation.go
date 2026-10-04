@@ -262,7 +262,7 @@ func (s *Service) MXReputation(ctx context.Context, domain string, bl BlockCheck
 		return nil, ErrEmptyName
 	}
 	if _, isIP := reverseName(domain); isIP {
-		return nil, fmt.Errorf("%w: give a domain name, not an IP", ErrBadType)
+		return nil, ErrNeedDomain
 	}
 	if err := validDomain(domain); err != nil {
 		return nil, err
@@ -347,7 +347,7 @@ func (s *Service) repRun(ctx context.Context, domain, addr string, bl BlockCheck
 		// sentence on the card counts, so an abandoned request reports the
 		// rows it really got rather than a verdict over a truncated set.
 		if ctx.Err() != nil {
-			out.note("warn", "The check was cut short before every mail server was read, so the rows below are partial.")
+			out.note("warn", "The check was cut short before every mail server was read, so the list of mail servers is partial.")
 			break
 		}
 		if out.attempted >= repMaxChecks {
@@ -715,7 +715,7 @@ func (m *MXReputation) repJudge() {
 		m.note("fail", text+" Mail from "+subject+" is likely to be rejected or filtered. Find out why it was listed, fix it, then request delisting from that feed.")
 	}
 	if m.Listed > 0 && !m.CorpusUsable() {
-		m.note("info", "The listing above comes from a corpus that is not being kept up to date ("+m.corpusAgeText()+"), so it may already have been removed upstream.")
+		m.note("info", "That listing comes from a corpus that is not being kept up to date ("+m.corpusAgeText()+"), so it may already have been removed upstream.")
 	}
 
 	// Rows we could not read are their own finding, because they are the
@@ -774,4 +774,5 @@ func (m *MXReputation) repJudge() {
 	if m.AddrsTruncated {
 		m.note("info", fmt.Sprintf("The budget of %d corpus reads per request ran out before every resolved address was read, so some addresses of the mail servers above were not checked.", repMaxChecks))
 	}
+	sortNotes(m.Notes)
 }

@@ -41,11 +41,16 @@
              query, not a change in flight. Checked before the disagreement
              branch because it is the same shape with a different cause. */}}
         <span class="text-ok">Your nameservers are serving one zone version.</span>
-        <span class="text-faint">They return different {{.Type}} records while reporting the same SOA serial, so this zone varies its answer per query (round-robin, or steering by latency) rather than having a change part-way out.</span>
+        <span class="text-faint">Nameservers on the same SOA serial return different {{.Type}} records, so this zone varies its answer per query (round-robin, or steering by latency) rather than having a change part-way out.</span>
       {{else if and (gt .AuthAnswered 1) (not .AuthConsistent)}}
         <span class="text-warn">Your nameservers disagree.</span>
         {{if and (gt .SerialsSeen 1) (not .SerialsAgree)}}
           <span class="text-faint">The zone's own servers return different {{.Type}} records and report different SOA serials, so a change has not finished rolling out between them.</span>
+        {{else if .MultiProvider}}
+          {{/* Each provider agrees with itself and the two differ. Their
+               serials are independent, so nothing here says which is behind,
+               or whether either is. */}}
+          <span class="text-faint">This zone is served by more than one DNS provider, and they return different {{.Type}} records. Each provider keeps its own serial, so this is either one provider still serving the old zone or a zone that answers differently per provider. The panels below show who said what.</span>
         {{else}}
           <span class="text-faint">The zone's own servers return different {{.Type}} records. No serial separates them here, so this is either a change still rolling out or a zone that answers differently per query — the panels below show who said what.</span>
         {{end}}

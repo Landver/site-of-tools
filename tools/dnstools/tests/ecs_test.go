@@ -29,7 +29,7 @@ func TestECSRejectsInputThatCannotBeMeasured(t *testing.T) {
 		want             error
 	}{
 		{"no name at all", "", "A", dnstools.ErrEmptyName},
-		{"an IP literal has no zone to steer", "8.8.8.8", "A", dnstools.ErrBadType},
+		{"an IP literal has no zone to steer", "8.8.8.8", "A", dnstools.ErrNeedDomain},
 		{"MX is the same record everywhere", "example.com", "MX", dnstools.ErrBadType},
 		{"TXT is not a steering target", "example.com", "TXT", dnstools.ErrBadType},
 		{"PTR is a reverse question", "example.com", "PTR", dnstools.ErrBadType},

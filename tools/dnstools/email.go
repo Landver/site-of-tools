@@ -72,6 +72,26 @@ type Note struct {
 	Text  string `json:"text"`
 }
 
+// sortNotes puts what needs doing first: fail, then warn, then info, then ok.
+// Stable, so findings at one level keep the order their checks ran in. A list
+// read top to bottom should answer "what is wrong" before "what is fine", and
+// it used to interleave the two in whatever order the checks happened to run.
+func sortNotes(notes []Note) {
+	slices.SortStableFunc(notes, func(a, b Note) int { return noteRank(a.Level) - noteRank(b.Level) })
+}
+
+func noteRank(level string) int {
+	switch level {
+	case "fail":
+		return 0
+	case "warn":
+		return 1
+	case "info":
+		return 2
+	}
+	return 3
+}
+
 // SPFResult: the record plus the thing that actually breaks in production.
 type SPFResult struct {
 	Record string `json:"record"`
@@ -217,7 +237,7 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 		return nil, ErrEmptyName
 	}
 	if _, isIP := reverseName(domain); isIP {
-		return nil, fmt.Errorf("%w: give a domain name, not an IP", ErrBadType)
+		return nil, ErrNeedDomain
 	}
 	if err := validDomain(domain); err != nil {
 		return nil, err
@@ -951,7 +971,7 @@ func (e *EmailAuth) judge() {
 			add("fail", fmt.Sprintf("%s publishes %d DMARC records. RFC 7489 has receivers discard the lot rather than pick one, so the policy is not applied at all.", e.DMARC.Name, len(e.DMARC.Extra)+1))
 		}
 		if e.DMARC.Inherited {
-			add("info", "This name publishes no DMARC record of its own, so receivers apply "+e.DMARC.Name+"'s, as RFC 7489 says they should. The verdict below is that inherited policy.")
+			add("info", "This name publishes no DMARC record of its own, so receivers apply "+e.DMARC.Name+"'s, as RFC 7489 says they should. The DMARC findings here are about that inherited policy.")
 		}
 		switch dmarcPolicy {
 		case "none":
@@ -1014,6 +1034,12 @@ func (e *EmailAuth) judge() {
 	}
 
 	switch {
+	case e.DKIMWildcard && len(e.DKIM) == 0:
+		// The same record everywhere, and it is a revoked key: the wildcard
+		// is "v=DKIM1; p=", which makes every selector without a record of
+		// its own fail verification. For a domain that sends no mail that is
+		// the recommended record, not a problem.
+		add("ok", "Every selector probed returns a DKIM record with an empty key: a wildcard under _domainkey that revokes every selector without a record of its own. That is the recommended setup for a domain that sends no mail; a selector you do sign with needs its own record.")
 	case e.DKIMWildcard:
 		add("warn", "Every selector probed returns the same DKIM record, so there is a wildcard TXT under _domainkey. Any selector a sender invents will appear to be published, which tells a receiver nothing.")
 	case len(e.DKIM) > 0:
@@ -1086,6 +1112,7 @@ func (e *EmailAuth) judge() {
 			add("ok", "BIMI is published and the DMARC policy behind it is strong enough for it to be used.")
 		}
 	}
+	sortNotes(e.Notes)
 }
 
 // Score is a crude readiness count: how many findings are clean versus not.

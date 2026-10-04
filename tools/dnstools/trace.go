@@ -499,7 +499,7 @@ func (s *Service) Trace(ctx context.Context, name, qtype string) (*Trace, error)
 	// ladder is a different explanation than the one this page tells, and
 	// validDomain would reject the literal anyway.
 	if _, isIP := reverseName(name); isIP {
-		return nil, fmt.Errorf("%w: give a domain name, not an IP", ErrBadType)
+		return nil, ErrNeedDomain
 	}
 	if err := validDomain(name); err != nil {
 		return nil, err
@@ -1466,7 +1466,7 @@ func (w *traceWalk) verdict() {
 
 	switch {
 	case bogus:
-		out.DNSSEC, out.Verdict = traceBogus, Note{Level: "fail", Text: "This name's chain of trust is broken. A parent zone publishes a DS record saying the zone below it is signed, and the signatures do not check out. Validating resolvers will refuse to answer for this name at all, which looks to users like the domain is down."}
+		out.DNSSEC, out.Verdict = traceBogus, Note{Level: "fail", Text: "A parent zone publishes a DS record saying the zone below it is signed, and the signatures do not check out. Validating resolvers will refuse to answer for this name at all, which looks to users like the domain is down."}
 	case w.answer == traceAnswerFailed:
 		out.DNSSEC, out.Verdict = traceBogus, Note{Level: "fail", Text: "The delegation chain verifies, and the signature over the records themselves does not. It was made by a key of this very zone, so this is the zone's own signature failing rather than a mix-up about which zone owns the name: a validating resolver will treat this name as bogus and answer SERVFAIL."}
 	case incomplete:
@@ -1475,7 +1475,7 @@ func (w *traceWalk) verdict() {
 		// link had gone insecure claimed the walk "did not reach an
 		// authoritative answer" — which was untrue whenever the answer arrived
 		// and the key fetch after it was what ran out of time.
-		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "This walk did not finish: it stopped at its own limits before it could check the whole chain. There is no DNSSEC verdict to give, and nothing above is a finding about the name."}
+		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "This walk did not finish: it stopped at its own limits before it could check the whole chain. There is no DNSSEC verdict to give, and nothing the walk did reach is a finding about the name."}
 	// Unchecked outranks unsigned, and the order is the whole point. A link
 	// nobody could read turns every link below it into a "cannot verify", and
 	// ranking unsigned first printed "this name is not signed with DNSSEC" —
@@ -1485,14 +1485,14 @@ func (w *traceWalk) verdict() {
 	case unknown:
 		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "One link of the chain could not be checked from here, so there is no verdict to give. See the chain below for which one and why. This is a statement about what this walk could reach, not about the zone: it is not evidence of anything being wrong."}
 	case insecure:
-		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "info", Text: "This name is not signed with DNSSEC. That is the ordinary state of most of the internet and is not a fault: it simply means answers for this name cannot be cryptographically verified, only trusted to have come from the right servers."}
+		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "info", Text: "Unsigned is the ordinary state of most of the internet and is not a fault: it simply means answers for this name cannot be cryptographically verified, only trusted to have come from the right servers."}
 	default:
 		// The chain verified end to end. What remains is what can be said
 		// about the DATA, which is a separate question and used to be answered
 		// with the chain's own green tick.
 		switch w.answer {
 		case traceAnswerVerified:
-			out.DNSSEC, out.Verdict = traceSecure, Note{Level: "ok", Text: "Every link from the root trust anchor down to this zone verified here, and so did the signature over the very records shown above. Nothing was taken on a resolver's word."}
+			out.DNSSEC, out.Verdict = traceSecure, Note{Level: "ok", Text: "Every link from the root trust anchor down to this zone verified here, and so did the signature over the answer itself. Nothing was taken on a resolver's word."}
 		case traceAnswerNone:
 			out.DNSSEC = traceUnknown
 			absent := "there are no records of this type"
@@ -1542,6 +1542,7 @@ func (w *traceWalk) verdict() {
 		out.Notes = append(out.Notes, Note{Level: "info", Text: "This name is an alias. " + strings.TrimSuffix(out.AnswerZone, ".") +
 			" answers with a CNAME pointing at " + strings.TrimSuffix(out.CNAME, ".") + ", and " + tail})
 	}
+	sortNotes(out.Notes)
 }
 
 // traceRotate picks the starting root server from the name being looked up, so

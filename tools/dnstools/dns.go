@@ -116,6 +116,11 @@ var (
 	// ErrBadName: the input cannot be a DNS name at all. Rejected before it
 	// costs an upstream query, since nothing downstream can make it one.
 	ErrBadName = errors.New("not a domain name")
+	// ErrNeedDomain: an IP address on a check that only makes sense for a
+	// domain (a zone to walk, a registration, mail policy). Its own error, not
+	// ErrBadType's: nothing was wrong with the type, and "unsupported record
+	// type" sent people looking for a type to change.
+	ErrNeedDomain = errors.New("this check needs a domain name, not an IP address")
 )
 
 // errPanic stands in for a result a recovered goroutine never produced. A
@@ -132,8 +137,9 @@ const maxNameLabels = 10
 // an upstream resolver. The size bounds are RFC 1035's own (253 bytes total,
 // 63 per label); the label-count bound is ours.
 //
-// Bytes above 0x7f pass through untouched: a raw Unicode name is a different
-// problem (it needs IDNA, not rejection) and belongs to whoever queries it.
+// A Unicode label is refused rather than queried: NormalizeName has already
+// converted every label IDNA accepts, so one still here is one it refused, and
+// sent as raw UTF-8 it would come back NXDOMAIN, a false "does not exist".
 func validDomain(name string) error {
 	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
 	if name == "" {
@@ -153,10 +159,13 @@ func validDomain(name string) error {
 		if l[0] == '-' || l[len(l)-1] == '-' {
 			return fmt.Errorf("%w: %q starts or ends with a hyphen", ErrBadName, l)
 		}
+		if !isASCII(l) {
+			return fmt.Errorf("%w: %q is not a valid internationalised label", ErrBadName, l)
+		}
 		for i := 0; i < len(l); i++ {
 			c := l[i]
 			ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
-				c == '-' || c == '_' || c >= 0x80
+				c == '-' || c == '_'
 			if !ok {
 				return fmt.Errorf("%w: %q contains %q", ErrBadName, l, string(c))
 			}
@@ -290,11 +299,17 @@ type ResultSet struct {
 	// nothing in the raw records says it.
 	Provider string `json:"provider,omitempty"`
 	// Signed: the zone returned DNSSEC signatures. Authenticated: the resolver
-	// set AD, i.e. it actually validated them. Signed-but-not-authenticated is
-	// a real state (e.g. the resolver isn't validating); neither is a failure,
+	// set AD on every answer, i.e. it validated all of them. Signed but not
+	// authenticated is a real state (signatures that chain to nothing, most
+	// often a DS record never added at the registrar); neither is a failure,
 	// most names simply aren't signed at all.
 	Signed        bool `json:"signed"`
 	Authenticated bool `json:"authenticated"`
+	// Unvalidated: the types whose answer did NOT carry AD, when at least one
+	// other type's did. A name signed in one zone and aliased into an unsigned
+	// one validates its CNAME and not its addresses, and one AD bit used to
+	// mark the whole set "Validated" over the very records that weren't.
+	Unvalidated []string `json:"unvalidated,omitempty"`
 	// Bogus: at least one type failed validation (proven by the CD=1 retry).
 	// Distinct from Signed: a zone whose DNSSEC is broken never gets far enough
 	// to return a signature, so it must not be reported as "unsigned" — that is
@@ -446,7 +461,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		Missing:      []string{},
 	}
 
-	answered, nx, cached := 0, 0, 0
+	answered, nx, cached, validated := 0, 0, 0, 0
 	for i, t := range types {
 		m := results[i].meta
 		if m.cached {
@@ -454,9 +469,10 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		}
 		// Flags describe one whole response, so first-wins is right. NSID is
 		// tracked apart from them: a node that answered without an identifier
-		// must not bury the one a later type's response did carry. Signed and
-		// Authenticated are per-answer: an unsigned NODATA answer arriving
-		// first must not mask a signed one behind it.
+		// must not bury the one a later type's response did carry. Signed is
+		// per-answer: an unsigned NODATA answer arriving first must not mask a
+		// signed one behind it. AD is counted per answer below, because it
+		// only speaks for the response it arrived on.
 		if set.Flags == "" && m.flags != "" {
 			set.Flags = m.flags
 		}
@@ -464,7 +480,6 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 			set.NSID = m.nsid
 		}
 		set.Signed = set.Signed || m.signed
-		set.Authenticated = set.Authenticated || m.authenticated
 		// The chain describes the name, not the type, so any type that saw one
 		// has seen all of it.
 		if len(set.Chain) == 0 {
@@ -472,7 +487,17 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		}
 		results[i].Cached = m.cached
 		var rcode rcodeError
-		switch err := errs[i]; {
+		err := errs[i]
+		// AD is a claim about one response, so it is tallied over the ones
+		// that answered: a SERVFAIL or a timeout validated nothing either way.
+		if err == nil || errors.Is(err, errNXDomain) || errors.Is(err, errNoData) {
+			if m.authenticated {
+				validated++
+			} else {
+				set.Unvalidated = append(set.Unvalidated, t)
+			}
+		}
+		switch {
 		case err == nil:
 			answered++
 			set.Found = append(set.Found, results[i])
@@ -504,6 +529,14 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	// stops one surviving NXDOMAIN from speaking for a fan-out that mostly
 	// failed, where "couldn't find out" is the honest verdict.
 	set.NXDomain = answered > 0 && nx == answered && answered*2 >= len(types)
+
+	// Validated means every answer was. A partial set names what wasn't, and
+	// only beside something that was: with no AD anywhere the list would just
+	// be every type, which "Signed" or "Unsigned" already says.
+	set.Authenticated = validated > 0 && len(set.Unvalidated) == 0
+	if validated == 0 {
+		set.Unvalidated = nil
+	}
 
 	// Dangling-CNAME check. Runs before the timing and cache verdict below,
 	// because it issues its own queries and those must be counted honestly.

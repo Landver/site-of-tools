@@ -82,3 +82,31 @@ func TestNullMXIsReported(t *testing.T) {
 		t.Errorf("no note mentions the null MX; got %+v", e.Notes)
 	}
 }
+
+// "v=DKIM1; p=" under a _domainkey wildcard revokes every selector without a
+// record of its own, which is the recommended record for a domain that sends
+// no mail. It used to be reported as the opposite: "any selector a sender
+// invents will appear to be published".
+func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
+	t.Parallel()
+
+	revoking := &EmailAuth{Domain: "example.com", DKIMWildcard: true, DKIMRevoked: []string{"google", "selector1"}}
+	revoking.judge()
+	keyed := &EmailAuth{Domain: "example.com", DKIMWildcard: true, DKIM: []DKIMKey{{Selector: "google", Found: true}}}
+	keyed.judge()
+
+	level := func(e *EmailAuth) string {
+		for _, n := range e.Notes {
+			if strings.Contains(n.Text, "wildcard") {
+				return n.Level
+			}
+		}
+		return ""
+	}
+	if got := level(revoking); got != "ok" {
+		t.Errorf("revoking wildcard: level %q, want ok; notes %+v", got, revoking.Notes)
+	}
+	if got := level(keyed); got != "warn" {
+		t.Errorf("wildcard with a real key: level %q, want warn; notes %+v", got, keyed.Notes)
+	}
+}
