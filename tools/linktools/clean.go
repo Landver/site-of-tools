@@ -121,7 +121,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 
 	u, err := url.Parse(work)
 	if err != nil {
-		return nil, fmt.Errorf("not a URL: %w", err)
+		return nil, fmt.Errorf("not a URL: %w", parseReason(err))
 	}
 	host := u.Hostname()
 

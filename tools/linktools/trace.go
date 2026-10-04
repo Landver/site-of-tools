@@ -452,7 +452,7 @@ func parseTarget(raw string) (*url.URL, []Note, error) {
 	var notes []Note
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, nil, fmt.Errorf("not a URL: %w", err)
+		return nil, nil, fmt.Errorf("not a URL: %w", parseReason(err))
 	}
 	if !strings.Contains(raw, "://") && !isHTTPScheme(u.Scheme) {
 		// "example.com/x" is what people paste. Assume https and say so,

@@ -76,48 +76,76 @@
       <span class="text-muted">Wrappers <span class="font-mono text-strong">{{len .Wrappers}}</span></span>
     </div>
 
-    <section class="mt-8 rounded-lg border border-warn bg-surface p-4">
+    {{/* The scope statement stays in full view, verbatim from rules.go; the
+         reasoning behind it folds, because above the tables it was a screen of
+         reading between a visitor and the row they came to check. */}}
+    <section class="mt-6 rounded-lg border border-warn bg-surface p-4">
       <h2 class="text-sm font-semibold text-strong">Scope</h2>
-      <p class="mt-2 text-sm text-muted">{{.Scope}}</p>
-      <p class="mt-3 text-sm text-muted">
-        What that means concretely. This catalog is hand-maintained from vendor documentation and it is
-        deliberately conservative, because a wrong deletion is worse than a missed one: a stripped parameter
-        that turned out to be functional breaks the page you were trying to reach, silently, and you have no
-        way of knowing that is what happened.
-      </p>
-      <ul class="mt-3 space-y-2 text-sm text-muted">
-        <li>
-          <strong class="text-strong">It does not guess from the shape of a name.</strong> No regular
-          expressions. A rule nobody can read at a glance is a rule nobody reviews.
-        </li>
-        <li>
-          <strong class="text-strong">Ambiguous names are scoped to a host or they are absent.</strong>
-          <code class="font-mono">ref</code> is a tracker on some sites and a git branch on others, and
-          nothing in the name separates the two.
-        </li>
-        <li>
-          <strong class="text-strong">Some known trackers are deliberately left in.</strong> Amazon's
-          <code class="font-mono">th</code> and <code class="font-mono">psc</code> choose which product
-          variant renders; Substack's <code class="font-mono">publication_id</code> and
-          <code class="font-mono">post_id</code> read as record IDs; the Shopify group is identifiable only
-          by host, and a Shopify storefront is an arbitrary custom domain. Wrong product beats a clean URL.
-        </li>
-        <li>
-          <strong class="text-strong">It will miss things.</strong> Regional ad networks especially. A URL
-          that comes back unchanged has not been certified clean; it has been checked against this list.
-        </li>
-      </ul>
+      <p class="mt-1 text-sm text-muted">{{.Scope}}</p>
+      <details class="mt-2 text-sm">
+        <summary class="cursor-pointer text-muted hover:text-strong">What that means in practice</summary>
+        <p class="mt-2 text-sm text-muted">
+          This catalog is hand-maintained from vendor documentation and it is deliberately conservative,
+          because a wrong deletion is worse than a missed one: a stripped parameter that turned out to be
+          functional breaks the page you were trying to reach, silently, and you have no way of knowing that is
+          what happened.
+        </p>
+        <ul class="mt-3 space-y-2 text-sm text-muted">
+          <li>
+            <strong class="text-strong">It does not guess from the shape of a name.</strong> No regular
+            expressions. A rule nobody can read at a glance is a rule nobody reviews.
+          </li>
+          <li>
+            <strong class="text-strong">Ambiguous names are scoped to a host or they are absent.</strong>
+            <code class="font-mono">ref</code> is a tracker on some sites and a git branch on others, and
+            nothing in the name separates the two.
+          </li>
+          <li>
+            <strong class="text-strong">Some known trackers are deliberately left in.</strong> Amazon's
+            <code class="font-mono">th</code> and <code class="font-mono">psc</code> choose which product
+            variant renders; Substack's <code class="font-mono">publication_id</code> and
+            <code class="font-mono">post_id</code> read as record IDs; the Shopify group is identifiable only
+            by host, and a Shopify storefront is an arbitrary custom domain. Wrong product beats a clean URL.
+          </li>
+          <li>
+            <strong class="text-strong">It will miss things.</strong> Regional ad networks especially. A URL
+            that comes back unchanged has not been certified clean; it has been checked against this list.
+          </li>
+        </ul>
+      </details>
     </section>
 
+    {{/* Find and jump. The find box filters every table below by row text, so
+         "is fbclid on the list?" is a few keystrokes rather than a scroll
+         through 180 rows. It is hidden until its script runs: without
+         JavaScript it would be a box that does nothing, and the browser's own
+         find-in-page still works. The jump links are plain anchors. */}}
+    <div class="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      <input id="rule-find" type="search" hidden autocomplete="off" spellcheck="false"
+             aria-label="Find a parameter, vendor or host" aria-controls="rule-tables"
+             placeholder="Find a parameter or vendor, e.g. fbclid"
+             class="field min-w-0 max-w-sm flex-1 basis-64">
+      <nav aria-label="Rule sections" class="flex flex-wrap gap-x-3 gap-y-1">
+        <a href="#click" class="text-brand hover:underline">Click IDs</a>
+        <a href="#session" class="text-brand hover:underline">Breadcrumbs</a>
+        <a href="#person" class="text-brand hover:underline">Personal IDs</a>
+        <a href="#affiliate" class="text-brand hover:underline">Affiliate</a>
+        <a href="#never" class="text-brand hover:underline">Never stripped</a>
+        <a href="#wrappers" class="text-brand hover:underline">Wrappers</a>
+      </nav>
+    </div>
+    <p id="rule-find-none" class="mt-4 text-sm text-muted" hidden role="status"></p>
+
+    <div id="rule-tables">
     {{/* --- tracking rules, one section per class --- */}}
 
-    <section class="mt-10">
+    <section id="click" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Click identifiers</h2>
       <p class="mt-1 text-sm text-muted">
         One of these identifies a single ad click. Nothing you can see on the page depends on it. Stripped by
         default.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -134,12 +162,12 @@
       </div>
     </section>
 
-    <section class="mt-10">
+    <section id="session" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Session and placement breadcrumbs</h2>
       <p class="mt-1 text-sm text-muted">
         These record the visit, the placement or the share that brought you here. Stripped by default.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -156,13 +184,13 @@
       </div>
     </section>
 
-    <section class="mt-10">
+    <section id="person" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Personal identifiers</h2>
       <p class="mt-1 text-sm text-muted">
         These identify you as an individual to the vendor that set them, not just your visit. This class is
         the reason the Clean page exists. Stripped by default.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -179,14 +207,14 @@
       </div>
     </section>
 
-    <section class="mt-10">
+    <section id="affiliate" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Affiliate tags <span class="text-sm font-normal text-warn">off by default</span></h2>
       <p class="mt-1 text-sm text-muted">
         These attribute a sale to whoever published the link. Removing one is not the same act as removing a
         click ID: it takes money from the person whose review you found useful. So it happens only when you
         tick the box on the Clean page, and never silently.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -205,14 +233,14 @@
 
     {{/* --- the deny list: what it refuses to touch --- */}}
 
-    <section class="mt-10">
+    <section id="never" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Never stripped, whatever else matches</h2>
       <p class="mt-1 text-sm text-muted">
         Consulted before any rule, prefix rules included. These names look like tracking and are load-bearing,
         so the failure mode is stored as data rather than left in a comment: here is what breaks if anyone
         deletes one.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -244,7 +272,7 @@
 
     {{/* --- wrappers --- */}}
 
-    <section class="mt-10">
+    <section id="wrappers" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Wrappers that get unwrapped</h2>
       <p class="mt-1 text-sm text-muted">
         Mail gateways and link shims that carry the real destination inside the link itself. Every one of
@@ -252,7 +280,7 @@
         wrapper whose target is a server-side token cannot be recovered here at all — that is stated rather
         than guessed at.
       </p>
-      <div class="mt-3 overflow-x-auto rounded-lg border border-line">
+      <div class="relative mt-3 overflow-x-auto rounded-lg border border-line">
         <table class="w-full text-left text-sm">
           <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -295,6 +323,38 @@
         </table>
       </div>
     </section>
+    </div>
+
+    <script>
+      // The find box: hides every row that does not contain the query, then
+      // every section left with no rows, and says so when nothing matches.
+      // Plain substring matching on the rendered row text, so a parameter, a
+      // vendor ("Meta") or a host ("amazon.") all find their rows.
+      (function () {
+        var box = document.getElementById('rule-find')
+        var none = document.getElementById('rule-find-none')
+        var sections = document.querySelectorAll('#rule-tables section')
+        if (!box) return
+        box.hidden = false
+        box.addEventListener('input', function () {
+          var q = box.value.trim().toLowerCase()
+          var shown = 0
+          sections.forEach(function (sec) {
+            var rows = sec.querySelectorAll('tbody tr')
+            var visible = 0
+            rows.forEach(function (tr) {
+              var hit = !q || tr.textContent.toLowerCase().indexOf(q) !== -1
+              tr.hidden = !hit
+              if (hit) visible++
+            })
+            sec.hidden = visible === 0
+            shown += visible
+          })
+          none.hidden = shown !== 0
+          none.textContent = shown === 0 ? 'Nothing on the list matches \u201c' + box.value.trim() + '\u201d. A parameter that is not here is left alone.' : ''
+        })
+      })()
+    </script>
     {{end}}
 
     <details class="mt-10 text-sm">
@@ -307,9 +367,8 @@
       </p>
     </details>
 
-    <p class="mt-8 text-sm">
+    <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-sm">
       <a href="/clean" class="text-brand hover:underline">Clean a URL</a>
-      <span class="text-muted">&middot;</span>
       <a href="/" class="text-brand hover:underline">Inspect one instead</a>
     </p>
 {{end}}

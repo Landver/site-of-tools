@@ -1,6 +1,7 @@
 package linktools
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -37,6 +38,18 @@ var linkableSchemes = map[string]bool{"http": true, "https": true}
 // defaultPorts: ports that add nothing when written out.
 var defaultPorts = map[string]string{"http": "80", "https": "443", "ftp": "21", "ws": "80", "wss": "443"}
 
+// parseReason is a url.Parse failure without url.Error's own
+// `parse "<input>": ` prefix. Every caller shows the message under the box the
+// input is still sitting in, and echoing a long URL a second time pushed the
+// actual reason (a bad escape, an unclosed "[") off the end of the line.
+func parseReason(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
 // Parse takes a URL apart. It never fetches anything.
 //
 // Deliberately does NOT use url.ParseQuery for the parameter list: that returns
@@ -55,7 +68,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("not a URL: %w", err)
+		return nil, fmt.Errorf("not a URL: %w", parseReason(err))
 	}
 
 	in := &Inspection{Input: raw, Scheme: u.Scheme, Opaque: u.Opaque}

@@ -2,6 +2,7 @@ package linktools
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -267,10 +268,16 @@ func (h *handler) rules(c *echo.Context) error {
 	cat := Rules()
 	vm := h.vm("clean", "Tracking rules", rulesDesc, "")
 	vm["Catalog"] = cat
-	// Cheap validator for the extension's daily refresh.
-	c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
-	if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
-		return c.NoContent(http.StatusNotModified)
+	// Cheap validator for the extension's daily refresh, on the JSON only. The
+	// catalog version says nothing about the page around it: with the same
+	// ETag on the HTML, a browser revalidated, got a 304, and went on showing
+	// whatever page it had cached, across any number of deploys that changed
+	// the template but not the rules.
+	if platform.WantsJSON(c) {
+		c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
+		if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
+			return c.NoContent(http.StatusNotModified)
+		}
 	}
 	// Page and fragment differ, as on /short: serving the page to htmx would
 	// swap a whole <html> document into a div.
@@ -292,13 +299,15 @@ func (h *handler) diff(c *echo.Context) error {
 		}
 		return reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
+	// Each error says which side it is about. "not a URL" alone left the
+	// reader to work out which of the two boxes to fix.
 	ia, err := h.svc.Parse(a)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/diff")
+		return h.badRequest(c, vm, fmt.Errorf("A: %w", err), "link/diff")
 	}
 	ib, err := h.svc.Parse(b)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/diff")
+		return h.badRequest(c, vm, fmt.Errorf("B: %w", err), "link/diff")
 	}
 	res := DiffInspections(ia, ib)
 	vm["Result"] = res

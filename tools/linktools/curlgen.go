@@ -67,7 +67,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("not a URL: %w", err)
+		return "", fmt.Errorf("not a URL: %w", parseReason(err))
 	}
 	if isDangerousScheme(u.Scheme) {
 		// Checked before the host, because "javascript:alert(1)" has no host
@@ -204,7 +204,7 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 		return "", nil, fmt.Errorf("no URL in that command")
 	}
 	if _, err := url.Parse(target); err != nil {
-		return "", nil, fmt.Errorf("the command's URL is not a URL: %w", err)
+		return "", nil, fmt.Errorf("the URL in that command is not a URL: %w", parseReason(err))
 	}
 	return target, headers, nil
 }
