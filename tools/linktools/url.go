@@ -95,7 +95,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("not a URL: %w", parseReason(err))
+		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 
 	in := &Inspection{Input: raw, Scheme: u.Scheme, Opaque: u.Opaque}
@@ -103,7 +103,13 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 
 	if u.Scheme == "" {
 		in.Notes = append(in.Notes, Note{SevWarn, "No scheme",
-			"This is a relative reference, not an absolute URL. A browser would resolve it against whatever page it appeared on."})
+			"Read as a relative path, so the first part is a folder name, not a host. Add https:// to the front to inspect it as a web address."})
+		// "example.com/path" is the commonest paste of all. When adding
+		// https:// makes it a URL with a real-looking host, offer exactly that
+		// as one click rather than leaving the reader to retype it.
+		if alt, err := url.Parse("https://" + raw); err == nil && strings.Contains(alt.Hostname(), ".") {
+			in.Absolute = "https://" + raw
+		}
 	}
 	if !in.Linkable && u.Scheme != "" {
 		sev, detail := SevInfo, "Shown as text, never as a link."
@@ -131,7 +137,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	if strings.Contains(u.RawQuery, ";") && !strings.Contains(u.RawQuery, "&") &&
 		strings.Count(u.RawQuery, ";") >= 1 && len(in.Params) == 1 {
 		in.Notes = append(in.Notes, Note{SevWarn, "Semicolon separators",
-			"This query separates pairs with ';', which Go and most modern servers stopped accepting in 2021 (Go 1.17). It is shown as a single parameter because that is how a server would now read it."})
+			"This query separates pairs with ';', which most modern servers no longer accept. It is shown as a single parameter because that is how a server would now read it."})
 	}
 
 	// Fragment. Both hosted parsers surveyed discard everything after '#'
@@ -142,10 +148,18 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 		if strings.Contains(frag, "=") {
 			in.FragParams = parsePairs(frag, true)
 			if containsSecretish(in.FragParams) {
-				in.Notes = append(in.Notes, Note{SevFail, "Credentials in the fragment",
-					"This fragment carries what looks like a token. Fragments are not sent to servers, but they do land in browser history and in anything that logs a full URL."})
+				in.Notes = append(in.Notes, Note{SevFail, "A token in the fragment",
+					"Browsers never send the fragment to a server, but they keep it in history, and anything that logs a full URL keeps it too."})
 			}
 		}
+	}
+
+	// A mail-gateway wrapper names its real destination inside itself, and
+	// Inspect's card for it ("This is a … wrapper") was written but never fed:
+	// nothing set these fields, so a Safe Links URL pasted here got no hint,
+	// and Diff's "unwrapped target" row could never appear either.
+	if target, name, partial, ok := unwrapAll(raw); ok && !partial {
+		in.Unwrapped, in.Wrapper = target, name
 	}
 
 	in.Canonical = canonicalise(u)
@@ -180,7 +194,7 @@ func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	}
 	if in.HostASCII != "" && in.HostUnicode != "" && in.HostASCII != in.HostUnicode {
 		in.Notes = append(in.Notes, Note{SevWarn, "Internationalised domain name",
-			fmt.Sprintf("Displays as %s, resolves as %s. Both forms are shown because they are the same host and only one of them is what you read.", in.HostUnicode, in.HostASCII)})
+			fmt.Sprintf("Displays as %s; DNS looks it up as %s. Check every letter before you trust it.", in.HostUnicode, in.HostASCII)})
 	}
 	if label, scripts := mixedScriptLabel(in.HostUnicode); label != "" {
 		in.Notes = append(in.Notes, Note{SevFail, "Mixed scripts in one label",
@@ -295,7 +309,7 @@ func enrichParam(p *Param, rawVal string) {
 	// rather than choosing one.
 	if strings.Contains(rawVal, "+") && looksBase64(strings.ReplaceAll(rawVal, "%3D", "=")) {
 		p.AltValue = rawVal
-		p.Warn = "Contains '+', which is a space in a query string but a real character in base64. Both readings are shown because this value looks like base64 and only one of them preserves it."
+		p.Warn = "'+' means a space in a query but is a real character in base64. This value looks like base64, so both readings are shown."
 	}
 	if d, list := splitList(p.Value); d != "" {
 		p.Delimiter, p.List = d, list

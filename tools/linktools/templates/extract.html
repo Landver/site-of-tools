@@ -29,8 +29,8 @@
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
       Paste HTML, Markdown, an email or any text and get every link out of it: deduplicated, counted, with its
-      anchor text. Nothing is fetched. For auditing links before something goes out, not for checking that
-      they work.
+      link text, and anything suspicious marked. Nothing is fetched. For checking links before something goes
+      out, not for testing that they work.
     </p>
 
     {{/* No hx-push-url: htmx pushes the request path whatever the method,
@@ -70,15 +70,13 @@
           gets found.
         </p>
         <p>
-          <strong class="text-strong">Nothing is fetched.</strong> Every surveyed tool that does this job also
-          requests every URL it finds, which is slower and is a different, riskier promise: it tells each
-          destination that someone is auditing the links, from this server's address, before you have decided
-          anything.
+          <strong class="text-strong">Nothing is fetched.</strong> Requesting each link would tell every
+          destination that someone is checking it, before you've decided anything.
         </p>
         <p>
-          The pasted text is redacted before this server writes anything down, and the form posts rather than
-          putting the paste in a URL. It still reaches the server to be parsed. Don't paste anything you
-          would not send.
+          The form posts, so the paste never goes into a URL, and it is redacted before this server logs
+          anything. It still reaches the server to be read. Don't paste live credentials into any web tool,
+          this one included.
         </p>
       </div>
     </details>
@@ -108,9 +106,9 @@
      reads it back through dataset as a real one. */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="{{.Unique}} distinct {{if eq .Unique 1}}link{{else}}links{{end}} found.">
-  <span class="text-muted">Read as <span class="font-mono text-strong">{{.Source}}</span></span>
-  <span class="text-muted">Occurrences <span class="font-mono text-strong">{{.Total}}</span></span>
-  <span class="text-muted">Distinct URLs <span class="font-mono text-strong">{{.Unique}}</span></span>
+  <span class="text-muted">Read as <span class="text-strong">{{if eq .Source "html"}}HTML{{else if eq .Source "markdown"}}Markdown{{else}}plain text{{end}}</span></span>
+  <span class="text-muted">Found <span class="font-mono text-strong">{{.Total}}</span></span>
+  <span class="text-muted">Unique <span class="font-mono text-strong">{{.Unique}}</span></span>
   {{if .URLs}}<button type="button" class="btn-copy sm:ml-auto" data-copy="{{range $i, $u := .URLs}}{{if $i}}&#10;{{end}}{{$u.URL}}{{end}}">Copy all {{len .URLs}}</button>{{end}}
 </div>
 
@@ -127,8 +125,8 @@
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Links found</h2>
   <p class="mt-1 text-xs text-muted">
-    In the order each was first seen. None of them is clickable here, deliberately: hand a row to Inspect or
-    Clean instead, which opens in a new tab and leaves this list where it is.
+    In order of first appearance. Not clickable, on purpose: Inspect and Clean open in a new tab, so this list
+    stays put.
   </p>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Links found">
     <table class="w-full text-left text-sm">
@@ -136,8 +134,8 @@
         <tr>
           <th class="px-3 py-2 font-medium">URL</th>
           <th class="px-3 py-2 font-medium">Link text</th>
-          <th class="px-3 py-2 font-medium">Times</th>
-          <th class="px-3 py-2 font-medium">Hand it to</th>
+          <th class="px-3 py-2 font-medium">Count</th>
+          <th class="px-3 py-2 font-medium">Open in</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-line">
@@ -172,15 +170,6 @@
       </tbody>
     </table>
   </div>
-</section>
-{{else}}
-<section class="mt-6 rounded-lg border border-line bg-surface p-4">
-  <h2 class="text-sm font-semibold text-strong">No links in that</h2>
-  <p class="mt-1 text-sm text-muted">
-    Nothing in the text parsed as a URL. A link written without a scheme
-    (<code class="font-mono">example.com/thing</code>) is not one as far as this page is concerned, because
-    guessing the scheme is how a tool invents links that were never there.
-  </p>
 </section>
 {{end}}
 

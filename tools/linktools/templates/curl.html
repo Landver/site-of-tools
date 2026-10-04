@@ -71,8 +71,8 @@
         </div>
         <p class="mt-2 text-xs text-muted">
           A command copied out of DevTools usually carries a session cookie or a bearer token, and it is shown
-          back to you here in full. It is sent in the request body, never in a URL, and nothing is kept, but
-          don't paste a live credential into a web tool, this one included.
+          back to you here in full. It is sent in the request body, never in a URL, and nothing is kept. Don't
+          paste live credentials into any web tool, this one included.
         </p>
       </form>
 
@@ -89,11 +89,13 @@
                  placeholder="https://example.com/api/thing?id=1"
                  class="field min-w-0 basis-full sm:basis-0">
           <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
-            <span class="shrink-0">as</span>
+            <span class="shrink-0">Send as</span>
             <select name="ua" class="field min-w-0 flex-1">
               {{$p := .Persona}}
-              <option value=""{{if eq $p ""}} selected{{end}}>curl's own (no User-Agent)</option>
-              {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+              <option value=""{{if eq $p ""}} selected{{end}}>curl's default (no header added)</option>
+              {{/* "curl" would duplicate the default; it stays listed only
+                   when a shared link asked for it, so the menu matches. */}}
+              {{range .Personas}}{{if or (ne .Key "curl") (eq $p "curl")}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}
             </select>
           </label>
           <button type="submit" class="btn-primary">Build</button>

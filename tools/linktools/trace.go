@@ -400,8 +400,8 @@ func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) 
 	// not have (docs/02-build-fit.md §5). Detect and NAME it; never present the
 	// pre-redirect URL as the destination.
 	if what, ok := jsRedirect(body); ok {
-		hop.Notes = append(hop.Notes, Note{SevWarn, "JavaScript redirect, which we cannot follow",
-			fmt.Sprintf("The page runs %s. Following it needs a browser; this is an HTTP client, so the real destination is unknown rather than this URL.", what)})
+		hop.Notes = append(hop.Notes, Note{SevWarn, "JavaScript redirect, not followed",
+			fmt.Sprintf("The page runs %s. Following it needs a browser, so the real destination is unknown: it is not this URL.", what)})
 	}
 
 	switch {
@@ -410,14 +410,14 @@ func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) 
 			"HTTP 429. The link is not dead; the server declined to answer this client right now."})
 	case hop.Status == http.StatusForbidden || hop.Status == http.StatusServiceUnavailable ||
 		hop.Status == http.StatusUnauthorized:
-		detail := fmt.Sprintf("HTTP %d to an automated request from a datacentre address. That reads as the target refusing us, not as a dead link.", hop.Status)
+		detail := fmt.Sprintf("HTTP %d to an automated request from a datacentre address. That reads as a refusal, not a dead link.", hop.Status)
 		if vendor, ok := botWall(resp.Header, body); ok {
 			detail = fmt.Sprintf("HTTP %d with %s. That is bot protection turning away an automated client, not evidence that the link is broken.", hop.Status, vendor)
 		}
 		if p.Key == personas[0].Key {
 			detail += " Re-running as Googlebot or Slackbot shows whether the target discriminates by user agent."
 		} else {
-			detail += fmt.Sprintf(" This run presented as %s.", p.Name)
+			detail += fmt.Sprintf(" This run asked as %s.", p.Name)
 		}
 		hop.Notes = append(hop.Notes, Note{SevWarn, "The target refused an automated request", detail})
 	}
@@ -456,28 +456,28 @@ func parseTarget(raw string) (*url.URL, []Note, error) {
 	var notes []Note
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, nil, fmt.Errorf("not a URL: %w", parseReason(err))
+		return nil, nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 	if !strings.Contains(raw, "://") && !isHTTPScheme(u.Scheme) {
 		// "example.com/x" is what people paste. Assume https and say so,
 		// rather than refusing on a technicality.
 		if u2, err2 := url.Parse("https://" + raw); err2 == nil && u2.Host != "" {
 			u = u2
-			notes = append(notes, Note{SevInfo, "No scheme given", "Traced as https://" + raw + "."})
+			notes = append(notes, Note{SevInfo, "No scheme", "Traced as https://" + raw + "."})
 		}
 	}
 	if u.Scheme == "" {
-		return nil, nil, fmt.Errorf("not a URL: paste the whole link, starting with http:// or https://")
+		return nil, nil, fmt.Errorf("not a whole link: paste all of it, starting with http:// or https://")
 	}
 	if !isHTTPScheme(u.Scheme) {
-		return nil, nil, fmt.Errorf("only http and https can be traced; this is %q", u.Scheme)
+		return nil, nil, fmt.Errorf("trace only follows http and https links, and this one is %s", u.Scheme)
 	}
 	if u.Host == "" {
 		return nil, nil, fmt.Errorf("no host to trace")
 	}
 	if stripUserinfo(u) {
 		notes = append(notes, Note{SevWarn, "Credentials in the URL were dropped",
-			"Everything before the @ was removed before fetching. It is a username, not the destination, and net/http would otherwise have turned it into an Authorization header sent to the host that follows."})
+			"Everything before the @ was removed before fetching: it is a username, not the destination, and sending it would hand it to that host as a login."})
 	}
 	return u, notes, nil
 }
@@ -549,11 +549,22 @@ func transportNote(ctx context.Context, err error) Note {
 func refusalDetail(err error) string {
 	switch {
 	case errors.Is(err, platform.ErrBlockedPort):
-		return fmt.Sprintf("%v. Only ports 80 and 443 are ever dialled, so this tool cannot be pointed at anything else.", err)
+		return "Port " + afterColon(err) + " isn't allowed. Trace only connects to ports 80 and 443."
 	case errors.Is(err, platform.ErrBlockedAddress):
-		return fmt.Sprintf("%v. Private, loopback, link-local and reserved addresses, this service's own hosts, and anything not publicly routable are all refused.", err)
+		return afterColon(err) + " isn't on the public internet (not publicly routable), so Trace won't contact it. Private, loopback and reserved addresses, and this site's own hosts, are always refused."
 	}
 	return err.Error()
+}
+
+// afterColon is what an egress-guard error names: "…: 8080" gives "8080". The
+// guard's own sentence is for logs; the page says what happened in words and
+// needs only the port or the address out of it.
+func afterColon(err error) string {
+	msg := err.Error()
+	if i := strings.LastIndex(msg, ": "); i >= 0 {
+		return msg[i+2:]
+	}
+	return "That address"
 }
 
 // continuesElsewhere reports whether a terminal hop's notes say the chain does
@@ -562,7 +573,7 @@ func continuesElsewhere(notes []Note) bool {
 	for _, n := range notes {
 		switch n.Title {
 		case "Refresh header, not a redirect", "Meta refresh, not a redirect",
-			"JavaScript redirect, which we cannot follow", "Refused before connecting",
+			"JavaScript redirect, not followed", "Refused before connecting",
 			"TLS verification failed", "The host does not resolve", "This hop timed out",
 			"Ran out of time", "The request failed", "Could not build the request":
 			return true

@@ -54,14 +54,13 @@
           no request is made to the host in the URL you paste.
         </p>
         <p>
-          The URL does reach this server, so it passes through the ordinary web-server logs like any
-          other URL. The value of the <code class="font-mono">u</code> parameter is redacted before
-          anything is written down here, but don't paste secrets into any tool, including this one.
+          The URL does reach this server. The app redacts it before logging anything, but the web server
+          in front may log full URLs like any other. Don't paste live credentials into any web tool, this
+          one included.
         </p>
         <p>
-          If you need a URL that never leaves your machine at all, a client-side parser is the right
-          choice. The trade made here is a curl-able JSON API on the same URL, which client-side
-          tools structurally cannot offer.
+          If a URL must never leave your machine, use a client-side parser instead. Doing it here is what
+          makes the same URL answer as a JSON API.
         </p>
       </div>
     </details>

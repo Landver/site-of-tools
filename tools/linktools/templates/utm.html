@@ -26,8 +26,9 @@
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Add campaign tags to a URL. The exact inverse of <a href="/clean" class="link-inline">Clean</a>,
-      on the same rule table: every tag added here is one Clean knows how to remove.
+      Add UTM campaign tags: the <span class="font-mono">utm_</span> parameters Google Analytics and most
+      analytics tools read to credit a visit to a campaign. <a href="/clean" class="link-inline">Clean</a> can
+      remove every one of them.
     </p>
 
     {{/* Live, like Inspect (see index.html): the tagged URL follows every
@@ -80,7 +81,7 @@
         <p>
           Leaving a field empty <strong class="text-strong">keeps</strong> whatever the URL already carries for
           that tag, and the result says which tags were already there. To drop a tag, delete it from the URL,
-          or strip them all on the <a href="/clean" class="link-inline">Clean</a> page. Every
+          or remove them all on the <a href="/clean" class="link-inline">Clean</a> page. Every
           other parameter on the URL, and the order it was in, is left exactly as you pasted it.
         </p>
         <p>
@@ -141,7 +142,7 @@
     {{range .Tags}}
     <li class="flex flex-wrap items-baseline gap-x-2">
       <span class="font-mono text-strong">{{.Key}}={{.Value}}</span>
-      {{if eq .Source "replaced"}}<span class="text-muted">replaced <span class="font-mono">{{.Was}}</span></span>
+      {{if eq .Source "replaced"}}<span class="text-muted">was <span class="font-mono">{{.Was}}</span></span>
       {{else if eq .Source "kept"}}<span class="text-muted">already on the URL</span>
       {{end}}
     </li>
@@ -161,13 +162,13 @@
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/?u={{.URL}}" class="text-brand-ink hover:underline">Inspect it</a>
-  <a href="/clean?u={{.URL}}" class="text-brand-ink hover:underline">Strip it all back off</a>
-  <a href="/clean/rules" class="text-brand-ink hover:underline">The rules that would remove these</a>
+  <a href="/clean?u={{.URL}}" class="text-brand-ink hover:underline">Clean it</a>
+  <a href="/clean/rules" class="text-brand-ink hover:underline">See the rules</a>
 </p>
 
 {{else}}
-{{if .AnyTag}}
-<p class="text-sm text-muted">Paste the URL to tag, at the top, and the tagged link appears here.</p>
+{{if and .AnyTag (not .Error)}}
+<p class="text-sm text-muted">Add the URL to tag above, and the tagged URL appears here.</p>
 {{else}}
 {{template "link/examples" .}}
 {{end}}

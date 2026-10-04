@@ -22,15 +22,15 @@
   <span class="text-muted">Scheme <span class="font-mono text-strong">{{or .Scheme "none"}}</span></span>
   {{if .Host}}<span class="text-muted">Host <span class="font-mono text-strong">{{.Host}}</span></span>{{end}}
   {{if .Port}}<span class="text-muted">Port <span class="font-mono text-strong">{{.Port}}</span>{{if .DefaultPort}} <span class="text-muted">(default)</span>{{end}}</span>{{end}}
-  <span class="text-muted">Parameters <span class="font-mono text-strong">{{len .Params}}</span></span>
-  {{if .FragParams}}<span class="text-muted">Fragment params <span class="font-mono text-strong">{{len .FragParams}}</span></span>{{end}}
+  <span class="text-muted">Query parameters <span class="font-mono text-strong">{{len .Params}}</span></span>
+  {{if .FragParams}}<span class="text-muted">Fragment parameters <span class="font-mono text-strong">{{len .FragParams}}</span></span>{{end}}
   {{if .Segments}}<span class="text-muted">Path segments <span class="font-mono text-strong">{{len .Segments}}</span></span>{{end}}
   {{if .Linkable}}
   <span class="flex flex-wrap gap-x-4 gap-y-1 sm:ml-auto">
     <a href="{{.Input}}" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"
        class="text-brand-ink hover:underline">Open<span class="sr-only"> this URL in a new tab</span> &#8599;</a>
     <a href="/clean?u={{.Input}}" class="text-brand-ink hover:underline">Clean it</a>
-    <a href="/curl?u={{.Input}}" class="text-brand-ink hover:underline">As curl</a>
+    <a href="/curl?u={{.Input}}" class="text-brand-ink hover:underline">Make a curl command</a>
   </span>
   {{end}}
 </div>
@@ -42,6 +42,12 @@
     {{template "link/notes" .Notes}}
   </div>
 </section>
+{{end}}
+
+{{/* "example.com/path" with no scheme: offer it with https:// in front, as a
+     same-origin tool link (Inspection.Absolute). */}}
+{{with .Absolute}}
+<p class="mt-4 text-sm"><a href="/?u={{.}}" class="text-brand-ink hover:underline">Inspect <span class="font-mono">{{.}}</span> instead</a></p>
 {{end}}
 
 {{if .Unwrapped}}
@@ -96,11 +102,11 @@
             {{else}}
               <span class="wrap-anywhere font-mono text-strong">{{.Value}}</span>
             {{end}}
-            {{if .Kind}}<span class="ml-1 text-xs text-muted">{{.Kind}}</span>{{end}}
+            {{if .Kind}}<span class="ml-1 text-xs text-muted">{{template "link/kind" .Kind}}</span>{{end}}
             {{if .RawValue}}<span class="mt-1 block wrap-anywhere font-mono text-xs text-faint sm:hidden">raw {{.RawValue}}</span>{{end}}
             {{if .AltValue}}
               <span class="mt-1 block text-xs text-warn">
-                Read as base64 instead: <span class="font-mono">{{.AltValue}}</span>
+                With &lsquo;+&rsquo; kept, as base64 needs it: <span class="font-mono">{{.AltValue}}</span>
               </span>
             {{end}}
             {{if .Warn}}<span class="mt-1 block text-xs text-warn">{{.Warn}}</span>{{end}}
@@ -145,7 +151,7 @@
 {{if .FragParams}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Fragment parameters</h2>
-  <p class="mt-1 text-xs text-muted">Everything after &ldquo;#&rdquo;. A browser never sends it to a server, but it does keep it in history, so a token here is still exposed.</p>
+  <p class="mt-1 text-xs text-muted">Everything after &ldquo;#&rdquo;.</p>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Fragment parameters">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
@@ -160,7 +166,7 @@
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
           <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Key}}</td>
-          <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Value}}{{if .Kind}}<span class="ml-1 font-sans text-xs text-muted">{{.Kind}}</span>{{end}}</td>
+          <td class="px-3 py-2 wrap-anywhere font-mono text-strong">{{.Value}}{{if .Kind}}<span class="ml-1 font-sans text-xs text-muted">{{template "link/kind" .Kind}}</span>{{end}}</td>
         </tr>
         {{end}}
       </tbody>
@@ -203,23 +209,25 @@
     <h2 class="text-sm font-semibold text-strong">Host, both ways</h2>
     <p class="mt-2 font-mono text-sm text-strong">{{.HostUnicode}}</p>
     <p class="font-mono text-sm text-muted">{{.HostASCII}}</p>
-    <p class="mt-1 text-xs text-muted">Same host. Only one of them is what you read.</p>
+    <p class="mt-1 text-xs text-muted">Same host: the first is what you see, the second is what DNS looks up.</p>
   </div>
   {{end}}{{end}}
 </section>
 {{end}}
 
-{{if and .Canonical (eq .Canonical .Input)}}
-<p class="mt-6 text-sm text-muted">Already in canonical form: lowercase scheme and host, no default port, no dot segments.</p>
-{{end}}
-
-{{if not .Linkable}}
-<p class="mt-6 text-sm text-muted">
-  Not rendered as a link: only http and https URLs are ever made clickable here.
-</p>
+{{/* Only for a real URL: on "hello" or a javascript: URL there is no host
+     for the claim to be about. The not-clickable fact is the scheme
+     finding's job, so it is not repeated down here. */}}
+{{if and .Host .Canonical (eq .Canonical .Input)}}
+<p class="mt-6 text-sm text-muted">Already canonical: lowercase, no default port, no dot segments.</p>
 {{end}}
 
 {{else}}
 {{template "link/examples" .}}
 {{end}}
 {{end}}
+
+{{/* A value's kind as a reader would say it. The JSON keeps the short codes;
+     the page says "true/false" and "JWT", and hedges the two guesses
+     (base64, hex) that a value can match by accident. */}}
+{{define "link/kind"}}{{if eq . "bool"}}true/false{{else if eq . "url"}}URL{{else if eq . "json"}}JSON{{else if eq . "jwt"}}JWT{{else if eq . "uuid"}}UUID{{else if eq . "base64"}}maybe base64{{else if eq . "hex"}}maybe hex{{else}}{{.}}{{end}}{{end}}

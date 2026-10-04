@@ -114,8 +114,12 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		case ok:
 			res.Unwrapped, res.Wrapper = target, name
 			work = target
-			res.Notes = append(res.Notes, Note{SevWarn, "Host changed by unwrapping",
-				fmt.Sprintf("The %s wrapper was removed, so this no longer points at the same host as the input. Re-check the destination before trusting it; nothing about the wrapper vouched for it.", name)})
+			host := target
+			if t, err := url.Parse(target); err == nil && t.Hostname() != "" {
+				host = t.Hostname()
+			}
+			res.Notes = append(res.Notes, Note{SevWarn, "New host after unwrapping",
+				fmt.Sprintf("Now pointing at %s. %s did not vouch for it, so check the host before you trust it.", host, name)})
 		}
 	} else if _, name, _, ok := unwrapAll(raw); ok {
 		// Unwrapping is off and this IS a wrapper, so the result is the
@@ -128,7 +132,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 
 	u, err := url.Parse(work)
 	if err != nil {
-		return nil, fmt.Errorf("not a URL: %w", parseReason(err))
+		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 	// A relative reference is a valid URL reference and comes back untouched
 	// (TestCleanRejectsEmptyInput), but one with no query either has nothing a
@@ -201,8 +205,8 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	res.Output = out
 
 	if len(affiliate) > 0 {
-		res.Notes = append(res.Notes, Note{SevInfo, "Affiliate parameters left in place",
-			fmt.Sprintf("%s pays whoever published this link. It was kept because affiliate stripping is off by default; turn it on to remove it.", strings.Join(affiliate, ", "))})
+		res.Notes = append(res.Notes, Note{SevInfo, "Affiliate tag kept",
+			fmt.Sprintf("Kept: %s pays whoever shared this link. Tick “Also remove affiliate tags” to drop it.", strings.Join(affiliate, ", "))})
 	}
 	if len(res.Removed) == 0 && res.Unwrapped == "" {
 		res.Notes = append(res.Notes, Note{SevOK, "Nothing to remove", catalogScope})

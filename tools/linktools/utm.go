@@ -59,11 +59,11 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 		if err != nil || alt.Host == "" {
 			// Not a link with the scheme missing, just not a link: tagging
 			// "hello world" built "hello%20world?utm_source=…" and called it done.
-			return nil, fmt.Errorf("not a URL: paste the whole link, starting with https://")
+			return nil, fmt.Errorf("not a whole link: paste all of it, starting with https://")
 		}
 		in = alt
-		res.Notes = append(res.Notes, Note{SevInfo, "https:// assumed",
-			"The URL had no scheme, so the tagged link starts with https://. Without one it would be a relative link that only works on the page it is pasted into."})
+		res.Notes = append(res.Notes, Note{SevInfo, "No scheme",
+			"The URL had none, so the tagged URL starts with https://. Without one it would be a relative link that only works on the page it is pasted into."})
 	}
 
 	for _, key := range UTMKeys {

@@ -142,11 +142,11 @@ func DiffInspections(a, b *Inspection) *Diff {
 	}
 	if d.Identical && a.Input != b.Input {
 		d.Notes = append(d.Notes, Note{SevInfo, "Different text, same URL",
-			"These two strings differ but describe the same request: the differences are all in encoding or formatting, not in content."})
+			"Every difference is formatting: letter case, a default port written out, a dot segment, an escape. A server reads both URLs the same way."})
 	}
 	if onlyMoves(d.Params) && !hasRealField(d.Fields) && !d.Identical {
 		d.Notes = append(d.Notes, Note{SevWarn, "Only the order changed",
-			"Same parameters, same values, different positions. Harmless to most servers and fatal to any URL whose signature covers the literal query string."})
+			"Same parameters, same values, new positions. Most servers won't notice. A signed URL will: if its signature covers the query as written, reordering it returns a 403 that doesn't say why."})
 	}
 	return d
 }
@@ -328,7 +328,9 @@ func onlyMoves(cs []ParamChange) bool {
 	return moved
 }
 
-// Summary renders a one-line description, for the page heading.
+// Summary renders a one-line description, for the page heading:
+// "Parameters: 1 added, 1 changed. URL parts: 1 different." Each count names
+// its noun once rather than "1 parameter added, 1 parameter changed, …".
 func (d *Diff) Summary() string {
 	var added, removed, modified, moved int
 	for _, c := range d.Params {
@@ -344,15 +346,18 @@ func (d *Diff) Summary() string {
 		}
 	}
 	if d.Identical {
-		return "These two URLs are equivalent."
+		if d.A == d.B {
+			return "These two URLs are identical."
+		}
+		return "Same request, written differently."
 	}
-	var parts []string
+	var params []string
 	for _, p := range []struct {
 		n     int
 		label string
 	}{{added, "added"}, {removed, "removed"}, {modified, "changed"}, {moved, "moved"}} {
 		if p.n > 0 {
-			parts = append(parts, plural(p.n, "parameter")+" "+p.label)
+			params = append(params, strconv.Itoa(p.n)+" "+p.label)
 		}
 	}
 	real := 0
@@ -361,17 +366,21 @@ func (d *Diff) Summary() string {
 			real++
 		}
 	}
-	if real > 0 {
-		parts = append(parts, plural(real, "component")+" different")
+	var out []string
+	if len(params) > 0 {
+		out = append(out, "Parameters: "+strings.Join(params, ", ")+".")
 	}
-	if len(parts) == 0 {
+	if real > 0 {
+		out = append(out, "URL parts: "+strconv.Itoa(real)+" different.")
+	}
+	if len(out) == 0 {
 		// Reachable when the only reason these are not identical is something
 		// that cannot be counted — today, two URLs that both carry a password.
-		// Returning the bare "." that joining an empty list produces would be a
-		// worse answer than saying plainly that we cannot tell.
-		return "Nothing comparable differs, but these cannot be called equivalent — see the note below."
+		// Returning an empty heading would be a worse answer than saying plainly
+		// that we cannot tell.
+		return "Nothing comparable differs, but these cannot be called equivalent: see the note below."
 	}
-	return strings.Join(parts, ", ") + "."
+	return strings.Join(out, " ")
 }
 
 func plural(n int, word string) string {

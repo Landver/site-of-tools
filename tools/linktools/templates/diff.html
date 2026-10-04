@@ -125,13 +125,13 @@
 
 {{if .Fields}}
 <section class="mt-6">
-  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Components</h2>
+  <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">URL parts</h2>
   <p class="mt-1 text-xs text-muted">Everything outside the query string.</p>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Components">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
         <tr>
-          <th class="px-3 py-2 font-medium">Component</th>
+          <th class="px-3 py-2 font-medium">Part</th>
           <th class="px-3 py-2 font-medium">A</th>
           <th class="px-3 py-2 font-medium">B</th>
         </tr>
@@ -143,7 +143,7 @@
             {{.Field}}
             {{/* Listed because the strings differ, labelled because the
                  meaning does not (FieldChange.Cosmetic). */}}
-            {{if .Cosmetic}}<span class="mt-1 block whitespace-nowrap font-sans text-xs text-muted">spelling only</span>{{end}}
+            {{if .Cosmetic}}<span class="mt-1 block whitespace-nowrap font-sans text-xs text-muted">formatting only</span>{{end}}
           </td>
           <td class="px-3 py-2 wrap-anywhere font-mono text-xs text-muted">
             {{if eq .A ""}}<span class="italic">absent</span>{{else}}{{.A}}{{end}}
@@ -163,8 +163,8 @@
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query parameters</h2>
   <p class="mt-1 text-xs text-muted">
-    In the order the keys appear across A then B. The <span class="font-mono">#</span> columns are the
-    position each value held in its own query string.
+    Keys in order of first appearance, A then B. <span class="font-mono">#n</span> is the value's position in
+    its own query string, and &ldquo;moved only&rdquo; marks the fewest moves that explain the new order.
   </p>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Query parameters">
     <table class="w-full text-left text-sm">
@@ -194,13 +194,13 @@
                 Same value, position {{.IndexA}} &rarr; {{.IndexB}}.
               </span>
             {{else}}
-              <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 font-mono text-xs text-muted">same</span>
+              <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 font-mono text-xs text-muted">same value</span>
             {{end}}
           </td>
           <td class="px-3 py-2 wrap-anywhere font-mono text-xs
             {{if eq .Kind "added"}}text-faint{{else if eq .Kind "removed"}}text-danger{{else}}text-muted{{end}}">
             {{if eq .Kind "added"}}
-              <span class="italic">not present</span>
+              <span class="italic">absent</span>
             {{else if eq .A ""}}
               <span class="italic">empty</span>
             {{else}}
@@ -211,7 +211,7 @@
           <td class="px-3 py-2 wrap-anywhere font-mono text-xs
             {{if eq .Kind "removed"}}text-faint{{else if eq .Kind "added"}}text-ok{{else if eq .Kind "modified"}}text-strong{{else}}text-muted{{end}}">
             {{if eq .Kind "removed"}}
-              <span class="italic">not present</span>
+              <span class="italic">absent</span>
             {{else if eq .B ""}}
               <span class="italic">empty</span>
             {{else}}
@@ -227,31 +227,20 @@
 </section>
 {{end}}
 
-{{/* The "moved only" explainer, rendered once when any move occurred. The
-     severity note from the domain says the same thing when EVERY change is a
-     move; this covers the mixed case too, where the reordering is easy to miss
-     among real changes. */}}
+{{/* The "moved only" explainer, for the MIXED case only: when every change
+     is a move, the domain's "Only the order changed" finding already says
+     this at the top, and saying it twice on one screen is once too often.
+     Among real changes a reordering is easy to miss, so it gets the card. */}}
 {{$moved := false}}
-{{range .Params}}{{if eq .Kind "moved"}}{{$moved = true}}{{end}}{{end}}
-{{if $moved}}
+{{$other := false}}
+{{range .Params}}{{if eq .Kind "moved"}}{{$moved = true}}{{else if ne .Kind "same"}}{{$other = true}}{{end}}{{end}}
+{{range .Fields}}{{if not .Cosmetic}}{{$other = true}}{{end}}{{end}}
+{{if and $moved $other}}
 <section class="mt-6 rounded-lg border border-info bg-surface p-4">
   <h2 class="text-sm font-semibold text-strong">Some parameters only moved</h2>
   <p class="mt-1 text-sm text-muted">
-    Same key, same value, different position. Almost every server reads a query string as an unordered set
-    and will not notice. The exception matters: if either URL is signed, and the signature covers the
-    literal query string rather than a canonical form of it, reordering invalidates it. That failure arrives
-    as a 403 with nothing in it to suggest the order was the cause.
-  </p>
-</section>
-{{end}}
-
-{{if .Identical}}
-<section class="mt-6 rounded-lg border border-ok bg-surface p-4">
-  <h2 class="text-sm font-semibold text-strong">These two describe the same request</h2>
-  <p class="mt-1 text-sm text-muted">
-    No component differs and no parameter was added, removed or changed. If the two strings are not
-    byte-identical, the difference is in encoding or formatting: percent-encoding case, an explicit default
-    port, a dot segment. A server resolves all three to the same thing.
+    Same key, same value, new position. Most servers won't notice. A signed URL will: if the signature
+    covers the query as written, reordering it returns a 403 that doesn't say why.
   </p>
 </section>
 {{end}}
@@ -262,6 +251,10 @@
   <a href="/diff?a={{.B}}&amp;b={{.A}}" class="text-brand-ink hover:underline">Swap sides</a>
 </p>
 {{else}}
-{{template "link/examples" .}}
+{{/* Live, so a half-filled form is a normal moment, not an error: say what
+     is missing rather than showing nothing. */}}
+{{if .A}}<p class="text-sm text-muted">Paste a second URL into B to compare.</p>
+{{else if .B}}<p class="text-sm text-muted">Paste the first URL into A to compare.</p>
+{{else}}{{template "link/examples" .}}{{end}}
 {{end}}
 {{end}}

@@ -33,9 +33,9 @@
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Every reading of one value at once, instead of a dropdown to guess at: percent-encoding for a query and
-      for a path side by side, base64 and its URL-safe variant, HTML entities, unicode escapes, and the decode
-      ladder for anything encoded more than once.
+      Paste a value to see every encoding of it at once: percent-encoding for a query and for a path side by
+      side, base64 and base64url, HTML entities, Unicode escapes, and each layer of anything encoded more than
+      once.
     </p>
 
     {{/* Live, like Inspect (see index.html). */}}
@@ -74,8 +74,8 @@
           example.
         </p>
         <p>
-          The value is converted on this server and nothing is fetched. It does travel here like any other
-          input, so the usual rule holds: don't paste a live token into a web tool, this one included.
+          The value is converted on this server and nothing is fetched. Don't paste live credentials into any
+          web tool, this one included.
         </p>
       </div>
     </details>
@@ -128,8 +128,8 @@
 {{end}}
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/encoding" class="text-brand-ink hover:underline">What percent-encoding actually reserves</a>
-  <a href="/" class="text-brand-ink hover:underline">Inspect a whole URL instead</a>
+  <a href="/encoding" class="text-brand-ink hover:underline">Percent-encoding reference</a>
+  <a href="/" class="text-brand-ink hover:underline">Inspect a whole URL</a>
 </p>
 
 {{else}}
@@ -199,7 +199,9 @@
                 <button type="button" class="btn-copy" aria-describedby="enc-{{$i}}" data-copy="{{.Value}}">Copy</button>
               </div>
             {{end}}
-            {{if .Note}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
+            {{/* The two percent rows skip their notes: the cards above carry the
+                 same sentences, word for word. */}}
+            {{if and .Note (ne .Name "Percent (query)") (ne .Name "Percent (path)")}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
           </td>
         </tr>
         {{end}}
@@ -213,8 +215,7 @@
 <section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Decoded</h2>
   <p class="mt-1 text-xs text-muted">
-    Every reading attempted, including the ones that failed. A failure is said out loud rather than shown as
-    an empty cell, because an empty cell would claim the value decodes to nothing.
+    Every reading attempted, including the ones that failed.
   </p>
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Decoded">
     <table class="w-full text-left text-sm">
@@ -254,8 +255,7 @@
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">It decodes further</h2>
   <p class="mt-1 text-xs text-muted">
-    The same ladder the Inspect page runs on every parameter, one rung at a time with the method named. A
-    value that was encoded twice peels here rather than needing a second paste.
+    Each layer of encoding, peeled one at a time, with the method named.
   </p>
   <ol class="mt-2 space-y-1 rounded-lg border border-line bg-surface p-4">
     {{range .Layers}}

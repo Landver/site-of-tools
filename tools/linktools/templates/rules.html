@@ -28,7 +28,7 @@
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Every parameter the <a href="/clean" class="link-inline">Clean</a> page strips, who sets
+      Every parameter the <a href="/clean" class="link-inline">Clean</a> page removes, who sets
       it, and what it identifies. Here in full, so you can check it rather than trust it.
     </p>
 
@@ -92,10 +92,6 @@
         </p>
         <ul class="mt-3 space-y-2 text-sm text-muted">
           <li>
-            <strong class="text-strong">It does not guess from the shape of a name.</strong> No regular
-            expressions. A rule nobody can read at a glance is a rule nobody reviews.
-          </li>
-          <li>
             <strong class="text-strong">Ambiguous names are scoped to a host or they are absent.</strong>
             <code class="font-mono">ref</code> is a tracker on some sites and a git branch on others, and
             nothing in the name separates the two.
@@ -108,8 +104,9 @@
             by host, and a Shopify storefront is an arbitrary custom domain. Wrong product beats a clean URL.
           </li>
           <li>
-            <strong class="text-strong">It will miss things.</strong> Regional ad networks especially. A URL
-            that comes back unchanged has not been certified clean; it has been checked against this list.
+            <strong class="text-strong">It does not guess from the shape of a name.</strong> Every rule names
+            its parameter exactly, so a URL that comes back unchanged has been checked against these rules,
+            not certified clean.
           </li>
         </ul>
       </details>
@@ -130,7 +127,7 @@
         <a href="#session" class="text-brand-ink hover:underline">Breadcrumbs</a>
         <a href="#person" class="text-brand-ink hover:underline">Personal IDs</a>
         <a href="#affiliate" class="text-brand-ink hover:underline">Affiliate</a>
-        <a href="#never" class="text-brand-ink hover:underline">Never stripped</a>
+        <a href="#never" class="text-brand-ink hover:underline">Never removed</a>
         <a href="#wrappers" class="text-brand-ink hover:underline">Wrappers</a>
       </nav>
     </div>
@@ -141,8 +138,11 @@
     <p class="mt-4 max-w-prose text-xs text-muted">
       <span class="font-mono text-brand-ink">*</span> at the end of a name matches every parameter that starts
       with it: <span class="font-mono">utm_*</span> covers <span class="font-mono">utm_source</span>,
-      <span class="font-mono">utm_medium</span> and the rest. <span class="text-faint">unsourced</span> means no
-      vendor documentation was found and the rule rests on observed behaviour.
+      <span class="font-mono">utm_medium</span> and the rest. A host ending in a dot, like
+      <span class="font-mono">amazon.</span>, covers every country domain: amazon.com, amazon.co.uk, amazon.de.
+      <span class="text-faint">unsourced</span> means no vendor documentation was found and the rule rests on
+      observed behaviour. A wrapper's confidence says how settled its format is: a medium one may change
+      without notice.
     </p>
 
     <div id="rule-tables">
@@ -151,7 +151,7 @@
     <section id="click" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Click identifiers</h2>
       <p class="mt-1 text-sm text-muted">
-        One of these identifies a single ad click. Nothing you can see on the page depends on it. Stripped by
+        One of these identifies a single ad click. Nothing you can see on the page depends on it. Removed by
         default.
       </p>
       <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Click identifiers">
@@ -174,7 +174,7 @@
     <section id="session" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Session and placement breadcrumbs</h2>
       <p class="mt-1 text-sm text-muted">
-        These record the visit, the placement or the share that brought you here. Stripped by default.
+        These record the visit, the placement or the share that brought you here. Removed by default.
       </p>
       <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Session and placement breadcrumbs">
         <table class="w-full text-left text-sm">
@@ -196,8 +196,8 @@
     <section id="person" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Personal identifiers</h2>
       <p class="mt-1 text-sm text-muted">
-        These identify you as an individual to the vendor that set them, not just your visit. This class is
-        the reason the Clean page exists. Stripped by default.
+        These identify you as an individual to the vendor that set them, not just your visit. Removed by
+        default.
       </p>
       <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Personal identifiers">
         <table class="w-full text-left text-sm">
@@ -243,11 +243,10 @@
     {{/* --- the deny list: what it refuses to touch --- */}}
 
     <section id="never" class="mt-10 scroll-mt-6">
-      <h2 class="text-lg font-semibold text-strong">Never stripped, whatever else matches</h2>
+      <h2 class="text-lg font-semibold text-strong">Never removed, whatever else matches</h2>
       <p class="mt-1 text-sm text-muted">
-        Consulted before any rule, prefix rules included. These names look like tracking and are load-bearing,
-        so the failure mode is stored as data rather than left in a comment: here is what breaks if anyone
-        deletes one.
+        Checked before any rule, so nothing ever removes them. They can look like tracking, but each does a
+        job: the last column says what breaks without it.
       </p>
       <div class="relative mt-3 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Never stripped, whatever else matches">
         <table class="w-full text-left text-sm">
@@ -268,7 +267,7 @@
                 {{if .Hosts}}
                   {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="font-mono">{{$h}}</span>{{end}}
                 {{else}}
-                  <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-strong">everywhere</span>
+                  <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-strong">any host</span>
                 {{end}}
               </td>
               <td class="px-3 py-2 text-xs text-muted">{{.Why}}</td>
@@ -312,7 +311,8 @@
                 {{if .Path}}<span class="block font-mono text-faint">path {{.Path}}</span>{{end}}
               </td>
               <td class="px-3 py-2 text-xs text-muted">
-                <span class="font-mono">{{.Shape}}</span>
+                {{/* The shape in words; the JSON keeps the short codes. */}}
+                <span>{{$s := .Shape.String}}{{if eq $s "param"}}query parameter{{else if eq $s "bare-query"}}whole query{{else if eq $s "path-tail"}}end of the path{{else if eq $s "custom"}}custom encoding{{else}}{{$s}}{{end}}</span>
                 {{if .Params}}
                 <span class="block">
                   {{range $i, $p := .Params}}{{if $i}}, {{end}}<span class="font-mono text-strong">{{$p}}</span>{{end}}
@@ -378,6 +378,6 @@
 
     <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-sm">
       <a href="/clean" class="text-brand-ink hover:underline">Clean a URL</a>
-      <a href="/" class="text-brand-ink hover:underline">Inspect one instead</a>
+      <a href="/" class="text-brand-ink hover:underline">Inspect a URL</a>
     </p>
 {{end}}

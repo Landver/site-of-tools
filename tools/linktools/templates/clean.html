@@ -36,7 +36,7 @@
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
-      Strip the tracking parameters out of a URL, unwrap Safe Links and other mail-gateway wrappers, and see
+      Remove the tracking parameters from a URL, unwrap Safe Links and other mail-gateway wrappers, and see
       which rule removed what. Nothing is fetched: the destination never learns you looked.
     </p>
 
@@ -57,11 +57,11 @@
         <label class="flex items-start gap-2">
           {{/* Ticked = unwrap=false. See the file comment. */}}
           <input type="checkbox" name="unwrap" value="false" class="mt-1"{{if not .Unwrap}} checked{{end}}>
-          <span>Leave Safe Links and other wrappers as they are</span>
+          <span>Don't unwrap Safe Links and other mail-gateway links</span>
         </label>
         <label class="flex items-start gap-2">
           <input type="checkbox" name="affiliate" value="true" class="mt-1"{{if .Affiliate}} checked{{end}}>
-          <span>Also strip affiliate tags <span class="text-faint">(they pay whoever shared the link)</span></span>
+          <span>Also remove affiliate tags <span class="text-faint">(they pay whoever shared the link)</span></span>
         </label>
         <label class="flex items-start gap-2">
           <input type="checkbox" name="sort" value="true" class="mt-1"{{if .Sort}} checked{{end}}>
@@ -82,7 +82,7 @@
       <summary class="cursor-pointer text-muted hover:text-strong">Which parameters does this touch?</summary>
       <div class="mt-2 max-w-prose space-y-2 text-muted">
         <p>
-          The rules are <strong class="text-strong">curated and hand-maintained, not exhaustive</strong>.
+          The rules are <strong class="text-strong">curated and hand-maintained, not complete</strong>.
           They will miss regional ad networks, and they deliberately do not guess about parameters that are
           functional on some sites. A name alone does not settle it: <code class="font-mono">ref=facebook</code>
           is a tracker and <code class="font-mono">ref=main</code> picks a git branch, so the ambiguous names
@@ -95,9 +95,9 @@
           otherwise, because the wrapper's own query is the one part of the link nobody wants.
         </p>
         <p>
-          Nothing here is a black box. <a href="/clean/rules" class="link-inline">The whole
-          catalog is on one page</a>: every rule, who sets the parameter, what it identifies, and the
-          separate never-strip list with the failure mode spelled out for each entry.
+          Nothing here is a black box. <a href="/clean/rules" class="link-inline">Every rule is on one
+          page</a>: who sets each parameter, what it identifies, and the separate list of names that are never
+          removed, with what breaks if they were.
         </p>
       </div>
     </details>
@@ -182,9 +182,11 @@
 </section>
 {{end}}
 
-{{/* What went in, and what the wrapper was hiding. Text only, per the file
-     comment: the wrapped link is exactly the kind of URL nobody should be one
-     click away from following. */}}
+{{/* What went in, and what the wrapper was hiding, when either differs from
+     the result. Text only, per the file comment: the wrapped link is exactly
+     the kind of URL nobody should be one click away from following. Hidden
+     when nothing changed: the same URL three times is not information. */}}
+{{if ne .Output .Input}}
 <dl class="mt-6 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[7rem_1fr]">
   <dt class="text-faint">You pasted</dt>
   <dd class="wrap-anywhere font-mono text-muted">{{.Input}}</dd>
@@ -193,11 +195,12 @@
   <dd class="wrap-anywhere font-mono text-muted">{{.Unwrapped}}</dd>
   {{end}}
 </dl>
+{{end}}
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/?u={{.Output}}" class="text-brand-ink hover:underline">Inspect the result</a>
-  {{if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Diff it against the original</a>{{end}}
-  <a href="/clean/rules" class="text-brand-ink hover:underline">Read the rules</a>
+  <a href="/?u={{.Output}}" class="text-brand-ink hover:underline">Inspect it</a>
+  {{if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Compare with the original</a>{{end}}
+  <a href="/clean/rules" class="text-brand-ink hover:underline">See the rules</a>
 </p>
 
 {{else}}

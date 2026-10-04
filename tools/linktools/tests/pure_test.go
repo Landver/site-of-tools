@@ -300,7 +300,7 @@ func TestExtractSaysSoWhenItFoundNothing(t *testing.T) {
 	if ex.Unique != 0 {
 		t.Fatalf("extracted %d URLs from prose containing a bare hostname; guessing invents links that are not in the text", ex.Unique)
 	}
-	if !hasNote(ex.Notes, linktools.SevInfo, "No URLs found") {
+	if !hasNote(ex.Notes, linktools.SevInfo, "No links found") {
 		t.Errorf("no note explaining the empty table: %+v", ex.Notes)
 	}
 }
@@ -656,7 +656,7 @@ func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
 			t.Errorf("%q reported as %q, want %q", c.Key, c.Kind, want)
 		}
 	}
-	if got := d.Summary(); got != "1 parameter removed." {
+	if got := d.Summary(); got != "Parameters: 1 removed." {
 		t.Errorf("summary %q, want just the removal", got)
 	}
 }
@@ -895,7 +895,7 @@ func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 	if !strings.HasPrefix(res.URL, "https://example.com/landing?") {
 		t.Errorf("built %q, want an absolute https URL", res.URL)
 	}
-	for _, title := range []string{"https:// assumed", "No utm_source", "Capital letters in utm_medium", "Spaces in utm_campaign"} {
+	for _, title := range []string{"No scheme", "No utm_source", "Capital letters in utm_medium", "Spaces in utm_campaign"} {
 		found := false
 		for _, n := range res.Notes {
 			found = found || n.Title == title

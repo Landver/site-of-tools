@@ -111,6 +111,7 @@ type Inspection struct {
 	Fragment    string    `json:"fragment,omitempty"`
 	FragParams  []Param   `json:"fragment_params,omitempty"` // OAuth implicit flow lives here
 	Unwrapped   string    `json:"unwrapped,omitempty"`       // A16: real target behind a wrapper
+	Absolute    string    `json:"absolute,omitempty"`        // no scheme: the same input with https:// in front
 	Wrapper     string    `json:"wrapper,omitempty"`         // which wrapper was recognised
 	Linkable    bool      `json:"linkable"`                  // scheme passed the allowlist
 	Notes       []Note    `json:"notes,omitempty"`

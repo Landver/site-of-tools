@@ -147,8 +147,8 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 			"More distinct URLs were found than are shown. The ones listed are the first ones in the text."})
 	}
 	if out.Unique == 0 {
-		out.Notes = append(out.Notes, Note{SevInfo, "No URLs found",
-			"Read as " + out.Source + ". A bare host like \"example.com\" is not extracted: without a scheme it cannot be told apart from ordinary prose."})
+		out.Notes = append(out.Notes, Note{SevInfo, "No links found",
+			"Nothing here parsed as a URL. Links written without https:// (like example.com/thing) are skipped on purpose: guessing the scheme invents links that were never there."})
 	}
 	return out, nil
 }

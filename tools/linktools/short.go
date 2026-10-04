@@ -63,16 +63,16 @@ type CreateOptions struct {
 var (
 	// ErrInvalidTarget: the destination is not a URL we will ever redirect to.
 	// 400 (docs/04-short-links.md §9).
-	ErrInvalidTarget = errors.New("target URL is not acceptable")
+	ErrInvalidTarget = errors.New("destination URL not allowed")
 	// ErrInvalidSlug: the custom slug is malformed, reserved, or shaped like a
 	// generated code. 400.
-	ErrInvalidSlug = errors.New("custom slug is not acceptable")
+	ErrInvalidSlug = errors.New("custom code not allowed")
 	// ErrInvalidNote: note over the cap. 400.
 	ErrInvalidNote = errors.New("note is too long")
 	// ErrSlugTaken: the slug exists. 409, never a silent suffix — a caller who
 	// asked for /s/q4-report and got /s/q4-report-2 will paste the one they
 	// asked for.
-	ErrSlugTaken = errors.New("that slug is already taken")
+	ErrSlugTaken = errors.New("that code is already taken")
 )
 
 const (
@@ -450,13 +450,13 @@ func validateTarget(raw string) (*url.URL, error) {
 func validateSlug(slug string) (string, error) {
 	s := strings.TrimSpace(slug)
 	if !slugPattern.MatchString(s) {
-		return "", fmt.Errorf("%w: must be 2-64 characters of lowercase a-z, 0-9 and -, starting with a letter or digit", ErrInvalidSlug)
+		return "", fmt.Errorf("%w: use 2–64 lowercase letters, digits and hyphens, starting with a letter or digit", ErrInvalidSlug)
 	}
 	if reservedSlugs[s] {
 		return "", fmt.Errorf("%w: %q is reserved for a page name", ErrInvalidSlug, s)
 	}
 	if isGeneratedShape(s) {
-		return "", fmt.Errorf("%w: %q has the shape of a generated code", ErrInvalidSlug, s)
+		return "", fmt.Errorf("%w: %q looks like a generated code; make it longer or shorter, or add a hyphen", ErrInvalidSlug, s)
 	}
 	return s, nil
 }

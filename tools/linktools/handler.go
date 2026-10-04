@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -17,12 +19,12 @@ import (
 // shared/templates/partials/head.html via the "Desc" view-model key.
 const (
 	inspectDesc  = "Take a URL apart: every query parameter decoded and kept in order, repeated keys shown as repeats, comma-lists split and counted, double-encoded values peeled layer by layer, and the fragment parsed instead of thrown away. Nothing is fetched. Free, open source, JSON API included."
-	cleanDesc    = "Strip tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
+	cleanDesc    = "Remove tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
 	traceDesc    = "Follow a link hop by hop without opening it: every redirect with its status, timing and cookies, and an honest answer when the chain continues somewhere an HTTP client cannot follow. Ask as Googlebot, Slackbot or a browser."
 	shortDesc    = "Short links on a domain I own. Not a public shortener: creating one needs a key, deliberately and permanently."
-	diffDesc     = "Compare two URLs parameter by parameter: what was added, removed, changed or merely reordered. The tool for 'why does staging behave differently from production'."
+	diffDesc     = "Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved. The tool for 'why does staging behave differently from production'."
 	encodingDesc = "What percent-encoding actually reserves, and why the same characters mean different things in a path, a query and a fragment. Including the '+' that is a space in one and a literal plus in the other."
-	rulesDesc    = "Every tracking parameter this tool strips, who sets it, and what it identifies. Curated and hand-maintained, not exhaustive, and here in full so you can check it."
+	rulesDesc    = "Every tracking parameter this tool removes, who sets it, and what it identifies. Curated and hand-maintained, not exhaustive, and here in full so you can check it."
 	privacyDesc  = "What the Corpberry Link browser extension sends, stores and does not collect."
 )
 
@@ -341,15 +343,21 @@ func (h *handler) diff(c *echo.Context) error {
 	// reader to work out which of the two boxes to fix.
 	ia, err := h.svc.Parse(a)
 	if err != nil {
-		return h.badRequest(c, vm, fmt.Errorf("A: %w", err), "link/diff")
+		return h.badRequest(c, vm, sideError("A", err), "link/diff")
 	}
 	ib, err := h.svc.Parse(b)
 	if err != nil {
-		return h.badRequest(c, vm, fmt.Errorf("B: %w", err), "link/diff")
+		return h.badRequest(c, vm, sideError("B", err), "link/diff")
 	}
 	res := DiffInspections(ia, ib)
 	vm["Result"] = res
 	return reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
+}
+
+// sideError says which of the two URLs an error is about, in words: "URL B
+// is not valid: missing ']' in host", not "B: not a URL: missing ']' in host".
+func sideError(side string, err error) error {
+	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
 
 // --- trace -----------------------------------------------------------------
@@ -486,11 +494,11 @@ func (h *handler) createError(c *echo.Context, vm map[string]any, err error) err
 	case errors.Is(err, ErrSlugTaken):
 		// 409, never a silently-suffixed slug: guessing what the caller meant
 		// is how "my-link-2" ends up in someone's slide deck.
-		return h.fail(c, vm, http.StatusConflict, err.Error(), "link/short")
+		return h.fail(c, vm, http.StatusConflict, sentence(err.Error()), "link/short")
 	case errors.Is(err, ErrDisabled):
-		return h.fail(c, vm, http.StatusServiceUnavailable, err.Error(), "link/short")
+		return h.fail(c, vm, http.StatusServiceUnavailable, sentence(err.Error()), "link/short")
 	case errors.Is(err, ErrInvalidTarget), errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidNote):
-		return h.fail(c, vm, http.StatusBadRequest, err.Error(), "link/short")
+		return h.fail(c, vm, http.StatusBadRequest, sentence(err.Error()), "link/short")
 	}
 	// Anything else is a storage or driver failure. Those messages can carry
 	// connection strings and internal topology, so the client gets a fixed
@@ -554,7 +562,7 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 	}
 	if err := h.short.Revoke(c.Request().Context(), c.Param("code")); err != nil {
 		if errors.Is(err, ErrLinkNotFound) {
-			return h.fail(c, vm, http.StatusNotFound, "no such link", "link/short")
+			return h.fail(c, vm, http.StatusNotFound, "No such short link.", "link/short")
 		}
 		return h.storageError(c, vm, err, "link/short")
 	}
@@ -614,7 +622,7 @@ func (h *handler) redirect(c *echo.Context) error {
 
 // --- curl ------------------------------------------------------------------
 
-const curlDesc = "Turn a URL into a runnable curl command, or paste a curl command (including Chrome's Copy as cURL) and get the URL and headers taken apart. The second direction is the useful one."
+const curlDesc = "Paste a curl command, including Chrome's Copy as cURL, and get its URL, method and headers taken apart. Or turn a URL into a safely quoted curl command."
 
 // curl runs both ways. The inverse — pasting a command and getting the URL
 // parsed — is the genuinely useful half: people copy curl lines out of
@@ -625,7 +633,7 @@ func (h *handler) curl(c *echo.Context) error {
 	if cmd == "" && c.Request().Method == http.MethodPost {
 		cmd = strings.TrimSpace(c.FormValue("curl"))
 	}
-	vm := h.vm("curl", "URL and curl", curlDesc, raw)
+	vm := h.vm("curl", "Take apart or build a curl command", curlDesc, raw)
 	vm["Cmd"] = cmd
 	// Set before the empty-input branch below, not only on the ?u= path: the
 	// bare page renders the form too, and without these the "Ask as" select had
@@ -703,7 +711,7 @@ func (h *handler) extract(c *echo.Context) error {
 
 // --- utm -------------------------------------------------------------------
 
-const utmDesc = "Build a campaign-tagged URL from its parts. The inverse of the Clean page, on the same rule table, so the parameters it adds are exactly the ones Clean knows how to remove."
+const utmDesc = "Add UTM campaign tags to a URL: the utm_ parameters Google Analytics and most analytics tools read to credit a visit to a campaign. Tags already on the URL are kept unless you replace them."
 
 // utmField is one campaign parameter as the builder's form shows it. The
 // placeholder and hint live in utmHelp beside the name, rather than as one
@@ -718,7 +726,7 @@ var utmHelp = map[string][2]string{
 	"utm_source":   {"newsletter", "Where the traffic comes from. The one most analytics tools require."},
 	"utm_medium":   {"email", "How it arrives: email, cpc, social, referral."},
 	"utm_campaign": {"spring-launch", "Which campaign the link belongs to."},
-	"utm_term":     {"running+shoes", "The paid keyword, for search ads."},
+	"utm_term":     {"running-shoes", "The paid keyword, for search ads."},
 	"utm_content":  {"header-button", "Which link it was, when a campaign has several. The A/B field."},
 }
 
@@ -728,7 +736,7 @@ const utmCommon = 3
 
 func (h *handler) utm(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	vm := h.vm("utm", "Campaign URL builder", utmDesc, raw)
+	vm := h.vm("utm", "Build a campaign URL", utmDesc, raw)
 
 	fields := make([]utmField, len(UTMKeys))
 	typed := map[string]string{}
@@ -760,7 +768,7 @@ func (h *handler) utm(c *echo.Context) error {
 
 // --- encode ----------------------------------------------------------------
 
-const encodeDesc = "Percent-encode and decode with the right rules for where the value goes: a query and a path escape differently, and the difference is what breaks base64 values. Plus base64, base64url and the decode ladder."
+const encodeDesc = "Percent-encode and decode with the right rules for where the value goes: a query and a path escape differently, and the difference is what breaks base64 values. Plus base64, base64url and multi-layer decoding."
 
 func (h *handler) encode(c *echo.Context) error {
 	v := c.QueryParam("v")
@@ -797,8 +805,27 @@ func (h *handler) privacy(c *echo.Context) error {
 // --- shared error paths ----------------------------------------------------
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
-	vm["Error"] = err.Error()
-	return reply(c, http.StatusBadRequest, map[string]string{"error": err.Error()}, vm, page, "link/error")
+	msg := sentence(err.Error())
+	vm["Error"] = msg
+	return reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
+}
+
+// sentence turns an error string into a sentence for a person: capital first
+// letter, closing full stop. Go error strings are lowercase and unpunctuated
+// by convention, because they get wrapped; the page is where wrapping ends and
+// someone reads the result, beside messages this handler writes as sentences.
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	if r, size := utf8.DecodeRuneInString(s); unicode.IsLower(r) {
+		s = string(unicode.ToUpper(r)) + s[size:]
+	}
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
 }
 
 // disabled answers 503, never 502: nothing failed, the feature is not running.

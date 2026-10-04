@@ -29,9 +29,7 @@
       <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.Final}}</p>
       <button type="button" class="btn-copy" data-copy="{{.Final}}">Copy</button>
     </div>
-    <p class="mt-2 text-xs text-muted">
-      Where the chain actually ended. Nothing about whether it is safe to visit is claimed here.
-    </p>
+    <p class="mt-2 text-xs text-muted">Where the chain ended. Not a verdict on whether it's safe.</p>
     {{/* Clean as well as Inspect: redirectors are exactly where tracking
          parameters get added on the way through. */}}
     <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -40,8 +38,8 @@
     </p>
   {{else}}
     <p class="mt-2 text-sm text-muted">
-      The chain continues somewhere this tool did not follow; the findings below say what and why. The last
-      URL reached is deliberately <em>not</em> shown as the destination, because it isn't one.
+      The trace stopped before a final page, and the notes on the last hop say why. The last URL reached
+      isn't shown as the destination, because it may not be one.
     </p>
   {{end}}
 </section>
@@ -61,12 +59,19 @@
     <li class="rounded-lg border border-line bg-surface p-3">
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="font-mono text-muted">{{.Index}}</span>
-        <span class="rounded px-1.5 py-0.5 font-mono text-xs
+        {{/* Status 0 means no response at all (the request was refused or
+             failed before one came back): a "0" badge and "0 ms" read as a
+             bug, so it says so in words. */}}
+        {{if eq .Status 0}}
+        <span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-muted">no response</span>
+        {{else}}
+        <span class="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs
           {{if ge .Status 500}}bg-danger/10 text-danger
           {{else if ge .Status 400}}bg-warn/10 text-warn
           {{else if ge .Status 300}}bg-line text-strong
           {{else}}bg-ok/10 text-ok{{end}}">{{.Status}}{{if .Reason}} {{.Reason}}{{end}}</span>
         <span class="text-xs text-muted">{{.ElapsedMS}} ms</span>
+        {{end}}
         {{if .SetCookie}}<span class="whitespace-nowrap rounded bg-line px-1.5 py-0.5 text-xs text-muted"><span aria-hidden="true">&#127850;</span> sets a cookie</span>{{end}}
         {{/* Labelled: "gws" or "github.com" alone is a riddle. */}}
         {{if .Server}}<span class="text-xs text-faint">server <span class="text-muted">{{.Server}}</span></span>{{end}}

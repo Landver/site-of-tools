@@ -36,7 +36,7 @@
              aria-label="URL to trace" placeholder="http://bit.ly/example"
              class="field min-w-0 basis-full sm:basis-0">
       <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
-        <span class="shrink-0">as</span>
+        <span class="shrink-0">Ask as</span>
         <select name="ua" class="field min-w-0 flex-1">
           {{$p := .Persona}}
           {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
