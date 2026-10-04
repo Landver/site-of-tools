@@ -135,19 +135,27 @@ func (r *Renderer) Render(c *echo.Context, w io.Writer, name string, data any) e
 
 // --- content negotiation ---------------------------------------------------
 
-// IsHTMX reports whether the request came from htmx (wants an HTML fragment).
+// IsHTMX reports whether the request came from htmx and wants an HTML
+// fragment. A history restore is the one htmx request that doesn't: when its
+// snapshot cache misses on Back, htmx re-fetches the URL and swaps the
+// response in as the WHOLE body, so a fragment there replaced the page with a
+// lone unstyled card. htmx 2 sends HX-Request on that fetch too, so the
+// restore header is what tells the two apart.
 func IsHTMX(c *echo.Context) bool {
-	return c.Request().Header.Get("HX-Request") == "true"
+	h := c.Request().Header
+	return h.Get("HX-Request") == "true" && h.Get("HX-History-Restore-Request") != "true"
 }
 
-// prefersHTML reports whether caller wants HTML: htmx always does,
-// browsers send Accept header containing text/html. Everything else
-// (curl's default */*, explicit application/json, API clients) gets JSON.
+// prefersHTML reports whether caller wants HTML: anything htmx sends does
+// (fragment or restore), browsers send Accept header containing text/html.
+// Everything else (curl's default */*, explicit application/json, API
+// clients) gets JSON.
 func prefersHTML(c *echo.Context) bool {
-	if IsHTMX(c) {
+	h := c.Request().Header
+	if h.Get("HX-Request") == "true" || h.Get("HX-History-Restore-Request") == "true" {
 		return true
 	}
-	return strings.Contains(c.Request().Header.Get("Accept"), "text/html")
+	return strings.Contains(h.Get("Accept"), "text/html")
 }
 
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.

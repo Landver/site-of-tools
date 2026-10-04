@@ -119,3 +119,29 @@ func TestCSPDirectives(t *testing.T) {
 		t.Errorf("script-src no longer starts from 'self': %s — the one thing it does buy is that no script may be loaded from another origin", csp)
 	}
 }
+
+// One URL answers as a page, an htmx fragment or JSON depending on request
+// headers. Without Vary the browser cache keyed on the URL alone and Back
+// after an htmx swap showed the cached fragment as the whole document.
+func TestNegotiatedResponsesVary(t *testing.T) {
+	e := headersApp(t)
+
+	page := headersFor(t, e, "/")
+	vary := strings.Join(page.Values("Vary"), ", ")
+	for _, want := range []string{"Accept", "HX-Request", "HX-History-Restore-Request"} {
+		if !strings.Contains(vary, want) {
+			t.Errorf("Vary = %q, missing %s", vary, want)
+		}
+	}
+	if cc := page.Get("Cache-Control"); cc == "no-store" {
+		t.Errorf("a full page is Cache-Control %q; only fragments should be kept out of the cache", cc)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("htmx fragment Cache-Control = %q, want no-store", cc)
+	}
+}

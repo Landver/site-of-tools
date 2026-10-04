@@ -1,0 +1,22 @@
+{{/* After Back or Forward, put every form field back to what the URL says.
+
+     htmx restores a page from a snapshot of its markup, and markup holds a
+     field's value ATTRIBUTE: whatever the server rendered when the page first
+     loaded, not what was typed for the request whose results are on screen.
+     So the results said example.com while the box said github.com, and the
+     next submit quietly asked about the wrong domain. The URL is the one
+     record of what each history entry asked, because every form here is
+     GET-shaped and pushes it.
+
+     A field the URL doesn't name is left as the snapshot has it: the first
+     page of a visit can be a bare URL, and its rendered defaults are right. */}}
+{{define "partials/htmx-history"}}
+<script>
+  document.body.addEventListener('htmx:historyRestore', () => {
+    const params = new URLSearchParams(location.search)
+    document.querySelectorAll('main form [name]').forEach((el) => {
+      if (params.has(el.name)) el.value = params.get(el.name)
+    })
+  })
+</script>
+{{end}}

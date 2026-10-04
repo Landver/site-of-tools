@@ -29,6 +29,7 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	e.Use(middleware.Recover())
 	e.Use(requestLogger(reqlog))
 	e.Use(securityHeaders())
+	e.Use(negotiationHeaders())
 	// Everything is gzipped per response except the cipher engine, which is ~12
 	// MB, arrives already compressed once, and would otherwise cost ~0.25 s of
 	// CPU per fetch (tools/ciphertools/handler.go, engine).
@@ -169,6 +170,32 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 // the whole policy is the containment layer that turns the next refactor slip
 // in a template from stored XSS into a blocked load
 // (tools/linktools/docs/06-security-and-abuse.md §8).
+// negotiationHeaders tells caches what every page here varies on. One URL is
+// answered three ways (page, htmx fragment, JSON) chosen by request headers,
+// and with no Vary a browser's HTTP cache keys on the URL alone: Back after
+// an htmx swap served the cached FRAGMENT as the whole document, an unstyled
+// card with no header, nav or form. A fragment is never worth caching at all,
+// so it is also no-store, which keeps it out even of a cache ignoring Vary.
+//
+// Static files are left alone: they vary on nothing, and a Vary on them would
+// only split the CDN's cache.
+func negotiationHeaders() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if !strings.HasPrefix(c.Request().URL.Path, "/static/") {
+				h := c.Response().Header()
+				h.Add("Vary", "Accept")
+				h.Add("Vary", "HX-Request")
+				h.Add("Vary", "HX-History-Restore-Request")
+				if IsHTMX(c) {
+					h.Set("Cache-Control", "no-store")
+				}
+			}
+			return next(c)
+		}
+	}
+}
+
 func securityHeaders() echo.MiddlewareFunc {
 	const csp = "default-src 'self'; " +
 		"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
