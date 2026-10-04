@@ -104,6 +104,32 @@ Built 2026-09-25. Every page speaks HTML + JSON + an htmx fragment from one URL.
 
 Plus `tools/linktools/extension/` — MV3, no build step, load-unpacked.
 
+### How the pages behave (UX pass, 2026-10-04)
+
+Rounds of browser-driven review by separate reviewers; the conventions that came out of it, so a
+new page can follow them:
+
+- **The answer leads.** The result sits directly under the form, its main
+  output first (the clean URL, the final destination, the tagged URL), each
+  with a Copy button. Explainer `<details>` go below the result.
+- **Empty pages offer examples.** `examples.go` builds "Try an example" links
+  with `url.Values`; they are the result fragment's empty state, so clearing the
+  input brings them back.
+- **Parsing pages are live.** `hx-trigger="submit, input delay:300ms"`,
+  `hx-replace-url` (the address bar is always shareable; history gets no entry
+  per pause) and `hx-sync="this:replace"`. Trace is the exception: it dials out,
+  so it waits for its button and pushes history.
+- **Input that may carry credentials is POSTed**: Extract's paste and curl's
+  paste direction. The URL-shaped inputs stay GET, by design (docs/06 §5).
+- **Wrong-tool input is routed**: a curl command or text with links pasted
+  where one URL goes gets a 400 saying what it looks like, and a POST button to
+  `/curl` or `/extract` (`WrongTool` in url.go).
+- **Accessibility**: results announce one line through a status region
+  (`data-announce`, `link/live`), not by re-reading the whole result; findings
+  carry a glyph as well as a colour; scrolling tables are labelled regions.
+  Colour tokens in `shared/static/css/input.css` meet WCAG AA as text in both
+  themes (`brand-ink` for brand-coloured text, `field-line` for field edges).
+
 **Engine changes this required**, both shared by all four subdomains:
 
 - `platform/redact.go` — strips the value of `u`/`a`/`b`/`curl`/`text`/`v` from
