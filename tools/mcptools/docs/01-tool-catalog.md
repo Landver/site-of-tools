@@ -278,7 +278,7 @@ and its golden file is what review reads. One generic adapter builds a
 
 | Route or feature | Why not a tool |
 |---|---|
-| `GET ip.corpberry.com/history` | D9: lists addresses *other* visitors looked up from the web page; no agent task needs it. One small tool if the owner disagrees. |
+| `GET ip.corpberry.com/history` | D9 (decided 2026-10-04): lists addresses *other* visitors looked up from the web page; no agent task needs it. |
 | apex `GET /` (JSON tool catalog) | The MCP server is the catalog: `tools/list`, the instructions, the landing page's JSON. |
 | `GET link.corpberry.com/short` without a key | Its JSON is only `{enabled, authorized: false}`; the keyed list is `link_short_list`. |
 | `GET /blog/feed.xml` | RSS; `site_blog` covers the content. |

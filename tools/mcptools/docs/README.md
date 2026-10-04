@@ -1,9 +1,10 @@
 # MCP server (`mcp.corpberry.com`): build plan
 
-**Status: planned, not built (2026-10-04).** The six **bold** decisions in §2
-wait for the owner; the rest stand unless the owner objects. Reviewed by five
-independent agents in three rounds before handover; every finding and what it
-changed is in the [review log](03-review-log.md).
+**Status: planned, not built. Decisions taken 2026-10-04**: the owner
+accepted all six **bold** decisions as leaned, so every row in §2 now stands
+as written. Next: floor 1a. Reviewed by five independent agents in three
+rounds before handover; every finding and what it changed is in the [review
+log](03-review-log.md).
 
 | Doc | What's in it |
 |---|---|
@@ -27,7 +28,7 @@ tools as tools instead of being told how to `curl` them.
   3 owner tools, one per distinct task, generated where the domain already
   holds the contract ([catalog](01-tool-catalog.md#how-rest-maps-to-tools)).
   Two JSON routes are deliberately not tools: `ip.corpberry.com/history` (D9,
-  the owner's call) and the apex JSON catalog (replaced by `tools/list`). A
+  decided) and the apex JSON catalog (replaced by `tools/list`). A
   coverage test fails CI on any route without an entry. The owner's three
   short-link tools (create, list, revoke) live on their own key-gated
   endpoint.
@@ -53,8 +54,9 @@ subdomain.
 ## 2. Decisions
 
 Each row: the choice, the lean, and what the alternative costs. Confidence is
-how sure the lean is right, not how sure it works. The ones that genuinely need
-the owner are **bold**; the rest stand as leaned unless the owner objects.
+how sure the lean was right, not how sure it works. The **bold** rows needed
+the owner: all six were accepted as leaned on 2026-10-04, so the "Lean" column
+is now the decision.
 
 | # | Decision | Lean | Conf. | Alternative and its cost |
 |---|---|---|---|---|
@@ -372,7 +374,7 @@ own.
 
 | Floor | Ships | Done when |
 |---|---|---|
-| 0 | Owner answers the six **bold** decisions (D4, D9, D12, D14, D16, D17) | each bold row answered |
+| 0 | Owner answers the six **bold** decisions (D4, D9, D12, D14, D16, D17) | **done 2026-10-04**: all six accepted as leaned |
 | 1a ×5 | Push-down, one PR each: iptools, dnstools, linktools, ciphertools (field specs + AST test), botcheck (skip-not-fail + coverage counts) | golden REST tests green before and after; botcheck's JSON gains its coverage counts as one reviewed golden diff |
 | 1b ×3 | Egress (incl. `EgressGuard` literal addresses + config, one subdomain list); Shodan (`Offline()` + process-wide limiter); string bounds at the source + credits in Go | egress tests green; DNS makes no Shodan calls |
 | 1c | `platform/ratelimit.go`, per-package `Limits` with caps, REST on the new classes, `RateLimitKey` fail-closed | limits tests green, incl. updated `netgate_test` |
