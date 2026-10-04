@@ -615,11 +615,7 @@ func TestDiffNamesEveryKindOfChange(t *testing.T) {
 // TestDiffReportsAReorderAsMoved, with the warning that makes it actionable.
 // Harmless to most servers and fatal to any URL whose signature covers the
 // literal query string, which is exactly why "nothing changed" is the wrong
-// answer here.
-//
-// Only the parameter that moved is called moved. c went to the front; a and b
-// kept their order relative to each other, and saying all three moved (as
-// absolute positions do) describes a shuffle that did not happen.
+// answer here. Only the parameter that moved is called moved.
 func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/?a=1&b=2&c=3", "https://example.com/?c=3&a=1&b=2")
@@ -640,10 +636,8 @@ func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	}
 }
 
-// TestDiffDoesNotCallARemovalAReorder is the case the Clean page produces on
-// every URL it cleans: drop the first parameter and every later one changes
-// position without anything moving relative to anything else. Calling them
-// moved raised the signed-URL warning over a diff that had none.
+// TestDiffDoesNotCallARemovalAReorder: dropping the first parameter shifts the
+// rest without moving them, as every cleaned URL's diff does.
 func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/p?utm_source=x&id=42&page=2&lang=en", "https://example.com/p?id=42&page=2&lang=en")
@@ -661,10 +655,8 @@ func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
 	}
 }
 
-// TestDiffCallsSpellingCosmetic: host case, a default port written out and a
-// dot segment are three ways of spelling one request. They are listed, because
-// the strings differ, but they are not differences, which is what the page's
-// own help text promises.
+// TestDiffCallsSpellingCosmetic: host case, a default port and a dot segment
+// are listed but not counted as differences.
 func TestDiffCallsSpellingCosmetic(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "HTTPS://Example.com:443/a/./b?x=%7e", "https://example.com/a/b?x=~")
@@ -829,9 +821,8 @@ func TestEncodeRunsTheSameLadderAsInspect(t *testing.T) {
 	}
 }
 
-// TestOrdinaryWordsAreNotBase64. Eight letters from the base64 alphabet is a
-// word as often as it is an encoding, and "facebook base64" beside a
-// utm_source is the kind of label that makes every other label doubtful.
+// TestOrdinaryWordsAreNotBase64: eight base64-alphabet letters are as often a
+// word ("facebook") as an encoding.
 func TestOrdinaryWordsAreNotBase64(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -847,10 +838,8 @@ func TestOrdinaryWordsAreNotBase64(t *testing.T) {
 	}
 }
 
-// TestUTMKeepsWhatItWasNotGiven: pasting a tagged link to change one tag used
-// to wipe the other four, because an empty field meant "remove". Now an empty
-// field leaves the URL's value alone, a typed one replaces it, and the result
-// says which was which.
+// TestUTMKeepsWhatItWasNotGiven: an empty field keeps the URL's tag, a typed one
+// replaces it, and the result says which was which.
 func TestUTMKeepsWhatItWasNotGiven(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -882,9 +871,8 @@ func TestUTMKeepsWhatItWasNotGiven(t *testing.T) {
 	}
 }
 
-// TestUTMAssumesHTTPSAndNamesItsWorries: a URL without a scheme becomes https
-// (tagged as written it would be a relative link), and the advice a campaign
-// report would give a month late arrives with the link.
+// TestUTMAssumesHTTPSAndNamesItsWorries: a scheme-less URL gets https://, and
+// the hygiene notes come with the link.
 func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -905,8 +893,7 @@ func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 		}
 	}
 
-	// The notes describe this URL: the space really is %20 in it, and the
-	// capitals note quotes the value and names the field's kind of value.
+	// The notes describe this URL: %20 for the space, the field's own noun.
 	for _, n := range res.Notes {
 		switch n.Title {
 		case "Spaces in utm_campaign":
@@ -930,10 +917,8 @@ func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 	}
 }
 
-// TestExtractFlagsWhatAnAuditIsFor: link text that shows one host over a link
-// to another, a javascript: link and a mail-gateway wrapper each get named on
-// their row, and an honest link gets nothing. Before this every row of a
-// phishing email looked like every row of a newsletter.
+// TestExtractFlagsWhatAnAuditIsFor: a host mismatch, a javascript: link and a
+// mail wrapper are flagged on their rows; an honest link is not.
 func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -978,9 +963,8 @@ func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
 	}
 }
 
-// TestNestedLinkIsReadable: a redirect parameter encoded twice shows its
-// still-encoded form as the value; the link it carries is reported decoded, so
-// the page can offer to inspect, clean or trace it. Only http(s) counts.
+// TestNestedLinkIsReadable: a doubly encoded redirect parameter reports its link
+// decoded; only http(s) counts.
 func TestNestedLinkIsReadable(t *testing.T) {
 	t.Parallel()
 	in, err := linktools.NewService().Parse("https://example.com/out?next=https%253A%252F%252Fshop.example%252Fcart%253Fid%253D42&plain=https%3A%2F%2Fa.example%2F&js=javascript%3Aalert(1)")
@@ -995,8 +979,8 @@ func TestNestedLinkIsReadable(t *testing.T) {
 	}
 }
 
-// TestQueryTokensAreFlagged: a token in the fragment was always called out;
-// the same token in the query, which reaches servers and logs, was not.
+// TestQueryTokensAreFlagged: a token in the query is flagged, as one in the
+// fragment always was.
 func TestQueryTokensAreFlagged(t *testing.T) {
 	t.Parallel()
 	in, err := linktools.NewService().Parse("https://example.com/cb?access_token=abc&state=1")
@@ -1012,8 +996,7 @@ func TestQueryTokensAreFlagged(t *testing.T) {
 	}
 }
 
-// TestCurlCommandSaysHowItSends: a command whose body makes it a POST used to
-// come back looking like a GET. The method is curl's own choice, with the
+// TestCurlCommandSaysHowItSends: the method is curl's own choice, with the
 // reason, and the body is measured but never echoed.
 func TestCurlCommandSaysHowItSends(t *testing.T) {
 	t.Parallel()
@@ -1040,8 +1023,8 @@ func TestCurlCommandSaysHowItSends(t *testing.T) {
 	}
 }
 
-// TestRound2EdgeCases pins the power-user review's parser findings.
-func TestRound2EdgeCases(t *testing.T) {
+// TestParserEdgeCases pins parser corner cases.
+func TestParserEdgeCases(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
 
@@ -1070,8 +1053,7 @@ func TestRound2EdgeCases(t *testing.T) {
 		t.Error("an ordinary host was called a disguised address")
 	}
 
-	// A broken escape would be "fixed" by the browser before following, so
-	// the page must not offer to open it.
+	// A browser rewrites a broken escape, so the page must not offer to open it.
 	if in, _ := svc.Parse("https://example.com/?a=%zz"); in.Linkable {
 		t.Error("a URL with a broken escape is marked linkable")
 	}
@@ -1111,9 +1093,8 @@ func TestRound2EdgeCases(t *testing.T) {
 	}
 }
 
-// TestEncodeLeadsWithTheReading: base64 and JWTs are pasted to be read, so the
-// decoded text comes first; the ladder never repeats a reading already on the
-// page; a trailing line break is named, since it is encoded into everything.
+// TestEncodeLeadsWithTheReading: base64 and JWTs lead with their decoding, the
+// ladder skips what is shown, and a trailing line break is named.
 func TestEncodeLeadsWithTheReading(t *testing.T) {
 	t.Parallel()
 	r := linktools.EncodeAll("aGVsbG8gd29ybGQ=")

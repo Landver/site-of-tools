@@ -35,17 +35,8 @@
       nothing is fetched.
     </p>
 
-    {{/* Two directions, one shown at a time: a segmented control made of two
-         radios, the same look as Cipher Tools' Encrypt|Decrypt, and the panel
-         switch is CSS (group-has), not script. So it works with JavaScript off
-         and cannot flash both panels while a script loads. The radios are not
-         inside either form and are never submitted. Paste is the default
-         because it is the useful direction; Build opens when the page was
-         asked to build (?u=). Each panel holds its own form AND its own result
-         area, so switching never shows one direction's answer under the other
-         direction's form. relative: the sr-only radios are absolutely
-         positioned and must not escape to the page (see short.html).
-
+    {{/* The panel switch is CSS (group-has), so it works without JavaScript;
+         the radios are in no form. relative keeps the sr-only radios inside.
          hx-history="false" on <main>: a pasted command, cookies and all, must
          not be kept in htmx's sessionStorage snapshot of the page. */}}
     {{$build := and .Query (not .Cmd)}}
@@ -59,10 +50,7 @@
         </label>
       </div>
 
-      {{/* POST, and no URL update: a command copied out of DevTools carries
-           session cookies and bearer tokens, and a query string would put them
-           in the address bar, the history and every proxy log on the way
-           (handler.go, POST /curl). Same reasoning as Extract. */}}
+      {{/* POST, so a pasted command's cookies stay out of URLs (handler.go). */}}
       <div class="hidden group-has-[#curl-mode-paste:checked]/curl:block">
       <form method="post" action="/curl" hx-post="/curl" hx-target="#result" hx-swap="innerHTML"
             hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
@@ -91,10 +79,6 @@
       <form action="/curl" hx-get="/curl" hx-target="#result-build" hx-swap="innerHTML" hx-replace-url="true"
             hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
             class="mt-4">
-        {{/* The URL takes a whole row on a phone; beside a 220px menu it was
-             27px wide. curl's own user agent is the default: the browser
-             persona put a 130-character -H 'User-Agent: …' into every command
-             before anyone had asked for one. */}}
         <div class="flex flex-wrap gap-2">
           <input name="u" value="{{.Query}}" autocomplete="off" spellcheck="false"
                  aria-label="URL to turn into a curl command"
@@ -105,8 +89,7 @@
             <select name="ua" class="field min-w-0 flex-1">
               {{$p := .Persona}}
               <option value=""{{if eq $p ""}} selected{{end}}>curl's default (no header added)</option>
-              {{/* "curl" would duplicate the default; it stays listed only
-                   when a shared link asked for it, so the menu matches. */}}
+              {{/* "curl" duplicates the default; listed only when a link asked for it. */}}
               {{range .Personas}}{{if or (ne .Key "curl") (eq $p "curl")}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}
             </select>
           </label>
@@ -134,16 +117,9 @@
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
 
-    {{/* The address bar follows the direction on screen: the paste direction
-         has no URL of its own (it posts), so switching to it leaves a bare
-         /curl, and switching back restores the build form's query, without
-         empty fields (link/live drops those from requests too). Without this,
-         a reload after switching opened the other direction.
-
-         A curl command typed into the build box is moved across to the paste
-         box and taken apart there, in the page. link/live would offer a
-         button to "the curl page" while on it, and the button reloaded the
-         page. Registered before link/live's listener, which this one stops. */}}
+    {{/* The address bar follows the direction shown (paste has no URL: it
+         posts). A curl command typed into Build moves to the paste box; this
+         listener is registered before link/live's, which it stops. */}}
     <script>
       (function () {
         var paste = document.getElementById('curl-mode-paste')
@@ -239,10 +215,8 @@
 <section data-announce="Command taken apart: {{len .Headers}} {{if eq (len .Headers) 1}}header{{else}}headers{{end}}.">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The URL in that command</h2>
   <div class="mt-2 rounded-lg border border-line bg-surface p-4">
-    {{/* The method leads the URL the way a request line does, with why curl
-         would use it: a --data-raw that quietly made the command a POST used
-         to come back looking exactly like a GET. The body is measured, never
-         shown: it is where a copied command keeps its passwords. */}}
+    {{/* The body is measured, never shown: it is where a copied command keeps
+         its passwords. */}}
     {{with .Request}}
     {{if .Notes}}<div class="mb-3 rounded-lg border border-line bg-surface px-4 py-2">{{template "link/notes" .Notes}}</div>{{end}}
     <p class="text-xs text-muted">
@@ -293,9 +267,7 @@
      and .Linkable travels with it, so the allowlist decision stays in one
      place. */}}
 {{if .Result}}
-{{/* No heading of its own: the parse brings its own sections (findings,
-     query parameters, …), and nesting them under a "Taken apart" h2 made a
-     heading of the same rank contain headings of the same rank. */}}
+{{/* No heading: the parse brings its own sections at the same rank. */}}
 <div class="mt-6">{{template "link/inspect" .}}</div>
 {{end}}
 {{end}}

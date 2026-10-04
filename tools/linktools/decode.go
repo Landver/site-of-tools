@@ -149,8 +149,7 @@ func jwtPayload(s string) (string, bool) {
 	return string(out) + jwtUnverified, true
 }
 
-// jwtUnverified ends every decoded JWT. A page that shows the payload on its
-// own (Encode's reading) trims it and says so in its own words.
+// jwtUnverified ends every decoded JWT; Encode's reading trims it.
 const jwtUnverified = "\n\n(signature not verified — this tool only decodes)"
 
 // prettyJSON reformats s when it is a JSON object or array. Scalars are
@@ -223,12 +222,8 @@ func decodesToText(v string) bool {
 	return ok
 }
 
-// encodedLooking is the label's second test, for base64 of binary such as a
-// random token. looksBase64 alone is only length and alphabet, so it tagged
-// every eight-, twelve- and sixteen-letter word ("facebook", "linkedin",
-// "campaign") as base64, which on a utm_source made the page look broken.
-// Real encodings almost always mix digits with both letter cases, or carry
-// padding or the two symbols; ordinary words almost never do.
+// encodedLooking tells base64 of binary from a plain word ("facebook" is valid
+// base64): real encodings mix digits and both cases, or carry +, / or =.
 func encodedLooking(v string) bool {
 	if strings.ContainsAny(v, "+/=") {
 		return true

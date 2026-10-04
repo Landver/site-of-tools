@@ -19,10 +19,8 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  /* Accent — corpberry magenta (identical in both themes) as a FILL: buttons,
-     the active tab, borders, the logo dot. White on it is 5.7:1. Small accent
-     TEXT (links, eyebrows) uses brand-ink: the same in the light theme, and
-     lighter in the dark one, where the fill measured 3.5:1 on the canvas. */
+  /* Accent — corpberry magenta (identical in both themes). Small accent text
+     uses brand-ink, lighter in the dark theme for contrast. */
   --color-brand: #b83266;
   --color-brand-ink: #b83266;
 
@@ -38,16 +36,12 @@
   --color-body:    #3f3f46; /* default body text        */
   --color-muted:   #52525b; /* secondary text, links    */
   --color-faint:   #68686f; /* labels, footer, hints    */
-  /* Status colours pass AA as text on the canvas and the surface. Warn is
-     split like brand: the fill (dots, bars, borders, tints) is amber, and text
-     uses warn-ink, which keeps 7:1 on a warn tint as well. */
+  /* Warn is split like brand: amber fill, warn-ink for text (7:1 on a warn tint). */
   --color-danger:  #b91c1c; /* proxy / threat / error   */
   --color-ok:      #047857; /* not-a-proxy / looks human */
   --color-warn:    #b45309; /* suspicious (bot-check band) */
   --color-warn-ink: #92400e;
-  /* Notable but not bad: a parameter that only moved, a wrapper that was read
-     through. Brand magenta did this job before and sat too close to danger
-     red to be read as anything but an error, in the dark theme especially. */
+  /* Notable but not bad: a parameter that only moved, a wrapper read through. */
   --color-info:    #1d4ed8;
 }
 
@@ -56,7 +50,6 @@
 /* Native controls (checkboxes, popups, scrollbars) follow the theme. */
 :root {
   color-scheme: light;
-  /* Checked boxes take the brand instead of browser blue. */
   accent-color: var(--color-brand);
 }
 
@@ -113,25 +106,19 @@
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input, shared by every form. The edge is line-strong (3:1 or better
-     on canvas and surface), focus is the shared 2px ring, and an
-     aria-invalid field turns its edge red. 16px text on a phone: iOS Safari
-     zooms the whole page into any input smaller than that. */
+  /* Text input + primary button, shared by lookup and CIDR forms. 16px on a
+     phone: iOS zooms into any smaller input. */
   .field {
     @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-base text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger sm:text-sm;
   }
-  /* A native <select> ignores line-height (Chrome computes it as normal), so
-     a menu that wrapped onto its own row came out 3px shorter than the input
-     beside it. Pinned to the input's height instead: one line, the padding
-     and the border, at each of .field's two text sizes. */
+  /* A native <select> ignores line-height; pinned to the input's height. */
   select.field {
     @apply min-h-[2.625rem] sm:min-h-[2.375rem];
   }
   .btn-primary {
     @apply rounded-md bg-brand px-4 py-2 text-sm font-medium text-white enabled:hover:opacity-90 disabled:cursor-wait disabled:opacity-60;
   }
-  /* Same box as .btn-primary, quiet colours: for the second action on a page
-     that already has a primary one, so the two never compete. */
+  /* The quieter second action beside a .btn-primary. */
   .btn-secondary {
     @apply rounded-md border border-line-strong bg-canvas px-4 py-2 text-sm font-medium text-strong hover:border-brand;
   }
@@ -172,8 +159,6 @@
 
   /* Page scaffolding shared by every page: centred column, capped width,
      vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */
-  /* 16px gutters and less top padding on a phone, matching the header there;
-     the desktop rhythm from sm up. */
   .page-main {
     @apply mx-auto w-full max-w-4xl px-4 py-8 flex-1 sm:px-6 sm:py-12;
   }
@@ -182,9 +167,8 @@
   .link-brand {
     @apply border-b border-brand text-strong hover:text-brand-ink;
   }
-  /* A link inside a sentence. Underlined, because colour alone does not set
-     it apart from the words around it (WCAG 1.4.1 asks 3:1 against them, and
-     brand-ink beside muted text is about 2:1). */
+  /* A link inside a sentence: underlined, since colour alone does not set it
+     apart from the words around it (WCAG 1.4.1). */
   .link-inline {
     @apply text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink;
   }

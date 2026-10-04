@@ -18,19 +18,9 @@
         Tracing is switched off on this server. Nothing failed &mdash; the feature simply is not running.
       </div>
     {{else}}
-    {{/* Not live as you type, unlike the parsing pages: every trace dials out
-         to someone else's server and the route allows one a second. A trace
-         waits for the button, and push-url keeps each one as its own step in
-         the history. Changing "ask as" re-runs it, because the page itself
-         says the answer often depends on who asks.
-
-         hx-sync="this:queue last" rather than hx-disabled-elt: disabling the
-         button that has focus throws focus to <body>, so the next Tab started
-         over at the header; and a change made while a trace runs (a new URL,
-         another "Ask as") runs next, rather than being dropped. The progress text lives inside the button for the same
-         reason the parsing pages have none: beside it, it held its width even
-         while hidden, and squeezed the URL field on a phone. The field takes a
-         whole row there; the menu and button share the next. */}}
+    {{/* Not live: every trace dials out, and the route allows one a second.
+         hx-sync="this:queue last", not hx-disabled-elt: disabling the focused
+         button throws focus to <body>. */}}
     <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
           hx-trigger="submit, change from:find select" hx-sync="this:queue last"
           class="mt-6 flex flex-wrap gap-2">
@@ -54,8 +44,6 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
     <div id="result" class="mt-6" data-result>
       {{if (and .Error (not .Disabled))}}{{template "link/error" .}}{{else}}{{template "link/chain" .}}{{end}}
     </div>

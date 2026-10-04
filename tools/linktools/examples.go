@@ -2,20 +2,14 @@ package linktools
 
 import "net/url"
 
-// Example is one "try it" link in a page's empty state: a label, and the URL of
-// this tool with the inputs already filled in. A first-time visitor gets a
-// result in one click instead of having to go and find a URL worth taking
-// apart.
-//
-// Built in Go rather than written into the templates so the percent-encoding is
-// url.Values' job. A hand-escaped example in an href is one typo away from
-// demonstrating a bug the page itself exists to explain.
+// Example is one "try it" link in a page's empty state. Built in Go so
+// url.Values does the escaping: a hand-escaped href is one typo away from the
+// bug the page exists to explain.
 type Example struct {
 	Label string
 	Href  string
 }
 
-// ex builds one Example from a path and key/value pairs.
 func ex(label, path string, kv ...string) Example {
 	v := url.Values{}
 	for i := 0; i+1 < len(kv); i += 2 {
@@ -24,10 +18,8 @@ func ex(label, path string, kv ...string) Example {
 	return Example{Label: label, Href: path + "?" + v.Encode()}
 }
 
-// examples per page key (the same keys as the sub-nav's .Active). Every target
-// is on a reserved example domain (RFC 2606) except Trace's, which has to be a
-// real host that redirects, so those are two of the most-visited sites there
-// are rather than anything that could change hands.
+// examples per page key (the sub-nav's .Active). All on reserved example
+// domains (RFC 2606) except Trace's, which needs real hosts that redirect.
 var examples = map[string][]Example{
 	"inspect": {
 		ex("A tracking-heavy link", "/",

@@ -5,11 +5,8 @@
      is the reason it is worth having rather than being the hundredth utm
      builder — the two pages agree, and each links to the other.
 
-     Fields come from the handler (handler.go's utmFields: name, placeholder,
-     hint and the current value), so the form cannot drift out of step with
-     what the handler reads, and a new field cannot arrive without its hint.
-     .Common are shown, .Rare are folded and open themselves when one of them
-     has a value (.RareOpen).
+     Fields come from the handler (handler.go's utmField), so the form cannot
+     drift out of step with what it reads. .Rare are folded unless one has a value.
 
      Safety rule, carried from inspect.html: .Query and .Built are
      attacker-supplied text and neither is written into an href. The built URL
@@ -32,8 +29,6 @@
       remove every one of them.
     </p>
 
-    {{/* Live, like Inspect (see index.html): the tagged URL follows every
-         field, so the button is only ever needed for Enter and the no-JS path. */}}
     <form action="/utm" hx-get="/utm" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6">
@@ -66,8 +61,6 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
     <div id="result" class="mt-6" data-result>
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/utmbuilt" .}}{{end}}
     </div>
@@ -110,13 +103,9 @@
 </html>
 {{end}}
 
-{{/* One campaign field: its name as the label, the input, and the hint. The
-     label holds the name alone and the hint is a description, so a screen
-     reader announces "utm_source", not the name and the whole sentence under
-     it as one long label.
-     flex-none on the input because .field is flex-1, and inside a flex-col
-     label that grew the input VERTICALLY whenever a grid neighbour's hint
-     wrapped to one more line than its own. */}}
+{{/* The label is the name alone and the hint a description, so a screen reader
+     announces "utm_source", not a sentence. flex-none: .field's flex-1 grew the
+     input vertically in a flex-col label. */}}
 {{define "link/utmfield"}}
 <div class="flex flex-col gap-1 text-sm">
   <label for="tag-{{.Name}}" class="font-mono text-xs text-strong">{{.Name}}</label>
@@ -127,15 +116,11 @@
 {{end}}
 
 {{/* Result fragment — the htmx swap target, and the body of the page above.
-     Every tag on the result is listed with where it came from, because an
-     empty field now keeps what the URL already carried: a tag can be on the
-     result without having been typed, and that should never be a surprise. */}}
+     Each tag says where it came from: an empty field keeps the URL's own. */}}
 {{define "link/utmbuilt"}}
 {{with .Result}}
 
-{{/* No tag typed and none already on the URL is not a result: a green
-     "Tagged URL" card with a Copy button beside the untouched URL said it
-     was. */}}
+{{/* Nothing typed and nothing on the URL is not a result. */}}
 {{if not .Tags}}
 <section class="rounded-lg border border-line bg-surface p-4" data-announce="No tags yet.">
   <h2 class="text-sm font-semibold text-strong">No tags yet</h2>

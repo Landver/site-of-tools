@@ -13,9 +13,6 @@
       <a href="{{apexURL}}/blog" class="text-muted hover:text-strong">Blog</a>
 
       <!-- Tools: dropdown of tool catalog (single source: site.Tools). -->
-      <!-- aria-expanded says whether the menu is open; Escape closes it AND
-           puts focus back on the button (it used to drop focus to <body>), and
-           tabbing out of the menu closes it rather than leaving it hanging. -->
       <div class="relative" x-data="{ open: false }"
            @click.outside="open = false"
            @focusout="if (!$el.contains($event.relatedTarget)) open = false"
@@ -50,9 +47,8 @@
       </a>
 
       <!-- Theme toggle: sun in dark mode, moon in light. Handler set in head. -->
-      <!-- A toggle, so it says which way it is set: aria-pressed follows the
-           theme. onclick stays the one that switches it, so the button still
-           works if Alpine never loads; Alpine only keeps the state in step. -->
+      <!-- onclick switches the theme, so it works without Alpine; Alpine only
+           keeps aria-pressed in step. -->
       <button type="button" onclick="toggleTheme()" aria-label="Dark theme"
               x-data="{ dark: document.documentElement.getAttribute('data-theme') === 'dark' }"
               @click="dark = !dark" :aria-pressed="dark.toString()"

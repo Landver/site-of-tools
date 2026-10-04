@@ -286,9 +286,8 @@ func TestTransportStaysClosed(t *testing.T) {
 	}
 }
 
-// TestTraceSaysWhenTheChainEndsAtAnError: a 404 is still where the link ends,
-// so Final is set, but the status travels with it and a finding says it is an
-// error page. The page used to show it as neutrally as a 200.
+// TestTraceSaysWhenTheChainEndsAtAnError: a 404 is still Final, with its status
+// and a finding that it is an error page.
 func TestTraceSaysWhenTheChainEndsAtAnError(t *testing.T) {
 	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -304,9 +303,8 @@ func TestTraceSaysWhenTheChainEndsAtAnError(t *testing.T) {
 	}
 }
 
-// TestTraceLiftsTheReasonIntoFindings: when the chain stops short, the reason
-// is in the chain's own findings, not only on the last hop further down: the
-// page announces "No final destination; see the findings".
+// TestTraceLiftsTheReasonIntoFindings: a chain that stops short has the reason
+// in its own findings, where the page points.
 func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
@@ -326,8 +324,8 @@ func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
 	}
 }
 
-// TestHopUnlistedSkipsWhatFindingsSay: the page prints the last hop's reason
-// once, in Findings, not again under the hop. The JSON keeps both.
+// TestHopUnlistedSkipsWhatFindingsSay: the page prints the reason once; the
+// JSON keeps both.
 func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)

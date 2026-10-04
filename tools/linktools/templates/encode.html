@@ -43,12 +43,7 @@
     <form action="/encode" hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">
-      {{/* A textarea, growing with its content: a value with a newline in it
-           (JSON, a PEM block, wrapped base64) lost the newline in a one-line
-           input, and every encoding below was then of a different value. */}}
-      {{/* data-enter-submits: Enter converts, as the one-line input it
-           replaced did, and Shift+Enter types a newline (link/live). Enter
-           used to add a newline and silently change every result. */}}
+      {{/* A textarea: a value can hold newlines (JSON, a PEM block, base64). */}}
       <textarea name="v" rows="1"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
                 data-enter-submits aria-label="Value to encode and decode"
                 placeholder="hello world &amp; friends"
@@ -59,8 +54,6 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
     <div id="result" class="mt-6" data-result>
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/encoded" .}}{{end}}
     </div>
@@ -107,17 +100,11 @@
 {{define "link/encoded"}}
 {{with .Result}}
 
-{{/* The input is not echoed back: it is in the box right above. Only the
-     guess about what it is earns a line, and the reading card below says it
-     itself. */}}
 {{if and .Kind (not .Reading)}}<p class="mb-4 text-sm text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></p>{{end}}
 {{with .Notes}}<div class="mb-4">{{template "link/notes" .}}</div>{{end}}
 
-{{/* Order follows what the value most likely is. Plain text leads with the
-     query-vs-path pair, the point of the page. A value that is already
-     percent-encoded leads with its decoded readings, because reading it is why
-     anyone pastes one, and the pair it used to lead with offered %2520 for
-     %20 with a Copy button beside it (EncodeResult.AlreadyEncoded). */}}
+{{/* A value that is most likely encoded (base64, a JWT, %XX) leads with its
+     decoding; plain text leads with the query-vs-path pair. */}}
 {{if .Reading}}
 <section class="rounded-lg border border-info bg-surface p-4" data-announce="Looks like {{.Kind}}; decoded first.">
   <h2 id="reading" class="text-sm font-semibold text-strong">{{if eq .Kind "jwt"}}Decoded JWT: header and payload{{else}}Decoded {{.Reading.Method}}{{end}}</h2>
@@ -160,12 +147,9 @@
 {{end}}
 {{end}}
 
-{{/* THE point of the page: one value encoded for the two places it might go.
-     Matched by name, never by index — see the file comment. Each Copy button
-     is described by its card's heading, so a screen reader hears what it
-     copies rather than eleven identical "Copy"s; aria-describedby, not
-     aria-label, because the copy partial swaps the visible text to "Copied"
-     and a label would hide that. */}}
+{{/* THE point of the page. Matched by name, never by index — see the file
+     comment. Copy is described by its card's heading: aria-describedby, as a
+     label would hide the "Copied" text. */}}
 {{define "link/enc-pair"}}
 <section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query rules vs path rules</h2>
@@ -226,8 +210,7 @@
                 <button type="button" class="btn-copy" aria-describedby="enc-{{$i}}" data-copy="{{.Value}}">Copy</button>
               </div>
             {{end}}
-            {{/* The two percent rows skip their notes: the cards above carry the
-                 same sentences, word for word. */}}
+            {{/* The percent rows' notes are on the cards above. */}}
             {{if and .Note (ne .Name "Percent (query)") (ne .Name "Percent (path)")}}<span class="mt-1 block text-xs text-muted">{{.Note}}</span>{{end}}
           </td>
         </tr>
@@ -277,8 +260,7 @@
 </section>
 {{end}}
 
-{{/* .Ladder, not .Layers: a first rung equal to a reading already on the
-     page is dropped (encode.go), so "It decodes further" always does. */}}
+{{/* .Ladder: .Layers without a first rung already shown above. */}}
 {{define "link/dec-ladder"}}
 {{if .Ladder}}
 <section class="mt-6">

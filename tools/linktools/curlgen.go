@@ -108,9 +108,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		}
 		args = append(args, "-H", shellQuote("User-Agent: "+p.UA))
 	}
-	// curl reads [] and {} in a URL as a glob ("ids[]=1" is a bad range,
-	// exit 3) unless told not to. Only added when it matters, so the common
-	// command stays as short as it was.
+	// curl globs [] and {} in a URL ("ids[]=1" fails, exit 3) unless told not to.
 	if strings.ContainsAny(raw, "[]{}") {
 		args = append(args, "-g")
 	}
@@ -141,11 +139,8 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 	return r.URL, r.Headers, nil
 }
 
-// CurlRequest is a pasted command taken apart: where it goes, what it sends,
-// and how. Method is what curl itself would send, with the reason, because a
-// command whose --data-raw silently made it a POST used to come back looking
-// exactly like a GET. The body is measured, never echoed: it is the part of a
-// copied command most likely to carry a password.
+// CurlRequest is a pasted command taken apart. The body is measured, never
+// echoed: it is where a copied command keeps its passwords.
 type CurlRequest struct {
 	URL       string   `json:"url"`
 	Headers   []Header `json:"headers"`
@@ -156,9 +151,8 @@ type CurlRequest struct {
 	Notes     []Note   `json:"notes,omitempty"`
 }
 
-// urlencodeData encodes a --data-urlencode argument the way curl does:
-// "content" whole, "name=content" after the "=", "@file" left alone (it names
-// a file this tool cannot read). Spaces become %20, as curl writes them.
+// urlencodeData encodes a --data-urlencode argument as curl does; "@file" is
+// left alone.
 func urlencodeData(v string) string {
 	esc := func(x string) string { return strings.ReplaceAll(url.QueryEscape(x), "+", "%20") }
 	if strings.HasPrefix(v, "@") || strings.Contains(v, "@") && !strings.Contains(v, "=") {
@@ -184,8 +178,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 
 	toks, info := shellSplit(cmd)
 	if info.unterminated {
-		// Read to the end anyway, the parse would be a guess about where the
-		// quote was meant to close. A shell would sit waiting for more input.
+		// A shell would wait for more input; any parse would be a guess.
 		return nil, fmt.Errorf("the command has a quote that is never closed")
 	}
 	r := &CurlRequest{}
@@ -196,8 +189,6 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 	if i < len(toks) && isCurlWord(toks[i]) {
 		i++
 	} else if i == len(toks)-1 && looksLikeURL(toks[i]) {
-		// A URL on its own is the other direction's input. Taking it apart
-		// as "GET, curl's default" answered a question nobody asked.
 		r.Notes = append(r.Notes, Note{SevInfo, "Only a URL",
 			"There is no command here, just a URL, so it was read as a bare curl call. To turn it into a command, use Build a command."})
 	} else if i < len(toks) && !looksLikeURL(toks[i]) && !strings.HasPrefix(toks[i], "-") {
@@ -244,9 +235,8 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		case name == "--head":
 			head = true
 		case !strings.HasPrefix(t, "--"):
-			// A short cluster, "-sSLG" or "-GXPOST": G and I count wherever
-			// they sit among the booleans before any letter that takes an
-			// argument.
+			// "-sSLG", "-GXPOST": G and I count among the booleans before any
+			// letter that takes an argument.
 			bools := t[1:]
 			if j := strings.IndexAny(bools, curlArgShorts); j >= 0 {
 				bools = bools[:j]
@@ -316,7 +306,6 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		r.Method, r.MethodWhy = "HEAD", "implied by -I"
 	case get && r.BodyFlag != "":
 		r.Method, r.MethodWhy = "GET", "-G moves the "+r.BodyFlag+" data into the query string"
-		// …so the URL shown is the one curl would request, query included.
 		sep := "?"
 		if strings.Contains(r.URL, "?") {
 			sep = "&"
@@ -360,9 +349,7 @@ func shellSplit(s string) ([]string, shellInfo) {
 			open = false
 		}
 	}
-	// expansion notes "$VAR", "${…}", "$(…)" outside single quotes: a shell
-	// replaces them before curl ever runs, so the literal text shown here is
-	// not what curl would have received.
+	// A shell substitutes these before curl runs, so the text is not what curl gets.
 	expansion := func(i int) {
 		if i+1 < len(s) {
 			n := s[i+1]
@@ -444,9 +431,7 @@ func shellSplit(s string) ([]string, shellInfo) {
 			open = true
 			i = j + 1
 		case c == ';' || c == '&' || c == '|':
-			// A shell ends the command here: what follows runs separately, in
-			// the background, or with this one's output piped into it. curl
-			// never sees it, so neither does this parse; the note says so.
+			// A shell ends the command here; curl never sees the rest.
 			push()
 			info.stoppedAt = string(c)
 			if i+1 < len(s) && (s[i+1] == '&' || s[i+1] == '|') {
@@ -472,9 +457,7 @@ func shellSplit(s string) ([]string, shellInfo) {
 	return out, info
 }
 
-// shellInfo is what shellSplit noticed about shell syntax it does not run:
-// an unclosed quote, a command that ends before the end of the paste, and
-// expansions a shell would have substituted.
+// shellInfo is the shell syntax shellSplit noticed but does not run.
 type shellInfo struct {
 	unterminated bool
 	stoppedAt    string // the operator the command ended at: ";", "&&", "|", …

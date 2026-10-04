@@ -3,22 +3,14 @@
      Two rendering rules govern this file and neither is cosmetic:
        1. A hop URL is NEVER an anchor. wheregoes.com pipe-separates the
           characters for the same reason; we render as text. The whole point of
-          the page is inspecting links you do not want to click. data-copy is
-          not an anchor: the copy partial puts the text on the clipboard.
+          the page is inspecting links you do not want to click.
        2. When .Final is empty the chain demonstrably continues somewhere we did
           not follow, and the template must NOT substitute the last hop's URL.
           A pre-redirect URL presented as the destination is the wrong answer in
-          the security-relevant direction.
-
-     The answer leads: where the link ends up (or that it does not end), then
-     the findings, then the hops that got there. It used to be the other way
-     round, which put the one line most people came for below the fold. */}}
+          the security-relevant direction. */}}
 {{define "link/chain"}}
 {{with .Result}}
 
-{{/* An error page is still where the link ends, so it keeps the card, but
-     it says so first and takes the warning border: a 404 shown as neutrally
-     as a 200 read as "this link works". */}}
 <section class="rounded-lg border {{if and .Final (lt .FinalStatus 400)}}border-line{{else}}border-warn{{end}} bg-surface p-4"
          data-announce="{{if .Final}}Final destination: {{.Final}}{{if ge .FinalStatus 400}}, which answers {{.FinalStatus}} {{.FinalReason}}{{end}}{{else}}No final destination; see the findings.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -33,8 +25,7 @@
       <button type="button" class="btn-copy" data-copy="{{.Final}}">Copy</button>
     </div>
     <p class="mt-2 text-xs text-muted">{{if ge .FinalStatus 400}}Where the chain ended: an error page, not the page the link promised.{{else}}Where the chain ended. Not a verdict on whether it's safe.{{end}}</p>
-    {{/* Clean as well as Inspect: redirectors are exactly where tracking
-         parameters get added on the way through. */}}
+    {{/* Clean too: redirectors add tracking parameters on the way through. */}}
     <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
       <a href="/?u={{.Final}}" class="text-brand-ink hover:underline">Inspect it</a>
       <a href="/clean?u={{.Final}}" class="text-brand-ink hover:underline">Clean it</a>
@@ -63,9 +54,7 @@
     <li class="rounded-lg border border-line bg-surface p-3">
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="font-mono text-muted">{{.Index}}</span>
-        {{/* Status 0 means no response at all (the request was refused or
-             failed before one came back): a "0" badge and "0 ms" read as a
-             bug, so it says so in words. */}}
+        {{/* Status 0 is no response at all. */}}
         {{if eq .Status 0}}
         <span class="whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">no response</span>
         {{else}}
@@ -84,9 +73,7 @@
       {{/* Text, never an anchor. See the file comment. */}}
       <p class="mt-1 wrap-anywhere font-mono text-sm text-strong">{{.URL}}</p>
       {{if .Location}}<p class="mt-1 wrap-anywhere font-mono text-xs text-muted"><span aria-hidden="true">&rarr;</span><span class="sr-only">redirects to</span> {{.Location}}</p>{{end}}
-      {{/* Without the notes already in Findings: the last hop's reason is
-           lifted up there (trace.go's liftLastHop), and printing it twice
-           read as two problems. The JSON keeps it in both places. */}}
+      {{/* Not again what Findings shows; the JSON keeps both. */}}
       {{with .Unlisted $findings}}<div class="mt-2">{{template "link/notes" .}}</div>{{end}}
     </li>
     {{end}}

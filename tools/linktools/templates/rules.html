@@ -54,8 +54,6 @@
     {{.Origin}}
     {{if .Doc}}<a href="{{.Doc}}" target="_blank" rel="noopener noreferrer" class="ml-1 text-brand-ink hover:underline">docs</a>{{else}}<span class="ml-1 text-faint" title="No vendor documentation found; this entry rests on observation">unsourced</span>{{end}}
   </td>
-  {{/* A host breaks anywhere only when it is long; "tiktok.com" split into
-       "tiktok.c" / "om" at 375px. */}}
   <td class="px-3 py-2 text-xs text-muted">
     {{if .Hosts}}
       {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<span class="{{if gt (len $h) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono">{{$h}}</span>{{end}}
@@ -79,9 +77,6 @@
       <span class="text-muted">Wrappers <span class="font-mono text-strong">{{len .Wrappers}}</span></span>
     </div>
 
-    {{/* The scope statement stays in full view, verbatim from rules.go; the
-         reasoning behind it folds, because above the tables it was a screen of
-         reading between a visitor and the row they came to check. */}}
     <section class="mt-6 rounded-lg border border-warn bg-surface p-4">
       <h2 class="text-sm font-semibold text-strong">Scope</h2>
       <p class="mt-1 text-sm text-muted">{{.Scope}}</p>
@@ -115,11 +110,7 @@
       </details>
     </section>
 
-    {{/* Find and jump. The find box filters every table below by row text, so
-         "is fbclid on the list?" is a few keystrokes rather than a scroll
-         through 180 rows. It is hidden until its script runs: without
-         JavaScript it would be a box that does nothing, and the browser's own
-         find-in-page still works. The jump links are plain anchors. */}}
+    {{/* The find box is hidden until its script runs; without it, it would do nothing. */}}
     <div class="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
       <input id="rule-find" type="search" hidden autocomplete="off" spellcheck="false"
              aria-label="Find a parameter, vendor or host" aria-controls="rule-tables"
@@ -136,8 +127,6 @@
     </div>
     <p id="rule-find-none" class="mt-4 text-sm text-muted" hidden role="status"></p>
 
-    {{/* The two marks the tables use, said once in words. Both used to be
-         explained only in a hover title, which a phone never shows. */}}
     <p class="mt-4 max-w-prose text-xs text-muted">
       <span class="font-mono text-brand-ink">*</span> at the end of a name matches every parameter that starts
       with it: <span class="font-mono">utm_*</span> covers <span class="font-mono">utm_source</span>,
@@ -338,10 +327,7 @@
     </div>
 
     <script>
-      // The find box: hides every row that does not contain the query, then
-      // every section left with no rows, and says so when nothing matches.
-      // Plain substring matching on the rendered row text, so a parameter, a
-      // vendor ("Meta") or a host ("amazon.") all find their rows.
+      // Plain substring match on each row's text; empty sections hide too.
       (function () {
         var box = document.getElementById('rule-find')
         var none = document.getElementById('rule-find-none')

@@ -27,12 +27,8 @@ type Extraction struct {
 	Notes  []Note         `json:"notes,omitempty"`
 }
 
-// ExtractedURL is one distinct URL, in the order it was first seen.
-//
-// Flags are the audit: the few things about a link, read off its text alone,
-// that should stop someone sending it. Without them every row of a suspicious
-// email looked exactly like every row of an innocent one, which made the page
-// a list rather than an audit.
+// ExtractedURL is one distinct URL, in the order it was first seen. Flags are
+// what, read off its text alone, should stop someone sending it.
 type ExtractedURL struct {
 	URL       string   `json:"url"`
 	Anchor    string   `json:"anchor,omitempty"`    // first non-empty link text, whitespace collapsed
@@ -63,8 +59,7 @@ const (
 	maxPositions = 100
 	// maxAnchorText keeps one runaway link text from owning the table.
 	maxAnchorText = 200
-	// maxAnchors bounds the distinct link texts kept per URL.
-	maxAnchors = 5
+	maxAnchors    = 5
 )
 
 // Extract pulls every URL out of pasted text, deduplicated and counted.
@@ -153,9 +148,8 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 	return out, nil
 }
 
-// addAnchor records a link text. Anchor stays the first one, as before;
-// Anchors keeps every distinct one, because one URL linked as both "our store"
-// and "fall sale" is two claims about where it goes.
+// addAnchor keeps the first text as Anchor and every distinct one in Anchors:
+// two texts are two claims about where a link goes.
 func (r *ExtractedURL) addAnchor(a string) {
 	if a == "" || slices.Contains(r.Anchors, a) || len(r.Anchors) >= maxAnchors {
 		return
@@ -166,8 +160,7 @@ func (r *ExtractedURL) addAnchor(a string) {
 	r.Anchors = append(r.Anchors, a)
 }
 
-// auditLink is the second look an audit is for, from the URL's text alone:
-// nothing is fetched, nothing resolved.
+// auditLink flags a link from its text alone; nothing is fetched or resolved.
 func auditLink(raw string, anchors []string) []Note {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -188,9 +181,7 @@ func auditLink(raw string, anchors []string) []Note {
 		notes = append(notes, Note{SevFail, "Credentials before the host",
 			"Everything before the @ is a username. This goes to " + host + "."})
 	}
-	// The classic phishing shape: the reader trusts the text, the click goes
-	// elsewhere. Only text that itself reads as a URL or a domain counts;
-	// "click here" makes no claim to compare.
+	// Only text that reads as a URL or domain makes a claim to compare.
 	for _, a := range anchors {
 		if shown := hostInText(a); shown != "" && host != "" && !sameSite(shown, host) {
 			notes = append(notes, Note{SevFail, "Text shows " + shown + ", link goes to " + host,
@@ -224,8 +215,7 @@ func auditLink(raw string, anchors []string) []Note {
 // textHostRe: link text that reads as a bare domain, optionally with a path.
 var textHostRe = regexp.MustCompile(`(?i)^(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}(?:[/?#]\S*)?$`)
 
-// hostInText returns the host a link text claims to be, or "" when the text
-// makes no such claim.
+// hostInText is the host a link text claims to be, or "".
 func hostInText(a string) string {
 	a = strings.TrimSpace(a)
 	if strings.Contains(a, "://") {
@@ -244,8 +234,7 @@ func hostInText(a string) string {
 }
 
 // sameSite: the link goes where its text says, or to a subdomain of it.
-// "paypal.com" over www.paypal.com is honest; "www.paypal.com" over
-// paypal.com.example.net is the trick.
+// "www.paypal.com" over paypal.com.example.net is not.
 func sameSite(shown, host string) bool {
 	shown, host = strings.TrimPrefix(shown, "www."), strings.TrimPrefix(host, "www.")
 	return host == shown || strings.HasSuffix(host, "."+shown)

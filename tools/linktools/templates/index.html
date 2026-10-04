@@ -15,15 +15,10 @@
     </p>
 
     {{/* GET-shaped, so every result is a shareable URL — the one pattern every
-         tool surveyed agrees on. Live: the result follows the input (a paste is
-         the usual first move), and the button stays for the Enter key and the
-         no-JS path. replace-url rather than push-url, so the address bar always
-         holds the current result without every pause in typing becoming a step
-         in the back button's history. hx-sync drops a slower, older answer
-         rather than letting it land on top of a newer one. The trade the GET
-         shape makes is stated in the first <details> below the result rather
-         than buried: hosted parsers are client-side and keep the URL on your
-         machine, and we don't. See docs/06 §5. */}}
+         tool surveyed agrees on. The trade this makes is stated below the result
+         rather than buried: hosted parsers are client-side and keep the URL on
+         your machine, and we don't. See docs/06 §5. replace-url, not push-url:
+         a live form would add a history step per pause. */}}
     <form action="/" hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">
@@ -37,15 +32,11 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
+    {{/* Errors render inside the result area, so the next live update replaces them. */}}
     <div id="result" class="mt-6" data-result>
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/inspect" .}}{{end}}
     </div>
 
-    {{/* Below the result, not between it and the form: these answer questions
-         someone has after using the page, and above the result they pushed it
-         below the fold on a laptop screen. */}}
     <details class="mt-10 text-sm">
       <summary class="cursor-pointer text-muted hover:text-strong">Where does the URL go?</summary>
       <div class="mt-2 max-w-prose space-y-2 text-muted">

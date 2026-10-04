@@ -15,17 +15,11 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// The UX pass made promises a refactor could quietly break while every page
-// still rendered: examples that load a result in one click, a removal table
-// that names each reason once, a console list that reloads itself. Each test
-// here pins one of them through the real router and templates.
+// Each test pins one UX promise through the real router and templates.
 
-// examplePages are the pages with "Try an example" chips. Trace has them too,
-// but its examples dial out, so they are not followed here.
+// examplePages have "Try an example" chips; Trace's dial out, so are not followed.
 var examplePages = []string{"/", "/clean", "/diff", "/curl", "/utm", "/encode", "/extract"}
 
-// exampleHref finds the chips' links: the hrefs after the "Try an example"
-// label, which is all the empty state renders.
 var exampleHref = regexp.MustCompile(`href="([^"]+)"`)
 
 func examplesOn(t *testing.T, body string) []string {
@@ -45,9 +39,7 @@ func examplesOn(t *testing.T, body string) []string {
 	return out
 }
 
-// TestHeadingIsThePageNameAlone: the suite name belongs on the <title>, where a
-// tab strip needs it, and not on the <h1>, where it made every heading read
-// "Clean a URL — Link Tools".
+// TestHeadingIsThePageNameAlone: the suite name belongs on the <title>, not the <h1>.
 func TestHeadingIsThePageNameAlone(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -65,10 +57,8 @@ func TestHeadingIsThePageNameAlone(t *testing.T) {
 	}
 }
 
-// TestEveryExampleLoadsAResult follows every chip on every page and asserts it
-// lands on a result, not on an error or another empty form. An example is the
-// first thing a new visitor clicks; one that 400s is the whole first
-// impression.
+// TestEveryExampleLoadsAResult: every chip lands on a result, not an error or
+// the empty form again.
 func TestEveryExampleLoadsAResult(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -100,9 +90,8 @@ func TestEveryExampleLoadsAResult(t *testing.T) {
 	}
 }
 
-// TestClearingTheInputBringsTheExamplesBack: the pages are live, so emptying
-// the box sends an htmx request with an empty value, and the answer has to be
-// the empty state again rather than a blank area or an error.
+// TestClearingTheInputBringsTheExamplesBack: an emptied live box gets the empty
+// state, not a blank area or an error.
 func TestClearingTheInputBringsTheExamplesBack(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -119,10 +108,8 @@ func TestClearingTheInputBringsTheExamplesBack(t *testing.T) {
 	}
 }
 
-// TestCleanNamesEachReasonOnce: three utm_ parameters are one rule's decision,
-// and printing its paragraph three times read like three problems. The table
-// still names every parameter it removed; only the reason is folded. The JSON
-// keeps one entry per parameter.
+// TestCleanNamesEachReasonOnce: one rule's reason prints once, every parameter
+// is still named, and the JSON keeps one entry per parameter.
 func TestCleanNamesEachReasonOnce(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -144,9 +131,7 @@ func TestCleanNamesEachReasonOnce(t *testing.T) {
 	}
 }
 
-// TestUTMFoldOpensForAValue: term and content are folded away because most
-// links have neither, but a fold that hid a value the URL actually carries
-// would hide what the page is building.
+// TestUTMFoldOpensForAValue: the fold never hides a value the URL carries.
 func TestUTMFoldOpensForAValue(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -161,9 +146,8 @@ func TestUTMFoldOpensForAValue(t *testing.T) {
 	}
 }
 
-// TestLiveFormsKeepTheHistoryClean: the parsing pages answer as you type, and
-// every pause pushing a history entry would make the back button replay the
-// typing one keystroke at a time. Trace, which waits for its button, pushes.
+// TestLiveFormsKeepTheHistoryClean: live forms replace the URL rather than push
+// one per pause; Trace, which waits for its button, pushes.
 func TestLiveFormsKeepTheHistoryClean(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -182,9 +166,8 @@ func TestLiveFormsKeepTheHistoryClean(t *testing.T) {
 	}
 }
 
-// TestCreateAndRevokeReloadTheList: the list reloads on an htmx event the
-// server sends, so a revoked link stops looking alive without a manual reload.
-// JSON callers never see the header. Live, because both need storage.
+// TestCreateAndRevokeReloadTheList: both send the list's reload event, to htmx
+// only. Live, because both need storage.
 func TestCreateAndRevokeReloadTheList(t *testing.T) {
 	ctx := context.Background()
 	short, _ := liveShortener(t, ctx)
@@ -230,11 +213,8 @@ func TestCreateAndRevokeReloadTheList(t *testing.T) {
 	}
 }
 
-// TestWrongPasteIsSentToTheRightPage: a curl command or a block of text pasted
-// where one URL goes gets a sentence saying what it looks like and a button to
-// the page it belongs on, instead of "first path segment in URL cannot contain
-// colon". The button is a POST form: the input may be a command with cookies
-// in it, and a link would put them in a URL.
+// TestWrongPasteIsSentToTheRightPage: a curl command or text with links gets a
+// POST button to its page; a link would put a command's cookies in a URL.
 func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -244,8 +224,6 @@ func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 		{"/clean?u=", `<a href="https://example.com/">x</a>`, "/extract", "text"},
 		{"/utm?u=", "see https://a.example and https://b.example", "/extract", "text"},
 		{"/?u=", "https://a.example/\nhttps://b.example/", "/extract", "text"},
-		// Diff has two boxes and the build half of curl has its own; each
-		// used to send a pasted command on to the parser and into the URL.
 		{"/diff?b=https%3A%2F%2Fexample.com%2F&a=", "curl https://example.com/ -H 'cookie: s=1'", "/curl", "curl"},
 		{"/curl?u=", "curl https://example.com/ -b 's=1'", "/curl", "curl"},
 	} {
@@ -265,10 +243,8 @@ func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 	}
 }
 
-// TestOneURLIsNeverSentAway: the wrong-tool check must never refuse a URL.
-// Its first version did, on every one of these: a query parameter called href
-// (Facebook's share links, click trackers), a raw space (SharePoint and
-// file-name links) and a URL carried unencoded in another's query.
+// TestOneURLIsNeverSentAway: the wrong-tool check never refuses a URL, with a
+// ?href=, a raw space or another URL in its query included.
 func TestOneURLIsNeverSentAway(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -303,10 +279,7 @@ func TestOneURLIsNeverSentAway(t *testing.T) {
 	}
 }
 
-// TestCurlPasteNeverRidesInAURL: the paste form posts, and the route answers a
-// POST with the full result, so a DevTools command's cookies stay out of the
-// address bar, the history and the proxy logs. GET ?curl= still works for the
-// API.
+// TestCurlPasteNeverRidesInAURL: the paste form posts; GET ?curl= still works.
 func TestCurlPasteNeverRidesInAURL(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -334,12 +307,9 @@ func TestCurlPasteNeverRidesInAURL(t *testing.T) {
 	}
 }
 
-// TestAlpineAttributesAreExpressions: Alpine evaluates x-init, x-data and
-// @event values as JavaScript EXPRESSIONS, so a statement there (try/catch,
-// var, a for loop) is a syntax error that logs once and disables the whole
-// binding. It happened: the console's key was silently never read or saved,
-// with every page still rendering perfectly. Statements belong in a script, as
-// short.html's linkKey() does.
+// TestAlpineAttributesAreExpressions: a statement in an Alpine attribute
+// (try/catch, var, for) is a syntax error that silently disables the binding.
+// Statements belong in a script, as short.html's linkKey() does.
 func TestAlpineAttributesAreExpressions(t *testing.T) {
 	t.Parallel()
 	files, _ := filepath.Glob("../templates/*.html")
@@ -360,10 +330,8 @@ func TestAlpineAttributesAreExpressions(t *testing.T) {
 	}
 }
 
-// TestCleanFormSendsUnwrapOnlyWhenTurnedOff: the control is "leave wrappers as
-// they are", so a default submit sends nothing for it and a shared Clean URL
-// stays clean. The old ticked-by-default box needed a hidden "false"
-// companion, which put unwrap=true&unwrap=false into every result URL.
+// TestCleanFormSendsUnwrapOnlyWhenTurnedOff: a default submit sends nothing for
+// unwrap, so a shared Clean URL stays clean.
 func TestCleanFormSendsUnwrapOnlyWhenTurnedOff(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -381,11 +349,8 @@ func TestCleanFormSendsUnwrapOnlyWhenTurnedOff(t *testing.T) {
 	}
 }
 
-// TestFragmentsAreNeverCachedAsPages: one URL answers as a page, a fragment or
-// JSON, and the live pages put each result URL in the address bar. Without
-// Vary, the browser cached the htmx fragment under that address and showed it,
-// bare and unstyled, when Back returned there. An htmx error must not become a
-// history entry either.
+// TestFragmentsAreNeverCachedAsPages: Vary and no-store keep Back from showing
+// a cached fragment bare, and an htmx error never becomes a history entry.
 func TestFragmentsAreNeverCachedAsPages(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -420,8 +385,7 @@ func TestFragmentsAreNeverCachedAsPages(t *testing.T) {
 	}
 }
 
-// TestEmptyTraceCostsNothing: the bare Trace page, or "Ask as" changed before
-// there is a URL, dials nothing, so it must not spend the 1/s trace budget.
+// TestEmptyTraceCostsNothing: a trace with no URL spends no trace budget.
 func TestEmptyTraceCostsNothing(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -432,8 +396,7 @@ func TestEmptyTraceCostsNothing(t *testing.T) {
 	}
 }
 
-// TestShortRefusesNonsenseTTLs: a negative ttl meant "permanent" and a tiny
-// one made a link that was dead on arrival. Both are refused before storage.
+// TestShortRefusesNonsenseTTLs: negative and sub-minute TTLs are refused.
 func TestShortRefusesNonsenseTTLs(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -450,9 +413,8 @@ func TestShortRefusesNonsenseTTLs(t *testing.T) {
 	}
 }
 
-// TestRoundThreeAnswers pins what the final review asked of each page: the
-// state a reader is left in, not only that a request succeeds.
-func TestRoundThreeAnswers(t *testing.T) {
+// TestEachStateSaysWhatItIs pins the state each page leaves a reader in.
+func TestEachStateSaysWhatItIs(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
 	body := func(target string, headers map[string]string) string {
@@ -464,7 +426,7 @@ func TestRoundThreeAnswers(t *testing.T) {
 	if b := body("/utm?u="+urlEscape("https://example.com/pricing"), asHTMX); !strings.Contains(b, "No tags yet") || strings.Contains(b, "Tagged URL") {
 		t.Errorf("untagged UTM:\n%s", truncate(b))
 	}
-	// A site-relative path is tagged as it stands, with a warning, as prod did.
+	// A site-relative path is tagged as it stands, with a warning.
 	rel := request(t, e, http.MethodGet, "/utm?u="+urlEscape("/landing?x=1")+"&utm_source=n", asJSON)
 	var tagged struct{ URL string }
 	if err := json.Unmarshal(rel.Body.Bytes(), &tagged); err != nil || rel.Code != http.StatusOK ||
@@ -477,8 +439,7 @@ func TestRoundThreeAnswers(t *testing.T) {
 		t.Errorf("javascript: on Clean:\n%s", truncate(b))
 	}
 
-	// Errors: the Go string to the API, as it always was; a sentence on the
-	// page, with curl keeping its lowercase name.
+	// The Go string to the API, a sentence on the page; curl keeps its case.
 	if b := body("/curl?curl="+urlEscape("curl -H 'a: b'"), asJSON); !strings.Contains(b, `"error":"no URL in that command"`) {
 		t.Errorf("JSON error = %s", b)
 	}
@@ -500,8 +461,7 @@ func TestRoundThreeAnswers(t *testing.T) {
 		t.Errorf("the paste panel's examples are not its own:\n%s", truncate(paste))
 	}
 
-	// An htmx POST resets the address bar: an example chip's ?curl= or
-	// ?text= stayed in it, and a reload replaced the visitor's own paste.
+	// An htmx POST resets the address bar to the bare path.
 	for path, field := range map[string]string{"/curl": "curl", "/extract": "text"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(field+"="+urlEscape("curl https://example.com/ see https://example.org/")))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -514,17 +474,14 @@ func TestRoundThreeAnswers(t *testing.T) {
 		}
 	}
 
-	// The sitemap and the rules catalog: a changed text ships a new version,
-	// or the extension keeps serving the cached one.
+	// Reworded rules ship a new version, or the extension keeps the cached text.
 	if linktools.RulesVersion == "2026-09-25" {
 		t.Error("the rules text changed, so RulesVersion must move off 2026-09-25")
 	}
 }
 
-// TestShortKeyCheckSaysWhenItFails: a key check that comes back as neither
-// verdict (a 429 after quick reloads, a 5xx, no answer) is said in the key
-// card. The list it would have filled is hidden until a key is accepted, so
-// its error used to be swapped in out of sight and the button looked dead.
+// TestShortKeyCheckSaysWhenItFails: a failed key check (429, 5xx, no answer) is
+// said in the key card, since the list stays hidden.
 func TestShortKeyCheckSaysWhenItFails(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile("../templates/short.html")

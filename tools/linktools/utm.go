@@ -5,12 +5,10 @@ import (
 	"strings"
 )
 
-// A11 — the campaign builder. The inverse of Clean, on the same rule table: the
-// five tags it adds are exactly the five Clean knows how to take away.
+// A11 — the campaign builder, the inverse of Clean on the same rule table.
 
 // UTMKeys are the five standard campaign parameters, in the order Google
-// documents them. The form's labels and hints live in handler.go; the order and
-// the names live here, where the building happens.
+// documents them.
 var UTMKeys = []string{"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
 
 // UTM tag provenance: how each tag on the built URL got there.
@@ -35,14 +33,8 @@ type UTMResult struct {
 	Notes []Note   `json:"notes,omitempty"`
 }
 
-// BuildUTM tags raw with the typed values.
-//
-// A typed value replaces the URL's own, and two copies of one tag never come
-// out: two utm_source parameters is a real bug that analytics tools resolve
-// inconsistently. An EMPTY field leaves the URL's value alone. It used to delete
-// it, so pasting a tagged link to change one tag silently wiped the other four,
-// and the only warning was in a collapsed paragraph. Removing a tag is now
-// something you do to the URL, or all at once on the Clean page.
+// BuildUTM tags raw with the typed values. A typed value replaces the URL's
+// own (analytics tools disagree about duplicates); an empty one leaves it.
 func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, error) {
 	raw = strings.TrimSpace(raw)
 	in, err := s.Parse(raw)
@@ -51,11 +43,8 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 	}
 	res := &UTMResult{}
 
-	// "example.com/landing" is what people paste. Tagged as it stands it is a
-	// relative link, which works only on the page it is pasted into. Assume
-	// https and say so, the rule Trace already follows. A path that starts
-	// with "/" is relative on purpose (a site's own links, an API caller
-	// templating them) and is tagged as it stands, as Clean cleans one.
+	// "example.com/landing" gets https://, as Trace does; a path starting with
+	// "/" is relative on purpose and tagged as it stands.
 	switch {
 	case in.Scheme == "" && in.Host == "" && strings.HasPrefix(raw, "/"):
 		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
@@ -63,8 +52,6 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 	case in.Scheme == "" && in.Host == "":
 		alt, err := s.Parse("https://" + raw)
 		if err != nil || alt.Host == "" {
-			// Not a link with the scheme missing, just not a link: tagging
-			// "hello world" built "hello%20world?utm_source=…" and called it done.
 			return nil, fmt.Errorf("not a whole link: paste all of it, starting with https://")
 		}
 		in = alt
@@ -104,8 +91,7 @@ func (s *Service) BuildUTM(raw string, typed map[string]string) (*UTMResult, err
 	return res, nil
 }
 
-// tagHygiene is the advice a campaign report would otherwise give you a month
-// late. Soft findings, never refusals: every one of these builds a working URL.
+// tagHygiene: soft findings, never refusals; each of these builds a working URL.
 func tagHygiene(tags []UTMTag) []Note {
 	var notes []Note
 	has := map[string]bool{}
@@ -131,8 +117,6 @@ func tagHygiene(tags []UTMTag) []Note {
 			"Most analytics tools need utm_source to attribute the visit at all; without it the other tags may be ignored."})
 	}
 	if len(caps) > 0 {
-		// The reader's own value and the field's own noun: "two different
-		// mediums" was said of every field, utm_source included.
 		noun := "values"
 		if n, ok := utmNouns[caps[0]]; ok && len(caps) == 1 {
 			noun = n
@@ -151,7 +135,6 @@ func tagHygiene(tags []UTMTag) []Note {
 	return notes
 }
 
-// utmNouns names what each tag's values are, for the capitals note.
 var utmNouns = map[string]string{
 	"utm_source": "sources", "utm_medium": "mediums", "utm_campaign": "campaigns",
 	"utm_term": "terms", "utm_content": "content values",

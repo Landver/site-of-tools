@@ -1,17 +1,5 @@
-{{/* "Try an example" chips: a page's empty state. Call with the list:
-     {{template "link/examples" .Examples}}. Renders nothing for a page without
-     examples (handler.go's examples map has no entry for it). curl gives each
-     of its two panels its own list.
-
-     Lives inside each page's #result, in the branch that renders when there is
-     no result. So the chips are what an empty page shows, they give way to the
-     result the moment there is one, and they come back when the input is
-     cleared, because a cleared input swaps the same empty fragment in.
-
-     Plain links on purpose. Each one is an ordinary GET of this page with the
-     inputs filled in, so it works without JavaScript and leaves the form
-     holding the example, ready to edit. Every Href is a same-origin tool URL
-     built by url.Values in examples.go; no pasted data ever reaches one. */}}
+{{/* "Try an example" chips, a page's empty state: {{template "link/examples"
+     .Examples}}. Plain GET links, so they work without JavaScript. */}}
 {{define "link/examples"}}
 {{with .}}
 <div class="flex flex-wrap items-center gap-2 text-sm">

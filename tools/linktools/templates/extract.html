@@ -34,13 +34,8 @@
       out, not for testing that they work.
     </p>
 
-    {{/* No hx-push-url: htmx pushes the request path whatever the method,
-         so a POST here would rewrite the address bar to a bare /extract and
-         the pasted text would be gone on reload. GET /extract?text= stays
-         the shareable form. method="post" so the no-JS submit posts too, for
-         the same reason: a pasted email does not belong in a URL. Live, with
-         a longer pause than the one-line pages, because a paste here is the
-         whole input and typing into it is the exception. */}}
+    {{/* POST, with or without JavaScript: a pasted email does not belong in a
+         URL. GET /extract?text= stays the shareable form. */}}
     <form method="post" action="/extract" hx-post="/extract" hx-target="#result" hx-swap="innerHTML"
           hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
           class="mt-6">
@@ -56,8 +51,6 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
     <div id="result" class="mt-6" data-result>
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/extracted" .}}{{end}}
     </div>
@@ -102,10 +95,7 @@
 {{define "link/extracted"}}
 {{with .Result}}
 
-{{/* The Copy button carries every distinct URL, one per line, in the order
-     they were found: the usual next step is pasting the list into a sheet or
-     a checker. &#10; is a newline inside the attribute; the copy partial
-     reads it back through dataset as a real one. */}}
+{{/* &#10; is a newline in the attribute; the copy partial reads back a real one. */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="{{.Unique}} distinct {{if eq .Unique 1}}link{{else}}links{{end}} found.">
   <span class="text-muted">Read as <span class="text-strong">{{if eq .Source "html"}}HTML{{else if eq .Source "markdown"}}Markdown{{else}}plain text{{end}}</span></span>
@@ -143,9 +133,7 @@
       <tbody class="divide-y divide-line">
         {{range .URLs}}
         <tr class="align-top">
-          {{/* Text, never an anchor. See the file comment. The flags sit under
-               the URL they are about, each saying what it is in words, so the
-               colour is a second cue and never the only one. */}}
+          {{/* Text, never an anchor. See the file comment. */}}
           <td class="px-3 py-2">
             <span class="wrap-anywhere font-mono text-xs text-strong">{{.URL}}</span>
             {{if .Flags}}
@@ -160,8 +148,7 @@
             {{if .Anchors}}{{range $i, $a := .Anchors}}{{if $i}}<br>{{end}}{{$a}}{{end}}{{else}}<span class="italic">none</span>{{end}}
           </td>
           <td class="px-3 py-2 font-mono text-xs text-muted">{{.Count}}</td>
-          {{/* A new tab: the paste and its result live only in this page, and
-               following a row here used to throw both away. */}}
+          {{/* A new tab: the paste lives only in this page. */}}
           <td class="whitespace-nowrap px-3 py-2 text-xs">
             <a href="/?u={{.URL}}" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center text-brand-ink hover:underline">Inspect</a>
             <span class="text-muted">&middot;</span>

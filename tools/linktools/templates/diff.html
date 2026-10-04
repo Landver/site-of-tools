@@ -39,9 +39,6 @@
       or only moved. For &ldquo;why does staging behave differently from production&rdquo;. Neither URL is fetched.
     </p>
 
-    {{/* Live, like Inspect (see index.html). Each input is labelled A or B on
-         screen, not only for a screen reader, because every row of the result
-         is written in terms of A and B. */}}
     <form action="/diff" hx-get="/diff" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-col gap-2">
@@ -67,8 +64,6 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
     <div id="result" class="mt-6" data-result>
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/diffed" .}}{{end}}
     </div>
@@ -143,12 +138,8 @@
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-strong">
             {{.Field}}
-            {{/* Listed because the strings differ, labelled because the
-                 meaning does not (FieldChange.Cosmetic). */}}
             {{if .Cosmetic}}<span class="mt-1 block whitespace-nowrap font-sans text-xs text-muted">formatting only</span>{{end}}
           </td>
-          {{/* break-words for a short value, which keeps a word whole; only a
-               long one may break anywhere. See inspect.html. */}}
           <td class="px-3 py-2 {{if gt (len .A) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-xs text-muted">
             {{if eq .A ""}}<span class="italic">absent</span>{{else}}{{.A}}{{end}}
           </td>
@@ -231,10 +222,8 @@
 </section>
 {{end}}
 
-{{/* The "moved only" explainer, for the MIXED case only: when every change
-     is a move, the domain's "Only the order changed" finding already says
-     this at the top, and saying it twice on one screen is once too often.
-     Among real changes a reordering is easy to miss, so it gets the card. */}}
+{{/* The "moved only" explainer, for the mixed case: when every change is a
+     move, the domain's finding already says so. */}}
 {{$moved := false}}
 {{$other := false}}
 {{range .Params}}{{if eq .Kind "moved"}}{{$moved = true}}{{else if ne .Kind "same"}}{{$other = true}}{{end}}{{end}}
@@ -255,8 +244,6 @@
   <a href="/diff?a={{.B}}&amp;b={{.A}}" class="text-brand-ink hover:underline">Swap sides</a>
 </p>
 {{else}}
-{{/* Live, so a half-filled form is a normal moment, not an error: say what
-     is missing rather than showing nothing. */}}
 {{if .A}}<p class="text-sm text-muted">Paste a second URL into B to compare.</p>
 {{else if .B}}<p class="text-sm text-muted">Paste the first URL into A to compare.</p>
 {{else}}{{template "link/examples" .Examples}}{{end}}

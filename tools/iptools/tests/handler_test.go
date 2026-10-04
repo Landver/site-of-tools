@@ -97,8 +97,7 @@ func TestHandlerBadIPRendersErrorFragment(t *testing.T) {
 	// Malformed IP → domain Lookup fails w/ validation error (not ErrUnavailable).
 	// htmx path must return 400 + error-alert fragment → box shows "not a valid
 	// IP" instead of silently keeping prev result. (Client swaps this 400 in via
-	// partials/htmx-errors, included by ip/index.html; htmx otherwise drops a
-	// 4xx response.)
+	// partials/htmx-errors; htmx otherwise drops 4xx response.)
 	app := newTestApp(fakeLooker{err: errors.New(`"104.253.63." is not a valid IP address`)})
 	rec := do(app, "/?ip=104.253.63.", map[string]string{"HX-Request": "true"})
 	if rec.Code != http.StatusBadRequest {
@@ -115,16 +114,14 @@ func TestHandlerErrorStatus(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("ErrUnavailable → code %d, want 503", rec.Code)
 	}
-	// JSON keeps the Go string; only the page words it for a person.
 	var body map[string]string
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["error"] != iptools.ErrUnavailable.Error() {
 		t.Errorf("JSON body = %s, want error %q", rec.Body, iptools.ErrUnavailable.Error())
 	}
 }
 
-// TestUnavailableLookupShowsItsReason: a 503 is answered with a readable error
-// fragment, never a history entry. The page used to show nothing at all: it
-// swapped in error fragments for 400 only, so this one was dropped.
+// TestUnavailableLookupShowsItsReason: a 503 is a readable error fragment, never
+// a history entry.
 func TestUnavailableLookupShowsItsReason(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4",
 		map[string]string{"Accept": "text/html", "HX-Request": "true"})
@@ -143,9 +140,8 @@ func TestUnavailableLookupShowsItsReason(t *testing.T) {
 	}
 }
 
-// TestLookupPageSwapsEveryError: the page includes the shared htmx error
-// handler (every status a fragment comes back with, not 400 alone) and a
-// fallback for failures that bring no fragment at all.
+// TestLookupPageSwapsEveryError: the shared htmx error handler is included, not
+// a 400-only one, plus the fallback for a non-HTML error.
 func TestLookupPageSwapsEveryError(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	page := rec.Body.String()
@@ -409,8 +405,8 @@ func TestOGTags(t *testing.T) {
 	}
 }
 
-// TestLookupFragmentIsNeverCached: the lookup pushes its URL, so without Vary
-// and no-store the browser served the cached fragment, bare, on Back.
+// TestLookupFragmentIsNeverCached: Vary and no-store keep Back from showing the
+// pushed fragment bare.
 func TestLookupFragmentIsNeverCached(t *testing.T) {
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}})
 	page := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})

@@ -57,7 +57,6 @@ const (
 // recentLimit bounds the key-gated console list.
 const recentLimit = 50
 
-// minTTL is the shortest expiry a create accepts.
 const minTTL = time.Minute
 
 // handler: transport-layer dependencies for link.corpberry.com.
@@ -108,10 +107,8 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/clean/rules", h.rules, pure)
 	e.GET("/diff", h.diff, pure)
 	e.GET("/curl", h.curl, pure)
-	// The paste form posts: a command copied out of DevTools carries session
-	// cookies and bearer tokens, and in a query string they land in the
-	// address bar, the history and every proxy log in front of this app, none
-	// of which the request-log redactor reaches. GET ?curl= stays for the API.
+	// POST keeps a pasted command's cookies and tokens out of URLs, history and
+	// proxy logs, which the request-log redactor never sees. GET ?curl= stays.
 	e.POST("/curl", h.curl, pure)
 	e.GET("/extract", h.extract, pure)
 	e.POST("/extract", h.extract, pure)
@@ -120,9 +117,7 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/encoding", h.encoding)
 	e.GET("/extension/privacy", h.privacy)
 
-	// Trace has its own bucket, and an empty form does not spend from it:
-	// loading the bare page, or changing "Ask as" before there is a URL,
-	// dials nothing and used to burn the same 1/s budget as a real trace.
+	// An empty form dials nothing, so it does not spend the trace budget.
 	e.GET("/trace", h.traceRoute, rateLimiterExcept(fetchRatePerSecond, fetchRateBurst, func(c *echo.Context) bool {
 		return strings.TrimSpace(c.QueryParam("u")) == ""
 	}))
@@ -154,11 +149,6 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 // .Desc through partials/head, so handing it a bare domain struct makes
 // html/template fail the render, while handing it the view-model map would leak
 // Title/Desc into the JSON body. Same split dnstools uses.
-//
-// One URL answers three ways, so the response says what it varies on and a
-// fragment is never cached (platform.SetNegotiationHeaders): the parsing pages
-// replace the address bar with each result, and Back used to find the htmx
-// fragment in the browser cache under that address and show it bare.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
 	platform.SetNegotiationHeaders(c, code)
 	switch {
@@ -170,10 +160,7 @@ func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag st
 	return c.Render(code, page, vm)
 }
 
-// vm builds the view-model keys every page needs. heading is the page's own
-// name, which is what the <h1> says; the suite name rides on the <title> only,
-// where a tab strip or a search result needs it and a heading does not.
-// Examples are the page's "try it" links, nil for pages without any.
+// vm builds the view-model keys every page needs.
 func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	return map[string]any{
 		"Active": active, "Title": heading + " — Link Tools", "Desc": desc,
@@ -182,10 +169,6 @@ func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	}
 }
 
-// listChanged tells the console's alias list to reload itself. An htmx
-// response header, so it fires only for the console: a JSON caller never sees
-// an event it has no use for, and a revoked link stops looking alive without
-// the operator having to remember to press anything.
 func listChanged(c *echo.Context) {
 	if platform.IsHTMX(c) {
 		c.Response().Header().Set("HX-Trigger", "link-list-changed")
@@ -205,24 +188,18 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 	return true, reply(c, http.StatusOK, nil, vm, page, frag)
 }
 
-// apiError answers a JSON caller's mistake without a page behind it, with the
-// same Vary as every other answer from these URLs: without it a cache could
-// keep this 400 under the address and hand it to a browser asking for the page.
 func apiError(c *echo.Context, code int, msg string) error {
 	platform.SetNegotiationHeaders(c, code)
 	return c.JSON(code, map[string]string{"error": msg})
 }
 
-// suggestion is a way out of a wrong-tool error: a button that carries the
-// input to the page it belongs on.
 type suggestion struct {
 	Label, Action, Field, Value string
 }
 
-// wrongTool answers an input that belongs on another page (WrongTool): a 400
-// that says what it looks like, and a button that takes it there by POST, so a
-// curl command's cookies do not travel in a URL on the way. Reports whether it
-// answered.
+// wrongTool answers input that belongs on another page with a 400 and a POST
+// button there, so a curl command's cookies never ride in a URL. Reports
+// whether it answered.
 func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string) (bool, error) {
 	var msg string
 	switch WrongTool(raw) {
@@ -293,20 +270,15 @@ func (h *handler) clean(c *echo.Context) error {
 	return reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
 }
 
-// removalGroup is the page's view of the Removals one rule made: the reason
-// printed once beside every parameter it took, not once per row. utm_source,
-// utm_medium and utm_campaign are one decision, and three copies of the same
-// paragraph made the table read like three separate problems. The JSON keeps
-// the flat per-parameter list, which is the API contract.
+// removalGroup is one rule's removals, so the page prints its reason once.
+// The JSON keeps the flat list.
 type removalGroup struct {
 	Pattern string // the rule's parameter pattern, e.g. "utm_*"
 	Why     string
 	Params  []Removal
 }
 
-// groupRemovals folds Removals by rule, in order of first appearance. Rule is
-// "pattern · origin" (Rule.name), and Why already opens with the origin, so
-// only the pattern is kept to stand beside it.
+// groupRemovals folds Removals by rule, in order of first appearance.
 func groupRemovals(rs []Removal) []removalGroup {
 	var out []removalGroup
 	at := map[string]int{}
@@ -332,11 +304,8 @@ func (h *handler) rules(c *echo.Context) error {
 	cat := Rules()
 	vm := h.vm("clean", "Tracking rules", rulesDesc, "")
 	vm["Catalog"] = cat
-	// Cheap validator for the extension's daily refresh, on the JSON only. The
-	// catalog version says nothing about the page around it: with the same
-	// ETag on the HTML, a browser revalidated, got a 304, and went on showing
-	// whatever page it had cached, across any number of deploys that changed
-	// the template but not the rules.
+	// Cheap validator for the extension's daily refresh. JSON only: the
+	// catalog version says nothing about the page template around it.
 	if platform.WantsJSON(c) {
 		c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
 		if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
@@ -370,8 +339,6 @@ func (h *handler) diff(c *echo.Context) error {
 			return err
 		}
 	}
-	// Each error says which side it is about. "not a URL" alone left the
-	// reader to work out which of the two boxes to fix.
 	ia, err := h.svc.Parse(a)
 	if err != nil {
 		return h.badRequest(c, vm, sideError("A", err), "link/diff")
@@ -385,8 +352,6 @@ func (h *handler) diff(c *echo.Context) error {
 	return reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
 }
 
-// sideError says which of the two URLs an error is about, in words: "URL B
-// is not valid: missing ']' in host", not "B: not a URL: missing ']' in host".
 func sideError(side string, err error) error {
 	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
@@ -501,9 +466,7 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		if err != nil {
 			return h.badRequest(c, vm, errors.New("ttl is not a duration, e.g. 720h"), "link/short")
 		}
-		// A negative ttl used to mean "permanent" (CreateOptions treats <= 0
-		// that way) and a tiny one made a link that was dead on arrival with
-		// a "created" card. Leaving ttl out is how a link is made permanent.
+		// CreateOptions reads <= 0 as permanent; leaving ttl out asks for that.
 		if d < minTTL {
 			return h.badRequest(c, vm, errors.New("ttl must be at least 1m; leave it out for a link that never expires"), "link/short")
 		}
@@ -565,10 +528,8 @@ func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page s
 	return reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
-// failErr answers an error in each reader's style: the Go string to a JSON
-// client, lowercase and unpunctuated as the API has always returned it and
-// as its other errors ("no URL; pass ?u=…") still read, and a sentence to a
-// person reading the page.
+// failErr gives JSON the Go error string, as the API always has, and the page
+// a sentence.
 func (h *handler) failErr(c *echo.Context, vm map[string]any, code int, err error, page string) error {
 	vm["Error"] = sentence(err.Error())
 	return reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
@@ -589,12 +550,7 @@ type consoleRow struct {
 	CreatedAt time.Time
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
-	// Expired: the link no longer resolves because its time is up. It used to
-	// look exactly like a live row, Copy and Revoke included, while /s/ for
-	// it was already a 404. Expires is the column's text: a date, with the
-	// time when the expiry is within two days, since "4 Oct 2026" says nothing
-	// about a link that expires at noon today. Same format as the card a new
-	// link arrives in, which used to say the same moment a second way.
+	// Expires carries the time only within two days of the expiry.
 	Expired bool
 	Expires string
 }
@@ -671,11 +627,7 @@ func (h *handler) redirect(c *echo.Context) error {
 	link, err := h.short.Resolve(c.Request().Context(), code)
 	if err != nil {
 		// One status for expired, revoked and never-existed. Telling them apart
-		// is an existence oracle over the guessable custom-slug namespace. A
-		// browser gets a page saying so instead of a bare text/plain line: this
-		// is the only part of Short a recipient ever sees, and the one moment
-		// they need telling it is the link, not their connection. Same status,
-		// same headers, same words for all three causes.
+		// is an existence oracle over the guessable custom-slug namespace.
 		if !platform.WantsJSON(c) {
 			return c.Render(http.StatusNotFound, "link/gone", h.vm("", "Short link not found", shortDesc, ""))
 		}
@@ -708,9 +660,6 @@ func (h *handler) curl(c *echo.Context) error {
 	}
 	vm := h.vm("curl", "Take apart or build a curl command", curlDesc, raw)
 	vm["Cmd"] = cmd
-	// Each panel offers its own direction's examples: a build chip under the
-	// paste box flipped the page into the other mode. An emptied box gets its
-	// own panel's back: the paste form posts, the build form gets.
 	var paste, build []Example
 	for _, e := range examples["curl"] {
 		if strings.Contains(e.Href, "?curl=") {
@@ -746,8 +695,6 @@ func (h *handler) curl(c *echo.Context) error {
 		if req.BodyBytes > 0 {
 			out["body_bytes"] = req.BodyBytes
 		}
-		// The parse notes (a command cut short at an unquoted ";", a bare URL
-		// with no command) reached the page only.
 		if len(req.Notes) > 0 {
 			out["notes"] = req.Notes
 		}
@@ -776,10 +723,8 @@ func (h *handler) curl(c *echo.Context) error {
 	return reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
-// postReset answers an htmx POST with HX-Replace-Url set to the bare path. A
-// posting page's address bar never carries its input, but after an example
-// chip (a GET with ?curl= or ?text=) it still held the example, and a reload
-// then replaced the visitor's own paste with it.
+// postReset drops an example chip's ?curl= or ?text= from the address bar
+// after an htmx POST, so a reload doesn't bring the example back.
 func postReset(c *echo.Context, path string) {
 	if c.Request().Method == http.MethodPost && platform.IsHTMX(c) {
 		c.Response().Header().Set("HX-Replace-Url", path)
@@ -821,15 +766,10 @@ func (h *handler) extract(c *echo.Context) error {
 
 const utmDesc = "Add UTM campaign tags to a URL: the utm_ parameters Google Analytics and most analytics tools read to credit a visit to a campaign. Tags already on the URL are kept unless you replace them."
 
-// utmField is one campaign parameter as the builder's form shows it. The
-// placeholder and hint live in utmHelp beside the name, rather than as one
-// template branch per literal name, so a field cannot arrive without its hint.
-// Value is filled per request.
 type utmField struct {
 	Name, Placeholder, Hint, Value string
 }
 
-// utmHelp is the form's text for each of linktools.UTMKeys.
 var utmHelp = map[string][2]string{
 	"utm_source":   {"newsletter", "Where the traffic comes from. The one most analytics tools require."},
 	"utm_medium":   {"email", "How it arrives: email, cpc, social, referral."},
@@ -838,8 +778,7 @@ var utmHelp = map[string][2]string{
 	"utm_content":  {"header-button", "Which link it was, when a campaign has several. The A/B field."},
 }
 
-// utmCommon is how many of the fields the form shows unfolded. Term and
-// content are for paid search and A/B tests, and most links have neither.
+// utmCommon fields show unfolded; term and content are for paid search and A/B tests.
 const utmCommon = 3
 
 func (h *handler) utm(c *echo.Context) error {
@@ -916,10 +855,6 @@ func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page
 	return h.failErr(c, vm, http.StatusBadRequest, err, page)
 }
 
-// sentence turns an error string into a sentence for a person: capital first
-// letter, closing full stop. Go error strings are lowercase and unpunctuated
-// by convention, because they get wrapped; the page is where wrapping ends and
-// someone reads the result, beside messages this handler writes as sentences.
 func sentence(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -947,8 +882,6 @@ func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
 	return rateLimiterExcept(rate, burst, nil)
 }
 
-// rateLimiterExcept is rateLimiter with requests skip() approves left out of
-// the count entirely.
 func rateLimiterExcept(rate float64, burst int, skip func(*echo.Context) bool) echo.MiddlewareFunc {
 	store := middleware.NewRateLimiterMemoryStoreWithConfig(
 		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
@@ -963,10 +896,7 @@ func rateLimiterExcept(rate float64, burst int, skip func(*echo.Context) bool) e
 		},
 		DenyHandler: func(c *echo.Context, _ string, _ error) error {
 			const msg = "Too many requests from your address. Try again in a few seconds."
-			// Retry is the page that was refused, so the way back is one click
-			// to where the visitor was rather than always to Inspect. A GET
-			// keeps its query; a POST cannot be replayed by a link, so it gets
-			// its page.
+			// A link back to the refused page; a POST can't be replayed by one.
 			retry := c.Request().URL.Path
 			if c.Request().Method == http.MethodGet {
 				retry = c.Request().URL.RequestURI()
@@ -997,11 +927,10 @@ func globalLimiter(rate float64, burst int) echo.MiddlewareFunc {
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
 //
-// Tool pages only, every one of them. /s/:code is a redirect carrying
-// X-Robots-Tag: noindex, the privacy policy is a document nobody searches for,
-// and /short is the owner's console: to anyone arriving from a search it is a
-// page explaining why they cannot use it. platform.BuildSitemap's own comment
-// says transient and non-page URLs have no business here.
+// Tool pages only. /s/:code is a redirect carrying X-Robots-Tag: noindex,
+// /short is the owner's console, and the privacy policy is a document nobody
+// searches for — platform.BuildSitemap's own comment says transient and
+// non-page URLs have no business here.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
 		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"}, {Path: "/trace"},

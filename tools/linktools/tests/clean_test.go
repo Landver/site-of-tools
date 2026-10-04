@@ -265,9 +265,7 @@ func TestInspectMarksKnownTrackers(t *testing.T) {
 	}
 }
 
-// TestCleanSaysWhenItLeftAWrapper: with unwrapping turned off, a Safe Links
-// URL used to come back as "nothing to remove" with no hint that the real
-// destination was sitting inside it untouched.
+// TestCleanSaysWhenItLeftAWrapper: with unwrapping off, a wrapper is named.
 func TestCleanSaysWhenItLeftAWrapper(t *testing.T) {
 	res := clean(t, "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2F%3Futm_source%3Dx&data=1", linktools.CleanOptions{Unwrap: false})
 	found := false

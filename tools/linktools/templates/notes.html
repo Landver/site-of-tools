@@ -6,16 +6,9 @@
      host" / "Everything before the @ is a username"). Same colour vocabulary,
      so the two read as one family.
 
-     Worst first: four passes over the slice, problems, then things worth
-     checking, then notes, then good news, so the finding that matters most is
-     never third in a list a reader stops reading after the first line.
-     Anything with an unknown severity is listed with the notes rather than
-     dropped.
-
-     The badge carries the severity three ways: colour, a glyph (✕ ! i ✓) and,
-     for a screen reader, a name. A bare dot did it by colour alone, which red
-     and green cannot do for a colour-blind reader (WCAG 1.4.1), and the "note"
-     dot was the border colour and close to invisible. */}}
+     Worst first; an unknown severity lists with the notes. The badge carries
+     a glyph and a name as well as a colour, or the ranking exists for sighted
+     users only (WCAG 1.4.1). */}}
 {{define "link/notes"}}
 <ul class="flex flex-col divide-y divide-line text-sm">
   {{range .}}{{if eq .Severity "fail"}}{{template "link/note" .}}{{end}}{{end}}

@@ -160,17 +160,9 @@ func prefersHTML(c *echo.Context) bool {
 // WantsJSON: negation of prefersHTML → plain `curl` gets JSON for free.
 func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
 
-// SetNegotiationHeaders marks a response from URL that answers as page, htmx
-// fragment or JSON depending on who asks. Every handler that picks a
-// representation calls it (Respond does), with the status it is about to send.
-//
-//   - Vary and a fragment's no-store are what negotiationHeaders (app.go)
-//     already sets on every response; they are repeated here, without
-//     duplicating a Vary value, so a handler is right on its own too (tests
-//     build a bare echo).
-//   - An htmx error asks htmx not to push its URL: a 400 or a 429 is a
-//     moment, not a place to come back to. partials/htmx-errors swaps error
-//     fragments in as successes, and htmx pushes a success's URL.
+// SetNegotiationHeaders repeats negotiationHeaders' Vary and fragment no-store
+// (app.go) for handlers run without it, as in tests, and stops htmx pushing an
+// error's URL: partials/htmx-errors swaps errors in as successes.
 func SetNegotiationHeaders(c *echo.Context, code int) {
 	h := c.Response().Header()
 	for _, v := range []string{"Accept", "HX-Request", "HX-History-Restore-Request"} {

@@ -314,9 +314,8 @@ func TestRulesCatalogIsCacheableAndComplete(t *testing.T) {
 		t.Errorf("conditional GET = %d, want 304 (ETag %s)", again.Code, etag)
 	}
 
-	// The page is NOT validated by the catalog version. A browser holding an
-	// old copy of the HTML would otherwise be told "not modified" after a
-	// deploy that changed the page and left the rules alone.
+	// The page is NOT validated by the catalog version: a deploy can change the
+	// page and leave the rules alone.
 	page := request(t, e, http.MethodGet, "/clean/rules", map[string]string{
 		"Accept": "text/html", "If-None-Match": etag,
 	})

@@ -159,8 +159,6 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		}
 	}
 
-	// One URL, three answers, and the lookup pushes it: the headers keep a
-	// cached fragment from ever being shown bare on Back.
 	code := http.StatusOK
 	if err != nil {
 		code = statusFor(err)
@@ -205,10 +203,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	return c.Render(code, "ip/index", vm)
 }
 
-// pageError is a lookup error as a person reads it. The JSON keeps the Go
-// string; the page says what the visitor can do about it. Missing databases
-// are this server's problem, not the visitor's input, and the bare "geolocation
-// databases are not loaded" read like something they had got wrong.
+// pageError is a lookup error for the page; the JSON keeps the Go string.
 func pageError(err error) string {
 	if errors.Is(err, ErrUnavailable) {
 		return "IP lookups are unavailable right now: this server's geolocation databases are not loaded. Try again later."

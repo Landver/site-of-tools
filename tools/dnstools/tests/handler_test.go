@@ -538,9 +538,8 @@ func TestConsistencyRefusesAnEmptyBody(t *testing.T) {
 	}
 }
 
-// TestLookupFragmentIsNeverCached: the lookup pushes its URL, so the browser
-// cache held the htmx fragment under that address, and a Back that missed the
-// back-forward cache showed it bare: no header, no styles, no form.
+// TestLookupFragmentIsNeverCached: Vary and no-store keep Back from showing the
+// pushed fragment bare.
 func TestLookupFragmentIsNeverCached(t *testing.T) {
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 	page := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html"})

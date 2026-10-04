@@ -8,23 +8,15 @@
         The only anchors here are same-origin tool links (/?u=…, /diff?a=…),
         where the destination is this site and html/template percent-escapes the
         value into the query. Same rule as inspect.html's header comment,
-        docs/06-security-and-abuse.md §8. data-copy is not an href either: the
-        copy partial puts it on the clipboard as text.
+        docs/06-security-and-abuse.md §8.
 
-     2. The unwrap control is phrased as the exception, "Leave wrappers as
-        they are", and posts unwrap=false only when ticked. The handler reads
-        unwrap as `!= "false"`, on by default, so an unticked box sending
-        nothing means exactly what it should. It used to be a ticked-by-default
-        "Unwrap…" box with a hidden "false" companion, which worked but put
-        unwrap=true&unwrap=false into every shared Clean URL, and on a live
-        form into the address bar on every keystroke. "sort" and "affiliate"
-        default to off and were always this shape.
+     2. The handler reads unwrap as `!= "false"`, on by default, so the control
+        is phrased as the exception ("Leave wrappers as they are") and sends
+        unwrap=false only when ticked.
 
      The removal table is the page's whole promise: A4 says the output names
      every parameter removed AND the rule that removed it, so a wrong rule is
-     reportable instead of invisible. It is never collapsed to a count. It is
-     grouped by rule (handler.go's groupRemovals), which prints each reason once
-     but still names every parameter and every value. */}}
+     reportable instead of invisible. It is never collapsed to a count. */}}
 {{define "link/clean"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -41,8 +33,6 @@
       which rule removed what. Nothing is fetched: the destination never learns you looked.
     </p>
 
-    {{/* Live, like Inspect: the result follows the input and the options, so a
-         paste or a ticked box is the whole interaction. See index.html. */}}
     <form action="/clean" hx-get="/clean" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6">
@@ -74,8 +64,6 @@
 
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
-    {{/* A full-page error renders INSIDE the result area: above it, it
-         outlived the next live update and sat over a fresh, valid result. */}}
     <div id="result" class="mt-6" data-result>
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/cleaned" .}}{{end}}
     </div>
@@ -119,10 +107,7 @@
 </html>
 {{end}}
 
-{{/* Result fragment — the htmx swap target, and the body of the page above.
-     The clean URL leads, with its Copy button: it is what nearly everyone came
-     for, and it used to sit below a summary strip, the findings and a "Before"
-     card, under the fold on a laptop. */}}
+{{/* Result fragment — the htmx swap target, and the body of the page above. */}}
 {{define "link/cleaned"}}
 {{with .Result}}
 
@@ -166,9 +151,6 @@
           <td class="w-2/5 px-3 py-2">
             <ul class="space-y-1">
               {{range .Params}}
-              {{/* Per part, as on Inspect: a short key or value keeps its
-                   letters together ("utm_source=tw" / "itter" at 375px), and
-                   only a long one may break anywhere. */}}
               <li class="font-mono text-xs">
                 <span class="{{if gt (len .Key) 20}}wrap-anywhere{{else}}break-words{{end}} text-sm text-strong">{{.Key}}</span><span class="text-faint">=</span>{{if eq .Value ""}}<span class="font-sans italic text-muted">empty</span>{{else}}<span class="{{if gt (len .Value) 20}}wrap-anywhere{{else}}break-words{{end}} text-muted">{{.Value}}</span>{{end}}
               </li>
@@ -187,10 +169,8 @@
 </section>
 {{end}}
 
-{{/* What went in, and what the wrapper was hiding, when either differs from
-     the result. Text only, per the file comment: the wrapped link is exactly
-     the kind of URL nobody should be one click away from following. Hidden
-     when nothing changed: the same URL three times is not information. */}}
+{{/* Text only: the wrapped link is exactly the kind of URL nobody should be
+     one click away from following. */}}
 {{if ne .Output .Input}}
 <dl class="mt-6 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[7rem_1fr]">
   <dt class="text-faint">You pasted</dt>
@@ -204,9 +184,7 @@
 
 <p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
   <a href="/?u={{.Output}}" class="text-brand-ink hover:underline">Inspect it</a>
-  {{/* After unwrapping, the comparison worth seeing is against the link
-       that was inside: against the wrapper it listed the wrapper's own
-       parameters and never the trackers that were removed. */}}
+  {{/* After unwrapping, compare against the link inside, not the wrapper. */}}
   {{if .Unwrapped}}{{if ne .Output .Unwrapped}}<a href="/diff?a={{.Unwrapped}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Compare with the unwrapped link</a>{{end}}
   {{else if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="text-brand-ink hover:underline">Compare with the original</a>{{end}}
   <a href="/clean/rules" class="text-brand-ink hover:underline">See the rules</a>

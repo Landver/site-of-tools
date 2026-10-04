@@ -62,9 +62,6 @@ func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 		t.Error("the console does not ship partials/copy when short links are off")
 	}
 
-	// /trace likewise: its final destination has a Copy button, and with no
-	// tracer wired it renders none, but the template is the one a configured
-	// server serves.
 	rec = request(t, e, http.MethodGet, "/trace", asHTML)
 	if !strings.Contains(rec.Body.String(), "navigator.clipboard") {
 		t.Error("the trace page does not ship partials/copy")

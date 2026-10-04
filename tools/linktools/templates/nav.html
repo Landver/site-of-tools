@@ -7,24 +7,13 @@
 
      Ten short labels measure ~700px, so they fit the .page-main column
      (max-w-4xl, 848px of content) on one row. flex-wrap does the rest: the
-     group reflows on a narrow viewport rather than needing a breakpoint per
-     tool, which would have to be re-tuned every time a tool is added. The
-     tighter phone padding keeps that to two rows at 375px instead of three.
-
-     Order follows the job, not the build: the URL tools people reach for
-     first, then the builders and converters, then the reference, and Short
-     last. Short is the owner's console; to everyone else it is a page that
-     explains why they cannot use it, and it used to sit third, between the
-     two most-used tools.
+     group reflows to two or three rows on a narrow viewport rather than
+     needing a breakpoint per tool, which would have to be re-tuned every time
+     a tool is added. Short is last: it is the owner's console.
 
      Labels are deliberately terse — the title attribute carries the full name
      for a hover, and each page's own <h1> says it in full. .Active = the
-     current page's key, matching the strings handler.go sets; the active link
-     carries aria-current, which is what tells a screen reader where it is.
-
-     The eyebrow under the bar names the suite. The <h1> is the page's own name
-     ("Clean a URL"), so without it nothing on the page said these ten pages
-     were one tool. */}}
+     current page's key, matching the strings handler.go sets. */}}
 {{define "link/nav"}}
 <nav aria-label="Link Tools sections"
      class="mb-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium sm:mb-8">
@@ -52,11 +41,8 @@
 <p id="content" class="eyebrow" tabindex="-1">Link Tools</p>
 {{end}}
 
-{{/* The skip link: first thing in the tab order on every Link Tools page, so
-     a keyboard user reaches the tool without walking the header and all ten
-     sub-nav tabs first (fifteen stops on a result page, which has no
-     autofocus). It lands on the suite eyebrow above the heading; the next Tab
-     is the page's own first control. Hidden until focused. */}}
+{{/* First in the tab order, so a keyboard user skips the header and the ten
+     tabs. It lands on the eyebrow above the heading. */}}
 {{define "link/skip"}}
 <a href="#content"
    class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-canvas focus:px-3 focus:py-2 focus:text-sm focus:text-strong focus:ring-2 focus:ring-brand">Skip to the tool</a>

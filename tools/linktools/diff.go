@@ -35,14 +35,9 @@ type ParamChange struct {
 	IndexB int        `json:"index_b,omitempty"`
 }
 
-// FieldChange is one differing component outside the query.
-//
-// Cosmetic marks a difference of spelling, not of meaning: host case, a
-// default port written out, a dot segment, percent-encoding case. It is still
-// listed, because the two strings do differ, but it does not count against
-// Identical, and the page says what kind of difference it is. Reporting
-// "Example.com" vs "example.com" as a different host was the false alarm the
-// page's own help text promised it would not raise.
+// FieldChange is one differing component outside the query. Cosmetic marks a
+// difference of spelling, not meaning (host case, a default port, a dot
+// segment, escape case): listed, but not counted against Identical.
 type FieldChange struct {
 	Field    string `json:"field"`
 	A        string `json:"a,omitempty"`
@@ -68,9 +63,7 @@ type Diff struct {
 func DiffInspections(a, b *Inspection) *Diff {
 	d := &Diff{A: a.Input, B: b.Input}
 
-	// Each field carries its value as written (av, bv) and its normal form
-	// (an, bn). Written forms that differ are always listed; normal forms that
-	// agree make the difference cosmetic.
+	// Values as written (av, bv) and normalised (an, bn).
 	for _, f := range []struct{ name, av, bv, an, bn string }{
 		{"scheme", a.Scheme, b.Scheme, strings.ToLower(a.Scheme), strings.ToLower(b.Scheme)},
 		// opaque carries the ENTIRE payload of a non-hierarchical URL
@@ -117,18 +110,13 @@ func DiffInspections(a, b *Inspection) *Diff {
 				d.Params = append(d.Params, ParamChange{Key: key, Kind: ChangeModified,
 					A: va[i].Value, B: vb[i].Value, IndexA: va[i].Index, IndexB: vb[i].Index})
 			default:
-				// Same value. Whether it MOVED is decided below, across all
-				// the pairs at once, because a position on its own says
-				// nothing about order.
 				d.Params = append(d.Params, ParamChange{Key: key, Kind: ChangeSame,
 					A: va[i].Value, B: vb[i].Value, IndexA: va[i].Index, IndexB: vb[i].Index})
 			}
 		}
 	}
 
-	// Same value, out of order: worth naming rather than hiding, because order
-	// is load-bearing for signed URLs, and "only the order changed" is a
-	// genuinely different answer from "nothing changed".
+	// Order is load-bearing for signed URLs, so a move is named.
 	markMoves(d.Params)
 
 	// Two URLs both carrying a password can never be declared equivalent: the
@@ -151,17 +139,10 @@ func DiffInspections(a, b *Inspection) *Diff {
 	return d
 }
 
-// markMoves decides which unchanged parameters actually moved.
-//
-// Absolute positions cannot decide it: delete the first parameter and every
-// one after it changes position while nothing has moved relative to anything
-// else. That flagged Clean's own "diff it against the original" link as a
-// reordering, signature warning included, on every URL it had cleaned. The
-// pairs that kept their order are the longest run whose B positions rise in A
-// order; any other unchanged pair moved. Among equally long runs, the one that
-// keeps more pairs at their exact old position wins, so what gets called
-// "moved" is what a reader would call moved. Changed values do not take part:
-// they are already reported as changed, wherever they ended up.
+// markMoves marks the unchanged pairs that moved relative to the others: those
+// outside the longest run whose B positions rise in A order (on a tie, the run
+// keeping more exact positions). Absolute positions can't decide it: one
+// deletion shifts everything after it.
 func markMoves(cs []ParamChange) {
 	var same []int // indexes into cs of unchanged pairs present on both sides
 	for i, c := range cs {
@@ -211,8 +192,6 @@ func normalHost(in *Inspection) string {
 	return strings.ToLower(in.Host)
 }
 
-// normalPort drops a port that is the scheme's default: :443 on https names
-// the port the URL would have used anyway.
 func normalPort(in *Inspection) string {
 	if in.DefaultPort {
 		return ""
@@ -220,8 +199,8 @@ func normalPort(in *Inspection) string {
 	return in.Port
 }
 
-// normalPath resolves dot segments and normalises escapes, and treats an empty
-// http(s) path as "/", which is what a client sends for it (RFC 3986 §6.2.3).
+// normalPath resolves dot segments and escapes; an empty http(s) path is "/"
+// (RFC 3986 §6.2.3).
 func normalPath(in *Inspection) string {
 	p := normalizeEscapes(removeDotSegments(in.Path))
 	if p == "" && in.Host != "" && (strings.EqualFold(in.Scheme, "http") || strings.EqualFold(in.Scheme, "https")) {
@@ -230,10 +209,8 @@ func normalPath(in *Inspection) string {
 	return p
 }
 
-// normalizeEscapes applies RFC 3986 §6.2.2's two lossless rules to an escaped
-// string: %xx is compared with uppercase hex, and an escaped unreserved
-// character means the character itself. Everything else stays escaped, so %2F
-// is still not a slash and %20 is still not a space.
+// normalizeEscapes applies RFC 3986 §6.2.2: uppercase hex, unreserved
+// characters unescaped. %2F stays escaped: it is not a slash.
 func normalizeEscapes(s string) string {
 	if !strings.Contains(s, "%") {
 		return s
@@ -295,7 +272,6 @@ func orderedKeys(a, b []Param) []string {
 	return out
 }
 
-// hasRealField reports a component difference that is not merely cosmetic.
 func hasRealField(fs []FieldChange) bool {
 	for _, f := range fs {
 		if !f.Cosmetic {
@@ -328,9 +304,7 @@ func onlyMoves(cs []ParamChange) bool {
 	return moved
 }
 
-// Summary renders a one-line description, for the page heading:
-// "Parameters: 1 added, 1 changed. URL parts: 1 different." Each count names
-// its noun once rather than "1 parameter added, 1 parameter changed, …".
+// Summary renders a one-line description, for the page heading.
 func (d *Diff) Summary() string {
 	var added, removed, modified, moved int
 	for _, c := range d.Params {

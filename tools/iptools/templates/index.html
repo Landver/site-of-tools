@@ -74,18 +74,11 @@
 
   {{template "partials/footer" .}}
 
-  {{/* Every error fragment the handler renders gets swapped in: a bad IP
-       (400) and the databases being unavailable (503) alike. This page used
-       to carry its own handler for 400 only, so a 503 left the result area
-       empty, or showing the previous lookup as if it were this one's. */}}
   {{template "partials/htmx-errors" .}}
 
   <script>
-    // What no fragment covers and partials/htmx-errors does not either: a
-    // response that is not this tool's HTML (echo answers a recovered panic
-    // with JSON, which that partial deliberately never swaps in). It used to
-    // leave the result area as it was. No response at all is the partial's
-    // job. Text nodes only: nothing from the response is parsed as HTML.
+    // A non-HTML error (echo's JSON for a panic), which partials/htmx-errors
+    // never swaps in. Text nodes only: nothing from the response is parsed.
     document.body.addEventListener('htmx:responseError', (e) => {
       const area = e.detail.target
       if (!area || area.id !== 'result') return

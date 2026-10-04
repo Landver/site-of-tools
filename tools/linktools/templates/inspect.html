@@ -4,25 +4,17 @@
      passed the http(s) allowlist. html/template does neuter javascript: in a
      URL context, but this page exists to display hostile URLs and one refactor
      into an attribute context would be all it takes.
-     See docs/06-security-and-abuse.md §8.
-
-     data-copy is not an href: the copy partial writes it to the clipboard as
-     text and nothing navigates to it, so the canonical form and the unwrapped
-     destination are safe to offer there whatever their scheme. */}}
+     See docs/06-security-and-abuse.md §8. */}}
 {{define "link/inspect"}}
 {{with .Result}}
 
 {{/* Summary strip, before the table. Borrowed from calcbe, which is the one
      surveyed parser that tells you what shape it decided the input was
-     (docs/reports/calcbe-query-string-parser.md). The next steps sit at its
-     right-hand end rather than under everything else, where a long table put
-     them a few screens away from the input they act on. */}}
+     (docs/reports/calcbe-query-string-parser.md). */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="Parsed: {{len .Params}} {{if eq (len .Params) 1}}parameter{{else}}parameters{{end}}{{if .Notes}}, {{len .Notes}} {{if eq (len .Notes) 1}}finding{{else}}findings{{end}}{{end}}.">
   <span class="text-muted">Scheme <span class="font-mono text-strong">{{or .Scheme "none"}}</span></span>
   {{if .Host}}<span class="min-w-0 text-muted">Host <span class="wrap-anywhere font-mono text-strong">{{.Host}}</span></span>{{end}}
-  {{/* mailto:, tel:, data:, javascript: carry everything after the scheme
-       here, and it was never shown: not the address, not the payload. */}}
   {{if .Opaque}}<span class="min-w-0 text-muted">Value <span class="wrap-anywhere font-mono text-strong">{{.Opaque}}</span></span>{{end}}
   {{if .Port}}<span class="text-muted">Port <span class="font-mono text-strong">{{.Port}}</span>{{if .DefaultPort}} <span class="text-muted">(default)</span>{{end}}</span>{{end}}
   <span class="text-muted">Query parameters <span class="font-mono text-strong">{{len .Params}}</span></span>
@@ -47,8 +39,6 @@
 </section>
 {{end}}
 
-{{/* "example.com/path" with no scheme: offer it with https:// in front, as a
-     same-origin tool link (Inspection.Absolute). */}}
 {{with .Absolute}}
 <p class="mt-4 text-sm"><a href="/?u={{.}}" class="text-brand-ink hover:underline">Inspect <span class="font-mono">{{.}}</span> instead</a></p>
 {{end}}
@@ -68,9 +58,7 @@
 {{if .Params}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query parameters</h2>
-  {{/* relative: the scroll container must be the containing block for any
-       absolutely positioned descendant, or one escapes it and scrolls the
-       whole page sideways on a phone (the same bug short.html records). */}}
+  {{/* relative, or an absolutely positioned descendant escapes the scroll box. */}}
   <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Query parameters">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
@@ -78,8 +66,6 @@
           <th class="px-3 py-2 font-medium">#</th>
           <th class="px-3 py-2 font-medium">Key</th>
           <th class="px-3 py-2 font-medium">Value</th>
-          {{/* The raw column is the least-read one and the first to go on a
-               phone; the raw text moves under the value there instead. */}}
           <th class="hidden px-3 py-2 font-medium sm:table-cell">Raw</th>
         </tr>
       </thead>
@@ -88,10 +74,7 @@
         <tr class="align-top">
           <td class="px-3 py-2 font-mono text-muted">{{.Index}}</td>
           <td class="px-3 py-2">
-            {{/* Short values break only between words (break-words keeps a
-                 word whole when the column narrows; wrap-anywhere split
-                 "utm_source" into "utm_sourc" and "e" at 375px). Only a long
-                 one may break anywhere, or a URL would widen the table. */}}
+            {{/* Only a long value may break anywhere; a short word stays whole. */}}
             <span class="{{if gt (len .Key) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-strong">{{.Key}}</span>
             {{if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn-ink">repeat</span>{{end}}
             {{if .Tracking}}<span class="ml-1 whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">tracker</span>{{end}}
@@ -117,10 +100,7 @@
               </span>
             {{end}}
             {{if .Warn}}<span class="mt-1 block text-xs text-warn-ink">{{.Warn}}</span>{{end}}
-            {{/* A link inside the value, decoded, with somewhere to take it.
-                 Same-origin tool links only: the nested URL itself is never an
-                 href (see the file comment). Shown in full only when it took
-                 decoding to reach; a plain URL value is already readable. */}}
+            {{/* Same-origin tool links only: the nested URL is never an href. */}}
             {{if .Nested}}
             <span class="mt-1 block text-xs">
               {{if .Layers}}<span class="text-muted">Decodes to</span> <span class="wrap-anywhere font-mono text-strong">{{.Nested}}</span><br>{{end}}
@@ -132,8 +112,7 @@
               <span class="text-muted">the link inside</span>
             </span>
             {{end}}
-            {{/* Not when its one layer is the link just shown as "Decodes to":
-                 the disclosure opened onto the same URL a second time. */}}
+            {{/* Skipped when its one layer is the link shown above. */}}
             {{if .Layers}}{{if not (and .Nested (eq (len .Layers) 1))}}
             <details class="mt-1">
               <summary class="cursor-pointer text-xs text-brand-ink">Decodes further ({{len .Layers}} more {{if eq (len .Layers) 1}}layer{{else}}layers{{end}})</summary>
@@ -200,9 +179,6 @@
 </section>
 {{end}}
 
-{{/* The canonical form gets a card only when it differs from the input: a
-     card repeating the input byte for byte, alone in a two-column grid, was
-     a box that said nothing. When they match, one line says so. */}}
 {{if or (and .Canonical (ne .Canonical .Input)) (and .HostUnicode (ne .HostUnicode .HostASCII))}}
 <section class="mt-6 grid gap-4 sm:grid-cols-2">
   {{if and .Canonical (ne .Canonical .Input)}}
@@ -226,9 +202,6 @@
 </section>
 {{end}}
 
-{{/* Only for a real URL: on "hello" or a javascript: URL there is no host
-     for the claim to be about. The not-clickable fact is the scheme
-     finding's job, so it is not repeated down here. */}}
 {{if and .Host .Canonical (eq .Canonical .Input)}}
 <p class="mt-6 text-sm text-muted">Already canonical: lowercase, no default port, no dot segments.</p>
 {{end}}
@@ -238,7 +211,6 @@
 {{end}}
 {{end}}
 
-{{/* A value's kind as a reader would say it. The JSON keeps the short codes;
-     the page says "true/false" and "JWT", and hedges the two guesses
-     (base64, hex) that a value can match by accident. */}}
+{{/* The JSON keeps the short codes; base64 and hex are hedged, since a value
+     can match either by accident. */}}
 {{define "link/kind"}}{{if eq . "bool"}}true/false{{else if eq . "url"}}URL{{else if eq . "json"}}JSON{{else if eq . "jwt"}}JWT{{else if eq . "uuid"}}UUID{{else if eq . "base64"}}maybe base64{{else if eq . "hex"}}maybe hex{{else}}{{.}}{{end}}{{end}}

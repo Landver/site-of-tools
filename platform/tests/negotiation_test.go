@@ -56,9 +56,8 @@ func TestNegotiation(t *testing.T) {
 	}
 }
 
-// TestNegotiationHeaders: a URL that answers as page, fragment or JSON says
-// so in Vary, never lets a fragment be cached (Back would show it bare), and
-// keeps an htmx error out of the history.
+// TestNegotiationHeaders: Vary, no-store on fragments, and no history entry for
+// an htmx error.
 func TestNegotiationHeaders(t *testing.T) {
 	e := echo.New()
 	e.GET("/h", func(c *echo.Context) error {

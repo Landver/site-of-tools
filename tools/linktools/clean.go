@@ -122,9 +122,6 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 				fmt.Sprintf("Now pointing at %s. %s did not vouch for it, so check the host before you trust it.", host, name)})
 		}
 	} else if _, name, _, ok := unwrapAll(raw); ok {
-		// Unwrapping is off and this IS a wrapper, so the result is the
-		// wrapper's own query with nothing a rule matches, which read as
-		// "nothing to remove" with no hint why. Say what was left alone.
 		res.Wrapper = name
 		res.Notes = append(res.Notes, Note{SevInfo, "Wrapper left in place",
 			fmt.Sprintf("This is a %s link and unwrapping is turned off, so it was cleaned as it stands. The real destination inside it was not touched.", name)})
@@ -134,16 +131,13 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
-	// A relative reference is a valid URL reference and comes back untouched
-	// (TestCleanRejectsEmptyInput), but one with no query either has nothing a
-	// rule could ever match, and "nothing to remove" alone read as a verdict on
-	// a link nobody had pasted. Say what it is.
+	// A relative reference is valid and comes back untouched
+	// (TestCleanRejectsEmptyInput); with no query, say what it is.
 	if u.Scheme == "" && u.Host == "" && u.RawQuery == "" {
 		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
 			"There is no scheme, host or query here, so there was nothing to clean. If you meant to paste a link, paste all of it, starting with https://."})
 	}
-	// The rules are for web links. A javascript: URL used to come back with a
-	// green "Nothing to remove", as if it had been checked and passed.
+	// The rules are for web links; only those can pass with nothing to remove.
 	isHTTP := strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
 	if u.Scheme != "" && !isHTTP {
 		sev, detail := SevInfo, "The rules are written for web links, so this was cleaned as it stands."

@@ -57,9 +57,7 @@ type Chain struct {
 	// security-relevant direction (docs/02-build-fit.md §5), so in those cases
 	// the Note names the target instead and this stays blank.
 	Final string `json:"final,omitempty"`
-	// FinalStatus is the status Final answered with. A link that ends at a 404
-	// still has a final destination, and the page has to say it is an error
-	// page rather than present it as neutrally as a 200.
+	// FinalStatus is the status Final answered with: a 404 is still where it ends.
 	FinalStatus int    `json:"final_status,omitempty"`
 	FinalReason string `json:"-"`
 	Notes       []Note `json:"notes,omitempty"`
@@ -72,8 +70,7 @@ type Hop struct {
 	Index  int    `json:"index"`
 	URL    string `json:"url"`
 	Status int    `json:"status"`
-	// Reason is the status code's standard name ("Moved Permanently"), so a
-	// reader does not need the table of codes in their head.
+	// Reason is the status code's standard name ("Moved Permanently").
 	Reason   string `json:"reason,omitempty"`
 	Location string `json:"location,omitempty"`
 	// ElapsedMS covers the whole hop: dial, TLS, request, response headers.
@@ -318,11 +315,8 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 	}
 }
 
-// liftLastHop puts what went wrong at the end of the chain into the chain's
-// own findings. The page leads with the answer and then the findings, and
-// "No final destination; see the findings" used to point at a list without
-// the reason in it: that was in the last hop's notes, further down. A chain
-// that ends at an error page gets a finding even when the hop has no note.
+// liftLastHop copies the last hop's warnings into the chain's findings, where
+// the page says the reason is, and adds one for a chain ending at an error page.
 func (ch *Chain) liftLastHop() {
 	if ch == nil || len(ch.Hops) == 0 {
 		return
@@ -355,9 +349,7 @@ func (ch *Chain) liftLastHop() {
 		"The last page answered " + status + ": the link is broken, or the site turns this kind of visitor away. Asking as someone else tells the two apart."})
 }
 
-// Unlisted is the hop's notes without those already among findings, by
-// title: what the page shows under the hop once the chain's own findings,
-// which carry the last hop's reason, are on screen above it.
+// Unlisted is the hop's notes not already among findings, by title.
 func (h Hop) Unlisted(findings []Note) []Note {
 	var out []Note
 	for _, n := range h.Notes {
@@ -616,9 +608,7 @@ func refusalDetail(err error) string {
 	return err.Error()
 }
 
-// afterColon is what an egress-guard error names: "…: 8080" gives "8080". The
-// guard's own sentence is for logs; the page says what happened in words and
-// needs only the port or the address out of it.
+// afterColon is the port or address an egress-guard error names.
 func afterColon(err error) string {
 	msg := err.Error()
 	if i := strings.LastIndex(msg, ": "); i >= 0 {

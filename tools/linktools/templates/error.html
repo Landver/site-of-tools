@@ -3,10 +3,7 @@
      page's result template. Same reasoning as dns/error. */}}
 {{define "link/error"}}
 <div class="alert-error" data-announce="{{.Error}}">{{.Error}}</div>
-{{/* A wrong-tool error carries the input on to the page it belongs on
-     (handler.go's wrongTool). A plain POST form, not a link: the input may be
-     a curl command with cookies in it, and a link would put them in a URL. It
-     works without JavaScript and lands on that page's full result. */}}
+{{/* A POST form, not a link: the input may be a curl command with cookies in it. */}}
 {{with .Suggest}}
 <form method="post" action="{{.Action}}" class="mt-3">
   <input type="hidden" name="{{.Field}}" value="{{.Value}}">
@@ -26,8 +23,6 @@
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">Slow down a moment</h1>
     <p class="mt-3 text-sm text-muted">{{.Error}}</p>
-    {{/* Retry is a same-origin path the handler took from the refused
-         request, so the way back is to the page the visitor was on. */}}
     <p class="mt-4 text-sm"><a href="{{.Retry}}" class="text-brand-ink hover:underline">Try again</a></p>
   </main>
   {{template "partials/footer" .}}

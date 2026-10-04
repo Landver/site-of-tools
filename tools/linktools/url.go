@@ -40,43 +40,29 @@ var linkableSchemes = map[string]bool{"http": true, "https": true}
 // defaultPorts: ports that add nothing when written out.
 var defaultPorts = map[string]string{"http": "80", "https": "443", "ftp": "21", "ws": "80", "wss": "443"}
 
-// parseReason is a url.Parse failure without url.Error's own
-// `parse "<input>": ` prefix. Every caller shows the message under the box the
-// input is still sitting in, and echoing a long URL a second time pushed the
-// actual reason (a bad escape, an unclosed "[") off the end of the line.
+// parseReason drops url.Error's `parse "<input>": ` prefix: the input is
+// already in the box above the message.
 func parseReason(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = ue.Err
 	}
-	// The package name is Go's, not the reader's: "net/url: invalid control
-	// character in URL" says nothing a person needs that "invalid control
-	// character in URL" does not.
 	if msg := err.Error(); strings.HasPrefix(msg, "net/url: ") {
 		return errors.New(strings.TrimPrefix(msg, "net/url: "))
 	}
 	return err
 }
 
-// Pages a pasted input can belong on instead of the one it was pasted into.
+// WrongTool's answers.
 const (
 	ToolCurl    = "curl"
 	ToolExtract = "extract"
 )
 
-// WrongTool names the page an input belongs on when it is plainly not one URL:
-// a curl command, or text and markup with links in it. "" when it might be a
-// URL. Without this the commonest wrong paste, a command copied out of
-// DevTools, got "first path segment in URL cannot contain colon" on the page
-// people land on first.
-//
-// It must never refuse a URL, so every test is for something a single URL
-// cannot be: markup needs a QUOTED href (a query parameter can be called href,
-// as Facebook's share links and click trackers' are), and text needs words
-// BEFORE the first link, or a second link that starts after whitespace. A lone
-// URL with a raw space in it is still one URL (SharePoint links are pasted
-// like that), and so is one carrying another URL unencoded in its query; both
-// go on to Inspect, which says what is wrong with them.
+// WrongTool names the page an input belongs on when it is plainly not one URL
+// (a curl command, or text with links), else "". It must never refuse a URL:
+// markup needs a quoted href (share and tracking links use ?href=), and text
+// needs words before the first link or a second link after whitespace.
 func WrongTool(raw string) string {
 	t := strings.TrimSpace(raw)
 	low := strings.ToLower(t)
@@ -98,9 +84,8 @@ func WrongTool(raw string) string {
 	return ""
 }
 
-// laterLink is a scheme:// that starts after whitespace: the second link in a
-// list. One inside a query ("?next=https://…") follows "=", not whitespace.
-// templates/live.html carries the same expression.
+// laterLink is a scheme:// after whitespace: a second link, where one inside a
+// query follows "=". templates/live.html carries the same expression.
 var laterLink = regexp.MustCompile(`[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*://`)
 
 // Parse takes a URL apart. It never fetches anything.
@@ -125,18 +110,13 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	}
 
 	in := &Inspection{Input: raw, Scheme: u.Scheme, Opaque: u.Opaque}
-	// Linkable also needs every escape to be well formed. A browser fixes a
-	// broken one ("%zz" becomes "%25zz") before following it, so an Open link
-	// would go somewhere other than the URL on screen; the parameter's own
-	// warning explains the escape.
+	// A browser rewrites a bad escape ("%zz" to "%25zz") before following it,
+	// so the link would go somewhere other than the URL on screen.
 	in.Linkable = linkableSchemes[strings.ToLower(u.Scheme)] && !hasBadEscape(raw)
 
 	if u.Scheme == "" {
 		in.Notes = append(in.Notes, Note{SevWarn, "No scheme",
 			"Read as a relative path, so the first part is a folder name, not a host. Add https:// to the front to inspect it as a web address."})
-		// "example.com/path" is the commonest paste of all. When adding
-		// https:// makes it a URL with a real-looking host, offer exactly that
-		// as one click rather than leaving the reader to retype it.
 		if alt, err := url.Parse("https://" + raw); err == nil && strings.Contains(alt.Hostname(), ".") {
 			in.Absolute = "https://" + raw
 		}
@@ -154,8 +134,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 		in.Notes = append(in.Notes, Note{sev, "Scheme is " + u.Scheme + ", not http(s)", detail})
 	}
 
-	// WrongTool lets a lone URL with a raw space through, so say what is
-	// wrong with it here. SharePoint and file-name links arrive like this.
+	// WrongTool lets a lone URL with spaces through; this says what is wrong.
 	if strings.ContainsAny(raw, " \t") {
 		in.Notes = append(in.Notes, Note{SevWarn, "Unencoded spaces",
 			"A URL cannot contain a raw space. A browser sends each one as %20, but in an email or a chat message the link usually stops at the first space. Replace them with %20 before sharing it."})
@@ -166,11 +145,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 
 	// Query. Hand-split so order, repeats and broken escapes all survive.
 	in.Params = parsePairs(u.RawQuery, true)
-	// The fragment check below has always existed; the same token in the query
-	// string went unremarked, though the query is the half that reaches the
-	// server, its logs and every Referer. A warning, not a failure: presigned
-	// URLs and magic links carry one on purpose. The point is to treat the URL
-	// as a password, not to call it wrong.
+	// A warning, not a failure: presigned URLs and magic links carry one on purpose.
 	if keys := secretishNames(in.Params); len(keys) > 0 {
 		in.Notes = append(in.Notes, Note{SevWarn, "Credentials in the query string",
 			strings.Join(keys, ", ") + " looks like a token or a session. A query string reaches the server and its logs, stays in browser history, and can leak to other sites in the Referer header: share this URL as you would a password."})
@@ -195,10 +170,6 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 		}
 	}
 
-	// A mail-gateway wrapper names its real destination inside itself, and
-	// Inspect's card for it ("This is a … wrapper") was written but never fed:
-	// nothing set these fields, so a Safe Links URL pasted here got no hint,
-	// and Diff's "unwrapped target" row could never appear either.
 	if target, name, partial, ok := unwrapAll(raw); ok && !partial {
 		in.Unwrapped, in.Wrapper = target, name
 	}
@@ -249,11 +220,9 @@ func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	}
 }
 
-// numericIPv4 reads a host the way inet_aton does, which is the way browsers
-// do: one to four parts, each decimal, 0x hex or 0-prefixed octal, the last
-// filling the bytes that remain. "2130706433", "0x7f000001", "0177.1" and
-// "127.1" are all 127.0.0.1. A dotted quad of plain decimals is excluded:
-// net.ParseIP already reads that as the address it plainly is.
+// numericIPv4 reads a host as inet_aton and browsers do: "2130706433",
+// "0x7f000001", "0177.1" and "127.1" are all 127.0.0.1. A plain dotted quad is
+// left to net.ParseIP.
 func numericIPv4(h string) (string, bool) {
 	if h == "" || net.ParseIP(h) != nil {
 		return "", false
@@ -423,10 +392,7 @@ func enrichParam(p *Param, rawVal string) {
 	p.Nested = nestedLink(p)
 }
 
-// nestedLink is the http(s) URL a parameter carries, once decoded: the value
-// itself, or the last rung of its ladder. A redirect= that was encoded twice
-// used to show its still-encoded form as the value, with the readable link
-// folded away under "decodes further" and nothing to do with it there.
+// nestedLink is the http(s) URL a parameter carries once decoded, or "".
 func nestedLink(p *Param) string {
 	cand := p.Value
 	if len(p.Layers) > 0 {
@@ -557,9 +523,7 @@ func canonicalise(u *url.URL) string {
 		if port := c.Port(); port != "" && defaultPorts[c.Scheme] != port {
 			c.Host = net.JoinHostPort(host, port)
 		} else if strings.Contains(host, ":") {
-			// Hostname() strips an IPv6 literal's brackets, and without them
-			// "http://::1/" is not a URL at all; JoinHostPort adds them back
-			// in the branch above, so this one must too.
+			// Hostname() strips IPv6 brackets, and "http://::1/" is not a URL.
 			c.Host = "[" + host + "]"
 		} else {
 			c.Host = host
@@ -594,8 +558,7 @@ func containsSecretish(ps []Param) bool {
 	return len(secretishNames(ps)) > 0
 }
 
-// secretishNames lists the keys in ps that name a credential and carry a
-// value, each once, in order.
+// secretishNames lists the credential-like keys in ps that carry a value.
 func secretishNames(ps []Param) []string {
 	var out []string
 	seen := map[string]bool{}
