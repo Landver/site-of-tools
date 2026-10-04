@@ -170,6 +170,11 @@ type TraceLink struct {
 	MatchedTag uint16 `json:"matched_key_tag,omitempty"`
 	// Algorithm: that key's signing algorithm, named (e.g. "ECDSAP256SHA256").
 	Algorithm string `json:"algorithm,omitempty"`
+	// KeysWithoutDS: the parent has no DS for this zone, and the zone
+	// publishes DNSKEYs anyway. Insecure all the same, since nothing vouches
+	// for those keys, but it is the half-finished setup (signed at the DNS
+	// host, DS never added at the registrar), not a zone nobody signed.
+	KeysWithoutDS bool `json:"keys_without_ds,omitempty"`
 }
 
 // The four link verdicts. Unexported: callers read TraceLink.Status, and the
@@ -822,6 +827,19 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 	case len(ds.set) == 0:
 		link.Status = traceInsecure
 		link.Detail = "The parent publishes no DS record for this zone, so the zone is unsigned. Most names are. (Proving an absence properly needs the parent's NSEC or NSEC3 records; this walk takes the parent's answer at face value.)"
+		// Signed at the DNS host with the DS never added at the registrar is
+		// the commonest half-finished DNSSEC setup, and "unsigned, most names
+		// are" is the wrong thing to tell its owner. One query for the zone's
+		// own keys tells the two apart; any failure leaves the plain reading.
+		if r := w.query(servers, zone, "DNSKEY"); r.msg != nil && r.msg.Rcode == dns.RcodeSuccess && !r.msg.Truncated {
+			if keys := traceKeys(r.msg.Answer, zone); len(keys) > 0 {
+				for _, k := range keys {
+					link.KeyTags = append(link.KeyTags, k.KeyTag())
+				}
+				link.KeysWithoutDS = true
+				link.Detail = "The zone publishes DNSSEC keys, but the parent has no DS record for any of them, so nothing vouches for those keys and every validating resolver treats the zone as unsigned. If DNSSEC is meant to be on, the missing step is publishing the DS record at the registrar."
+			}
+		}
 		return link, nil
 	}
 
@@ -1447,13 +1465,14 @@ func (w *traceWalk) verifyDisplayed(rrset []dns.RR, sigs []*dns.RRSIG, keys []*d
 // Notes carry findings only.
 func (w *traceWalk) verdict() {
 	out := w.out
-	bogus, insecure, unknown := false, false, false
+	bogus, insecure, unknown, keysNoDS := false, false, false, false
 	for _, l := range out.Chain {
 		switch l.Status {
 		case traceBogus:
 			bogus = true
 		case traceInsecure:
 			insecure = true
+			keysNoDS = keysNoDS || l.KeysWithoutDS
 		case traceUnknown:
 			unknown = true
 		}
@@ -1484,6 +1503,11 @@ func (w *traceWalk) verdict() {
 	// thing quietly is not.
 	case unknown:
 		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "One link of the chain could not be checked from here, so there is no verdict to give. See the chain below for which one and why. This is a statement about what this walk could reach, not about the zone: it is not evidence of anything being wrong."}
+	case insecure && keysNoDS:
+		// Still "insecure": that is what every validator makes of it. But the
+		// owner of this zone very likely meant otherwise, and the fix is one
+		// record at the registrar.
+		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "warn", Text: "The zone publishes DNSSEC keys, but its parent has no DS record pointing at them, so nothing can validate it and resolvers treat it as unsigned. If you meant to turn DNSSEC on, the last step is adding the DS record at your registrar; the chain below shows where it stops."}
 	case insecure:
 		out.DNSSEC, out.Verdict = traceInsecure, Note{Level: "info", Text: "Unsigned is the ordinary state of most of the internet and is not a fault: it simply means answers for this name cannot be cryptographically verified, only trusted to have come from the right servers."}
 	default:

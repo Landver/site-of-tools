@@ -69,3 +69,19 @@
 </p>
 {{end}}
 {{end}}
+
+{{/* On a phone the keyboard stays up after a submit (the page doesn't
+     navigate), covering the result it just asked for. Once the result is
+     in, a coarse pointer gets its focus dropped so the keyboard folds away.
+     A mouse and keyboard user keeps the caret where it was, to type the next
+     name straight away. */}}
+{{define "dns/script"}}
+<script>
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    if (e.detail.target.id !== 'result') return
+    if (!matchMedia('(pointer: coarse)').matches) return
+    const el = document.activeElement
+    if (el && el.matches('main form input')) el.blur()
+  })
+</script>
+{{end}}

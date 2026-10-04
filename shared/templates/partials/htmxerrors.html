@@ -12,7 +12,12 @@
 
      A tool's own error fragment is HTML. Echo's default is JSON. Swapping only
      HTML keeps every deliberate fragment working and leaves the accidental
-     ones exactly where they were: unswapped. */}}
+     ones exactly where they were: unswapped.
+
+     A request that never got a response at all (offline, a dropped
+     connection) fires sendError instead, with nothing to swap: the button
+     came back and the page just sat there. It now says so in the slot the
+     answer would have filled. sm:col-span-2 is a no-op outside a grid. */}}
 {{define "partials/htmx-errors"}}
 <script>
   document.body.addEventListener('htmx:beforeSwap', (e) => {
@@ -22,6 +27,15 @@
     if (!type.includes('text/html')) return
     e.detail.shouldSwap = true
     e.detail.isError = false
+  })
+  document.body.addEventListener('htmx:sendError', (e) => {
+    const target = e.detail.target
+    if (!target) return
+    const box = document.createElement('div')
+    box.className = 'alert-error sm:col-span-2'
+    box.setAttribute('role', 'alert')
+    box.textContent = "Couldn't reach the server. Check your connection and try again."
+    target.replaceChildren(box)
   })
 </script>
 {{end}}

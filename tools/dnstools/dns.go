@@ -150,29 +150,38 @@ func validDomain(name string) error {
 	if name == "" {
 		return ErrEmptyName
 	}
+	// Each message names the problem the way someone looking at what they
+	// typed would see it: "contains a space", not `contains " "`.
 	if len(name) > 253 {
-		return fmt.Errorf("%w: longer than 253 bytes", ErrBadName)
+		return fmt.Errorf("%w: it is longer than the 253 characters DNS allows", ErrBadName)
 	}
 	labels := strings.Split(name, ".")
 	if len(labels) > maxNameLabels {
-		return fmt.Errorf("%w: more than %d labels", ErrBadName, maxNameLabels)
+		return fmt.Errorf("%w: it has more than %d dot-separated parts", ErrBadName, maxNameLabels)
 	}
 	for _, l := range labels {
-		if l == "" || len(l) > 63 {
-			return fmt.Errorf("%w: %q is not a usable label", ErrBadName, l)
+		if l == "" {
+			return fmt.Errorf("%w: %q has an empty part (two dots in a row, or a leading dot)", ErrBadName, name)
+		}
+		if len(l) > 63 {
+			return fmt.Errorf("%w: %q is longer than the 63 characters one part may have", ErrBadName, l)
 		}
 		if l[0] == '-' || l[len(l)-1] == '-' {
 			return fmt.Errorf("%w: %q starts or ends with a hyphen", ErrBadName, l)
 		}
 		if !isASCII(l) {
-			return fmt.Errorf("%w: %q is not a valid internationalised label", ErrBadName, l)
+			return fmt.Errorf("%w: %q is not a valid internationalised name", ErrBadName, l)
 		}
 		for i := 0; i < len(l); i++ {
 			c := l[i]
 			ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
 				c == '-' || c == '_'
 			if !ok {
-				return fmt.Errorf("%w: %q contains %q", ErrBadName, l, string(c))
+				what := fmt.Sprintf("%q", string(c))
+				if c == ' ' {
+					what = "a space"
+				}
+				return fmt.Errorf("%w: %q contains %s", ErrBadName, name, what)
 			}
 		}
 	}

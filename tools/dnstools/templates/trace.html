@@ -72,6 +72,7 @@
   {{template "partials/footer" .}}
   {{template "partials/htmx-errors" .}}
   {{template "partials/htmx-history" .}}
+  {{template "dns/script" .}}
 
 </body>
 </html>
@@ -103,6 +104,8 @@
     <p class="text-sm">
       {{if eq .DNSSEC "secure"}}
         <span class="block text-base font-medium text-ok">Signed, and the chain checks out.</span>
+      {{else if and (eq .DNSSEC "insecure") (eq .Verdict.Level "warn")}}
+        <span class="block text-base font-medium text-warn">Signed, but the parent has no DS record for it.</span>
       {{else if eq .DNSSEC "insecure"}}
         <span class="block text-base font-medium text-strong">Not signed with DNSSEC.</span>
       {{else if eq .DNSSEC "indeterminate"}}
@@ -249,7 +252,7 @@
                place, and it is also the one a lost packet produces, so it
                reads as "not checked" — which is the whole claim. */}}
           <span class="text-xs
-                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if eq .Status "indeterminate"}}text-warn{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else}}{{.Status}}{{end}}</span>
+                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if or (eq .Status "indeterminate") .KeysWithoutDS}}text-warn{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else if .KeysWithoutDS}}keys, but no DS{{else}}{{.Status}}{{end}}</span>
           <span class="text-xs text-faint">vouched for by {{if eq .Parent "."}}. (root){{else}}{{.Parent}}{{end}}</span>
         </div>
         <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>
