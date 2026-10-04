@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -163,14 +164,22 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	req.Header.Set("Accept", "application/rdap+json, application/json")
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		// The page shows this error, and the raw one is a Go string with the
+		// whole request URL in it ("Get \"https://crt.sh/?exclude=...\":
+		// context deadline exceeded (Client.Timeout ...)"): unreadable, and
+		// wide enough to push a phone screen sideways.
+		var nerr net.Error
+		if errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%s timed out", req.URL.Host)
+		}
+		return fmt.Errorf("couldn't reach %s", req.URL.Host)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		return errUpstreamNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("upstream returned %d", resp.StatusCode)
+		return fmt.Errorf("%s answered with an error (%d)", req.URL.Host, resp.StatusCode)
 	}
 	// A captive portal, a WAF or an upstream's own error page answers 200 with
 	// HTML; decoding that raises a JSON syntax error the page shows verbatim,

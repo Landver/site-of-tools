@@ -298,3 +298,50 @@ func TestStaleResolversAreTheOnesAPurgeCanHelp(t *testing.T) {
 		t.Errorf("nothing differs, so nothing is stale: %v", agreed.Stale)
 	}
 }
+
+// github.com rotates its addresses. On a run where all its nameservers happen
+// to hand out the same one, a single sample per server reads the resolvers'
+// other address as stale; the client-subnet probes in the same run saw both,
+// and that withdraws the claim.
+func TestReconcileWithdrawsStalenessWhenTheZoneVaries(t *testing.T) {
+	t.Parallel()
+
+	run := func() *Spread {
+		sp := &Spread{
+			Authoritative: []ServerAnswer{
+				answer("dns1.p08.nsone.net.", 9, "140.82.121.3"),
+				answer("dns2.p08.nsone.net.", 9, "140.82.121.3"),
+			},
+			Resolvers: []ServerAnswer{
+				answer("Cloudflare (1.1.1.1)", 0, "140.82.121.3"),
+				answer("Google (8.8.8.8)", 0, "140.82.121.4"),
+			},
+		}
+		sp.summarise()
+		return sp
+	}
+
+	sp := run()
+	if len(sp.Stale) != 1 {
+		t.Fatalf("precondition: one sample per server reads Google as stale, got %v", sp.Stale)
+	}
+	sp.Reconcile(&ECS{Groups: []ECSGroup{{Values: []string{"140.82.121.3"}}, {Values: []string{"140.82.121.4"}}}})
+	if len(sp.Stale) != 0 || sp.ResolversStale || !sp.Varies {
+		t.Errorf("after the probes saw both answers: Stale = %v, ResolversStale = %v, Varies = %v", sp.Stale, sp.ResolversStale, sp.Varies)
+	}
+
+	// One answer everywhere in the probes, and it is Google's: Google is
+	// current, not stale.
+	sp = run()
+	sp.Reconcile(&ECS{Groups: []ECSGroup{{Values: []string{"140.82.121.4"}}}})
+	if len(sp.Stale) != 0 {
+		t.Errorf("a resolver holding the answer the probes saw is current: Stale = %v", sp.Stale)
+	}
+
+	// No probes (an MX check): nothing to weigh, the verdict stands.
+	sp = run()
+	sp.Reconcile(nil)
+	if len(sp.Stale) != 1 {
+		t.Errorf("without probes the staleness reading stands: Stale = %v", sp.Stale)
+	}
+}

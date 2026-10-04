@@ -72,6 +72,12 @@ type Spread struct {
 	// longer give (an old record, or a cached NXDOMAIN): the ones a purge is
 	// for. Empty when nothing is stale, or when the shape says steering.
 	Stale []string `json:"stale_resolvers,omitempty"`
+	// Varies: other samples taken in the same run (the client-subnet probes)
+	// saw more than one answer set, so the zone answers differently from
+	// query to query and a resolver holding "another" answer is no evidence
+	// of a stale cache. Set by Reconcile; it withdraws Stale and
+	// ResolversStale.
+	Varies bool `json:"answers_vary,omitempty"`
 
 	// Consistent: every server that answered returned the same set.
 	Consistent bool `json:"consistent"`
@@ -687,6 +693,51 @@ func (sp *Spread) summarise() {
 	}
 
 	sp.health()
+}
+
+// Reconcile weighs the staleness verdict against the client-subnet probes run
+// beside it. One sample per server cannot tell a rotating zone from a stale
+// cache: github.com rotates its addresses, and on the run where all eight of
+// its nameservers happened to hand out the same one, two resolvers were named
+// stale and sent to be purged. The probes are six more samples of the zone's
+// current answers. More than one answer set among them means the zone varies
+// per query, and no staleness claim survives; one set means any resolver
+// already holding it is current, not stale.
+func (sp *Spread) Reconcile(e *ECS) {
+	if sp == nil || e == nil {
+		return
+	}
+	current := map[string]bool{}
+	for _, g := range e.Groups {
+		if len(g.Values) > 0 {
+			current[sortedKey(g.Values)] = true
+		}
+	}
+	if len(current) > 1 {
+		sp.Varies = true
+		sp.Stale, sp.ResolversStale = nil, false
+		return
+	}
+	var keep []string
+	for _, label := range sp.Stale {
+		for _, r := range sp.Resolvers {
+			if r.Label == label && !current[sortedKey(r.Values)] {
+				keep = append(keep, label)
+			}
+		}
+	}
+	sp.Stale = keep
+	if len(keep) == 0 {
+		sp.ResolversStale = false
+	}
+}
+
+// sortedKey: answerKey over a sorted copy, so two samples of one set compare
+// equal whatever order they arrived in.
+func sortedKey(vals []string) string {
+	v := slices.Clone(vals)
+	slices.Sort(v)
+	return answerKey(v)
 }
 
 // unanimousRcode returns the response code every server that responded agreed

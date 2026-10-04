@@ -65,7 +65,8 @@
         {{if gt .AuthAnswered 1}}
           <span class="block text-base font-medium text-ok">Your nameservers are in step.</span>
           <span class="mt-1 block text-faint">All {{.AuthAnswered}} that answered return the same {{.Type}} records{{if and (gt .SerialsSeen 1) .SerialsAgree}} with matching serials{{end}}.
-          {{if .ResolversStale}}The public resolvers agree with each other and all of them hold a different answer, so the change has left your nameservers and is now waiting out a cache.
+          {{if .Varies}}The zone hands out different answers from one query to the next (the client-network card saw several), so a resolver holding another one is no sign of a stale cache.
+          {{else if .ResolversStale}}The public resolvers agree with each other and all of them hold a different answer, so the change has left your nameservers and is now waiting out a cache.
           {{else if .Stale}}Some public resolvers already give that answer and some still hold an older one, so the change has left your nameservers and is waiting out the rest of the caches.
           {{else if gt .ResolverGroups 1}}Public resolvers see {{.ResolverGroups}} different answers, which means this zone answers differently depending on who asks (anycast or geo steering), not a change still rolling out.
           {{else}}The public resolvers hold something else; compare the two panels below.{{end}}</span>
@@ -218,7 +219,7 @@
       {{/* Each server whole on a wide screen: a list that wraps mid-name
            ("ns-|1283.awsdns") reads as two servers. On a phone a long name
            still has to be able to break. */}}
-      <div class="mt-1 text-xs text-faint">served by {{len .Servers}}: {{range $i, $s := .Servers}}{{if $i}}, {{end}}<span class="sm:whitespace-nowrap">{{$s}}</span>{{end}}</div>
+      <div class="mt-1 text-xs text-faint">served by {{len .Servers}}: {{range $i, $s := .Servers}}{{if $i}}, {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</div>
     </div>
     {{end}}
   </div>

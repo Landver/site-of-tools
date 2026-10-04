@@ -35,7 +35,8 @@
     {{else if .Unvalidated}}<span class="text-warn">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
     {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
     {{else}}<span class="text-faint">Unsigned</span>{{end}}
-    {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName}}
+    {{/* Not when the lead card above already carries the same link. */}}
+    {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName (or .Found .Missing)}}
     <a href="/trace?name={{$.NavName}}" class="mt-1 block w-fit text-xs link-brand">See where the chain breaks</a>
     {{end}}
   </dd>
@@ -43,7 +44,7 @@
   {{/* Only claim parallelism when more than one type was actually asked. */}}
   <dt>Took</dt>
   <dd class="tabular-nums">
-    {{if .Cached}}<span class="text-ok">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
+    {{if .Cached}}<span class="text-strong">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
     {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}
       {{if $anyCached}}<span class="block text-xs text-faint">Some types came from this site's cache; the table marks which.</span>{{end}}{{end}}
   </dd>
@@ -60,8 +61,8 @@
      tool, a hostname to a lookup of that host. Underlined faintly at rest so
      a link reads as one without forty underlines shouting. */}}
 {{define "dns/value"}}
-{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
-{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
+{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
+{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
 {{else}}{{.Value}}{{end}}
 {{end}}
 
@@ -85,8 +86,8 @@
     <div class="card sm:col-span-2">
       <h2 class="eyebrow">not found</h2>
       <p class="text-sm">
-        <span class="text-warn">This name does not exist.</span>
-        <span class="text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
+        <span class="block text-base font-medium text-warn">This name does not exist.</span>
+        <span class="mt-1 block text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
       </p>
       {{with $page.NavName}}
       <p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>
@@ -130,7 +131,7 @@
       {{if and .Chain (gt .Asked 1)}}
       <p class="mb-3 text-xs text-muted">
         <span class="font-mono text-strong">{{$page.Query}}</span> is an alias
-        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-faint underline-offset-4 hover:text-brand">{{.Target}}</a> {{end}}
+        {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-line-strong underline-offset-4 hover:text-brand">{{.Target}}</a> {{end}}
         <span class="text-faint">· apart from the CNAME itself, every record below is the last name's.</span>
       </p>
       {{end}}
@@ -179,11 +180,11 @@
                    kept above. */}}
               {{if .Detail}}
               <span class="mt-1 block font-sans text-xs text-faint">
-                {{range $i, $f := .Detail}}{{if $i}} · {{end}}{{$f.Name}}: <span class="text-muted">{{$f.Value}}</span>{{end}}
+                {{range $i, $f := .Detail}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$f.Name}}: <span class="text-muted">{{$f.Value}}</span></span>{{end}}
               </span>
               {{end}}
               {{/* No room for a TTL column on a phone; it rides with the value. */}}
-              <span class="block font-sans text-xs text-faint tabular-nums sm:hidden">TTL {{.TTLHuman}}{{if ge .TTL 60}} ({{.TTL}}s){{end}}</span>
+              {{if not $ri}}<span class="block font-sans text-xs text-faint tabular-nums sm:hidden">TTL {{.TTLHuman}}{{if ge .TTL 60}} ({{.TTL}}s){{end}}</span>{{end}}
             </td>
             {{/* Raw seconds kept next to the human duration, never replaced —
                  except under a minute, where the two say the same thing. */}}
@@ -218,7 +219,11 @@
          follow one another down their own side rather than being pinned into
          rows where a short card strands the space beside a tall one. The wide
          answer table above keeps the full width, because it is a table. */}}
-    <div class="grid gap-4 content-start">
+    {{/* With nothing for the right-hand column (a single type that answered,
+         a reverse lookup), the left one takes the row rather than leave half
+         of it empty. */}}
+    {{$side := or .Missing .Dangling .Failed}}
+    <div class="grid gap-4 content-start {{if not $side}}sm:col-span-2{{end}}">
     {{/* An explicit ?type= filters the CNAME out as the wrong type, so the
          address above looks like it belongs to the name asked for. A fan-out
          says the alias in the table's own header instead. */}}
@@ -246,6 +251,7 @@
     </div>
     </div>
 
+    {{if $side}}
     <div class="grid gap-4 content-start">
     {{/* Every empty type collapsed into one line, instead of a wall of empty
          cards. Absence is still stated out loud, just once. */}}
@@ -278,6 +284,7 @@
     {{/* "Couldn't find out" is deliberately not folded in with "isn't there". */}}
     {{if .Failed}}{{template "dns/failed" .}}{{end}}
     </div>
+    {{end}}
 
     {{/* The receipt made checkable: the exact commands that reproduce this,
          the answers in zone-file form, and the same result as JSON. Full
@@ -304,7 +311,7 @@
             <div class="text-xs text-faint">Zone-file format</div>
             <button type="button" class="btn-copy" aria-label="Copy the zone file" data-copy="{{.Zone}}">Copy</button>
           </div>
-          <pre tabindex="0" role="region" aria-label="Zone file" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong">{{.Zone}}</pre>
+          <pre tabindex="0" role="region" aria-label="Zone file" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong [tab-size:8]">{{.Zone}}</pre>
         </div>
         {{end}}
         {{$curl := printf "%s/?name=%s" (toolURL "dns") $page.Query}}
@@ -331,9 +338,12 @@
      zone with broken DNSSEC fails all nine types with one SERVFAIL and one
      resolver explanation, which nine copies made read as nine problems. */}}
 {{define "dns/failed"}}
+{{/* When nothing answered at all, the lead card above already says so: this
+     one is then only the resolver's reason, titled as such. */}}
+{{$all := and (not .Found) (not .Missing)}}
 <div class="card">
-  <h2 class="eyebrow">no answer</h2>
-  <p class="text-sm text-muted">The resolver didn't give a usable answer for:</p>
+  <h2 class="eyebrow">{{if $all}}the resolver's reason{{else}}no answer{{end}}</h2>
+  <p class="text-sm text-muted">{{if $all}}For every type asked:{{else}}The resolver didn't give a usable answer for:{{end}}</p>
   <div class="divide-y divide-line">
   {{range .FailureGroups}}
   <div class="py-3">
@@ -345,7 +355,7 @@
            "something broke" and "the signature expired". */}}
       {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
       {{if .Bogus}}
-      <span class="block text-xs text-warn">DNSSEC validation failure: the same query succeeds with checking disabled, so the signatures are broken, not the servers.</span>
+      <span class="block text-xs text-muted">The same query succeeds with DNSSEC checking disabled, so the signatures are broken, not the servers.</span>
       {{end}}
     </div>
   </div>

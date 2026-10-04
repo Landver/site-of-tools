@@ -28,7 +28,7 @@
            Unknown, "expires today" and "already expired" are three answers. */}}
       {{if .DaysKnown}}
         {{if lt .Days 0}}<span class="text-danger"> — expired</span>
-        {{else}}<span class="{{if lt .Days 30}}text-danger{{else if lt .Days 90}}text-warn{{else}}text-faint{{end}}"> — {{.Days}}&nbsp;days</span>{{end}}
+        {{else}}<span class="whitespace-nowrap {{if lt .Days 30}}text-danger{{else if lt .Days 90}}text-warn{{else}}text-faint{{end}}"> — {{.Days}}&nbsp;days</span>{{end}}
       {{end}}
     </dd>
     {{end}}
@@ -83,36 +83,38 @@
     {{end}}
   {{else}}
     <p class="text-sm text-warn">Couldn't read the registry record.</p>
-    <p class="mt-1 text-xs text-faint">{{.RegError}} — that's a failure to look it up, not evidence the domain is unregistered.</p>
+    <p class="mt-1 text-xs text-faint wrap-anywhere">{{.RegError}}: that's a failure to look it up, not evidence the domain is unregistered.</p>
   {{end}}
 </div>
 {{end}}
 
-{{/* The subdomains card lives in #ct, which stays put while its content is
-     swapped: the first load and every "Try again" replace what is inside it,
-     so the card never takes the focused link away with it (dns/script puts
-     focus on its heading when that happens). display:contents keeps the
-     card itself the grid item. */}}
-<section id="ct" class="contents" aria-labelledby="ct-h"
-  {{if .CertsLazy}}hx-get="/domain?name={{.Query}}&amp;part=certs" hx-trigger="load" hx-target="this" hx-swap="innerHTML"{{end}}>
+{{/* The subdomains card lives in a #ct section. The loading version below
+     fetches the real one and is replaced by it whole (outerHTML), so what
+     htmx saves for Back is a finished card with nothing left to trigger: a
+     restored page used to fetch crt.sh again on every Back. "Try again"
+     replaces the section the same way, and dns/script puts focus on the new
+     card's heading when the link it was on went with the old one.
+     display:contents keeps the card itself the grid item. */}}
 {{if .CertsLazy}}
+<section id="ct" class="contents" aria-labelledby="ct-h"
+  hx-get="/domain?name={{.Query}}&amp;part=certs" hx-trigger="load" hx-target="this" hx-swap="outerHTML">
 {{/* Certificate Transparency is the slow half (crt.sh can take twenty
      seconds, and often fails), so on the page it fetches itself once the
      registration is on screen. Without JavaScript the link loads the whole
      result in one go, and the "searching" line, which would be false, is
      hidden. */}}
 <div class="card sm:col-span-2" aria-busy="true">
-  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains seen in certificate transparency</h2>
+  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
   <p class="ct-searching text-sm text-muted">Searching the certificate logs…</p>
   <noscript>
     <style>.ct-searching{display:none}</style>
     <p class="text-xs"><a href="/domain?name={{.Query}}&amp;part=certs" class="link-brand">Load the subdomains</a></p>
   </noscript>
 </div>
+</section>
 {{else}}
 {{template "dns/certs" .}}
 {{end}}
-</section>
 {{end}}
 {{end}}
 
@@ -122,11 +124,27 @@
 {{define "dns/certs"}}
 {{/* Fetched on its own, the card says what it found on the page's status
      line too: it can land many seconds after the rest. */}}
-{{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{if .Certs}}Subdomains: {{.Certs.Total}} found.{{else if .CertError}}Couldn't get the subdomains from Certificate Transparency.{{end}}</p>{{end}}
-{{if .Certs}}{{with .Certs}}
+{{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{if .Certs}}Subdomains: {{.Certs.Total}} found.{{else if .CertsLimited}}{{.Error}}{{else if .CertError}}Couldn't get the subdomains from Certificate Transparency.{{end}}</p>{{end}}
+<section id="ct" class="contents" aria-labelledby="ct-h">
+{{if .CertsLimited}}
+{{/* Our own rate limit, not crt.sh's: the card keeps its heading and both
+     ways forward instead of turning into a notice with no way back. */}}
+<div class="card sm:col-span-2">
+  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
+  <p class="text-sm text-warn">Too many lookups from your IP address just now.</p>
+  <p class="mt-1 text-xs text-faint">This card is one more request; it can be retried in a second.</p>
+  <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+    <a href="/domain?name={{.Query}}&amp;part=certs" hx-get="/domain?name={{.Query}}&amp;part=certs" hx-target="#ct" hx-swap="outerHTML" class="link-brand">
+      <span class="in-[.htmx-request]:hidden">Try again<span class="sr-only">, loading the subdomains</span></span>
+      <span class="hidden in-[.htmx-request]:inline">Searching…</span>
+    </a>
+    <a href="https://crt.sh/?q=%25.{{.Query}}" target="_blank" rel="noopener" class="link-brand">Search crt.sh directly<span class="sr-only"> (opens in a new tab)</span></a>
+  </p>
+</div>
+{{else if .Certs}}{{with .Certs}}
 <div class="card sm:col-span-2">
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-    <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains seen in certificate transparency</h2>
+    <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
     <div class="text-sm text-muted tabular-nums">{{.Total}} found</div>
   </div>
   <p class="mb-3 text-xs text-faint">
@@ -145,7 +163,7 @@
     <tbody>
       {{range .Names}}
       <tr class="border-t border-line">
-        <td class="py-1.5 pr-4 font-mono wrap-anywhere text-strong"><a href="/?name={{.Name}}" title="Look up {{.Name}}" class="underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{.Name}}</a></td>
+        <td class="py-1.5 pr-4 font-mono wrap-anywhere text-strong"><a href="/?name={{.Name}}" title="Look up {{.Name}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{.Name}}</a></td>
         <td class="py-1.5 pr-4 text-xs text-muted tabular-nums whitespace-nowrap">{{.FirstSeen}}</td>
         <td class="py-1.5 text-right text-xs text-muted tabular-nums">{{.Certs}}</td>
       </tr>
@@ -171,11 +189,11 @@
 {{/* Couldn't check is amber, as everywhere else on these pages, and it
      offers the two ways forward: ask again, or ask crt.sh directly. */}}
 <div class="card sm:col-span-2">
-  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains seen in certificate transparency</h2>
+  <h2 id="ct-h" tabindex="-1" class="eyebrow">subdomains in certificate logs</h2>
   <p class="text-sm text-warn">crt.sh didn't return the certificate list.</p>
-  <p class="mt-1 text-xs text-faint">({{.CertError}}) It is often slow or briefly down; this says nothing about the domain.</p>
+  <p class="mt-1 text-xs text-faint wrap-anywhere">{{.CertError}}: it is often slow or briefly down, and this says nothing about the domain.</p>
   <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-    <a href="/domain?name={{.Query}}&amp;part=certs" hx-get="/domain?name={{.Query}}&amp;part=certs" hx-target="#ct" hx-swap="innerHTML" class="link-brand">
+    <a href="/domain?name={{.Query}}&amp;part=certs" hx-get="/domain?name={{.Query}}&amp;part=certs" hx-target="#ct" hx-swap="outerHTML" class="link-brand">
       <span class="in-[.htmx-request]:hidden">Try again<span class="sr-only">, loading the subdomains</span></span>
       <span class="hidden in-[.htmx-request]:inline">Searching…</span>
     </a>
@@ -183,6 +201,7 @@
   </p>
 </div>
 {{end}}
+</section>
 {{end}}
 
 {{define "dns/domain"}}
@@ -204,11 +223,11 @@
       a packet at the domain.
     </p>
 
-    <form hx-get="/domain" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:drop" data-busy="Reading the registry record…"
+    <form hx-get="/domain" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Reading the registry record…"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
-             aria-label="Domain name" placeholder="example.com" class="field">
-      <button type="submit" class="btn-primary in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60">
+      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
+             aria-label="Domain name" placeholder="example.com" class="field basis-full sm:basis-0">
+      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
         {{/* Both labels share one grid cell, so swapping them in flight
              never changes the button's width or shoves the input. */}}
         <span class="inline-grid">

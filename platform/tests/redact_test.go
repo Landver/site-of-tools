@@ -172,3 +172,16 @@ func TestRedactURIKeepsAPlainDNSName(t *testing.T) {
 		}
 	}
 }
+
+// A URL typed unencoded into the address bar splits at its own "&", so its
+// parameters arrive as pairs of their own. They are the paste's tail and are
+// redacted with it; the DNS tool's own parameters stay readable.
+func TestRedactURIDropsAnUnencodedURLsTail(t *testing.T) {
+	got := platform.RedactURI("/email?name=https://app.example.com/reset?a=b&token=SECRET&type=MX")
+	if strings.Contains(got, "SECRET") {
+		t.Errorf("RedactURI kept the pasted URL's tail: %q", got)
+	}
+	if !strings.Contains(got, "type=MX") {
+		t.Errorf("RedactURI dropped the tool's own parameter: %q", got)
+	}
+}

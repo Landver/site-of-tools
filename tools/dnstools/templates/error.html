@@ -21,7 +21,9 @@
      role=status inserted with its text already in it is announced
      unreliably. The lighter tint keeps the amber text at AA in light theme. */}}
 {{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{.Error}}</p>{{end}}
-<div class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn">{{.Error}}</div>
+{{/* Inserted above the last result (HX-Reswap: afterbegin), never saved
+     into history (data-transient). */}}
+<div data-transient class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn">{{.Error}}</div>
 {{end}}
 
 {{/* The same, as a whole page: the nav stays, and the request that was
@@ -31,6 +33,7 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
   {{template "partials/header" .}}
   <main id="main" class="page-main">
     {{template "dns/nav" .}}

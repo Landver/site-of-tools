@@ -24,17 +24,17 @@
       than trusting a resolver's AD bit. Every hop is shown, with its server, glue and timing.
     </p>
 
-    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:drop" data-busy="Walking down from the root…"
+    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Walking down from the root…"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
+      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
              aria-label="Domain name to trace"
-             placeholder="example.com" class="field">
+             placeholder="example.com" class="field basis-full sm:basis-0">
       <select name="type" aria-label="Record type"
-              class="rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+              class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
         {{$t := .QType}}
         {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
       </select>
-      <button type="submit" class="btn-primary in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60">
+      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
         {{/* Both labels share one grid cell, so swapping them in flight
              never changes the button's width or shoves the input. */}}
         <span class="inline-grid">
@@ -122,7 +122,7 @@
 
     {{if .Answer}}
     {{$addr := or (eq .Type "A") (eq .Type "AAAA")}}
-    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-faint underline-offset-4 hover:text-brand hover:decoration-brand">{{$v}}<span class="sr-only"> in IP Tools</span></a>{{else}}{{$v}}{{end}}{{end}}</div>
+    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand hover:decoration-brand">{{$v}}<span class="sr-only"> in IP Tools</span></a>{{else}}{{$v}}{{end}}{{end}}</div>
     {{else if .CNAME}}
     <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">alias → {{.CNAME}}</div>
     {{/* What it points to is a walk of its own, one click away. */}}
@@ -162,7 +162,7 @@
     </p>
     <ol class="text-sm">
       {{range .Hops}}
-      <li class="relative border-l border-line pb-6 pl-6 last:border-transparent last:pb-0">
+      <li class="relative border-l border-line-strong/40 pb-6 pl-6 last:border-transparent last:pb-0">
         <span class="absolute left-[-5px] top-1.5 inline-block h-2.5 w-2.5 rounded-full
               {{if .Error}}bg-danger{{else if .Authoritative}}bg-strong{{else}}bg-faint{{end}}"></span>
 
@@ -198,7 +198,7 @@
           to {{len .Nameservers}} nameserver{{if ne (len .Nameservers) 1}}s{{end}}{{if .Glue}}, with {{len .Glue}} glue address{{if ne (len .Glue) 1}}es{{end}}{{end}}
         </div>
         {{if .Nameservers}}
-        <div class="mt-1 font-mono text-xs text-faint">{{range $i, $n := .Nameservers}}{{if $i}} · {{end}}<span class="sm:whitespace-nowrap">{{$n}}</span>{{end}}</div>
+        <div class="mt-1 font-mono text-xs text-faint">{{range $i, $n := .Nameservers}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$n}}</span>{{end}}</div>
         {{end}}
         {{end}}
 
@@ -211,7 +211,7 @@
         </div>
         {{end}}
         {{if .SideLookups}}
-        <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}<span class="sm:whitespace-nowrap">{{$s}}</span>{{end}}</div>
+        <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</div>
         {{end}}
 
         {{/* The records themselves are not repeated here. They are in the
@@ -264,7 +264,7 @@
         {{/* A link that could not be checked has to name who would not talk to
              us, or "indeterminate" reads as a shrug. */}}
         {{if .Unanswered}}
-        <p class="mt-1 font-mono text-xs text-faint">{{range $i, $s := .Unanswered}}{{if $i}} · {{end}}<span class="sm:whitespace-nowrap">{{$s}}</span>{{end}}</p>
+        <p class="mt-1 font-mono text-xs text-faint">{{range $i, $s := .Unanswered}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</p>
         {{end}}
         {{if .DSKeyTags}}
         <p class="mt-1 font-mono text-xs text-faint">

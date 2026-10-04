@@ -1529,7 +1529,12 @@ func (w *traceWalk) verdict() {
 			if out.AnswerRcode == "NXDOMAIN" {
 				absent = "the name does not exist"
 			}
-			out.Verdict = Note{Level: "warn", Text: "Every link from the root trust anchor down to " + strings.TrimSuffix(out.AnswerZone, ".") + " verified here, and the zone says " + absent + ". That absence is the zone's word: proving it takes NSEC or NSEC3 records, which this walk doesn't read."}
+			chain := "Every link from the root trust anchor down to " + strings.TrimSuffix(out.AnswerZone, ".") + " verified here, and the zone says "
+			if out.AnswerZone == "." {
+				// The root answered for itself: there is no "down to".
+				chain = "The root's own keys verified here against the trust anchor, and the root says "
+			}
+			out.Verdict = Note{Level: "warn", Text: chain + absent + ". That absence is the zone's word: proving it takes NSEC or NSEC3 records, which this walk doesn't read."}
 		case traceAnswerForeign:
 			out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "The chain verified down to the zone this walk reached, but the records it returned are signed by a different zone below it — one whose keys this walk could not anchor. The signature may well be perfectly good; this walk simply is not in a position to say, and will not guess in either direction."}
 		case traceAnswerUnsigned:
@@ -1560,20 +1565,16 @@ func (w *traceWalk) verdict() {
 		out.Notes = append(out.Notes, Note{Level: "warn", Text: "This walk " + why +
 			" and stopped. What is shown above is the start of the delegation, not all of it. Slow or unresponsive nameservers are the usual cause."})
 	}
-	if out.CNAME != "" {
-		// Subject: the name asked about. The zone used to be the subject, and
-		// "github.com answers with a CNAME pointing at github.com" read as a
-		// name pointing at itself.
+	// An alias whose target lives in the same zone: the one server answered
+	// both halves, and the records shown are the target's, not this name's,
+	// which is worth saying before someone edits the wrong record. Subject:
+	// the name asked about; the zone used to be the subject, and "github.com
+	// answers with a CNAME pointing at github.com" read as a name pointing at
+	// itself. An alias into another zone gets no note: the verdict card
+	// already shows it, with a link to trace the target.
+	if out.CNAME != "" && len(out.Answer) > 0 {
 		name, target, zone := strings.TrimSuffix(out.QName, "."), strings.TrimSuffix(out.CNAME, "."), strings.TrimSuffix(out.AnswerZone, ".")
-		text := name + " is an alias (CNAME) for " + target + ", outside the " + zone + " zone, so resolving it is a separate walk: trace " + target + " to check it."
-		if len(out.Answer) > 0 {
-			// The target happens to live in the same zone, so the one server
-			// answered both halves. The records above are the target's, not
-			// this name's, which is worth saying before someone edits the
-			// wrong record.
-			text = name + " is an alias (CNAME) for " + target + ". Both are in the " + zone + " zone, so one server answered both: the records above are " + target + "'s, not " + name + "'s."
-		}
-		out.Notes = append(out.Notes, Note{Level: "info", Text: text})
+		out.Notes = append(out.Notes, Note{Level: "info", Text: name + " is an alias (CNAME) for " + target + ". Both are in the " + zone + " zone, so one server answered both: the records above are " + target + "'s, not " + name + "'s."})
 	}
 	sortNotes(out.Notes)
 }

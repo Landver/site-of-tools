@@ -188,7 +188,12 @@ func needName(c *echo.Context, name string, vm map[string]any, page, frag, examp
 		})
 	}
 	if platform.IsHTMX(c) {
-		return true, c.Render(http.StatusOK, frag, vm)
+		// A blank (whitespace) submit from a page already showing a result:
+		// leave the result, the URL and the nav as they are, and only clear
+		// the "Querying…" the status line was given when it was sent.
+		c.Response().Header().Set("HX-Reswap", "none")
+		c.Response().Header().Set("HX-Push-Url", "false")
+		return true, c.HTML(http.StatusOK, `<p id="dns-status" hx-swap-oob="innerHTML"></p>`)
 	}
 	return true, c.Render(http.StatusOK, page, vm)
 }
@@ -428,6 +433,14 @@ func (h *handler) domain(c *echo.Context) error {
 			if set, err := h.svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
 				vm["RegHasNS"] = true
 				out["delegated"] = true
+				// Registered, and known to be: the JSON must not offer
+				// "unregistered" beside "delegated", and the answer is not a
+				// total failure because crt.sh happened to be down too.
+				out["registration_error"] = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
+				if code == http.StatusBadGateway {
+					code = http.StatusOK
+					vm["TitleName"] = displayName(name)
+				}
 			}
 		}
 	}
@@ -508,6 +521,9 @@ func (h *handler) consistency(c *echo.Context) error {
 
 	var body any
 	if err == nil {
+		// The probes are more samples of the same zone, and they settle what
+		// one sample per server cannot: rotation versus a stale cache.
+		sp.Reconcile(steer)
 		vm["Spread"] = sp
 		// Nil is falsy to {{with}}, so the card renders nothing when the check
 		// did not run.
@@ -583,15 +599,26 @@ func rateLimiter() echo.MiddlewareFunc {
 			if active == "" {
 				active = "lookup"
 			}
-			// A refused request is not a place to go Back to: keep it out
-			// of the history htmx would otherwise push.
+			name := NormalizeName(c.QueryParam("name"))
+			vm := withName(map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
+				"Active": active, "Query": name, "Retry": c.Request().URL.RequestURI()}, name, "")
 			if platform.IsHTMX(c) {
+				// A refused request is not a place to go Back to: keep it out
+				// of the history htmx would otherwise push.
 				c.Response().Header().Set("HX-Push-Url", "false")
+				// The subdomains card refused on its own keeps its shape:
+				// heading, "Try again", and the way out to crt.sh.
+				if c.QueryParam("part") == "certs" {
+					vm["CertsLimited"] = true
+					return c.Render(http.StatusTooManyRequests, "dns/certs", vm)
+				}
+				// Anywhere else the notice goes above the result rather than
+				// over it: the last answer stays on screen, and the notice is
+				// dropped before htmx snapshots the page for Back.
+				c.Response().Header().Set("HX-Reswap", "afterbegin")
 			}
 			return reply(c, http.StatusTooManyRequests,
-				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
-					"Active": active, "Retry": c.Request().URL.RequestURI()},
+				map[string]string{"error": msg}, vm,
 				"dns/ratelimited", "dns/slowdown")
 		},
 	})

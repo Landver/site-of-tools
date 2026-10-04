@@ -24,9 +24,14 @@ func NormalizeName(raw string) string {
 
 	// A URL: the host is the only part DNS can use. url.Parse also drops the
 	// port, the userinfo and the brackets round an IPv6 literal.
-	if strings.Contains(s, "://") {
+	if i := strings.Index(s, "://"); i >= 0 {
 		if u, err := url.Parse(s); err == nil && u.Hostname() != "" {
 			s = u.Hostname()
+		} else {
+			// A URL url.Parse refuses ("https://example.com:abc/") still has
+			// its scheme cut, or "https" is what gets looked up; the rest
+			// goes through the same trimming as a scheme-less paste.
+			s = s[i+3:]
 		}
 	}
 	s = strings.TrimPrefix(s, "mailto:")

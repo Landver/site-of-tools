@@ -25,6 +25,10 @@ var redactedParams = map[string]bool{
 	"v":    true, // linktools /encode — the likeliest place someone pastes a JWT
 }
 
+// dnsParams: the DNS tool's own query keys, the ones a pasted URL's tail can't
+// be mistaken for.
+var dnsParams = map[string]bool{"name": true, "type": true, "resolver": true, "selector": true, "part": true}
+
 // redactedName: a DNS ?name= that is not just a name. A domain or an IP is
 // what the corpus is for and stays readable; a value carrying a path, a query,
 // a fragment or an @ is a pasted URL or email address, and those are exactly
@@ -75,6 +79,11 @@ func RedactURI(uri string) string {
 	// here. (Same lesson as tools/linktools/url.go's parser.)
 	pairs := strings.Split(query, "&")
 	changed := false
+	// A URL typed unencoded into ?name= splits at its own "&": everything
+	// after it arrives as pairs of its own ("&token=SECRET"). Once a name
+	// has been redacted as a URL, any later pair that isn't one of the DNS
+	// tool's own parameters is the rest of that URL, and goes too.
+	pastedURL := false
 	for i, pair := range pairs {
 		if pair == "" {
 			continue
@@ -88,7 +97,13 @@ func RedactURI(uri string) string {
 		if !hasEq {
 			continue // "?u" carries no value to redact
 		}
-		if !redactedParams[strings.ToLower(key)] && !redactedName(key, pair[len(rawKey)+1:]) {
+		lk := strings.ToLower(key)
+		switch {
+		case redactedParams[lk]:
+		case redactedName(key, pair[len(rawKey)+1:]):
+			pastedURL = true
+		case pastedURL && !dnsParams[lk]:
+		default:
 			continue
 		}
 		pairs[i] = rawKey + "=<redacted>"

@@ -60,11 +60,11 @@
      results quietly answer a different string. */}}
 {{define "dns/asked"}}
 {{if .Unicode}}
-<p class="-mb-2 text-xs text-faint sm:col-span-2">
+<p class="-mb-2 text-xs text-faint wrap-anywhere sm:col-span-2">
   <span class="font-mono text-muted">{{.Unicode}}</span>, which DNS spells <span class="font-mono text-muted">{{.Query}}</span>.
 </p>
 {{else if .Typed}}
-<p class="-mb-2 text-xs text-faint sm:col-span-2">
+<p class="-mb-2 text-xs text-faint wrap-anywhere sm:col-span-2">
   Looked up <span class="font-mono text-muted">{{.Query}}</span>, taken from what you entered.
 </p>
 {{end}}
@@ -124,11 +124,26 @@
       var target = lost
       lost = null
       if (!target || target !== e.detail.target || document.activeElement !== document.body) return
+      // An outerHTML swap leaves the old element detached: its replacement
+      // carries the same id.
+      if (!target.isConnected) target = target.id && document.getElementById(target.id)
+      if (!target) return
       var spot = target.matches('[tabindex="-1"]') ? target : target.querySelector('[tabindex="-1"]')
       if (spot) spot.focus()
     })
     document.body.addEventListener('htmx:historyRestore', function () {
       status(document.title)
+    })
+    // A second rate-limit notice replaces the first rather than stacking
+    // above it (they are inserted, afterbegin, over the last result).
+    document.body.addEventListener('htmx:beforeSwap', function (e) {
+      if (e.detail.xhr.status !== 429) return
+      document.querySelectorAll('#result > [data-transient]').forEach(function (el) { el.remove() })
+    })
+    // The offline box announces itself (role=alert); the status line must
+    // not go on saying "Querying…".
+    document.body.addEventListener('htmx:sendError', function () {
+      status('')
     })
   })()
 </script>
