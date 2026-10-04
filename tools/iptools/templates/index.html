@@ -74,14 +74,34 @@
 
   {{template "partials/footer" .}}
 
+  {{/* Every error fragment the handler renders gets swapped in: a bad IP
+       (400) and the databases being unavailable (503) alike. This page used
+       to carry its own handler for 400 only, so a 503 left the result area
+       empty, or showing the previous lookup as if it were this one's. */}}
+  {{template "partials/htmx-errors" .}}
+
   <script>
-    // Bad IP → HTTP 400 w/ error fragment (same alert CIDR page shows). htmx
-    // won't swap 4xx by default → w/o this, box silently keeps previous result;
-    // tell it to render our validation error.
-    document.body.addEventListener('htmx:beforeSwap', (e) => {
-      if (e.detail.xhr.status === 400) {
-        e.detail.shouldSwap = true
-        e.detail.isError = false
+    // What no fragment covers: a response that is not this tool's HTML (echo
+    // answers a recovered panic with JSON, which partials/htmx-errors
+    // deliberately never swaps in) or no response at all. Either used to
+    // leave the result area as it was. Text nodes only: nothing from the
+    // response is parsed as HTML.
+    function lookupFailed(msg) {
+      const area = document.getElementById('result')
+      if (!area) return
+      const alert = document.createElement('div')
+      alert.className = 'alert-error w-full'
+      alert.textContent = msg
+      area.replaceChildren(alert)
+    }
+    document.body.addEventListener('htmx:responseError', (e) => {
+      if (e.detail.target && e.detail.target.id === 'result') {
+        lookupFailed('The lookup failed (HTTP ' + e.detail.xhr.status + '). Try again in a moment.')
+      }
+    })
+    document.body.addEventListener('htmx:sendError', (e) => {
+      if (e.detail.target && e.detail.target.id === 'result') {
+        lookupFailed('Could not reach the server. Check your connection and try again.')
       }
     })
 

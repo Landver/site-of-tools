@@ -95,7 +95,8 @@ func TestHandlerBadIPRendersErrorFragment(t *testing.T) {
 	// Malformed IP → domain Lookup fails w/ validation error (not ErrUnavailable).
 	// htmx path must return 400 + error-alert fragment → box shows "not a valid
 	// IP" instead of silently keeping prev result. (Client swaps this 400 in via
-	// htmx:beforeSwap — see ip/index.html; htmx otherwise drops 4xx response.)
+	// partials/htmx-errors, included by ip/index.html; htmx otherwise drops a
+	// 4xx response.)
 	app := newTestApp(fakeLooker{err: errors.New(`"104.253.63." is not a valid IP address`)})
 	rec := do(app, "/?ip=104.253.63.", map[string]string{"HX-Request": "true"})
 	if rec.Code != http.StatusBadRequest {
@@ -111,6 +112,51 @@ func TestHandlerErrorStatus(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4", map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("ErrUnavailable → code %d, want 503", rec.Code)
+	}
+	// JSON keeps the Go string; only the page words it for a person.
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["error"] != iptools.ErrUnavailable.Error() {
+		t.Errorf("JSON body = %s, want error %q", rec.Body, iptools.ErrUnavailable.Error())
+	}
+}
+
+// TestUnavailableLookupShowsItsReason: a 503 is answered with a readable error
+// fragment, never a history entry. The page used to show nothing at all: it
+// swapped in error fragments for 400 only, so this one was dropped.
+func TestUnavailableLookupShowsItsReason(t *testing.T) {
+	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4",
+		map[string]string{"Accept": "text/html", "HX-Request": "true"})
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="alert-error`) || !strings.Contains(body, "unavailable right now") {
+		t.Errorf("503 fragment does not say what happened:\n%s", body)
+	}
+	if strings.Contains(body, "<html") {
+		t.Error("htmx got a full page instead of a fragment")
+	}
+	if got := rec.Header().Get("HX-Push-Url"); got != "false" {
+		t.Errorf("HX-Push-Url = %q, want false: a failed lookup must not become a history entry", got)
+	}
+}
+
+// TestLookupPageSwapsEveryError: the page includes the shared htmx error
+// handler (every status a fragment comes back with, not 400 alone) and a
+// fallback for failures that bring no fragment at all.
+func TestLookupPageSwapsEveryError(t *testing.T) {
+	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
+	page := rec.Body.String()
+	if !strings.Contains(page, "[400, 401, 404, 409, 429, 500, 502, 503]") {
+		t.Error("the page does not include partials/htmx-errors")
+	}
+	if strings.Contains(page, "status === 400") {
+		t.Error("the page still carries its own 400-only swap handler")
+	}
+	for _, event := range []string{"htmx:responseError", "htmx:sendError"} {
+		if !strings.Contains(page, event) {
+			t.Errorf("no %s fallback: a failure without a fragment would leave the result area as it was", event)
+		}
 	}
 }
 

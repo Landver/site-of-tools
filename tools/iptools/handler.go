@@ -181,7 +181,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// tool via VM flag → apex (no such data) omits it.
 	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true, "SpamhausAttribution": true}
 	if err != nil {
-		vm["Error"] = err.Error()
+		vm["Error"] = pageError(err)
 	} else {
 		vm["Result"] = res
 		// Shodan ToS wants visible credit wherever their data appears. Gate
@@ -203,6 +203,17 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	}
 	vm["Conn"] = conn
 	return c.Render(code, "ip/index", vm)
+}
+
+// pageError is a lookup error as a person reads it. The JSON keeps the Go
+// string; the page says what the visitor can do about it. Missing databases
+// are this server's problem, not the visitor's input, and the bare "geolocation
+// databases are not loaded" read like something they had got wrong.
+func pageError(err error) string {
+	if errors.Is(err, ErrUnavailable) {
+		return "IP lookups are unavailable right now: this server's geolocation databases are not loaded. Try again later."
+	}
+	return err.Error()
 }
 
 func statusFor(err error) int {
