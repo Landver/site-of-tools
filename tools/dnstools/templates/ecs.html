@@ -136,8 +136,9 @@
     </p>
 
     {{/* Per-network rows: the same shape the public resolvers card uses. */}}
-    <dl class="spec mt-3 grid-cols-[1fr_auto]">
+    <dl class="pairs mt-3">
       {{range .Vantages}}
+      <div>
       <dt class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
         {{.Place}}
         <span class="block font-mono text-faint">{{.Subnet}}</span>
@@ -153,15 +154,16 @@
           {{else}}<span class="block text-ok">scope /{{.Scope}}, the zone's own block</span>{{end}}
         {{else}}<span class="block text-faint">no scope</span>{{end}}
       </dt>
-      <dd class="text-right">
+      <dd>
         {{if .Error}}<span class="text-danger">{{.Error}}</span>
-        {{else}}<span class="font-mono text-xs text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
+        {{else}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
           {{/* An empty answer set is a real outcome (NODATA), and printing
                nothing beside a row reads as "this vantage said nothing". */}}
           {{if not .Values}}<span class="text-xs text-muted">no {{$.ECS.Type}} record{{if .Rcode}} ({{.Rcode}}){{end}}</span>{{end}}
           {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
           <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
       </dd>
+      </div>
       {{end}}
     </dl>
   </details>
