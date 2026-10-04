@@ -1,8 +1,10 @@
 {{/* Result fragment for the consistency check. */}}
 {{define "dns/spread"}}
+{{template "dns/oob" .}}
 {{if .Error}}
   {{template "dns/error" .}}
 {{else if .Spread}}
+  {{template "dns/asked" .}}
   {{with .Spread}}
 
   {{/* Two independent stacking columns, the same shape botcheck's breakdown

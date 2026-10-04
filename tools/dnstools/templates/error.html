@@ -1,9 +1,18 @@
-{{/* Route-neutral error fragment. The rate limiter can fire on any of the four
+{{/* Route-neutral error fragment. The rate limiter can fire on any of the five
      pages, so its response must not be one specific page's result template. */}}
 {{define "dns/error"}}
 <div class="alert-error sm:col-span-2">{{.Error}}</div>
 {{end}}
 
+{{/* The rate limiter's htmx answer. A wait is not a fault, so it is a notice
+     in the "needs attention" colour rather than the red error box, and it
+     says how long: the bucket refills a lookup every half second. */}}
+{{define "dns/slowdown"}}
+<div role="status" class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-warn">{{.Error}}</div>
+{{end}}
+
+{{/* The same, as a whole page: the nav stays, and the request that was
+     refused is one click away rather than a retype. */}}
 {{define "dns/ratelimited"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -11,9 +20,10 @@
 <body>
   {{template "partials/header" .}}
   <main class="page-main">
+    {{template "dns/nav" .}}
     <h1 class="text-2xl font-semibold text-strong">Slow down a moment</h1>
     <p class="mt-3 text-sm text-muted">{{.Error}}</p>
-    <p class="mt-4 text-sm"><a href="/" class="text-brand hover:underline">Back to DNS lookup</a></p>
+    {{with .Retry}}<p class="mt-4 text-sm"><a href="{{.}}" class="link-brand">Try again</a></p>{{end}}
   </main>
   {{template "partials/footer" .}}
 </body>

@@ -18,9 +18,9 @@
          tools/dnstools/docs/reports/firsthand-ui-observations.md). -->
     <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+      <input name="name" value="{{.Query}}" autofocus required autocomplete="off" spellcheck="false"
              aria-label="Domain name or IP address to look up"
-             placeholder="example.com — or an IP for a reverse lookup"
+             placeholder="example.com or an IP"
              class="field">
       {{/* Defaults to every type at once — picking one is narrowing, not the
            price of entry. */}}
@@ -35,11 +35,18 @@
         {{$r := .Resolver}}
         {{range .Resolvers}}<option value="{{.Key}}"{{if eq .Key $r}} selected{{end}}>{{.Name}}</option>{{end}}
       </select>
-      <button type="submit" class="btn-primary">Look up</button>
-      {{/* htmx toggles .htmx-request on the form while in flight: the button
-           dims and this says what is actually happening. A bare "…" reads as
-           decoration, not as "working". */}}
-      <span role="status" class="htmx-indicator self-center text-sm text-muted">Querying every record type…</span>
+      <button type="submit" class="btn-primary">
+        {{/* Both labels share one grid cell, so swapping them in flight
+             never changes the button's width or shoves the input. */}}
+        <span class="inline-grid">
+          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Look up</span>
+          <span aria-hidden="true" class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Looking up…</span>
+        </span>
+      </button>
+      {{/* htmx toggles .htmx-request on the form while in flight. Shown to
+           screen readers then and only then; sighted users get the button
+           label and the dimmed results. */}}
+      <span role="status" class="sr-only hidden in-[.htmx-request]:block">Querying every record type…</span>
     </form>
 
     <details class="mt-4 text-sm">
@@ -60,8 +67,11 @@
     <!-- Two-column grid, same pattern as botcheck: each card fills its column
          instead of being sized by a flex basis. #result = display:contents so
          swapped-in cards become grid items directly. -->
-    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2">
-      <div id="result" class="contents" aria-live="polite" aria-atomic="false">
+    {{template "dns/status" .}}
+    {{/* The previous result dims while the next is fetched: still readable,
+         plainly on its way out. */}}
+    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
+      <div id="result" class="contents">
         {{template "dns/result" .}}
       </div>
     </div>

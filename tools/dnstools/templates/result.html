@@ -49,9 +49,11 @@
 {{end}}
 
 {{define "dns/result"}}
+{{template "dns/oob" .}}
 {{if .Error}}
   {{template "dns/error" .}}
 {{else if .Result}}
+  {{template "dns/asked" .}}
   {{with .Result}}
   {{/* The records a CNAME'd query brings back are owned by the target, not by
        the name asked for, and RFC 1034 forbids them sharing an owner. */}}

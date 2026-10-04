@@ -24,7 +24,7 @@
 
     <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-disabled-elt="find button"
           class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+      <input name="name" value="{{.Query}}" autofocus required autocomplete="off" spellcheck="false"
              aria-label="Domain name to trace"
              placeholder="example.com" class="field">
       <select name="type" aria-label="Record type"
@@ -32,10 +32,16 @@
         {{$t := .QType}}
         {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
       </select>
-      <button type="submit" class="btn-primary">Trace</button>
-      {{/* htmx toggles .htmx-request on the form while in flight. A bare "…"
-           reads as decoration, not as "working". */}}
-      <span role="status" class="htmx-indicator self-center text-sm text-muted">Walking down from the root…</span>
+      <button type="submit" class="btn-primary">
+        {{/* Both labels share one grid cell, so swapping them in flight
+             never changes the button's width or shoves the input. */}}
+        <span class="inline-grid">
+          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Trace</span>
+          <span aria-hidden="true" class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Tracing…</span>
+        </span>
+      </button>
+      {{/* Screen readers only, and only in flight: see index.html. */}}
+      <span role="status" class="sr-only hidden in-[.htmx-request]:block">Walking down from the root…</span>
     </form>
 
     <details class="mt-4 text-sm">
@@ -53,8 +59,11 @@
       </div>
     </details>
 
-    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2">
-      <div id="result" class="contents" aria-live="polite" aria-atomic="false">
+    {{template "dns/status" .}}
+    {{/* The previous result dims while the next is fetched: still readable,
+         plainly on its way out. */}}
+    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
+      <div id="result" class="contents">
         {{template "dns/tracewalk" .}}
       </div>
     </div>
@@ -71,9 +80,11 @@
 
 {{/* Result fragment for the trace. */}}
 {{define "dns/tracewalk"}}
+{{template "dns/oob" .}}
 {{if .Error}}
   {{template "dns/error" .}}
 {{else if .Trace}}
+  {{template "dns/asked" .}}
   {{with .Trace}}
 
   {{/* The verdict. "insecure" is the ordinary state of most of the internet

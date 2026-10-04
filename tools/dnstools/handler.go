@@ -124,9 +124,53 @@ func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag st
 	case platform.WantsJSON(c):
 		return c.JSON(code, body)
 	case platform.IsHTMX(c):
+		// The fragment also carries what lives outside its slot and has to
+		// follow the result (dns/oob): the nav's links, the tab title and
+		// the screen-reader status line.
+		vm["OOB"] = true
 		return c.Render(code, frag, vm)
 	}
 	return c.Render(code, page, vm)
+}
+
+// readName normalises ?name= and reports what the visitor typed when reading
+// it took more than trimming or case: a host taken out of a pasted URL, a
+// domain out of an email address, a Unicode name in the spelling DNS uses.
+//
+// When the clean name differs from what was sent, htmx's history entry is
+// pointed at the clean URL (HX-Push-Url), so the address bar, Back and a
+// copied link carry "example.com" rather than a pasted URL that may hold a
+// token.
+func readName(c *echo.Context) (name, typed string) {
+	raw := c.QueryParam("name")
+	name = NormalizeName(raw)
+	if name == "" || raw == name {
+		return name, ""
+	}
+	if platform.IsHTMX(c) {
+		u := *c.Request().URL
+		q := u.Query()
+		q.Set("name", name)
+		u.RawQuery = q.Encode()
+		c.Response().Header().Set("HX-Push-Url", u.RequestURI())
+	}
+	if t := strings.TrimSpace(raw); !strings.EqualFold(strings.TrimSuffix(t, "."), name) {
+		typed = t
+	}
+	return name, typed
+}
+
+// withName adds the view-model keys every page derives from the name: the one
+// the nav carries to the other pages (a domain only, since every other page
+// refuses an IP), what the input was read as, and the readable spelling of a
+// punycode name.
+func withName(vm map[string]any, name, typed string) map[string]any {
+	if needDomain(name) == nil {
+		vm["NavName"] = name
+	}
+	vm["Typed"] = typed
+	vm["Unicode"] = UnicodeName(name)
+	return vm
 }
 
 // needName answers the bare hit: the empty form to a browser, an empty result
@@ -164,20 +208,22 @@ func answered(c *echo.Context, name string, body any, err error, vm map[string]a
 		vm["Error"] = err.Error()
 		return reply(c, statusFor(err), map[string]string{"name": name, "error": err.Error()}, vm, page, frag)
 	}
+	// The tab and the history entry say which domain this was.
+	vm["TitleName"] = name
 	return reply(c, http.StatusOK, body, vm, page, frag)
 }
 
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
 func (h *handler) email(c *echo.Context) error {
-	name := NormalizeName(c.QueryParam("name"))
+	name, typed := readName(c)
 	// Page-scoped, like every other credit here: the footer sits outside the
 	// htmx target, so a per-result flag never reaches the DOM on a form submit.
 	// Spamhaus only — the reputation card reads the blocklist corpus, and
 	// nothing on this page consults IP2Location.
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name,
 		"SpamhausAttribution": true,
-	}
+	}, name, typed)
 
 	if done, err := needName(c, name, vm, "dns/email", "dns/emailauth", "/email?name=example.com"); done {
 		return err
@@ -235,15 +281,15 @@ func (h *handler) delegationHealth(ctx context.Context, sp *Spread) (usedGeo, us
 // this name, and what subdomains exist under it. Both halves are independent
 // and best-effort, so one upstream failing still leaves the other rendered.
 func (h *handler) domain(c *echo.Context) error {
-	name := NormalizeName(c.QueryParam("name"))
+	name, typed := readName(c)
 	// Credits ride on the PAGE, not the result: the footer lives outside the
 	// htmx target, so a per-result flag never reaches the DOM on a form
 	// submit — which is how these pages are actually used. iptools does the
 	// same. IP2Location's licence makes this an obligation, not a nicety.
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "Domain info", "Desc": domainDesc, "Active": "domain", "Query": name,
 		"CertsAttribution": true, "RDAPAttribution": true,
-	}
+	}, name, typed)
 
 	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
 		return err
@@ -290,6 +336,8 @@ func (h *handler) domain(c *echo.Context) error {
 	code := http.StatusOK
 	if regErr != nil && ctErr != nil {
 		code = http.StatusBadGateway
+	} else {
+		vm["TitleName"] = name
 	}
 
 	out := map[string]any{"name": name}
@@ -319,18 +367,18 @@ func (h *handler) domain(c *echo.Context) error {
 // nameservers asked directly, plus the public resolvers, grouped by what they
 // actually returned.
 func (h *handler) consistency(c *echo.Context) error {
-	name := NormalizeName(c.QueryParam("name"))
+	name, typed := readName(c)
 	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
 	if qtype == "" {
 		qtype = "A"
 	}
 
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "DNS consistency", "Desc": consistencyDesc, "Active": "consistency",
 		"Query": name, "QType": qtype, "Types": Types,
 		// Page-scoped credits, same reason as /domain above.
 		"Attribution": true, "RDAPAttribution": true,
-	}
+	}, name, typed)
 	if done, err := needName(c, name, vm, "dns/consistency", "dns/spread", "/consistency?name=example.com"); done {
 		return err
 	}
@@ -392,16 +440,16 @@ func (h *handler) consistency(c *echo.Context) error {
 // trace serves the delegation walk from the root, with the chain of trust
 // validated in the domain layer rather than taken from a resolver's AD bit.
 func (h *handler) trace(c *echo.Context) error {
-	name := NormalizeName(c.QueryParam("name"))
+	name, typed := readName(c)
 	qtype := strings.ToUpper(strings.TrimSpace(c.QueryParam("type")))
 	if qtype == "" {
 		qtype = "A"
 	}
 
-	vm := map[string]any{
+	vm := withName(map[string]any{
 		"Title": "DNS trace", "Desc": traceDesc, "Active": "trace",
 		"Query": name, "QType": qtype, "Types": Types,
-	}
+	}, name, typed)
 	if done, err := needName(c, name, vm, "dns/trace", "dns/tracewalk", "/trace?name=example.com"); done {
 		return err
 	}
@@ -429,19 +477,29 @@ func rateLimiter() echo.MiddlewareFunc {
 		},
 	)
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store: store,
+		// A bare page asks no resolver anything, so opening the five tabs
+		// must not spend the budget a real lookup needs a moment later.
+		Skipper: func(c *echo.Context) bool { return strings.TrimSpace(c.QueryParam("name")) == "" },
+		Store:   store,
 		IdentifierExtractor: func(c *echo.Context) (string, error) {
 			return c.RealIP(), nil
 		},
 		DenyHandler: func(c *echo.Context, _ string, _ error) error {
 			// Negotiated three ways like every other response here. Rendering
 			// one route's fragment to everyone gave browsers an unstyled
-			// partial and htmx nothing it would swap.
-			const msg = "Too many lookups from your address. One lookup asks several upstream resolvers, so this endpoint is rate limited. Try again in a few seconds."
+			// partial and htmx nothing it would swap. A wait is not a fault,
+			// so htmx gets a notice rather than the red error box, and the
+			// page keeps its nav and offers the same request again.
+			const msg = "Too many lookups from your address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
+			active := strings.TrimPrefix(c.Request().URL.Path, "/")
+			if active == "" {
+				active = "lookup"
+			}
 			return reply(c, http.StatusTooManyRequests,
 				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down", "Desc": msg, "Error": msg},
-				"dns/ratelimited", "dns/error")
+				map[string]any{"Title": "Slow down", "Desc": msg, "Error": msg,
+					"Active": active, "Retry": c.Request().URL.RequestURI()},
+				"dns/ratelimited", "dns/slowdown")
 		},
 	})
 }
@@ -450,7 +508,7 @@ func rateLimiter() echo.MiddlewareFunc {
 // Bare hit renders the empty form to a browser, an empty result fragment to
 // htmx, and 400 to a JSON caller — same contract iptools' /cidr follows.
 func (h *handler) index(c *echo.Context) error {
-	name := NormalizeName(c.QueryParam("name"))
+	name, typed := readName(c)
 	// Blank or "all" = the default fan-out. Naming one type narrows to it, so
 	// a ?type= permalink still works, but nobody has to click through nine
 	// types to find out what a domain publishes.
@@ -463,7 +521,7 @@ func (h *handler) index(c *echo.Context) error {
 		resolver = DefaultResolver
 	}
 
-	vm := h.vm(name, qtype, resolver)
+	vm := withName(h.vm(name, qtype, resolver), name, typed)
 	if done, err := needName(c, name, vm, "dns/index", "dns/result", "/?name=example.com&type=A"); done {
 		return err
 	}

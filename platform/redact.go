@@ -10,10 +10,12 @@ import (
 // the request URI *is* the visitor's input — and that input routinely carries a
 // session token, a password-reset link or a signed URL.
 //
-// Nothing else in the repo needs this: ip.corpberry.com logs an IP,
-// dns.corpberry.com a domain name. link.corpberry.com logs whatever someone
-// pasted, which is a different class of data and does not belong in a 30-day
-// corpus (tools/linktools/docs/06-security-and-abuse.md §5).
+// ip.corpberry.com logs an IP. dns.corpberry.com logs a domain name, and
+// keeps logging it: but its box now also takes a pasted URL or an email
+// address and looks up the domain inside, so a "name" shaped like either of
+// those is redacted too (redactedName). link.corpberry.com logs whatever
+// someone pasted, which is a different class of data and does not belong in a
+// 30-day corpus (tools/linktools/docs/06-security-and-abuse.md §5).
 var redactedParams = map[string]bool{
 	"u":    true, // linktools: every page's input
 	"a":    true, // linktools /diff
@@ -21,6 +23,21 @@ var redactedParams = map[string]bool{
 	"curl": true, // linktools /curl
 	"text": true, // linktools /extract
 	"v":    true, // linktools /encode — the likeliest place someone pastes a JWT
+}
+
+// redactedName: a DNS ?name= that is not just a name. A domain or an IP is
+// what the corpus is for and stays readable; a value carrying a path, a query,
+// a fragment or an @ is a pasted URL or email address, and those are exactly
+// the shapes that carry a token or a person.
+func redactedName(key, rawValue string) bool {
+	if strings.ToLower(key) != "name" {
+		return false
+	}
+	v := rawValue
+	if dec, err := url.QueryUnescape(rawValue); err == nil {
+		v = dec
+	}
+	return strings.ContainsAny(v, "/?#=@%")
 }
 
 // RedactURI strips the values of redactedParams from a request URI, keeping the
@@ -68,11 +85,11 @@ func RedactURI(uri string) string {
 		if dec, err := url.QueryUnescape(rawKey); err == nil {
 			key = dec
 		}
-		if !redactedParams[strings.ToLower(key)] {
-			continue
-		}
 		if !hasEq {
 			continue // "?u" carries no value to redact
+		}
+		if !redactedParams[strings.ToLower(key)] && !redactedName(key, pair[len(rawKey)+1:]) {
+			continue
 		}
 		pairs[i] = rawKey + "=<redacted>"
 		changed = true

@@ -28,6 +28,10 @@ func TestRedactURI(t *testing.T) {
 		{"curl", "/curl?curl=curl%20-H%20%27Authorization%3A%20SECRET%27%20https%3A%2F%2Fx", "SECRET"},
 		{"extract", "/extract?text=see%20https%3A%2F%2Fx%3Ft%3DSECRET", "SECRET"},
 		{"encode", "/encode?v=eyJhbGciOiJIUzI1NiJ9.SECRET.sig", "SECRET"},
+		// The DNS box takes a pasted URL or email and looks up the domain in
+		// it; the paste itself must not be logged.
+		{"dns pasted url", "/email?name=https%3A%2F%2Fapp.example.com%2Freset%3Ftoken%3DSECRET", "SECRET"},
+		{"dns pasted email", "/email?name=SECRET%40example.com", "SECRET"},
 	}
 	for _, c := range cases {
 		got := platform.RedactURI(c.in)
@@ -156,6 +160,15 @@ func TestRedactionLeavesOrdinaryRequestsLegible(t *testing.T) {
 	for _, want := range []string{"name=example.com", "type=MX"} {
 		if !strings.Contains(logged.String(), want) {
 			t.Errorf("log line dropped %q: %q — over-redaction makes the corpus useless for the tools whose input is not a URL", want, logged.String())
+		}
+	}
+}
+
+// A plain domain or IP in the DNS ?name= is what the corpus is for: it stays.
+func TestRedactURIKeepsAPlainDNSName(t *testing.T) {
+	for _, in := range []string{"/?name=example.com&type=A", "/?name=8.8.8.8", "/?name=2001%3Adb8%3A%3A1"} {
+		if got := platform.RedactURI(in); got != in {
+			t.Errorf("RedactURI(%q) = %q, want it unchanged", in, got)
 		}
 	}
 }

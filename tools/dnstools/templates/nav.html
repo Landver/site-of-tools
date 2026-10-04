@@ -1,31 +1,71 @@
 {{/* Sub-nav for the DNS Tools suite, styled as a segmented control so it reads
-     as a view switcher, not body text. .Active = the current page's key.
-     Links are relative → they stay on dns.corpberry.com.
+     as a view switcher, not body text. Same markup as link/nav and cipher/nav.
+     .Active = the current page's key. Links are relative → they stay on
+     dns.corpberry.com.
+
+     Every link carries the domain on screen (.NavName, a domain only: the
+     other pages refuse an IP), so checking one name across the five pages is
+     one click per page, not a retype per page. An htmx submit swaps only the
+     result slot, so the nav rides along out of band (dns/oob) to keep those
+     links on the name just looked up; .OOB is set only on that path.
 
      Five pages ship today. Adding the next one (see
      tools/dnstools/docs/01-feature-inventory.md) is a new route + one entry
-     here. Same shape as tools/iptools/templates/nav.html. */}}
+     here. */}}
 {{define "dns/nav"}}
-<div class="mb-8 inline-flex flex-wrap rounded-lg border border-line bg-surface p-1 text-sm font-medium">
-  <a href="/"
-     class="rounded-md px-4 py-1.5 transition {{if eq .Active "lookup"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
-    DNS lookup
-  </a>
-  <a href="/consistency"
-     class="rounded-md px-4 py-1.5 transition {{if eq .Active "consistency"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
-    Consistency
-  </a>
-  <a href="/trace"
-     class="rounded-md px-4 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
-    Trace
-  </a>
-  <a href="/domain"
-     class="rounded-md px-4 py-1.5 transition {{if eq .Active "domain"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
-    Domain
-  </a>
-  <a href="/email"
-     class="rounded-md px-4 py-1.5 transition {{if eq .Active "email"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">
-    Email
-  </a>
-</div>
+<nav id="dns-nav" aria-label="DNS Tools sections" {{if .OOB}}hx-swap-oob="true"{{end}}
+     class="mb-8 inline-flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  <a href="/{{with .NavName}}?name={{.}}{{end}}" title="Every record type for a name, at once"
+     {{if eq .Active "lookup"}}aria-current="page"{{end}}
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "lookup"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">DNS lookup</a>
+  <a href="/consistency{{with .NavName}}?name={{.}}{{end}}" title="Is a DNS change live yet? The zone's own nameservers against the public resolvers"
+     {{if eq .Active "consistency"}}aria-current="page"{{end}}
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "consistency"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Consistency</a>
+  <a href="/trace{{with .NavName}}?name={{.}}{{end}}" title="Walk the delegation down from the root and check the DNSSEC chain"
+     {{if eq .Active "trace"}}aria-current="page"{{end}}
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
+  <a href="/domain{{with .NavName}}?name={{.}}{{end}}" title="Who registered it, when it expires, and its subdomains"
+     {{if eq .Active "domain"}}aria-current="page"{{end}}
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "domain"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Domain</a>
+  <a href="/email{{with .NavName}}?name={{.}}{{end}}" title="SPF, DMARC, DKIM, MTA-STS and mail-server reputation"
+     {{if eq .Active "email"}}aria-current="page"{{end}}
+     class="rounded-md px-3 py-1.5 transition {{if eq .Active "email"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Email</a>
+</nav>
+{{end}}
+
+{{/* What lives outside the htmx result slot but has to follow a result. Put
+     first in every result fragment; renders nothing on a full page, which
+     has all three in place already.
+
+       nav      its links carry the name just looked up
+       title    the tab and the history entry name the domain
+       status   one short line for a screen reader, instead of the live
+                region reading out the whole result */}}
+{{define "dns/oob"}}
+{{if .OOB}}
+<title>{{with .TitleName}}{{.}} · {{end}}{{.Title}}</title>
+{{template "dns/nav" .}}
+<p id="dns-status" hx-swap-oob="innerHTML">{{if .Error}}{{.Error}}{{else if .TitleName}}Results for {{.TitleName}} are below.{{end}}</p>
+{{end}}
+{{end}}
+
+{{/* The live region dns/oob writes into. Lives in each page, outside #result. */}}
+{{define "dns/status"}}
+<p id="dns-status" role="status" class="sr-only"></p>
+{{end}}
+
+{{/* Said once, above the results, when the input took reading: a host taken
+     out of a pasted URL, a domain out of an email address, a Unicode name in
+     the spelling DNS uses. Without it the box keeps the paste while the
+     results quietly answer a different string. */}}
+{{define "dns/asked"}}
+{{if .Unicode}}
+<p class="-mb-2 text-xs text-faint sm:col-span-2">
+  <span class="font-mono text-muted">{{.Unicode}}</span>, which DNS spells <span class="font-mono text-muted">{{.Query}}</span>.
+</p>
+{{else if .Typed}}
+<p class="-mb-2 text-xs text-faint sm:col-span-2">
+  Looked up <span class="font-mono text-muted">{{.Query}}</span>, taken from what you entered.
+</p>
+{{end}}
 {{end}}
