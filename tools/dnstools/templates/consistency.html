@@ -20,7 +20,7 @@
              aria-label="Domain name to check"
              placeholder="example.com" class="field">
       <select name="type" aria-label="Record type"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+              class="field flex-none">
         {{$t := .QType}}
         {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
       </select>

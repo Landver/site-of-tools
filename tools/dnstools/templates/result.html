@@ -22,7 +22,7 @@
     <dd>
       {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate</span>
       {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures (AD)</span>
-      {{else if .Signed}}<span class="text-warn">Signed, not validated</span> <span class="text-faint">— this resolver didn't verify</span>
+      {{else if .Signed}}<span class="text-warn-ink">Signed, not validated</span> <span class="text-faint">— this resolver didn't verify</span>
       {{else}}<span class="text-faint">Unsigned</span>{{end}}
     </dd>
     {{if .NSID}}<dt>Answered by</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
@@ -123,7 +123,7 @@
               {{/* What this record is for, above the value it decorates: a wall
                    of verification tokens reads as the integrations it is. */}}
               {{if .Label}}<span class="block font-sans text-xs text-brand-ink">{{.Label}}</span>{{end}}
-              {{if and .Owner (ne .Owner $qname)}}<span class="block font-sans text-xs text-warn">on {{.Owner}}</span>{{end}}
+              {{if and .Owner (ne .Owner $qname)}}<span class="block font-sans text-xs text-warn-ink">on {{.Owner}}</span>{{end}}
               {{.Value}}
               {{if or .ASN .Country}}
               <span class="block font-sans text-xs text-faint">
@@ -229,7 +229,7 @@
           <span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>
           {{end}}
           {{if .Bogus}}
-          <span class="block text-xs text-warn">DNSSEC validation failure: the same query succeeds with checking disabled, so the zone is bogus, not down.</span>
+          <span class="block text-xs text-warn-ink">DNSSEC validation failure: the same query succeeds with checking disabled, so the zone is bogus, not down.</span>
           {{end}}
         </dd>
         {{end}}

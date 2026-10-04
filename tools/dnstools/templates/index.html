@@ -28,13 +28,13 @@
       {{/* Defaults to every type at once — picking one is narrowing, not the
            price of entry. */}}
       <select name="type" aria-label="Record type"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+              class="field flex-none">
         <option value="all"{{if .AllTypes}} selected{{end}}>All types</option>
         {{$t := .QType}}
         {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
       </select>
       <select name="resolver" aria-label="Resolver to query"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+              class="field flex-none">
         {{$r := .Resolver}}
         {{range .Resolvers}}<option value="{{.Key}}"{{if eq .Key $r}} selected{{end}}>{{.Name}}</option>{{end}}
       </select>

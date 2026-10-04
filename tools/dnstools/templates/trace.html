@@ -28,7 +28,7 @@
              aria-label="Domain name to trace"
              placeholder="example.com" class="field">
       <select name="type" aria-label="Record type"
-              class="rounded-md border border-line bg-surface px-3 py-2 text-sm text-strong focus:border-brand focus:outline-none">
+              class="field flex-none">
         {{$t := .QType}}
         {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
       </select>
@@ -94,7 +94,7 @@
       {{else if eq .DNSSEC "insecure"}}
         <span class="text-strong">Not signed with DNSSEC.</span>
       {{else if eq .DNSSEC "indeterminate"}}
-        <span class="text-warn">No verdict: this walk could not check it.</span>
+        <span class="text-warn-ink">No verdict: this walk could not check it.</span>
       {{else}}
         <span class="text-danger">The chain of trust is broken.</span>
       {{end}}
@@ -181,7 +181,7 @@
              resolver has to go and find the child's own nameservers somewhere
              else before it can carry on. */}}
         {{if .GlueMissing}}
-        <div class="mt-1 text-xs text-warn">
+        <div class="mt-1 text-xs text-warn-ink">
           No glue for a nameserver inside the zone being delegated, so resolving this name needs an extra detour before it can continue.
         </div>
         {{end}}
@@ -232,7 +232,7 @@
                place, and it is also the one a lost packet produces, so it
                reads as "not checked" — which is the whole claim. */}}
           <span class="text-xs
-                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if eq .Status "indeterminate"}}text-warn{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else}}{{.Status}}{{end}}</span>
+                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if eq .Status "indeterminate"}}text-warn-ink{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else}}{{.Status}}{{end}}</span>
           <span class="text-xs text-faint">vouched for by {{.Parent}}</span>
         </div>
         <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>

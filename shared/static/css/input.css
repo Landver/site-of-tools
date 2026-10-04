@@ -39,10 +39,14 @@
   --color-faint:   #68686f; /* labels, footer, hints    */
   /* The three status colours are text as often as they are fills, so the
      light values are the ones that pass AA as text, on the canvas, the
-     surface and a /10 tint of themselves (the old ones measured 2.6–4.8:1). */
+     surface and a /10 tint of themselves (the old ones measured 2.6–4.8:1).
+     Warn is split like brand: amber that dark reads brown, and close to the
+     danger red, so the fill (dots, bars, borders, tints) stays amber and
+     text uses warn-ink. */
   --color-danger:  #b91c1c; /* proxy / threat / error   */
   --color-ok:      #047857; /* not-a-proxy / looks human */
-  --color-warn:    #92400e; /* suspicious (bot-check band) */
+  --color-warn:    #d97706; /* suspicious (bot-check band) */
+  --color-warn-ink: #92400e;
   /* Notable but not bad: a parameter that only moved, a wrapper that was read
      through. Brand magenta did this job before and sat too close to danger
      red to be read as anything but an error, in the dark theme especially. */
@@ -65,6 +69,7 @@
   --color-danger:  #f87171;
   --color-ok:      #34d399;
   --color-warn:    #fbbf24;
+  --color-warn-ink: #fbbf24;
   --color-info:    #60a5fa;
   --color-brand-ink: #e8679a;
   --color-field-line: #6b6b6b;
@@ -187,7 +192,7 @@
     @apply mt-8 text-xl font-semibold text-strong;
   }
   .post-body a {
-    @apply border-b border-brand text-strong hover:text-brand;
+    @apply border-b border-brand text-strong hover:text-brand-ink;
   }
   .post-body ul {
     @apply list-disc pl-6;

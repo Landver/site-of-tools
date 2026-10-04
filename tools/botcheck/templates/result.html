@@ -31,11 +31,11 @@
     <div class="eyebrow">verdict</div>
     <div class="flex items-baseline gap-3">
       <span class="text-4xl font-semibold
-        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
+        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
         {{.Report.Score}}<span class="text-xl text-faint">/100</span>
       </span>
       <span class="text-lg font-medium
-        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
+        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
         {{if eq .Report.Verdict "human"}}Looks human{{else if eq .Report.Verdict "suspicious"}}Suspicious{{else if eq .Report.Verdict "good-bot"}}Verified {{if eq .Report.Bot.Kind "ai-agent"}}AI agent{{else}}crawler{{end}}{{else}}Looks like a bot{{end}}
       </span>
     </div>
@@ -56,7 +56,7 @@
         {{.Name}}. The request comes from this operator's own network, so its bot-shaped
         signals are expected, not penalised.
       {{else}}
-        <span class="text-warn font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
+        <span class="text-warn-ink font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
         {{.Name}}, declared by the User-Agent but not corroborated by the network, so it is
         still scored as automation. A scraper can copy this User-Agent; only traffic from the
         operator's own network reads as verified.
