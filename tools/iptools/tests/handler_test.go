@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -267,6 +269,24 @@ func TestCIDRCalculatorPage(t *testing.T) {
 	// Bad input → 400.
 	if bad := do(newTestApp(fakeLooker{}), "/cidr?cidr=nope", map[string]string{"Accept": "text/html"}); bad.Code != http.StatusBadRequest {
 		t.Errorf("bad CIDR code = %d, want 400", bad.Code)
+	}
+}
+
+// A /32 holds 79228162514264337593543950336 addresses: a value cell that can't
+// break widens the page past a phone's screen.
+func TestCIDRValuesCanWrap(t *testing.T) {
+	cell := regexp.MustCompile(`<dd[^>]*>`)
+	for _, q := range []string{"192.168.1.0/24", "2001:db8::/32"} {
+		rec := do(newTestApp(fakeLooker{}), "/cidr?cidr="+url.QueryEscape(q), map[string]string{"Accept": "text/html"})
+		dds := cell.FindAllString(rec.Body.String(), -1)
+		if len(dds) == 0 {
+			t.Fatalf("%s: no result cells", q)
+		}
+		for _, dd := range dds {
+			if !strings.Contains(dd, "break-all") {
+				t.Errorf("%s: %s can't wrap", q, dd)
+			}
+		}
 	}
 }
 
