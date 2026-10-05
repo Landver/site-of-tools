@@ -10,7 +10,10 @@ import (
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/iptools"
+	"github.com/Landver/site-of-tools/tools/linktools"
 )
+
+const limitedText = "Too many requests from your address. Try again in a few seconds."
 
 // spendREST uses up the IP lookup budget of client over the REST door.
 func spendREST(t *testing.T, s *stack, client string) {
@@ -104,5 +107,28 @@ func TestHangUpCancelsTheCall(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the call kept running after its client hung up")
+	}
+}
+
+// TestShortResolveSpendsBothRESTBudgets: link_short_resolve spends the
+// client's /s/:code bucket and then the breaker every client shares, and a
+// tripped breaker reads as busy, not as this client's fault.
+func TestShortResolveSpendsBothRESTBudgets(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*linktools.Limits)
+		want string
+	}{
+		{"per client", func(l *linktools.Limits) { l.Resolve = platform.NewLimiter(0.001, 1) }, limitedText},
+		{"global", func(l *linktools.Limits) { l.ResolveGlobal = platform.NewGlobalLimiter(0.001, 1) }, platform.BusyMessage},
+	} {
+		lim := roomyLink()
+		tc.set(lim)
+		s := newStack(t, stackOpts{linkLim: lim})
+		cs := s.client(t, "/mcp/link", map[string]string{"CF-Connecting-IP": "198.51.100.40"}, nil)
+		s.do(http.MethodGet, "/s/no-such", "", map[string]string{"Host": linkHost, "CF-Connecting-IP": "198.51.100.40"})
+		if res := call(t, cs, "link_short_resolve", map[string]any{"code": "no such!"}); !res.IsError || text(t, res) != tc.want {
+			t.Errorf("%s budget spent over REST, then MCP = %q, want %q", tc.name, text(t, res), tc.want)
+		}
 	}
 }

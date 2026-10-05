@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -106,7 +107,8 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 	d = withDefaults(d)
 	base = strings.TrimRight(base, "/")
 	m := &calls{protocol: platform.NewLimiter(5, 20), reqlog: d.RequestLog, log: log}
-	eps, err := buildEndpoints(ipSpecs(d), nil, d.Owner.HasKey(), m, base)
+	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log))
+	eps, err := buildEndpoints(public, ownerSpecs(d, log), d.Owner.HasKey(), m, base)
 	if err != nil {
 		return nil, err
 	}

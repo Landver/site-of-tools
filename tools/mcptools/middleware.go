@@ -87,6 +87,10 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				return refuse(call, codeRefused, limitedMessage)
 			}
 			if spec != nil {
+				if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.key) {
+					got = outcomeBusy
+					return refuse(call, codeRefused, platform.BusyMessage)
+				}
 				if !spec.cap.TryAcquire(1) {
 					got = outcomeBusy
 					return refuse(call, codeRefused, platform.BusyMessage)

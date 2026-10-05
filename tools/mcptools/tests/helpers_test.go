@@ -25,6 +25,7 @@ import (
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
+	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
 	"github.com/Landver/site-of-tools/tools/mcptools"
@@ -33,7 +34,10 @@ import (
 const (
 	mcpHost  = "mcp.test"
 	ipHost   = "ip.test"
+	dnsHost  = "dns.test"
+	linkHost = "link.test"
 	base     = "http://" + mcpHost
+	linkBase = "http://" + linkHost
 	ownerKey = "owner-test-key"
 	clientIP = "203.0.113.9"
 )
@@ -103,7 +107,7 @@ var offlineStore = sync.OnceValue(func() *linktools.LinkStore {
 
 func offlineOwner(t *testing.T) *linktools.Shortener {
 	t.Helper()
-	s := linktools.NewShortener(offlineStore(), ownerKey, "http://link.test")
+	s := linktools.NewShortener(offlineStore(), ownerKey, linkBase)
 	if !s.HasKey() {
 		t.Fatal("could not build an owner Shortener with a key")
 	}
@@ -116,10 +120,21 @@ type stackOpts struct {
 	owner *linktools.Shortener
 	ipLim *iptools.Limits
 	log   io.Writer
+
+	// bare leaves out every dns and link dependency not set here, as a boot
+	// with them off does.
+	bare    bool
+	dns     dnstools.Looker
+	dom     *dnstools.DomainClient
+	link    *linktools.Service
+	tracer  *linktools.Tracer
+	short   *linktools.Shortener
+	dnsLim  *dnstools.Limits
+	linkLim *linktools.Limits
 }
 
-// stack is the vhost handler as main.go builds it, with the ip REST app and
-// the mcp app sharing one iptools.Limits.
+// stack is the vhost handler as main.go builds it: the ip, dns and link REST
+// apps and the mcp app, each pair sharing one Limits.
 type stack struct {
 	handler http.Handler
 	srv     *httptest.Server
@@ -133,28 +148,80 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.ipLim == nil {
 		o.ipLim = iptools.NewLimits()
 	}
+	if !o.bare {
+		if o.dns == nil {
+			o.dns = &fakeDNS{}
+		}
+		if o.dom == nil {
+			o.dom = upstream{names: 3}.client(t)
+		}
+		if o.link == nil {
+			o.link = linktools.NewService()
+		}
+		if o.tracer == nil {
+			o.tracer = guardedTracer()
+		}
+		if o.short == nil {
+			o.short = linktools.NewShortener(offlineStore(), "", linkBase)
+		}
+	}
+	if o.dnsLim == nil {
+		o.dnsLim = roomyDNS()
+	}
+	if o.linkLim == nil {
+		o.linkLim = roomyLink()
+	}
 	renderer := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
+		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
+		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 		platform.TemplateSource{Embed: mcptools.Templates, DevDir: "tools/mcptools/templates"},
 	)
-	ipApp := platform.NewApp(renderer, fstest.MapFS{}, false, nil)
-	iptools.Register(ipApp, o.geo, nil, o.chk, o.ipLim)
-	mcpApp := platform.NewApp(renderer, fstest.MapFS{}, false, nil)
+	app := func() *echo.Echo { return platform.NewApp(renderer, fstest.MapFS{}, false, nil) }
+	hosts := map[string]*echo.Echo{ipHost: app()}
+	iptools.Register(hosts[ipHost], o.geo, nil, o.chk, o.ipLim)
+	if o.dns != nil {
+		hosts[dnsHost] = app()
+		dnstools.Register(hosts[dnsHost], o.dns, dnsGeo, o.dom, fakeBlock{}, o.dnsLim)
+	}
+	if o.link != nil {
+		hosts[linkHost] = app()
+		linktools.Register(hosts[linkHost], o.link, o.tracer, o.short, linkBase, o.linkLim)
+	}
+	mcpApp := app()
 	if o.log != nil {
 		mcpApp.Logger = slog.New(slog.NewJSONHandler(o.log, nil))
 	}
 	err := mcptools.Register(mcpApp, mcptools.Deps{
-		Geo: o.geo, Blocklist: o.chk, Owner: o.owner, IPLimits: o.ipLim,
+		Geo: o.geo, Blocklist: o.chk, IPLimits: o.ipLim,
+		DNS: o.dns, DNSGeo: dnsGeo, DNSBlocklist: fakeBlock{}, Domain: o.dom, DNSLimits: o.dnsLim,
+		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
 		ToolURL: func(sub string) string { return "http://" + sub + ".test" },
 	}, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := echo.NewVirtualHostHandler(map[string]*echo.Echo{mcpHost: mcpApp, ipHost: ipApp})
+	hosts[mcpHost] = mcpApp
+	h := echo.NewVirtualHostHandler(hosts)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return &stack{handler: h, srv: srv}
+}
+
+// rest is a REST route's JSON body, as a client sending Accept:
+// application/json gets it; a form body is sent as one.
+func (s *stack) rest(t *testing.T, host, method, target, form string) map[string]any {
+	t.Helper()
+	hdr := map[string]string{"Host": host, "Accept": "application/json"}
+	if form != "" {
+		hdr["Content-Type"] = "application/x-www-form-urlencoded"
+	}
+	rec := s.do(method, target, form, hdr)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("REST %s %s%s = %d %s", method, host, target, rec.Code, rec.Body)
+	}
+	return decode(t, rec.Body.Bytes())
 }
 
 // do sends one request in-process; Host defaults to the mcp host.

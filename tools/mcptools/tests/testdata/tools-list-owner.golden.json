@@ -1,0 +1,92 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Create a short link on corpberry.com that redirects to url, for good or for ttl (a Go duration such as 720h, at least 1m). slug picks the code (2 to 64 lowercase letters, digits and hyphens) in place of a random one, note labels it in link_short_list, and clean: true strips tracking parameters from url first. The link is public the moment it exists and its code is never reissued, so check the destination before creating one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "clean": {
+          "description": "strip tracking parameters from url first",
+          "type": "boolean"
+        },
+        "note": {
+          "description": "a label for the list, up to 256 bytes",
+          "type": "string"
+        },
+        "slug": {
+          "description": "the code to use, e.g. q4-report",
+          "type": "string"
+        },
+        "ttl": {
+          "description": "how long the link lives, a Go duration such as 720h; left out, it never expires",
+          "type": "string"
+        },
+        "url": {
+          "description": "the destination, an http or https URL on a public host",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "link_short_create",
+    "title": "Create a short link"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List the newest short links, newest first: each one's code, target, note, creation and expiry, revocation and hit count. limit caps how many.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "how many links to list",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "link_short_list",
+    "title": "List short links"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Revoke a short link: from now on it answers no such link, for good, and its code is never reissued. Pass the code, the part after /s/, e.g. q4-report.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "the code to revoke",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
+    "name": "link_short_revoke",
+    "title": "Revoke a short link"
+  }
+]

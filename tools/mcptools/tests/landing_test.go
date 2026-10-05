@@ -36,7 +36,7 @@ func TestLandingJSON(t *testing.T) {
 		}
 	}
 	// The owner's endpoint exists here, but is not advertised.
-	if diff := cmp.Diff([]string{"/mcp", "/mcp/ip"}, paths); diff != "" {
+	if diff := cmp.Diff([]string{"/mcp", "/mcp/ip", "/mcp/dns", "/mcp/link"}, paths); diff != "" {
 		t.Errorf("endpoints (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff([]string{"ip_cidr", "ip_lookup"}, tools["/mcp/ip"]); diff != "" {
@@ -45,20 +45,28 @@ func TestLandingJSON(t *testing.T) {
 }
 
 func TestLandingPage(t *testing.T) {
-	s := newStack(t, stackOpts{})
+	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	rec := s.do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	for _, want := range []string{
 		`data-copy="http://mcp.test/mcp"`, `data-copy="http://mcp.test/mcp/ip"`,
+		`data-copy="http://mcp.test/mcp/dns"`, `data-copy="http://mcp.test/mcp/link"`,
 		"claude mcp add --scope user --transport http corpberry http://mcp.test/mcp",
 		"ip_lookup", "ip_cidr", "IP Tools", `href="http://ip.test"`,
-		"IP2Location LITE", "DROP list", "InternetDB", // the footer's credits
+		"dns_lookup", "DNS Tools", "link_redirect_chain", "Link Tools", `href="http://link.test"`,
+		"IP2Location LITE", "DROP list", "InternetDB", "crt.sh", "rdap.org", // the footer's credits
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page lacks %q", want)
 		}
 	}
-	if rec.Code != http.StatusOK || strings.Contains(body, "/mcp/owner") || strings.Contains(body, "crt.sh") {
-		t.Errorf("landing page = %d; it must not advertise the owner endpoint or credit unserved data", rec.Code)
+	if rec.Code != http.StatusOK || strings.Contains(body, "/mcp/owner") || strings.Contains(body, "link_short_create") {
+		t.Errorf("landing page = %d; it must not advertise the owner endpoint or its tools", rec.Code)
+	}
+
+	// Without the dns toolset nothing on the page reads its sources.
+	bare := newStack(t, stackOpts{bare: true}).do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"}).Body.String()
+	if strings.Contains(bare, "crt.sh") || strings.Contains(bare, "rdap.org") || strings.Contains(bare, "/mcp/dns") {
+		t.Errorf("the page credits or lists the dns toolset, which isn't served")
 	}
 }

@@ -1,7 +1,9 @@
 package mcptools
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"time"
@@ -28,9 +30,12 @@ type toolSpec struct {
 	tool     *mcp.Tool
 	deadline time.Duration
 	limiter  platform.Limiter
-	cap      *platform.Cap // nil: no bound on calls in flight
-	narrow   string        // how to ask for less, when a result is over the hard cap
-	add      func(*mcp.Server, *mcp.Tool)
+	// breaker is a budget every client shares, spent after limiter, like the
+	// REST twin's global breaker; its refusal reads as busy. Nil for none.
+	breaker platform.Limiter
+	cap     *platform.Cap // nil: no bound on calls in flight
+	narrow  string        // how to ask for less, when a result is over the hard cap
+	add     func(*mcp.Server, *mcp.Tool)
 }
 
 // handle adapts a typed handler for toolSpec.add: a result becomes
@@ -51,6 +56,32 @@ func handle[In any](f func(context.Context, *mcp.CallToolRequest, In) (any, erro
 func readOnly(open bool) *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
 		DestructiveHint: jsonschema.Ptr(false), OpenWorldHint: jsonschema.Ptr(open)}
+}
+
+// acts is the hint set of a tool that is not read-only: one whose call can
+// change something, here or wherever it reaches.
+func acts(destructive, idempotent, open bool) *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{IdempotentHint: idempotent,
+		DestructiveHint: jsonschema.Ptr(destructive), OpenWorldHint: jsonschema.Ptr(open)}
+}
+
+// object is v's JSON as an object, numbers kept exact, for a projection that
+// drops or reshapes the REST body's fields by their JSON names.
+func object(v any) (map[string]any, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errNotObject
+	}
+	return m, nil
 }
 
 // toolset is one public endpoint, /mcp/<name>: its heading, the subdomain its
@@ -118,27 +149,27 @@ var coverage = map[Route]Decision{
 	{"botcheck", post, "/check"}:         planned("botcheck_score"),
 	{"botcheck", get, "/botcheck-sw.js"}: excluded("The in-browser collector's service worker; botcheck_score scores what a collector produced."),
 
-	{"dns", get, "/"}:            planned("dns_lookup"),
-	{"dns", get, "/consistency"}: planned("dns_consistency"),
-	{"dns", get, "/trace"}:       planned("dns_trace"),
-	{"dns", get, "/domain"}:      planned("dns_domain_info"),
-	{"dns", get, "/email"}:       planned("dns_email_auth"),
+	{"dns", get, "/"}:            served("dns_lookup"),
+	{"dns", get, "/consistency"}: served("dns_consistency"),
+	{"dns", get, "/trace"}:       served("dns_trace"),
+	{"dns", get, "/domain"}:      served("dns_domain_info"),
+	{"dns", get, "/email"}:       served("dns_email_auth"),
 
-	{"link", get, "/"}:                  planned("link_inspect"),
-	{"link", get, "/clean"}:             planned("link_clean"),
-	{"link", get, "/clean/rules"}:       planned("link_tracking_rules"),
-	{"link", get, "/diff"}:              planned("link_diff"),
-	{"link", get, "/curl"}:              planned("link_curl_parse", "link_curl_build"),
-	{"link", post, "/curl"}:             planned("link_curl_parse"),
-	{"link", get, "/extract"}:           planned("link_extract"),
-	{"link", post, "/extract"}:          planned("link_extract"),
-	{"link", get, "/utm"}:               planned("link_utm"),
-	{"link", get, "/encode"}:            planned("link_percent_encode"),
-	{"link", get, "/trace"}:             planned("link_redirect_chain"),
-	{"link", get, "/s/:code"}:           planned("link_short_resolve"),
-	{"link", get, "/short"}:             planned("link_short_list"),
-	{"link", post, "/short"}:            planned("link_short_create"),
-	{"link", del, "/short/:code"}:       planned("link_short_revoke"),
+	{"link", get, "/"}:                  served("link_inspect"),
+	{"link", get, "/clean"}:             served("link_clean"),
+	{"link", get, "/clean/rules"}:       served("link_tracking_rules"),
+	{"link", get, "/diff"}:              served("link_diff"),
+	{"link", get, "/curl"}:              served("link_curl_parse", "link_curl_build"),
+	{"link", post, "/curl"}:             served("link_curl_parse"),
+	{"link", get, "/extract"}:           served("link_extract"),
+	{"link", post, "/extract"}:          served("link_extract"),
+	{"link", get, "/utm"}:               served("link_utm"),
+	{"link", get, "/encode"}:            served("link_percent_encode"),
+	{"link", get, "/trace"}:             served("link_redirect_chain"),
+	{"link", get, "/s/:code"}:           served("link_short_resolve"),
+	{"link", get, "/short"}:             served("link_short_list"),
+	{"link", post, "/short"}:            served("link_short_create"),
+	{"link", del, "/short/:code"}:       served("link_short_revoke"),
 	{"link", get, "/encoding"}:          excluded("A static reference document with no JSON form."),
 	{"link", get, "/extension/privacy"}: excluded("The browser extension's privacy policy, a static document."),
 

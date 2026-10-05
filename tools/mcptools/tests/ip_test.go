@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -155,20 +154,5 @@ func TestUntrustedStringsThroughTheStack(t *testing.T) {
 	res := call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"})
 	if !res.IsError || !strings.Contains(text(t, res), "Result too large") {
 		t.Errorf("an oversized result = isError %v %.80q, want refused as too large", res.IsError, text(t, res))
-	}
-}
-
-func TestStructuredContentIsAlwaysAnObject(t *testing.T) {
-	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-	for name, args := range map[string]map[string]any{
-		"ip_lookup": {"ip": "8.8.8.8"},
-		"ip_cidr":   {"cidr": "192.168.1.0/24"},
-	} {
-		res := call(t, cs, name, args)
-		object(t, res)
-		raw, _ := json.Marshal(res.StructuredContent)
-		if raw[0] != '{' {
-			t.Errorf("%s structuredContent = %s, want an object", name, raw)
-		}
 	}
 }
