@@ -65,16 +65,20 @@ type handler struct {
 type Limits struct {
 	Lookup, Walk       platform.Limiter
 	LookupCap, WalkCap *platform.Cap
+	// DomainCap is /domain's own: crt.sh and RDAP can take 20 s, and lookup
+	// slots held that long would starve plain lookups.
+	DomainCap *platform.Cap
 }
 
 // NewLimits returns fresh budgets: lookups 2/s (burst 10), walks one per 2 s
-// (burst 3); 8 lookups and 4 walks in flight.
+// (burst 3); 8 lookups, 4 walks and 4 domain reports in flight.
 func NewLimits() *Limits {
 	return &Limits{
 		Lookup:    platform.NewLimiter(2, 10),
 		Walk:      platform.NewLimiter(0.5, 3),
 		LookupCap: platform.NewCap(8),
 		WalkCap:   platform.NewCap(4),
+		DomainCap: platform.NewCap(4),
 	}
 }
 
@@ -238,10 +242,10 @@ func (h *handler) email(c *echo.Context) error {
 	if h.mail == nil {
 		return unavailable(c, vm, "dns/email", "dns/emailauth")
 	}
-	if !h.lim.LookupCap.TryAcquire(1) {
+	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
 		return busy(c, vm, "dns/email", "dns/emailauth")
 	}
-	defer h.lim.LookupCap.Release(1)
+	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 
 	res, err := EmailReport(c.Request().Context(), h.mail, h.rep, h.block, c.QueryParam("name"))
 	if err == nil {
@@ -271,10 +275,10 @@ func (h *handler) domain(c *echo.Context) error {
 	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
 		return err
 	}
-	if !h.lim.LookupCap.TryAcquire(1) {
+	if !h.lim.DomainCap.TryAcquire(c.RealIP(), 1) {
 		return busy(c, vm, "dns/domain", "dns/domaininfo")
 	}
-	defer h.lim.LookupCap.Release(1)
+	defer h.lim.DomainCap.Release(c.RealIP(), 1)
 	rep, err := DomainInfo(c.Request().Context(), h.svc, h.dom, c.QueryParam("name"))
 	if err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
@@ -331,10 +335,10 @@ func (h *handler) consistency(c *echo.Context) error {
 	if h.spr == nil {
 		return unavailable(c, vm, "dns/consistency", "dns/spread")
 	}
-	if !h.lim.WalkCap.TryAcquire(1) {
+	if !h.lim.WalkCap.TryAcquire(c.RealIP(), 1) {
 		return busy(c, vm, "dns/consistency", "dns/spread")
 	}
-	defer h.lim.WalkCap.Release(1)
+	defer h.lim.WalkCap.Release(c.RealIP(), 1)
 
 	env, err := Consistency(c.Request().Context(), h.spr, h.ecs, h.geo, h.dom, c.QueryParam("name"), c.QueryParam("type"))
 	if err == nil {
@@ -361,10 +365,10 @@ func (h *handler) trace(c *echo.Context) error {
 	if h.tra == nil {
 		return unavailable(c, vm, "dns/trace", "dns/tracewalk")
 	}
-	if !h.lim.WalkCap.TryAcquire(1) {
+	if !h.lim.WalkCap.TryAcquire(c.RealIP(), 1) {
 		return busy(c, vm, "dns/trace", "dns/tracewalk")
 	}
-	defer h.lim.WalkCap.Release(1)
+	defer h.lim.WalkCap.Release(c.RealIP(), 1)
 
 	// No attribution flags: this walk uses neither IP2Location nor RDAP.
 	res, err := h.tra.Trace(c.Request().Context(), name, qtype)
@@ -426,10 +430,10 @@ func (h *handler) index(c *echo.Context) error {
 	// connection is a non-sequitur. The DNS-relevant version of that idea is
 	// resolver identity ("which resolver do YOU use"), which needs a delegated
 	// beacon zone and is Tier 2 (02-build-fit.md §4).
-	if !h.lim.LookupCap.TryAcquire(1) {
+	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
 		return busy(c, vm, "dns/index", "dns/result")
 	}
-	defer h.lim.LookupCap.Release(1)
+	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 	res, err := LookupEnriched(c.Request().Context(), h.svc, h.geo,
 		c.QueryParam("name"), c.QueryParam("type"), c.QueryParam("resolver"))
 	if err == nil {

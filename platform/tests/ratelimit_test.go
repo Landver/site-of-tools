@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -128,7 +129,7 @@ func TestCapRefusesAtOnceWhenFull(t *testing.T) {
 	c := platform.NewCap(10)
 	done := make(chan []bool, 1)
 	go func() {
-		done <- []bool{c.TryAcquire(7), c.TryAcquire(4), c.TryAcquire(3), c.TryAcquire(1)}
+		done <- []bool{c.TryAcquire("192.0.2.1", 7), c.TryAcquire("192.0.2.2", 4), c.TryAcquire("192.0.2.3", 3), c.TryAcquire("192.0.2.4", 1)}
 	}()
 	select {
 	case got := <-done:
@@ -141,14 +142,49 @@ func TestCapRefusesAtOnceWhenFull(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("TryAcquire blocked on a full cap; it must refuse at once")
 	}
-	c.Release(7)
-	if !c.TryAcquire(5) {
+	c.Release("192.0.2.1", 7)
+	if !c.TryAcquire("192.0.2.5", 5) {
 		t.Error("Release did not return the units")
 	}
 
 	var unbounded *platform.Cap
-	if !unbounded.TryAcquire(1 << 40) {
+	if !unbounded.TryAcquire("192.0.2.1", 1<<40) {
 		t.Error("a nil Cap refused; nil means no cap")
 	}
-	unbounded.Release(1 << 40)
+	unbounded.Release("192.0.2.1", 1<<40)
+}
+
+// One client may hold a quarter of a cap, its IPv6 /64 counting as one
+// client, so the rest stays free for everyone else.
+func TestCapSharePerClient(t *testing.T) {
+	c := platform.NewCap(8)
+	for i := range 2 {
+		if !c.TryAcquire("2001:db8:1:2::1", 1) {
+			t.Fatalf("unit %d of the client's share of 2 refused", i+1)
+		}
+	}
+	if c.TryAcquire(platform.RateLimitKey("2001:db8:1:2::77"), 1) {
+		t.Error("a third unit for the same /64, by its key, was granted past the share")
+	}
+	for i := range 6 {
+		if !c.TryAcquire(fmt.Sprintf("198.51.100.%d", i+1), 1) {
+			t.Errorf("another client was refused with %d of 8 units held", 2+i)
+		}
+	}
+	c.Release("2001:db8:1:2::2", 1)
+	if c.TryAcquire("203.0.113.1", 2) {
+		t.Error("granted 2 units with 1 free")
+	}
+	if !c.TryAcquire("2001:db8:1:2::3", 1) {
+		t.Error("the /64 was refused after releasing a unit back to its share")
+	}
+
+	// A call bigger than any share still runs, alone, when the cap has room.
+	big := platform.NewCap(256)
+	if !big.TryAcquire("192.0.2.1", 128) {
+		t.Error("a client holding nothing was refused a call over its share")
+	}
+	if big.TryAcquire("192.0.2.1", 1) {
+		t.Error("a client over its share was granted more")
+	}
 }

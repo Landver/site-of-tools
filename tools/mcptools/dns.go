@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -159,7 +160,7 @@ func dnsSpecs(d Deps) []toolSpec {
 			},
 			deadline: upstreamDeadline,
 			limiter:  lim.Lookup,
-			cap:      lim.LookupCap,
+			cap:      lim.DomainCap,
 			narrow:   "Leave detailed off.",
 			add:      handle(t.domain),
 		})
@@ -200,6 +201,10 @@ func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLooku
 	if !a.Detailed {
 		delete(out, "zone")
 		delete(out, "dig")
+	} else if set.Zone != "" {
+		// A line per record, so the sanitizer's string cap cuts one long
+		// record rather than the rest of the zone.
+		out["zone"] = strings.Split(strings.TrimSuffix(set.Zone, "\n"), "\n")
 	}
 	out["attribution"] = credits(platform.CreditIP2Location)
 	return out, nil

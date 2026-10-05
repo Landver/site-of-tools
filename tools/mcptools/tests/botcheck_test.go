@@ -337,10 +337,10 @@ func TestBotcheckBudgetWhicheverDoor(t *testing.T) {
 
 	lim = roomyBot()
 	cs = newStack(t, stackOpts{botLim: lim}).client(t, "/mcp/botcheck", nil, nil)
-	lim.CheckCap.TryAcquire(8)
+	lim.CheckCap.TryAcquire(otherClient, 8)
 	if res := call(t, cs, "botcheck_score", args); !res.IsError || text(t, res) != platform.BusyMessage {
 		t.Errorf("full cap = %q, want busy", text(t, res))
 	}
-	lim.CheckCap.Release(8)
+	lim.CheckCap.Release(otherClient, 8)
 	object(t, call(t, cs, "botcheck_score", args))
 }

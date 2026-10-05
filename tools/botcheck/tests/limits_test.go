@@ -68,7 +68,8 @@ func TestPageShellIsNotRateLimited(t *testing.T) {
 
 func TestFullCheckCapAnswersBusy(t *testing.T) {
 	lim := botcheck.NewLimits()
-	if !lim.CheckCap.TryAcquire(8) {
+	const otherClient = "198.51.100.250"
+	if !lim.CheckCap.TryAcquire(otherClient, 8) {
 		t.Fatal("a fresh check cap is not 8")
 	}
 	e := limitsApp(lim)
@@ -88,7 +89,7 @@ func TestFullCheckCapAnswersBusy(t *testing.T) {
 			t.Fatal("a check waited on a full cap instead of answering busy")
 		}
 	}
-	lim.CheckCap.Release(8)
+	lim.CheckCap.Release(otherClient, 8)
 	if rec := post(e, "/check", `{}`, asAPI); rec.Code != http.StatusOK {
 		t.Errorf("check after the cap freed = %d, want 200", rec.Code)
 	}

@@ -88,7 +88,7 @@ func TestResolveBudgetsAreSharedWithAllowKey(t *testing.T) {
 func TestFullTraceCapAnswersBusy(t *testing.T) {
 	t.Parallel()
 	lim := linktools.NewLimits()
-	if !lim.FetchCap.TryAcquire(4) {
+	if !lim.FetchCap.TryAcquire("198.51.100.250", 4) {
 		t.Fatal("a fresh trace cap is not 4")
 	}
 	tracer := linktools.NewTracer(platform.NewEgressGuard([]string{"80", "443"}, nil), time.Second)

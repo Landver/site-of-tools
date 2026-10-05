@@ -263,7 +263,7 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 		in, err := readInput(c)
 		var res any
 		if err == nil {
-			res, err = h.run(op, in)
+			res, err = h.run(c.RealIP(), op, in)
 		}
 		code := http.StatusOK
 		switch {
@@ -293,15 +293,15 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 
 // run holds a Heavy op's share of HeavyCap while it runs, after its input is
 // parsed, since the weight depends on it.
-func (h *handler) run(op Op, in Input) (any, error) {
+func (h *handler) run(client string, op Op, in Input) (any, error) {
 	if !op.Heavy {
 		return Run(op, in)
 	}
 	w := HeavyWeight(op.Name, in)
-	if !h.lim.HeavyCap.TryAcquire(w) {
+	if !h.lim.HeavyCap.TryAcquire(client, w) {
 		return nil, errBusy
 	}
-	defer h.lim.HeavyCap.Release(w)
+	defer h.lim.HeavyCap.Release(client, w)
 	return Run(op, in)
 }
 

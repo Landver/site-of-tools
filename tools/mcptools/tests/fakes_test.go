@@ -309,7 +309,7 @@ func guardedTracer() *linktools.Tracer {
 // the walk budget is three a client.
 func roomyDNS() *dnstools.Limits {
 	return &dnstools.Limits{Lookup: platform.NewLimiter(100, 1000), Walk: platform.NewLimiter(100, 1000),
-		LookupCap: platform.NewCap(8), WalkCap: platform.NewCap(4)}
+		LookupCap: platform.NewCap(8), WalkCap: platform.NewCap(4), DomainCap: platform.NewCap(4)}
 }
 
 func roomyLink() *linktools.Limits {

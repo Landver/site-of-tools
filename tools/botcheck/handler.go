@@ -98,10 +98,10 @@ func (h *handler) serviceWorker(c *echo.Context) error {
 // content-negotiation contract as IP tool.
 func (h *handler) index(c *echo.Context) error {
 	if platform.WantsJSON(c) {
-		if !h.lim.CheckCap.TryAcquire(1) {
+		if !h.lim.CheckCap.TryAcquire(c.RealIP(), 1) {
 			return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
 		}
-		defer h.lim.CheckCap.Release(1)
+		defer h.lim.CheckCap.Release(c.RealIP(), 1)
 		var sig Signals
 		h.addServerSignals(c, &sig)
 		return c.JSON(http.StatusOK, Evaluate(sig))
@@ -137,10 +137,10 @@ func (h *handler) check(c *echo.Context) error {
 			"Report": Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}},
 		})
 	}
-	if !h.lim.CheckCap.TryAcquire(1) {
+	if !h.lim.CheckCap.TryAcquire(c.RealIP(), 1) {
 		return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
 	}
-	defer h.lim.CheckCap.Release(1)
+	defer h.lim.CheckCap.Release(c.RealIP(), 1)
 	sig.ClientCollected = true
 	connNet := h.addServerSignals(c, &sig)
 	// G41/G42: fold fingerprint into rolling corpus, then count how many

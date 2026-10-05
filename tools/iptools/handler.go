@@ -242,10 +242,10 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 }
 
 func (h *handler) lookup(c *echo.Context, ip string) (*Result, error) {
-	if !h.lim.LookupCap.TryAcquire(1) {
+	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
 		return nil, errBusy
 	}
-	defer h.lim.LookupCap.Release(1)
+	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 	return LookupWithReputation(c.Request().Context(), h.svc, h.chk, ip)
 }
 

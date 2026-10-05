@@ -91,11 +91,38 @@ func TestOneLimitsIsOneBudgetAcrossApps(t *testing.T) {
 	}
 }
 
+// /domain waits on RDAP and crt.sh, so it has a cap of its own: full lookup
+// slots don't refuse it, and a full /domain cap leaves lookups alone.
+func TestDomainReportsHaveTheirOwnCap(t *testing.T) {
+	t.Parallel()
+	lim := dnstools.NewLimits()
+	dom, _ := canned(t, rdapBody(time.Now().AddDate(1, 0, 0)), http.StatusOK, "[]", http.StatusOK)
+	e := echo.New()
+	dnstools.Register(e, &goldenDNS{}, nil, dom, nil, lim)
+	const holder, client = "198.51.100.250", "203.0.113.35:1234"
+
+	lim.LookupCap.TryAcquire(holder, 8)
+	if rec := from(e, "/domain?name=example.com", client, nil); rec.Code != http.StatusOK {
+		t.Errorf("/domain with every lookup slot held = %d %s, want 200", rec.Code, rec.Body)
+	}
+	lim.LookupCap.Release(holder, 8)
+
+	lim.DomainCap.TryAcquire(holder, 4)
+	if rec := from(e, "/?name=example.com", client, nil); rec.Code != http.StatusOK {
+		t.Errorf("a lookup with the /domain cap full = %d, want 200", rec.Code)
+	}
+	if rec := from(e, "/domain?name=example.com", client, nil); rec.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(rec.Body.String(), platform.BusyMessage) {
+		t.Errorf("/domain with its own cap full = %d %s, want 503 busy", rec.Code, rec.Body)
+	}
+}
+
 func TestFullCapAnswersBusyWithoutQueueing(t *testing.T) {
 	t.Parallel()
 	lim := dnstools.NewLimits()
-	if !lim.WalkCap.TryAcquire(4) || !lim.LookupCap.TryAcquire(8) {
-		t.Fatal("fresh caps are not 4 walks and 8 lookups")
+	const otherClient = "198.51.100.250"
+	if !lim.WalkCap.TryAcquire(otherClient, 4) || !lim.LookupCap.TryAcquire(otherClient, 8) || !lim.DomainCap.TryAcquire(otherClient, 4) {
+		t.Fatal("fresh caps are not 4 walks, 8 lookups and 4 domain reports")
 	}
 	e := limitsApp(t, lim)
 
@@ -114,7 +141,7 @@ func TestFullCapAnswersBusyWithoutQueueing(t *testing.T) {
 		t.Errorf("browser with the walk cap full = %d, want the trace page saying busy", page.Code)
 	}
 
-	lim.WalkCap.Release(4)
+	lim.WalkCap.Release(otherClient, 4)
 	if rec := from(e, "/trace?name=example.com", "203.0.113.34:1234", nil); rec.Code != http.StatusOK {
 		t.Errorf("walk after the cap freed = %d, want 200", rec.Code)
 	}

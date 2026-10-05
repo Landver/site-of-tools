@@ -355,10 +355,10 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	if done, err := h.wrongTool(c, vm, raw, "link/trace"); done {
 		return err
 	}
-	if !h.lim.FetchCap.TryAcquire(1) {
+	if !h.lim.FetchCap.TryAcquire(c.RealIP(), 1) {
 		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/trace")
 	}
-	defer h.lim.FetchCap.Release(1)
+	defer h.lim.FetchCap.Release(c.RealIP(), 1)
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
 		if errors.Is(err, ErrDisabled) {

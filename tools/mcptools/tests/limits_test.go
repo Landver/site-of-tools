@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
@@ -48,15 +49,96 @@ func TestOneBudgetWhicheverDoor(t *testing.T) {
 
 func TestFullCapIsBusy(t *testing.T) {
 	lim := iptools.NewLimits()
-	if !lim.LookupCap.TryAcquire(8) {
+	if !lim.LookupCap.TryAcquire(otherClient, 8) {
 		t.Fatal("a fresh lookup cap is not 8")
 	}
 	cs := newStack(t, stackOpts{ipLim: lim}).client(t, "/mcp/ip", nil, nil)
 	if res := call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"}); !res.IsError || text(t, res) != platform.BusyMessage {
 		t.Errorf("full cap = %q, want %q", text(t, res), platform.BusyMessage)
 	}
-	lim.LookupCap.Release(8)
+	lim.LookupCap.Release(otherClient, 8)
 	object(t, call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"}))
+}
+
+// stalledDNS is fakeDNS held up until release closes, like a resolver chasing
+// a zone whose nameservers drop packets. Each lookup signals entered.
+type stalledDNS struct {
+	fakeDNS
+	entered, release chan struct{}
+}
+
+func (s *stalledDNS) LookupSet(ctx context.Context, name, resolver string, types []string) (*dnstools.ResultSet, error) {
+	s.entered <- struct{}{}
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return s.fakeDNS.LookupSet(ctx, name, resolver, types)
+}
+
+// TestOneClientCannotFillACap: a client whose calls are stuck on a slow
+// upstream holds its share of the cap, 2 of dns_lookup's 8, and no more, so
+// another client is still served.
+func TestOneClientCannotFillACap(t *testing.T) {
+	dns := &stalledDNS{entered: make(chan struct{}, 16), release: make(chan struct{})}
+	s := newStack(t, stackOpts{dns: dns, dnsLim: dnstools.NewLimits()})
+	lookup := func(ip string) string {
+		hdr := mcpHeaders(map[string]string{"Mcp-Protocol-Version": "2025-11-25", "CF-Connecting-IP": ip})
+		body := rpc(1, "tools/call", map[string]any{"name": "dns_lookup", "arguments": map[string]any{"name": "example.com"}})
+		return s.do(http.MethodPost, "/mcp/dns", body, hdr).Body.String()
+	}
+	results := make(chan string, 9)
+	for range 8 {
+		go func() { results <- lookup("198.51.100.60") }()
+	}
+	timeout := time.After(5 * time.Second)
+	for entered, busy := 0, 0; entered < 2 || busy < 6; {
+		select {
+		case <-dns.entered:
+			entered++
+			if entered > 2 {
+				t.Fatal("a third call from one client got past the cap")
+			}
+		case r := <-results:
+			if !strings.Contains(r, platform.BusyMessage) {
+				t.Fatalf("a call answered while the upstream was stalled: %s", r)
+			}
+			busy++
+		case <-timeout:
+			t.Fatal("the burst from one client was neither held at 2 nor refused")
+		}
+	}
+	go func() { results <- lookup("203.0.113.70") }()
+	select {
+	case <-dns.entered:
+	case r := <-results:
+		t.Fatalf("another client while the first held its share = %s, want served", r)
+	case <-timeout:
+		t.Fatal("another client's call never reached the upstream")
+	}
+	close(dns.release)
+	for range 3 {
+		if r := <-results; strings.Contains(r, platform.BusyMessage) || strings.Contains(r, `"isError":true`) {
+			t.Errorf("a held call = %s, want its result", r)
+		}
+	}
+}
+
+// TestDomainInfoHasItsOwnCap: dns_domain_info waits on RDAP and crt.sh, so it
+// holds a cap of its own and full lookup slots don't refuse it.
+func TestDomainInfoHasItsOwnCap(t *testing.T) {
+	lim := roomyDNS()
+	lim.LookupCap.TryAcquire(otherClient, 8)
+	cs := newStack(t, stackOpts{dnsLim: lim}).client(t, "/mcp/dns", nil, nil)
+	if res := call(t, cs, "dns_lookup", map[string]any{"name": "example.com"}); text(t, res) != platform.BusyMessage {
+		t.Errorf("dns_lookup with its cap full = %q, want busy", text(t, res))
+	}
+	object(t, call(t, cs, "dns_domain_info", map[string]any{"name": "example.com"}))
+	lim.DomainCap.TryAcquire(otherClient, 4)
+	if res := call(t, cs, "dns_domain_info", map[string]any{"name": "example.com"}); text(t, res) != platform.BusyMessage {
+		t.Errorf("dns_domain_info with its own cap full = %q, want busy", text(t, res))
+	}
 }
 
 // TestListFloodIsLimited: every message counts, not only tool calls.

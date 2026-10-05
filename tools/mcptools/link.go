@@ -92,6 +92,9 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 		personas = append(personas, p.Key)
 	}
 	var specs []toolSpec
+	// These return only the caller's own input reworked (toolSpec.whole).
+	whole := map[string]bool{"link_clean": true, "link_diff": true, "link_curl_parse": true,
+		"link_curl_build": true, "link_utm": true, "link_percent_encode": true}
 	pure := func(name, title, desc, narrow string, schema any, add func(*mcp.Server, *mcp.Tool)) {
 		specs = append(specs, toolSpec{
 			toolset: "link",
@@ -100,6 +103,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			deadline: quickDeadline,
 			limiter:  lim.Pure,
 			narrow:   narrow,
+			whole:    whole[name],
 			add:      add,
 		})
 	}

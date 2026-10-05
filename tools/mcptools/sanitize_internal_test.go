@@ -19,6 +19,11 @@ func TestClean(t *testing.T) {
 		{"a\u202eb", `a\u{202E}b`},
 		{"\u200b\u200c\u200d\ufeff\u2066\u2069\u200e\u200f\u061c", `\u{200B}\u{200C}\u{200D}\u{FEFF}\u{2066}\u{2069}\u{200E}\u{200F}\u{061C}`},
 		{"tag\U000E0041\U000E007F", `tag\u{E0041}\u{E007F}`},
+		{"vs︀️\U000E0100\U000E01EF", `vs\u{FE00}\u{FE0F}\u{E0100}\u{E01EF}`},
+		{"del\x7f c1\u0080\u0085\u009f", `del\u{007F} c1\u{0080}\u{0085}\u{009F}`},
+		{"line para ", `line\u{2028}para\u{2029}`},
+		{"ᅟᅠㅤﾠ", `\u{115F}\u{1160}\u{3164}\u{FFA0}`},
+		{"tab\tand\nnewline stay", "tab\tand\nnewline stay"},
 		{"emoji 👍 and ü stay", "emoji 👍 and ü stay"},
 		{long, long[:maxString] + "…[truncated 8192 bytes]"},
 		// The cut lands on a rune boundary: é is two bytes.

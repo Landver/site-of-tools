@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -71,18 +72,52 @@ func AllowKey(l Limiter, client string) bool {
 }
 
 // Cap bounds work in flight and never queues: TryAcquire fails at once when
-// the budget is spent, so the caller answers busy. A nil Cap is unbounded.
-type Cap struct{ sem *semaphore.Weighted }
+// the budget is spent, so the caller answers busy. Each client's share is a
+// quarter of it, so one client held up by a slow upstream can't make everyone
+// else busy. A nil Cap is unbounded.
+type Cap struct {
+	sem   *semaphore.Weighted
+	share int64
+	mu    sync.Mutex
+	held  map[string]int64
+}
 
 // NewCap returns a Cap of n units, shared by every door like a Limiter.
-func NewCap(n int64) *Cap { return &Cap{semaphore.NewWeighted(n)} }
+func NewCap(n int64) *Cap {
+	return &Cap{sem: semaphore.NewWeighted(n), share: max(1, n/4), held: map[string]int64{}}
+}
 
-// TryAcquire takes w units if they are free now.
-func (c *Cap) TryAcquire(w int64) bool { return c == nil || c.sem.TryAcquire(w) }
-
-// Release returns w units taken by TryAcquire.
-func (c *Cap) Release(w int64) {
-	if c != nil {
-		c.sem.Release(w)
+// TryAcquire takes w units for client, the raw IP or its RateLimitKey, if
+// they are free now and within the client's share. A client holding nothing
+// may exceed its share, so no single call is refused forever.
+func (c *Cap) TryAcquire(client string, w int64) bool {
+	if c == nil {
+		return true
 	}
+	key := RateLimitKey(client)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if h := c.held[key]; h > 0 && h+w > c.share {
+		return false
+	}
+	if !c.sem.TryAcquire(w) {
+		return false
+	}
+	c.held[key] += w
+	return true
+}
+
+// Release returns w units client took with TryAcquire.
+func (c *Cap) Release(client string, w int64) {
+	if c == nil {
+		return
+	}
+	key := RateLimitKey(client)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.held[key] -= w
+	if c.held[key] <= 0 {
+		delete(c.held, key)
+	}
+	c.sem.Release(w)
 }

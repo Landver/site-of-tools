@@ -79,7 +79,8 @@ func TestOneLimitsIsOneBudgetAcrossApps(t *testing.T) {
 
 func TestFullLookupCapAnswersBusy(t *testing.T) {
 	lim := iptools.NewLimits()
-	if !lim.LookupCap.TryAcquire(8) {
+	const otherClient = "198.51.100.250"
+	if !lim.LookupCap.TryAcquire(otherClient, 8) {
 		t.Fatal("a fresh lookup cap is not 8")
 	}
 	e := limitsApp(lim)
@@ -100,7 +101,7 @@ func TestFullLookupCapAnswersBusy(t *testing.T) {
 		!strings.Contains(page.Body.String(), platform.BusyMessage) {
 		t.Errorf("browser with a full cap = %d, want the page saying busy", page.Code)
 	}
-	lim.LookupCap.Release(8)
+	lim.LookupCap.Release(otherClient, 8)
 	if rec := do(e, "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"}); rec.Code != http.StatusOK {
 		t.Errorf("lookup after the cap freed = %d, want 200", rec.Code)
 	}

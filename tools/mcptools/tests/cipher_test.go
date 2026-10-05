@@ -228,7 +228,7 @@ func TestHeavyCipherOps(t *testing.T) {
 	s := newStack(t, stackOpts{cipherLim: lim, log: &log})
 	cs := s.client(t, "/mcp/cipher", nil, nil)
 	const budget = 256 << 20
-	if !lim.HeavyCap.TryAcquire(budget) {
+	if !lim.HeavyCap.TryAcquire(otherClient, budget) {
 		t.Fatal("a fresh heavy budget is not 256 MiB")
 	}
 	bcrypt := map[string]any{"password": "pw", "bcrypt_cost": 4}
@@ -244,11 +244,11 @@ func TestHeavyCipherOps(t *testing.T) {
 	if !strings.Contains(log.String(), `"outcome":"busy"`) || !strings.Contains(log.String(), "#cipher_password_hash") {
 		t.Errorf("log lacks the busy outcome:\n%s", log.String())
 	}
-	lim.HeavyCap.Release(budget)
+	lim.HeavyCap.Release(otherClient, budget)
 
 	// 20 MiB left: bcrypt's flat 16 MiB fits, a 64 MiB Argon2id does not.
-	lim.HeavyCap.TryAcquire(budget - 20<<20)
-	defer lim.HeavyCap.Release(budget - 20<<20)
+	lim.HeavyCap.TryAcquire(otherClient, budget-20<<20)
+	defer lim.HeavyCap.Release(otherClient, budget-20<<20)
 	object(t, call(t, cs, "cipher_password_hash", bcrypt))
 	argon := map[string]any{"password": "pw", "algo": "argon2id", "argon2_m": 65536, "argon2_t": 1, "argon2_p": 1}
 	if res := call(t, cs, "cipher_password_hash", argon); !res.IsError || text(t, res) != platform.BusyMessage {

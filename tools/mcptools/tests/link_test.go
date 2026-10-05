@@ -216,6 +216,34 @@ func TestLinkPercentEncode(t *testing.T) {
 	failsWith(t, call(t, cs, "link_percent_encode", map[string]any{"value": ""}), "value")
 }
 
+// TestLinkWholeStrings: a tool that only reworks the caller's own input gives
+// a long value back whole; one quoting decoded or pasted text cuts it at 2 KB.
+func TestLinkWholeStrings(t *testing.T) {
+	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
+	state := strings.Repeat("a", 2500)
+	long := "https://example.com/p?state=" + state + "&utm_source=x"
+	for tool, args := range map[string]map[string]any{
+		"link_clean":          {"url": long},
+		"link_utm":            {"url": long, "utm_campaign": "c"},
+		"link_curl_build":     {"url": long},
+		"link_percent_encode": {"value": state},
+		"link_diff":           {"url_a": long, "url_b": "https://example.com/p?state=b"},
+		"link_curl_parse":     {"command": "curl '" + long + "'"},
+	} {
+		if txt := text(t, call(t, cs, tool, args)); strings.Contains(txt, "[truncated") || !strings.Contains(txt, state) {
+			t.Errorf("%s cut the caller's own %d-byte value: %.120s", tool, len(state), txt)
+		}
+	}
+	for tool, args := range map[string]map[string]any{
+		"link_inspect": {"url": long},
+		"link_extract": {"text": "see " + long},
+	} {
+		if txt := text(t, call(t, cs, tool, args)); !strings.Contains(txt, "…[truncated") {
+			t.Errorf("%s returned a %d-byte value uncut", tool, len(state))
+		}
+	}
+}
+
 // TestLinkShortResolveOffline: everything that is refused before the store.
 // The live round trip, hits included, is in owner_test.go.
 func TestLinkShortResolveOffline(t *testing.T) {

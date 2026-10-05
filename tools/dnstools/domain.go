@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/Landver/site-of-tools/platform"
 )
 
@@ -28,6 +30,10 @@ var ErrDisabled = errors.New("this lookup is switched off")
 // errUpstreamNotFound: the upstream answered 404. Kept apart from a transport
 // failure because for RDAP a 404 is an answer, not a breakdown.
 var errUpstreamNotFound = errors.New("upstream has no record")
+
+// errUpstreamBusy: this process spent its budget for that upstream, so the
+// request was not sent.
+var errUpstreamBusy = errors.New("busy, try again shortly")
 
 // errNoRDAPRecord: the registry answered, and what it said is that it holds no
 // object for this name (RFC 7480 §5.3). Surfacing that as a failed lookup
@@ -136,11 +142,20 @@ const maxSubdomains = 200
 // maxResponseBytes bounds what we read from either upstream.
 const maxResponseBytes = 8 << 20
 
+// rdap.org and crt.sh are free services that throttle or ban a busy address,
+// and every request this process makes comes from the one server address.
+const (
+	upstreamPerSecond = 1
+	upstreamBurst     = 5
+)
+
 // DomainClient talks to RDAP and Certificate Transparency. nil disables both.
+// Every caller sharing one client shares its request budgets.
 type DomainClient struct {
-	client  *http.Client
-	rdapURL string
-	ctURL   string
+	client             *http.Client
+	rdapURL            string
+	ctURL              string
+	rdapLimit, ctLimit *rate.Limiter
 }
 
 // errRedirectRefused: a redirect to a non-HTTP(S) scheme or to a destination
@@ -155,8 +170,10 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient
 		return nil
 	}
 	d := &DomainClient{
-		rdapURL: strings.TrimSuffix(rdapURL, "/"),
-		ctURL:   strings.TrimSuffix(ctURL, "/"),
+		rdapURL:   strings.TrimSuffix(rdapURL, "/"),
+		ctURL:     strings.TrimSuffix(ctURL, "/"),
+		rdapLimit: rate.NewLimiter(upstreamPerSecond, upstreamBurst),
+		ctLimit:   rate.NewLimiter(upstreamPerSecond, upstreamBurst),
 	}
 	d.client = d.httpClient(timeout, platform.NewEgressGuard([]string{"80", "443"}, nil))
 	return d
@@ -318,6 +335,9 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 	if d == nil || d.rdapURL == "" {
 		return nil, ErrDisabled
 	}
+	if !d.rdapLimit.Allow() {
+		return nil, errUpstreamBusy
+	}
 	asked := strings.ToLower(strings.TrimSuffix(domain, "."))
 	var r rdapResponse
 	if err := d.get(ctx, d.rdapURL+"/domain/"+url.PathEscape(asked), &r); err != nil {
@@ -425,6 +445,9 @@ type ctRow struct {
 func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames, error) {
 	if d == nil || d.ctURL == "" {
 		return nil, ErrDisabled
+	}
+	if !d.ctLimit.Allow() {
+		return nil, errUpstreamBusy
 	}
 	var rows []ctRow
 	q := url.Values{

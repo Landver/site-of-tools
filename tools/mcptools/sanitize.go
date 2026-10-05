@@ -112,11 +112,16 @@ func clean(s string, limit int) string {
 	return fmt.Sprintf("%s…[truncated %d bytes]", s[:cut], len(s)-cut)
 }
 
-// invisible: format characters (bidi controls and isolates, zero-width
-// characters, the BOM) and the Unicode tag block, which can carry text a
-// reader never sees.
+// invisible: characters that hide text or carry text a reader never sees:
+// format characters (bidi controls, zero-width characters, the BOM), the tag
+// block, variation selectors, DEL, C1 controls, U+2028/U+2029, Hangul fillers.
 func invisible(r rune) bool {
-	return unicode.Is(unicode.Cf, r) || (r >= 0xE0000 && r <= 0xE007F)
+	switch r {
+	case 0x7F, 0x2028, 0x2029, 0x115F, 0x1160, 0x3164, 0xFFA0:
+		return true
+	}
+	return unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Variation_Selector, r) ||
+		(r >= 0x80 && r <= 0x9F) || (r >= 0xE0000 && r <= 0xE007F)
 }
 
 // encode is json.Marshal without HTML escaping: a model reads this text, and

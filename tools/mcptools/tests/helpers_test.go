@@ -48,6 +48,8 @@ const (
 	apexURL    = "https://" + apexHost
 	ownerKey   = "owner-test-key"
 	clientIP   = "203.0.113.9"
+	// otherClient fills a cap in tests where clientIP must find it full.
+	otherClient = "198.51.100.250"
 )
 
 // fakeGeo answers every valid address with a copy of res, refuses the rest the

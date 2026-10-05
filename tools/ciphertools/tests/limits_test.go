@@ -71,7 +71,8 @@ func post(t *testing.T, e *echo.Echo, path, body, contentType string, headers ma
 func TestHeavyOpsShareAMemoryBudget(t *testing.T) {
 	lim := ciphertools.NewLimits()
 	const budget, flat = 256 << 20, 16 << 20
-	if !lim.HeavyCap.TryAcquire(budget - flat) {
+	const otherClient = "198.51.100.250"
+	if !lim.HeavyCap.TryAcquire(otherClient, budget-flat) {
 		t.Fatal("a fresh budget is under 256 MiB")
 	}
 	e := cipherAppWith(lim)
@@ -91,7 +92,7 @@ func TestHeavyOpsShareAMemoryBudget(t *testing.T) {
 		t.Errorf("a 16 MiB op in the last 16 MiB = %d %s, want 200", rec.Code, rec.Body)
 	}
 	hash := url.Values{"text": {"abc"}}.Encode()
-	if !lim.HeavyCap.TryAcquire(flat) {
+	if !lim.HeavyCap.TryAcquire("198.51.100.251", flat) {
 		t.Fatal("the signing op did not give its 16 MiB back")
 	}
 	if rec := post(t, e, "/hash", hash, form, asAPI); rec.Code != http.StatusOK {

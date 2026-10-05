@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"sync"
@@ -82,30 +83,50 @@ func TestOwnerKey(t *testing.T) {
 		hdr["CF-Connecting-IP"] = ip
 		return s.do(http.MethodPost, "/mcp/owner", listBody, hdr).Code
 	}
+	const guesser = "198.51.100.2"
+	wrong := map[string]string{"X-Api-Key": "guess"}
+	for i := range 5 {
+		if code := try(guesser, wrong); code != http.StatusForbidden {
+			t.Fatalf("wrong key, try %d = %d, want 403", i+1, code)
+		}
+	}
+	refused := false
+	for range 5 {
+		if try(guesser, wrong) == http.StatusTooManyRequests {
+			refused = true
+			break
+		}
+	}
+	if !refused {
+		t.Errorf("never 429 after five wrong keys")
+	}
+	if code := try(guesser, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusTooManyRequests {
+		t.Errorf("the right key while locked out = %d, want 429 before it is compared", code)
+	}
+
+	// What a web page can make its visitor's browser send guesses nothing, so
+	// it can't lock the owner out from the owner's own address.
 	for name, hdr := range map[string]map[string]string{
-		"no key":    nil,
-		"wrong key": {"X-Api-Key": "guess"},
-		"basic":     {"Authorization": "Basic " + ownerKey},
+		"no key":     nil,
+		"basic":      {"Authorization": "Basic " + ownerKey},
+		"cross-site": {"X-Api-Key": "guess", "Sec-Fetch-Site": "cross-site"},
+		"same-site":  {"X-Api-Key": "guess", "Sec-Fetch-Site": "same-site"},
 	} {
-		ip := map[string]string{"no key": "198.51.100.1", "wrong key": "198.51.100.2", "basic": "198.51.100.3"}[name]
-		for i := range 5 {
+		ip := map[string]string{"no key": "198.51.100.1", "basic": "198.51.100.3", "cross-site": "198.51.100.4", "same-site": "198.51.100.5"}[name]
+		for i := range 10 {
 			if code := try(ip, hdr); code != http.StatusForbidden {
 				t.Fatalf("%s, try %d = %d, want 403", name, i+1, code)
 			}
 		}
-		refused := false
-		for range 5 {
-			if try(ip, hdr) == http.StatusTooManyRequests {
-				refused = true
-				break
-			}
+		if code := try(ip, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusOK {
+			t.Errorf("%s ten times, then the right key = %d, want 200", name, code)
 		}
-		if !refused {
-			t.Errorf("%s: never 429 after five wrong keys", name)
-		}
-		if code := try(ip, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusTooManyRequests {
-			t.Errorf("%s: the right key while locked out = %d, want 429 before it is compared", name, code)
-		}
+	}
+
+	browser := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}
+	page, unknown := s.do(http.MethodGet, "/mcp/owner", "", browser), s.do(http.MethodGet, "/mcp/nope", "", browser)
+	if page.Code != http.StatusNotFound || page.Body.String() != unknown.Body.String() {
+		t.Errorf("browser GET /mcp/owner = %d %.80q, want the unknown path's 404 %.80q", page.Code, page.Body, unknown.Body)
 	}
 
 	// A gateway's own token doesn't touch the public endpoints.
@@ -198,6 +219,34 @@ func TestPanickingToolIsAnErrorAndTheProcessLives(t *testing.T) {
 		t.Errorf("panicking tool = %q, want an internal error without the panic's text", text(t, res))
 	}
 	object(t, call(t, cs, "ip_cidr", map[string]any{"cidr": "10.0.0.0/8"}))
+}
+
+// TestNullArgumentsAreNoArguments: "arguments": null reads as none, so the
+// schema's defaults apply and a missing required field is named.
+func TestNullArgumentsAreNoArguments(t *testing.T) {
+	var log syncBuffer
+	s := newStack(t, stackOpts{log: &log})
+	hdr := mcpHeaders(map[string]string{"Mcp-Protocol-Version": "2025-11-25"})
+	for tool, wantErr := range map[string]bool{"cipher_random": false, "dns_lookup": true} {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + tool + `","arguments":null}}`
+		var resp struct {
+			Result struct {
+				IsError bool                    `json:"isError"`
+				Content []struct{ Text string } `json:"content"`
+			} `json:"result"`
+		}
+		rec := s.do(http.MethodPost, "/mcp", body, hdr)
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Result.Content) != 1 {
+			t.Fatalf("%s with null arguments = %d %s", tool, rec.Code, rec.Body)
+		}
+		got := resp.Result.Content[0].Text
+		if resp.Result.IsError != wantErr || strings.Contains(got, "Internal error") || wantErr && !strings.Contains(got, "name") {
+			t.Errorf("%s with null arguments = isError %v %.120q, want isError %v", tool, resp.Result.IsError, got, wantErr)
+		}
+	}
+	if strings.Contains(log.String(), "mcp: panic") {
+		t.Errorf("null arguments panicked:\n%.400s", log.String())
+	}
 }
 
 // TestRecordsNeverHoldArguments: the per-call log line names the endpoint,

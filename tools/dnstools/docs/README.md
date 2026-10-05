@@ -291,11 +291,13 @@ calls non-negotiable are in place:
   budget whichever door. Lookups (`/`, `/domain`, `/email`) 2/s with a burst
   of 10; walks (`/consistency`, `/trace`), at 50 to 100 upstream queries each,
   one per 2 s with a burst of 3. On top, caps on work in flight across all
-  clients: 8 lookups and 4 walks; a full cap answers 503 busy at once rather
-  than queueing. A bare page (no `?name=`) asks no upstream anything and is
-  not counted. 429s are content-negotiated like everything else: an amber
-  notice to htmx, and to a browser a page that keeps the nav and offers the
-  refused request again.
+  clients: 8 lookups, 4 walks and 4 `/domain` reports, no client holding more
+  than a quarter of one; a full cap answers 503 busy at once rather than
+  queueing. rdap.org and crt.sh each get one request a second (burst 5) from
+  the whole process; past that, that half of `/domain` says busy. A bare page
+  (no `?name=`) asks no upstream anything and is not counted. 429s are
+  content-negotiated like everything else: an amber notice to htmx, and to a
+  browser a page that keeps the nav and offers the refused request again.
 - **Answer cache** (`cache.go`) **+ single-flight** (`Service.inflight`, in
   `dns.go`). Answers are held for the
   shortest TTL in them, clamped to 5s–5m, negatives for 30s, bounded at 4096

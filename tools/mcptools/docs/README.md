@@ -115,9 +115,9 @@ client (Claude Code, claude.ai connector, Cursor, …)
 Cloudflare → nginx → Echo vhost "mcp.corpberry.com"     (unknown Hosts already 404)
   │  NewApp middleware: recover · request log · security headers · gzip
   ▼
-the /mcp gate (Echo)    toolset 404 · browser GET → landing page · owner key → 403 / strip
-                        /mcp limiter · body ≤ 1 MiB, no batches · Sec-Fetch-Site / Origin
-                        raw IP + limiter key → context · Cache-Control: no-store
+the /mcp gate (Echo)    toolset 404 · browser GET → landing page · Sec-Fetch-Site → 403
+                        owner key → 403 / strip · /mcp limiter · body ≤ 1 MiB, no batches
+                        Origin logged · raw IP + limiter key → context · Cache-Control: no-store
   ▼
 go-sdk StreamableHTTPHandler        Stateless · JSONResponse · MaxRequestBodyBytes 1 MiB
   │  getServer(req): pure lookup by toolset (owner → the owner server)
@@ -400,7 +400,7 @@ no BINs.
 | **Result shape**: every tool returns an object, never `null`, with each optional argument omitted in turn (absent ≠ empty ≠ false) | legacy-client failures; `unwrap`/`utm` defaults |
 | **In-memory client** (`mcp.NewInMemoryTransports`): every tool, happy path + one bad input | argument mapping, error text, hints |
 | **HTTP** (`httptest` + `StreamableClientTransport`): vhost routing, each endpoint, browser GET → page, other GET → 405, body > 1 MiB → 413, **2-element batch → 400**, `Cache-Control: no-store`, no 3xx anywhere | the gate |
-| **Owner endpoint**: no key / wrong key → 403 then 429; `X-Api-Key` and Bearer both work; 3 tools, `private`; the key header never reaches a handler; works with `LINK_API_KEY` unset | D4 |
+| **Owner endpoint**: wrong key → 403 then 429; no key, Basic or cross-site → 403, never 429; a browser GET → the unknown path's 404; `X-Api-Key` and Bearer both work; 3 tools, `private`; the key header never reaches a handler; works with `LINK_API_KEY` unset | D4 |
 | **Origin/Host**: `Sec-Fetch-Site: cross-site` or `same-site` → 403; a foreign `Origin` → served and logged with its user agent (the allowlist comes with D15 step 2); unknown Host → 404 | D15, rebinding |
 | **Panic**: a tool that panics → `isError` without the panic's text, the next call still served (planned per-adapter fuzzing was not built) | the SDK's missing `recover` |
 | **Limits** (1c + MCP): spend a budget over REST, get refused over MCP; IPv6 client = one bucket on both doors; full cap → "busy"; list flood → limited; unparseable IP → shared bucket | D12 |

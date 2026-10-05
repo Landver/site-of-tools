@@ -181,12 +181,19 @@ func (h *handler) serve(c *echo.Context) error {
 	}
 	name := c.Param("toolset")
 	ep := h.endpoints[name]
-	if ep == nil {
+	req := c.Request()
+	page := req.Method == http.MethodGet && !platform.WantsJSON(c)
+	// The landing page at /mcp/owner would tell any visitor the endpoint exists.
+	if ep == nil || page && name == ownerEndpoint {
 		return refuseHTTP(c, http.StatusNotFound, "No MCP endpoint at this path. The endpoints are listed at "+h.base+"/")
 	}
-	req := c.Request()
-	if req.Method == http.MethodGet && !platform.WantsJSON(c) {
+	if page {
 		return h.landing(c)
+	}
+	// Before the owner key, so a web page can't spend its visitor's key tries.
+	switch req.Header.Get("Sec-Fetch-Site") {
+	case "cross-site", "same-site":
+		return refuseHTTP(c, http.StatusForbidden, "Cross-site browser requests are refused.")
 	}
 
 	ip := c.RealIP()
@@ -219,10 +226,6 @@ func (h *handler) serve(c *echo.Context) error {
 		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
-	switch req.Header.Get("Sec-Fetch-Site") {
-	case "cross-site", "same-site":
-		return refuseHTTP(c, http.StatusForbidden, "Cross-site browser requests are refused.")
-	}
 	if o := req.Header.Get("Origin"); o != "" && !strings.EqualFold(o, h.base) && !trustedOrigins[o] {
 		h.log.Warn("mcp: foreign Origin", "origin", platform.Clip(o, 200),
 			"user_agent", platform.Clip(req.UserAgent(), 200), "uri", ep.path)
@@ -240,16 +243,21 @@ func refuseHTTP(c *echo.Context, code int, msg string) error {
 // checkKey admits the owner: the key arrives as X-Api-Key or Authorization:
 // Bearer (how Codex sends one from an env var) and is checked by the owner
 // Shortener. A client whose wrong keys used up its tries is refused before
-// its key is compared, so guessing runs at one try a second.
+// its key is compared, so guessing runs at one try a second. A request with
+// no key guesses nothing, and anything can send one, so it costs no try.
 func (h *handler) checkKey(hdr http.Header, client string) (int, string) {
-	if h.keys.locked(client) {
+	const needKey = "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer."
+	k := ownerKey(hdr)
+	switch {
+	case k == "":
+		return http.StatusForbidden, needKey
+	case h.keys.locked(client):
 		return http.StatusTooManyRequests, "Too many wrong keys from your address. Try again in a few seconds."
-	}
-	if h.owner.Authorized(ownerKey(hdr)) {
+	case h.owner.Authorized(k):
 		return 0, ""
 	}
 	h.keys.fail(client)
-	return http.StatusForbidden, "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer."
+	return http.StatusForbidden, needKey
 }
 
 func ownerKey(h http.Header) string {

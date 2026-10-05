@@ -60,6 +60,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 			name, spec := method, (*toolSpec)(nil)
 			if call != nil && call.Params != nil {
 				name, spec = platform.Clip(call.Params.Name, 64), specs[call.Params.Name]
+				// The SDK writes schema defaults into the nil map "arguments": null
+				// decodes to, and panics.
+				if string(call.Params.Arguments) == "null" {
+					call.Params.Arguments = nil
+				}
 			}
 			got, size := outcomeOK, 0
 			defer func() {
@@ -95,11 +100,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				if spec.weight != nil {
 					w = spec.weight(call.Params.Arguments)
 				}
-				if !spec.cap.TryAcquire(w) {
+				if !spec.cap.TryAcquire(who.key, w) {
 					got = outcomeBusy
 					return refuse(call, codeRefused, platform.BusyMessage)
 				}
-				defer spec.cap.Release(w)
+				defer spec.cap.Release(who.key, w)
 			}
 
 			res, err = next(ctx, method, req)
