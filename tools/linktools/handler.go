@@ -147,23 +147,6 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.DELETE("/short/:code", h.shortRevoke, keyed)
 }
 
-// reply picks the representation, and is the only place in this file that does.
-//
-// platform.Respond cannot stand in for it: every page template pulls .Title and
-// .Desc through partials/head, so handing it a bare domain struct makes
-// html/template fail the render, while handing it the view-model map would leak
-// Title/Desc into the JSON body. Same split dnstools uses.
-func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
-	platform.SetNegotiationHeaders(c, code)
-	switch {
-	case platform.WantsJSON(c):
-		return c.JSON(code, body)
-	case platform.IsHTMX(c):
-		return c.Render(code, frag, vm)
-	}
-	return c.Render(code, page, vm)
-}
-
 // vm builds the view-model keys every page needs.
 func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	return map[string]any{
@@ -189,7 +172,7 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 	if platform.WantsJSON(c) {
 		return true, apiError(c, http.StatusBadRequest, "no URL; pass ?u=, e.g. "+example)
 	}
-	return true, reply(c, http.StatusOK, nil, vm, page, frag)
+	return true, platform.Reply(c, http.StatusOK, nil, vm, page, frag)
 }
 
 func apiError(c *echo.Context, code int, msg string) error {
@@ -221,7 +204,7 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 		return false, nil
 	}
 	vm["Error"] = msg
-	return true, reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
+	return true, platform.Reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
 // --- inspect ---------------------------------------------------------------
@@ -243,7 +226,7 @@ func (h *handler) inspect(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/index")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/index", "link/inspect")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/index", "link/inspect")
 }
 
 // --- clean -----------------------------------------------------------------
@@ -271,7 +254,7 @@ func (h *handler) clean(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/clean")
 	}
 	vm["Result"], vm["Groups"] = res, groupRemovals(res.Removed)
-	return reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
 }
 
 // removalGroup is one rule's removals, so the page prints its reason once.
@@ -320,7 +303,7 @@ func (h *handler) rules(c *echo.Context) error {
 	}
 	// Page and fragment differ, as on /short: serving the page to htmx would
 	// swap a whole <html> document into a div.
-	return reply(c, http.StatusOK, cat, vm, "link/rules", "link/rulestable")
+	return platform.Reply(c, http.StatusOK, cat, vm, "link/rules", "link/rulestable")
 }
 
 // --- diff ------------------------------------------------------------------
@@ -336,7 +319,7 @@ func (h *handler) diff(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return apiError(c, http.StatusBadRequest, "pass both ?a= and ?b=")
 		}
-		return reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
 	for _, side := range []string{a, b} {
 		if done, err := h.wrongTool(c, vm, side, "link/diff"); done {
@@ -348,7 +331,7 @@ func (h *handler) diff(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/diff")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
 }
 
 // --- trace -----------------------------------------------------------------
@@ -384,7 +367,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/trace")
 	}
 	vm["Result"] = ch
-	return reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
+	return platform.Reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
 }
 
 // --- short links -----------------------------------------------------------
@@ -428,7 +411,7 @@ func (h *handler) shortConsole(c *echo.Context) error {
 	// whole console, while an htmx request (the "Load aliases" button, which is
 	// the only thing that can send the X-Api-Key header) gets just the list.
 	// Returning the page to htmx would inject a full <html> document into a div.
-	return reply(c, http.StatusOK, body, vm, "link/short", "link/shortlist")
+	return platform.Reply(c, http.StatusOK, body, vm, "link/short", "link/shortlist")
 }
 
 func (h *handler) shortCreate(c *echo.Context) error {
@@ -441,7 +424,7 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		// hint to anyone probing.
 		const msg = "Creating a short link needs a valid API key."
 		vm["Error"] = msg
-		return reply(c, http.StatusUnauthorized, map[string]string{"error": msg}, vm, "link/short", "link/error")
+		return platform.Reply(c, http.StatusUnauthorized, map[string]string{"error": msg}, vm, "link/short", "link/error")
 	}
 
 	var req CreateRequest
@@ -455,14 +438,14 @@ func (h *handler) shortCreate(c *echo.Context) error {
 			return h.storageError(c, vm, err, "link/short")
 		}
 		vm["Error"] = sentence(msg)
-		return reply(c, code, map[string]string{"error": msg}, vm, "link/short", "link/error")
+		return platform.Reply(c, code, map[string]string{"error": msg}, vm, "link/short", "link/error")
 	}
 	vm["Created"] = map[string]any{
 		"Short": created.Short, "Target": created.Target, "Cleaned": created.Cleaned,
 		"Note": created.Note, "ExpiresAt": created.ExpiresAt,
 	}
 	listChanged(c)
-	return reply(c, http.StatusCreated, created, vm, "link/short", "link/created")
+	return platform.Reply(c, http.StatusCreated, created, vm, "link/short", "link/created")
 }
 
 // storageError logs the real error and returns a fixed 500 to the caller.
@@ -473,14 +456,14 @@ func (h *handler) storageError(c *echo.Context, vm map[string]any, err error, pa
 
 func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page string) error {
 	vm["Error"] = msg
-	return reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
+	return platform.Reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
 // failErr gives JSON the Go error string, as the API always has, and the page
 // a sentence.
 func (h *handler) failErr(c *echo.Context, vm map[string]any, code int, err error, page string) error {
 	vm["Error"] = sentence(err.Error())
-	return reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
+	return platform.Reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
 }
 
 // consoleRow is the console's view of a Link: everything the page renders and
@@ -545,7 +528,7 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 	}
 	vm["Revoked"] = c.Param("code")
 	listChanged(c)
-	return reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
+	return platform.Reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
 		vm, "link/short", "link/revoked")
 }
 
@@ -633,7 +616,7 @@ func (h *handler) curl(c *echo.Context) error {
 			return h.badRequest(c, vm, err, "link/curl")
 		}
 		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = res.URL, res.Headers, res.Inspection, res
-		return reply(c, http.StatusOK, res, vm, "link/curl", "link/curled")
+		return platform.Reply(c, http.StatusOK, res, vm, "link/curl", "link/curled")
 	}
 
 	if done, err := h.needURL(c, raw, vm, "link/curl", "link/curled",
@@ -654,7 +637,7 @@ func (h *handler) curl(c *echo.Context) error {
 	}
 	vm["Curl"], vm["Personas"], vm["Persona"] = line, Personas(), opt.Persona
 	vm["Follow"], vm["ShowHeaders"] = opt.FollowRedirects, opt.ShowHeaders
-	return reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
+	return platform.Reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
 // postReset drops an example chip's ?curl= or ?text= from the address bar
@@ -686,14 +669,14 @@ func (h *handler) extract(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return apiError(c, http.StatusBadRequest, "no text; pass ?text= or POST a text field")
 		}
-		return reply(c, http.StatusOK, nil, vm, "link/extract", "link/extracted")
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/extract", "link/extracted")
 	}
 	res, err := h.svc.Extract(text)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/extract")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/extract", "link/extracted")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/extract", "link/extracted")
 }
 
 // --- utm -------------------------------------------------------------------
@@ -747,7 +730,7 @@ func (h *handler) utm(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/utm")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
 }
 
 // --- encode ----------------------------------------------------------------
@@ -762,11 +745,11 @@ func (h *handler) encode(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return apiError(c, http.StatusBadRequest, "no value; pass ?v=")
 		}
-		return reply(c, http.StatusOK, nil, vm, "link/encode", "link/encoded")
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/encode", "link/encoded")
 	}
 	res := EncodeAll(v)
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/encode", "link/encoded")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/encode", "link/encoded")
 }
 
 // --- static pages ----------------------------------------------------------
@@ -810,7 +793,7 @@ func sentence(s string) string {
 // disabled answers 503, never 502: nothing failed, the feature is not running.
 func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string) error {
 	vm["Error"] = msg
-	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, "link/error")
+	return platform.Reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
 // --- middleware ------------------------------------------------------------
@@ -822,7 +805,7 @@ func limited(c *echo.Context) error {
 	if c.Request().Method == http.MethodGet {
 		retry = c.Request().URL.RequestURI()
 	}
-	return reply(c, http.StatusTooManyRequests,
+	return platform.Reply(c, http.StatusTooManyRequests,
 		map[string]string{"error": msg},
 		map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
 		"link/ratelimited", "link/error")

@@ -132,8 +132,8 @@ func (rl *RequestLog) Close(ctx context.Context) error {
 }
 
 // ShouldRecord reports whether a request path is worth persisting. Static assets
-// skipped: high-volume, no analytic value beyond page requests. Exported so
-// one caller (request-logger middleware) reads clearly.
+// skipped: high-volume, no analytic value beyond page requests. /mcp skipped:
+// mcptools records each MCP message itself, so one call isn't counted twice.
 func ShouldRecord(path string) bool {
-	return !strings.HasPrefix(path, "/static/")
+	return !strings.HasPrefix(path, "/static/") && path != "/mcp" && !strings.HasPrefix(path, "/mcp/")
 }

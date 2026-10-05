@@ -28,6 +28,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mcptools"
 )
 
 func main() {
@@ -151,6 +152,7 @@ func run() error {
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
+		platform.TemplateSource{Embed: mcptools.Templates, DevDir: "tools/mcptools/templates"},
 	)
 
 	// Each tool's rate limits and concurrency caps, built once: every door onto
@@ -161,7 +163,8 @@ func run() error {
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
 	// malformed post fails boot here rather than serving a broken page.
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	if _, err := site.Register(apex, cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev())); err != nil {
+	blog, err := site.Register(apex, cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev()))
+	if err != nil {
 		log.Fatalf("apex: %v", err)
 	}
 
@@ -244,6 +247,25 @@ func run() error {
 	cipherApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	ciphertools.Register(cipherApp, cfg.URL("cipher"), staticFS, cipherLim)
 
+	// mcp.corpberry.com — the same tools over MCP, behind the same Limits. The
+	// owner's Shortener shares the store but not the key, so MCP_OWNER_KEY and
+	// LINK_API_KEY rotate apart; it needs the cleaner too, or clean: true fails.
+	owner := linktools.NewShortener(linkStore, cfg.MCPOwnerKey, cfg.URL("link"))
+	if owner != nil {
+		owner.CleanTarget = linktools.CleanTargetFunc(linkSvc)
+	}
+	mcpApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+	if err := mcptools.Register(mcpApp, mcptools.Deps{
+		Geo: geo, DNSGeo: geo.Offline(),
+		Blocklist: iptools.CheckerFrom(blocklist), DNSBlocklist: dnstools.BlockCheckerFrom(blocklist),
+		DNS: dnsSvc, Domain: domainClient, Blog: blog,
+		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: owner,
+		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim,
+		RequestLog: reqlog, ToolURL: cfg.URL,
+	}, cfg.URL("mcp")); err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
+
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
 	// apex trying to list them all. Apex wires its own inside site.Register,
@@ -253,6 +275,7 @@ func run() error {
 	platform.RegisterSEO(dnsApp, cfg.URL("dns"), dnstools.SitemapPages)
 	platform.RegisterSEO(linkApp, cfg.URL("link"), linktools.SitemapPages)
 	platform.RegisterSEO(cipherApp, cfg.URL("cipher"), ciphertools.SitemapPages)
+	platform.RegisterSEO(mcpApp, cfg.URL("mcp"), mcptools.SitemapPages)
 
 	apps := map[string]*echo.Echo{
 		"":         apex,
@@ -261,6 +284,7 @@ func run() error {
 		"dns":      dnsApp,
 		"link":     linkApp,
 		"cipher":   cipherApp,
+		"mcp":      mcpApp,
 	}
 	hosts := make(map[string]*echo.Echo, len(apps))
 	for sub, app := range apps {

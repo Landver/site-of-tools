@@ -40,6 +40,11 @@ type Config struct {
 	// (tools/linktools/docs/04-short-links.md §1).
 	LinkAPIKey string
 
+	// MCPOwnerKey gates mcp.corpberry.com/mcp/owner, the owner's short-link
+	// tools. Separate from LinkAPIKey so either rotates alone; empty disables
+	// the endpoint (404).
+	MCPOwnerKey string
+
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
 	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
 	// missing-BIN path). MongoDatabase = app DB name on shared server,
@@ -75,6 +80,7 @@ func Load() Config {
 		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
 		MongoDatabase:   getenv("MONGODB_DATABASE", DefaultMongoDatabase),
 		EgressDenyAddrs: splitList(os.Getenv("EGRESS_DENY_ADDRS")),
+		MCPOwnerKey:     os.Getenv("MCP_OWNER_KEY"),
 	}
 }
 

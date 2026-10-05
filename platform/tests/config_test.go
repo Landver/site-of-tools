@@ -61,3 +61,12 @@ func TestLoadEgressDenyAddrs(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadMCPOwnerKey(t *testing.T) {
+	for _, want := range []string{"", "owner-key"} {
+		t.Setenv("MCP_OWNER_KEY", want)
+		if got := platform.Load().MCPOwnerKey; got != want {
+			t.Errorf("MCP_OWNER_KEY=%q loaded as %q", want, got)
+		}
+	}
+}

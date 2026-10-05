@@ -115,22 +115,13 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 	e.GET("/email", h.email, lookup)
 }
 
-// reply picks the representation, and is the only place in this file that
-// does. Every route serves its domain struct as JSON and a view model as HTML,
-// so platform.Respond — one value shared by all three — cannot stand in for it.
-//
-// page is the whole document a browser gets; frag is the slot htmx swaps.
+// reply is platform.Reply plus this tool's fragments also carrying the nav,
+// title and status line out of band (dns/oob).
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
-	platform.SetNegotiationHeaders(c, code)
-	switch {
-	case platform.WantsJSON(c):
-		return c.JSON(code, body)
-	case platform.IsHTMX(c):
-		// Fragments also carry the nav, title and status line (dns/oob).
+	if platform.IsHTMX(c) {
 		vm["OOB"] = true
-		return c.Render(code, frag, vm)
 	}
-	return c.Render(code, page, vm)
+	return platform.Reply(c, code, body, vm, page, frag)
 }
 
 // readName normalises ?name= and returns what was typed when reading it took
