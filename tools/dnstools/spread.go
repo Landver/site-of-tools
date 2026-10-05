@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/miekg/dns"
 	"golang.org/x/net/publicsuffix"
+
+	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 // Spread answers "is my change live yet", honestly.
@@ -435,7 +439,7 @@ func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string)
 			// First routable rather than first: a zone that lists a private
 			// address ahead of the real one must not be able to use the guard
 			// below to hide the server that does answer.
-			if ip == "" && routable(rec.Value) {
+			if ip == "" && s.nsRoutable(rec.Value) {
 				ip = rec.Value
 			}
 		}
@@ -506,13 +510,16 @@ func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname st
 // answerKey collapses a sorted answer set into one comparable string.
 func answerKey(vals []string) string { return strings.Join(vals, "\n") }
 
-// routable rejects the addresses a nameserver name must never point at before
-// we send it a packet. Mirrors the guard tools/iptools applies to user-supplied
-// addresses; worth promoting to a shared helper once a third caller wants it.
-func routable(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
+// nsRoutable: may a nameserver address from a caller-chosen zone get a packet?
+func (s *Service) nsRoutable(ipStr string) bool {
+	ip, err := netip.ParseAddr(ipStr)
+	if err != nil {
+		return false
+	}
+	if s != nil && s.guard != nil {
+		return s.guard.AllowAddr(ip) == nil
+	}
+	return platform.PubliclyRoutable(ip)
 }
 
 // summarise derives the verdict: who agrees with whom, whether the zone's own
@@ -803,6 +810,67 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	}
 	sortNotes(sp.Health)
 	return usedASN
+}
+
+type Spreader interface {
+	Spread(ctx context.Context, name, qtype string) (*Spread, error)
+}
+
+// Consistency is GET /consistency: the canvass, the ECS card (ecs may be nil) beside it.
+func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looker, dom *DomainClient, name, qtype string) (*ECSEnvelope, error) {
+	if spr == nil {
+		return nil, ErrDisabled
+	}
+	name, qtype = NormalizeName(name), walkType(qtype)
+	var (
+		wg    sync.WaitGroup
+		steer *ECS
+	)
+	if ecs != nil {
+		wg.Add(1)
+		go safe(func() {
+			defer wg.Done()
+			if res, err := ecs.ECS(ctx, name, qtype); err == nil {
+				steer = res
+			}
+		})
+	}
+	sp, err := spr.Spread(ctx, name, qtype)
+	if err == nil && sp != nil {
+		delegationHealth(ctx, sp, geo, dom)
+	}
+	wg.Wait()
+	if err != nil {
+		return nil, err
+	}
+	return NewECSEnvelope(sp, steer)
+}
+
+func walkType(qtype string) string {
+	if t := strings.ToUpper(strings.TrimSpace(qtype)); t != "" {
+		return t
+	}
+	return "A"
+}
+
+func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *DomainClient) {
+	var asnOf func(string) string
+	if geo != nil {
+		asnOf = func(ip string) string {
+			g, err := geo.Lookup(ip)
+			if err != nil || g == nil {
+				return ""
+			}
+			return g.ASN
+		}
+	}
+	var registryNS []string
+	if dom != nil && sp.Zone != "" {
+		if reg, err := dom.Registration(ctx, strings.TrimSuffix(sp.Zone, ".")); err == nil {
+			registryNS = reg.Nameservers
+		}
+	}
+	sp.AddDelegationHealth(asnOf, registryNS)
 }
 
 // providerKey reduces a nameserver hostname to the operator running it, so

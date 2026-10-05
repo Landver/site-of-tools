@@ -47,12 +47,14 @@
   {{end}}
   {{/* Shodan InternetDB: what the internet already knows is open on this IP —
        last-seen (≈weekly), NOT a live scan. Handler-populated best-effort; the
-       card renders only when we actually checked (.Shodan non-nil). Attribution
+       card renders only when we checked or skipped (.Shodan non-nil). Attribution
        to Shodan is mandatory + kept inline with the data (their terms). */}}
   {{with .Shodan}}
   <div class="card order-5">
     <div class="eyebrow">open ports · shodan</div>
-    {{if .Found}}
+    {{if .Skipped}}
+      <p class="text-sm text-muted">Open-ports check skipped: the server is busy. Try again in a moment.</p>
+    {{else if .Found}}
       {{if .Ports}}
       <dl class="spec">
         <dt>Ports</dt>

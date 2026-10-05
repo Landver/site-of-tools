@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"log"
 	"maps"
@@ -27,6 +28,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mcptools"
 )
 
 func main() {
@@ -150,12 +152,28 @@ func run() error {
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
+		platform.TemplateSource{Embed: mcptools.Templates, DevDir: "tools/mcptools/templates"},
 	)
+
+	apps := map[string]*echo.Echo{}
+	ownHosts := []string{cfg.MongoURI}
+	for _, sub := range []string{"", "ip", "botcheck", "dns", "link", "cipher", "mcp"} {
+		apps[sub] = platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+		ownHosts = append(ownHosts, cfg.VHost(sub))
+	}
+	ownHosts = append(ownHosts, cfg.EgressDenyAddrs...)
+	// MTA-STS is HTTPS-only; RDAP hops can be plain HTTP (.kg, .mg), and so can traced links.
+	httpsGuard := platform.NewEgressGuard([]string{"443"}, ownHosts)
+	webGuard := platform.NewEgressGuard([]string{"80", "443"}, ownHosts)
+
+	ipLim, dnsLim, linkLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits()
+	cipherLim, botLim := ciphertools.NewLimits(), botcheck.NewLimits()
+	ipCheck, dnsCheck := iptools.CheckerFrom(blocklist), dnstools.BlockCheckerFrom(blocklist)
 
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
 	// malformed post fails boot here rather than serving a broken page.
-	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	if err := site.Register(apex, cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev())); err != nil {
+	blog, err := site.Register(apps[""], cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev()))
+	if err != nil {
 		log.Fatalf("apex: %v", err)
 	}
 
@@ -170,26 +188,26 @@ func run() error {
 	// tools/iptools/docs/reports/shodan-internetdb-feasibility.md.
 	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
 	geo.WithShodan(shodan)
-	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	iptools.Register(ipApp, geo, lookupHistory, blocklist)
+	// DNS shows no open ports, so it must not spend the Shodan budget per record.
+	dnsGeo := geo.Offline()
+	iptools.Register(apps["ip"], geo, lookupHistory, ipCheck, ipLim)
 
 	// botcheck.corpberry.com — reuses same IP service for server-side
 	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo
 	// corpus for fingerprint-reuse signal.
-	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	botcheck.Register(botApp, geo, corpus, blocklist)
+	botcheck.Register(apps["botcheck"], geo, corpus, ipCheck, botLim)
 
 	// dns.corpberry.com — DNS record lookup. Queries public resolvers directly
 	// over UDP/53 (no databases to load, so nothing to degrade), and reuses the
 	// SAME geo service the IP tool opened above to label resolved addresses with
 	// ASN/country — in-process, no new dependency (docs/tools/dnstools/02-build-fit.md §2).
 	// nil/unloaded geo just means records render without that annotation.
-	dnsApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	// RDAP + Certificate Transparency: both free, keyless and public. Blank
 	// URLs disable that half (nil client -> the page says the lookup is off,
 	// never that the domain has no registration).
-	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second)
-	dnstools.Register(dnsApp, dnstools.NewService(5*time.Second), geo, domainClient, dnstools.BlockCheckerFrom(blocklist))
+	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
+	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
+	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsCheck, dnsLim)
 
 	// link.corpberry.com — URL inspect / clean / short links / trace. Parsing is
 	// pure and opens no connection; only /trace dials out, and only through the
@@ -202,47 +220,48 @@ func run() error {
 	// LINK_API_KEY means nobody can create links rather than anybody can.
 	// Base origin only: Shortener.ShortURL owns the "/s/" prefix, so adding it
 	// here would mint links at /s/s/.
-	shortener := linktools.NewShortener(linkStore, cfg.LinkAPIKey, cfg.URL("link"))
-	if shortener != nil {
-		shortener.CleanTarget = linktools.CleanTargetFunc(linkSvc)
+	newShortener := func(key string) *linktools.Shortener {
+		s := linktools.NewShortener(linkStore, key, cfg.URL("link"))
+		if s != nil {
+			s.CleanTarget = linktools.CleanTargetFunc(linkSvc)
+		}
+		return s
 	}
-	// /trace is the one place this box dials a host a stranger chose. The guard is
-	// shared engine code, allows only 80/443, and refuses our own vhosts and every
-	// local interface address so a trace cannot loop back into the origin behind
-	// Cloudflare (tools/linktools/docs/06-security-and-abuse.md §2).
-	traceGuard := platform.NewEgressGuard([]string{"80", "443"}, []string{
-		cfg.VHost(""), cfg.VHost("ip"), cfg.VHost("botcheck"), cfg.VHost("dns"), cfg.VHost("link"), cfg.VHost("cipher"),
-		cfg.MongoURI,
-	})
-	tracer := linktools.NewTracer(traceGuard, 15*time.Second)
-	linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	linktools.Register(linkApp, linkSvc, tracer, shortener, cfg.URL("link"))
+	shortener := newShortener(cfg.LinkAPIKey)
+	tracer := linktools.NewTracer(webGuard, 15*time.Second)
+	linktools.Register(apps["link"], linkSvc, tracer, shortener, cfg.URL("link"), linkLim)
 
 	// cipher.corpberry.com — JWT, hashes, keys, certificates. The pages run the
 	// ciphertools ops in the visitor's browser (Go compiled to wasm, built by
 	// `make wasm`), so nothing pasted there reaches this box; the POST routes are
 	// the JSON API. No state, no network, nothing to degrade
 	// (tools/ciphertools/docs/02-build-plan.md).
-	cipherApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	ciphertools.Register(cipherApp, cfg.URL("cipher"), staticFS)
+	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), staticFS, cipherLim)
+
+	if err := mcptools.Register(apps["mcp"], mcptools.Deps{
+		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck, DNSBlocklist: dnsCheck,
+		DNS: dnsSvc, Domain: domainClient, Blog: blog,
+		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
+		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim,
+		RequestLog: reqlog, ToolURL: cfg.URL,
+	}, cfg.URL("mcp")); err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
 
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the
 	// apex trying to list them all. Apex wires its own inside site.Register,
 	// where the blog's dynamic post list lives.
-	platform.RegisterSEO(ipApp, cfg.URL("ip"), iptools.SitemapPages)
-	platform.RegisterSEO(botApp, cfg.URL("botcheck"), botcheck.SitemapPages)
-	platform.RegisterSEO(dnsApp, cfg.URL("dns"), dnstools.SitemapPages)
-	platform.RegisterSEO(linkApp, cfg.URL("link"), linktools.SitemapPages)
-	platform.RegisterSEO(cipherApp, cfg.URL("cipher"), ciphertools.SitemapPages)
+	platform.RegisterSEO(apps["ip"], cfg.URL("ip"), iptools.SitemapPages)
+	platform.RegisterSEO(apps["botcheck"], cfg.URL("botcheck"), botcheck.SitemapPages)
+	platform.RegisterSEO(apps["dns"], cfg.URL("dns"), dnstools.SitemapPages)
+	platform.RegisterSEO(apps["link"], cfg.URL("link"), linktools.SitemapPages)
+	platform.RegisterSEO(apps["cipher"], cfg.URL("cipher"), ciphertools.SitemapPages)
+	platform.RegisterSEO(apps["mcp"], cfg.URL("mcp"), mcptools.SitemapPages)
 
-	hosts := map[string]*echo.Echo{
-		cfg.VHost(""):         apex,
-		cfg.VHost("ip"):       ipApp,
-		cfg.VHost("botcheck"): botApp,
-		cfg.VHost("dns"):      dnsApp,
-		cfg.VHost("link"):     linkApp,
-		cfg.VHost("cipher"):   cipherApp,
+	hosts := make(map[string]*echo.Echo, len(apps))
+	for sub, app := range apps {
+		hosts[cfg.VHost(sub)] = app
 	}
 	log.Printf("listening on %s (env=%s); hosts: %v", cfg.ListenAddr, cfg.Env, slices.Collect(maps.Keys(hosts)))
 

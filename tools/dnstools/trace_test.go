@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // traceTestKey makes a key-signing key for zone and hands back the private
@@ -218,6 +220,7 @@ func TestTraceRootAnchorsCarryBothLiveRootKSKs(t *testing.T) {
 // range must never be sent a packet.
 func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 	t.Parallel()
+	guarded := newTestService().WithEgressGuard(platform.NewEgressGuard([]string{"443"}, nil))
 	for _, tc := range []struct {
 		name string
 		srv  traceServer
@@ -228,11 +231,9 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"link-local metadata", traceServer{Name: "ns.evil.test.", IP: "169.254.169.254"}, ""},
 		{"unspecified", traceServer{Name: "ns.evil.test.", IP: "0.0.0.0"}, ""},
 		{"ipv6 loopback only", traceServer{Name: "ns.evil.test.", IP6: "::1"}, ""},
-		// Addresses that are neither loopback nor private and so sail past
-		// spread.go's routable(), but that no nameserver lives at. trace.go is
-		// the caller that takes addresses straight out of a third party's
-		// referral, so its guard has to be the stricter one: glue of 224.0.0.1
-		// would otherwise make this host query the all-hosts multicast group.
+		// Neither loopback nor private, but no nameserver lives at them: glue
+		// of 224.0.0.1 would otherwise make this host query the all-hosts
+		// multicast group.
 		{"multicast", traceServer{Name: "ns.evil.test.", IP: "224.0.0.1"}, ""},
 		{"ssdp multicast", traceServer{Name: "ns.evil.test.", IP: "239.255.255.250"}, ""},
 		{"broadcast", traceServer{Name: "ns.evil.test.", IP: "255.255.255.255"}, ""},
@@ -252,19 +253,21 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"private v4 does not hide a usable v6", traceServer{Name: "ns.ok.test.", IP: "10.0.0.1", IP6: "2001:500:2::c"}, "[2001:500:2::c]:53"},
 		{"reserved v4 does not hide a usable v6", traceServer{Name: "ns.ok.test.", IP: "100.64.1.1", IP6: "2001:500:2::c"}, "[2001:500:2::c]:53"},
 	} {
-		if got := tc.srv.addr(); got != tc.want {
-			t.Errorf("%s: addr() = %q, want %q", tc.name, got, tc.want)
+		for _, svc := range []*Service{nil, guarded} {
+			if got := tc.srv.addr(svc); got != tc.want {
+				t.Errorf("%s (guarded %v): addr() = %q, want %q", tc.name, svc != nil, got, tc.want)
+			}
 		}
 	}
 
 	// Every root hint this walk starts from has to pass its own guard, or the
 	// walk would refuse to leave the ground.
 	for _, h := range traceRootHints {
-		if !traceRoutable(h.IP) {
-			t.Errorf("root hint %s (%s) is refused by traceRoutable", h.Name, h.IP)
+		if !guarded.nsRoutable(h.IP) {
+			t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, h.IP)
 		}
-		if !traceRoutable(h.IP6) {
-			t.Errorf("root hint %s (%s) is refused by traceRoutable", h.Name, h.IP6)
+		if !guarded.nsRoutable(h.IP6) {
+			t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, h.IP6)
 		}
 	}
 }

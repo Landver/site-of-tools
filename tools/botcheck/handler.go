@@ -10,20 +10,22 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// Looker is handler's dep on IP intel: anything resolving IP to
-// geolocation + proxy facts. *iptools.Service satisfies it (nil one returns
-// ErrUnavailable), tests inject fake → package needs no DBs to test
-// transport layer. Domain scorer (botcheck.go) never sees this interface;
-// handler maps its result into plain Signals fields.
-type Looker interface {
-	Lookup(ip string) (*iptools.Result, error)
-}
-
 // handler holds transport-layer deps for botcheck.corpberry.com.
 type handler struct {
 	svc       Looker
-	corpus    *Corpus            // nil-safe: Mongo disabled → fingerprint corpus no-ops
-	blocklist *iptools.BlockList // nil-safe: Mongo off → blocklist lookups no-op (G37)
+	corpus    *Corpus         // nil-safe: Mongo disabled → fingerprint corpus no-ops
+	blocklist iptools.Checker // nil when Mongo off → ip_blocklisted silent
+	lim       *Limits
+}
+
+// Limits are shared by REST and MCP; a score looks the IP up and reads the corpus.
+type Limits struct {
+	Check    platform.Limiter
+	CheckCap *platform.Cap
+}
+
+func NewLimits() *Limits {
+	return &Limits{Check: platform.NewLimiter(2, 10), CheckCap: platform.NewCap(8)}
 }
 
 // Register wires botcheck.corpberry.com routes onto e.
@@ -31,11 +33,27 @@ type handler struct {
 //	GET  /                  check page (browser) — or server-only score (curl/JSON)
 //	POST /check             accepts collected client fingerprint, returns full score
 //	GET  /botcheck-sw.js    tiny Service Worker collector registers (G03)
-func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist *iptools.BlockList) {
-	h := &handler{svc: svc, corpus: corpus, blocklist: blocklist}
-	e.GET("/", h.index)
-	e.POST("/check", h.check)
+func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, corpus: corpus, blocklist: blocklist, lim: lim}
+	// The page shell scores nothing, so only the JSON GET spends the budget.
+	page := func(c *echo.Context) bool { return !platform.WantsJSON(c) }
+	e.GET("/", h.index, platform.RateLimit(lim.Check, page, limited))
+	e.POST("/check", h.check, platform.RateLimit(lim.Check, nil, limited))
 	e.GET("/botcheck-sw.js", h.serviceWorker)
+}
+
+func limited(c *echo.Context) error {
+	return refuse(c, http.StatusTooManyRequests, "Too many checks from your address. Try again in a few seconds.")
+}
+
+func refuse(c *echo.Context, code int, msg string) error {
+	if platform.WantsJSON(c) {
+		return c.JSON(code, map[string]string{"error": msg})
+	}
+	return c.Render(code, "botcheck/result", map[string]any{"Report": Report{Verdict: "error", Checks: []Check{{Label: msg}}}})
 }
 
 // swScript: Service Worker source collector registers as 4th JS context for
@@ -75,6 +93,10 @@ func (h *handler) serviceWorker(c *echo.Context) error {
 // content-negotiation contract as IP tool.
 func (h *handler) index(c *echo.Context) error {
 	if platform.WantsJSON(c) {
+		if !h.lim.CheckCap.TryAcquire(c.RealIP(), 1) {
+			return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
+		}
+		defer h.lim.CheckCap.Release(c.RealIP(), 1)
 		var sig Signals
 		h.addServerSignals(c, &sig)
 		return c.JSON(http.StatusOK, Evaluate(sig))
@@ -106,9 +128,12 @@ func (h *handler) check(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid fingerprint payload"})
 		}
-		return c.Render(http.StatusBadRequest, "botcheck/result",
-			Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}})
+		return refuse(c, http.StatusBadRequest, "Invalid fingerprint payload")
 	}
+	if !h.lim.CheckCap.TryAcquire(c.RealIP(), 1) {
+		return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
+	}
+	defer h.lim.CheckCap.Release(c.RealIP(), 1)
 	sig.ClientCollected = true
 	connNet := h.addServerSignals(c, &sig)
 	// G41/G42: fold fingerprint into rolling corpus, then count how many
@@ -139,83 +164,23 @@ func (h *handler) check(c *echo.Context) error {
 	})
 }
 
-// addServerSignals fills half of Signals Go sees w/o any JS: req
-// headers plus IP reputation/geo from shared iptools service. IP lookup is
-// best-effort — missing/failed database leaves those fields zero (scorer
-// treats as "no server IP signal"), same as IP tool degrades.
-// Returns conn-card network attribution from same lookup so check
-// handler can enrich "your request" pane w/o a second IP lookup.
 func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnNetwork {
-	var net platform.ConnNetwork
-	r := c.Request()
 	sig.Now = time.Now()
-	sig.HTTPUserAgent = r.UserAgent()
-	sig.EgressIP = c.RealIP() // G09: server-observed IP the WebRTC candidates are compared against
-	// G37: shared IP blocklist (ipsum feed + any other service writing to
-	// ip_blocklist corpus). Independent of IP2Location/IP2Proxy lookup below
-	// → runs even w/o geo BINs (dev/CI). Best-effort: nil blocklist or
-	// Mongo error leaves fields zero → ip_blocklisted silent. Deliberate = any
-	// source but ipsum feed → scorer trusts it regardless of count (handler
-	// owns this vocab so pure scorer needs no iptools import).
-	if lk, err := h.blocklist.Check(r.Context(), c.RealIP()); err == nil {
-		sig.IPBlocklistSources = lk.Sources
-		sig.IPBlocklistCount = lk.MaxCount
-		for _, src := range lk.Sources {
-			if src != iptools.BlocklistSourceIPsum {
-				sig.IPBlocklistDeliberate = true
-				break
-			}
-		}
-	}
-	sig.SecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
-	sig.SecCHUA = r.Header.Get("Sec-CH-UA")
-	sig.SecFetchMode = r.Header.Get("Sec-Fetch-Mode")
-	sig.AcceptLanguage = r.Header.Get("Accept-Language")
-	// G06: content-negotiation headers header-consistency rules read. All
-	// three soft signals only — proxy (CF/nginx) on path can strip or
-	// rewrite them, same caveat that made sec_fetch_missing soft.
-	sig.HTTPAccept = r.Header.Get("Accept")
-	sig.HTTPAcceptEncoding = r.Header.Get("Accept-Encoding")
-	// Collected for completeness but deliberately UNUSED in rules: Safari never
-	// sends Upgrade-Insecure-Requests, so any rule requiring it would
-	// false-positive every real Safari user.
-	sig.HTTPUpgradeInsecureRequests = r.Header.Get("Upgrade-Insecure-Requests")
-
-	if h.svc == nil {
-		return net
-	}
-	res, err := h.svc.Lookup(c.RealIP())
-	if err != nil || res == nil {
-		return net
-	}
-	// "-" is IP2Location's unknown placeholder (e.g. localhost); treat as no
-	// signal so timezone cross-check doesn't fire against it.
-	sig.IPTimezone = cleanPlaceholder(res.Timezone)
-	sig.ASN = cleanPlaceholder(res.ASN) // egress ASN number, for good-bot corroboration
-	if p := res.Proxy; p != nil && p.IsProxy {
-		sig.IsProxy = true
-		switch p.ProxyType {
-		case "DCH": // data center / hosting
-			sig.IsDatacenter = true
-		case "VPN":
-			sig.IsVPN = true
-		case "TOR":
-			sig.IsTor = true
-		}
-	}
-	return res.ConnNetwork()
+	AddHTTPSignals(sig, requestHeaders(c.Request()))
+	return AddIPSignals(c.Request().Context(), sig, c.RealIP(), h.svc, h.blocklist).ConnNetwork()
 }
 
-// cleanPlaceholder maps IP2Location/IP2Proxy's "-" (unknown) placeholder to
-// empty string, so unknown IP timezone/country treated as "no
-// signal" rather than a real value cross-checks could spuriously trip
-// on. Lives here w/ its caller (addServerSignals) — domain scorer never uses
-// it. (Conn-card enrichment uses shared mapping on iptools.Result instead.)
-func cleanPlaceholder(s string) string {
-	if s == "-" {
-		return ""
+func requestHeaders(r *http.Request) HTTPSignals {
+	return HTTPSignals{
+		UserAgent:               r.UserAgent(),
+		Accept:                  r.Header.Get("Accept"),
+		AcceptLanguage:          r.Header.Get("Accept-Language"),
+		AcceptEncoding:          r.Header.Get("Accept-Encoding"),
+		SecCHUA:                 r.Header.Get("Sec-CH-UA"),
+		SecCHUAPlatform:         r.Header.Get("Sec-CH-UA-Platform"),
+		SecFetchMode:            r.Header.Get("Sec-Fetch-Mode"),
+		UpgradeInsecureRequests: r.Header.Get("Upgrade-Insecure-Requests"),
 	}
-	return s
 }
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.

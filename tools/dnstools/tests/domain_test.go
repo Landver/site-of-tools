@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
@@ -343,5 +345,90 @@ func TestCertNamesUpstreamFailure(t *testing.T) {
 	dc, _ := canned(t, "{}", http.StatusOK, "502 Bad Gateway", http.StatusBadGateway)
 	if _, err := dc.CertNames(context.Background(), "example.com"); err == nil {
 		t.Error("a 502 from the certificate log should be reported, not swallowed")
+	}
+}
+
+// A half whose upstream budget is spent reports busy without asking; the other still runs.
+func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
+	t.Parallel()
+	var rdapHits, ctHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/domain/") {
+			rdapHits.Add(1)
+			fmt.Fprint(w, rdapBody(time.Now().AddDate(1, 0, 0)))
+			return
+		}
+		ctHits.Add(1)
+		fmt.Fprint(w, "[]")
+	}))
+	t.Cleanup(srv.Close)
+	dc := dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second)
+
+	var reg, regBusy, ct, ctBusy int
+	for range 20 {
+		rep, err := dnstools.DomainInfo(context.Background(), &goldenDNS{}, dc, "example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case rep.Registration != nil:
+			reg++
+		case rep.RegistrationError == "busy, try again shortly":
+			regBusy++
+		default:
+			t.Fatalf("registration error %q", rep.RegistrationError)
+		}
+		switch {
+		case rep.CertNames != nil:
+			ct++
+		case rep.CertNamesError == "busy, try again shortly":
+			ctBusy++
+		default:
+			t.Fatalf("certificate names error %q", rep.CertNamesError)
+		}
+	}
+	if reg == 0 || regBusy == 0 || ct == 0 || ctBusy == 0 {
+		t.Errorf("of 20 rapid reports: RDAP %d answered, %d busy; CT %d answered, %d busy; want both kinds of each", reg, regBusy, ct, ctBusy)
+	}
+	if int(rdapHits.Load()) != reg || int(ctHits.Load()) != ct {
+		t.Errorf("upstreams saw %d RDAP and %d CT requests for %d and %d answers: a busy half must not ask", rdapHits.Load(), ctHits.Load(), reg, ct)
+	}
+}
+
+// Each redirect hop off the configured host must pass the egress guard; ownOnly
+// marks the hops only the configured guard knows to refuse.
+func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
+	t.Parallel()
+
+	own := platform.NewEgressGuard([]string{"443"}, []string{"dns.corpberry.com", "93.184.216.34"})
+	for _, tc := range []struct {
+		name, location string
+		ownOnly        bool
+	}{
+		{"plain http to a private address", "http://10.0.0.1/domain/example.com", false},
+		{"non-HTTP scheme", "ftp://rdap.example.test/domain/example.com", false},
+		{"loopback", "https://127.0.0.1:8443/domain/example.com", false},
+		{"localhost by name", "https://localhost/domain/example.com", false},
+		{"RFC 1918", "https://10.0.0.1/domain/example.com", false},
+		{"CGNAT", "https://100.64.0.1/domain/example.com", false},
+		{"IPv4-mapped private", "https://[::ffff:192.168.1.1]/domain/example.com", false},
+		{"our own vhost", "https://DNS.corpberry.com./domain/example.com", true},
+		{"our own address", "https://93.184.216.34/domain/example.com", true},
+	} {
+		srv := httptest.NewServer(http.RedirectHandler(tc.location, http.StatusFound))
+		t.Cleanup(srv.Close)
+		clients := map[string]*dnstools.DomainClient{
+			"configured": dnstools.NewDomainClient(srv.URL, "", 5*time.Second).WithEgressGuard(own),
+		}
+		if !tc.ownOnly {
+			clients["default"] = dnstools.NewDomainClient(srv.URL, "", 5*time.Second)
+		}
+		for name, dc := range clients {
+			_, err := dc.Registration(context.Background(), "example.com")
+			if err == nil || !strings.Contains(err.Error(), "redirected somewhere this tool won't follow") {
+				t.Errorf("%s, %s client: err = %v, want the redirect refused", tc.name, name, err)
+			}
+		}
 	}
 }

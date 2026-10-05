@@ -8,16 +8,25 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // shodanUserAgent IDs our lookups to Shodan / Cloudflare.
 const shodanUserAgent = "corpberry-iptools/1.0 (+https://ip.corpberry.com)"
 
+// InternetDB bans an IP for an hour after a few hundred quick requests; ours all share one IP.
+const (
+	shodanPerSecond = 1
+	shodanBurst     = 5
+)
+
 // ShodanInfo = what Shodan's free InternetDB knows about one IP: last-seen
 // snapshot (refreshed ~weekly) of open ports + light metadata. Handler-populated
-// on Result — best-effort, NOT set by Lookup — same shape as Blocklist. Three
+// on Result — best-effort, NOT set by Lookup — same shape as Blocklist. Four
 // states consumer can tell apart:
 //   - absent on Result (nil)   → not checked (disabled / private IP / errored)
+//   - Skipped == true          → not checked: the process-wide budget was spent
 //   - Found == false           → checked, Shodan has no record (HTTP 404)
 //   - Found == true            → Shodan has data for this IP
 //
@@ -26,6 +35,7 @@ const shodanUserAgent = "corpberry-iptools/1.0 (+https://ip.corpberry.com)"
 // everything as "last seen by Shodan", not ground truth.
 type ShodanInfo struct {
 	Found     bool     `json:"found"`
+	Skipped   bool     `json:"skipped,omitempty"`
 	Ports     []int    `json:"ports,omitempty"`
 	Hostnames []string `json:"hostnames,omitempty"`
 	CPEs      []string `json:"cpes,omitempty"`
@@ -45,6 +55,7 @@ type ShodanInfo struct {
 type Shodan struct {
 	client  *http.Client
 	baseURL string
+	limit   *rate.Limiter
 }
 
 // NewShodan builds InternetDB client. baseURL == "" disables it (returns nil →
@@ -55,12 +66,17 @@ func NewShodan(baseURL string, timeout time.Duration) *Shodan {
 	if baseURL == "" {
 		return nil
 	}
-	return &Shodan{client: &http.Client{Timeout: timeout}, baseURL: baseURL}
+	return &Shodan{
+		client:  &http.Client{Timeout: timeout},
+		baseURL: baseURL,
+		limit:   rate.NewLimiter(shodanPerSecond, shodanBurst),
+	}
 }
 
 // Lookup fetches InternetDB data for ip. Best-effort:
 //   - 200 → (&ShodanInfo{Found:true, …}, nil)
 //   - 404 → (&ShodanInfo{Found:false}, nil)   // checked, nothing on record
+//   - budget spent → (&ShodanInfo{Skipped:true}, nil), no request sent
 //   - nil receiver (disabled)                  → (nil, nil)
 //   - other status / network / decode error    → (nil, err)
 //
@@ -69,6 +85,9 @@ func NewShodan(baseURL string, timeout time.Duration) *Shodan {
 func (s *Shodan) Lookup(ctx context.Context, ip string) (*ShodanInfo, error) {
 	if s == nil {
 		return nil, nil
+	}
+	if !s.limit.Allow() {
+		return &ShodanInfo{Skipped: true}, nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/"+ip, nil)
 	if err != nil {
@@ -95,7 +114,7 @@ func (s *Shodan) Lookup(ctx context.Context, ip string) (*ShodanInfo, error) {
 		if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 			return nil, err
 		}
-		info.Found = true
+		info.Found, info.Skipped = true, false
 		return &info, nil
 	case http.StatusNotFound:
 		return &ShodanInfo{Found: false}, nil

@@ -21,8 +21,36 @@ import (
 // live, and the JSON API answers with no-store like every op.
 
 func init() {
-	register(Op{Name: "random", Path: "/random", Page: "random", Fragment: "cipher/random-result", Run: runRandom})
+	register(Op{Name: "random", Path: "/random", Page: "random", Fragment: "cipher/random-result", Run: runRandom,
+		Fields: []Field{
+			{Name: "kind", Kind: KindEnum, Enum: []string{RandomToken, RandomPassword, RandomUUID}, Default: RandomToken,
+				Description: "What to generate: token (random bytes, encoded), password (characters from chosen sets) or uuid."},
+			tokenBytesField,
+			{Name: "format", Kind: KindEnum, Enum: []string{"hex", "base64url", "base64", "alnum"}, Default: "hex",
+				Description: "How a token is written (kind token): hex, base64url (URL-safe, unpadded), base64 (padded) or alnum (A-Z, a-z and 0-9)."},
+			passwordLengthField,
+			{Name: "sets", Kind: KindList, Enum: []string{"lower", "upper", "digits", "symbols"}, Default: "lower,upper,digits,symbols",
+				Description: "The character sets a password draws from (kind password), any of lower, upper, digits and symbols; each chosen set appears at least once."},
+			{Name: "exclude_ambiguous", Kind: KindBool, Default: "false",
+				Description: "Leave out characters easily misread when copied by hand, 0 O 1 l I | and ` (kind password)."},
+			uuidVersionField,
+			randomCountField,
+		}})
 }
+
+// maxBatch caps count for tokens and passwords; randomCountField's Max is the UUIDs'.
+const maxBatch = 20
+
+var (
+	tokenBytesField = Field{Name: "bytes", Kind: KindInt, Default: "32", Min: ptr(1), Max: ptr(1024),
+		Description: "Random bytes per token (kind token), e.g. 32 for 256 bits; an alnum token gets enough characters to carry as much entropy."}
+	passwordLengthField = Field{Name: "length", Kind: KindInt, Default: "20", Min: ptr(4), Max: ptr(256),
+		Description: "Characters per password (kind password)."}
+	uuidVersionField = Field{Name: "version", Kind: KindInt, Enum: []string{"4", "7"}, Default: "4", Min: ptr(4), Max: ptr(7),
+		Description: "The UUID version (kind uuid): 4 is random; 7 starts with its creation time in milliseconds, readable by anyone who sees it."}
+	randomCountField = Field{Name: "count", Kind: KindInt, Default: "1", Min: ptr(1), Max: ptr(100),
+		Description: "How many values to generate: up to 20 tokens or passwords, or up to 100 UUIDs."}
+)
 
 // Kinds of random value.
 const (
@@ -115,11 +143,11 @@ func randomBytes(n int) []byte {
 const alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 func randomTokens(in Input) (*RandomResult, error) {
-	n, err := intField(in, "bytes", 32, 1, 1024)
+	n, err := intField(in, tokenBytesField)
 	if err != nil {
 		return nil, err
 	}
-	count, err := intField(in, "count", 1, 1, 20)
+	count, err := intField(in, randomCountField.withMax(maxBatch))
 	if err != nil {
 		return nil, err
 	}
@@ -216,11 +244,11 @@ func chosenSets(in Input) ([]charSet, error) {
 }
 
 func randomPasswords(in Input) (*RandomResult, error) {
-	length, err := intField(in, "length", 20, 4, 256)
+	length, err := intField(in, passwordLengthField)
 	if err != nil {
 		return nil, err
 	}
-	count, err := intField(in, "count", 1, 1, 20)
+	count, err := intField(in, randomCountField.withMax(maxBatch))
 	if err != nil {
 		return nil, err
 	}
@@ -328,14 +356,14 @@ func passwordEntropy(sizes []int, length int) float64 {
 }
 
 func randomUUIDs(in Input) (*RandomResult, error) {
-	version, err := intField(in, "version", 4, 4, 7)
+	version, err := intField(in, uuidVersionField)
 	if err != nil {
 		return nil, err
 	}
 	if version != 4 && version != 7 {
 		return nil, fmt.Errorf("version: want 4 or 7, got %d", version)
 	}
-	count, err := intField(in, "count", 1, 1, 100)
+	count, err := intField(in, randomCountField)
 	if err != nil {
 		return nil, err
 	}

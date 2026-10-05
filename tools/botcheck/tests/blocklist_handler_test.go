@@ -18,12 +18,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// blocklist_handler_test.go covers ONE seam domain-rule tests can't reach:
-// addServerSignals' BlockLookup→Signals mapping, esp. "any non-ipsum source ⇒
-// IPBlocklistDeliberate" loop bypassing ipsum confidence floor. blocklist is
-// concrete *iptools.BlockList (not fakeable interface like Looker), so drives
-// live corpus end-to-end through real handler — gated on MONGODB_TEST_URI,
-// mirrors TestCorpusLiveViaHandler.
+// The live corpus end-to-end through the handler, gated on MONGODB_TEST_URI;
+// supplied_test.go covers the BlockLookup→Signals mapping offline.
 
 func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	t.Helper()
@@ -77,7 +73,7 @@ func TestBlocklistLiveViaHandler(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, fakeLooker{}, nil, bl)
+	botcheck.Register(e, fakeLooker{}, nil, bl, nil)
 
 	fired := func(remoteIP string) bool {
 		req := httptest.NewRequest(http.MethodPost, "/check", strings.NewReader(cleanClientBody))

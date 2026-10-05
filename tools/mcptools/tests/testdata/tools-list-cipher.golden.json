@@ -1,0 +1,849 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Build an HTTP Basic auth header from user and password, or decode one: header takes a whole Authorization: Basic … line, a Basic … value or the bare base64. mode is decode when header is given and build otherwise. The result shows the user and password with their bytes, and the header. Example: user Aladdin, password open sesame. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "description": "What to decode: an Authorization: Basic … line, a Basic … value or the bare base64.",
+          "type": "string"
+        },
+        "mode": {
+          "description": "build an HTTP Basic auth header from user and password, or decode header; omitted, it is decode when header is given and build otherwise.",
+          "enum": [
+            "build",
+            "decode"
+          ],
+          "type": "string"
+        },
+        "password": {
+          "description": "The password to build the header from, sent as UTF-8.",
+          "type": "string"
+        },
+        "user": {
+          "description": "The user name to build the header from; it can't contain ':'.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_basic_auth",
+    "title": "HTTP Basic auth header"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Decode X.509 certificates and signing requests from PEM, or DER as base64 or hex: subject and SANs, validity, issuer, key, usages and SHA-256 fingerprints. Several certificates are checked as a chain, for order and each signature; expiry, SHA-1 and CN-only certificates are flagged, and key says which certificate a public or private key belongs to. now sets the time validity is judged at. Example: cert -----BEGIN CERTIFICATE-----… Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cert": {
+          "description": "Certificates and signing requests to decode, as PEM (several are checked as a chain), or DER as base64 or hex; may be left out when cert_file is uploaded.",
+          "type": "string"
+        },
+        "key": {
+          "description": "A public or private key (PEM, JWK or an OpenSSH line) to match against the certificates and requests, naming the one it belongs to.",
+          "type": "string"
+        },
+        "now": {
+          "description": "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cert"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_cert",
+    "title": "Decode certificates"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Show the same bytes as UTF-8 text, hex, base64, base64url and base32: text is read per from (utf8 by default), and the base64 variant it was in is named. A character that isn't valid in the encoding is pointed at by its offset. Use it to see what a base64 or hex value holds, or to re-encode bytes. Example: text aGVsbG8gd29ybGQ=, from base64. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "default": "utf8",
+          "description": "How text is written: utf8 (as typed), hex, base64 (either alphabet, padded or not), base64url or base32.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "The bytes to show as UTF-8 text, hex, base64, base64url and base32, written per from.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_encode",
+    "title": "Convert byte encodings"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Encrypt text (mode encrypt, the default) or decrypt data (mode decrypt) with AES-GCM (the default), ChaCha20-Poly1305 or AES-CBC, the key as hex, base64 or base64url. Encrypting without key makes a random 32-byte key and returns it as generated_key, and without nonce a random one is used. The result states its layout (nonce ‖ ciphertext ‖ tag) so other code can read it, and decrypting reads that combined form. Example: key 000102030405060708090a0b0c0d0e0f, text hello. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "aad": {
+          "description": "Associated data for aes-gcm and chacha20-poly1305, read per aad_enc: authenticated but not encrypted, so decrypting needs the same.",
+          "type": "string"
+        },
+        "aad_enc": {
+          "default": "utf8",
+          "description": "How aad is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "algo": {
+          "default": "aes-gcm",
+          "description": "The cipher: aes-gcm or chacha20-poly1305 (authenticated: 12-byte nonce, 16-byte tag), or aes-cbc (unauthenticated: 16-byte IV, PKCS#7 padding) for systems that require it.",
+          "enum": [
+            "aes-gcm",
+            "chacha20-poly1305",
+            "aes-cbc"
+          ],
+          "type": "string"
+        },
+        "data": {
+          "description": "The ciphertext to decrypt (mode decrypt), as base64 or hex: an encrypt's combined output, nonce ‖ ciphertext ‖ tag, or iv ‖ ciphertext for aes-cbc.",
+          "type": "string"
+        },
+        "data_enc": {
+          "default": "auto",
+          "description": "How data is written; auto reads all-hex data as hex and anything else as base64.",
+          "enum": [
+            "auto",
+            "base64",
+            "base64url",
+            "hex"
+          ],
+          "type": "string"
+        },
+        "enc": {
+          "default": "utf8",
+          "description": "How text is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "key": {
+          "description": "The key, read per key_enc: exactly 16, 24 or 32 bytes for AES, 32 for ChaCha20-Poly1305; required to decrypt, while encrypting without one makes a random 32-byte key and returns it as generated_key.",
+          "type": "string"
+        },
+        "key_enc": {
+          "default": "hex",
+          "description": "How key is written; utf8 is refused, because a passphrase is not a key.",
+          "enum": [
+            "hex",
+            "base64",
+            "base64url"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "default": "encrypt",
+          "description": "encrypt text, or decrypt data.",
+          "enum": [
+            "encrypt",
+            "decrypt"
+          ],
+          "type": "string"
+        },
+        "nonce": {
+          "description": "The nonce (the IV for aes-cbc) as hex, 12 bytes or 16 for aes-cbc; omit it to encrypt with a random one, or to decrypt data that starts with it.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The plaintext to encrypt (mode encrypt), read per enc.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_encrypt",
+    "title": "Encrypt or decrypt"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Hash an input with every common algorithm at once (MD5, SHA-1, SHA-2, SHA-3, BLAKE2, Keccak-256, CRC32, Adler-32), each as hex and base64. text is read as UTF-8 unless enc says hex or base64, which is how to hash binary data (up to about 750 KB here); expected is compared with every digest and the result names the algorithm it matches. A trailing newline, CRLF or BOM is flagged, the usual reason two hashes of the same text differ. Example: text abc, expected ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "enc": {
+          "default": "utf8",
+          "description": "How text is written: utf8 hashes it as typed; hex, base64, base64url or base32 decode it first, which is how to hash binary data.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "expected": {
+          "description": "A checksum to compare with every digest, as hex or base64, bare or labelled (a sha256sum line, sha256=…, SRI's sha384-…); the result names the algorithm it matches.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The input to hash, read per enc; whitespace and a trailing newline are part of it, and empty input hashes zero bytes.",
+          "type": "string"
+        },
+        "trim_newline": {
+          "default": false,
+          "description": "Strip one trailing newline (\\n or \\r\\n) before hashing.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_hash",
+    "title": "Hash text or bytes"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Compute HMAC-SHA256, SHA-512, SHA-1, MD5 and SHA-3 of text under key at once, or check a webhook signature: expected is compared in constant time with every algorithm, bare or labelled (GitHub's sha256=…, a Stripe-Signature header). For a webhook, text must be the raw request body byte for byte. With key_enc auto the key is read as text and, if expected doesn't match that way, as base64 and hex too, and the result says which reading matched. Example: text {\"action\":\"opened\"}, key webhook-secret, expected sha256=…. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "enc": {
+          "default": "utf8",
+          "description": "How text is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "expected": {
+          "description": "A MAC to check in constant time against every algorithm, as hex or base64, bare or labelled (GitHub's sha256=…, a Stripe-Signature header).",
+          "type": "string"
+        },
+        "key": {
+          "description": "The HMAC key, read per key_enc, e.g. a webhook signing secret.",
+          "type": "string"
+        },
+        "key_enc": {
+          "default": "auto",
+          "description": "How key is written: auto reads it as UTF-8 text and, when expected doesn't match that way, tries base64 and hex too and says which reading matched.",
+          "enum": [
+            "auto",
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "The message, read per enc; for a webhook, the raw request body byte for byte, since re-serialised JSON won't match.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_hmac",
+    "title": "HMAC and webhook signatures"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Say what a string could be: a hash type with its hashcat mode, a JWT or JWE, a PEM key or certificate, an SSH key, a bcrypt or Argon2 hash, a UUID, an otpauth:// URI, a webhook signature, or base64, hex or base32 data. candidates are ranked by confidence, each with the reason and the cipher.corpberry.com page that reads it. Example: text 5d41402abc4b2a76b9719d911017c592. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "The string to identify, up to 1 MiB: a hash, token, key, certificate, password hash, UUID, otpauth:// URI or encoded value; the answer ranks what it could be, with hashcat modes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_identify",
+    "title": "Identify a string"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Decode a JWT's header and claims, check exp and nbf against the current time (or now), and verify the signature when key is given: the shared secret for HS*, or a PEM, JWK, JWKS or OpenSSH public key for RS*, PS*, ES* and EdDSA. verification.state says whether the signature checked out, and carries the reason when the key can't be read; validity.state says whether the token is in date. Without a key nothing is verified, since anyone can write a header and payload. Example: token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…, key your-256-bit-secret. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "A key to verify the signature with: the shared secret for HS256/384/512, or a public (or private) key as PEM, JWK, JWKS or an OpenSSH line for RS*, PS*, ES* and EdDSA; omit it to decode without verifying.",
+          "type": "string"
+        },
+        "key_enc": {
+          "default": "auto",
+          "description": "How a shared-secret key is written: auto tries UTF-8 text, base64 and hex and reports which reading verified; ignored for PEM and JWK keys.",
+          "enum": [
+            "auto",
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "leeway": {
+          "default": 60,
+          "description": "Clock skew in seconds allowed when checking exp and nbf.",
+          "maximum": 86400,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now": {
+          "description": "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock.",
+          "type": "integer"
+        },
+        "token": {
+          "description": "The token to decode: a signed JWT (header.payload.signature), or an encrypted JWE of five parts, of which only the header is readable; a Bearer prefix, quotes and line breaks around it are removed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_jwt_decode",
+    "title": "Decode and verify a JWT"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Sign a JWT with a shared secret (HS256, the default, HS384 or HS512) or a private key as PEM, JWK or JWKS (RS*, PS*, ES*, EdDSA), optionally adding iat and an exp lifetime. payload and header are JSON text inside a string, and the claims are signed in the order written. The result is the token with the breakdown cipher_jwt_decode gives. Example: key 0123456789abcdef0123456789abcdef, payload {\"sub\":\"42\"}, exp 1h. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "default": "HS256",
+          "description": "The signature algorithm: HS* sign with a shared secret, RS* and PS* with an RSA private key, ES256/384/512 with an ECDSA P-256/384/521 private key, EdDSA (or its other name Ed25519) with an Ed25519 private key.",
+          "enum": [
+            "HS256",
+            "HS384",
+            "HS512",
+            "RS256",
+            "RS384",
+            "RS512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "EdDSA",
+            "Ed25519"
+          ],
+          "type": "string"
+        },
+        "exp": {
+          "description": "A lifetime to add as an exp claim, counted from the current time (or now), unless payload has one; omit it for a token that never expires.",
+          "enum": [
+            "5m",
+            "15m",
+            "1h",
+            "1d",
+            "7d"
+          ],
+          "type": "string"
+        },
+        "header": {
+          "contentMediaType": "application/json",
+          "description": "Extra header members as a JSON object, e.g. {\"cty\":\"JWT\"}; alg always comes from alg, and typ defaults to \"JWT\".",
+          "type": "string"
+        },
+        "iat": {
+          "default": false,
+          "description": "Add an iat claim of the current time (or now), unless payload has one.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "The signing key: the shared secret for HS*, or the private key as PEM (PKCS#8, PKCS#1, SEC 1 or OpenSSH), JWK or JWKS for the others.",
+          "type": "string"
+        },
+        "key_enc": {
+          "default": "utf8",
+          "description": "How a shared-secret key is written (signing has no auto); ignored for PEM and JWK keys.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "kid": {
+          "description": "A key id: added to the header unless header has one, and used to pick the signing key out of a JWKS.",
+          "type": "string"
+        },
+        "now": {
+          "description": "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock.",
+          "type": "integer"
+        },
+        "payload": {
+          "contentMediaType": "application/json",
+          "default": "{}",
+          "description": "The claims as a JSON object, e.g. {\"sub\":\"42\",\"name\":\"Ada\"}, signed with their order kept.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_jwt_sign",
+    "title": "Sign a JWT"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Generate a test key pair: Ed25519 (the default), ECDSA on P-256, P-384 or P-521, or RSA of 2048, 3072 or 4096 bits. The result has the private key as PKCS#8 PEM, JWK and OpenSSH, the public key as PEM, JWK and an OpenSSH line, and their fingerprints; with passphrase the private key comes back only as encrypted OpenSSH. Example: type ec-p256, comment ci-deploy-test. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "description": "The comment ending the OpenSSH public key line, one printable line of up to 256 characters; default cipher-tools-test-key.",
+          "type": "string"
+        },
+        "passphrase": {
+          "description": "A passphrase to encrypt the private key with: it then comes back only in OpenSSH format (bcrypt_pbkdf and AES-256-CTR), without the unencrypted PKCS#8 and JWK forms.",
+          "type": "string"
+        },
+        "type": {
+          "default": "ed25519",
+          "description": "The key pair to generate: Ed25519, ECDSA on P-256, P-384 or P-521, or RSA of 2048, 3072 or 4096 bits (RSA-4096 takes seconds).",
+          "enum": [
+            "ed25519",
+            "ec-p256",
+            "ec-p384",
+            "ec-p521",
+            "rsa-2048",
+            "rsa-3072",
+            "rsa-4096"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_keys_generate",
+    "title": "Generate a key pair"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read up to 64 keys and convert each between formats: PEM (PKCS#8, PKCS#1, SEC 1, SPKI, OpenSSH, or a certificate's key), a JWK or JWKS, or OpenSSH public key lines. Each comes back as PEM, JWK and OpenSSH, with its SPKI and OpenSSH SHA-256 fingerprints, its RFC 7638 JWK thumbprint, and whether it is private. Example: key ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… user@host. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "The key or keys to convert and fingerprint: PEM (PKCS#8, PKCS#1, SEC 1, SPKI, an OpenSSH private key or a certificate), a JWK or JWKS, or OpenSSH public key lines; up to 64 keys.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_keys_inspect",
+    "title": "Inspect and convert keys"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Hash a password with bcrypt (the default), Argon2id, scrypt or PBKDF2; each algorithm reads only its own cost fields, bounded so one call stays cheap. The result is the encoded hash a library would store, its parameters read back, and warnings for weak settings such as bcrypt below cost 10. bcrypt refuses a password over 72 bytes instead of silently cutting it. Example: password correct horse battery staple, algo argon2id. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "algo": {
+          "default": "bcrypt",
+          "description": "The algorithm; each reads only its own cost fields, and argon2id is what OWASP recommends for new systems.",
+          "enum": [
+            "bcrypt",
+            "argon2id",
+            "scrypt",
+            "pbkdf2-sha256",
+            "pbkdf2-sha512"
+          ],
+          "type": "string"
+        },
+        "argon2_m": {
+          "default": 19456,
+          "description": "Argon2id's memory in KiB when algo is argon2id, at least 8 per lane, e.g. 19456 (19 MiB, OWASP's minimum with argon2_t 2).",
+          "maximum": 65536,
+          "minimum": 8,
+          "type": "integer"
+        },
+        "argon2_p": {
+          "default": 1,
+          "description": "Argon2id's lanes (parallelism) when algo is argon2id.",
+          "maximum": 4,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "argon2_t": {
+          "default": 2,
+          "description": "Argon2id's passes over its memory when algo is argon2id.",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "bcrypt_cost": {
+          "default": 12,
+          "description": "bcrypt's cost when algo is bcrypt: 2^cost rounds, each step doubling the time; OWASP's minimum is 10.",
+          "maximum": 14,
+          "minimum": 4,
+          "type": "integer"
+        },
+        "password": {
+          "description": "The password to hash, read per password_enc; whitespace is part of it, and bcrypt refuses more than 72 bytes.",
+          "type": "string"
+        },
+        "password_enc": {
+          "default": "utf8",
+          "description": "How password is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        },
+        "pbkdf2_iterations": {
+          "description": "PBKDF2's iterations when algo is pbkdf2-sha256 or pbkdf2-sha512; the default is OWASP's minimum, 600000 and 210000 respectively.",
+          "maximum": 2000000,
+          "minimum": 1000,
+          "type": "integer"
+        },
+        "scrypt_n": {
+          "default": 32768,
+          "description": "scrypt's cost N when algo is scrypt: a power of two, and 128 × N × scrypt_r bytes of memory may not pass 128 MiB.",
+          "maximum": 131072,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        "scrypt_p": {
+          "default": 3,
+          "description": "scrypt's parallelism p when algo is scrypt: how many times the memory-hard step runs.",
+          "maximum": 4,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scrypt_r": {
+          "default": 8,
+          "description": "scrypt's block size r when algo is scrypt.",
+          "maximum": 16,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_password_hash",
+    "title": "Hash a password"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read a stored password hash (bcrypt, Argon2, scrypt, PBKDF2 including Django's) and check a password against it. state is match or no-match; unchecked when no password is given and the hash's algorithm, parameters and salt are only read; unsupported for a crypt(3) format it names but can't verify; refused for parameters above this server's limits. Example: hash $2b$12$…, password hunter2. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "description": "The stored hash to read and check: bcrypt ($2b$…), Argon2 ($argon2id$…), scrypt ($scrypt$…) or PBKDF2 ($pbkdf2-sha256$…, Django's pbkdf2_sha256$…); other crypt(3) formats are named but not verified.",
+          "type": "string"
+        },
+        "password": {
+          "description": "The password to check against hash, read per password_enc; omit it to only read the hash's algorithm, parameters and salt.",
+          "type": "string"
+        },
+        "password_enc": {
+          "default": "utf8",
+          "description": "How password is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first.",
+          "enum": [
+            "utf8",
+            "hex",
+            "base64",
+            "base64url",
+            "base32"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_password_verify",
+    "title": "Check a password hash"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Generate random values from a cryptographic source: tokens (kind token, the default) as hex, base64url, base64 or letters and digits; passwords from the character sets chosen, with their exact entropy; or UUIDs, version 4 or 7. count makes up to 20 tokens or passwords, or 100 UUIDs, at once. Example: kind password, length 24, sets [lower, upper, digits]. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "default": 32,
+          "description": "Random bytes per token (kind token), e.g. 32 for 256 bits; an alnum token gets enough characters to carry as much entropy.",
+          "maximum": 1024,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "count": {
+          "default": 1,
+          "description": "How many values to generate: up to 20 tokens or passwords, or up to 100 UUIDs.",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "exclude_ambiguous": {
+          "default": false,
+          "description": "Leave out characters easily misread when copied by hand, 0 O 1 l I | and ` (kind password).",
+          "type": "boolean"
+        },
+        "format": {
+          "default": "hex",
+          "description": "How a token is written (kind token): hex, base64url (URL-safe, unpadded), base64 (padded) or alnum (A-Z, a-z and 0-9).",
+          "enum": [
+            "hex",
+            "base64url",
+            "base64",
+            "alnum"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "default": "token",
+          "description": "What to generate: token (random bytes, encoded), password (characters from chosen sets) or uuid.",
+          "enum": [
+            "token",
+            "password",
+            "uuid"
+          ],
+          "type": "string"
+        },
+        "length": {
+          "default": 20,
+          "description": "Characters per password (kind password).",
+          "maximum": 256,
+          "minimum": 4,
+          "type": "integer"
+        },
+        "sets": {
+          "default": [
+            "lower",
+            "upper",
+            "digits",
+            "symbols"
+          ],
+          "description": "The character sets a password draws from (kind password), any of lower, upper, digits and symbols; each chosen set appears at least once.",
+          "items": {
+            "enum": [
+              "lower",
+              "upper",
+              "digits",
+              "symbols"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "default": 4,
+          "description": "The UUID version (kind uuid): 4 is random; 7 starts with its creation time in milliseconds, readable by anyone who sees it.",
+          "enum": [
+            4,
+            7
+          ],
+          "maximum": 7,
+          "minimum": 4,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_random",
+    "title": "Random tokens, passwords, UUIDs"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Get the previous, current and next TOTP (or HOTP) code from a base32 secret or a whole otpauth:// URI, with the seconds left in the step. code checks a code within one step either side, and label and issuer build an otpauth:// URI for an authenticator app. now sets the time, to see what the codes were or will be. Example: secret JBSWY3DPEHPK3PXP, code 287082. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "algo": {
+          "default": "SHA1",
+          "description": "The HMAC behind the codes; nearly every authenticator uses SHA1, and Google Authenticator ignores this setting.",
+          "enum": [
+            "SHA1",
+            "SHA256",
+            "SHA512"
+          ],
+          "type": "string"
+        },
+        "code": {
+          "description": "A code to check against the previous, current and next step (or counter).",
+          "type": "string"
+        },
+        "counter": {
+          "default": 0,
+          "description": "The HOTP counter (mode hotp); codes come back for counter-1, counter and counter+1.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "digits": {
+          "default": 6,
+          "description": "Digits per code; most authenticators show 6.",
+          "maximum": 8,
+          "minimum": 6,
+          "type": "integer"
+        },
+        "issuer": {
+          "description": "The issuer in the otpauth:// URI the result builds, e.g. Example Corp.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The account name in the otpauth:// URI the result builds, e.g. alice@example.com.",
+          "type": "string"
+        },
+        "mode": {
+          "default": "totp",
+          "description": "totp for time-based codes (RFC 6238), hotp for counter-based ones (RFC 4226).",
+          "enum": [
+            "totp",
+            "hotp"
+          ],
+          "type": "string"
+        },
+        "now": {
+          "description": "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock.",
+          "type": "integer"
+        },
+        "period": {
+          "default": 30,
+          "description": "Seconds per TOTP step (mode totp).",
+          "maximum": 300,
+          "minimum": 15,
+          "type": "integer"
+        },
+        "secret": {
+          "description": "The shared secret in base32 (any case; spaces, dashes and padding ignored), e.g. JBSWY3DPEHPK3PXP, or a whole otpauth:// URI, whose settings then replace every field but code and now.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "secret"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_totp",
+    "title": "TOTP and HOTP codes"
+  }
+]

@@ -32,6 +32,9 @@ const (
 	totalTimeout = 15 * time.Second
 	// maxLocation bounds a Location header we are willing to resolve.
 	maxLocation = 2048
+	// maxHeaderValue, maxErrorText bound target-chosen text a hop or note quotes.
+	maxHeaderValue = 256
+	maxErrorText   = 300
 	// maxHeaderBytes: Go's default is 10 MB. 10 hops x 10 MB x burst 5 x N
 	// source IPs is a free bandwidth amplifier pointed at this box.
 	maxHeaderBytes = 64 << 10
@@ -165,12 +168,22 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 	if timeout <= 0 {
 		timeout = totalTimeout
 	}
+	tr := guard.Transport(hopTimeout)
 	t := &Tracer{
 		guard:  guard,
-		gated:  guard.DialContext(hopTimeout),
+		gated:  tr.DialContext,
 		total:  timeout,
 		direct: &net.Dialer{Timeout: hopTimeout},
 	}
+	tr.DialContext = t.dialContext
+	// No HTTP/2: it coalesces authorities onto one connection, bypassing the guard's dial.
+	tr.ForceAttemptHTTP2 = false
+	tr.MaxResponseHeaderBytes = maxHeaderBytes
+	tr.ResponseHeaderTimeout = hopTimeout
+	tr.TLSHandshakeTimeout = hopTimeout
+	tr.ExpectContinueTimeout = time.Second
+	// Never InsecureSkipVerify: a certificate failure is a finding we report.
+	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	t.client = &http.Client{
 		// Walk the chain by hand, one request at a time, so every hop is a
 		// fresh gated dial and every hop is recorded (doc §2).
@@ -181,40 +194,8 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 		Jar: nil,
 		// No client-wide deadline: each hop carries its own context timeout and
 		// the caller's context carries the total.
-		Timeout: 0,
-		Transport: &http.Transport{
-			// Proxy is nil DELIBERATELY, not by omission. With
-			// http.ProxyFromEnvironment (which dnstools/email.go still carries)
-			// and HTTP_PROXY/HTTPS_PROXY set, DialContext is handed the
-			// PROXY's address, so the gate validates the proxy while the
-			// attacker-chosen hostname travels to the target inside a CONNECT.
-			// The gate is then completely bypassed. docker-compose.yml loads
-			// .env wholesale, so such a variable is invisible in the repo, and
-			// Go caches the environment read in a sync.Once. Doc §2(a).
-			Proxy:       nil,
-			DialContext: t.dialContext,
-			// A Dialer.Control hook only fires when a dial actually happens.
-			// http.Transport serves a matching authority from the idle pool
-			// with no dial at all, so hop 2 of pub.evil.com -> int.evil.com
-			// (A -> 10.0.0.5, one certificate covering both) could be answered
-			// with neither the address nor the port check running. Trace is one
-			// request per hop at 1/s, so pooling buys nothing and this costs
-			// nothing. Doc §2(b).
-			DisableKeepAlives: true,
-			// HTTP/2 is not attempted for the same reason: it coalesces
-			// several authorities onto one connection, which is the same
-			// bypass with a second mechanism. Every host that speaks h2 also
-			// speaks HTTP/1.1, and a single request per hop gains nothing.
-			ForceAttemptHTTP2:      false,
-			MaxResponseHeaderBytes: maxHeaderBytes,
-			ResponseHeaderTimeout:  hopTimeout,
-			TLSHandshakeTimeout:    hopTimeout,
-			ExpectContinueTimeout:  time.Second,
-			// TLS is verified. InsecureSkipVerify is absent on purpose and must
-			// stay absent: a certificate failure is a FINDING we report, never
-			// a reason to retry over http (doc §3).
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
-		},
+		Timeout:   0,
+		Transport: tr,
 	}
 	return t
 }
@@ -404,13 +385,13 @@ func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) stri
 
 	hop.Status = resp.StatusCode
 	hop.Reason = http.StatusText(resp.StatusCode)
-	hop.Server = resp.Header.Get("Server")
-	hop.ContentType = resp.Header.Get("Content-Type")
+	hop.Server = platform.Clip(resp.Header.Get("Server"), maxHeaderValue)
+	hop.ContentType = platform.Clip(resp.Header.Get("Content-Type"), maxHeaderValue)
 	// Recorded, never kept: this is the per-hop cookie marker, not a jar.
 	hop.SetCookie = len(resp.Header.Values("Set-Cookie")) > 0
 
 	if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		hop.Location = loc
+		hop.Location = platform.Clip(loc, maxLocation)
 		return loc
 	}
 
@@ -585,14 +566,26 @@ func transportNote(ctx context.Context, err error) Note {
 	if errors.As(err, &certErr) || errors.As(err, &hostErr) || errors.As(err, &authErr) ||
 		errors.As(err, &invErr) || errors.As(err, &recErr) {
 		return Note{SevFail, "TLS verification failed",
-			fmt.Sprintf("%v. This is the finding, not an obstacle: the trace stops rather than retrying over plain HTTP or ignoring the certificate.", err)}
+			clipCause(err) + ". This is the finding, not an obstacle: the trace stops rather than retrying over plain HTTP or ignoring the certificate."}
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return Note{SevFail, "The host does not resolve",
 			fmt.Sprintf("DNS lookup for %s failed. The chain stops here.", dnsErr.Name)}
 	}
-	return Note{SevFail, "The request failed", err.Error()}
+	return Note{SevFail, "The request failed", clipCause(err)}
+}
+
+// clipCause clips only the target's text, not net/http's `Get "<hop URL>": ` prefix.
+func clipCause(err error) string {
+	msg := err.Error()
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		if cause := ue.Err.Error(); strings.HasSuffix(msg, cause) {
+			return msg[:len(msg)-len(cause)] + platform.Clip(cause, maxErrorText)
+		}
+	}
+	return platform.Clip(msg, maxErrorText)
 }
 
 // refusalDetail states a gate refusal in the reader's terms. The underlying

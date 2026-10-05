@@ -2,7 +2,6 @@ package iptools
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 
@@ -28,8 +27,24 @@ type Looker interface {
 // handler: transport-layer deps for ip.corpberry.com routes.
 type handler struct {
 	svc  Looker
-	hist *History   // nil when Mongo disabled — Record/Recent nil-safe
-	bl   *BlockList // nil when Mongo disabled — Check nil-safe (G37)
+	hist *History // nil when Mongo disabled — Record/Recent nil-safe
+	chk  Checker  // nil when Mongo disabled → no blocklist row
+	lim  *Limits
+}
+
+// Limits are built once and shared by REST and MCP, so both spend one budget.
+type Limits struct {
+	Lookup, CIDR, History platform.Limiter
+	LookupCap             *platform.Cap
+}
+
+func NewLimits() *Limits {
+	return &Limits{
+		Lookup:    platform.NewLimiter(2, 10),
+		CIDR:      platform.NewLimiter(10, 50),
+		History:   platform.NewLimiter(2, 10),
+		LookupCap: platform.NewCap(8),
+	}
 }
 
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
@@ -39,11 +54,53 @@ type handler struct {
 //	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
 //	GET /history  most recent user-initiated lookups
-func Register(e *echo.Echo, svc Looker, hist *History, bl *BlockList) {
-	h := &handler{svc: svc, hist: hist, bl: bl}
-	e.GET("/", h.index)
-	e.GET("/cidr", h.cidr)
-	e.GET("/history", h.history)
+func Register(e *echo.Echo, svc Looker, hist *History, chk Checker, lim *Limits) {
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, hist: hist, chk: chk, lim: lim}
+	e.GET("/", h.index, platform.RateLimit(lim.Lookup, nil, h.limited))
+	e.GET("/cidr", h.cidr, platform.RateLimit(lim.CIDR, nil, h.limited))
+	e.GET("/history", h.history, platform.RateLimit(lim.History, nil, h.limited))
+}
+
+func (h *handler) limited(c *echo.Context) error {
+	const code = http.StatusTooManyRequests
+	platform.SetNegotiationHeaders(c, code)
+	if platform.WantsJSON(c) {
+		return c.JSON(code, map[string]string{"error": platform.LimitedMessage})
+	}
+	var page string
+	var vm map[string]any
+	switch c.Path() {
+	case "/cidr":
+		page, vm = "ip/cidr", cidrVM(strings.TrimSpace(c.QueryParam("cidr")))
+	case "/history":
+		page, vm = "ip/history", h.historyVM()
+	default:
+		page, vm = "ip/index", lookupVM(strings.TrimSpace(c.QueryParam("ip")))
+		if platform.IsHTMX(c) {
+			page = "ip/result"
+		} else {
+			vm["Conn"] = platform.Conn(c)
+		}
+	}
+	vm["Error"] = platform.LimitedMessage
+	return c.Render(code, page, vm)
+}
+
+func lookupVM(query string) map[string]any {
+	return map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": query,
+		"Attribution": true, "SpamhausAttribution": true}
+}
+
+func cidrVM(query string) map[string]any {
+	return map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": query}
+}
+
+func (h *handler) historyVM() map[string]any {
+	return map[string]any{"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
+		"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true}
 }
 
 // index serves visitor's own IP by default, or ?ip= to look one up. Bare hit
@@ -56,7 +113,7 @@ func (h *handler) index(c *echo.Context) error {
 	if ip == "" {
 		// Default to caller's own IP when routable public address
 		// (skips 127.0.0.1 in dev, private ranges, etc.).
-		if own := c.RealIP(); routable(own) {
+		if own := c.RealIP(); Routable(own) {
 			ip, self = own, true
 		}
 	}
@@ -68,9 +125,9 @@ func (h *handler) index(c *echo.Context) error {
 		case platform.IsHTMX(c):
 			return c.Render(http.StatusOK, "ip/result", map[string]any{})
 		}
-		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": "", "Attribution": true, "SpamhausAttribution": true, "Conn": platform.Conn(c),
-		})
+		vm := lookupVM("")
+		vm["Conn"] = platform.Conn(c)
+		return c.Render(http.StatusOK, "ip/index", vm)
 	}
 	return h.show(c, ip, self)
 }
@@ -84,7 +141,7 @@ func (h *handler) cidr(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "provide a CIDR, e.g. /cidr?cidr=192.168.1.0/24"})
 		}
-		return c.Render(http.StatusOK, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": ""})
+		return c.Render(http.StatusOK, "ip/cidr", cidrVM(""))
 	}
 	sub, err := ParseSubnet(input)
 	if platform.WantsJSON(c) {
@@ -93,7 +150,7 @@ func (h *handler) cidr(c *echo.Context) error {
 		}
 		return c.JSON(http.StatusOK, sub)
 	}
-	vm := map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": input}
+	vm := cidrVM(input)
 	code := http.StatusOK
 	if err != nil {
 		vm["Error"] = err.Error()
@@ -123,10 +180,8 @@ func (h *handler) history(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]any{"lookups": entries})
 	}
 
-	vm := map[string]any{
-		"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
-		"Entries": entries, "Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true,
-	}
+	vm := h.historyVM()
+	vm["Entries"] = entries
 	if err != nil {
 		vm["Error"] = err.Error()
 	}
@@ -136,7 +191,7 @@ func (h *handler) history(c *echo.Context) error {
 // show looks up ip & responds in caller's preferred format. self marks result
 // as visitor's own IP (small label in HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
-	res, err := h.svc.Lookup(ip)
+	res, err := h.lookup(c, ip)
 	wantsJSON := platform.WantsJSON(c)
 
 	// Record real user-initiated web lookups for /history view: successful,
@@ -146,17 +201,6 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	// Mongo off.
 	if err == nil && !self && !wantsJSON {
 		h.hist.Record(res)
-	}
-
-	// Enrich w/ abuse/threat reputation from shared blocklist corpus (G37)
-	// when configured — same corpus botcheck reads, here keyed on LOOKED-UP ip
-	// so any address can be inspected. Best-effort: Mongo error leaves
-	// Blocklist nil (row omitted). nil bl (Mongo off) → skip, so card never
-	// implies "clean" when we couldn't actually check.
-	if err == nil && h.bl != nil {
-		if lk, e := h.bl.Check(c.Request().Context(), ip); e == nil {
-			res.Blocklist = &lk
-		}
 	}
 
 	code := http.StatusOK
@@ -174,19 +218,13 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	}
 
 	// Browser / htmx: view model rendered as full page or fragment.
-	// Attribution: IP2Location LITE license requires credit on any page using
-	// databases (see shared/templates/partials/footer.html). Scoped to this
-	// tool via VM flag → apex (no such data) omits it.
-	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true, "SpamhausAttribution": true}
+	vm := lookupVM(ip)
+	vm["Self"] = self
 	if err != nil {
 		vm["Error"] = pageError(err)
 	} else {
 		vm["Result"] = res
-		// Shodan ToS wants visible credit wherever their data appears. Gate
-		// footer credit on this Shodan-specific flag (NOT shared .Attribution,
-		// which botcheck also sets but doesn't use Shodan). True whenever we
-		// consulted InternetDB for this lookup — data found or clean 404.
-		vm["ShodanAttribution"] = res.Shodan != nil
+		vm["ShodanAttribution"] = res.ShodanConsulted()
 	}
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
@@ -203,6 +241,14 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	return c.Render(code, "ip/index", vm)
 }
 
+func (h *handler) lookup(c *echo.Context, ip string) (*Result, error) {
+	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
+		return nil, platform.ErrBusy
+	}
+	defer h.lim.LookupCap.Release(c.RealIP(), 1)
+	return LookupWithReputation(c.Request().Context(), h.svc, h.chk, ip)
+}
+
 // pageError is a lookup error for the page; the JSON keeps the Go string.
 func pageError(err error) string {
 	if errors.Is(err, ErrUnavailable) {
@@ -212,7 +258,7 @@ func pageError(err error) string {
 }
 
 func statusFor(err error) int {
-	if errors.Is(err, ErrUnavailable) {
+	if errors.Is(err, ErrUnavailable) || errors.Is(err, platform.ErrBusy) {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest
@@ -239,14 +285,6 @@ func (r *Result) ConnNetwork() platform.ConnNetwork {
 		n.Provider = clean(p.Provider)
 	}
 	return n
-}
-
-// routable reports whether ipStr is public address worth geolocating — not
-// loopback / private / link-local / unspecified.
-func routable(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
 }
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.

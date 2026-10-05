@@ -78,10 +78,7 @@
           <input name="url" required type="url" autocomplete="off" spellcheck="false"
                  placeholder="https://example.com/a/very/long/path?utm_source=x" class="field w-full flex-none font-normal">
         </label>
-        {{/* note and ttl are bound by createRequest and documented in the API
-             contract, but had no control here — so both were reachable only by
-             hand-writing curl, and a note could never be set from the console
-             that exists to display it. */}}
+        {{/* Input names are CreateRequest's form tags. */}}
         <label class="flex flex-col gap-1 text-xs font-medium text-strong">
           <span>Note <span class="font-normal text-muted">(optional)</span></span>
           <input name="note" autocomplete="off" maxlength="256"
@@ -214,6 +211,7 @@
   -H 'X-Api-Key: …' -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com/long","clean":true,"ttl":"720h"}'</pre>
       <p class="mt-1 text-xs text-muted"><code class="font-mono">ttl</code> takes any Go duration, or leave it out for a link that never expires. <code class="font-mono">slug</code> and <code class="font-mono">note</code> are optional.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
   </main>
   {{template "partials/htmx-errors" .}}

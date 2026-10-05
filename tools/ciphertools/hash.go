@@ -28,7 +28,19 @@ import (
 // result says out loud when the input carries any of them.
 
 func init() {
-	register(Op{Name: "hash", Path: "/hash", Page: "hash", Fragment: "cipher/hash-result", Run: runHash})
+	register(Op{Name: "hash", Path: "/hash", Page: "hash", Fragment: "cipher/hash-result", Run: runHash,
+		Fields: []Field{
+			{Name: "text", Kind: KindString,
+				Description: "The input to hash, read per enc; whitespace and a trailing newline are part of it, and empty input hashes zero bytes."},
+			{Name: "enc", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+				Description: "How text is written: utf8 hashes it as typed; hex, base64, base64url or base32 decode it first, which is how to hash binary data."},
+			{Name: "file", Kind: KindFile,
+				Description: "A file to hash instead of text, up to the 8 MiB request limit."},
+			{Name: "trim_newline", Kind: KindBool, Default: "false",
+				Description: `Strip one trailing newline (\n or \r\n) before hashing.`},
+			{Name: "expected", Kind: KindString,
+				Description: "A checksum to compare with every digest, as hex or base64, bare or labelled (a sha256sum line, sha256=…, SRI's sha384-…); the result names the algorithm it matches."},
+		}})
 }
 
 // MaxHashInput bounds what one hash run reads. Every algorithm passes over the

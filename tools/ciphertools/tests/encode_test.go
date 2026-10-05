@@ -237,7 +237,7 @@ func TestEncodePageLinksToLinkTools(t *testing.T) {
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{})
+	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
 	rec := do(t, e, http.MethodGet, "/encode", "", "", asBrowser)
 	if !strings.Contains(rec.Body.String(), `href="https://link.example/encode"`) {
 		t.Fatal("no link to Link Tools' encode page")

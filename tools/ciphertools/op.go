@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,6 +32,26 @@ type Input struct {
 // trim, because for a hash input the whitespace IS the data.
 func (in Input) Get(key string) string { return in.Fields.Get(key) }
 
+// InputFromJSON is the Input a form would have made of a flat JSON object.
+func InputFromJSON(obj map[string]any) (Input, error) {
+	in := Input{Fields: url.Values{}, Files: map[string][]byte{}}
+	for k, v := range obj {
+		switch t := v.(type) {
+		case string:
+			in.Fields.Set(k, t)
+		case float64:
+			// Not fmt.Sprint, whose "1e+06" no integer field reads.
+			in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64))
+		case bool:
+			in.Fields.Set(k, strconv.FormatBool(t))
+		case nil:
+		default:
+			return in, fmt.Errorf("field %q: want a string, number or boolean", k)
+		}
+	}
+	return in, nil
+}
+
 // now reads the optional "now" field (unix seconds) so an API caller can ask
 // "was this token valid at T", and tests are deterministic. Absent means the
 // real clock.
@@ -46,6 +67,9 @@ func (in Input) now() (time.Time, error) {
 	return time.Unix(sec, 0), nil
 }
 
+var nowField = Field{Name: "now", Kind: KindInt,
+	Description: "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock."}
+
 // Op is one computation: a form in, a result struct out. The registry below is
 // the whole feature set; the server handler and the wasm entrypoint are both a
 // few lines wrapped around it.
@@ -58,6 +82,7 @@ type Op struct {
 	Page string
 	// Fragment is the template that renders a successful result.
 	Fragment string
+	Fields   []Field
 	// Heavy marks CPU-expensive ops (password hashing, RSA keygen): stricter
 	// server rate limit, and never run on a keystroke in the browser.
 	Heavy bool

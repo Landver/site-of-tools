@@ -24,7 +24,7 @@ func newTestApp(t *testing.T) *echo.Echo {
 	e := echo.New()
 	e.Renderer = r
 	cfg := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
-	if err := site.Register(e, cfg, testPostsFS()); err != nil {
+	if _, err := site.Register(e, cfg, testPostsFS()); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	return e
@@ -87,6 +87,14 @@ func TestToolsAlphabetical(t *testing.T) {
 	})
 	if !slices.Equal(got, want) {
 		t.Errorf("site.Tools order = %q, want A→Z %q", got, want)
+	}
+}
+
+func TestToolsListTheMCPServer(t *testing.T) {
+	tools := site.Tools(platform.Config{Env: "prod", BaseDomain: "corpberry.com"})
+	i := slices.IndexFunc(tools, func(tl platform.Tool) bool { return tl.Name == "MCP server" })
+	if i < 0 || tools[i].URL != "https://mcp.corpberry.com" {
+		t.Errorf("site.Tools = %v, want an MCP server entry at https://mcp.corpberry.com", tools)
 	}
 }
 

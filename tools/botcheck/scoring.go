@@ -10,14 +10,18 @@ import (
 // field -> Evaluate can skip (not fail) them on server-only req. Weights =
 // starting proposal, tuned against botcheck/tests — not gospel; adjust there,
 // w/ fixtures, not by feel.
+// needsHeaders/needsIP/needsCorpus do the same per half; clientUA's header fallback doesn't count.
 type rule struct {
-	id          string
-	label       string
-	tier        string
-	subgroup    string
-	weight      int
-	needsClient bool
-	eval        func(Signals) (bool, string)
+	id           string
+	label        string
+	tier         string
+	subgroup     string
+	weight       int
+	needsClient  bool
+	needsHeaders bool
+	needsIP      bool
+	needsCorpus  bool
+	eval         func(Signals) (bool, string)
 }
 
 // gpuOSImpossible = exhaustive list of GPU-family/OS pairs gpu_os_mismatch may
@@ -55,7 +59,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "bot_user_agent", label: "User-Agent is a known bot / HTTP client", tier: TierHard, weight: 60,
+		id: "bot_user_agent", label: "User-Agent is a known bot / HTTP client", tier: TierHard, weight: 60, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			if tok := botUAToken(s.HTTPUserAgent); tok != "" {
 				return true, "matched " + tok
@@ -119,7 +123,7 @@ var rules = []rule{
 
 	// ── Consistency (client claim vs. server / second context) ─────────────────
 	{
-		id: "ua_header_mismatch", label: "JS User-Agent ≠ HTTP User-Agent", tier: TierConsistency, subgroup: subgroupUA, weight: 35, needsClient: true,
+		id: "ua_header_mismatch", label: "JS User-Agent ≠ HTTP User-Agent", tier: TierConsistency, subgroup: subgroupUA, weight: 35, needsClient: true, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			if s.NavMainUA == "" || s.HTTPUserAgent == "" || s.NavMainUA == s.HTTPUserAgent {
 				return false, ""
@@ -239,7 +243,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "ch_platform_mismatch", label: "Sec-CH-UA-Platform ≠ navigator.userAgentData.platform", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true,
+		id: "ch_platform_mismatch", label: "Sec-CH-UA-Platform ≠ navigator.userAgentData.platform", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			h, j := normPlatform(s.SecCHUAPlatform), normPlatform(s.UAData.Platform)
 			if h == "" || j == "" || h == j {
@@ -290,7 +294,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "embedded_runtime", label: "User-Agent is an embedded app runtime (Electron/CEF)", tier: TierConsistency, subgroup: subgroupUA, weight: 25,
+		id: "embedded_runtime", label: "User-Agent is an embedded app runtime (Electron/CEF)", tier: TierConsistency, subgroup: subgroupUA, weight: 25, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			ua := s.HTTPUserAgent
 			if ua == "" {
@@ -303,7 +307,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
+		id: "tz_mismatch", label: "Browser timezone ≠ IP timezone", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true, needsIP: true,
 		eval: func(s Signals) (bool, string) {
 			if s.BrowserTZ == "" || s.IPTimezone == "" {
 				return false, ""
@@ -326,7 +330,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "datacenter_ip", label: "Egress IP is a datacenter / Tor address", tier: TierConsistency, subgroup: subgroupNetwork, weight: 30,
+		id: "datacenter_ip", label: "Egress IP is a datacenter / Tor address", tier: TierConsistency, subgroup: subgroupNetwork, weight: 30, needsIP: true,
 		eval: func(s Signals) (bool, string) {
 			if s.IsDatacenter {
 				return true, "datacenter / hosting"
@@ -341,7 +345,7 @@ var rules = []rule{
 		// Mutually exclusive w/ datacenter_ip: IP2Proxy marks datacenters/Tor as
 		// proxies too -> only fire here for VPN or otherwise-uncategorised proxy —
 		// never double-count address the datacenter rule already caught.
-		id: "proxy_ip", label: "Egress IP is a proxy / VPN", tier: TierConsistency, subgroup: subgroupNetwork, weight: 20,
+		id: "proxy_ip", label: "Egress IP is a proxy / VPN", tier: TierConsistency, subgroup: subgroupNetwork, weight: 20, needsIP: true,
 		eval: func(s Signals) (bool, string) {
 			if s.IsVPN {
 				return true, "VPN"
@@ -362,7 +366,7 @@ var rules = []rule{
 		// real human); deliberate ban from any other source fires regardless of
 		// count. Empty sources ("not listed" / Mongo off) never fire. Suppressed
 		// for verified good bots (all their reputation deductions are).
-		id: "ip_blocklisted", label: "Egress IP is on a threat / abuse blocklist", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25,
+		id: "ip_blocklisted", label: "Egress IP is on a threat / abuse blocklist", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsIP: true,
 		eval: func(s Signals) (bool, string) {
 			if len(s.IPBlocklistSources) == 0 {
 				return false, ""
@@ -384,7 +388,7 @@ var rules = []rule{
 		},
 	},
 	{
-		id: "lang_mismatch", label: "navigator.languages ≠ Accept-Language", tier: TierConsistency, subgroup: subgroupUA, weight: 15, needsClient: true,
+		id: "lang_mismatch", label: "navigator.languages ≠ Accept-Language", tier: TierConsistency, subgroup: subgroupUA, weight: 15, needsClient: true, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			var nav string
 			if len(s.Languages) > 0 {
@@ -424,7 +428,7 @@ var rules = []rule{
 		// Parse Sec-CH-UA header brand list (server), compare to JS
 		// userAgentData.brands (client); spoofed User-Agent forgetting to keep
 		// two in sync caught here. GREASE decoy brand ignored.
-		id: "ch_brands_mismatch", label: "Sec-CH-UA header brands ≠ userAgentData.brands", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true,
+		id: "ch_brands_mismatch", label: "Sec-CH-UA header brands ≠ userAgentData.brands", tier: TierConsistency, subgroup: subgroupUA, weight: 20, needsClient: true, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			hdr, js := realBrandSet(chBrandNames(s.SecCHUA)), realBrandSet(s.Brands)
 			if len(hdr) == 0 || len(js) == 0 || sameStringSet(hdr, js) {
@@ -654,7 +658,7 @@ var rules = []rule{
 		// never a tell), only same-family candidates compared (dual-stack
 		// IPv6-vs-IPv4 would false-fire real browsers). Empty candidate list or
 		// unknown egress = "not supplied" => no signal.
-		id: "webrtc_ip_mismatch", label: "Public WebRTC candidate IP ≠ egress IP", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
+		id: "webrtc_ip_mismatch", label: "Public WebRTC candidate IP ≠ egress IP", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true, needsIP: true,
 		eval: func(s Signals) (bool, string) {
 			egress, ok := publicIP(s.EgressIP)
 			if !ok || len(s.WebRTCIPs) == 0 {
@@ -682,7 +686,7 @@ var rules = []rule{
 		// networks reaches couple IPs honestly, hence five-IP floor. Verified
 		// crawler fleets legitimately share one fingerprint across many IPs ->
 		// deduction suppressed for them (suppressedForGoodBot).
-		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
+		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true, needsCorpus: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintIPs < fingerprintReuseMinIPs {
 				return false, ""
@@ -748,7 +752,7 @@ var rules = []rule{
 		// Real browsers send Sec-Fetch-* on every navigation+fetch; scripted
 		// client wearing browser User-Agent usually omits them. Soft: proxy could
 		// in theory strip them.
-		id: "sec_fetch_missing", label: "Browser User-Agent but no Sec-Fetch-* headers", tier: TierSoft, weight: 8,
+		id: "sec_fetch_missing", label: "Browser User-Agent but no Sec-Fetch-* headers", tier: TierSoft, weight: 8, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			if s.SecFetchMode == "" && looksLikeBrowser(s.HTTPUserAgent) {
 				return true, "no Sec-Fetch-Mode"
@@ -761,7 +765,7 @@ var rules = []rule{
 		// least gzip); browser User-Agent without one = scripted client that
 		// didn't bother. Soft, not consistency: proxy (CF/nginx) on path can strip
 		// or rewrite these headers — exact caveat that made sec_fetch_missing soft.
-		id: "accept_encoding_missing", label: "Browser User-Agent but no Accept-Encoding header", tier: TierSoft, weight: 8,
+		id: "accept_encoding_missing", label: "Browser User-Agent but no Accept-Encoding header", tier: TierSoft, weight: 8, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			if looksLikeBrowser(s.HTTPUserAgent) && s.HTTPAcceptEncoding == "" {
 				return true, "no Accept-Encoding"
@@ -774,7 +778,7 @@ var rules = []rule{
 		// lang_mismatch consistency rule, which needs BOTH sides (navigator.languages
 		// + header) to compare values — this catches header's total absence.
 		// Soft for same proxy-strips-headers caveat as sec_fetch_missing.
-		id: "accept_language_missing", label: "Browser User-Agent but no Accept-Language header", tier: TierSoft, weight: 8,
+		id: "accept_language_missing", label: "Browser User-Agent but no Accept-Language header", tier: TierSoft, weight: 8, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			if looksLikeBrowser(s.HTTPUserAgent) && s.AcceptLanguage == "" {
 				return true, "no Accept-Language"
@@ -791,7 +795,7 @@ var rules = []rule{
 		// do. Acceptable because rule is soft: only bites inside >=3
 		// soft cluster, proxy can rewrite header anyway (caveat that made
 		// sec_fetch_missing soft). EMPTY Accept = "not supplied", never fires.
-		id: "accept_nav_mismatch", label: "Browser User-Agent but Accept doesn't include text/html", tier: TierSoft, weight: 8,
+		id: "accept_nav_mismatch", label: "Browser User-Agent but Accept doesn't include text/html", tier: TierSoft, weight: 8, needsHeaders: true,
 		eval: func(s Signals) (bool, string) {
 			if looksLikeBrowser(s.HTTPUserAgent) && s.HTTPAccept != "" &&
 				!strings.Contains(strings.ToLower(s.HTTPAccept), "text/html") {
@@ -907,7 +911,7 @@ var rules = []rule{
 		// many browsers from one address -> only bites as part of cluster, never
 		// docks lone visitor. Backed by same Mongo corpus as fingerprint_reuse
 		// (see corpus.go).
-		id: "ip_fingerprint_churn", label: "This IP presented many different fingerprints in a short window", tier: TierSoft, weight: 8, needsClient: true,
+		id: "ip_fingerprint_churn", label: "This IP presented many different fingerprints in a short window", tier: TierSoft, weight: 8, needsClient: true, needsCorpus: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintChurn < fingerprintChurnMinHashes {
 				return false, ""

@@ -40,6 +40,9 @@ type Config struct {
 	// (tools/linktools/docs/04-short-links.md §1).
 	LinkAPIKey string
 
+	// MCPOwnerKey gates /mcp/owner; apart from LinkAPIKey so each rotates alone.
+	MCPOwnerKey string
+
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
 	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
 	// missing-BIN path). MongoDatabase = app DB name on shared server,
@@ -48,6 +51,9 @@ type Config struct {
 	// still boots (ARCHITECTURE §10).
 	MongoURI      string
 	MongoDatabase string
+
+	// EgressDenyAddrs: the host's public IPs, invisible to net.InterfaceAddrs in a container.
+	EgressDenyAddrs []string
 }
 
 // Load reads config from env (after loading .env if present).
@@ -68,8 +74,20 @@ func Load() Config {
 		LinkAPIKey: os.Getenv("LINK_API_KEY"),
 		MongoURI:   os.Getenv("MONGODB_URI"),
 		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
-		MongoDatabase: getenv("MONGODB_DATABASE", DefaultMongoDatabase),
+		MongoDatabase:   getenv("MONGODB_DATABASE", DefaultMongoDatabase),
+		EgressDenyAddrs: splitList(os.Getenv("EGRESS_DENY_ADDRS")),
+		MCPOwnerKey:     os.Getenv("MCP_OWNER_KEY"),
 	}
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func (c Config) IsDev() bool { return c.Env != "prod" }

@@ -1,0 +1,176 @@
+{{define "mcp/index"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main class="page-main">
+    <h1 class="text-2xl font-semibold text-strong">MCP server</h1>
+    <p class="mt-2 text-sm text-muted">
+      The tools on corpberry.com, for AI agents over the Model Context Protocol. Same code and same
+      results as the web pages and their JSON API. Free, no account, no key.
+    </p>
+
+    <section class="mt-8">
+      <h2 class="eyebrow">Endpoints</h2>
+      <ul class="mt-3 space-y-4">
+        {{range $i, $ep := .Endpoints}}
+        <li>
+          <div class="flex flex-wrap items-center gap-3">
+            <code class="min-w-0 flex-1 break-all font-mono text-sm text-strong">{{.URL}}</code>
+            <button type="button" class="btn-copy" data-copy="{{.URL}}">Copy</button>
+          </div>
+          <p class="mt-1 text-xs text-muted">
+            {{- if $i}}{{.Title}} only ({{len .Tools}} {{if eq (len .Tools) 1}}tool{{else}}tools{{end}}), for every other client.
+            {{- else}}All {{len .Tools}} tools, for Claude Code.{{end -}}
+          </p>
+        </li>
+        {{end}}
+      </ul>
+      <p class="mt-4 text-sm text-muted">
+        Claude Code takes <code class="font-mono text-strong">/mcp</code>: it loads MCP tools through tool search,
+        reading only the ones a task needs. Every other client puts each tool it is given into the model's context,
+        so give it the toolsets you need instead, one URL each, under a name of its own.
+      </p>
+    </section>
+
+    <section id="setup" class="mt-10">
+      <h2 class="eyebrow">Set up a client</h2>
+      <p class="mt-2 text-sm text-muted">
+        No account, key or sign-in: every client takes a URL. The examples use {{.Example.Title}}; any toolset's
+        URL above goes in the same place.
+      </p>
+      <div class="mt-4 space-y-6 text-sm text-muted">
+        <div>
+          <h3 class="font-medium text-strong">Claude Code</h3>
+          <p class="mt-1">Every tool, in every project (<code class="font-mono text-strong">--scope user</code>):</p>
+          {{template "mcp/snippet" .Setup.ClaudeCode}}
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">claude.ai and Claude Desktop</h3>
+          <p class="mt-1">
+            Customize → Connectors → Add custom connector, then paste a toolset URL and leave authentication empty.
+            A free plan allows one custom connector; on Team and Enterprise plans only an owner can add one.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">ChatGPT</h3>
+          <p class="mt-1">
+            Settings → Apps → Advanced → Developer mode, then create an app with a toolset URL and no authentication.
+            Developer mode is a beta, on paid plans, and OpenAI advises fewer than 20 tools at a time.
+          </p>
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">VS Code</h3>
+          <p class="mt-1">In <code class="font-mono text-strong">.vscode/mcp.json</code>:</p>
+          {{template "mcp/snippet" .Setup.VSCode}}
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">Cursor</h3>
+          <p class="mt-1">
+            In <code class="font-mono text-strong">~/.cursor/mcp.json</code>. Cursor copes with about 40 tools across
+            all its servers, so add toolsets rather than every tool:
+          </p>
+          {{template "mcp/snippet" .Setup.Cursor}}
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">Codex CLI</h3>
+          {{template "mcp/snippet" .Setup.Codex}}
+          <p class="mt-2">or in <code class="font-mono text-strong">~/.codex/config.toml</code>:</p>
+          {{template "mcp/snippet" .Setup.CodexTOML}}
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">Gemini CLI</h3>
+          {{template "mcp/snippet" .Setup.Gemini}}
+          <p class="mt-2">
+            or in <code class="font-mono text-strong">~/.gemini/settings.json</code>, as
+            <code class="font-mono text-strong">httpUrl</code>: Gemini reads <code class="font-mono text-strong">url</code>
+            as the older SSE transport, which this server doesn't speak.
+          </p>
+          {{template "mcp/snippet" .Setup.GeminiJSON}}
+        </div>
+        <div>
+          <h3 class="font-medium text-strong">Clients that only start local servers</h3>
+          <p class="mt-1">
+            Give the client <code class="font-mono text-strong">mcp-remote</code> as the server's command: it bridges
+            stdio to this server, and runs on Node.
+          </p>
+          {{template "mcp/snippet" .Setup.Remote}}
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="eyebrow">What is sent where</h2>
+      <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-body">
+        <li>
+          A tool call's arguments and its result pass through your AI provider and this server. Hosted connectors,
+          such as claude.ai's and ChatGPT's, call from the provider's servers; local clients from your machine.
+        </li>
+        <li>
+          Cipher Tools' pages run in your browser and send nothing. Over MCP the cipher tools' inputs and outputs
+          travel like any other call's, so use test material only: never a real password, key or token.
+        </li>
+        <li>
+          Each call is logged with the tool's name, the outcome, how long it took, the result's size, and the
+          caller's IP address and client name. Never the arguments, the result or an error message, which can
+          quote them.
+        </li>
+        <li>
+          Results built on third-party data carry an <code class="font-mono text-strong">attribution</code> list,
+          the credits in this page's footer.
+        </li>
+      </ul>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="eyebrow">Rate limits</h2>
+      <p class="mt-2 text-sm text-muted">
+        Per client address (an IPv6 address counts by its /64), and shared with each tool's JSON API: a call here
+        spends the budget the same request to the tool's own site would. Each tool's rate and burst are listed
+        beside it below. Every other message, such as <code class="font-mono text-strong">tools/list</code>, counts
+        against {{with .Protocol}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}, and all requests to <code class="font-mono text-strong">/mcp</code> from one
+        address against {{with .PerIP}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}. Some tools also have a budget every caller shares, of calls
+        running at once or calls a second. A refused call is an error result saying to try again in a few seconds.
+        Hosted connectors share their provider's addresses, and so their budgets.
+      </p>
+    </section>
+
+    {{range .Toolsets}}
+    <section class="mt-10">
+      <h2 class="eyebrow">{{.Title}}</h2>
+      <p class="mt-2 text-sm text-muted">
+        {{with .REST}}On the web and as a JSON API at <a href="{{.}}" class="link-inline">{{.}}</a>.{{end}}
+        {{with .Attribution}}Data from {{range $i, $c := .}}{{if $i}}, {{end}}<a href="{{$c.URL}}" class="link-inline">{{$c.Source}}</a>{{end}}.{{end}}
+      </p>
+      <div class="mt-3 divide-y divide-line rounded-lg border border-line">
+        {{range .Tools}}
+        <div class="p-4">
+          <div class="flex flex-wrap items-baseline gap-2">
+            <span class="font-mono text-sm font-medium text-strong">{{.Name}}</span>
+            <span class="text-sm text-muted">{{.Title}}</span>
+            {{if .Annotations.ReadOnlyHint}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">read-only</span>{{end}}
+            {{if .OpenWorld}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">reaches the internet</span>{{end}}
+            <span class="ml-auto font-mono text-xs text-faint">{{.RateLimit}}</span>
+          </div>
+          <p class="mt-2 text-sm text-body wrap-anywhere">{{.Description}}</p>
+        </div>
+        {{end}}
+      </div>
+    </section>
+    {{end}}
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "mcp/snippet"}}
+<div class="mt-2 flex flex-wrap items-start gap-3">
+  <pre class="min-w-0 flex-1 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.}}</pre>
+  <button type="button" class="btn-copy" data-copy="{{.}}">Copy</button>
+</div>
+{{end}}

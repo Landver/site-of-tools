@@ -1,0 +1,115 @@
+{
+  "bad_url": {
+    "status": 400,
+    "body": {
+      "error": "not a valid URL: missing ']' in host"
+    }
+  },
+  "empty_fields_keep": {
+    "status": 200,
+    "body": {
+      "url": "https://example.com/?utm_source=old\u0026utm_source=dup",
+      "tags": [
+        {
+          "key": "utm_source",
+          "value": "old",
+          "source": "kept"
+        }
+      ],
+      "notes": [
+        {
+          "severity": "warn",
+          "title": "utm_source appears 2 times",
+          "detail": "The URL already carries more than one utm_source, and analytics tools disagree about which one counts. Type a value here to leave exactly one."
+        }
+      ]
+    }
+  },
+  "no_scheme": {
+    "status": 200,
+    "body": {
+      "url": "https://example.com/landing?utm_source=news",
+      "tags": [
+        {
+          "key": "utm_source",
+          "value": "news",
+          "source": "set"
+        }
+      ],
+      "notes": [
+        {
+          "severity": "info",
+          "title": "No scheme",
+          "detail": "The URL had none, so the tagged URL starts with https://. Without one it would be a relative link that only works on the page it is pasted into."
+        }
+      ]
+    }
+  },
+  "no_url": {
+    "status": 400,
+    "body": {
+      "error": "no URL; pass ?u=, e.g. ?u=https%3A%2F%2Fexample.com%2F\u0026utm_source=newsletter"
+    }
+  },
+  "path_only": {
+    "status": 200,
+    "body": {
+      "url": "/landing?utm_source=news",
+      "tags": [
+        {
+          "key": "utm_source",
+          "value": "news",
+          "source": "set"
+        }
+      ],
+      "notes": [
+        {
+          "severity": "warn",
+          "title": "Not a whole link",
+          "detail": "This is a path, so the tagged URL is one too, and it works only on pages of the same site. To tag a link you can share, paste all of it, starting with https://."
+        }
+      ]
+    }
+  },
+  "retag": {
+    "status": 200,
+    "body": {
+      "url": "https://example.com/?utm_source=twitter\u0026utm_medium=email\u0026ref=home\u0026utm_campaign=Fall%20Sale%2B",
+      "tags": [
+        {
+          "key": "utm_source",
+          "value": "twitter",
+          "source": "replaced",
+          "was": "old"
+        },
+        {
+          "key": "utm_medium",
+          "value": "email",
+          "source": "kept"
+        },
+        {
+          "key": "utm_campaign",
+          "value": "Fall Sale+",
+          "source": "set"
+        }
+      ],
+      "notes": [
+        {
+          "severity": "warn",
+          "title": "Capital letters in utm_campaign",
+          "detail": "Most analytics tools are case-sensitive, so “Fall Sale+” and “fall sale+” are reported as two different campaigns. Lowercase keeps them together."
+        },
+        {
+          "severity": "warn",
+          "title": "A + in utm_campaign",
+          "detail": "A + typed here is a literal plus, encoded as %2B, and reports show it as one. For a space, type a space; for a separator, a dash."
+        },
+        {
+          "severity": "info",
+          "title": "Spaces in utm_campaign",
+          "detail": "Each space is written %20 in the URL and comes back as a space in reports. It works; dashes read better in both places."
+        }
+      ]
+    }
+  }
+}

@@ -32,7 +32,8 @@ var navBaseFuncs = template.FuncMap{
 	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
-	"asset": StaticURL,
+	"asset":  StaticURL,
+	"credit": creditFunc,
 }
 
 // StaticURL maps static asset path (relative to static root, e.g.
@@ -201,4 +202,12 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 	default:
 		return c.Render(code, pageTmpl, data)
 	}
+}
+
+// Reply sends API callers body and pages vm, so page-only fields never reach JSON.
+func Reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
+	if WantsJSON(c) {
+		return Respond(c, code, body, page, frag)
+	}
+	return Respond(c, code, vm, page, frag)
 }

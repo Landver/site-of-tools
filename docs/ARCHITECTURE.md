@@ -1,421 +1,192 @@
 # Architecture — corpberry.com (`site-of-tools`)
 
-`corpberry.com` = Stas's playground: portfolio landing + growing collection of
-small self-built tools/experiments. Repo = **one Go server** = apex site + every
-*simple* tool. Bigger projects needing real SPA get own subdomain + own stack
-(Next.js etc.) later — **not** here.
-
-> Scope: practical, not exhaustive. Lets human/AI pick up dev w/o re-deriving
-> design. Change something → edit doc.
-
----
+`corpberry.com` = Stas's playground: a portfolio landing plus small self-built
+tools. **One Go server** serves the apex site and every *simple* tool; projects
+that need a real SPA get their own subdomain and stack elsewhere. Practical, not
+exhaustive: change something → edit this doc.
 
 ## 1. Stack (pinned)
 
-No Node/npm in toolchain. Frontend JS vendored as static files; CSS built by 1
+No Node/npm in the toolchain: frontend JS is vendored, CSS comes from one
 prebuilt binary.
 
-| Layer            | Choice                                             | Version (2026-07) |
-|------------------|----------------------------------------------------|-------------------|
-| Language         | Go                                                 | 1.26.x (no LTS — track latest 2 series) |
-| Web framework    | Echo **v5** — `github.com/labstack/echo/v5`        | v5.3.x            |
-| Templating       | stdlib `html/template` (server-rendered)           | —                 |
-| Interactivity    | htmx (AJAX/partials only, when plain HTML can't)   | 2.0.x (self-hosted) |
-| Sprinkle-JS      | Alpine.js (small client state)                     | 3.15.x (self-hosted) |
-| CSS              | Tailwind **standalone CLI** (no npm)               | v4.3.x            |
-| Live reload      | air — `github.com/air-verse/air`                   | v1.65.x           |
-| GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
-| Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
-| Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history + botcheck fingerprint corpus + link-tool short links) | v2.8.x |
-| Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
-| Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
+| Layer | Choice | Version |
+|---|---|---|
+| Language | Go (no LTS: track the latest 2 series) | 1.26.x |
+| Web | Echo **v5** `github.com/labstack/echo/v5` | v5.3.x |
+| Templates | stdlib `html/template`, server-rendered | — |
+| Interactivity | htmx (only when plain HTML can't) + Alpine.js, self-hosted | 2.0.x / 3.15.x |
+| CSS | Tailwind **standalone CLI** | v4.3.x |
+| Live reload | air | v1.65.x |
+| GeoIP / proxy | `ip2location-go/v9`, `ip2proxy-go/v4` (v4 needed for PX12) | v9.8.x / v4.2.x |
+| Database | MongoDB `go.mongodb.org/mongo-driver/v2` (**/v2**) | v2.8.x |
+| MCP | `modelcontextprotocol/go-sdk` + `google/jsonschema-go` | v1.8.x / v0.4.x |
+| Tests | stdlib `testing` + `go-cmp` | v0.7.x |
+| Container | `gcr.io/distroless/static-debian12:nonroot` | — |
 
-**Why Echo v5, not v4:** v5 = current stable major; v4 loses security support
-2026-12-31, v4→v5 = breaking migration. Greenfield → straight to v5. Most Echo
-tutorials/blogs still show v4 — translate. Key v5 diffs:
-- Handlers: `func(c *echo.Context) error` (Context = **struct pointer**, not interface).
-- Renderer sig: `Render(c *echo.Context, w io.Writer, name string, data any) error`.
-- No `e.Host()`. Multi-subdomain routing = `echo.NewVirtualHostHandler(map[string]*echo.Echo{...})` (§3).
-- No `middleware.Logger()`. Logging = `log/slog` via `middleware.RequestLogger`.
-- Start via `echo.StartConfig{Address: ...}.Start(ctx, handler)`.
-- `IPExtractor` / `ExtractIPFromXFFHeader` / `TrustOption` carry over from v4.
-
-**Why go-cmp, not testify:** stdlib runner *is* the right tool (fast, parallel,
-subtests, fuzzing built in). go-cmp gives readable value-comparison diffs,
-idiomatic modern choice; testify = ubiquitous-but-unremarkable default, skipped
-on purpose.
-
----
+**Echo v5, not v4:** v4 loses security support 2026-12-31 and most tutorials
+still show v4. v5: `func(c *echo.Context) error`; `Render(c, w, name, data)`;
+subdomains via `echo.NewVirtualHostHandler`; logging via `log/slog` +
+`middleware.RequestLogger`; start via `echo.StartConfig{...}.Start`.
+**go-cmp, not testify:** the stdlib runner is the right tool; go-cmp adds
+readable diffs.
 
 ## 2. Topology
 
 ```
-        client
-          │  HTTPS
-          ▼
-   ┌──────────────┐   Cloudflare is the ONLY thing in front.
-   │  Cloudflare  │   Proxy ON. Real client IP arrives as CF-Connecting-IP.
-   └──────┬───────┘
-          │  HTTPS (origin cert)
-          ▼
-   ┌──────────────┐   nginx-reverse-proxy (separate project on this host).
-   │    nginx     │   Terminates TLS. One server{} block per subdomain.
-   └──────┬───────┘   Forwards Host + client-IP headers. proxy_pass → host:8080.
-          │  HTTP, over the docker bridge (172.17.0.1:8080)
-          ▼
-   ┌──────────────┐   THIS repo. One binary, listens :8080 inside its container.
-   │  Go / Echo   │   Dispatches by Host header to the right sub-app (§3).
-   └──────────────┘
+client → Cloudflare (proxy ON, the only thing in front) → nginx (TLS, one server{} per subdomain)
+       → Go binary in a container, :8080, dispatching by Host (§3)
 ```
 
-Deployment specifics (nginx blocks in `deploy/nginx/`, Docker, ports, CF trust)
-in [DEPLOYMENT.md](DEPLOYMENT.md).
-
----
+Ports, nginx, Docker and the client-IP trust model: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## 3. One binary, many subdomains (host routing)
 
-Whole site = single process. Each subdomain = own `*echo.Echo`, built by shared
-factory (`platform.NewApp`) — shares middleware, renderer, IP extractor, static
-serving. Virtual-host handler dispatches by `Host` header.
+One process; each subdomain is its own `*echo.Echo` from the shared factory
+`platform.NewApp` (renderer, Cloudflare-aware IP extractor, recover, request
+log, security headers, gzip, static files). `main.go` builds one app per entry
+of its `subdomains` list and hands the Host → app map to
+`echo.NewVirtualHostHandler`.
 
-```go
-// platform/app.go — factory: every sub-app starts identical.
-func NewApp(r *Renderer, staticFS fs.FS) *echo.Echo {
-    e := echo.New()
-    e.Renderer = r
-    e.IPExtractor = cfIPExtractor()          // CF-Connecting-IP → XFF → RemoteAddr
-    e.Use(middleware.Recover(), middleware.RequestLogger(), middleware.Gzip())
-    e.StaticFS("/static", staticFS)
-    return e
-}
-
-// main.go — build each sub-app, then a Host→app map.
-apex  := platform.NewApp(renderer, staticFS); site.Register(apex, cfg)
-ipApp := platform.NewApp(renderer, staticFS); iptools.Register(ipApp, geo)
-
-handler := echo.NewVirtualHostHandler(map[string]*echo.Echo{
-    cfg.VHost(""):   apex,   // "corpberry.com"      (dev: "localhost:8080")
-    cfg.VHost("ip"): ipApp,  // "ip.corpberry.com"   (dev: "ip.localhost:8080")
-})
-echo.StartConfig{Address: cfg.ListenAddr}.Start(context.Background(), handler)
-```
-
-- Host keys **from config** (`cfg.VHost`) — dev uses `*.localhost` (browsers
-  auto-route `*.localhost` → 127.0.0.1), prod uses real domains.
-- v5 matches **full Host header incl. port** — dev keys carry `:8080`
-  (`ip.localhost:8080`), prod nginx forwards bare host (`ip.corpberry.com`);
-  `VHost` handles diff.
-- **New subdomain = 1 `*echo.Echo` + 1 map entry + 1 nginx block.** Never new service.
-
----
+- Host keys come from config (`cfg.VHost`): `*.localhost:8080` in dev (v5 matches
+  the port too), bare domains in prod.
+- Hosts: apex (`site`), `ip.`, `botcheck.`, `dns.`, `link.`, `cipher.`, `mcp.`.
+  The same list feeds the outbound guards' deny list.
+- New subdomain = one list entry + its `Register` + an nginx block. Never a new
+  service.
 
 ## 4. Request layering (the core pattern — read this)
 
-Every feature serves **HTML for browsers, JSON for API/CLI** from *same* code —
-via layering, not duplicated features:
-
 ```
-┌─ domain layer ──────────────────────────────────────────────┐
-│  e.g. Service.Lookup("8.8.8.8") → (*Result, error)            │  the real work.
-│  Pure Go. Knows NOTHING about HTTP. Returns a struct.         │  Written ONCE.
-└──────────────────────────┬───────────────────────────────────┘
-                           │ struct
-┌─ transport layer ────────▼───────────────────────────────────┐
-│  handler calls domain, then Respond(c, code, data, page, frag):│  thin,
-│    • CLI/API (no text/html in Accept)   → JSON                 │  written ONCE
-│    • htmx (HX-Request: true)            → HTML fragment         │  in platform,
-│    • browser (Accept: text/html)        → full HTML page        │  reused
-└───────────────────────────────────────────────────────────────┘
+domain layer      Service.Lookup("8.8.8.8") → (*Result, error)    pure Go, no HTTP, written once
+transport layer   handler: parse input → domain call → Respond(c, code, data, page, frag)
+                    • API/CLI (no text/html in Accept) → JSON
+                    • htmx (HX-Request)                → HTML fragment
+                    • browser (Accept: text/html)      → full page
 ```
 
-**Rule: business logic never in handler.** Handlers parse input, call domain fn,
-hand result to `Respond`. Only way 1 feature speaks 3 representations w/ zero
-duplication.
+**Business logic never lives in a handler.** That is how one feature speaks
+three representations with no duplication: `curl 'https://ip.corpberry.com/?ip=8.8.8.8'`
+gets JSON, a browser gets the page. `platform.Respond` serves a domain struct
+directly; `platform.Reply` covers routes whose page view model differs from
+the JSON body. Responses vary on `Accept`, `HX-Request` and
+`HX-History-Restore-Request`, fragments are `no-store`, and a history restore
+gets the full page.
 
-```go
-// platform/render.go
-func WantsJSON(c *echo.Context) bool { return !prefersHTML(c) }
+**Third transport: MCP.** `tools/mcptools` serves the same domain calls to AI
+agents at `mcp.corpberry.com` (stateless Streamable HTTP, JSON responses):
+`/mcp` = every public tool, `/mcp/<toolset>` = one toolset, `/mcp/owner` = the
+owner's short-link writes behind `MCP_OWNER_KEY`. An adapter only maps typed
+arguments → the handler's domain call → result. Each tool spends its REST
+twin's `Limits`, so a client has one budget whichever door it uses.
+`mcptools.Coverage` maps every REST route to a tool or a reasoned exclusion,
+and a test fails on a route without one. Details:
+[tools/mcptools/docs/](../tools/mcptools/docs/README.md).
 
-// prefersHTML: anything htmx sends wants HTML; browsers send Accept: text/html.
-// Everything else (curl's */*, application/json, API clients) gets JSON.
-func prefersHTML(c *echo.Context) bool {
-    h := c.Request().Header
-    if h.Get("HX-Request") == "true" || h.Get("HX-History-Restore-Request") == "true" { return true }
-    return strings.Contains(h.Get("Accept"), "text/html")
-}
-
-// IsHTMX: a fragment, EXCEPT a history restore — htmx swaps that response in
-// as the whole body, so it must get the page.
-func IsHTMX(c *echo.Context) bool {
-    h := c.Request().Header
-    return h.Get("HX-Request") == "true" && h.Get("HX-History-Restore-Request") != "true"
-}
-
-func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) error {
-    switch {
-    case WantsJSON(c): return c.JSON(code, data)
-    case IsHTMX(c):    return c.Render(code, fragTmpl, data)
-    default:           return c.Render(code, pageTmpl, data)
-    }
-}
+```
+GET  dns.corpberry.com/?name=x → handler → dnstools.LookupEnriched → Respond
+POST mcp.corpberry.com/mcp/dns → gate → SDK → middleware → adapter → dnstools.LookupEnriched
 ```
 
-Result: `curl 'https://ip.corpberry.com/?ip=8.8.8.8'` auto-returns JSON (curl
-sends `Accept: */*`, no `text/html`); browser at same URL gets page.
-See [tools/iptools/](../tools/iptools/docs/README.md).
-
-One URL, three bodies, chosen by headers → every non-static response carries
-`Vary: Accept, HX-Request, HX-History-Restore-Request`, and fragments are
-`Cache-Control: no-store` (`negotiationHeaders` in `platform/app.go`). Without
-it the browser cache keyed on the URL alone and Back after an htmx swap showed
-the cached fragment as the whole document. A page whose forms push history
-also includes `partials/htmx-history`, which resets the fields from the URL on
-restore (htmx snapshots markup, and markup holds the value first rendered).
-
-> Real, documented, versioned **public JSON API** later → add **Huma**
-> (`humaecho` adapter) on `/api/v1` of relevant sub-app. Reuses same domain fns —
-> pure bolt-on, no rework. Not now.
-
----
+A formal, versioned public JSON API would be **Huma** on `/api/v1` over the same
+domain functions — a bolt-on, not now.
 
 ## 5. Rendering & assets
 
-**Templates** — stdlib `html/template`. Shared base partials (`head`/`header`/
-`footer`) in `shared/templates/`; each project adds own. All parsed into 1 set,
-addressed by unique `{{define "name"}}` names (e.g. `site/home`, `ip/index`,
-`ip/result`, `partials/head`). Auto-escaped.
-
-**`go:embed` w/ dev/prod toggle** — each package embeds *its own* `templates`
-(`shared` also embeds `static`); `go:embed` can't cross directories. Prod serves
-embedded copy; dev (`APP_ENV=dev`) reads same dirs from disk via `os.DirFS` **and
-re-parses per request**, so edits show on refresh w/o rebuild.
-
-```go
-// shared/embed.go  (site/ and tools/<tool>/ embed their own templates likewise)
-//go:embed templates
-var Templates embed.FS
-//go:embed all:static
-var Static embed.FS
-```
-`platform.SubFS(embed, "templates", "shared/templates", dev)` returns disk FS in
-dev, else embedded tree w/ prefix stripped. `platform.NewRenderer` takes 1
-`TemplateSource` per package, parses into 1 set. Gotchas: `//go:embed` must sit
-directly above `var`; patterns can't use `..` (hence 1 embed per package dir);
-run binary from repo root in dev.
-
-**CSS — Tailwind v4, CSS-first, no config file.** Source =
-`shared/static/css/input.css`, `@source`-scans every project's templates:
-```css
-@import "tailwindcss";
-@source "../../templates/**/*.html";               /* shared */
-@source "../../../site/templates/**/*.html";
-@source "../../../tools/iptools/templates/**/*.html";
-@theme { --color-brand: #b83266; }
-```
-Built to `shared/static/css/styles.css` (`--minify` prod, `--watch` dev).
-`styles.css` = build artifact (gitignored; built in Docker image + by `make
-css`). **Tailwind sees only literal class strings** — never assemble class names
-in Go; use full literals or `@source inline(...)`.
-
-**htmx + Alpine — vendored** under `shared/static/js/` (pinned, self-hosted, no
-CDN in prod). Load order in base head partial:
-```html
-<script src="/static/js/htmx.min.js"></script>          <!-- first, no defer -->
-<script defer src="/static/js/alpine.min.js"></script>  <!-- last, MUST defer -->
-```
-**Critical interplay bug:** Alpine scans DOM once at boot; markup htmx *swaps in*
-later w/ `x-data` etc. = dead unless re-init:
-```js
-document.body.addEventListener('htmx:afterSwap', e => window.Alpine.initTree(e.detail.elt));
-```
-Keep htmx-owned + Alpine-owned regions distinct.
-
-**Security headers — set in `NewApp`, so a new tool can't forget them.**
-`platform/app.go`'s `securityHeaders()` middleware adds CSP, `nosniff`,
-`X-Frame-Options: DENY` and `Referrer-Policy` to every sub-app. Two things the
-policy has to accommodate, both found by loading pages rather than reading the
-header: botcheck spawns a Worker from a `blob:` URL, and `worker-src` falls back
-to `script-src` (which doesn't allow `blob:`), so `worker-src`/`child-src` are
-spelled out; the IP tool's IPv6 check is fetched from the **visitor's** browser,
-so `connect-src` allows `https://api6.ipify.org` and nothing else off-origin.
-`script-src` keeps `'unsafe-inline'`+`'unsafe-eval'` — a known limitation, not an
-oversight: Alpine evaluates its directives at runtime and several templates carry
-inline `<script>`. Tightening it means Alpine's CSP build **and** per-request
-nonces, i.e. a real change, not a header edit. What the policy buys meanwhile is
-`object-src`/`base-uri`/`form-action`/`frame-ancestors` — the containment layer
-that turns a template slip on `link.corpberry.com`, whose job is rendering
-attacker-chosen URLs, into a blocked load instead of stored XSS.
-
----
+- **Templates:** each package embeds its own `templates/` (`go:embed` can't
+  cross directories); all parse into one set addressed by unique
+  `{{define}}` names (`ip/index`, `partials/head`). Prod serves the embedded copy;
+  dev (`APP_ENV=dev`) reads disk via `os.DirFS` and re-parses per request
+  (`platform.SubFS`, `platform.NewRenderer`).
+- **CSS:** Tailwind v4, CSS-first: `shared/static/css/input.css` `@source`-scans
+  every package's templates and builds `styles.css` (gitignored). Tailwind sees
+  only literal class names: never assemble them in Go.
+- **htmx + Alpine:** vendored in `shared/static/js/`; htmx first, Alpine last
+  with `defer`; re-init Alpine on `htmx:afterSwap`.
+- **Security headers** (`platform/app.go`, every sub-app): CSP, `nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy`. `worker-src` allows `blob:`
+  (botcheck's Worker); `connect-src` allows only `api6.ipify.org` off-origin.
+  `script-src` keeps `'unsafe-inline'`/`'unsafe-eval'` for Alpine — tightening
+  it needs Alpine's CSP build plus per-request nonces.
 
 ## 6. Configuration
 
-12-factor: all config via env vars, loaded from repo-root `.env` in dev
-(gitignored), injected by `docker-compose` in prod. Config type + loader:
-`platform/config.go`.
+Env vars only: repo-root `.env` in dev, `.env` + `.env.prod` via compose in prod
+(`platform/config.go`).
 
-| Var | Purpose | Example |
-|-----|---------|---------|
-| `APP_ENV` | `dev` (disk FS + template reparse) or `prod` (embedded) | `dev` |
-| `LISTEN_ADDR` | bind address inside process | `:8080` |
-| `BASE_DOMAIN` | builds vhost keys; `localhost` in dev | `corpberry.com` |
-| `IP2LOCATION_DB11_V4` / `_V6` | paths to DB11 BINs | `tools/iptools/assets/ipv4/...BIN` |
-| `IP2LOCATION_ASN_V4` / `_V6` | paths to ASN BINs | `tools/iptools/assets/asn/...BIN` |
-| `IP2PROXY_PX12` | IP2Proxy PX12 BIN — optional; enables proxy section | `tools/iptools/assets/ip2proxy/...BIN` |
-| `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not app) | — |
-| `MONGODB_URI` | Mongo conn string (credentials + auth db). Optional — empty disables Mongo | `mongodb://user:pass@localhost/admin` |
-| `MONGODB_DATABASE` | app database name; defaults to `site-of-tools` | `site-of-tools` |
+| Var | Purpose |
+|---|---|
+| `APP_ENV` | `dev` (disk FS, template reparse) or `prod` |
+| `LISTEN_ADDR` / `BASE_DOMAIN` | bind address; vhost keys (`localhost` in dev) |
+| `IP2LOCATION_DB11_V4`/`_V6`, `IP2LOCATION_ASN_V4`/`_V6`, `IP2PROXY_PX12` | BIN paths (PX12 optional) |
+| `IP2LOCATION_DOWNLOAD_TOKEN` | `make assets` only |
+| `MONGODB_URI` / `MONGODB_DATABASE` | optional; empty → stateless (§10) |
+| `LINK_API_KEY` | short-link writes on link.corpberry.com |
+| `MCP_OWNER_KEY` | `/mcp/owner`; empty → 404 |
+| `EGRESS_DENY_ADDRS` | host's public IPs/CIDRs every outbound guard refuses |
 
-**MongoDB** = *network* dep, not bind-mounted file like BINs — same `MONGODB_URI`
-works dev + prod (add to `.env` wherever app runs; dev & prod share host but not
-necessarily working copy). Config: `platform/config.go`; client:
-`platform/mongo.go` (`platform.OpenMongo` → nil-safe `*Mongo` wrapper).
-**Optional, degrades gracefully**: empty `MONGODB_URI` → `ErrMongoUnavailable` —
-same "missing data non-fatal" contract `iptools.OpenService` uses for absent
-BINs. Four consumers so far, all listed in §10.
-
----
+Missing data is never fatal: absent BINs, Mongo or keys switch the feature off.
 
 ## 7. Directory layout
 
-Go rule: **1 folder = 1 package**. Two constraints shape tree — imported package
-can't be `package main`; `go:embed` can't cross directories (so tool co-locating
-own `templates/` must be own package).
+One folder = one package; `platform/` must be importable and every package that
+embeds templates must own them.
 
 ```
-site-of-tools/
-├── main.go                   # package main — entrypoint: config → sub-apps → vhost → listen
-├── platform/                 # shared engine (importable): config.go, app.go, render.go, conn.go, mongo.go
-│                            #   netgate.go · redact.go — see note under the tree
-├── shared/                   # shared front-end ONLY: base partials + vendored htmx/alpine/css
-│   ├── embed.go              #   (its own package so it can go:embed what lives here)
-│   ├── templates/partials/   #   head · header · footer
-│   └── static/{css,js}/      #   input.css → styles.css (built), htmx.min.js, alpine.min.js
-├── site/                     # apex corpberry.com project
-│   ├── site.go · embed.go
-│   └── templates/home.html
-├── tools/                    # self-contained tool subdomains (code + a docs/ folder each)
-│   ├── iptools/              #   ip.corpberry.com — SELF-CONTAINED
-│   │   ├── geoip.go          #     geo/proxy domain (pure Go, no HTTP)
-│   │   ├── cidr.go           #     subnet-calculator domain
-│   │   ├── handler.go        #     transport (Register + Looker interface)
-│   │   ├── embed.go · tests/ #     embed + black-box tests (its own package)
-│   │   ├── download-assets.sh#     fetch this tool's databases
-│   │   ├── templates/        #     index · result · cidr · nav
-│   │   ├── assets/           #     the .BIN databases (gitignored, bind-mounted)
-│   │   └── docs/README.md    #     this tool's design + reference doc
-│   ├── botcheck/             #   botcheck.corpberry.com — SELF-CONTAINED
-│   │   ├── botcheck.go · scoring.go · handler.go · goodbots.go · report.go · corpus.go · embed.go · tests/
-│   │   ├── templates/        #     index · result
-│   │   └── docs/             #     all of this tool's markdown, split by topic
-│   │       ├── README.md     #       index — links to everything below
-│   │       ├── RESEARCH.md   #       how the 12 competitor services work
-│   │       ├── roadmap/      #       what to build next & why (per-category files)
-│   │       ├── testing/      #       automation-detection test harness + findings
-│   │       └── reports/      #       per-service research writeups
-│   ├── dnstools/             #   dns.corpberry.com — SELF-CONTAINED, same shape
-│   ├── linktools/            #   link.corpberry.com — SELF-CONTAINED, same shape
-│   │   ├── url.go · clean.go · rules.go · trace.go · short.go · handler.go · …
-│   │   ├── store.go · resolvecache.go  #  Mongo `links` + its cache/hit batcher
-│   │   ├── extension/        #     MV3 browser extension — no .go files
-│   │   └── docs/             #     numbered design docs + reports/
-│   └── ciphertools/          #   cipher.corpberry.com — same shape, built TWICE
-│       ├── op.go · jwt.go · hash.go · keys.go · cert.go · …  # pure Go ops
-│       ├── handler.go        #     //go:build !js — the only Echo/platform file
-│       ├── wasm/main.go      #     GOOS=js entrypoint: ops run in the browser
-│       └── docs/             #     landscape, inventory, build plan, traps
-├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
-├── .githooks/pre-push        # test gate (enable: make hooks)
-├── .air.toml · Dockerfile · docker-compose.yml · Makefile
-├── go.mod · go.sum · mongoinit.go
-├── README.md · CLAUDE.md
-└── docs/{ARCHITECTURE.md, DEPLOYMENT.md}
+main.go            entrypoint: config → apps → vhost map → listen
+platform/          engine: config, app, render, mongo, conn, netgate, redact, ratelimit, credits, text
+shared/            base partials + vendored htmx/alpine/css (embedded)
+site/              apex: landing, tools index, blog (site/posts/*.md)
+tools/<tool>/      one subdomain each: domain code · handler.go · embed.go · templates/ · tests/ · docs/
+  iptools · botcheck · dnstools · linktools (+ extension/) · ciphertools (+ wasm/) · mcptools
+docs/              ARCHITECTURE.md, DEPLOYMENT.md
 ```
 
-Why each folder: `platform/` must be importable (can't be `main`); `shared/`,
-`site/`, each `tools/<tool>/` must each be a package to embed templates beside
-code. `tools/` groups tool subdomains (each own Go package, e.g. `tools/iptools`,
-`tools/botcheck`); apex `site/` stays at root. `main.go` at root — composition
-root = 1 thing nothing imports. No single-file folder for its own sake.
-
-**Two engine files earn their place by being cross-cutting, not shared-by-luck:**
-
-- `platform/netgate.go` — the **outbound gate**. `PubliclyRoutable(netip.Addr)`
-  is the deny-by-default address check (unmaps first, so `::ffff:127.0.0.1` is
-  judged as IPv4); `EgressGuard` wraps it as a `net.Dialer.Control` hook plus a
-  port allowlist and a hostname deny list. Control, not resolve-then-dial: the
-  hook fires **after** resolution on the literal address the kernel is about to
-  connect to, so there is no TOCTOU window for DNS rebinding and it composes
-  with Happy Eyeballs. A guarded transport must also set `DisableKeepAlives`,
-  or a pooled connection answers a second, unchecked authority. `RateLimitKey`
-  normalises a client IP into a limiter key, **on the /64 for IPv6** — a
-  per-address bucket is no limit when the client holds 2⁶⁴ of them, and is a
-  memory-growth path besides. The address check previously existed as 4 partial
-  copies (`dnstools`, `iptools`, `botcheck`); this is the promoted one. Any
-  feature dialling a caller-chosen host uses it — never its own copy.
-- `platform/redact.go` — `RedactURI` strips the values of the query keys that
-  carry a whole pasted URL (`u`, `a`, `b`, `curl`, `text`, `v`) before logging.
-  Called once in the request logger's `LogValuesFunc` so it covers **both**
-  sinks: the stdout slog line (Docker-captured on the host, no TTL) and the
-  Mongo request log. It hand-splits instead of using `url.Query()`, which
-  silently drops any pair with a malformed escape — exactly the pair a naive
-  logger then leaks whole. `/static/` is exempt: asset URLs carry
-  `?v=<content hash>` from `AssetVersioner` and nothing user-supplied reaches
-  them.
-
----
+Cross-cutting engine files:
+- `platform/netgate.go` — the **outbound gate**. `PubliclyRoutable` is the
+  deny-by-default address check (unmapping first). `EgressGuard` applies it as a
+  `net.Dialer.Control` hook, after resolution, on the address actually dialled
+  (no DNS-rebinding window), plus a port allowlist and a host/IP deny list;
+  `Transport` builds the guarded HTTP client (no proxy, no keep-alive).
+  `RateLimitKey` keys clients by IP, IPv6 by its /64. Anything dialling a
+  caller-chosen host uses it.
+- `platform/redact.go` — strips pasted-URL query values (`u`, `a`, `b`, `curl`,
+  `text`, `v`) before **both** log sinks, splitting by hand so a malformed escape
+  can't leak.
+- `platform/ratelimit.go` — `Limiter` and the non-queueing `Cap` with per-client
+  shares; each package's `Limits` is built once and shared by REST and MCP.
+- `platform/credits.go` — data-source credits for the footer and MCP results.
 
 ## 8. Adding a new tool
 
-1. Decide: simple tool (lives here) or real SPA (own subdomain + own stack — not here).
-2. `mytool/` — package w/: `geoip.go`-style domain service (pure Go, returns
-   structs), `handler.go` w/ `Register(e, deps)`, `embed.go` (`//go:embed templates`),
-   `templates/`, `tests/` sub-package.
-3. Handlers call domain service, then `platform.Respond(...)` — free HTML+JSON+fragment.
-4. Register tool's `TemplateSource` in `main.go` renderer; (new subdomain) add
-   `*echo.Echo` + `cfg.VHost` map entry + `deploy/nginx/` block.
-5. Tool data files? Keep in `mytool/assets/`, env-configured path, gitignored,
-   bind-mounted — never baked into image.
-
----
+1. Simple tool → here; real SPA → its own subdomain and stack elsewhere.
+2. `tools/mytool/`: a pure-Go domain service returning structs, `handler.go`
+   with `Register(e, deps, lim)`, `embed.go`, `templates/`, `tests/`.
+3. Handlers call the domain, then `platform.Respond`.
+4. Add its `TemplateSource` and `subdomains` entry in `main.go`, and an nginx
+   block (DEPLOYMENT §3).
+5. Data files go in `mytool/assets/`, gitignored and bind-mounted.
+6. Every route gets an MCP decision — a tool in `tools/mcptools` or a
+   `Coverage` exclusion — and its page's terminal block ends with
+   `{{template "partials/mcp-hint" "<toolset>"}}`.
 
 ## 9. Testing
 
-- Each package's tests in own **`<pkg>/tests/`** folder (black-box — exported API
-  only, no test file among code). Test genuinely needing unexported internals =
-  exception, sits beside code as `foo_test.go`.
-- stdlib `testing`; run `go test ./... -race` (`make test`). Domain logic
-  table-driven; HTTP handlers via `net/http/httptest` + `app.ServeHTTP`; struct
-  comparisons use `go-cmp`.
-- Handlers depend on **small interfaces** (e.g. `iptools.Looker`) so tests inject
-  fakes, never need real DBs.
-- Tests that *do* need BINs = **integration tests that skip** when files absent,
-  so CI & fresh clones stay green (BINs gitignored).
-- Tracked **pre-push hook** (`.githooks/pre-push`, enabled by `make hooks`) runs
-  `go vet ./...` + `go test ./...`, blocks push on failure.
-
----
+- Black-box tests in `<pkg>/tests/`; a test that needs unexported internals sits
+  beside the code as `foo_test.go`.
+- `go test ./... -race` (`make test`); table-driven domain tests; handlers via
+  `httptest`; `go-cmp` for structs; small interfaces so tests inject fakes.
+- BIN- or Mongo-dependent tests skip when absent; goldens rewrite with
+  `UPDATE_GOLDEN=1`.
+- The tracked pre-push hook (`make hooks`) runs vet + tests and blocks red pushes.
 
 ## 10. Out of scope now (deliberately deferred)
 
-- **Persistence / MongoDB** — wired, now used by 4 features: IP tool's **lookup
-  history** (`tools/iptools/history.go`, repository below domain per rule #5),
-  engine-level **request log** (`platform/requestlog.go`, shared async writer fed
-  by request-logger middleware), botcheck's **fingerprint corpus**
-  (`tools/botcheck/corpus.go`, rolling 30-day store behind `fingerprint_reuse`
-  rule), link tool's **short links** (`tools/linktools/store.go`, `links`
-  collection; the only one that is the feature rather than a side-record, hence
-  a unique index whose error is *not* swallowed, and a TTL that sweeps long
-  after expiry so a slug is never silently re-registered). All take
-  `*mongo.Database` from shared client (`platform.OpenMongo`,
-  opened once in `main.go`), self-prune via `platform.EnsureTTLIndex`; all
-  degrade to no-ops when `MONGODB_URI` empty, so app still boots stateless.
-  Further storage features (e.g. botcheck crowd/rarity scoring, request velocity,
-  IP-tool rate limiting) follow same shape. Mongo creates collections lazily on
-  first write; `make mongo-init` just materializes DB up front.
-- **Huma / OpenAPI** — later, only if formal public API wanted (§4).
-- **CI/CD** — now implemented (was deferred): GitHub Actions
-  (`.github/workflows/ci.yml`) runs vet + build + test on every push/PR to
-  `master`, auto-deploys to prod host over SSH on green `master` push. Dev & prod
-  share this host. See DEPLOYMENT.md §8.
+- **MongoDB** is wired (one client from `platform.OpenMongo`, repositories below
+  the domain, self-pruning via `platform.EnsureTTLIndex`, all no-ops without
+  `MONGODB_URI`) and used by: IP lookup history, the request log (one record per
+  request, and per MCP message: tool, outcome, latency, IP — never arguments or
+  results), botcheck's fingerprint corpus, and link short links (the only one
+  that *is* the feature: unique index, long TTL so a slug is never reissued).
+  Further storage follows the same shape.
+- **Huma / OpenAPI** — only if a formal public API is wanted (§4).

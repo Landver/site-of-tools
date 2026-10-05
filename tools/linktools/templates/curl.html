@@ -177,6 +177,7 @@
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/curl?u=https%3A%2F%2Fexample.com%2F'</pre>
       <p class="mt-1 text-xs text-muted">The paste direction answers on the same path: <code class="font-mono">--data-urlencode curl=…</code> as a POST, or <code class="font-mono">?curl=</code> for something with nothing secret in it. It returns the URL, the headers in the order they were written, and the full parse of the URL.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
   </main>
 

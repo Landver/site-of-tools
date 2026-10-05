@@ -27,6 +27,8 @@ var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 func cleanChrome() botcheck.Signals {
 	return botcheck.Signals{
 		ClientCollected:  true,
+		HeadersSupplied:  true,
+		IPSupplied:       true,
 		CollectorV:       4, // current payload version (v4 env section present)
 		NativeToStringOK: true,
 		HasChromeObject:  true,
@@ -415,7 +417,7 @@ func TestThreeSoftSignalsPromoteToSuspicious(t *testing.T) {
 func TestServerOnlySkipsClientChecks(t *testing.T) {
 	// Plain curl: no client fingerprint posted. Client checks must be Skipped
 	// (neither counted nor read as a pass); only server signals score.
-	r := botcheck.Evaluate(botcheck.Signals{HTTPUserAgent: "curl/8.4.0"})
+	r := botcheck.Evaluate(botcheck.Signals{HeadersSupplied: true, IPSupplied: true, HTTPUserAgent: "curl/8.4.0"})
 
 	if !check(t, r, "webdriver").Skipped {
 		t.Errorf("client check webdriver should be Skipped on a server-only request")
@@ -445,7 +447,7 @@ func TestServerOnlySkipsClientChecks(t *testing.T) {
 }
 
 func TestEmptyUserAgentFlags(t *testing.T) {
-	r := botcheck.Evaluate(botcheck.Signals{})
+	r := botcheck.Evaluate(botcheck.Signals{HeadersSupplied: true})
 	if !check(t, r, "bot_user_agent").Triggered {
 		t.Errorf("an empty User-Agent should trip bot_user_agent")
 	}
@@ -459,6 +461,8 @@ func TestElectronUAIsSuspiciousNotHardBot(t *testing.T) {
 	// deduction.
 	const electronUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.2 Chrome/148.0.0.0 Electron/42.5.1 Safari/537.36"
 	r := botcheck.Evaluate(botcheck.Signals{
+		HeadersSupplied:    true,
+		IPSupplied:         true,
 		HTTPUserAgent:      electronUA,
 		SecFetchMode:       "navigate",
 		AcceptLanguage:     "en-US,en;q=0.9",
@@ -504,7 +508,7 @@ func TestAppVersionAndLanguageMismatchFlag(t *testing.T) {
 func TestSecFetchMissingFlagsScriptedBrowserUA(t *testing.T) {
 	// Browser UA w/ no Sec-Fetch-* header (scripted client wearing a browser
 	// UA). Clean browsers send the header, so cleanChrome must NOT fire.
-	scripted := botcheck.Evaluate(botcheck.Signals{HTTPUserAgent: chromeMacUA}) // SecFetchMode empty
+	scripted := botcheck.Evaluate(botcheck.Signals{HeadersSupplied: true, HTTPUserAgent: chromeMacUA}) // SecFetchMode empty
 	if !check(t, scripted, "sec_fetch_missing").Triggered {
 		t.Errorf("sec_fetch_missing should fire for a browser UA lacking Sec-Fetch-*")
 	}
@@ -538,18 +542,18 @@ func TestHeaderPresenceSignals(t *testing.T) {
 	}{
 		{"encoding missing under a browser UA fires", browserNoEnc, "accept_encoding_missing", true},
 		{"encoding present does not fire", cleanChrome(), "accept_encoding_missing", false},
-		{"encoding missing under a curl UA ignored", botcheck.Signals{HTTPUserAgent: "curl/8.4.0"}, "accept_encoding_missing", false},
-		{"encoding missing under an empty UA ignored", botcheck.Signals{}, "accept_encoding_missing", false},
+		{"encoding missing under a curl UA ignored", botcheck.Signals{HeadersSupplied: true, HTTPUserAgent: "curl/8.4.0"}, "accept_encoding_missing", false},
+		{"encoding missing under an empty UA ignored", botcheck.Signals{HeadersSupplied: true}, "accept_encoding_missing", false},
 		{"language missing under a browser UA fires", browserNoLang, "accept_language_missing", true},
 		{"language present does not fire", cleanChrome(), "accept_language_missing", false},
-		{"language missing under a curl UA ignored", botcheck.Signals{HTTPUserAgent: "curl/8.4.0"}, "accept_language_missing", false},
-		{"language missing under an empty UA ignored", botcheck.Signals{}, "accept_language_missing", false},
+		{"language missing under a curl UA ignored", botcheck.Signals{HeadersSupplied: true, HTTPUserAgent: "curl/8.4.0"}, "accept_language_missing", false},
+		{"language missing under an empty UA ignored", botcheck.Signals{HeadersSupplied: true}, "accept_language_missing", false},
 		{"Accept */* under a browser UA fires", browserStarAccept, "accept_nav_mismatch", true},
 		{"Accept application/json under a browser UA fires", browserJSONAccept, "accept_nav_mismatch", true},
 		{"a real browser Accept does not fire", cleanChrome(), "accept_nav_mismatch", false},
 		{"an absent Accept never fires", browserNoAccept, "accept_nav_mismatch", false},
-		{"Accept */* under a curl UA ignored", botcheck.Signals{HTTPUserAgent: "curl/8.4.0", HTTPAccept: "*/*"}, "accept_nav_mismatch", false},
-		{"Accept */* under an empty UA ignored", botcheck.Signals{HTTPAccept: "*/*"}, "accept_nav_mismatch", false},
+		{"Accept */* under a curl UA ignored", botcheck.Signals{HeadersSupplied: true, HTTPUserAgent: "curl/8.4.0", HTTPAccept: "*/*"}, "accept_nav_mismatch", false},
+		{"Accept */* under an empty UA ignored", botcheck.Signals{HeadersSupplied: true, HTTPAccept: "*/*"}, "accept_nav_mismatch", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -649,7 +653,7 @@ func TestUnknownIPTimezoneDoesNotTripCrossCheck(t *testing.T) {
 // number, NO client fingerprint (crawlers don't run our JS) → client checks
 // Skip, only server-side rules score.
 func crawler(ua, asn string) botcheck.Signals {
-	return botcheck.Signals{HTTPUserAgent: ua, ASN: asn}
+	return botcheck.Signals{HeadersSupplied: true, IPSupplied: true, HTTPUserAgent: ua, ASN: asn}
 }
 
 // TestGoodBotClassification is G36 core: recognised crawlers / AI agents are

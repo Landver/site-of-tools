@@ -1,0 +1,65 @@
+{
+  "empty": {
+    "status": 400,
+    "body": {
+      "error": "no text; pass ?text= or POST a text field"
+    }
+  },
+  "get": {
+    "status": 200,
+    "body": {
+      "urls": [
+        {
+          "url": "https://example.com/post?utm_source=newsletter",
+          "anchor": "our post",
+          "anchors": [
+            "our post"
+          ],
+          "count": 1,
+          "positions": [
+            8
+          ],
+          "flags": [
+            {
+              "severity": "info",
+              "title": "1 tracking parameter",
+              "detail": "Clean would remove them."
+            }
+          ]
+        },
+        {
+          "url": "https://example.com/sale",
+          "count": 2,
+          "positions": [
+            81,
+            114
+          ]
+        }
+      ],
+      "total": 3,
+      "unique": 2,
+      "source": "html"
+    }
+  },
+  "post": {
+    "status": 200,
+    "body": {
+      "urls": [
+        {
+          "url": "https://example.com/docs",
+          "anchor": "docs",
+          "anchors": [
+            "docs"
+          ],
+          "count": 1,
+          "positions": [
+            4
+          ]
+        }
+      ],
+      "total": 1,
+      "unique": 1,
+      "source": "markdown"
+    }
+  }
+}

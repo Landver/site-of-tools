@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -62,6 +63,38 @@ type CreateOptions struct {
 	Clean     bool          // strip trackers before storing (needs CleanTarget)
 	CreatedIP string        // forensics only, never rendered or serialised
 }
+
+// CreateRequest's fields are scalars, so a decoded {"slug":{"$ne":null}} can't reach Mongo as an operator.
+type CreateRequest struct {
+	URL   string `json:"url" form:"url"`
+	Slug  string `json:"slug" form:"slug"`
+	TTL   string `json:"ttl" form:"ttl"` // a Go duration, e.g. 720h; blank is permanent
+	Note  string `json:"note" form:"note"`
+	Clean bool   `json:"clean" form:"clean"`
+}
+
+type Created struct {
+	Cleaned   []string   `json:"cleaned,omitempty"`
+	Code      string     `json:"code"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	Hits      int64      `json:"hits"`
+	Original  string     `json:"original,omitempty"`
+	Short     string     `json:"short"`
+	Target    string     `json:"target"`
+
+	Note string `json:"-"`
+}
+
+const minTTL = time.Minute
+
+var (
+	errTTLFormat = errors.New("ttl is not a duration, e.g. 720h")
+	errTTLShort  = errors.New("ttl must be at least 1m; leave it out for a link that never expires")
+)
+
+// storageFailure replaces a driver error's text, which can carry connection strings.
+const storageFailure = "Something went wrong on our side. Nothing was changed."
 
 var (
 	// ErrInvalidTarget: the destination is not a URL we will ever redirect to.
@@ -180,6 +213,31 @@ func (s *Shortener) ShortURL(code string) string {
 	return s.baseURL + shortPath + code
 }
 
+// CodeFromShortURL reads a bare code or a short URL on base's host.
+func CodeFromShortURL(s, base string) (code string, ok bool) {
+	s = strings.TrimSpace(s)
+	if c, err := validateCode(s); err == nil {
+		return c, true
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", false
+	}
+	b, err := url.Parse(strings.TrimSpace(base))
+	if err != nil || !strings.EqualFold(u.Host, b.Host) {
+		return "", false
+	}
+	rest, found := strings.CutPrefix(u.Path, shortPath)
+	if !found {
+		return "", false
+	}
+	c, err := validateCode(rest)
+	return c, err == nil
+}
+
 // Create validates a target and stores one alias.
 //
 // Order is §9's, and it is fixed: parse → validate → clean → re-parse and
@@ -274,6 +332,42 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		}
 	}
 	return nil, fmt.Errorf("no free code after %d attempts", maxCodeAttempts)
+}
+
+func (s *Shortener) CreateFrom(ctx context.Context, req CreateRequest, ip string) (*Created, error) {
+	opt := CreateOptions{Slug: req.Slug, Note: req.Note, Clean: req.Clean, CreatedIP: ip}
+	if req.TTL != "" {
+		d, err := time.ParseDuration(req.TTL)
+		if err != nil {
+			return nil, errTTLFormat
+		}
+		if d < minTTL {
+			return nil, errTTLShort
+		}
+		opt.TTL = d
+	}
+	l, err := s.Create(ctx, req.URL, opt)
+	if err != nil {
+		return nil, err
+	}
+	return &Created{
+		Cleaned: l.Cleaned, Code: l.Code, CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt,
+		Hits: l.Hits, Original: l.Original, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note,
+	}, nil
+}
+
+// PublicError maps a create's error to a status and a message safe to show.
+func PublicError(err error) (status int, msg string) {
+	switch {
+	case errors.Is(err, ErrSlugTaken):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, ErrDisabled):
+		return http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, ErrInvalidTarget), errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidNote),
+		errors.Is(err, errTTLFormat), errors.Is(err, errTTLShort):
+		return http.StatusBadRequest, err.Error()
+	}
+	return http.StatusInternalServerError, storageFailure
 }
 
 // Resolve returns the link a code points at, or ErrLinkNotFound.

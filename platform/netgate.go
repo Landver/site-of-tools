@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -94,32 +95,37 @@ type EgressGuard struct {
 	// the database host). Belt and braces beyond the address check, since those
 	// hosts resolve to public addresses and would otherwise pass.
 	denyHosts map[string]bool
-	// denyAddrs: this machine's own interface addresses, enumerated once at
+	// denyAddrs, denyPrefixes: interface and deny-list addresses, enumerated once at
 	// startup. Stops a request looping back into the origin behind Cloudflare.
-	denyAddrs map[netip.Addr]bool
+	denyAddrs    map[netip.Addr]bool
+	denyPrefixes []netip.Prefix
 	// allowLoopback: test-only seam. Never set in production; the constructor
 	// leaves it false and nothing exported can change it.
 	allowLoopback bool
 }
 
 // NewEgressGuard builds a guard allowing only the given ports, refusing the
-// given hostnames, and refusing every address of every local interface.
+// given hosts, addresses and prefixes, and every address of every local interface.
 //
 // Enumerating local interfaces can fail on an unusual host; that is non-fatal
 // and only forfeits the self-connection check, which the hostname deny list and
 // the routable check already cover in the ordinary case.
-func NewEgressGuard(ports []string, denyHosts []string) *EgressGuard {
+func NewEgressGuard(ports []string, deny []string) *EgressGuard {
 	g := &EgressGuard{
 		ports:     make(map[string]bool, len(ports)),
-		denyHosts: make(map[string]bool, len(denyHosts)),
+		denyHosts: make(map[string]bool, len(deny)),
 		denyAddrs: map[netip.Addr]bool{},
 	}
 	for _, p := range ports {
 		g.ports[p] = true
 	}
-	for _, h := range denyHosts {
+	for _, h := range deny {
 		h = strings.ToLower(strings.TrimSpace(h))
 		if h == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(h); err == nil {
+			g.denyPrefixes = append(g.denyPrefixes, p.Masked())
 			continue
 		}
 		// Callers pass a bare host, a host:port, or a full URL of any scheme.
@@ -137,7 +143,12 @@ func NewEgressGuard(ports []string, denyHosts []string) *EgressGuard {
 		} else if host, _, err := net.SplitHostPort(h); err == nil {
 			h = host
 		}
-		g.denyHosts[strings.TrimSuffix(h, ".")] = true
+		h = strings.TrimSuffix(strings.Trim(h, "[]"), ".")
+		if a, err := netip.ParseAddr(h); err == nil {
+			g.denyAddrs[a.Unmap().WithZone("")] = true
+			continue
+		}
+		g.denyHosts[h] = true
 	}
 	if addrs, err := net.InterfaceAddrs(); err == nil {
 		for _, a := range addrs {
@@ -178,9 +189,15 @@ func (g *EgressGuard) AllowHost(host string) error {
 	// A bare IP literal in a URL never needs resolution; judge it now so the
 	// caller gets a clear reason instead of a dial failure.
 	if addr, err := netip.ParseAddr(h); err == nil {
-		if !g.permitted(addr) {
-			return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
-		}
+		return g.AllowAddr(addr)
+	}
+	return nil
+}
+
+// AllowAddr is Control without the port check, for DNS probes to port 53.
+func (g *EgressGuard) AllowAddr(addr netip.Addr) error {
+	if g == nil || !g.permitted(addr) {
+		return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
 	}
 	return nil
 }
@@ -194,12 +211,18 @@ func (g *EgressGuard) AllowPort(port string) error {
 }
 
 func (g *EgressGuard) permitted(addr netip.Addr) bool {
-	addr = addr.Unmap()
+	// A zoned address never equals a map key or falls inside a prefix.
+	addr = addr.Unmap().WithZone("")
 	if g.allowLoopback && addr.IsLoopback() {
 		return true
 	}
 	if g.denyAddrs[addr] {
 		return false
+	}
+	for _, p := range g.denyPrefixes {
+		if p.Contains(addr) {
+			return false
+		}
 	}
 	return PubliclyRoutable(addr)
 }
@@ -221,10 +244,7 @@ func (g *EgressGuard) Control(_, address string, _ syscall.RawConn) error {
 		// unexpected, so refuse rather than guess.
 		return fmt.Errorf("%w: %q is not a literal address", ErrBlockedAddress, host)
 	}
-	if !g.permitted(addr) {
-		return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
-	}
-	return nil
+	return g.AllowAddr(addr)
 }
 
 // Dialer returns a net.Dialer whose every connection passes Control.
@@ -238,6 +258,11 @@ func (g *EgressGuard) DialContext(timeout time.Duration) func(context.Context, s
 	return d.DialContext
 }
 
+// Transport dials every request afresh and unproxied, so g judges each real destination.
+func (g *EgressGuard) Transport(timeout time.Duration) *http.Transport {
+	return &http.Transport{Proxy: nil, DialContext: g.DialContext(timeout), DisableKeepAlives: true}
+}
+
 // RateLimitKey normalises a client IP into a rate-limiting identifier.
 //
 // A bare IP is not a usable key over IPv6: an ordinary residential or mobile
@@ -245,17 +270,19 @@ func (g *EgressGuard) DialContext(timeout time.Duration) func(context.Context, s
 // limit at all — and every distinct address also allocates a bucket that is
 // held for the store's expiry window, which makes it a memory-growth path too.
 // IPv4 keys on the full address; IPv6 keys on the /64 prefix.
+// Unparseable junk (a forged CF-Connecting-IP) shares one bucket, not one per value.
 func RateLimitKey(ip string) string {
-	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
-	if err != nil {
-		return ip
-	}
-	addr = addr.Unmap()
-	if addr.Is4() {
-		return addr.String()
-	}
-	if p, err := addr.Prefix(64); err == nil {
+	s := strings.TrimSpace(ip)
+	if addr, err := netip.ParseAddr(s); err == nil {
+		addr = addr.Unmap()
+		if addr.Is4() {
+			return addr.String()
+		}
+		p, _ := addr.Prefix(64)
 		return p.String()
 	}
-	return addr.String()
+	if p, err := netip.ParsePrefix(s); err == nil && p.Addr().Is6() && p.Bits() == 64 {
+		return p.Masked().String()
+	}
+	return "unknown"
 }

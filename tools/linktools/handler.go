@@ -2,7 +2,6 @@ package linktools
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/Landver/site-of-tools/platform"
 )
@@ -28,36 +26,27 @@ const (
 	privacyDesc  = "What the Corpberry Link browser extension sends, stores and does not collect."
 )
 
-// Rate limits. Parsing is pure CPU with no upstream, so it is generous; the
-// routes that cost someone else bandwidth are not
-// (docs/06-security-and-abuse.md §4).
-const (
-	pureRatePerSecond  = 10
-	pureRateBurst      = 50
-	fetchRatePerSecond = 1
-	fetchRateBurst     = 5
-	rateLimitExpiry    = 3 * time.Minute
+// Limits are shared by every door; only routes costing others bandwidth are strict.
+type Limits struct {
+	Pure                   platform.Limiter
+	Fetch                  platform.Limiter // /trace
+	Short                  platform.Limiter
+	Resolve, ResolveGlobal platform.Limiter // /s/:code
+	FetchCap               *platform.Cap
+}
 
-	// The redirect breaker is deliberately high: it exists to stop one client
-	// saturating the shared Mongo, not to police ordinary use. A personal link
-	// shortener that legitimately serves 200 redirects a second does not exist.
-	redirectGlobalPerSecond = 200
-	redirectGlobalBurst     = 400
+func NewLimits() *Limits {
+	return &Limits{
+		Pure:          platform.NewLimiter(10, 50),
+		Fetch:         platform.NewLimiter(1, 5),
+		Short:         platform.NewLimiter(1, 5),
+		Resolve:       platform.NewLimiter(20, 60),
+		ResolveGlobal: platform.NewGlobalLimiter(200, 400),
+		FetchCap:      platform.NewCap(4),
+	}
+}
 
-	// Per-IP as well as global. The global breaker alone lets ONE source drain
-	// the shared bucket and 503 every other visitor, and it does not bound the
-	// case the resolve cache was written for either: a scanner walking RANDOM
-	// codes misses the cache every time, so each request is still a database
-	// round trip. These numbers are far above any human — a person following
-	// links does about one a second — and far below a scanner.
-	redirectPerIPPerSecond = 20
-	redirectPerIPBurst     = 60
-)
-
-// recentLimit bounds the key-gated console list.
-const recentLimit = 50
-
-const minTTL = time.Minute
+const RecentLimit = 50
 
 // handler: transport-layer dependencies for link.corpberry.com.
 //
@@ -71,6 +60,7 @@ type handler struct {
 	trace *Tracer
 	short *Shortener
 	base  string
+	lim   *Limits
 }
 
 // Register wires link.corpberry.com routes onto e. Query-param only and
@@ -93,14 +83,17 @@ type handler struct {
 //	GET  /encode            Encode / decode playground
 //	GET  /encoding          Percent-encoding reference
 //	GET  /extension/privacy Extension privacy policy
-func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string) {
+func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string, lim *Limits) {
 	if svc == nil {
 		panic("linktools.Register: svc is nil")
 	}
-	h := &handler{svc: svc, trace: trace, short: short, base: base}
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, trace: trace, short: short, base: base, lim: lim}
 
-	pure := rateLimiter(pureRatePerSecond, pureRateBurst)
-	fetch := rateLimiter(fetchRatePerSecond, fetchRateBurst)
+	pure := platform.RateLimit(lim.Pure, nil, limited)
+	keyed := platform.RateLimit(lim.Short, nil, limited)
 
 	e.GET("/", h.inspect, pure)
 	e.GET("/clean", h.clean, pure)
@@ -118,14 +111,14 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/extension/privacy", h.privacy)
 
 	// An empty form dials nothing, so it does not spend the trace budget.
-	e.GET("/trace", h.traceRoute, rateLimiterExcept(fetchRatePerSecond, fetchRateBurst, func(c *echo.Context) bool {
+	e.GET("/trace", h.traceRoute, platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
 		return strings.TrimSpace(c.QueryParam("u")) == ""
-	}))
+	}, limited))
 
 	// Both /short routes are on the strict limiter, not the pure one: the console
 	// is key-gated and reads the corpus, so it is not a cheap page (doc 06 §4).
-	e.GET("/short", h.shortConsole, fetch)
-	e.POST("/short", h.shortCreate, fetch)
+	e.GET("/short", h.shortConsole, keyed)
+	e.POST("/short", h.shortCreate, keyed)
 	// Two limiters, deliberately. A generous per-IP bound (20/s, burst 60 — far
 	// above any human following links, far below a scanner) stops one source
 	// walking random codes straight through the resolve cache into the shared
@@ -133,31 +126,16 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	// random code is a miss. The coarse global breaker then stops the aggregate
 	// from hurting the other subdomains (docs/04-short-links.md §7).
 	e.GET("/s/:code", h.redirect,
-		rateLimiter(redirectPerIPPerSecond, redirectPerIPBurst),
-		globalLimiter(redirectGlobalPerSecond, redirectGlobalBurst))
+		platform.RateLimit(lim.Resolve, nil, limited),
+		platform.RateLimit(lim.ResolveGlobal, nil, func(c *echo.Context) error {
+			return c.String(http.StatusServiceUnavailable, "busy, try again shortly")
+		}))
 
 	// Revoking an alias. Without this Revoke had no caller at all, so the
 	// "kill switch" §10 promises did not exist: a leaked key's links could not
 	// be taken down by any means short of editing the database by hand.
 	// Soft-delete only — the document stays so the code is never reissued.
-	e.DELETE("/short/:code", h.shortRevoke, fetch)
-}
-
-// reply picks the representation, and is the only place in this file that does.
-//
-// platform.Respond cannot stand in for it: every page template pulls .Title and
-// .Desc through partials/head, so handing it a bare domain struct makes
-// html/template fail the render, while handing it the view-model map would leak
-// Title/Desc into the JSON body. Same split dnstools uses.
-func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
-	platform.SetNegotiationHeaders(c, code)
-	switch {
-	case platform.WantsJSON(c):
-		return c.JSON(code, body)
-	case platform.IsHTMX(c):
-		return c.Render(code, frag, vm)
-	}
-	return c.Render(code, page, vm)
+	e.DELETE("/short/:code", h.shortRevoke, keyed)
 }
 
 // vm builds the view-model keys every page needs.
@@ -185,7 +163,7 @@ func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, 
 	if platform.WantsJSON(c) {
 		return true, apiError(c, http.StatusBadRequest, "no URL; pass ?u=, e.g. "+example)
 	}
-	return true, reply(c, http.StatusOK, nil, vm, page, frag)
+	return true, platform.Reply(c, http.StatusOK, nil, vm, page, frag)
 }
 
 func apiError(c *echo.Context, code int, msg string) error {
@@ -204,20 +182,19 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 	var msg string
 	switch WrongTool(raw) {
 	case ToolCurl:
-		msg = "That looks like a curl command, not a URL."
+		msg = CurlNotURL
 		label := "Take it apart on the curl page"
 		if page == "link/curl" {
 			label = "Take it apart instead"
 		}
 		vm["Suggest"] = suggestion{Label: label, Action: "/curl", Field: "curl", Value: raw}
 	case ToolExtract:
-		msg = "That looks like text with links in it, not one URL."
+		msg = TextNotURL
 		vm["Suggest"] = suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: raw}
 	default:
 		return false, nil
 	}
-	vm["Error"] = msg
-	return true, reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
+	return true, h.fail(c, vm, http.StatusBadRequest, msg, page)
 }
 
 // --- inspect ---------------------------------------------------------------
@@ -239,7 +216,7 @@ func (h *handler) inspect(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/index")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/index", "link/inspect")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/index", "link/inspect")
 }
 
 // --- clean -----------------------------------------------------------------
@@ -267,7 +244,7 @@ func (h *handler) clean(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/clean")
 	}
 	vm["Result"], vm["Groups"] = res, groupRemovals(res.Removed)
-	return reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
 }
 
 // removalGroup is one rule's removals, so the page prints its reason once.
@@ -316,7 +293,7 @@ func (h *handler) rules(c *echo.Context) error {
 	}
 	// Page and fragment differ, as on /short: serving the page to htmx would
 	// swap a whole <html> document into a div.
-	return reply(c, http.StatusOK, cat, vm, "link/rules", "link/rulestable")
+	return platform.Reply(c, http.StatusOK, cat, vm, "link/rules", "link/rulestable")
 }
 
 // --- diff ------------------------------------------------------------------
@@ -332,28 +309,19 @@ func (h *handler) diff(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return apiError(c, http.StatusBadRequest, "pass both ?a= and ?b=")
 		}
-		return reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
 	for _, side := range []string{a, b} {
 		if done, err := h.wrongTool(c, vm, side, "link/diff"); done {
 			return err
 		}
 	}
-	ia, err := h.svc.Parse(a)
+	res, err := h.svc.Diff(a, b)
 	if err != nil {
-		return h.badRequest(c, vm, sideError("A", err), "link/diff")
+		return h.badRequest(c, vm, err, "link/diff")
 	}
-	ib, err := h.svc.Parse(b)
-	if err != nil {
-		return h.badRequest(c, vm, sideError("B", err), "link/diff")
-	}
-	res := DiffInspections(ia, ib)
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
-}
-
-func sideError(side string, err error) error {
-	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
+	return platform.Reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
 }
 
 // --- trace -----------------------------------------------------------------
@@ -366,8 +334,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	vm["Disabled"] = h.trace == nil
 
 	if h.trace == nil {
-		return h.disabled(c, vm, "link/trace",
-			"Tracing is not enabled on this server.")
+		return h.fail(c, vm, http.StatusServiceUnavailable, "Tracing is not enabled on this server.", "link/trace")
 	}
 	if done, err := h.needURL(c, raw, vm, "link/trace", "link/chain",
 		"?u=http%3A%2F%2Fexample.com%2F"); done {
@@ -377,15 +344,19 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	if done, err := h.wrongTool(c, vm, raw, "link/trace"); done {
 		return err
 	}
+	if !h.lim.FetchCap.TryAcquire(c.RealIP(), 1) {
+		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/trace")
+	}
+	defer h.lim.FetchCap.Release(c.RealIP(), 1)
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
 		if errors.Is(err, ErrDisabled) {
-			return h.disabled(c, vm, "link/trace", "Tracing is not enabled on this server.")
+			return h.fail(c, vm, http.StatusServiceUnavailable, "Tracing is not enabled on this server.", "link/trace")
 		}
 		return h.badRequest(c, vm, err, "link/trace")
 	}
 	vm["Result"] = ch
-	return reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
+	return platform.Reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
 }
 
 // --- short links -----------------------------------------------------------
@@ -399,7 +370,7 @@ func (h *handler) shortOff(c *echo.Context, vm map[string]any) error {
 	if h.short == nil {
 		msg = "Short links are switched off on this server: no storage is configured, so links can be neither created nor followed."
 	}
-	return h.disabled(c, vm, "link/short", msg)
+	return h.fail(c, vm, http.StatusServiceUnavailable, msg, "link/short")
 }
 
 // shortConsole renders the create form, and the recent list ONLY to a caller
@@ -415,7 +386,7 @@ func (h *handler) shortConsole(c *echo.Context) error {
 	vm["Authed"] = authed
 	body := map[string]any{"enabled": true, "authorized": authed}
 	if authed {
-		links, err := h.short.Recent(c.Request().Context(), recentLimit)
+		links, err := h.short.Recent(c.Request().Context(), RecentLimit)
 		if err != nil {
 			return h.storageError(c, vm, err, "link/short")
 		}
@@ -429,18 +400,7 @@ func (h *handler) shortConsole(c *echo.Context) error {
 	// whole console, while an htmx request (the "Load aliases" button, which is
 	// the only thing that can send the X-Api-Key header) gets just the list.
 	// Returning the page to htmx would inject a full <html> document into a div.
-	return reply(c, http.StatusOK, body, vm, "link/short", "link/shortlist")
-}
-
-// createRequest is a TYPED struct with string fields only. Decoding into a
-// map or bson.M would let {"slug":{"$ne":null}} reach a Mongo filter as an
-// operator (docs/04-short-links.md §3).
-type createRequest struct {
-	URL   string `json:"url" form:"url"`
-	Slug  string `json:"slug" form:"slug"`
-	TTL   string `json:"ttl" form:"ttl"`
-	Note  string `json:"note" form:"note"`
-	Clean bool   `json:"clean" form:"clean"`
+	return platform.Reply(c, http.StatusOK, body, vm, "link/short", "link/shortlist")
 }
 
 func (h *handler) shortCreate(c *echo.Context) error {
@@ -451,88 +411,35 @@ func (h *handler) shortCreate(c *echo.Context) error {
 	if !h.short.Authorized(c.Request().Header.Get("X-Api-Key")) {
 		// Same body for a missing key and a wrong one: saying which is a free
 		// hint to anyone probing.
-		const msg = "Creating a short link needs a valid API key."
-		vm["Error"] = msg
-		return reply(c, http.StatusUnauthorized, map[string]string{"error": msg}, vm, "link/short", "link/error")
+		return h.fail(c, vm, http.StatusUnauthorized, "Creating a short link needs a valid API key.", "link/short")
 	}
 
-	var req createRequest
+	var req CreateRequest
 	if err := c.Bind(&req); err != nil {
 		return h.badRequest(c, vm, errors.New("could not read the request body"), "link/short")
 	}
-	opt := CreateOptions{Slug: req.Slug, Note: req.Note, Clean: req.Clean, CreatedIP: c.RealIP()}
-	if req.TTL != "" {
-		d, err := time.ParseDuration(req.TTL)
-		if err != nil {
-			return h.badRequest(c, vm, errors.New("ttl is not a duration, e.g. 720h"), "link/short")
-		}
-		// CreateOptions reads <= 0 as permanent; leaving ttl out asks for that.
-		if d < minTTL {
-			return h.badRequest(c, vm, errors.New("ttl must be at least 1m; leave it out for a link that never expires"), "link/short")
-		}
-		opt.TTL = d
-	}
-
-	link, err := h.short.Create(c.Request().Context(), req.URL, opt)
+	created, err := h.short.CreateFrom(c.Request().Context(), req, c.RealIP())
 	if err != nil {
-		return h.createError(c, vm, err)
+		code, msg := PublicError(err)
+		if code == http.StatusInternalServerError {
+			return h.storageError(c, vm, err, "link/short")
+		}
+		return h.fail(c, vm, code, msg, "link/short")
 	}
-	out := map[string]any{
-		"code": link.Code, "short": h.short.ShortURL(link.Code),
-		"target": link.Target, "created_at": link.CreatedAt,
-		"expires_at": link.ExpiresAt, "hits": link.Hits,
-	}
-	if link.Original != "" {
-		out["original"] = link.Original
-	}
-	if len(link.Cleaned) > 0 {
-		out["cleaned"] = link.Cleaned
-	}
-	vm["Created"] = map[string]any{
-		"Short": h.short.ShortURL(link.Code), "Target": link.Target, "Cleaned": link.Cleaned,
-		"Note": link.Note, "ExpiresAt": link.ExpiresAt,
-	}
+	vm["Created"] = created
 	listChanged(c)
-	return reply(c, http.StatusCreated, out, vm, "link/short", "link/created")
-}
-
-// createError maps the domain's sentinels onto status codes. 409 for a taken
-// slug is the one that matters: guessing what the caller meant and silently
-// appending a suffix is how "my-link-2" ends up in someone's slide deck.
-func (h *handler) createError(c *echo.Context, vm map[string]any, err error) error {
-	switch {
-	case errors.Is(err, ErrSlugTaken):
-		// 409, never a silently-suffixed slug: guessing what the caller meant
-		// is how "my-link-2" ends up in someone's slide deck.
-		return h.failErr(c, vm, http.StatusConflict, err, "link/short")
-	case errors.Is(err, ErrDisabled):
-		return h.failErr(c, vm, http.StatusServiceUnavailable, err, "link/short")
-	case errors.Is(err, ErrInvalidTarget), errors.Is(err, ErrInvalidSlug), errors.Is(err, ErrInvalidNote):
-		return h.failErr(c, vm, http.StatusBadRequest, err, "link/short")
-	}
-	// Anything else is a storage or driver failure. Those messages can carry
-	// connection strings and internal topology, so the client gets a fixed
-	// sentence and the detail goes to the log.
-	return h.storageError(c, vm, err, "link/short")
+	return platform.Reply(c, http.StatusCreated, created, vm, "link/short", "link/created")
 }
 
 // storageError logs the real error and returns a fixed 500 to the caller.
 func (h *handler) storageError(c *echo.Context, vm map[string]any, err error, page string) error {
 	c.Logger().Error("linktools storage error", "err", err, "path", c.Request().URL.Path)
-	const msg = "Something went wrong on our side. Nothing was changed."
-	return h.fail(c, vm, http.StatusInternalServerError, msg, page)
+	return h.fail(c, vm, http.StatusInternalServerError, storageFailure, page)
 }
 
 func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page string) error {
-	vm["Error"] = msg
-	return reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
-}
-
-// failErr gives JSON the Go error string, as the API always has, and the page
-// a sentence.
-func (h *handler) failErr(c *echo.Context, vm map[string]any, code int, err error, page string) error {
-	vm["Error"] = sentence(err.Error())
-	return reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
+	vm["Error"] = sentence(msg)
+	return platform.Reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
 // consoleRow is the console's view of a Link: everything the page renders and
@@ -597,7 +504,7 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 	}
 	vm["Revoked"] = c.Param("code")
 	listChanged(c)
-	return reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
+	return platform.Reply(c, http.StatusOK, map[string]string{"status": "revoked", "code": c.Param("code")},
 		vm, "link/short", "link/revoked")
 }
 
@@ -680,26 +587,12 @@ func (h *handler) curl(c *echo.Context) error {
 
 	postReset(c, "/curl")
 	if cmd != "" {
-		req, err := h.svc.FromCurlRequest(cmd)
+		res, err := h.svc.ParseCurl(cmd)
 		if err != nil {
 			return h.badRequest(c, vm, err, "link/curl")
 		}
-		in, perr := h.svc.Parse(req.URL)
-		if perr != nil {
-			return h.badRequest(c, vm, perr, "link/curl")
-		}
-		out := map[string]any{
-			"url": req.URL, "headers": req.Headers, "inspection": in,
-			"method": req.Method, "method_why": req.MethodWhy,
-		}
-		if req.BodyBytes > 0 {
-			out["body_bytes"] = req.BodyBytes
-		}
-		if len(req.Notes) > 0 {
-			out["notes"] = req.Notes
-		}
-		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = req.URL, req.Headers, in, req
-		return reply(c, http.StatusOK, out, vm, "link/curl", "link/curled")
+		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = res.URL, res.Headers, res.Inspection, res
+		return platform.Reply(c, http.StatusOK, res, vm, "link/curl", "link/curled")
 	}
 
 	if done, err := h.needURL(c, raw, vm, "link/curl", "link/curled",
@@ -720,7 +613,7 @@ func (h *handler) curl(c *echo.Context) error {
 	}
 	vm["Curl"], vm["Personas"], vm["Persona"] = line, Personas(), opt.Persona
 	vm["Follow"], vm["ShowHeaders"] = opt.FollowRedirects, opt.ShowHeaders
-	return reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
+	return platform.Reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
 // postReset drops an example chip's ?curl= or ?text= from the address bar
@@ -752,14 +645,14 @@ func (h *handler) extract(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return apiError(c, http.StatusBadRequest, "no text; pass ?text= or POST a text field")
 		}
-		return reply(c, http.StatusOK, nil, vm, "link/extract", "link/extracted")
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/extract", "link/extracted")
 	}
 	res, err := h.svc.Extract(text)
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/extract")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/extract", "link/extracted")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/extract", "link/extracted")
 }
 
 // --- utm -------------------------------------------------------------------
@@ -791,7 +684,10 @@ func (h *handler) utm(c *echo.Context) error {
 	for i, key := range UTMKeys {
 		v := strings.TrimSpace(c.QueryParam(key))
 		fields[i] = utmField{Name: key, Placeholder: utmHelp[key][0], Hint: utmHelp[key][1], Value: v}
-		typed[key] = v
+		// The form submits every field, so an empty one means keep, not remove.
+		if v != "" {
+			typed[key] = v
+		}
 		rare = rare || (i >= utmCommon && v != "")
 		anyTag = anyTag || v != ""
 	}
@@ -810,7 +706,7 @@ func (h *handler) utm(c *echo.Context) error {
 		return h.badRequest(c, vm, err, "link/utm")
 	}
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
 }
 
 // --- encode ----------------------------------------------------------------
@@ -825,20 +721,16 @@ func (h *handler) encode(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return apiError(c, http.StatusBadRequest, "no value; pass ?v=")
 		}
-		return reply(c, http.StatusOK, nil, vm, "link/encode", "link/encoded")
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/encode", "link/encoded")
 	}
 	res := EncodeAll(v)
 	vm["Result"] = res
-	return reply(c, http.StatusOK, res, vm, "link/encode", "link/encoded")
+	return platform.Reply(c, http.StatusOK, res, vm, "link/encode", "link/encoded")
 }
 
 // --- static pages ----------------------------------------------------------
 
-// encoding and privacy render directly rather than through reply, and that is
-// deliberate: both are static documents with no result to negotiate and no
-// fragment to swap, so a JSON representation would be an empty promise and an
-// htmx representation would be the whole page. Nothing links to either with
-// hx-get — adding one would need a fragment first (golden rule #2).
+// Static documents: no result to negotiate and no fragment to swap.
 func (h *handler) encoding(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/encoding",
 		h.vm("encoding", "Percent-encoding reference", encodingDesc, ""))
@@ -852,7 +744,7 @@ func (h *handler) privacy(c *echo.Context) error {
 // --- shared error paths ----------------------------------------------------
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
-	return h.failErr(c, vm, http.StatusBadRequest, err, page)
+	return h.fail(c, vm, http.StatusBadRequest, err.Error(), page)
 }
 
 func sentence(s string) string {
@@ -870,59 +762,19 @@ func sentence(s string) string {
 	return s
 }
 
-// disabled answers 503, never 502: nothing failed, the feature is not running.
-func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string) error {
-	vm["Error"] = msg
-	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, "link/error")
-}
-
 // --- middleware ------------------------------------------------------------
 
-func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
-	return rateLimiterExcept(rate, burst, nil)
-}
-
-func rateLimiterExcept(rate float64, burst int, skip func(*echo.Context) bool) echo.MiddlewareFunc {
-	store := middleware.NewRateLimiterMemoryStoreWithConfig(
-		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
-	)
-	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Skipper: skip,
-		Store:   store,
-		IdentifierExtractor: func(c *echo.Context) (string, error) {
-			// Normalised, not the bare IP: an ordinary IPv6 client holds a /64,
-			// so a per-address bucket is not a limit at all.
-			return platform.RateLimitKey(c.RealIP()), nil
-		},
-		DenyHandler: func(c *echo.Context, _ string, _ error) error {
-			const msg = "Too many requests from your address. Try again in a few seconds."
-			// A link back to the refused page; a POST can't be replayed by one.
-			retry := c.Request().URL.Path
-			if c.Request().Method == http.MethodGet {
-				retry = c.Request().URL.RequestURI()
-			}
-			return reply(c, http.StatusTooManyRequests,
-				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
-				"link/ratelimited", "link/error")
-		},
-	})
-}
-
-// globalLimiter buckets every caller together, deliberately. Per-IP limiting
-// cannot protect a shared resource from a distributed source, and the thing
-// being protected here is a database other subdomains depend on.
-func globalLimiter(rate float64, burst int) echo.MiddlewareFunc {
-	store := middleware.NewRateLimiterMemoryStoreWithConfig(
-		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
-	)
-	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store:               store,
-		IdentifierExtractor: func(*echo.Context) (string, error) { return "global", nil },
-		DenyHandler: func(c *echo.Context, _ string, _ error) error {
-			return c.String(http.StatusServiceUnavailable, "busy, try again shortly")
-		},
-	})
+func limited(c *echo.Context) error {
+	const msg = platform.LimitedMessage
+	// A link back to the refused page; a POST can't be replayed by one.
+	retry := c.Request().URL.Path
+	if c.Request().Method == http.MethodGet {
+		retry = c.Request().URL.RequestURI()
+	}
+	return platform.Reply(c, http.StatusTooManyRequests,
+		map[string]string{"error": msg},
+		map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
+		"link/ratelimited", "link/error")
 }
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.

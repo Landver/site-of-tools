@@ -8,8 +8,13 @@ package linktools
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -340,6 +345,79 @@ func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
 	for _, n := range last.Unlisted(ch.Notes) {
 		if n.Title == "Refused before connecting" {
 			t.Errorf("Unlisted still carries %q, which Findings already shows", n.Title)
+		}
+	}
+}
+
+// A target picks its headers and its certificate's names. Normal values are
+// kept as sent; oversized ones are clipped before a hop or note holds them.
+func TestTraceBoundsTargetChosenStrings(t *testing.T) {
+	normal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Server", "nginx/1.27.0")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Location", "/next?utm_source=a")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer normal.Close()
+	hop := trace(t, testTracer(t), normal.URL).Hops[0]
+	if hop.Server != "nginx/1.27.0" || hop.ContentType != "text/plain; charset=utf-8" || hop.Location != "/next?utm_source=a" {
+		t.Errorf("normal hop changed: server %q, type %q, location %q", hop.Server, hop.ContentType, hop.Location)
+	}
+
+	loc := "http://example.com/" + strings.Repeat("a", 5000)
+	hostile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Server", strings.Repeat("‮s", 10_000))
+		w.Header().Set("Content-Type", "text/html; "+strings.Repeat("c", 10_000))
+		w.Header().Set("Location", loc)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer hostile.Close()
+	ch := trace(t, testTracer(t), hostile.URL)
+	hop = ch.Hops[0]
+	for name, c := range map[string]struct {
+		got   string
+		limit int
+	}{
+		"server": {hop.Server, maxHeaderValue}, "content type": {hop.ContentType, maxHeaderValue}, "location": {hop.Location, maxLocation},
+	} {
+		if len(c.got) > c.limit || !strings.HasSuffix(c.got, "…") {
+			t.Errorf("%s is %d bytes, want at most %d and marked as cut", name, len(c.got), c.limit)
+		}
+	}
+	if !strings.Contains(noteText(ch), fmt.Sprintf("Location header is too long %d bytes", len(loc))) {
+		t.Errorf("oversized Location not reported:\n%s", noteText(ch))
+	}
+}
+
+func TestTransportNoteClipsOnlyTheCause(t *testing.T) {
+	longURL := "https://victim.example/" + strings.Repeat("p", 1000)
+	// Go itself summarises 100+ names, so the hostile certificate has fewer, longer ones.
+	names := make([]string, 99)
+	for i := range names {
+		names[i] = fmt.Sprintf("n%d.%s.example", i, strings.Repeat("a", 200))
+	}
+	tlsErr := func(u string, cert *x509.Certificate) error {
+		return &url.Error{Op: "Get", URL: u, Err: &tls.CertificateVerificationError{Err: x509.HostnameError{Certificate: cert, Host: "victim.example"}}}
+	}
+	const tlsTail = ". This is the finding, not an obstacle: the trace stops rather than retrying over plain HTTP or ignoring the certificate."
+
+	short := tlsErr(longURL, &x509.Certificate{DNSNames: []string{"other.example"}})
+	if got := transportNote(context.Background(), short); got.Detail != short.Error()+tlsTail {
+		t.Errorf("normal TLS note changed:\n%s", got.Detail)
+	}
+	plain := &url.Error{Op: "Get", URL: longURL, Err: errors.New("EOF")}
+	if got := transportNote(context.Background(), plain); got.Detail != plain.Error() {
+		t.Errorf("normal failure note changed: %s", got.Detail)
+	}
+
+	for _, err := range []error{
+		tlsErr(longURL, &x509.Certificate{DNSNames: names}),
+		&url.Error{Op: "Get", URL: longURL, Err: errors.New(`malformed HTTP response "` + strings.Repeat("x", 30_000) + `"`)},
+	} {
+		got := transportNote(context.Background(), err).Detail
+		prefix := `Get "` + longURL + `": `
+		if !strings.HasPrefix(got, prefix) || len(got) > len(prefix)+maxErrorText+len(tlsTail) || !strings.Contains(got, "…") {
+			t.Errorf("note is %d bytes, want the hop URL whole and the cause clipped: %.400s", len(got), got)
 		}
 	}
 }

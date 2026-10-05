@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/labstack/echo/v5"
 
@@ -102,5 +104,37 @@ func TestNegotiationHeaders(t *testing.T) {
 	}
 	if got := get("/h", htmx).Header().Get("HX-Push-Url"); got != "" {
 		t.Errorf("a successful fragment carries HX-Push-Url %q; only errors opt out of history", got)
+	}
+}
+
+// TestReply: API callers get the body, the browser the page and htmx the
+// fragment, each rendered from the view model, never the other way round.
+func TestReply(t *testing.T) {
+	e := echo.New()
+	e.Renderer = platform.NewRenderer(false, nil, platform.TemplateSource{Embed: fstest.MapFS{
+		"templates/reply.html": {Data: []byte(`{{define "t/page"}}page {{.V}}{{end}}{{define "t/frag"}}frag {{.V}}{{end}}`)},
+	}})
+	e.GET("/r", func(c *echo.Context) error {
+		return platform.Reply(c, http.StatusCreated, map[string]string{"body": "b"}, map[string]any{"V": "vm"}, "t/page", "t/frag")
+	})
+	tests := []struct {
+		name string
+		hdr  map[string]string
+		want string
+	}{
+		{"api", map[string]string{"Accept": "application/json"}, `{"body":"b"}`},
+		{"browser", map[string]string{"Accept": "text/html"}, "page vm"},
+		{"htmx", map[string]string{"Accept": "text/html", "HX-Request": "true"}, "frag vm"},
+	}
+	for _, tt := range tests {
+		req := httptest.NewRequest(http.MethodGet, "/r", nil)
+		for k, v := range tt.hdr {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if got := strings.TrimSpace(rec.Body.String()); rec.Code != http.StatusCreated || got != tt.want {
+			t.Errorf("%s: %d %q, want 201 %q", tt.name, rec.Code, got, tt.want)
+		}
 	}
 }

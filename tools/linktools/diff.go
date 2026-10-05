@@ -1,6 +1,8 @@
 package linktools
 
 import (
+	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,6 +55,26 @@ type Diff struct {
 	Params    []ParamChange `json:"params,omitempty"`
 	Identical bool          `json:"identical"`
 	Notes     []Note        `json:"notes,omitempty"`
+}
+
+func (s *Service) Diff(a, b string) (*Diff, error) {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return nil, errors.New("need two URLs to compare")
+	}
+	ia, err := s.Parse(a)
+	if err != nil {
+		return nil, sideError("A", err)
+	}
+	ib, err := s.Parse(b)
+	if err != nil {
+		return nil, sideError("B", err)
+	}
+	return DiffInspections(ia, ib), nil
+}
+
+func sideError(side string, err error) error {
+	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
 
 // DiffInspections compares two parsed URLs.

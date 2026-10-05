@@ -6,6 +6,8 @@ package tests
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/Landver/site-of-tools/platform"
 )
 
@@ -40,5 +42,31 @@ func TestURL(t *testing.T) {
 	prod := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
 	if got, want := prod.URL("ip"), "https://ip.corpberry.com"; got != want {
 		t.Errorf("prod URL = %q, want %q", got, want)
+	}
+}
+
+func TestLoadEgressDenyAddrs(t *testing.T) {
+	tests := []struct {
+		env  string
+		want []string
+	}{
+		{"", nil},
+		{"203.0.113.7", []string{"203.0.113.7"}},
+		{" 203.0.113.7, 2a01:4f8:c0c:1234::/64 ,,", []string{"203.0.113.7", "2a01:4f8:c0c:1234::/64"}},
+	}
+	for _, tt := range tests {
+		t.Setenv("EGRESS_DENY_ADDRS", tt.env)
+		if diff := cmp.Diff(tt.want, platform.Load().EgressDenyAddrs); diff != "" {
+			t.Errorf("EGRESS_DENY_ADDRS=%q (-want +got):\n%s", tt.env, diff)
+		}
+	}
+}
+
+func TestLoadMCPOwnerKey(t *testing.T) {
+	for _, want := range []string{"", "owner-key"} {
+		t.Setenv("MCP_OWNER_KEY", want)
+		if got := platform.Load().MCPOwnerKey; got != want {
+			t.Errorf("MCP_OWNER_KEY=%q loaded as %q", want, got)
+		}
 	}
 }

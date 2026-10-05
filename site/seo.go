@@ -25,7 +25,7 @@ const (
 // Method on Blog (not a package func) so platform.RegisterSEO can take it as
 // a per-request closure and pick up dev's live reload for free.
 func (b *Blog) sitemapPages() ([]platform.Page, error) {
-	posts, err := b.posts()
+	posts, err := b.Posts()
 	if err != nil {
 		return nil, err
 	}

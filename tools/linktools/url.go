@@ -59,6 +59,11 @@ const (
 	ToolExtract = "extract"
 )
 
+const (
+	CurlNotURL = "That looks like a curl command, not a URL."
+	TextNotURL = "That looks like text with links in it, not one URL."
+)
+
 // WrongTool names the page an input belongs on when it is plainly not one URL
 // (a curl command, or text with links), else "". It must never refuse a URL:
 // markup needs a quoted href (share and tracking links use ?href=), and text

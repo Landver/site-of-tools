@@ -23,6 +23,8 @@ const (
 	EncBase32    = "base32"
 )
 
+var byteEncodings = []string{EncUTF8, EncHex, EncBase64, EncBase64URL, EncBase32}
+
 // DecodeBytes reads s as enc. UTF-8 is taken verbatim, whitespace included,
 // because for a hash input the whitespace is the data. The other encodings
 // ignore whitespace (pasted values wrap) and report the offset of the first

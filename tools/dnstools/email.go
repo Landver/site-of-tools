@@ -5,15 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // Email authentication: SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI.
@@ -44,7 +43,7 @@ type EmailAuth struct {
 	// Receivers weigh FCrDNS heavily, and a mail server whose PTR doesn't
 	// round-trip gets scored down without anything in DNS looking wrong.
 	MailHosts []MailHost `json:"mail_hosts,omitempty"`
-	// MXRep: are these mail servers on a blocklist? Filled by the handler
+	// MXRep: are these mail servers on a blocklist? Filled by EmailReport
 	// from the shared corpus, which the domain layer cannot reach itself.
 	MXRep *MXReputation `json:"mx_reputation,omitempty"`
 	// MXCount: how many MX records the domain publishes, which is not always
@@ -237,6 +236,28 @@ var commonDKIMSelectors = []string{
 // answer is settled and further queries buy nothing. Without this, a record
 // with deeply nested includes turns one click into unbounded DNS traffic.
 const maxSPFIncludes = 15
+
+type Mailer interface {
+	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
+}
+
+// EmailReport is GET /email: EmailAuth, plus MXRep when rep and bl are wired and answer.
+func EmailReport(ctx context.Context, mail Mailer, rep Reputer, bl BlockChecker, name string) (*EmailAuth, error) {
+	if mail == nil {
+		return nil, ErrDisabled
+	}
+	name = NormalizeName(name)
+	res, err := mail.EmailAuth(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if rep != nil && bl != nil {
+		if mr, err := rep.MXReputation(ctx, name, bl); err == nil {
+			res.MXRep = mr
+		}
+	}
+	return res, nil
+}
 
 // EmailAuth runs every check concurrently.
 func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, error) {
@@ -797,41 +818,23 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 // maxSTSAge is RFC 8461 §3.2's ceiling on max_age, a little over a year.
 const maxSTSAge = 31557600
 
-// mtaSTSTransport carries the one outbound HTTP request this package makes.
-//
-// The address is attacker-chosen: any domain can publish a _mta-sts TXT and
-// point mta-sts.<domain> wherever it likes, and the reply is reflected back
-// into the page. So the dial is gated on the resolved address being publicly
-// routable — without that the fetch is a probe into whatever this container
-// can reach, and gating at dial time rather than on the hostname closes the
-// rebinding window between the two.
-var mtaSTSTransport http.RoundTripper = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	DialContext: (&net.Dialer{
-		Timeout:   5 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control:   dialPublicOnly,
-	}).DialContext,
-	MaxIdleConns:        4,
-	IdleConnTimeout:     30 * time.Second,
-	TLSHandshakeTimeout: 5 * time.Second,
+const maxQuotedHeader = 100
+
+// policyClient dials through g: any domain can point mta-sts.<domain> anywhere.
+func policyClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
+	tr := g.Transport(5 * time.Second)
+	tr.TLSHandshakeTimeout = 5 * time.Second
+	return &http.Client{Timeout: timeout, Transport: tr,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
-func dialPublicOnly(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
+// WithEgressGuard sends the MTA-STS fetch and every nameserver probe through g. Nil-safe.
+func (s *Service) WithEgressGuard(g *platform.EgressGuard) *Service {
+	if s != nil {
+		s.http = policyClient(s.http.Timeout, g)
+		s.guard = g
 	}
-	// Control runs after resolution, so this is always a literal.
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return fmt.Errorf("refusing to connect to %q", address)
-	}
-	ip = ip.Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-		return fmt.Errorf("refusing to fetch a policy from %s: not a public address", ip)
-	}
-	return nil
+	return s
 }
 
 func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, error) {
@@ -840,12 +843,7 @@ func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, err
 		return "", err
 	}
 	req.Header.Set("User-Agent", domainUserAgent)
-	// A copy, so the gated transport and the no-redirect rule apply to this
-	// fetch without changing the client the rest of the package shares.
-	client := *s.http
-	client.Transport = mtaSTSTransport
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
+	resp, err := s.http.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("policy file unreachable")
 	}
@@ -859,7 +857,7 @@ func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, err
 		return "", fmt.Errorf("policy file returned %d", resp.StatusCode)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "text/plain") {
-		return "", fmt.Errorf("policy file is served as %s, and RFC 8461 requires text/plain", ct)
+		return "", fmt.Errorf("policy file is served as %s, and RFC 8461 requires text/plain", platform.Clip(ct, maxQuotedHeader))
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return string(b), err

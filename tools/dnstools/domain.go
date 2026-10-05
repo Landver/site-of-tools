@@ -13,7 +13,12 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // ErrDisabled: this half of the client has no URL configured, so there is
@@ -25,6 +30,8 @@ var ErrDisabled = errors.New("this lookup is switched off")
 // errUpstreamNotFound: the upstream answered 404. Kept apart from a transport
 // failure because for RDAP a 404 is an answer, not a breakdown.
 var errUpstreamNotFound = errors.New("upstream has no record")
+
+var errUpstreamBusy = errors.New("busy, try again shortly")
 
 // errNoRDAPRecord: the registry answered, and what it said is that it holds no
 // object for this name (RFC 7480 §5.3). Surfacing that as a failed lookup
@@ -133,23 +140,92 @@ const maxSubdomains = 200
 // maxResponseBytes bounds what we read from either upstream.
 const maxResponseBytes = 8 << 20
 
+// rdap.org and crt.sh throttle a busy address, and all our requests come from one.
+const (
+	upstreamPerSecond = 1
+	upstreamBurst     = 5
+)
+
 // DomainClient talks to RDAP and Certificate Transparency. nil disables both.
 type DomainClient struct {
-	client  *http.Client
-	rdapURL string
-	ctURL   string
+	client             *http.Client
+	rdapURL            string
+	ctURL              string
+	rdapLimit, ctLimit *rate.Limiter
 }
+
+var errRedirectRefused = errors.New("redirect refused")
 
 // NewDomainClient builds the client. Blank URLs disable that half.
 func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient {
 	if rdapURL == "" && ctURL == "" {
 		return nil
 	}
-	return &DomainClient{
-		client:  &http.Client{Timeout: timeout},
-		rdapURL: strings.TrimSuffix(rdapURL, "/"),
-		ctURL:   strings.TrimSuffix(ctURL, "/"),
+	d := &DomainClient{
+		rdapURL:   strings.TrimSuffix(rdapURL, "/"),
+		ctURL:     strings.TrimSuffix(ctURL, "/"),
+		rdapLimit: rate.NewLimiter(upstreamPerSecond, upstreamBurst),
+		ctLimit:   rate.NewLimiter(upstreamPerSecond, upstreamBurst),
 	}
+	d.client = d.httpClient(timeout, platform.NewEgressGuard([]string{"80", "443"}, nil))
+	return d
+}
+
+// WithEgressGuard sends every dial off the configured hosts through g. Nil-safe.
+func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
+	if d != nil {
+		d.client = d.httpClient(d.client.Timeout, g)
+	}
+	return d
+}
+
+func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
+	base := map[string]bool{}
+	for _, raw := range []string{d.rdapURL, d.ctURL} {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" {
+			base[hostPort(u)] = true
+		}
+	}
+	direct := &net.Dialer{Timeout: timeout}
+	tr := g.Transport(timeout)
+	gated := tr.DialContext
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if base[strings.ToLower(addr)] {
+			return direct.DialContext(ctx, network, addr)
+		}
+		return gated(ctx, network, addr)
+	}
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			switch {
+			case len(via) >= 10:
+				return errors.New("stopped after 10 redirects")
+			// Plain HTTP too: .kg and .mg RDAP has no HTTPS, and g vets the address.
+			case req.URL.Scheme != "https" && req.URL.Scheme != "http":
+				return errRedirectRefused
+			case base[hostPort(req.URL)]:
+				return nil
+			}
+			// By name too: our own vhosts resolve to public addresses.
+			if err := g.AllowHost(req.URL.Hostname()); err != nil {
+				return fmt.Errorf("%w: %w", errRedirectRefused, err)
+			}
+			return nil
+		},
+		Transport: tr,
+	}
+}
+
+func hostPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "443"
+		if u.Scheme == "http" {
+			port = "80"
+		}
+	}
+	return strings.ToLower(net.JoinHostPort(u.Hostname(), port))
 }
 
 func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error {
@@ -166,7 +242,10 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	if err != nil {
 		// Plain words: the raw error embeds the whole request URL.
 		var nerr net.Error
-		if errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
+		switch {
+		case errors.Is(err, errRedirectRefused), errors.Is(err, platform.ErrBlockedAddress), errors.Is(err, platform.ErrBlockedPort):
+			return fmt.Errorf("%s redirected somewhere this tool won't follow", req.URL.Host)
+		case errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded):
 			return fmt.Errorf("%s timed out", req.URL.Host)
 		}
 		return fmt.Errorf("couldn't reach %s", req.URL.Host)
@@ -238,6 +317,9 @@ type rdapResponse struct {
 func (d *DomainClient) Registration(ctx context.Context, domain string) (*Registration, error) {
 	if d == nil || d.rdapURL == "" {
 		return nil, ErrDisabled
+	}
+	if !d.rdapLimit.Allow() {
+		return nil, errUpstreamBusy
 	}
 	asked := strings.ToLower(strings.TrimSuffix(domain, "."))
 	var r rdapResponse
@@ -347,6 +429,9 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 	if d == nil || d.ctURL == "" {
 		return nil, ErrDisabled
 	}
+	if !d.ctLimit.Allow() {
+		return nil, errUpstreamBusy
+	}
 	var rows []ctRow
 	q := url.Values{
 		"q":       {"%." + strings.TrimSuffix(domain, ".")},
@@ -408,6 +493,73 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 		out.Truncated = true
 	}
 	return out, nil
+}
+
+// DomainReport is GET /domain's body; Err judges it as a whole.
+type DomainReport struct {
+	CertNames         *CertNames    `json:"certificate_names,omitempty"`
+	CertNamesError    string        `json:"certificate_names_error,omitempty"`
+	Delegated         bool          `json:"delegated,omitempty"`
+	Name              string        `json:"name"`
+	RegistrableDomain string        `json:"registrable_domain,omitempty"`
+	Registration      *Registration `json:"registration,omitempty"`
+	RegistrationError string        `json:"registration_error,omitempty"`
+
+	RegErr  error `json:"-"`
+	CertErr error `json:"-"`
+}
+
+// DomainInfo's error is bad input only: an upstream failing lands in the report.
+func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string) (*DomainReport, error) {
+	name = NormalizeName(name)
+	if err := needDomain(name); err != nil {
+		return nil, err
+	}
+	out := &DomainReport{Name: name}
+	regName := RegistrableDomain(name)
+	if regName != name {
+		out.RegistrableDomain = regName
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go safe(func() {
+		defer wg.Done()
+		out.RegErr = errPanic
+		out.Registration, out.RegErr = dom.Registration(ctx, regName)
+	})
+	go safe(func() {
+		defer wg.Done()
+		out.CertErr = errPanic
+		out.CertNames, out.CertErr = dom.CertNames(ctx, name)
+	})
+	wg.Wait()
+
+	if out.RegErr != nil {
+		out.RegistrationError = out.RegErr.Error()
+		// Nameservers mean registered, whatever the TLD's RDAP says (.de has none).
+		if errors.Is(out.RegErr, errNoRDAPRecord) {
+			if set, err := svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
+				out.Delegated = true
+				out.RegistrationError = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
+			}
+		}
+	}
+	if out.CertErr != nil {
+		out.CertNamesError = out.CertErr.Error()
+	}
+	return out, nil
+}
+
+func (r *DomainReport) Err() error {
+	switch {
+	case errors.Is(r.RegErr, ErrDisabled) && errors.Is(r.CertErr, ErrDisabled):
+		return ErrDisabled
+	case r.RegErr != nil && r.CertErr != nil && !r.Delegated:
+		// %s, not %w: one half being switched off must not read as both.
+		return fmt.Errorf("registration: %s; certificate transparency: %s", r.RegistrationError, r.CertNamesError)
+	}
+	return nil
 }
 
 // date trims an RFC3339-ish timestamp to the day, which is all these fields

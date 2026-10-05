@@ -26,7 +26,7 @@ func TestNilRequestLogIsSafe(t *testing.T) {
 }
 
 // TestShouldRecord: page requests persisted, static assets not — high volume,
-// no analytic value.
+// no analytic value — and MCP not, which records each message itself.
 func TestShouldRecord(t *testing.T) {
 	cases := map[string]bool{
 		"/":                   true,
@@ -34,6 +34,9 @@ func TestShouldRecord(t *testing.T) {
 		"/history":            true,
 		"/static/css/app.css": false,
 		"/static/js/htmx.js":  false,
+		"/mcp":                false,
+		"/mcp/ip":             false,
+		"/mcpx":               true,
 	}
 	for path, want := range cases {
 		if got := platform.ShouldRecord(path); got != want {

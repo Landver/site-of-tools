@@ -29,8 +29,7 @@ import (
 )
 
 // BlockChecker: the two things this feature needs from the shared IP blocklist
-// corpus. Declared here, as an interface, for the reason Mailer and Spreader
-// are declared in handler.go: dnstools must not open its own Mongo handle, and
+// corpus. An interface because dnstools must not open its own Mongo handle, and
 // a nil dependency has to mean "this card is not rendered" rather than a
 // panic. *iptools.BlockList satisfies it; a test fakes it in six lines.
 //
@@ -59,9 +58,7 @@ type BlockChecker interface {
 // refuses to run at all.
 //
 // MXReputation re-checks for the typed nil itself, so this is the documented
-// front door rather than the only lock on it. main.go hands the bare
-// *BlockList to iptools.Register and botcheck.Register, so passing it raw here
-// is the mistake the house wiring style invites.
+// front door rather than the only lock on it.
 func BlockCheckerFrom(bl *iptools.BlockList) BlockChecker {
 	if bl == nil {
 		return nil
@@ -571,7 +568,7 @@ func (s *Service) repAddresses(ctx context.Context, host, addr string) ([]string
 			if len(ips) >= repMaxAddrsPerHost {
 				break
 			}
-			if seen[rec.Value] || !routable(rec.Value) {
+			if seen[rec.Value] || !iptools.Routable(rec.Value) {
 				continue
 			}
 			seen[rec.Value] = true

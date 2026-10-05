@@ -791,3 +791,49 @@ func Rules() RuleCatalog {
 		Wrappers:   slices.Clone(wrappers),
 	}
 }
+
+type RuleSummary struct {
+	Version    string `json:"version"`
+	Scope      string `json:"scope"`
+	Tracking   int    `json:"tracking"`
+	NeverStrip int    `json:"never_strip"`
+	Wrappers   int    `json:"wrappers"`
+}
+
+func (c RuleCatalog) Summary() RuleSummary {
+	return RuleSummary{
+		Version: c.Version, Scope: c.Scope,
+		Tracking: len(c.Tracking), NeverStrip: len(c.NeverStrip), Wrappers: len(c.Wrappers),
+	}
+}
+
+type RuleMatches struct {
+	Param      string `json:"param"`
+	Tracking   []Rule `json:"tracking"`
+	NeverStrip []Deny `json:"never_strip"`
+}
+
+// Matches lists the rules naming param as Clean's lookup does; Verdict says which fires.
+func (c RuleCatalog) Matches(param string) RuleMatches {
+	k := strings.ToLower(strings.TrimSpace(param))
+	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}
+	names := func(p string, prefix bool) bool {
+		if prefix {
+			return strings.HasPrefix(k, p)
+		}
+		return k == p
+	}
+	for _, prefix := range []bool{false, true} {
+		for _, r := range c.Tracking {
+			if r.Prefix == prefix && names(r.Param, prefix) {
+				out.Tracking = append(out.Tracking, r)
+			}
+		}
+		for _, d := range c.NeverStrip {
+			if d.Prefix == prefix && names(d.Param, prefix) {
+				out.NeverStrip = append(out.NeverStrip, d)
+			}
+		}
+	}
+	return out
+}

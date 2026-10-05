@@ -94,6 +94,8 @@ type EnvInfo struct {
 // "no fingerprint posted" (plain curl) → client checks skip, not pass.
 type Signals struct {
 	ClientCollected bool `json:"-"`
+	HeadersSupplied bool `json:"-"`
+	IPSupplied      bool `json:"-"`
 
 	// CollectorV = payload version collector stamps ("v" key). Rules
 	// damning-when-false (G04 deep-tamper: missing key → false) must skip
@@ -231,6 +233,8 @@ type Signals struct {
 	// FingerprintIPs. Handler-filled from Mongo on POST /check only; 0 = no
 	// corpus data → ip_fingerprint_churn treats as no signal, never evidence.
 	FingerprintChurn int `json:"-"`
+	// CorpusSkipped: corpus not consulted (a synthetic payload mustn't train it), so its rules skip.
+	CorpusSkipped bool `json:"-"`
 	// IP blocklist (G37), handler-filled from shared ip_blocklist corpus
 	// (ipsum feed + any other service writing flagged IPs). Sources = distinct
 	// sources w/ this egress IP listed; empty = not listed / corpus off →
@@ -295,6 +299,7 @@ type Report struct {
 	Score         int          `json:"score"`
 	Verdict       string       `json:"verdict"` // "human" | "suspicious" | "bot" | "good-bot"
 	Bot           *BotIdentity `json:"bot,omitempty"`
+	Coverage      Coverage     `json:"coverage"`
 	Checks        []Check      `json:"checks"`
 	ClientPayload *Signals     `json:"clientPayload,omitempty"`
 	// FingerprintIPs: corpus count behind fingerprint_reuse (G41/G42) —
@@ -305,6 +310,41 @@ type Report struct {
 	// distinct fingerprints, this IP, rolling churn window. 0 = corpus off or
 	// no rotation → omitempty/HTML hide it.
 	FingerprintChurn int `json:"fingerprintChurn,omitempty"`
+}
+
+type Coverage struct {
+	Hard        TierCoverage `json:"hard"`
+	Consistency TierCoverage `json:"consistency"`
+	Soft        TierCoverage `json:"soft"`
+}
+
+// TierCoverage: Evaluated + Skipped = the tier's checks; Fired counts suppressed good-bot hits too.
+type TierCoverage struct {
+	Evaluated int `json:"evaluated"`
+	Skipped   int `json:"skipped"`
+	Fired     int `json:"fired"`
+}
+
+func (c *Coverage) add(ch Check) {
+	var t *TierCoverage
+	switch ch.Tier {
+	case TierHard:
+		t = &c.Hard
+	case TierConsistency:
+		t = &c.Consistency
+	case TierSoft:
+		t = &c.Soft
+	default:
+		return
+	}
+	if ch.Skipped {
+		t.Skipped++
+		return
+	}
+	t.Evaluated++
+	if ch.Triggered {
+		t.Fired++
+	}
 }
 
 // RawJSON: client-collected fingerprint half as indented JSON, raw-dump
@@ -408,10 +448,14 @@ func Evaluate(s Signals) Report {
 	suppress := bot != nil && bot.Verified
 
 	checks := make([]Check, 0, len(rules))
+	var coverage Coverage
 	deduction := 0
 
 	for _, r := range rules {
-		skipped := r.needsClient && !s.ClientCollected
+		skipped := r.needsClient && !s.ClientCollected ||
+			r.needsHeaders && !s.HeadersSupplied ||
+			r.needsIP && !s.IPSupplied ||
+			r.needsCorpus && s.CorpusSkipped
 		triggered, detail := false, ""
 		if !skipped {
 			triggered, detail = r.eval(s)
@@ -432,13 +476,14 @@ func Evaluate(s Signals) Report {
 			}
 		}
 		checks = append(checks, c)
+		coverage.add(c)
 	}
 
 	// SoftClusterActive (SoftFired ≥ softComboThreshold) = single source of
 	// truth for soft-cluster rule, shared w/ display helpers. FingerprintIPs
 	// carries corpus count straight to report — input like any Signals field
 	// → Evaluate stays pure.
-	report := Report{Checks: checks, Bot: bot, FingerprintIPs: s.FingerprintIPs, FingerprintChurn: s.FingerprintChurn}
+	report := Report{Checks: checks, Coverage: coverage, Bot: bot, FingerprintIPs: s.FingerprintIPs, FingerprintChurn: s.FingerprintChurn}
 	if report.SoftClusterActive() {
 		deduction += softComboWeight
 	}

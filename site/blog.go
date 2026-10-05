@@ -28,6 +28,8 @@ type Post struct {
 	Image string
 	Draft bool
 	HTML  template.HTML
+	// Markdown is the body as written, frontmatter stripped; kept out of REST JSON.
+	Markdown string `json:"-"`
 }
 
 // DateLayout: frontmatter `date` format. Dates must be quoted in frontmatter
@@ -88,14 +90,36 @@ func parsePost(fsys fs.FS, p string) (Post, error) {
 		return Post{}, err
 	}
 	return Post{
-		Slug:  slugFromFilename(p),
-		Title: title,
-		Date:  date,
-		Desc:  metaString(m, "description"),
-		Image: metaString(m, "image"),
-		Draft: m["draft"] == true,
-		HTML:  template.HTML(buf.String()),
+		Slug:     slugFromFilename(p),
+		Title:    title,
+		Date:     date,
+		Desc:     metaString(m, "description"),
+		Image:    metaString(m, "image"),
+		Draft:    m["draft"] == true,
+		HTML:     template.HTML(buf.String()),
+		Markdown: stripFrontmatter(src),
 	}, nil
+}
+
+// stripFrontmatter follows goldmark-meta: a first line of only dashes, closed by the next such line.
+func stripFrontmatter(src []byte) string {
+	first, rest, ok := bytes.Cut(src, []byte("\n"))
+	if !ok || !isDashes(first) {
+		return string(src)
+	}
+	for len(rest) > 0 {
+		var line []byte
+		line, rest, _ = bytes.Cut(rest, []byte("\n"))
+		if isDashes(line) {
+			return strings.TrimLeft(string(rest), "\r\n")
+		}
+	}
+	return ""
+}
+
+func isDashes(line []byte) bool {
+	line = bytes.TrimSpace(line)
+	return len(line) > 0 && len(bytes.Trim(line, "-")) == 0
 }
 
 // slugFromFilename: "2026-07-28-some-title.md" → "some-title"; a file with no

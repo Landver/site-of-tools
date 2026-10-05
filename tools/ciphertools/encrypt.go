@@ -29,7 +29,31 @@ import (
 // draws a fresh random nonce.
 
 func init() {
-	register(Op{Name: "encrypt", Path: "/encrypt", Page: "encrypt", Fragment: "cipher/encrypt-result", Run: runEncrypt})
+	register(Op{Name: "encrypt", Path: "/encrypt", Page: "encrypt", Fragment: "cipher/encrypt-result", Run: runEncrypt,
+		Fields: []Field{
+			{Name: "mode", Kind: KindEnum, Enum: []string{"encrypt", "decrypt"}, Default: "encrypt",
+				Description: "encrypt text, or decrypt data."},
+			{Name: "algo", Kind: KindEnum, Enum: []string{CipherAESGCM, CipherChaCha20, CipherAESCBC}, Default: CipherAESGCM,
+				Description: "The cipher: aes-gcm or chacha20-poly1305 (authenticated: 12-byte nonce, 16-byte tag), or aes-cbc (unauthenticated: 16-byte IV, PKCS#7 padding) for systems that require it."},
+			{Name: "key", Kind: KindString,
+				Description: "The key, read per key_enc: exactly 16, 24 or 32 bytes for AES, 32 for ChaCha20-Poly1305; required to decrypt, while encrypting without one makes a random 32-byte key and returns it as generated_key."},
+			{Name: "key_enc", Kind: KindEnum, Enum: []string{EncHex, EncBase64, EncBase64URL}, Default: EncHex,
+				Description: "How key is written; utf8 is refused, because a passphrase is not a key."},
+			{Name: "nonce", Kind: KindString,
+				Description: "The nonce (the IV for aes-cbc) as hex, 12 bytes or 16 for aes-cbc; omit it to encrypt with a random one, or to decrypt data that starts with it."},
+			{Name: "aad", Kind: KindString,
+				Description: "Associated data for aes-gcm and chacha20-poly1305, read per aad_enc: authenticated but not encrypted, so decrypting needs the same."},
+			{Name: "aad_enc", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+				Description: "How aad is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first."},
+			{Name: "text", Kind: KindString,
+				Description: "The plaintext to encrypt (mode encrypt), read per enc."},
+			{Name: "enc", Kind: KindEnum, Enum: byteEncodings, Default: EncUTF8,
+				Description: "How text is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first."},
+			{Name: "data", Kind: KindString,
+				Description: "The ciphertext to decrypt (mode decrypt), as base64 or hex: an encrypt's combined output, nonce ‖ ciphertext ‖ tag, or iv ‖ ciphertext for aes-cbc."},
+			{Name: "data_enc", Kind: KindEnum, Enum: []string{EncAuto, EncBase64, EncBase64URL, EncHex}, Default: EncAuto,
+				Description: "How data is written; auto reads all-hex data as hex and anything else as base64."},
+		}})
 }
 
 // Cipher ids: the algo field's values.

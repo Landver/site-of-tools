@@ -1,0 +1,260 @@
+package mcptools
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/dnstools"
+	"github.com/Landver/site-of-tools/tools/iptools"
+)
+
+type dnsLookupArgs struct {
+	Name     string `json:"name" jsonschema:"the domain, e.g. example.com (a pasted URL or email address is cut to its domain), or an IP address for its PTR name"`
+	Type     string `json:"type,omitempty" jsonschema:"one record type, or ALL for every common type at once"`
+	Resolver string `json:"resolver,omitempty" jsonschema:"the public resolver to ask"`
+	Detailed bool   `json:"detailed,omitempty" jsonschema:"also return every record as a zone-file line and the dig command for each type"`
+}
+
+type dnsConsistencyArgs struct {
+	Name     string `json:"name" jsonschema:"the domain, e.g. example.com; a pasted URL is cut to its host"`
+	Type     string `json:"type,omitempty" jsonschema:"the record type to compare"`
+	Detailed bool   `json:"detailed,omitempty" jsonschema:"repeat each server's values beside it instead of naming its group"`
+}
+
+type dnsTraceArgs struct {
+	Name string `json:"name" jsonschema:"the name to walk down to, e.g. www.example.com; a pasted URL is cut to its host"`
+	Type string `json:"type,omitempty" jsonschema:"the record type to ask for at the end of the walk"`
+}
+
+type dnsDomainArgs struct {
+	Name     string `json:"name" jsonschema:"the domain, e.g. github.com; a subdomain's registration is its registrable domain's"`
+	Detailed bool   `json:"detailed,omitempty" jsonschema:"list up to 200 names with their certificate dates and counts, not the first 50 names"`
+}
+
+type dnsEmailArgs struct {
+	Name string `json:"name" jsonschema:"the mail domain, e.g. example.com; a pasted email address is cut to its domain"`
+}
+
+const certNames = 50
+
+var errUnavailable = errors.New(dnstools.UnavailableMessage)
+
+type dnsTools struct {
+	svc  dnstools.Looker
+	spr  dnstools.Spreader
+	ecs  dnstools.ECSer
+	tra  dnstools.Tracer
+	mail dnstools.Mailer
+	rep  dnstools.Reputer
+	geo  iptools.Looker
+	dom  *dnstools.DomainClient
+	bl   dnstools.BlockChecker
+}
+
+func dnsSpecs(d Deps) []toolSpec {
+	if d.DNS == nil {
+		return nil
+	}
+	t := dnsTools{svc: d.DNS, geo: d.DNSGeo, dom: d.Domain, bl: d.DNSBlocklist}
+	t.spr, t.ecs, t.tra, t.mail, t.rep = dnstools.Checks(d.DNS)
+	lim := d.DNSLimits
+	resolvers := make([]string, len(dnstools.Resolvers))
+	for i, r := range dnstools.Resolvers {
+		resolvers[i] = r.Key
+	}
+
+	var specs []toolSpec
+	spec := func(on bool, s toolSpec) {
+		if on {
+			s.toolset, s.deadline, s.tool.Annotations = "dns", upstreamDeadline, readOnly(true)
+			specs = append(specs, s)
+		}
+	}
+	spec(true, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_lookup",
+			Title: "DNS lookup",
+			Description: "Look up a domain's DNS records through a public resolver: by default every common type at once " +
+				"(A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, HTTPS), or one type, with TTLs, the CNAME chain, DNSSEC flags and the network behind each address. " +
+				"Types with no records are listed in missing, nxdomain means the name doesn't exist, and failed says why a type's query didn't answer. " +
+				"Pass an IP address for its PTR name. " +
+				"For whether every nameserver gives the same answer use dns_consistency; for the delegation from the root, dns_trace. " +
+				"Example: name example.com, type MX. " + thirdParty,
+			InputSchema: inputSchema[dnsLookupArgs](minLength("name", 1),
+				oneOf("type", append([]string{"ALL"}, dnstools.Types...)), defaultTo("type", "ALL"),
+				oneOf("resolver", resolvers), defaultTo("resolver", dnstools.DefaultResolver)),
+		},
+		limiter: lim.Lookup,
+		cap:     lim.LookupCap,
+		narrow:  "Ask for one record type instead of ALL, and leave detailed off.",
+		add:     handle(t.lookup),
+	})
+	spec(t.spr != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_consistency",
+			Title: "DNS consistency",
+			Description: "Check whether a DNS change has reached everywhere: asks the zone's own nameservers directly (up to 8) and the public resolvers, " +
+				"then groups the answers and compares SOA serials, cache ages and delegation health. " +
+				"consistent means every server returned the same records; auth_consistent that the zone's own servers agree, " +
+				"so resolvers that differ are only caching or steering by location. " +
+				"Each server names its answer by index into groups. Example: name example.com, type TXT. " + thirdParty,
+			InputSchema: inputSchema[dnsConsistencyArgs](minLength("name", 1),
+				oneOf("type", dnstools.Types), defaultTo("type", "A")),
+		},
+		limiter: lim.Walk,
+		cap:     lim.WalkCap,
+		narrow:  "Leave detailed off.",
+		add:     handle(t.consistency),
+	})
+	spec(t.tra != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_trace",
+			Title: "DNS trace",
+			Description: "Walk a name's DNS delegation down from a root server, one zone cut at a time with recursion off, " +
+				"and check the DNSSEC chain of trust against the IANA root trust anchors. " +
+				"Each hop names the server that answered, its round-trip time, the nameservers it referred to and whether glue came with them; " +
+				"dnssec is secure, insecure (unsigned: the common case, not a fault), bogus or indeterminate. " +
+				"Use it for a broken delegation or a lame nameserver; for the records themselves, use dns_lookup. Example: name www.example.com. " + thirdParty,
+			InputSchema: inputSchema[dnsTraceArgs](minLength("name", 1),
+				oneOf("type", dnstools.Types), defaultTo("type", "A")),
+		},
+		limiter: lim.Walk,
+		cap:     lim.WalkCap,
+		add:     handle(t.trace),
+	})
+	spec(t.dom != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_domain_info",
+			Title: "Domain info",
+			Description: "Who registered a domain and which names exist under it: the registration from RDAP " +
+				"(registrar, created and expiry dates, days left, lock statuses explained, nameservers, DNSSEC) " +
+				"and the subdomains Certificate Transparency logs have seen. " +
+				"Neither lookup sends anything to the domain itself, and when one fails the other still comes back, with the failure named. " +
+				"Lists the first 50 names with the total; detailed: true lists up to 200 with their certificate dates. Example: name github.com. " + thirdParty,
+			InputSchema: inputSchema[dnsDomainArgs](minLength("name", 1)),
+		},
+		limiter: lim.Lookup,
+		cap:     lim.DomainCap,
+		narrow:  "Leave detailed off.",
+		add:     handle(t.domain),
+	})
+	spec(t.mail != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_email_auth",
+			Title: "Email authentication",
+			Description: "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), " +
+				"DMARC policy strength, DKIM keys at common selectors, MTA-STS with its policy fetched over HTTPS, TLS-RPT and BIMI, " +
+				"plus each mail server's reverse DNS and whether a blocklist lists it. " +
+				"notes carry the findings, worst first. Example: name example.com. " + thirdParty,
+			InputSchema: inputSchema[dnsEmailArgs](minLength("name", 1)),
+		},
+		limiter: lim.Lookup,
+		cap:     lim.LookupCap,
+		add:     handle(t.email),
+	})
+	return specs
+}
+
+func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLookupArgs) (any, error) {
+	set, err := dnstools.LookupEnriched(ctx, t.svc, t.geo, a.Name, a.Type, a.Resolver)
+	if err != nil {
+		return nil, err
+	}
+	out, err := object(set)
+	if err != nil {
+		return nil, err
+	}
+	if !a.Detailed {
+		delete(out, "zone")
+		delete(out, "dig")
+	} else if set.Zone != "" {
+		// A line per record, so the string cap can only cut one long record.
+		out["zone"] = strings.Split(strings.TrimSuffix(set.Zone, "\n"), "\n")
+	}
+	out["attribution"] = credits(platform.CreditIP2Location)
+	return out, nil
+}
+
+func (t dnsTools) consistency(ctx context.Context, _ *mcp.CallToolRequest, a dnsConsistencyArgs) (any, error) {
+	env, err := dnstools.Consistency(ctx, t.spr, t.ecs, t.geo, t.dom, a.Name, a.Type)
+	if err != nil {
+		return nil, err
+	}
+	out, err := object(env)
+	if err != nil {
+		return nil, err
+	}
+	if !a.Detailed {
+		group := map[string]int{}
+		for i, g := range env.Spread.Groups {
+			for _, label := range g.Servers {
+				group[label] = i
+			}
+		}
+		for _, key := range []string{"authoritative", "resolvers"} {
+			rows, _ := out[key].([]any)
+			for _, r := range rows {
+				row, isRow := r.(map[string]any)
+				label, _ := row["label"].(string)
+				if g, ok := group[label]; ok && isRow {
+					delete(row, "values")
+					row["group"] = g
+				}
+			}
+		}
+	}
+	out["attribution"] = credits(platform.CreditIP2Location, platform.CreditRDAP)
+	return out, nil
+}
+
+func (t dnsTools) trace(ctx context.Context, _ *mcp.CallToolRequest, a dnsTraceArgs) (any, error) {
+	return t.tra.Trace(ctx, dnstools.NormalizeName(a.Name), a.Type)
+}
+
+func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomainArgs) (any, error) {
+	rep, err := dnstools.DomainInfo(ctx, t.svc, t.dom, a.Name)
+	if err != nil {
+		return nil, err
+	}
+	switch err := rep.Err(); {
+	case errors.Is(err, dnstools.ErrDisabled):
+		return nil, errUnavailable
+	case err != nil:
+		return nil, err
+	}
+	out, err := object(rep)
+	if err != nil {
+		return nil, err
+	}
+	if ct, ok := out["certificate_names"].(map[string]any); ok && !a.Detailed {
+		all := rep.CertNames.Names
+		names := make([]string, 0, min(len(all), certNames))
+		for _, s := range all[:min(len(all), certNames)] {
+			names = append(names, s.Name)
+		}
+		ct["names"] = names
+		delete(ct, "truncated")
+		if len(names) < rep.CertNames.Total {
+			ct["truncated"] = true
+		}
+	}
+	out["attribution"] = credits(platform.CreditCrtSh, platform.CreditRDAP)
+	return out, nil
+}
+
+func (t dnsTools) email(ctx context.Context, _ *mcp.CallToolRequest, a dnsEmailArgs) (any, error) {
+	res, err := dnstools.EmailReport(ctx, t.mail, t.rep, t.bl, a.Name)
+	if err != nil {
+		return nil, err
+	}
+	out, err := object(res)
+	if err != nil {
+		return nil, err
+	}
+	out["attribution"] = credits(platform.CreditSpamhaus)
+	return out, nil
+}

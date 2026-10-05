@@ -42,6 +42,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then remove its tracking parameters, follow where it redirects, or compare it with another.",
 			URL:  cfg.URL("link"),
 		},
+		{
+			Name: "MCP server",
+			Desc: "Every tool here, for AI agents: connect Claude, ChatGPT, Cursor, VS Code, Codex or Gemini by URL and they call the tools directly, free and with no key.",
+			URL:  cfg.URL("mcp"),
+		},
 	}
 }
 
@@ -49,10 +54,10 @@ func Tools(cfg platform.Config) []platform.Tool {
 // prod, disk dir in dev — caller builds it via platform.SubFS). A malformed
 // post fails Register in prod → main treats it as fatal, refusing to boot a
 // broken blog.
-func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) error {
+func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) (*Blog, error) {
 	blog, err := NewBlog(blogFS, cfg.IsDev())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	e.GET("/", func(c *echo.Context) error {
@@ -70,5 +75,5 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) error {
 	// where the Blog lives. The tool subdomains' page lists are static and
 	// get wired in main.go alongside the vhost map.
 	platform.RegisterSEO(e, cfg.URL(""), blog.sitemapPages)
-	return nil
+	return blog, nil
 }

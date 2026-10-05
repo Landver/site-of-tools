@@ -1,0 +1,89 @@
+{
+  "hmac": {
+    "status": 200,
+    "body": {
+      "compare": {
+        "bytes": 32,
+        "detail": "Matches HMAC-SHA-256 (read as hex).",
+        "given": "aa71099416fd7916f0e739ced18c2abf058cb8f839819932eae2460b05b339dd",
+        "match": true,
+        "matches": [
+          "HMAC-SHA-256"
+        ],
+        "note": "Ignored the \"sha256\" prefix.",
+        "read_as": "hex"
+      },
+      "key_bytes": 14,
+      "key_read_as": "UTF-8 text",
+      "macs": [
+        {
+          "base64": "YCsSROp4VTs5HFXp0Lz2BA==",
+          "bytes": 16,
+          "hex": "602b1244ea78553b391c55e9d0bcf604",
+          "id": "md5",
+          "name": "HMAC-MD5",
+          "note": "legacy; still sound as a MAC, but use SHA-256 for anything new"
+        },
+        {
+          "base64": "NpKpdJr6VqFpWLq/1EnuFg+qTWg=",
+          "bytes": 20,
+          "hex": "3692a9749afa56a16958babfd449ee160faa4d68",
+          "id": "sha1",
+          "name": "HMAC-SHA-1",
+          "note": "legacy; still sound as a MAC, but use SHA-256 for anything new"
+        },
+        {
+          "base64": "a5iTQcHgMIrMDLbOw7GtAlwW61n5hhf2Gk27ZA==",
+          "bytes": 28,
+          "hex": "6b989341c1e0308acc0cb6cec3b1ad025c16eb59f98617f61a4dbb64",
+          "id": "sha224",
+          "name": "HMAC-SHA-224"
+        },
+        {
+          "base64": "qnEJlBb9eRbw5znO0YwqvwWMuPg5gZky6uJGCwWzOd0=",
+          "bytes": 32,
+          "hex": "aa71099416fd7916f0e739ced18c2abf058cb8f839819932eae2460b05b339dd",
+          "id": "sha256",
+          "match": true,
+          "name": "HMAC-SHA-256"
+        },
+        {
+          "base64": "9o2r3pi7MYBAg+mjrT3FIPoQnN1JRETg/bGJ4XO/E9I49udTyTLn7WEmFe1xBGip",
+          "bytes": 48,
+          "hex": "f68dabde98bb31804083e9a3ad3dc520fa109cdd494444e0fdb189e173bf13d238f6e753c932e7ed612615ed710468a9",
+          "id": "sha384",
+          "name": "HMAC-SHA-384"
+        },
+        {
+          "base64": "uk553+J0Ldyje0kZJgjIyBQ3IEvTGnwl0e+mdeMNM6aIIMGZ/zCp8HULbOwGtTQ9XGmtc6KdOj3HULza16AlEQ==",
+          "bytes": 64,
+          "hex": "ba4e79dfe2742ddca37b49192608c8c81437204bd31a7c25d1efa675e30d33a68820c199ff30a9f0750b6cec06b5343d5c69ad73a29d3a3dc750bcdad7a02511",
+          "id": "sha512",
+          "name": "HMAC-SHA-512"
+        },
+        {
+          "base64": "Tn1K89KKV2EZ28CLIsfQ5aXpfQFqfVHJ/ze9R0uBB7E=",
+          "bytes": 32,
+          "hex": "4e7d4af3d28a576119dbc08b22c7d0e5a5e97d016a7d51c9ff37bd474b8107b1",
+          "id": "sha3_256",
+          "name": "HMAC-SHA3-256"
+        },
+        {
+          "base64": "Fx0BtNHfik42KCfwn9t8RFCJ18HgCJQTkcC9fYrZzc8F3uKE5Dzfh+Wfs4WsEYZpkz/ZxEUFG8f1adnVazAWOQ==",
+          "bytes": 64,
+          "hex": "171d01b4d1df8a4e362827f09fdb7c445089d7c1e008941391c0bd7d8ad9cdcf05dee284e43cdf87e59fb385ac118669933fd9c445051bc7f569d9d56b301639",
+          "id": "sha3_512",
+          "name": "HMAC-SHA3-512"
+        }
+      ],
+      "message_bytes": 19,
+      "message_read_as": "UTF-8 text",
+      "warnings": [
+        {
+          "level": "warn",
+          "text": "The key is 14 bytes, shorter than every hash output here. RFC 2104 recommends a key at least as long as the output: 32 random bytes for HMAC-SHA-256."
+        }
+      ]
+    }
+  }
+}

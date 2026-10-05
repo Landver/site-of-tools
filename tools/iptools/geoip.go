@@ -39,6 +39,8 @@ type Result struct {
 	Shodan *ShodanInfo `json:"shodan,omitempty"`
 }
 
+func (r *Result) ShodanConsulted() bool { return r != nil && r.Shodan != nil && !r.Shodan.Skipped }
+
 // Proxy: IP2Proxy view (VPN / proxy / threat). Populated only when PX12
 // database loaded + lookup succeeds.
 type Proxy struct {
@@ -71,6 +73,16 @@ func (s *Service) WithShodan(sh *Shodan) *Service {
 		s.shodan = sh
 	}
 	return s
+}
+
+// Offline is s without Shodan, sharing its open databases. Nil-safe.
+func (s *Service) Offline() *Service {
+	if s == nil {
+		return nil
+	}
+	c := *s
+	c.shodan = nil
+	return &c
 }
 
 // ErrUnavailable: returned when geolocation databases not loaded.
@@ -174,13 +186,34 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		ASName:      clean(as.As),
 		Proxy:       s.lookupProxy(ipStr),
 	}
-	if s.shodan != nil && routable(ipStr) {
+	if s.shodan != nil && Routable(ipStr) {
 		if si, err := s.shodan.Lookup(context.Background(), ipStr); err == nil && si != nil {
 			res.Shodan = si
 			FuseShodanProxy(res)
 		}
 	}
 	return res, nil
+}
+
+// LookupWithReputation adds chk's verdict; a failed read leaves Blocklist nil, never "clean".
+func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip string) (*Result, error) {
+	if svc == nil {
+		return nil, ErrUnavailable
+	}
+	res, err := svc.Lookup(ip)
+	if err != nil || res == nil || chk == nil {
+		return res, err
+	}
+	if lk, err := chk.Check(ctx, ip); err == nil {
+		res.Blocklist = &lk
+	}
+	return res, nil
+}
+
+func Routable(ip string) bool {
+	a := net.ParseIP(ip)
+	return a != nil && !a.IsLoopback() && !a.IsPrivate() &&
+		!a.IsLinkLocalUnicast() && !a.IsUnspecified()
 }
 
 // FuseShodanProxy syncs Shodan proxy/VPN tags into res.Proxy if tagged.
