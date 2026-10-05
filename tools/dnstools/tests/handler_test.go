@@ -52,7 +52,7 @@ func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 	)
-	dnstools.Register(e, svc, geo, nil, nil) // nil domain client + nil corpus: RDAP/CT and the reputation card off in handler tests
+	dnstools.Register(e, svc, geo, nil, nil, nil) // nil domain client + nil corpus: RDAP/CT and the reputation card off in handler tests
 	return e
 }
 

@@ -86,8 +86,9 @@ type Op struct {
 	Page string
 	// Fragment is the template that renders a successful result.
 	Fragment string
-	// Heavy marks CPU-expensive ops (password hashing, RSA keygen): stricter
-	// server rate limit, and never run on a keystroke in the browser.
+	// Heavy marks CPU-expensive ops (password hashing, RSA keygen, signing):
+	// stricter server rate limit, a share of the server's memory budget, and
+	// never run on a keystroke in the browser.
 	Heavy bool
 	// Fields is every input Run reads; tests/fields_test.go holds the two to
 	// each other.

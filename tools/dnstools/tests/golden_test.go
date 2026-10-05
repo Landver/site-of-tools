@@ -276,7 +276,7 @@ func runDNSGolden(t *testing.T, file string, cases []dnsCase) {
 			platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 			platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 		)
-		dnstools.Register(e, tc.svc, tc.geo, tc.dom, tc.bl)
+		dnstools.Register(e, tc.svc, tc.geo, tc.dom, tc.bl, nil)
 		rec := do(t, e, tc.target, nil)
 		body := rec.Body.String()
 		if tc.scrub != "" {

@@ -29,21 +29,70 @@ type handler struct {
 	svc  Looker
 	hist *History // nil when Mongo disabled — Record/Recent nil-safe
 	chk  Checker  // nil when Mongo disabled → no blocklist row (G37)
+	lim  *Limits
 }
+
+// Limits are this tool's budgets, built once and shared by every door. A
+// lookup may call Shodan and reads the blocklist corpus; /cidr is pure math.
+type Limits struct {
+	Lookup, CIDR, History platform.Limiter
+	LookupCap             *platform.Cap
+}
+
+// NewLimits returns fresh budgets: lookups and history 2/s (burst 10), /cidr
+// 10/s (burst 50); 8 lookups in flight.
+func NewLimits() *Limits {
+	return &Limits{
+		Lookup:    platform.NewLimiter(2, 10),
+		CIDR:      platform.NewLimiter(10, 50),
+		History:   platform.NewLimiter(2, 10),
+		LookupCap: platform.NewCap(8),
+	}
+}
+
+// errBusy is a lookup refused because LookupCap is full.
+var errBusy = errors.New(platform.BusyMessage)
 
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
 // (?ip=…), consistent w/ /cidr?cidr=… — no /:ip pretty route. hist may be nil
 // (Mongo off) → /history view empty; chk nil → no blocklist enrichment (build
-// it with CheckerFrom).
+// it with CheckerFrom); lim nil → fresh limits.
 //
 //	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
 //	GET /history  most recent user-initiated lookups
-func Register(e *echo.Echo, svc Looker, hist *History, chk Checker) {
-	h := &handler{svc: svc, hist: hist, chk: chk}
-	e.GET("/", h.index)
-	e.GET("/cidr", h.cidr)
-	e.GET("/history", h.history)
+func Register(e *echo.Echo, svc Looker, hist *History, chk Checker, lim *Limits) {
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, hist: hist, chk: chk, lim: lim}
+	e.GET("/", h.index, platform.RateLimit(lim.Lookup, nil, h.limited))
+	e.GET("/cidr", h.cidr, platform.RateLimit(lim.CIDR, nil, h.limited))
+	e.GET("/history", h.history, platform.RateLimit(lim.History, nil, h.limited))
+}
+
+// limited answers a spent budget the way each route answers its own errors.
+func (h *handler) limited(c *echo.Context) error {
+	const code, msg = http.StatusTooManyRequests, "Too many requests from your address. Try again in a few seconds."
+	platform.SetNegotiationHeaders(c, code)
+	if platform.WantsJSON(c) {
+		return c.JSON(code, map[string]string{"error": msg})
+	}
+	switch c.Path() {
+	case "/cidr":
+		return c.Render(code, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr",
+			"Query": strings.TrimSpace(c.QueryParam("cidr")), "Error": msg})
+	case "/history":
+		return c.Render(code, "ip/history", map[string]any{"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
+			"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true, "Error": msg})
+	}
+	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup",
+		"Query": strings.TrimSpace(c.QueryParam("ip")), "Attribution": true, "SpamhausAttribution": true, "Error": msg}
+	if platform.IsHTMX(c) {
+		return c.Render(code, "ip/result", vm)
+	}
+	vm["Conn"] = platform.Conn(c)
+	return c.Render(code, "ip/index", vm)
 }
 
 // index serves visitor's own IP by default, or ?ip= to look one up. Bare hit
@@ -136,7 +185,7 @@ func (h *handler) history(c *echo.Context) error {
 // show looks up ip & responds in caller's preferred format. self marks result
 // as visitor's own IP (small label in HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
-	res, err := LookupWithReputation(c.Request().Context(), h.svc, h.chk, ip)
+	res, err := h.lookup(c, ip)
 	wantsJSON := platform.WantsJSON(c)
 
 	// Record real user-initiated web lookups for /history view: successful,
@@ -192,6 +241,14 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	return c.Render(code, "ip/index", vm)
 }
 
+func (h *handler) lookup(c *echo.Context, ip string) (*Result, error) {
+	if !h.lim.LookupCap.TryAcquire(1) {
+		return nil, errBusy
+	}
+	defer h.lim.LookupCap.Release(1)
+	return LookupWithReputation(c.Request().Context(), h.svc, h.chk, ip)
+}
+
 // pageError is a lookup error for the page; the JSON keeps the Go string.
 func pageError(err error) string {
 	if errors.Is(err, ErrUnavailable) {
@@ -201,7 +258,7 @@ func pageError(err error) string {
 }
 
 func statusFor(err error) int {
-	if errors.Is(err, ErrUnavailable) {
+	if errors.Is(err, ErrUnavailable) || errors.Is(err, errBusy) {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest

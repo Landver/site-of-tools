@@ -39,7 +39,7 @@ func init() {
 				Description: "Clock skew in seconds allowed when checking exp and nbf."},
 			nowField,
 		}})
-	register(Op{Name: "jwt-sign", Path: "/jwt/sign", Page: "jwt", Fragment: "cipher/jwt-signed", Run: runJWTSign,
+	register(Op{Name: "jwt-sign", Path: "/jwt/sign", Page: "jwt", Fragment: "cipher/jwt-signed", Heavy: true, Run: runJWTSign,
 		Fields: []Field{
 			{Name: "alg", Kind: KindEnum, Enum: append(append([]string(nil), SignAlgs...), "Ed25519"), Default: "HS256",
 				Description: "The signature algorithm: HS* sign with a shared secret, RS* and PS* with an RSA private key, ES256/384/512 with an ECDSA P-256/384/521 private key, EdDSA (or its other name Ed25519) with an Ed25519 private key."},

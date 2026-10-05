@@ -5,12 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/iptools"
@@ -57,30 +55,39 @@ type handler struct {
 	// new dependency, no HTTP hop (02-build-fit.md §2). nil (or nil *Service
 	// behind it) degrades to plain records.
 	geo iptools.Looker
+	lim *Limits
 }
 
-// Rate limit for the lookup endpoint. One click is a fan-out of up to 8
-// upstream queries, so this is the difference between a tool and an open DNS
-// proxy someone else points at a target (reports/abuse-ratelimits-and-ethics.md).
-//
-// Burst covers ordinary use — a few lookups while you fix a record, plus the
-// htmx request per submit — while the sustained rate is well under anything
-// that would matter to a public resolver.
-const (
-	rateLimitPerSecond = 2
-	rateLimitBurst     = 10
-	rateLimitExpiry    = 3 * time.Minute
-)
+// Limits are this tool's budgets, built once and shared by every door. One
+// lookup fans out to up to 8 upstream queries, which is the difference between
+// a tool and an open DNS proxy (reports/abuse-ratelimits-and-ethics.md); a walk
+// (/consistency, /trace) costs 50 to 100.
+type Limits struct {
+	Lookup, Walk       platform.Limiter
+	LookupCap, WalkCap *platform.Cap
+}
+
+// NewLimits returns fresh budgets: lookups 2/s (burst 10), walks one per 2 s
+// (burst 3); 8 lookups and 4 walks in flight.
+func NewLimits() *Limits {
+	return &Limits{
+		Lookup:    platform.NewLimiter(2, 10),
+		Walk:      platform.NewLimiter(0.5, 3),
+		LookupCap: platform.NewCap(8),
+		WalkCap:   platform.NewCap(4),
+	}
+}
 
 // Register wires dns.corpberry.com routes onto e. Query-param only
 // (?name=&type=&resolver=), matching iptools' convention — no /:name route.
+// lim nil means fresh limits.
 //
 //	GET /             DNS record lookup
 //	GET /consistency  the zone's own nameservers vs the public resolvers
 //	GET /trace        the delegation walk from the root, chain of trust checked here
 //	GET /domain       registration (RDAP) + subdomains (Certificate Transparency)
 //	GET /email        SPF / DMARC / DKIM / MTA-STS / TLS-RPT / BIMI
-func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, bl BlockChecker) {
+func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, bl BlockChecker, lim *Limits) {
 	// Every other dependency here is optional and degrades to a 503 or to a
 	// thinner page. svc is not: a nil one can only be a wiring mistake, and
 	// left to be discovered per request it surfaces as a panic-recovered 500
@@ -88,7 +95,10 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 	if svc == nil {
 		panic("dnstools.Register: svc is nil")
 	}
-	h := &handler{svc: svc, geo: geo, dom: dom, block: bl}
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, geo: geo, dom: dom, block: bl, lim: lim}
 	// The same *Service satisfies both interfaces; a test can pass a fake that
 	// only implements one.
 	h.spr, _ = svc.(Spreader)
@@ -96,12 +106,13 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 	h.tra, _ = svc.(Tracer)
 	h.ecs, _ = svc.(ECSer)
 	h.rep, _ = svc.(Reputer)
-	limit := rateLimiter()
-	e.GET("/", h.index, limit)
-	e.GET("/consistency", h.consistency, limit)
-	e.GET("/trace", h.trace, limit)
-	e.GET("/domain", h.domain, limit)
-	e.GET("/email", h.email, limit)
+	lookup := platform.RateLimit(lim.Lookup, bare, limited)
+	walk := platform.RateLimit(lim.Walk, bare, limited)
+	e.GET("/", h.index, lookup)
+	e.GET("/consistency", h.consistency, walk)
+	e.GET("/trace", h.trace, walk)
+	e.GET("/domain", h.domain, lookup)
+	e.GET("/email", h.email, lookup)
 }
 
 // reply picks the representation, and is the only place in this file that
@@ -236,6 +247,10 @@ func (h *handler) email(c *echo.Context) error {
 	if h.mail == nil {
 		return unavailable(c, vm, "dns/email", "dns/emailauth")
 	}
+	if !h.lim.LookupCap.TryAcquire(1) {
+		return busy(c, vm, "dns/email", "dns/emailauth")
+	}
+	defer h.lim.LookupCap.Release(1)
 
 	res, err := EmailReport(c.Request().Context(), h.mail, h.rep, h.block, c.QueryParam("name"))
 	if err == nil {
@@ -265,6 +280,10 @@ func (h *handler) domain(c *echo.Context) error {
 	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
 		return err
 	}
+	if !h.lim.LookupCap.TryAcquire(1) {
+		return busy(c, vm, "dns/domain", "dns/domaininfo")
+	}
+	defer h.lim.LookupCap.Release(1)
 	rep, err := DomainInfo(c.Request().Context(), h.svc, h.dom, c.QueryParam("name"))
 	if err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
@@ -321,6 +340,10 @@ func (h *handler) consistency(c *echo.Context) error {
 	if h.spr == nil {
 		return unavailable(c, vm, "dns/consistency", "dns/spread")
 	}
+	if !h.lim.WalkCap.TryAcquire(1) {
+		return busy(c, vm, "dns/consistency", "dns/spread")
+	}
+	defer h.lim.WalkCap.Release(1)
 
 	env, err := Consistency(c.Request().Context(), h.spr, h.ecs, h.geo, h.dom, c.QueryParam("name"), c.QueryParam("type"))
 	if err == nil {
@@ -347,6 +370,10 @@ func (h *handler) trace(c *echo.Context) error {
 	if h.tra == nil {
 		return unavailable(c, vm, "dns/trace", "dns/tracewalk")
 	}
+	if !h.lim.WalkCap.TryAcquire(1) {
+		return busy(c, vm, "dns/trace", "dns/tracewalk")
+	}
+	defer h.lim.WalkCap.Release(1)
 
 	// No attribution flags: this walk uses neither IP2Location nor RDAP.
 	res, err := h.tra.Trace(c.Request().Context(), name, qtype)
@@ -356,47 +383,36 @@ func (h *handler) trace(c *echo.Context) error {
 	return answered(c, name, res, err, vm, "dns/trace", "dns/tracewalk")
 }
 
-// rateLimiter throttles per client IP, keyed on the same Cloudflare-aware
-// c.RealIP() the request log uses. In-process only: one box, one binary, so a
-// shared store would be infrastructure for no gain.
-func rateLimiter() echo.MiddlewareFunc {
-	store := middleware.NewRateLimiterMemoryStoreWithConfig(
-		middleware.RateLimiterMemoryStoreConfig{
-			Rate:      rateLimitPerSecond,
-			Burst:     rateLimitBurst,
-			ExpiresIn: rateLimitExpiry,
-		},
-	)
-	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		// Bare pages query nothing, so they don't count.
-		Skipper: func(c *echo.Context) bool { return strings.TrimSpace(c.QueryParam("name")) == "" },
-		Store:   store,
-		IdentifierExtractor: func(c *echo.Context) (string, error) {
-			return c.RealIP(), nil
-		},
-		DenyHandler: func(c *echo.Context, _ string, _ error) error {
-			// Negotiated three ways like every other response here. Rendering
-			// one route's fragment to everyone gave browsers an unstyled
-			// partial and htmx nothing it would swap.
-			const msg = "Too many lookups from your IP address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
-			active := strings.TrimPrefix(c.Request().URL.Path, "/")
-			if active == "" {
-				active = "lookup"
-			}
-			name := NormalizeName(c.QueryParam("name"))
-			vm := withName(map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
-				"Active": active, "Query": name, "Retry": c.Request().URL.RequestURI()}, name, "")
-			if platform.IsHTMX(c) {
-				// Not a history entry.
-				c.Response().Header().Set("HX-Push-Url", "false")
-				// Above the last result, not over it.
-				c.Response().Header().Set("HX-Reswap", "afterbegin")
-			}
-			return reply(c, http.StatusTooManyRequests,
-				map[string]string{"error": msg}, vm,
-				"dns/ratelimited", "dns/slowdown")
-		},
-	})
+// bare pages query nothing, so they don't count.
+func bare(c *echo.Context) bool { return strings.TrimSpace(c.QueryParam("name")) == "" }
+
+// limited answers a spent budget, negotiated three ways like every other
+// response here. Rendering one route's fragment to everyone gave browsers an
+// unstyled partial and htmx nothing it would swap.
+func limited(c *echo.Context) error {
+	const msg = "Too many lookups from your IP address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
+	active := strings.TrimPrefix(c.Request().URL.Path, "/")
+	if active == "" {
+		active = "lookup"
+	}
+	name := NormalizeName(c.QueryParam("name"))
+	vm := withName(map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
+		"Active": active, "Query": name, "Retry": c.Request().URL.RequestURI()}, name, "")
+	if platform.IsHTMX(c) {
+		// Not a history entry.
+		c.Response().Header().Set("HX-Push-Url", "false")
+		// Above the last result, not over it.
+		c.Response().Header().Set("HX-Reswap", "afterbegin")
+	}
+	return reply(c, http.StatusTooManyRequests,
+		map[string]string{"error": msg}, vm,
+		"dns/ratelimited", "dns/slowdown")
+}
+
+// busy answers a full cap: 503 like unavailable, but only for now.
+func busy(c *echo.Context, vm map[string]any, page, frag string) error {
+	vm["Error"] = platform.BusyMessage
+	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": platform.BusyMessage}, vm, page, frag)
 }
 
 // index serves the lookup page, and the lookup itself when ?name= is present.
@@ -419,6 +435,10 @@ func (h *handler) index(c *echo.Context) error {
 	// connection is a non-sequitur. The DNS-relevant version of that idea is
 	// resolver identity ("which resolver do YOU use"), which needs a delegated
 	// beacon zone and is Tier 2 (02-build-fit.md §4).
+	if !h.lim.LookupCap.TryAcquire(1) {
+		return busy(c, vm, "dns/index", "dns/result")
+	}
+	defer h.lim.LookupCap.Release(1)
 	res, err := LookupEnriched(c.Request().Context(), h.svc, h.geo,
 		c.QueryParam("name"), c.QueryParam("type"), c.QueryParam("resolver"))
 	if err == nil {

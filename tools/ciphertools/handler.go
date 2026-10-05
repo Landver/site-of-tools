@@ -18,7 +18,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -68,28 +67,49 @@ var pages = []page{
 		Desc:  "Paste a string to see what it could be: hash types with hashcat modes, JWT, JWE, PEM keys and certificates, SSH keys, bcrypt and Argon2 hashes, UUIDs, otpauth:// URIs, base64, hex or base32. Ranked candidates, each linked to the page that reads it."},
 }
 
-// Rate limits. Ops are pure CPU with no upstream, so the ordinary ones are
-// generous; heavy ones (password hashing, RSA key generation) are what a
-// stranger would use to burn this box's CPU, so they are not.
-const (
-	pureRatePerSecond  = 10
-	pureRateBurst      = 50
-	heavyRatePerSecond = 1
-	heavyRateBurst     = 5
-	rateLimitExpiry    = 3 * time.Minute
+// maxBody bounds every POST, uploads included. The browser engine has no such
+// limit: a file hashed there never travels.
+const maxBody = 8 << 20
 
-	// The engine route. A page load fetches it once and the browser keeps it
-	// (immutable), so a person never comes near this; it bounds how fast one
-	// address can pull 3 MB responses off the box.
-	engineRatePerSecond = 1
-	engineRateBurst     = 10
+// Limits are this tool's budgets, built once and shared by every door. Ops are
+// pure CPU with no upstream, so the ordinary ones are generous; Heavy ops
+// (password hashing, RSA key generation, signing) are what a stranger would
+// use to burn this box's CPU and memory, so they are not.
+type Limits struct {
+	Pure, Heavy platform.Limiter
+	// Engine bounds how fast one address can pull the multi-MB wasm engine; a
+	// page load fetches it once and the browser keeps it.
+	Engine platform.Limiter
+	// HeavyCap is a byte budget for Heavy ops in flight, each holding
+	// HeavyWeight of it while it runs.
+	HeavyCap *platform.Cap
+}
 
-	// maxBody bounds every POST, uploads included. The browser engine has no
-	// such limit: a file hashed there never travels.
-	maxBody = 8 << 20
-)
+const heavyBudget = 256 << 20
 
-type handler struct{ base string }
+// NewLimits returns fresh budgets: Pure 10/s (burst 50), Heavy 1/s (burst 5),
+// Engine 1/s (burst 10); 256 MiB of Heavy ops in flight.
+func NewLimits() *Limits {
+	return &Limits{
+		Pure:     platform.NewLimiter(10, 50),
+		Heavy:    platform.NewLimiter(1, 5),
+		Engine:   platform.NewLimiter(1, 10),
+		HeavyCap: platform.NewCap(heavyBudget),
+	}
+}
+
+// HeavyWeight is what a Heavy op holds of HeavyCap: its MemoryCost, at least
+// 1 MiB, and never more than the whole budget, so no input is refused forever.
+func HeavyWeight(name string, in Input) int64 {
+	return min(max(MemoryCost(name, in), 1<<20), heavyBudget)
+}
+
+var errBusy = errors.New(platform.BusyMessage)
+
+type handler struct {
+	base string
+	lim  *Limits
+}
 
 // Register wires cipher.corpberry.com.
 //
@@ -102,14 +122,18 @@ type handler struct{ base string }
 // there is what keeps anybody from building that habit.
 //
 // static is the shared static FS the app serves /static from; the engine is read
-// from it once and served pre-compressed (engine below).
-func Register(e *echo.Echo, base string, static fs.FS) {
-	h := &handler{base: base}
+// from it once and served pre-compressed (engine below). lim nil means fresh
+// limits.
+func Register(e *echo.Echo, base string, static fs.FS, lim *Limits) {
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{base: base, lim: lim}
 	e.Use(immutableEngine)
 	en := &engine{static: static}
-	e.GET(enginePath, en.serve, rateLimiter(engineRatePerSecond, engineRateBurst))
-	pure := rateLimiter(pureRatePerSecond, pureRateBurst)
-	heavy := rateLimiter(heavyRatePerSecond, heavyRateBurst)
+	e.GET(enginePath, en.serve, platform.RateLimit(lim.Engine, nil, limited))
+	pure := platform.RateLimit(lim.Pure, nil, limited)
+	heavy := platform.RateLimit(lim.Heavy, nil, limited)
 	limit := middleware.BodyLimit(maxBody)
 
 	for _, p := range pages {
@@ -239,11 +263,18 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 		in, err := readInput(c)
 		var res any
 		if err == nil {
-			res, err = Run(op, in)
+			res, err = h.run(op, in)
+		}
+		code := http.StatusOK
+		switch {
+		case errors.Is(err, errBusy):
+			code = http.StatusServiceUnavailable
+		case err != nil:
+			code = http.StatusBadRequest
 		}
 		if platform.WantsJSON(c) {
 			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return c.JSON(code, map[string]string{"error": err.Error()})
 			}
 			return c.JSON(http.StatusOK, res)
 		}
@@ -251,14 +282,27 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 		// renders server-side with the result in place.
 		vm := h.vm(p)
 		vm["Form"], vm["Op"] = in.Fields, op.Name
-		code := http.StatusOK
 		if err != nil {
-			vm["Error"], code = err.Error(), http.StatusBadRequest
+			vm["Error"] = err.Error()
 		} else {
 			vm["Result"] = res
 		}
 		return c.Render(code, p.Template, vm)
 	}
+}
+
+// run holds a Heavy op's share of HeavyCap while it runs, after its input is
+// parsed, since the weight depends on it.
+func (h *handler) run(op Op, in Input) (any, error) {
+	if !op.Heavy {
+		return Run(op, in)
+	}
+	w := HeavyWeight(op.Name, in)
+	if !h.lim.HeavyCap.TryAcquire(w) {
+		return nil, errBusy
+	}
+	defer h.lim.HeavyCap.Release(w)
+	return Run(op, in)
 }
 
 // readInput accepts a form (urlencoded or multipart) or a flat JSON object of
@@ -300,20 +344,9 @@ func readInput(c *echo.Context) (Input, error) {
 	return in, nil
 }
 
-func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
-	store := middleware.NewRateLimiterMemoryStoreWithConfig(
-		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
-	)
-	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store: store,
-		IdentifierExtractor: func(c *echo.Context) (string, error) {
-			return platform.RateLimitKey(c.RealIP()), nil
-		},
-		DenyHandler: func(c *echo.Context, _ string, _ error) error {
-			return c.JSON(http.StatusTooManyRequests, map[string]string{
-				"error": "Too many requests from your address. The pages run in your browser and need none of these; this limit is for the API.",
-			})
-		},
+func limited(c *echo.Context) error {
+	return c.JSON(http.StatusTooManyRequests, map[string]string{
+		"error": "Too many requests from your address. The pages run in your browser and need none of these; this limit is for the API.",
 	})
 }
 

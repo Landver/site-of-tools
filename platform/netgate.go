@@ -270,18 +270,24 @@ func (g *EgressGuard) DialContext(timeout time.Duration) func(context.Context, s
 // client is handed a /64, i.e. 2^64 addresses, so a per-address bucket is no
 // limit at all — and every distinct address also allocates a bucket that is
 // held for the store's expiry window, which makes it a memory-growth path too.
-// IPv4 keys on the full address; IPv6 keys on the /64 prefix.
+// IPv4 keys on the full address; IPv6 keys on the /64 prefix. A key passed
+// back in comes out unchanged, so a caller holding either reaches one bucket.
+// Anything else unparseable shares a single bucket: forged junk in
+// CF-Connecting-IP must not mint a fresh budget per value.
 func RateLimitKey(ip string) string {
-	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
-	if err != nil {
-		return ip
-	}
-	addr = addr.Unmap()
-	if addr.Is4() {
-		return addr.String()
-	}
-	if p, err := addr.Prefix(64); err == nil {
+	s := strings.TrimSpace(ip)
+	if addr, err := netip.ParseAddr(s); err == nil {
+		addr = addr.Unmap()
+		if addr.Is4() {
+			return addr.String()
+		}
+		p, _ := addr.Prefix(64)
 		return p.String()
 	}
-	return addr.String()
+	if p, err := netip.ParsePrefix(s); err == nil && p.Addr().Is6() && p.Bits() == 64 {
+		return p.Masked().String()
+	}
+	return unknownClient
 }
+
+const unknownClient = "unknown"

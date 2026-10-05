@@ -153,6 +153,11 @@ func run() error {
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
 
+	// Each tool's rate limits and concurrency caps, built once: every door onto
+	// a tool must get the same value, or each door gets its own budget.
+	ipLim, dnsLim, linkLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits()
+	cipherLim, botLim := ciphertools.NewLimits(), botcheck.NewLimits()
+
 	// apex: corpberry.com — blog posts embedded (prod) / disk (dev); a
 	// malformed post fails boot here rather than serving a broken page.
 	apex := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
@@ -172,13 +177,13 @@ func run() error {
 	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
 	geo.WithShodan(shodan)
 	ipApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	iptools.Register(ipApp, geo, lookupHistory, iptools.CheckerFrom(blocklist))
+	iptools.Register(ipApp, geo, lookupHistory, iptools.CheckerFrom(blocklist), ipLim)
 
 	// botcheck.corpberry.com — reuses same IP service for server-side
 	// reputation signals (nil geo degrades gracefully, same as IP tool) + Mongo
 	// corpus for fingerprint-reuse signal.
 	botApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	botcheck.Register(botApp, geo, corpus, iptools.CheckerFrom(blocklist))
+	botcheck.Register(botApp, geo, corpus, iptools.CheckerFrom(blocklist), botLim)
 
 	// Every subdomain, "mcp" included ahead of its app. Outbound guards refuse
 	// them all, and serving one that is missing from this list fails startup.
@@ -206,7 +211,7 @@ func run() error {
 	// never that the domain has no registration).
 	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
 	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
-	dnstools.Register(dnsApp, dnsSvc, geo.Offline(), domainClient, dnstools.BlockCheckerFrom(blocklist))
+	dnstools.Register(dnsApp, dnsSvc, geo.Offline(), domainClient, dnstools.BlockCheckerFrom(blocklist), dnsLim)
 
 	// link.corpberry.com — URL inspect / clean / short links / trace. Parsing is
 	// pure and opens no connection; only /trace dials out, and only through the
@@ -229,7 +234,7 @@ func run() error {
 	// (tools/linktools/docs/06-security-and-abuse.md §2).
 	tracer := linktools.NewTracer(webGuard, 15*time.Second)
 	linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	linktools.Register(linkApp, linkSvc, tracer, shortener, cfg.URL("link"))
+	linktools.Register(linkApp, linkSvc, tracer, shortener, cfg.URL("link"), linkLim)
 
 	// cipher.corpberry.com — JWT, hashes, keys, certificates. The pages run the
 	// ciphertools ops in the visitor's browser (Go compiled to wasm, built by
@@ -237,7 +242,7 @@ func run() error {
 	// the JSON API. No state, no network, nothing to degrade
 	// (tools/ciphertools/docs/02-build-plan.md).
 	cipherApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-	ciphertools.Register(cipherApp, cfg.URL("cipher"), staticFS)
+	ciphertools.Register(cipherApp, cfg.URL("cipher"), staticFS, cipherLim)
 
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the

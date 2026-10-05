@@ -76,7 +76,7 @@ func TestBlocklistLiveViaHandler(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, fakeLooker{}, nil, bl)
+	botcheck.Register(e, fakeLooker{}, nil, bl, nil)
 
 	fired := func(remoteIP string) bool {
 		req := httptest.NewRequest(http.MethodPost, "/check", strings.NewReader(cleanClientBody))

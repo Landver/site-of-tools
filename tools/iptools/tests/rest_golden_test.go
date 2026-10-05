@@ -48,7 +48,7 @@ var richResult = iptools.Result{
 
 func goldenIPApp(svc iptools.Looker, chk iptools.Checker) *echo.Echo {
 	e := echo.New()
-	iptools.Register(e, svc, nil, chk)
+	iptools.Register(e, svc, nil, chk, nil)
 	return e
 }
 

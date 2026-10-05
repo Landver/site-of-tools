@@ -1,0 +1,88 @@
+package platform
+
+import (
+	"time"
+
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"golang.org/x/sync/semaphore"
+)
+
+// Limiter is a token-bucket store keyed by client. A tool package builds its
+// stores once and hands the same values to every door (REST, MCP), so a client
+// has one budget whichever it uses.
+type Limiter = middleware.RateLimiterStore
+
+// BusyMessage answers a request refused because a Cap is full.
+const BusyMessage = "Busy, try again in a few seconds."
+
+const limiterExpiry = 3 * time.Minute
+
+// NewLimiter returns a per-client store refilling rate tokens a second, up to
+// burst.
+func NewLimiter(rate float64, burst int) Limiter {
+	return newStore(rate, burst)
+}
+
+// NewGlobalLimiter returns a store with one bucket for every caller, whatever
+// key it is asked about: a breaker for a resource all clients share, which
+// per-client buckets cannot protect.
+func NewGlobalLimiter(rate float64, burst int) Limiter {
+	return globalLimiter{newStore(rate, burst)}
+}
+
+func newStore(rate float64, burst int) *middleware.RateLimiterMemoryStore {
+	return middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
+		Rate: rate, Burst: burst, ExpiresIn: limiterExpiry,
+	})
+}
+
+type globalLimiter struct {
+	s *middleware.RateLimiterMemoryStore
+}
+
+func (g globalLimiter) Allow(string) (bool, error) { return g.s.Allow("") }
+
+// AllowContext keeps the X-RateLimit-* headers the memory store sets in Echo.
+func (g globalLimiter) AllowContext(c *echo.Context, _ string) (bool, error) {
+	return g.s.AllowContext(c, "")
+}
+
+// RateLimit spends one token of the client's bucket in l per request, keyed by
+// RateLimitKey(c.RealIP()) exactly as AllowKey keys it, and answers with deny
+// once the bucket is empty. skip (nil for none) exempts requests that do no work.
+func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context) error) echo.MiddlewareFunc {
+	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+		Skipper: skip,
+		Store:   l,
+		IdentifierExtractor: func(c *echo.Context) (string, error) {
+			return RateLimitKey(c.RealIP()), nil
+		},
+		DenyHandler: func(c *echo.Context, _ string, _ error) error { return deny(c) },
+	})
+}
+
+// AllowKey spends one token of a client's bucket in l, for callers outside
+// Echo. client is the raw IP or its RateLimitKey; both reach the bucket
+// RateLimit uses. A store error refuses.
+func AllowKey(l Limiter, client string) bool {
+	ok, err := l.Allow(RateLimitKey(client))
+	return ok && err == nil
+}
+
+// Cap bounds work in flight and never queues: TryAcquire fails at once when
+// the budget is spent, so the caller answers busy. A nil Cap is unbounded.
+type Cap struct{ sem *semaphore.Weighted }
+
+// NewCap returns a Cap of n units, shared by every door like a Limiter.
+func NewCap(n int64) *Cap { return &Cap{semaphore.NewWeighted(n)} }
+
+// TryAcquire takes w units if they are free now.
+func (c *Cap) TryAcquire(w int64) bool { return c == nil || c.sem.TryAcquire(w) }
+
+// Release returns w units taken by TryAcquire.
+func (c *Cap) Release(w int64) {
+	if c != nil {
+		c.sem.Release(w)
+	}
+}

@@ -15,19 +15,50 @@ type handler struct {
 	svc       Looker
 	corpus    *Corpus         // nil-safe: Mongo disabled → fingerprint corpus no-ops
 	blocklist iptools.Checker // nil when Mongo off → ip_blocklisted silent (G37)
+	lim       *Limits
+}
+
+// Limits are this tool's budgets, built once and shared by every door. A
+// score looks the caller's IP up (Shodan included) and reads the corpus.
+type Limits struct {
+	Check    platform.Limiter
+	CheckCap *platform.Cap
+}
+
+// NewLimits returns fresh budgets: 2 scores/s (burst 10), 8 in flight.
+func NewLimits() *Limits {
+	return &Limits{Check: platform.NewLimiter(2, 10), CheckCap: platform.NewCap(8)}
 }
 
 // Register wires botcheck.corpberry.com routes onto e. blocklist may be nil
-// (build it with iptools.CheckerFrom).
+// (build it with iptools.CheckerFrom); lim nil means fresh limits.
 //
 //	GET  /                  check page (browser) — or server-only score (curl/JSON)
 //	POST /check             accepts collected client fingerprint, returns full score
 //	GET  /botcheck-sw.js    tiny Service Worker collector registers (G03)
-func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist iptools.Checker) {
-	h := &handler{svc: svc, corpus: corpus, blocklist: blocklist}
-	e.GET("/", h.index)
-	e.POST("/check", h.check)
+func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, corpus: corpus, blocklist: blocklist, lim: lim}
+	// The page shell scores nothing, so only the JSON GET spends the budget.
+	page := func(c *echo.Context) bool { return !platform.WantsJSON(c) }
+	e.GET("/", h.index, platform.RateLimit(lim.Check, page, limited))
+	e.POST("/check", h.check, platform.RateLimit(lim.Check, nil, limited))
 	e.GET("/botcheck-sw.js", h.serviceWorker)
+}
+
+func limited(c *echo.Context) error {
+	return refuse(c, http.StatusTooManyRequests, "Too many checks from your address. Try again in a few seconds.")
+}
+
+// refuse answers a request turned away before scoring: JSON for an API caller,
+// the result slot's error fragment for the page.
+func refuse(c *echo.Context, code int, msg string) error {
+	if platform.WantsJSON(c) {
+		return c.JSON(code, map[string]string{"error": msg})
+	}
+	return c.Render(code, "botcheck/result", map[string]any{"Report": Report{Verdict: "error", Checks: []Check{{Label: msg}}}})
 }
 
 // swScript: Service Worker source collector registers as 4th JS context for
@@ -67,6 +98,10 @@ func (h *handler) serviceWorker(c *echo.Context) error {
 // content-negotiation contract as IP tool.
 func (h *handler) index(c *echo.Context) error {
 	if platform.WantsJSON(c) {
+		if !h.lim.CheckCap.TryAcquire(1) {
+			return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
+		}
+		defer h.lim.CheckCap.Release(1)
 		var sig Signals
 		h.addServerSignals(c, &sig)
 		return c.JSON(http.StatusOK, Evaluate(sig))
@@ -101,6 +136,10 @@ func (h *handler) check(c *echo.Context) error {
 		return c.Render(http.StatusBadRequest, "botcheck/result",
 			Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}})
 	}
+	if !h.lim.CheckCap.TryAcquire(1) {
+		return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
+	}
+	defer h.lim.CheckCap.Release(1)
 	sig.ClientCollected = true
 	connNet := h.addServerSignals(c, &sig)
 	// G41/G42: fold fingerprint into rolling corpus, then count how many

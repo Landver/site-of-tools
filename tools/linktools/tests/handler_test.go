@@ -39,7 +39,7 @@ func newLinkApp(t *testing.T, tracer *linktools.Tracer, short *linktools.Shorten
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil) // nil RequestLog: persistence off
-	linktools.Register(e, linktools.NewService(), tracer, short, "https://link.example")
+	linktools.Register(e, linktools.NewService(), tracer, short, "https://link.example", nil)
 	return e
 }
 

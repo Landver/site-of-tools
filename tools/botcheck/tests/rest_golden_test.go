@@ -91,7 +91,7 @@ type restCase struct {
 
 func serveBotcheck(c restCase, method, target string) *httptest.ResponseRecorder {
 	e := echo.New()
-	botcheck.Register(e, c.svc, nil, c.chk)
+	botcheck.Register(e, c.svc, nil, c.chk, nil)
 	req := httptest.NewRequest(method, target, strings.NewReader(c.payload))
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/json")

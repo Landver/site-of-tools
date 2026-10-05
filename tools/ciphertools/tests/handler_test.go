@@ -30,7 +30,7 @@ func newCipherApp(t *testing.T) *echo.Echo {
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{})
+	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
 	return e
 }
 
@@ -189,7 +189,7 @@ func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
 	)
 	static := fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}
 	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static)
+	ciphertools.Register(e, "https://cipher.example", static, nil)
 
 	rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", nil)
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
@@ -234,7 +234,7 @@ func TestEngineServedPrecompressed(t *testing.T) {
 	wasm := bytes.Repeat([]byte("\x00asm engine bytes "), 4096)
 	static := fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}
 	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static)
+	ciphertools.Register(e, "https://cipher.example", static, nil)
 
 	var first []byte
 	for i := 0; i < 2; i++ {

@@ -216,8 +216,26 @@ func TestRateLimitKey(t *testing.T) {
 	if a == c {
 		t.Errorf("addresses in different /64s share a key (%q); that would over-block", a)
 	}
-	if got := platform.RateLimitKey("not an ip"); got != "not an ip" {
-		t.Errorf("unparseable input = %q, want it passed through unchanged", got)
+	// Fail closed: a forged CF-Connecting-IP per request must not buy a fresh
+	// bucket per value.
+	junk := platform.RateLimitKey("not an ip")
+	for _, in := range []string{"", "also junk", "999.1.1.1", "8.8.8.8:53", "10.0.0.0/8", "2001:db8::/48"} {
+		if got := platform.RateLimitKey(in); got != junk {
+			t.Errorf("unparseable %q = %q, want the shared bucket %q", in, got, junk)
+		}
+	}
+	for _, valid := range []string{"8.8.8.8", "2001:db8:1:2::1"} {
+		if platform.RateLimitKey(valid) == junk {
+			t.Errorf("%q landed in the shared unparseable bucket", valid)
+		}
+	}
+	// A key fed back in is unchanged, so a caller holding the key and one
+	// holding the raw IP spend the same bucket.
+	for _, in := range []string{"8.8.8.8", "::ffff:8.8.8.8", "2001:db8:1:2:aaaa::1", "not an ip"} {
+		k := platform.RateLimitKey(in)
+		if again := platform.RateLimitKey(k); again != k {
+			t.Errorf("RateLimitKey(%q) = %q, but RateLimitKey of that = %q", in, k, again)
+		}
 	}
 }
 

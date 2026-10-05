@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/Landver/site-of-tools/platform"
 )
@@ -27,31 +26,31 @@ const (
 	privacyDesc  = "What the Corpberry Link browser extension sends, stores and does not collect."
 )
 
-// Rate limits. Parsing is pure CPU with no upstream, so it is generous; the
-// routes that cost someone else bandwidth are not
-// (docs/06-security-and-abuse.md §4).
-const (
-	pureRatePerSecond  = 10
-	pureRateBurst      = 50
-	fetchRatePerSecond = 1
-	fetchRateBurst     = 5
-	rateLimitExpiry    = 3 * time.Minute
+// Limits are this tool's budgets, built once and shared by every door.
+// Parsing is pure CPU with no upstream, so Pure is generous; the routes that
+// cost someone else bandwidth are not (docs/06-security-and-abuse.md §4).
+type Limits struct {
+	Pure                   platform.Limiter
+	Fetch                  platform.Limiter // /trace
+	Short                  platform.Limiter // the key-gated /short routes
+	Resolve, ResolveGlobal platform.Limiter // /s/:code, per client and for everyone
+	FetchCap               *platform.Cap
+}
 
-	// The redirect breaker is deliberately high: it exists to stop one client
-	// saturating the shared Mongo, not to police ordinary use. A personal link
-	// shortener that legitimately serves 200 redirects a second does not exist.
-	redirectGlobalPerSecond = 200
-	redirectGlobalBurst     = 400
-
-	// Per-IP as well as global. The global breaker alone lets ONE source drain
-	// the shared bucket and 503 every other visitor, and it does not bound the
-	// case the resolve cache was written for either: a scanner walking RANDOM
-	// codes misses the cache every time, so each request is still a database
-	// round trip. These numbers are far above any human — a person following
-	// links does about one a second — and far below a scanner.
-	redirectPerIPPerSecond = 20
-	redirectPerIPBurst     = 60
-)
+// NewLimits returns fresh budgets: Pure 10/s (burst 50), Fetch and Short 1/s
+// (burst 5), Resolve 20/s (burst 60) per client and 200/s (burst 400) in all;
+// 4 traces in flight. The global breaker only stops one client saturating the
+// shared Mongo: no personal shortener serves 200 redirects a second.
+func NewLimits() *Limits {
+	return &Limits{
+		Pure:          platform.NewLimiter(10, 50),
+		Fetch:         platform.NewLimiter(1, 5),
+		Short:         platform.NewLimiter(1, 5),
+		Resolve:       platform.NewLimiter(20, 60),
+		ResolveGlobal: platform.NewGlobalLimiter(200, 400),
+		FetchCap:      platform.NewCap(4),
+	}
+}
 
 // recentLimit bounds the key-gated console list.
 const recentLimit = 50
@@ -68,6 +67,7 @@ type handler struct {
 	trace *Tracer
 	short *Shortener
 	base  string
+	lim   *Limits
 }
 
 // Register wires link.corpberry.com routes onto e. Query-param only and
@@ -90,14 +90,19 @@ type handler struct {
 //	GET  /encode            Encode / decode playground
 //	GET  /encoding          Percent-encoding reference
 //	GET  /extension/privacy Extension privacy policy
-func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string) {
+//
+// lim nil means fresh limits.
+func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string, lim *Limits) {
 	if svc == nil {
 		panic("linktools.Register: svc is nil")
 	}
-	h := &handler{svc: svc, trace: trace, short: short, base: base}
+	if lim == nil {
+		lim = NewLimits()
+	}
+	h := &handler{svc: svc, trace: trace, short: short, base: base, lim: lim}
 
-	pure := rateLimiter(pureRatePerSecond, pureRateBurst)
-	fetch := rateLimiter(fetchRatePerSecond, fetchRateBurst)
+	pure := platform.RateLimit(lim.Pure, nil, limited)
+	keyed := platform.RateLimit(lim.Short, nil, limited)
 
 	e.GET("/", h.inspect, pure)
 	e.GET("/clean", h.clean, pure)
@@ -115,14 +120,14 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/extension/privacy", h.privacy)
 
 	// An empty form dials nothing, so it does not spend the trace budget.
-	e.GET("/trace", h.traceRoute, rateLimiterExcept(fetchRatePerSecond, fetchRateBurst, func(c *echo.Context) bool {
+	e.GET("/trace", h.traceRoute, platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
 		return strings.TrimSpace(c.QueryParam("u")) == ""
-	}))
+	}, limited))
 
 	// Both /short routes are on the strict limiter, not the pure one: the console
 	// is key-gated and reads the corpus, so it is not a cheap page (doc 06 §4).
-	e.GET("/short", h.shortConsole, fetch)
-	e.POST("/short", h.shortCreate, fetch)
+	e.GET("/short", h.shortConsole, keyed)
+	e.POST("/short", h.shortCreate, keyed)
 	// Two limiters, deliberately. A generous per-IP bound (20/s, burst 60 — far
 	// above any human following links, far below a scanner) stops one source
 	// walking random codes straight through the resolve cache into the shared
@@ -130,14 +135,16 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	// random code is a miss. The coarse global breaker then stops the aggregate
 	// from hurting the other subdomains (docs/04-short-links.md §7).
 	e.GET("/s/:code", h.redirect,
-		rateLimiter(redirectPerIPPerSecond, redirectPerIPBurst),
-		globalLimiter(redirectGlobalPerSecond, redirectGlobalBurst))
+		platform.RateLimit(lim.Resolve, nil, limited),
+		platform.RateLimit(lim.ResolveGlobal, nil, func(c *echo.Context) error {
+			return c.String(http.StatusServiceUnavailable, "busy, try again shortly")
+		}))
 
 	// Revoking an alias. Without this Revoke had no caller at all, so the
 	// "kill switch" §10 promises did not exist: a leaked key's links could not
 	// be taken down by any means short of editing the database by hand.
 	// Soft-delete only — the document stays so the code is never reissued.
-	e.DELETE("/short/:code", h.shortRevoke, fetch)
+	e.DELETE("/short/:code", h.shortRevoke, keyed)
 }
 
 // reply picks the representation, and is the only place in this file that does.
@@ -365,6 +372,10 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	if done, err := h.wrongTool(c, vm, raw, "link/trace"); done {
 		return err
 	}
+	if !h.lim.FetchCap.TryAcquire(1) {
+		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/trace")
+	}
+	defer h.lim.FetchCap.Release(1)
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
 		if errors.Is(err, ErrDisabled) {
@@ -804,51 +815,17 @@ func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string)
 
 // --- middleware ------------------------------------------------------------
 
-func rateLimiter(rate float64, burst int) echo.MiddlewareFunc {
-	return rateLimiterExcept(rate, burst, nil)
-}
-
-func rateLimiterExcept(rate float64, burst int, skip func(*echo.Context) bool) echo.MiddlewareFunc {
-	store := middleware.NewRateLimiterMemoryStoreWithConfig(
-		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
-	)
-	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Skipper: skip,
-		Store:   store,
-		IdentifierExtractor: func(c *echo.Context) (string, error) {
-			// Normalised, not the bare IP: an ordinary IPv6 client holds a /64,
-			// so a per-address bucket is not a limit at all.
-			return platform.RateLimitKey(c.RealIP()), nil
-		},
-		DenyHandler: func(c *echo.Context, _ string, _ error) error {
-			const msg = "Too many requests from your address. Try again in a few seconds."
-			// A link back to the refused page; a POST can't be replayed by one.
-			retry := c.Request().URL.Path
-			if c.Request().Method == http.MethodGet {
-				retry = c.Request().URL.RequestURI()
-			}
-			return reply(c, http.StatusTooManyRequests,
-				map[string]string{"error": msg},
-				map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
-				"link/ratelimited", "link/error")
-		},
-	})
-}
-
-// globalLimiter buckets every caller together, deliberately. Per-IP limiting
-// cannot protect a shared resource from a distributed source, and the thing
-// being protected here is a database other subdomains depend on.
-func globalLimiter(rate float64, burst int) echo.MiddlewareFunc {
-	store := middleware.NewRateLimiterMemoryStoreWithConfig(
-		middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst, ExpiresIn: rateLimitExpiry},
-	)
-	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store:               store,
-		IdentifierExtractor: func(*echo.Context) (string, error) { return "global", nil },
-		DenyHandler: func(c *echo.Context, _ string, _ error) error {
-			return c.String(http.StatusServiceUnavailable, "busy, try again shortly")
-		},
-	})
+func limited(c *echo.Context) error {
+	const msg = "Too many requests from your address. Try again in a few seconds."
+	// A link back to the refused page; a POST can't be replayed by one.
+	retry := c.Request().URL.Path
+	if c.Request().Method == http.MethodGet {
+		retry = c.Request().URL.RequestURI()
+	}
+	return reply(c, http.StatusTooManyRequests,
+		map[string]string{"error": msg},
+		map[string]any{"Title": "Slow down — Link Tools", "Desc": msg, "Error": msg, "Active": "", "Retry": retry},
+		"link/ratelimited", "link/error")
 }
 
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
