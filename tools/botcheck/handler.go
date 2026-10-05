@@ -133,8 +133,9 @@ func (h *handler) check(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid fingerprint payload"})
 		}
-		return c.Render(http.StatusBadRequest, "botcheck/result",
-			Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}})
+		return c.Render(http.StatusBadRequest, "botcheck/result", map[string]any{
+			"Report": Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}},
+		})
 	}
 	if !h.lim.CheckCap.TryAcquire(1) {
 		return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
