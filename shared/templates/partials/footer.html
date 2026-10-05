@@ -2,7 +2,9 @@
 <footer class="border-t border-line mt-auto">
   <div class="w-full px-6 py-6 text-xs text-faint flex flex-col gap-1">
     <span>© 2026 corpberry.com</span>
-    {{/* IP2Location LITE license requires this exact acknowledgment; Spamhaus
+    {{/* The credits' words live in platform/credits.go, where results served
+         without a page get them too.
+         IP2Location LITE license requires this exact acknowledgment; Spamhaus
          asked only for credit + keeping their © notice with the data (which the
          ip_blocklist corpus itself does, per record — see iptools/spamhaus.go).
          One flag each, because the two sources stopped travelling together.
@@ -15,56 +17,57 @@
          Welded together they were wrong in both directions at once: /email
          owed Spamhaus a credit it did not print, while / and /consistency
          printed one they had not earned. */}}
-    {{if .Attribution}}
+    {{if .Attribution}}{{with credit "ip2location"}}
     <span>
-      corpberry.com uses the IP2Location LITE database for
-      <a href="https://lite.ip2location.com" target="_blank" rel="noopener"
-         class="underline hover:text-muted">IP geolocation</a>.
+      {{.Lead}}
+      <a href="{{.URL}}" target="_blank" rel="noopener"
+         class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
+      {{.}}{{end}}
     </span>
-    {{end}}
-    {{if .SpamhausAttribution}}
+    {{end}}{{end}}
+    {{if .SpamhausAttribution}}{{with credit "spamhaus"}}
     <span>
-      corpberry.com uses © The Spamhaus Project's
-      <a href="https://www.spamhaus.org/blocklists/do-not-route-or-peer/" target="_blank" rel="noopener"
-         class="underline hover:text-muted">DROP list</a>
-      for network abuse detection.
+      {{.Lead}}
+      <a href="{{.URL}}" target="_blank" rel="noopener"
+         class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
+      {{.}}{{end}}
     </span>
-    {{end}}
+    {{end}}{{end}}
     {{/* Shodan's ToS requires a visible credit wherever their data appears.
          Gated on its OWN flag, not .Attribution: only the IP-lookup page that
          actually consulted InternetDB sets it (see iptools handler.show), so it
          never shows on botcheck — which sets .Attribution but does NOT use
          Shodan. */}}
-    {{if .ShodanAttribution}}
+    {{if .ShodanAttribution}}{{with credit "shodan"}}
     <span>
-      corpberry.com uses © Shodan's
-      <a href="https://internetdb.shodan.io" target="_blank" rel="noopener"
-         class="underline hover:text-muted">InternetDB</a>
-      for open-port data.
+      {{.Lead}}
+      <a href="{{.URL}}" target="_blank" rel="noopener"
+         class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
+      {{.}}{{end}}
     </span>
-    {{end}}
+    {{end}}{{end}}
 
     {{/* Certificate Transparency data comes from crt.sh, run by Sectigo.
          Own flag, page-scoped: only the DNS tool's /domain page queries it,
          so the credit must not follow the visitor onto the other pages. */}}
-    {{if .CertsAttribution}}
+    {{if .CertsAttribution}}{{with credit "crtsh"}}
     <span>
-      Subdomain data from <a href="https://crt.sh" target="_blank" rel="noopener"
-        class="underline hover:text-muted">crt.sh</a>,
-      the Certificate Transparency log search operated by Sectigo.
+      {{.Lead}} <a href="{{.URL}}" target="_blank" rel="noopener"
+        class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
+      {{.}}{{end}}
     </span>
-    {{end}}
+    {{end}}{{end}}
 
     {{/* RDAP registration data is fetched through rdap.org's bootstrap, which
          redirects to the registry actually responsible for the TLD. Same
          page-scoping rule. */}}
-    {{if .RDAPAttribution}}
+    {{if .RDAPAttribution}}{{with credit "rdap"}}
     <span>
-      Registration data via <a href="https://rdap.org" target="_blank" rel="noopener"
-        class="underline hover:text-muted">rdap.org</a>,
-      which bootstraps to each TLD's own RDAP registry.
+      {{.Lead}} <a href="{{.URL}}" target="_blank" rel="noopener"
+        class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
+      {{.}}{{end}}
     </span>
-    {{end}}
+    {{end}}{{end}}
   </div>
 </footer>
 {{end}}

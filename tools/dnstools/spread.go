@@ -439,7 +439,7 @@ func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string)
 			// First routable rather than first: a zone that lists a private
 			// address ahead of the real one must not be able to use the guard
 			// below to hide the server that does answer.
-			if ip == "" && nsRoutable(rec.Value) {
+			if ip == "" && s.nsRoutable(rec.Value) {
 				ip = rec.Value
 			}
 		}
@@ -511,10 +511,16 @@ func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname st
 func answerKey(vals []string) string { return strings.Join(vals, "\n") }
 
 // nsRoutable: whether a nameserver address taken from a caller-chosen zone may
-// be sent a packet.
-func nsRoutable(ipStr string) bool {
+// be sent a packet. Nil-safe.
+func (s *Service) nsRoutable(ipStr string) bool {
 	ip, err := netip.ParseAddr(ipStr)
-	return err == nil && platform.PubliclyRoutable(ip)
+	if err != nil {
+		return false
+	}
+	if s != nil && s.guard != nil {
+		return s.guard.AllowAddr(ip) == nil
+	}
+	return platform.PubliclyRoutable(ip)
 }
 
 // routable is MX reputation's address filter. It only gates a corpus read,

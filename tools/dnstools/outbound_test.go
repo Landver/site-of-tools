@@ -3,8 +3,10 @@ package dnstools
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +43,71 @@ func TestNameserverProbeRefusesNonPublicAddresses(t *testing.T) {
 		if ip, found := svc.nameserverAddress(ctx, ns, via); ip != want || !found {
 			t.Errorf("%s: nameserverAddress = %q, %v; want %q, true", ns, ip, found, want)
 		}
+	}
+}
+
+// This host's public addresses come from config, not from a range rule, so
+// only the guard knows to refuse them.
+func TestNameserverProbeRefusesOwnAddresses(t *testing.T) {
+	t.Parallel()
+	_, via := serveZone(t, testZone{
+		zoneKey("own.ns.test", "A"):       {"own.ns.test. 300 IN A 93.184.216.34"},
+		zoneKey("dual.ns.test", "A"):      {"dual.ns.test. 300 IN A 93.184.216.34"},
+		zoneKey("dual.ns.test", "AAAA"):   {"dual.ns.test. 300 IN AAAA 2001:500:2::c"},
+		zoneKey("own6.ns.test", "AAAA"):   {"own6.ns.test. 300 IN AAAA 2a01:4f8:c0c:1234::53"},
+		zoneKey("other.ns.test", "A"):     {"other.ns.test. 300 IN A 198.41.0.4"},
+		zoneKey("other6.ns.test", "AAAA"): {"other6.ns.test. 300 IN AAAA 2a01:4f8:c0c:1235::53"},
+	})
+	own := platform.NewEgressGuard([]string{"443"}, []string{"93.184.216.34", "2a01:4f8:c0c:1234::/64"})
+	svc := newTestService().WithEgressGuard(own)
+	ctx := context.Background()
+
+	for _, ns := range []string{"own.ns.test", "own6.ns.test"} {
+		a := svc.askAuthoritative(ctx, "example.test.", "A", ns, via)
+		if a.Addr != "" || !strings.Contains(a.Error, "non-public address") {
+			t.Errorf("%s: probed %q (error %q), want our own address refused unprobed", ns, a.Addr, a.Error)
+		}
+	}
+	for ns, want := range map[string]string{"dual.ns.test": "2001:500:2::c", "other.ns.test": "198.41.0.4", "other6.ns.test": "2a01:4f8:c0c:1235::53"} {
+		if ip, found := svc.nameserverAddress(ctx, ns, via); ip != want || !found {
+			t.Errorf("%s: nameserverAddress = %q, %v; want %q, true", ns, ip, found, want)
+		}
+	}
+	if got := (traceServer{Name: "own.ns.test.", IP: "93.184.216.34"}).addr(svc); got != "" {
+		t.Errorf("trace would send to our own address: %q", got)
+	}
+	if ip, _ := newTestService().nameserverAddress(ctx, "own.ns.test", via); ip != "93.184.216.34" {
+		t.Errorf("without a guard the address is merely public, got %q", ip)
+	}
+}
+
+// A hostile policy server picks its Content-Type, and the error quoting it
+// becomes a note on the page.
+func TestMTASTSContentTypeIsBounded(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ct := "text/html"
+		if r.URL.Path == "/huge" {
+			ct += "; " + strings.Repeat("\u202ex", 20_000)
+		}
+		w.Header().Set("Content-Type", ct)
+		_, _ = io.WriteString(w, "version: STSv1\n")
+	}))
+	t.Cleanup(srv.Close)
+	svc := newTestService()
+	svc.http = srv.Client()
+
+	_, err := svc.fetchPolicy(t.Context(), srv.URL+"/normal")
+	if want := "policy file is served as text/html, and RFC 8461 requires text/plain"; err == nil || err.Error() != want {
+		t.Errorf("err = %v, want %q", err, want)
+	}
+	_, err = svc.fetchPolicy(t.Context(), srv.URL+"/huge")
+	if err == nil {
+		t.Fatal("a text/html policy was accepted")
+	}
+	if msg := err.Error(); len(msg) > 160 || !strings.HasPrefix(msg, "policy file is served as text/html; ") ||
+		!strings.HasSuffix(msg, "…, and RFC 8461 requires text/plain") {
+		t.Errorf("err is %d bytes, want the header clipped: %.300s", len(msg), msg)
 	}
 }
 

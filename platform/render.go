@@ -33,6 +33,8 @@ var navBaseFuncs = template.FuncMap{
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
 	"asset": StaticURL,
+	// A data source's credit, for the footer (credits.go).
+	"credit": creditFunc,
 }
 
 // StaticURL maps static asset path (relative to static root, e.g.

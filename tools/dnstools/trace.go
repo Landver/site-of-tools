@@ -307,8 +307,8 @@ var traceAddrOverride func(ip string) (string, bool)
 // address is one we are willing to send a packet to. The nameserver names come
 // from zones the caller chose, so this is the guard that stops a hostile
 // delegation turning the walk into a port-53 probe of our own host — the same
-// rule spread.go's nameserverAddress applies.
-func (t traceServer) addr() string {
+// rule spread.go's nameserverAddress applies, with s's guard when it has one.
+func (t traceServer) addr(s *Service) string {
 	for _, ip := range [...]string{t.IP, t.IP6} {
 		if ip == "" {
 			continue
@@ -318,7 +318,7 @@ func (t traceServer) addr() string {
 				return a
 			}
 		}
-		if nsRoutable(ip) {
+		if s.nsRoutable(ip) {
 			return net.JoinHostPort(ip, "53")
 		}
 	}
@@ -1038,7 +1038,7 @@ func (w *traceWalk) askZone(zone string, servers []traceServer, qname, qtype str
 	resp := r.msg
 	// The bare address, not the host:port ask() dialled: the port is always 53
 	// and a column of ":53" is noise.
-	ip, _, _ := net.SplitHostPort(r.srv.addr())
+	ip, _, _ := net.SplitHostPort(r.srv.addr(w.svc))
 	hop.Server, hop.ServerIP, hop.RTTMS = strings.TrimSuffix(r.srv.Name, "."), ip, r.rttMS
 	hop.Rcode, hop.Authoritative = dns.RcodeToString[resp.Rcode], resp.Authoritative
 
@@ -1099,7 +1099,7 @@ func (w *traceWalk) query(servers []traceServer, qname, qtype string) traceReply
 		// whose address we refuse to send to costs no packet, and charging it
 		// made Trace.Queries overstate what the walk actually did. The loop is
 		// bounded by traceMaxServersPerHop either way, so nothing runs away.
-		addr := srv.addr()
+		addr := srv.addr(w.svc)
 		if addr == "" {
 			out.skipped = append(out.skipped, strings.TrimSuffix(srv.Name, ".")+": no routable address")
 			continue
@@ -1154,7 +1154,7 @@ func (w *traceWalk) liveFirst(servers []traceServer) []traceServer {
 	live := make([]traceServer, 0, len(servers))
 	var quiet []traceServer
 	for _, srv := range servers {
-		if w.dead[srv.addr()] {
+		if w.dead[srv.addr(w.svc)] {
 			quiet = append(quiet, srv)
 			continue
 		}
@@ -1231,7 +1231,7 @@ func (w *traceWalk) resolveServers(hop *TraceHop, resp *dns.Msg, child string, n
 	var out []traceServer
 	var glueless []string
 	for _, ns := range nsNames {
-		if g := glue[ns]; g != nil && g.addr() != "" {
+		if g := glue[ns]; g != nil && g.addr(w.svc) != "" {
 			out = append(out, *g)
 			continue
 		}
@@ -1273,7 +1273,7 @@ func (w *traceWalk) resolveServers(hop *TraceHop, resp *dns.Msg, child string, n
 		}
 		ip, _ := w.svc.nameserverAddress(w.ctx, ns, w.via)
 		srv := traceServer{Name: ns, IP: ip}
-		addr := srv.addr()
+		addr := srv.addr(w.svc)
 		if addr == "" {
 			continue
 		}

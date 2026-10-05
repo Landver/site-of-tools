@@ -24,6 +24,7 @@ import (
 	"github.com/miekg/dns"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
@@ -367,6 +368,9 @@ type Service struct {
 	// only the TXT pointer and not the policy is the shortcut most tools take.
 	http  *http.Client
 	cache *cache
+	// guard, once set by WithEgressGuard, also judges every nameserver address
+	// a probe is sent to, so this host's own addresses are refused too.
+	guard *platform.EgressGuard
 	// inflight collapses concurrent identical questions into one upstream
 	// query: a fan-out over 8 types for a popular domain, hit by several
 	// visitors at once, still only asks the resolver once per type.

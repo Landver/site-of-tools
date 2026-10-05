@@ -822,6 +822,10 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 // maxSTSAge is RFC 8461 §3.2's ceiling on max_age, a little over a year.
 const maxSTSAge = 31557600
 
+// maxQuotedHeader bounds a header value the policy's server chose before a
+// finding quotes it; Go accepts up to 10 MB of headers.
+const maxQuotedHeader = 100
+
 // mtaSTSTransport gates the policy fetch on g: any domain can point
 // mta-sts.<domain> wherever it likes, and the reply is reflected into the page.
 func mtaSTSTransport(g *platform.EgressGuard) *http.Transport {
@@ -841,12 +845,14 @@ func mtaSTSTransport(g *platform.EgressGuard) *http.Transport {
 var defaultMTASTSTransport = mtaSTSTransport(platform.NewEgressGuard([]string{"443"}, nil))
 
 // WithEgressGuard sends the MTA-STS policy fetch through g, which should allow
-// port 443 only. Call it before the Service is used. Nil-safe.
+// port 443 only, and refuses nameserver probes to any address g denies. Call
+// it before the Service is used. Nil-safe.
 func (s *Service) WithEgressGuard(g *platform.EgressGuard) *Service {
 	if s != nil {
 		c := *s.http
 		c.Transport = mtaSTSTransport(g)
 		s.http = &c
+		s.guard = g
 	}
 	return s
 }
@@ -881,7 +887,7 @@ func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, err
 		return "", fmt.Errorf("policy file returned %d", resp.StatusCode)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "text/plain") {
-		return "", fmt.Errorf("policy file is served as %s, and RFC 8461 requires text/plain", ct)
+		return "", fmt.Errorf("policy file is served as %s, and RFC 8461 requires text/plain", platform.Clip(ct, maxQuotedHeader))
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return string(b), err

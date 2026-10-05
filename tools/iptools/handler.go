@@ -175,7 +175,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		// footer credit on this Shodan-specific flag (NOT shared .Attribution,
 		// which botcheck also sets but doesn't use Shodan). True whenever we
 		// consulted InternetDB for this lookup — data found or clean 404.
-		vm["ShodanAttribution"] = res.Shodan != nil
+		vm["ShodanAttribution"] = res.Shodan != nil && !res.Shodan.Skipped
 	}
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)

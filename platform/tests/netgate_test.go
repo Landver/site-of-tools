@@ -164,6 +164,28 @@ func TestEgressGuardDeniesListedAddresses(t *testing.T) {
 	}
 }
 
+// AllowAddr is Control without the port check: a guard allowing only 443 still
+// judges a port-53 destination by address alone.
+func TestEgressGuardAllowAddr(t *testing.T) {
+	g := platform.NewEgressGuard([]string{"443"}, []string{"93.184.216.34", "2a01:4f8:c0c:1234::/64"})
+	for _, a := range []string{
+		"93.184.216.34", "::ffff:93.184.216.34", "2a01:4f8:c0c:1234::53",
+		"127.0.0.1", "::1", "10.0.0.1", "100.64.0.1", "169.254.169.254", "fe80::1%eth0",
+	} {
+		if err := g.AllowAddr(netip.MustParseAddr(a)); !errors.Is(err, platform.ErrBlockedAddress) {
+			t.Errorf("AllowAddr(%s) = %v, want ErrBlockedAddress", a, err)
+		}
+	}
+	for _, a := range []string{"8.8.8.8", "2001:4860:4860::8888", "2a01:4f8:c0c:1235::1"} {
+		if err := g.AllowAddr(netip.MustParseAddr(a)); err != nil {
+			t.Errorf("AllowAddr(%s) = %v, want nil", a, err)
+		}
+	}
+	if err := g.AllowAddr(netip.Addr{}); !errors.Is(err, platform.ErrBlockedAddress) {
+		t.Errorf("AllowAddr(zero) = %v, want ErrBlockedAddress", err)
+	}
+}
+
 // TestNilGuardFailsClosed. A nil guard must refuse everything, not permit it.
 func TestNilGuardFailsClosed(t *testing.T) {
 	var g *platform.EgressGuard
@@ -172,6 +194,9 @@ func TestNilGuardFailsClosed(t *testing.T) {
 	}
 	if err := g.AllowPort("443"); err == nil {
 		t.Error("nil guard permitted a port; it must fail closed")
+	}
+	if err := g.AllowAddr(netip.MustParseAddr("8.8.8.8")); err == nil {
+		t.Error("nil guard permitted an address; it must fail closed")
 	}
 }
 

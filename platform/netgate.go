@@ -192,9 +192,17 @@ func (g *EgressGuard) AllowHost(host string) error {
 	// A bare IP literal in a URL never needs resolution; judge it now so the
 	// caller gets a clear reason instead of a dial failure.
 	if addr, err := netip.ParseAddr(h); err == nil {
-		if !g.permitted(addr) {
-			return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
-		}
+		return g.AllowAddr(addr)
+	}
+	return nil
+}
+
+// AllowAddr reports whether addr may be sent anything, on any port: Control's
+// address check, for callers that send outside the port allowlist (DNS probes
+// on 53).
+func (g *EgressGuard) AllowAddr(addr netip.Addr) error {
+	if g == nil || !g.permitted(addr) {
+		return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
 	}
 	return nil
 }
@@ -242,10 +250,7 @@ func (g *EgressGuard) Control(_, address string, _ syscall.RawConn) error {
 		// unexpected, so refuse rather than guess.
 		return fmt.Errorf("%w: %q is not a literal address", ErrBlockedAddress, host)
 	}
-	if !g.permitted(addr) {
-		return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
-	}
-	return nil
+	return g.AllowAddr(addr)
 }
 
 // Dialer returns a net.Dialer whose every connection passes Control.

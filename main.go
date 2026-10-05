@@ -195,16 +195,18 @@ func run() error {
 
 	// dns.corpberry.com — DNS record lookup. Queries public resolvers directly
 	// over UDP/53 (no databases to load, so nothing to degrade), and reuses the
-	// SAME geo service the IP tool opened above to label resolved addresses with
+	// databases the IP tool opened above to label resolved addresses with
 	// ASN/country — in-process, no new dependency (docs/tools/dnstools/02-build-fit.md §2).
-	// nil/unloaded geo just means records render without that annotation.
+	// Offline: DNS shows no open ports, so it must not spend the Shodan budget
+	// once per record. nil/unloaded geo just means records render without that
+	// annotation.
 	dnsApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 	// RDAP + Certificate Transparency: both free, keyless and public. Blank
 	// URLs disable that half (nil client -> the page says the lookup is off,
 	// never that the domain has no registration).
 	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
 	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
-	dnstools.Register(dnsApp, dnsSvc, geo, domainClient, dnstools.BlockCheckerFrom(blocklist))
+	dnstools.Register(dnsApp, dnsSvc, geo.Offline(), domainClient, dnstools.BlockCheckerFrom(blocklist))
 
 	// link.corpberry.com — URL inspect / clean / short links / trace. Parsing is
 	// pure and opens no connection; only /trace dials out, and only through the
