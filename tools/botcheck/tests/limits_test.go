@@ -11,16 +11,26 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/botcheck"
 )
 
-func limitsApp(lim *botcheck.Limits) *echo.Echo { return newAppWith(fakeLooker{}, nil, lim) }
+func limitsApp(lim *botcheck.Limits) *echo.Echo {
+	e := echo.New()
+	e.Renderer = platform.NewRenderer(false, nil,
+		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
+		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
+	)
+	botcheck.Register(e, fakeLooker{}, nil, nil, lim)
+	return e
+}
 
 var (
 	asAPI  = map[string]string{"Accept": "application/json"}
 	asPage = map[string]string{"Accept": "text/html"}
 )
 
+// The JSON GET and POST /check are one class: both score, so both spend it.
 func TestScoringRoutesShareOneBudget(t *testing.T) {
 	lim := botcheck.NewLimits()
 	a, b := limitsApp(lim), limitsApp(lim)

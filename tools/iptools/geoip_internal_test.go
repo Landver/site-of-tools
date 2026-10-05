@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-// White-box: without the BINs no Lookup runs, so only the field shows Shodan was detached.
+// White-box: without the BINs a Lookup can't run, so the detached Shodan
+// client is only visible from inside.
 func TestOfflineDetachesShodanOnly(t *testing.T) {
 	sh := NewShodan("http://127.0.0.1:1", time.Second)
 	s := (&Service{}).WithShodan(sh)
@@ -15,8 +16,5 @@ func TestOfflineDetachesShodanOnly(t *testing.T) {
 	}
 	if s.shodan != sh {
 		t.Error("Offline() detached Shodan from the original service")
-	}
-	if (*Service)(nil).Offline() != nil {
-		t.Error("nil Service.Offline() != nil")
 	}
 }

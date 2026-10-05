@@ -81,6 +81,33 @@
     "status": 200,
     "verdict": "suspicious"
   },
+  "spamhaus_counts_as_deliberate": {
+    "bot": null,
+    "coverage": {
+      "hard": {
+        "evaluated": 8,
+        "skipped": 0,
+        "fired": 0
+      },
+      "consistency": {
+        "evaluated": 31,
+        "skipped": 0,
+        "fired": 1
+      },
+      "soft": {
+        "evaluated": 29,
+        "skipped": 0,
+        "fired": 1
+      }
+    },
+    "fired": [
+      "ip_blocklisted",
+      "accept_nav_mismatch"
+    ],
+    "score": 75,
+    "status": 200,
+    "verdict": "suspicious"
+  },
   "stealth_vpn": {
     "status": 200,
     "body": {

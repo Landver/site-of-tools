@@ -818,6 +818,9 @@ type Spreader interface {
 
 // Consistency is GET /consistency: the canvass, the ECS card (ecs may be nil) beside it.
 func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looker, dom *DomainClient, name, qtype string) (*ECSEnvelope, error) {
+	if spr == nil {
+		return nil, ErrDisabled
+	}
 	name, qtype = NormalizeName(name), walkType(qtype)
 	var (
 		wg    sync.WaitGroup

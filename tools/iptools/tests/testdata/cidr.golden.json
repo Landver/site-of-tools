@@ -28,6 +28,52 @@
       "wildcard": "0.0.0.255"
     }
   },
+  "v4_31": {
+    "status": 200,
+    "body": {
+      "cidr": "10.0.0.0/31",
+      "family": "IPv4",
+      "first_host": "10.0.0.0",
+      "last_host": "10.0.0.1",
+      "netmask": "255.255.255.254",
+      "network": "10.0.0.0",
+      "prefix_length": 31,
+      "total_addresses": "2",
+      "usable_hosts": "2",
+      "wildcard": "0.0.0.1"
+    }
+  },
+  "v4_bare_ip": {
+    "status": 200,
+    "body": {
+      "cidr": "10.0.0.1/32",
+      "family": "IPv4",
+      "first_host": "10.0.0.1",
+      "last_host": "10.0.0.1",
+      "netmask": "255.255.255.255",
+      "network": "10.0.0.1",
+      "prefix_length": 32,
+      "total_addresses": "1",
+      "usable_hosts": "1",
+      "wildcard": "0.0.0.0"
+    }
+  },
+  "v4_unmasked": {
+    "status": 200,
+    "body": {
+      "broadcast": "192.168.1.255",
+      "cidr": "192.168.1.0/24",
+      "family": "IPv4",
+      "first_host": "192.168.1.1",
+      "last_host": "192.168.1.254",
+      "netmask": "255.255.255.0",
+      "network": "192.168.1.0",
+      "prefix_length": 24,
+      "total_addresses": "256",
+      "usable_hosts": "254",
+      "wildcard": "0.0.0.255"
+    }
+  },
   "v6_32": {
     "status": 200,
     "body": {
@@ -39,6 +85,19 @@
       "prefix_length": 32,
       "total_addresses": "79228162514264337593543950336",
       "usable_hosts": "79228162514264337593543950336"
+    }
+  },
+  "v6_bare_ip": {
+    "status": 200,
+    "body": {
+      "cidr": "2001:db8::1/128",
+      "family": "IPv6",
+      "first_host": "2001:db8::1",
+      "last_host": "2001:db8::1",
+      "network": "2001:db8::1",
+      "prefix_length": 128,
+      "total_addresses": "1",
+      "usable_hosts": "1"
     }
   }
 }

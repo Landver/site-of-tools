@@ -231,6 +231,9 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"link-local metadata", traceServer{Name: "ns.evil.test.", IP: "169.254.169.254"}, ""},
 		{"unspecified", traceServer{Name: "ns.evil.test.", IP: "0.0.0.0"}, ""},
 		{"ipv6 loopback only", traceServer{Name: "ns.evil.test.", IP6: "::1"}, ""},
+		// Neither loopback nor private, but no nameserver lives at them: glue
+		// of 224.0.0.1 would otherwise make this host query the all-hosts
+		// multicast group.
 		{"multicast", traceServer{Name: "ns.evil.test.", IP: "224.0.0.1"}, ""},
 		{"ssdp multicast", traceServer{Name: "ns.evil.test.", IP: "239.255.255.250"}, ""},
 		{"broadcast", traceServer{Name: "ns.evil.test.", IP: "255.255.255.255"}, ""},
@@ -250,8 +253,10 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"private v4 does not hide a usable v6", traceServer{Name: "ns.ok.test.", IP: "10.0.0.1", IP6: "2001:500:2::c"}, "[2001:500:2::c]:53"},
 		{"reserved v4 does not hide a usable v6", traceServer{Name: "ns.ok.test.", IP: "100.64.1.1", IP6: "2001:500:2::c"}, "[2001:500:2::c]:53"},
 	} {
-		if got := tc.srv.addr(guarded); got != tc.want {
-			t.Errorf("%s: addr() = %q, want %q", tc.name, got, tc.want)
+		for _, svc := range []*Service{nil, guarded} {
+			if got := tc.srv.addr(svc); got != tc.want {
+				t.Errorf("%s (guarded %v): addr() = %q, want %q", tc.name, svc != nil, got, tc.want)
+			}
 		}
 	}
 

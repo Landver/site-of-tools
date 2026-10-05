@@ -1,4 +1,85 @@
 {
+  "blocklist_clean": {
+    "status": 200,
+    "body": {
+      "as_name": "Google LLC",
+      "asn": "15169",
+      "blocklist": {},
+      "city": "Mountain View",
+      "country": "United States",
+      "country_code": "US",
+      "ip": "8.8.8.8",
+      "lat": 37.386,
+      "lon": -122.0838,
+      "proxy": {
+        "domain": "acme.example",
+        "fraud_score": "12",
+        "is_proxy": true,
+        "isp": "Acme Hosting",
+        "last_seen": "3",
+        "provider": "Acme VPN",
+        "proxy_type": "VPN",
+        "threat": "SPAM",
+        "usage_type": "DCH"
+      },
+      "region": "California",
+      "shodan": {
+        "found": true,
+        "hostnames": [
+          "dns.google"
+        ],
+        "ports": [
+          53,
+          443
+        ],
+        "tags": [
+          "vpn"
+        ]
+      },
+      "timezone": "-07:00",
+      "zip": "94043"
+    }
+  },
+  "blocklist_read_failed": {
+    "status": 200,
+    "body": {
+      "as_name": "Google LLC",
+      "asn": "15169",
+      "city": "Mountain View",
+      "country": "United States",
+      "country_code": "US",
+      "ip": "8.8.8.8",
+      "lat": 37.386,
+      "lon": -122.0838,
+      "proxy": {
+        "domain": "acme.example",
+        "fraud_score": "12",
+        "is_proxy": true,
+        "isp": "Acme Hosting",
+        "last_seen": "3",
+        "provider": "Acme VPN",
+        "proxy_type": "VPN",
+        "threat": "SPAM",
+        "usage_type": "DCH"
+      },
+      "region": "California",
+      "shodan": {
+        "found": true,
+        "hostnames": [
+          "dns.google"
+        ],
+        "ports": [
+          53,
+          443
+        ],
+        "tags": [
+          "vpn"
+        ]
+      },
+      "timezone": "-07:00",
+      "zip": "94043"
+    }
+  },
   "blocklisted": {
     "status": 200,
     "body": {
@@ -53,10 +134,182 @@
       "ip": "nope"
     }
   },
+  "lookup": {
+    "status": 200,
+    "body": {
+      "as_name": "Google LLC",
+      "asn": "15169",
+      "city": "Mountain View",
+      "country": "United States",
+      "country_code": "US",
+      "ip": "8.8.8.8",
+      "lat": 37.386,
+      "lon": -122.0838,
+      "proxy": {
+        "domain": "acme.example",
+        "fraud_score": "12",
+        "is_proxy": true,
+        "isp": "Acme Hosting",
+        "last_seen": "3",
+        "provider": "Acme VPN",
+        "proxy_type": "VPN",
+        "threat": "SPAM",
+        "usage_type": "DCH"
+      },
+      "region": "California",
+      "shodan": {
+        "found": true,
+        "hostnames": [
+          "dns.google"
+        ],
+        "ports": [
+          53,
+          443
+        ],
+        "tags": [
+          "vpn"
+        ]
+      },
+      "timezone": "-07:00",
+      "zip": "94043"
+    }
+  },
+  "lookup_bare_result": {
+    "status": 200,
+    "body": {
+      "as_name": "",
+      "asn": "",
+      "city": "",
+      "country": "",
+      "country_code": "",
+      "ip": "2001:db8::1",
+      "lat": 0,
+      "lon": 0,
+      "region": "",
+      "timezone": "",
+      "zip": ""
+    }
+  },
+  "lookup_trims_space": {
+    "status": 200,
+    "body": {
+      "as_name": "Google LLC",
+      "asn": "15169",
+      "city": "Mountain View",
+      "country": "United States",
+      "country_code": "US",
+      "ip": "8.8.8.8",
+      "lat": 37.386,
+      "lon": -122.0838,
+      "proxy": {
+        "domain": "acme.example",
+        "fraud_score": "12",
+        "is_proxy": true,
+        "isp": "Acme Hosting",
+        "last_seen": "3",
+        "provider": "Acme VPN",
+        "proxy_type": "VPN",
+        "threat": "SPAM",
+        "usage_type": "DCH"
+      },
+      "region": "California",
+      "shodan": {
+        "found": true,
+        "hostnames": [
+          "dns.google"
+        ],
+        "ports": [
+          53,
+          443
+        ],
+        "tags": [
+          "vpn"
+        ]
+      },
+      "timezone": "-07:00",
+      "zip": "94043"
+    }
+  },
+  "self_blocklisted": {
+    "status": 200,
+    "body": {
+      "as_name": "",
+      "asn": "",
+      "blocklist": {
+        "max_count": 7,
+        "sources": [
+          "ipsum",
+          "spamhaus-drop"
+        ]
+      },
+      "city": "",
+      "country": "",
+      "country_code": "",
+      "ip": "203.0.113.7",
+      "lat": 0,
+      "lon": 0,
+      "region": "",
+      "timezone": "",
+      "zip": ""
+    }
+  },
   "self_loopback": {
     "status": 400,
     "body": {
       "error": "no routable IP to look up; pass ?ip=, e.g. /?ip=8.8.8.8"
+    }
+  },
+  "self_private": {
+    "status": 400,
+    "body": {
+      "error": "no routable IP to look up; pass ?ip=, e.g. /?ip=8.8.8.8"
+    }
+  },
+  "self_routable": {
+    "status": 200,
+    "body": {
+      "as_name": "Google LLC",
+      "asn": "15169",
+      "city": "Mountain View",
+      "country": "United States",
+      "country_code": "US",
+      "ip": "203.0.113.7",
+      "lat": 37.386,
+      "lon": -122.0838,
+      "proxy": {
+        "domain": "acme.example",
+        "fraud_score": "12",
+        "is_proxy": true,
+        "isp": "Acme Hosting",
+        "last_seen": "3",
+        "provider": "Acme VPN",
+        "proxy_type": "VPN",
+        "threat": "SPAM",
+        "usage_type": "DCH"
+      },
+      "region": "California",
+      "shodan": {
+        "found": true,
+        "hostnames": [
+          "dns.google"
+        ],
+        "ports": [
+          53,
+          443
+        ],
+        "tags": [
+          "vpn"
+        ]
+      },
+      "timezone": "-07:00",
+      "zip": "94043"
+    }
+  },
+  "unavailable": {
+    "status": 503,
+    "body": {
+      "error": "geolocation databases are not loaded",
+      "ip": "1.2.3.4"
     }
   }
 }

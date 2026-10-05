@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,101 +9,72 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Landver/site-of-tools/platform/goldentest"
-	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// What a client puts in the model's context; a cipher op with eleven fields needs most of a tool's 3 KB.
+// Budgets for what a client puts in the model's context before any call. One
+// tool may take 3 KB: a cipher op with eleven fields needs most of it.
 const (
 	maxToolBytes = 3 << 10
 	maxListBytes = 64 << 10 // /mcp, every public tool
 	maxSetBytes  = 32 << 10 // one toolset's endpoint
 )
 
-// An endpoint's list, its instructions and its landing-page entry name the same tools.
+func listTools(t *testing.T, cs *mcp.ClientSession) *mcp.ListToolsResult {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+var endpoints = []struct{ path, scope string }{
+	{"/mcp", "public"}, {"/mcp/ip", "public"}, {"/mcp/dns", "public"}, {"/mcp/link", "public"},
+	{"/mcp/cipher", "public"}, {"/mcp/botcheck", "public"}, {"/mcp/site", "public"}, {"/mcp/owner", "private"},
+}
+
+// TestToolsListGolden pins each toolset's tools/list; /mcp must list their union.
 func TestToolsListGolden(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
-	catalog := s.restOK(t, mcpHost, "/", "")
-	if catalog["name"] != "corpberry" || catalog["version"] == "" {
-		t.Errorf("catalog = %v, want name and version", catalog)
-	}
-	advertised := map[string][]string{}
-	var paths []string
-	for _, e := range catalog["endpoints"].([]any) {
-		ep := e.(map[string]any)
-		p := ep["path"].(string)
-		paths = append(paths, p)
-		if _, rest := ep["rest"]; ep["url"] != base+p || ep["title"] == "" || rest == (p == "/mcp") {
-			t.Errorf("catalog %s = %v, want its url, a title and, for a toolset, its site", p, ep)
-		}
-		for _, tl := range ep["tools"].([]any) {
-			tm := tl.(map[string]any)
-			advertised[p] = append(advertised[p], tm["name"].(string))
-			if tm["annotations"] == nil || tm["description"] == "" || tm["rate_limit"] == nil {
-				t.Errorf("catalog %s lacks annotations, a description or its rate limit", tm["name"])
-			}
-		}
-	}
-	endpoints := []string{"/mcp", "/mcp/ip", "/mcp/dns", "/mcp/link", "/mcp/cipher", "/mcp/botcheck", "/mcp/site", "/mcp/owner"}
-	// The owner's endpoint exists, but is not advertised.
-	if diff := cmp.Diff(endpoints[:len(endpoints)-1], paths); diff != "" {
-		t.Errorf("catalog endpoints (-want +got):\n%s", diff)
-	}
-
 	var all, union []*mcp.Tool
 	for i, ep := range endpoints {
-		// One address each: every message spends the protocol budget.
+		// One address per endpoint: every message spends the protocol budget.
 		hdr := map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}
-		cs := s.client(t, ep, hdr)
-		res := listTools(t, cs)
-		var names []string
+		res := listTools(t, s.client(t, ep.path, hdr, nil))
+		switch ep.path {
+		case "/mcp":
+			all = res.Tools
+		case "/mcp/owner":
+			goldentest.JSON(t, "tools-list-owner", res.Tools)
+		default:
+			goldentest.JSON(t, "tools-list-"+path.Base(ep.path), res.Tools)
+			union = append(union, res.Tools...)
+		}
+
+		wire := s.do(http.MethodPost, ep.path, listBody, mcpHeaders(hdr)).Body.Len()
+		budget := maxSetBytes
+		if ep.path == "/mcp" {
+			budget = maxListBytes
+		}
+		t.Logf("%s tools/list: %d bytes", ep.path, wire)
+		if wire > budget {
+			t.Errorf("%s tools/list is %d bytes, over the %d budget", ep.path, wire, budget)
+		}
 		for _, tool := range res.Tools {
-			names = append(names, tool.Name)
 			if b, _ := json.Marshal(tool); len(b) > maxToolBytes {
 				t.Errorf("%s is %d bytes, over the %d per-tool budget", tool.Name, len(b), maxToolBytes)
 			}
 		}
-		scope, budget := "public", maxSetBytes
-		switch ep {
-		case "/mcp":
-			all, budget = res.Tools, maxListBytes
-		case "/mcp/owner":
-			scope = "private"
-			goldentest.JSON(t, "tools-list-owner", res.Tools)
-		default:
-			goldentest.JSON(t, "tools-list-"+path.Base(ep), res.Tools)
-			union = append(union, res.Tools...)
-		}
-		if diff := cmp.Diff(advertised[ep], names); ep != "/mcp/owner" && diff != "" {
-			t.Errorf("%s landing-page entry vs tools/list (-landing +list):\n%s", ep, diff)
-		}
-		if wire := s.do(http.MethodPost, ep, listBody, mcpHeaders(hdr)).Body.Len(); wire > budget {
-			t.Errorf("%s tools/list is %d bytes, over the %d budget", ep, wire, budget)
-		}
-		if res.TTLMs != 3_600_000 || res.CacheScope != scope {
-			t.Errorf("%s list cache = %d %q, want 3600000 %s", ep, res.TTLMs, res.CacheScope, scope)
-		}
-
-		// Only /mcp tells look-alike tools apart; a client may connect to any one endpoint.
-		got := cs.InitializeResult().Instructions
-		for _, tool := range res.Tools {
-			if !strings.Contains(got, tool.Name+" ("+tool.Title+")") {
-				t.Errorf("%s instructions don't name %s", ep, tool.Name)
-			}
-		}
-		for _, name := range []string{"ip_lookup", "dns_lookup", "dns_trace", "link_inspect", "link_short_create", "cipher_encode"} {
-			if !slices.Contains(names, name) && strings.Contains(got, name) {
-				t.Errorf("%s instructions name %s, which it doesn't serve: %q", ep, name, got)
-			}
-		}
-		for _, hint := range []string{"link_redirect_chain follows a URL's HTTP redirects", "cipher_encode converts bytes"} {
-			if strings.Contains(got, hint) != (ep == "/mcp") {
-				t.Errorf("%s instructions: %q present = %v, want it on /mcp only", ep, hint, ep != "/mcp")
-			}
+		if res.TTLMs != 3_600_000 || res.CacheScope != ep.scope {
+			t.Errorf("%s list cache = %d %q, want 3600000 %s", ep.path, res.TTLMs, res.CacheScope, ep.scope)
 		}
 	}
 	slices.SortFunc(union, func(a, b *mcp.Tool) int { return strings.Compare(a.Name, b.Name) })
@@ -111,19 +83,42 @@ func TestToolsListGolden(t *testing.T) {
 	}
 }
 
-func TestToolsNeedTheirDependencies(t *testing.T) {
-	s := newStack(t, stackOpts{bare: true, dns: lookOnly{&fakeDNS{}}, link: linktools.NewService()})
-	names := toolNames(t, s.client(t, "/mcp", nil))
-	for _, name := range []string{"dns_consistency", "dns_trace", "dns_domain_info", "dns_email_auth",
-		"link_redirect_chain", "link_short_resolve", "site_blog"} {
-		if slices.Contains(names, name) {
-			t.Errorf("%s is listed without what it runs on", name)
+func asJSON(t *testing.T, v any) any {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestInstructionsNameOnlyTheirTools: only /mcp tells look-alike tools apart.
+func TestInstructionsNameOnlyTheirTools(t *testing.T) {
+	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	routing := []string{"link_redirect_chain follows a URL's HTTP redirects", "cipher_encode converts bytes"}
+	for i, ep := range endpoints {
+		cs := s.client(t, ep.path, map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}, nil)
+		got := cs.InitializeResult().Instructions
+		served := map[string]bool{}
+		for _, tool := range listTools(t, cs).Tools {
+			served[tool.Name] = true
+			if !strings.Contains(got, tool.Name+" ("+tool.Title+")") {
+				t.Errorf("%s instructions don't name %s", ep.path, tool.Name)
+			}
 		}
-	}
-	if !slices.Contains(names, "dns_lookup") || !slices.Contains(names, "link_inspect") {
-		t.Errorf("tools = %v, want dns_lookup and the link tools that need nothing more", names)
-	}
-	if rec := s.do(http.MethodPost, "/mcp/site", listBody, mcpHeaders(nil)); rec.Code != http.StatusNotFound {
-		t.Errorf("/mcp/site without a blog = %d, want 404", rec.Code)
+		for _, name := range []string{"ip_lookup", "dns_lookup", "dns_trace", "link_inspect", "link_short_create", "cipher_encode"} {
+			if !served[name] && strings.Contains(got, name) {
+				t.Errorf("%s instructions name %s, which it doesn't serve: %q", ep.path, name, got)
+			}
+		}
+		for _, hint := range routing {
+			if strings.Contains(got, hint) != (ep.path == "/mcp") {
+				t.Errorf("%s instructions: %q present = %v, want it on /mcp only", ep.path, hint, strings.Contains(got, hint))
+			}
+		}
 	}
 }

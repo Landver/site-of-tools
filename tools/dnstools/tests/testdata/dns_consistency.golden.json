@@ -1,4 +1,81 @@
 {
+  "ecs_failed": {
+    "status": 200,
+    "body": {
+      "name": "example.com",
+      "qname": "example.com.",
+      "type": "A",
+      "zone": "example.com.",
+      "authoritative": [
+        {
+          "label": "ns1.example.com",
+          "addr": "192.0.2.53:53",
+          "values": [
+            "192.0.2.10"
+          ],
+          "ttl": 300,
+          "aa": true,
+          "serial": 2026100401,
+          "rtt_ms": 4
+        },
+        {
+          "label": "ns2.example.com",
+          "addr": "198.51.100.53:53",
+          "values": [
+            "192.0.2.10"
+          ],
+          "ttl": 300,
+          "aa": true,
+          "serial": 2026100401,
+          "rtt_ms": 6
+        }
+      ],
+      "resolvers": [
+        {
+          "label": "Cloudflare (1.1.1.1)",
+          "addr": "1.1.1.1:53",
+          "values": [
+            "192.0.2.10"
+          ],
+          "ttl": 250,
+          "cache_age": "50s",
+          "rtt_ms": 2
+        }
+      ],
+      "ns_total": 2,
+      "groups": [
+        {
+          "values": [
+            "192.0.2.10"
+          ],
+          "servers": [
+            "ns1.example.com",
+            "ns2.example.com",
+            "Cloudflare (1.1.1.1)"
+          ]
+        }
+      ],
+      "resolver_groups": 1,
+      "consistent": true,
+      "auth_consistent": true,
+      "auth_answered": 2,
+      "serials_agree": true,
+      "serials_seen": 1,
+      "answered": 3,
+      "asked": 3,
+      "health": [
+        {
+          "level": "ok",
+          "text": "Nameservers are spread across 2 different networks."
+        },
+        {
+          "level": "ok",
+          "text": "The registry's delegation matches the nameservers the zone serves."
+        }
+      ],
+      "query_ms": 12
+    }
+  },
   "full": {
     "status": 200,
     "body": {
@@ -112,6 +189,130 @@
         "asked": 1,
         "query_ms": 25
       }
+    }
+  },
+  "no_geo_no_rdap": {
+    "status": 200,
+    "body": {
+      "name": "example.com",
+      "qname": "example.com.",
+      "type": "AAAA",
+      "zone": "example.com.",
+      "authoritative": [
+        {
+          "label": "ns1.example.com",
+          "addr": "192.0.2.53:53",
+          "values": [
+            "192.0.2.10"
+          ],
+          "ttl": 300,
+          "aa": true,
+          "serial": 2026100401,
+          "rtt_ms": 4
+        },
+        {
+          "label": "ns2.example.com",
+          "addr": "198.51.100.53:53",
+          "values": [
+            "192.0.2.10"
+          ],
+          "ttl": 300,
+          "aa": true,
+          "serial": 2026100401,
+          "rtt_ms": 6
+        }
+      ],
+      "resolvers": [
+        {
+          "label": "Cloudflare (1.1.1.1)",
+          "addr": "1.1.1.1:53",
+          "values": [
+            "192.0.2.10"
+          ],
+          "ttl": 250,
+          "cache_age": "50s",
+          "rtt_ms": 2
+        }
+      ],
+      "ns_total": 2,
+      "groups": [
+        {
+          "values": [
+            "192.0.2.10"
+          ],
+          "servers": [
+            "ns1.example.com",
+            "ns2.example.com",
+            "Cloudflare (1.1.1.1)"
+          ]
+        }
+      ],
+      "resolver_groups": 1,
+      "consistent": true,
+      "auth_consistent": true,
+      "auth_answered": 2,
+      "serials_agree": true,
+      "serials_seen": 1,
+      "answered": 3,
+      "asked": 3,
+      "query_ms": 12,
+      "ecs": {
+        "name": "example.com",
+        "qname": "example.com.",
+        "type": "AAAA",
+        "resolver": "Google (8.8.8.8)",
+        "resolver_addr": "8.8.8.8:53",
+        "vantages": [
+          {
+            "region": "Europe",
+            "place": "Amsterdam, NL",
+            "subnet": "192.87.0.0/24",
+            "values": [
+              "192.0.2.10"
+            ],
+            "ttl": 300,
+            "ecs_echoed": true,
+            "scope": 0,
+            "rtt_ms": 20
+          }
+        ],
+        "groups": [
+          {
+            "values": [
+              "192.0.2.10"
+            ],
+            "vantages": [
+              "Europe"
+            ]
+          }
+        ],
+        "verdict": "same",
+        "max_scope": 0,
+        "echoed": 1,
+        "with_records": 1,
+        "answered": 1,
+        "asked": 1,
+        "query_ms": 25
+      }
+    }
+  },
+  "no_name": {
+    "status": 400,
+    "body": {
+      "error": "no name; pass ?name=, e.g. /consistency?name=example.com"
+    }
+  },
+  "spread_error": {
+    "status": 400,
+    "body": {
+      "error": "this check needs a domain name, not an IP address",
+      "name": "192.0.2.1"
+    }
+  },
+  "unavailable": {
+    "status": 503,
+    "body": {
+      "error": "This check isn't available right now."
     }
   }
 }

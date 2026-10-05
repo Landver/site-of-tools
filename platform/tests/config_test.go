@@ -45,18 +45,28 @@ func TestURL(t *testing.T) {
 	}
 }
 
-func TestLoadEgressDenyAddrsAndOwnerKey(t *testing.T) {
-	for _, tt := range []struct {
-		deny, owner string
-		want        []string
+func TestLoadEgressDenyAddrs(t *testing.T) {
+	tests := []struct {
+		env  string
+		want []string
 	}{
-		{"", "", nil},
-		{" 203.0.113.7, 2a01:4f8:c0c:1234::/64 ,,", "owner-key", []string{"203.0.113.7", "2a01:4f8:c0c:1234::/64"}},
-	} {
-		t.Setenv("EGRESS_DENY_ADDRS", tt.deny)
-		t.Setenv("MCP_OWNER_KEY", tt.owner)
-		if cfg := platform.Load(); !cmp.Equal(tt.want, cfg.EgressDenyAddrs) || cfg.MCPOwnerKey != tt.owner {
-			t.Errorf("EGRESS_DENY_ADDRS=%q, MCP_OWNER_KEY=%q loaded as %q, %q", tt.deny, tt.owner, cfg.EgressDenyAddrs, cfg.MCPOwnerKey)
+		{"", nil},
+		{"203.0.113.7", []string{"203.0.113.7"}},
+		{" 203.0.113.7, 2a01:4f8:c0c:1234::/64 ,,", []string{"203.0.113.7", "2a01:4f8:c0c:1234::/64"}},
+	}
+	for _, tt := range tests {
+		t.Setenv("EGRESS_DENY_ADDRS", tt.env)
+		if diff := cmp.Diff(tt.want, platform.Load().EgressDenyAddrs); diff != "" {
+			t.Errorf("EGRESS_DENY_ADDRS=%q (-want +got):\n%s", tt.env, diff)
+		}
+	}
+}
+
+func TestLoadMCPOwnerKey(t *testing.T) {
+	for _, want := range []string{"", "owner-key"} {
+		t.Setenv("MCP_OWNER_KEY", want)
+		if got := platform.Load().MCPOwnerKey; got != want {
+			t.Errorf("MCP_OWNER_KEY=%q loaded as %q", want, got)
 		}
 	}
 }

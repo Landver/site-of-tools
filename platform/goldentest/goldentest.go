@@ -1,4 +1,4 @@
-// Package goldentest compares JSON with testdata/<name>.golden.json; UPDATE_GOLDEN=1 rewrites it.
+// Package goldentest pins test output in testdata; UPDATE_GOLDEN=1 rewrites it.
 package goldentest
 
 import (
@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+// Response is one reply as a golden file pins it.
 type Response struct {
 	Status int             `json:"status"`
 	Body   json.RawMessage `json:"body"`
@@ -25,6 +26,7 @@ func Recorded(recs map[string]*httptest.ResponseRecorder) map[string]Response {
 	return out
 }
 
+// JSON compares got with testdata/<name>.golden.json, decoded so key order never matters.
 func JSON(t testing.TB, name string, got any) {
 	t.Helper()
 	var buf bytes.Buffer

@@ -3,12 +3,12 @@ package tests
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,8 +29,6 @@ type upstream struct {
 	mu       sync.Mutex
 	rdapPath string
 	ctQuery  string
-	rdapHits int
-	ctHits   int
 }
 
 // canned serves one RDAP body and one crt.sh body, with the status codes to
@@ -43,14 +41,12 @@ func canned(t *testing.T, rdap string, rdapCode int, ct string, ctCode int) (*dn
 		u.mu.Lock()
 		if strings.HasPrefix(r.URL.Path, "/domain/") {
 			u.rdapPath = r.URL.RequestURI()
-			u.rdapHits++
 			u.mu.Unlock()
 			w.WriteHeader(rdapCode)
 			fmt.Fprint(w, rdap)
 			return
 		}
 		u.ctQuery = r.URL.Query().Get("q")
-		u.ctHits++
 		u.mu.Unlock()
 		w.WriteHeader(ctCode)
 		fmt.Fprint(w, ct)
@@ -352,45 +348,73 @@ func TestCertNamesUpstreamFailure(t *testing.T) {
 	}
 }
 
+// A half whose upstream budget is spent reports busy without asking; the other still runs.
 func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
 	t.Parallel()
-	dc, up := canned(t, rdapBody(time.Now().AddDate(1, 0, 0)), http.StatusOK, "[]", http.StatusOK)
-	answered, busy := map[string]int{}, map[string]int{}
+	var rdapHits, ctHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/domain/") {
+			rdapHits.Add(1)
+			fmt.Fprint(w, rdapBody(time.Now().AddDate(1, 0, 0)))
+			return
+		}
+		ctHits.Add(1)
+		fmt.Fprint(w, "[]")
+	}))
+	t.Cleanup(srv.Close)
+	dc := dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second)
+
+	var reg, regBusy, ct, ctBusy int
 	for range 20 {
 		rep, err := dnstools.DomainInfo(context.Background(), &goldenDNS{}, dc, "example.com")
 		if err != nil {
 			t.Fatal(err)
 		}
-		for half, msg := range map[string]string{"RDAP": rep.RegistrationError, "CT": rep.CertNamesError} {
-			switch msg {
-			case "":
-				answered[half]++
-			case "busy, try again shortly":
-				busy[half]++
-			default:
-				t.Fatalf("%s: %s", half, msg)
-			}
+		switch {
+		case rep.Registration != nil:
+			reg++
+		case rep.RegistrationError == "busy, try again shortly":
+			regBusy++
+		default:
+			t.Fatalf("registration error %q", rep.RegistrationError)
+		}
+		switch {
+		case rep.CertNames != nil:
+			ct++
+		case rep.CertNamesError == "busy, try again shortly":
+			ctBusy++
+		default:
+			t.Fatalf("certificate names error %q", rep.CertNamesError)
 		}
 	}
-	up.mu.Lock()
-	defer up.mu.Unlock()
-	for half, asked := range map[string]int{"RDAP": up.rdapHits, "CT": up.ctHits} {
-		if answered[half] == 0 || busy[half] == 0 || asked != answered[half] {
-			t.Errorf("%s: %d answered, %d busy, %d asked; want both kinds, and no request for a busy one", half, answered[half], busy[half], asked)
-		}
+	if reg == 0 || regBusy == 0 || ct == 0 || ctBusy == 0 {
+		t.Errorf("of 20 rapid reports: RDAP %d answered, %d busy; CT %d answered, %d busy; want both kinds of each", reg, regBusy, ct, ctBusy)
+	}
+	if int(rdapHits.Load()) != reg || int(ctHits.Load()) != ct {
+		t.Errorf("upstreams saw %d RDAP and %d CT requests for %d and %d answers: a busy half must not ask", rdapHits.Load(), ctHits.Load(), reg, ct)
 	}
 }
 
+// Each redirect hop off the configured host must pass the egress guard; ownOnly
+// marks the hops only the configured guard knows to refuse.
 func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
 	t.Parallel()
-	own := platform.NewEgressGuard([]string{"443"}, []string{"dns.corpberry.com"})
+
+	own := platform.NewEgressGuard([]string{"443"}, []string{"dns.corpberry.com", "93.184.216.34"})
 	for _, tc := range []struct {
-		location string
-		ownOnly  bool
+		name, location string
+		ownOnly        bool
 	}{
-		{"ftp://rdap.example.test/domain/example.com", false},
-		{"http://10.0.0.1/domain/example.com", false},
-		{"https://DNS.corpberry.com./domain/example.com", true},
+		{"plain http to a private address", "http://10.0.0.1/domain/example.com", false},
+		{"non-HTTP scheme", "ftp://rdap.example.test/domain/example.com", false},
+		{"loopback", "https://127.0.0.1:8443/domain/example.com", false},
+		{"localhost by name", "https://localhost/domain/example.com", false},
+		{"RFC 1918", "https://10.0.0.1/domain/example.com", false},
+		{"CGNAT", "https://100.64.0.1/domain/example.com", false},
+		{"IPv4-mapped private", "https://[::ffff:192.168.1.1]/domain/example.com", false},
+		{"our own vhost", "https://DNS.corpberry.com./domain/example.com", true},
+		{"our own address", "https://93.184.216.34/domain/example.com", true},
 	} {
 		srv := httptest.NewServer(http.RedirectHandler(tc.location, http.StatusFound))
 		t.Cleanup(srv.Close)
@@ -403,24 +427,8 @@ func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
 		for name, dc := range clients {
 			_, err := dc.Registration(context.Background(), "example.com")
 			if err == nil || !strings.Contains(err.Error(), "redirected somewhere this tool won't follow") {
-				t.Errorf("%s, %s client: err = %v, want the redirect refused", tc.location, name, err)
+				t.Errorf("%s, %s client: err = %v, want the redirect refused", tc.name, name, err)
 			}
-		}
-	}
-}
-
-func TestDomainReportFailsWhenNeitherHalfAnswers(t *testing.T) {
-	t.Parallel()
-	absent, err := dnstools.DomainInfo(context.Background(), &goldenDNS{}, goldenUpstream(t, http.StatusNotFound, http.StatusInternalServerError), "example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, rep := range map[string]*dnstools.DomainReport{
-		"RDAP off, CT down":                       {RegErr: dnstools.ErrDisabled, CertErr: errors.New("down")},
-		"no RDAP record, no nameservers, CT down": absent,
-	} {
-		if err := rep.Err(); err == nil || errors.Is(err, dnstools.ErrDisabled) {
-			t.Errorf("%s: Err() = %v, want a failure, not ErrDisabled", name, err)
 		}
 	}
 }

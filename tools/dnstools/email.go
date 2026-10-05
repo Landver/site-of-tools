@@ -243,6 +243,9 @@ type Mailer interface {
 
 // EmailReport is GET /email: EmailAuth, plus MXRep when rep and bl are wired and answer.
 func EmailReport(ctx context.Context, mail Mailer, rep Reputer, bl BlockChecker, name string) (*EmailAuth, error) {
+	if mail == nil {
+		return nil, ErrDisabled
+	}
 	name = NormalizeName(name)
 	res, err := mail.EmailAuth(ctx, name)
 	if err != nil {

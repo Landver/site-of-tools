@@ -1,8 +1,38 @@
 {
+  "bad_slug": {
+    "status": 400,
+    "body": {
+      "error": "custom code not allowed: use 2–64 lowercase letters, digits and hyphens, starting with a letter or digit"
+    }
+  },
+  "bad_target": {
+    "status": 400,
+    "body": {
+      "error": "destination URL not allowed: scheme \"javascript\" is not http or https"
+    }
+  },
   "bad_ttl": {
     "status": 400,
     "body": {
       "error": "ttl is not a duration, e.g. 720h"
+    }
+  },
+  "clean_without_cleaner": {
+    "status": 503,
+    "body": {
+      "error": "feature is not enabled: cleaning was requested but no cleaner is wired"
+    }
+  },
+  "keyless": {
+    "status": 503,
+    "body": {
+      "error": "Creating short links is switched off on this server: no API key is set, so links cannot be created, listed or revoked. Links that already exist keep redirecting."
+    }
+  },
+  "long_note": {
+    "status": 400,
+    "body": {
+      "error": "note is too long: 300 bytes, the limit is 256"
     }
   },
   "no_key": {
@@ -11,10 +41,22 @@
       "error": "Creating a short link needs a valid API key."
     }
   },
+  "private_target": {
+    "status": 400,
+    "body": {
+      "error": "destination URL not allowed: 192.168.1.1 is not publicly routable"
+    }
+  },
   "reserved_slug": {
     "status": 400,
     "body": {
       "error": "custom code not allowed: \"admin\" is reserved for a page name"
+    }
+  },
+  "short_ttl": {
+    "status": 400,
+    "body": {
+      "error": "ttl must be at least 1m; leave it out for a link that never expires"
     }
   },
   "storage_down": {
@@ -33,6 +75,12 @@
     "status": 400,
     "body": {
       "error": "could not read the request body"
+    }
+  },
+  "wrong_key": {
+    "status": 401,
+    "body": {
+      "error": "Creating a short link needs a valid API key."
     }
   }
 }

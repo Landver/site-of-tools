@@ -1,4 +1,35 @@
 {
+  "applebot_blocklisted": {
+    "bot": {
+      "name": "Applebot",
+      "kind": "search-crawler",
+      "verified": true
+    },
+    "coverage": {
+      "hard": {
+        "evaluated": 1,
+        "skipped": 7,
+        "fired": 1
+      },
+      "consistency": {
+        "evaluated": 4,
+        "skipped": 27,
+        "fired": 1
+      },
+      "soft": {
+        "evaluated": 4,
+        "skipped": 25,
+        "fired": 0
+      }
+    },
+    "fired": [
+      "bot_user_agent",
+      "ip_blocklisted"
+    ],
+    "score": 100,
+    "status": 200,
+    "verdict": "good-bot"
+  },
   "applebot_verified": {
     "bot": {
       "name": "Applebot",
@@ -59,7 +90,7 @@
     "status": 200,
     "verdict": "suspicious"
   },
-  "browser_datacenter": {
+  "blocklist_read_failed_no_geo": {
     "bot": null,
     "coverage": {
       "hard": {
@@ -70,7 +101,7 @@
       "consistency": {
         "evaluated": 4,
         "skipped": 27,
-        "fired": 1
+        "fired": 0
       },
       "soft": {
         "evaluated": 4,
@@ -79,12 +110,574 @@
       }
     },
     "fired": [
-      "datacenter_ip",
       "accept_nav_mismatch"
     ],
-    "score": 70,
+    "score": 100,
     "status": 200,
-    "verdict": "suspicious"
+    "verdict": "human"
+  },
+  "browser_datacenter": {
+    "status": 200,
+    "body": {
+      "score": 70,
+      "verdict": "suspicious",
+      "coverage": {
+        "hard": {
+          "evaluated": 1,
+          "skipped": 7,
+          "fired": 0
+        },
+        "consistency": {
+          "evaluated": 4,
+          "skipped": 27,
+          "fired": 1
+        },
+        "soft": {
+          "evaluated": 4,
+          "skipped": 25,
+          "fired": 1
+        }
+      },
+      "checks": [
+        {
+          "id": "webdriver",
+          "label": "navigator.webdriver is true",
+          "tier": "hard",
+          "weight": 60,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "framework_globals",
+          "label": "Automation framework globals present",
+          "tier": "hard",
+          "weight": 60,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "bot_user_agent",
+          "label": "User-Agent is a known bot / HTTP client",
+          "tier": "hard",
+          "weight": 60,
+          "triggered": false
+        },
+        {
+          "id": "native_tamper",
+          "label": "A native function was monkey-patched (toString)",
+          "tier": "hard",
+          "weight": 45,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "tostring_proxy",
+          "label": "Function.prototype.toString is proxied or replaced (stealth hallmark)",
+          "tier": "hard",
+          "weight": 45,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "software_renderer",
+          "label": "WebGL uses a software renderer (headless tell)",
+          "tier": "hard",
+          "weight": 40,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "iframe_webdriver",
+          "label": "navigator.webdriver is true inside the iframe",
+          "tier": "hard",
+          "weight": 60,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "webdriver_sw",
+          "label": "navigator.webdriver is true in the Service Worker",
+          "tier": "hard",
+          "weight": 60,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "ua_header_mismatch",
+          "label": "JS User-Agent ≠ HTTP User-Agent",
+          "tier": "consistency",
+          "weight": 35,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "context_ua_mismatch",
+          "label": "Worker/iframe/Service-Worker User-Agent ≠ main-thread User-Agent",
+          "tier": "consistency",
+          "weight": 35,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "context_language_mismatch",
+          "label": "Worker/iframe/Service-Worker language ≠ main-thread language",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "context_cores_mismatch",
+          "label": "Worker/iframe/Service-Worker hardwareConcurrency ≠ main thread",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "context_platform_mismatch",
+          "label": "Worker/iframe/Service-Worker platform ≠ main-thread platform",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "context_webgl_mismatch",
+          "label": "Worker WebGL renderer ≠ main-thread WebGL renderer",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "ch_platform_mismatch",
+          "label": "Sec-CH-UA-Platform ≠ navigator.userAgentData.platform",
+          "tier": "consistency",
+          "weight": 30,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "ua_os_mismatch",
+          "label": "OS in User-Agent ≠ userAgentData.platform",
+          "tier": "consistency",
+          "weight": 30,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "engine_ua_mismatch",
+          "label": "Feature-detected engine ≠ engine the User-Agent claims",
+          "tier": "consistency",
+          "weight": 30,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "ua_chrome_version_mismatch",
+          "label": "User-Agent Chrome version ≠ userAgentData version",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "embedded_runtime",
+          "label": "User-Agent is an embedded app runtime (Electron/CEF)",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false
+        },
+        {
+          "id": "tz_mismatch",
+          "label": "Browser timezone ≠ IP timezone",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "datacenter_ip",
+          "label": "Egress IP is a datacenter / Tor address",
+          "tier": "consistency",
+          "weight": 30,
+          "triggered": true,
+          "detail": "datacenter / hosting"
+        },
+        {
+          "id": "proxy_ip",
+          "label": "Egress IP is a proxy / VPN",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false
+        },
+        {
+          "id": "ip_blocklisted",
+          "label": "Egress IP is on a threat / abuse blocklist",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false
+        },
+        {
+          "id": "permission_impossible",
+          "label": "Impossible permission state (prompt while denied)",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "lang_mismatch",
+          "label": "navigator.languages ≠ Accept-Language",
+          "tier": "consistency",
+          "weight": 15,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "tz_self_inconsistent",
+          "label": "Timezone name disagrees with getTimezoneOffset()",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "canvas_unstable",
+          "label": "Canvas output is randomised between draws",
+          "tier": "consistency",
+          "weight": 15,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "ch_brands_mismatch",
+          "label": "Sec-CH-UA header brands ≠ userAgentData.brands",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "vendor_mismatch",
+          "label": "Chromium User-Agent but navigator.vendor ≠ \"Google Inc.\"",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "app_version_mismatch",
+          "label": "navigator.appVersion inconsistent with User-Agent",
+          "tier": "consistency",
+          "weight": 15,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "productsub_mismatch",
+          "label": "navigator.productSub not the engine's constant",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "language_primary_mismatch",
+          "label": "navigator.language ≠ navigator.languages[0]",
+          "tier": "consistency",
+          "weight": 15,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "webgl_vendor_mismatch",
+          "label": "WebGL vendor and renderer disagree",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "gpu_os_mismatch",
+          "label": "WebGL GPU impossible on the claimed OS",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "native_descriptor_tamper",
+          "label": "Native function has an impossible property descriptor",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "native_callnew_tamper",
+          "label": "Native function misses its call/new TypeError traps",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "iframe_proxy",
+          "label": "iframe contentWindow is proxied (stealth iframe patch)",
+          "tier": "consistency",
+          "weight": 30,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "mobile_no_touch",
+          "label": "Mobile User-Agent reports zero touch points",
+          "tier": "consistency",
+          "weight": 20,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "navigator_proto_tamper",
+          "label": "Navigator.prototype accessor descriptor anomaly (webdriver/plugins/languages)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "chrome_runtime_tamper",
+          "label": "window.chrome.runtime fails the integrity probe",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "chrome_late_injection",
+          "label": "window.chrome was injected late (stealth bolt-on)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "jsengine_ua_mismatch",
+          "label": "Feature-detected JS engine ≠ engine the User-Agent claims",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "webrtc_ip_mismatch",
+          "label": "Public WebRTC candidate IP ≠ egress IP",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "fingerprint_reuse",
+          "label": "This exact fingerprint was seen from many IP addresses",
+          "tier": "consistency",
+          "weight": 25,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "empty_plugins",
+          "label": "No browser plugins",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "empty_languages",
+          "label": "navigator.languages is empty",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "default_geometry",
+          "label": "Default 800×600 screen",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "impossible_window",
+          "label": "Outer window smaller than inner (impossible)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "no_chrome_object",
+          "label": "window.chrome missing on a Chrome User-Agent",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "implausible_hardware",
+          "label": "Implausible hardwareConcurrency / deviceMemory",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "screen_avail_impossible",
+          "label": "Available screen area larger than the physical screen",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "low_color_depth",
+          "label": "Unusually low screen colour depth",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "sec_fetch_missing",
+          "label": "Browser User-Agent but no Sec-Fetch-* headers",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false
+        },
+        {
+          "id": "accept_encoding_missing",
+          "label": "Browser User-Agent but no Accept-Encoding header",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false
+        },
+        {
+          "id": "accept_language_missing",
+          "label": "Browser User-Agent but no Accept-Language header",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false
+        },
+        {
+          "id": "accept_nav_mismatch",
+          "label": "Browser User-Agent but Accept doesn't include text/html",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": true,
+          "detail": "Accept: application/json"
+        },
+        {
+          "id": "canvas_blank",
+          "label": "Canvas renders blank (blocked / headless)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "missing_proprietary_codecs",
+          "label": "Browser lacks H.264 and AAC (stripped/headless build)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "no_fonts",
+          "label": "No system fonts detectable",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "image_broken",
+          "label": "A guaranteed-loadable image failed (images stripped)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "plugins_mimetypes_incoherent",
+          "label": "Plugins present but no mimeTypes (incoherent fake)",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "zero_outer_height",
+          "label": "window.outerHeight is zero",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "matchmedia_missing",
+          "label": "Browser User-Agent but window.matchMedia is missing",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "netinfo_incoherent",
+          "label": "navigator.connection effectiveType contradicts its own rtt/downlink",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "ip_fingerprint_churn",
+          "label": "This IP presented many different fingerprints in a short window",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "cdp_both",
+          "label": "CDP automation detected in main thread and Worker",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "cdp_main_only",
+          "label": "CDP automation detected in main thread only",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        },
+        {
+          "id": "cdp_sw_only",
+          "label": "CDP automation detected in the Service Worker only",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false,
+          "skipped": true
+        }
+      ]
+    }
   },
   "curl_no_geo": {
     "bot": null,

@@ -1,17 +1,20 @@
 package tests
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-var browser = map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}
+var listBody = rpc(1, "tools/list", map[string]any{})
 
 func TestGate(t *testing.T) {
 	s := newStack(t, stackOpts{})
+	browser := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}
 	cases := []struct {
 		name, method, target, body string
 		hdr                        map[string]string
@@ -26,7 +29,9 @@ func TestGate(t *testing.T) {
 		{"body over 1 MiB", http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"x":"` + strings.Repeat("a", 1<<20) + `"}}`, mcpHeaders(nil), http.StatusRequestEntityTooLarge, "1 MiB"},
 		{"batch", http.MethodPost, "/mcp", " \n[" + listBody + "," + listBody + "]", mcpHeaders(nil), http.StatusBadRequest, "batching is not supported"},
 		{"cross-site browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "cross-site"}), http.StatusForbidden, "Cross-site"},
+		{"same-site browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "same-site"}), http.StatusForbidden, "Cross-site"},
 		{"same-origin browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": base}), http.StatusOK, "ip_cidr"},
+		{"a list", http.MethodPost, "/mcp/ip", listBody, mcpHeaders(nil), http.StatusOK, "ip_cidr"},
 		{"unknown Host", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Host": "rebound.example"}), http.StatusNotFound, ""},
 	}
 	// Echo's router answers these before the gate runs.
@@ -43,6 +48,12 @@ func TestGate(t *testing.T) {
 			t.Errorf("%s: Cache-Control %q, want no-store", tc.name, got)
 		}
 	}
+
+	// A toolset whose dependencies are off at boot has no tools, so no endpoint.
+	rec := newStack(t, stackOpts{bare: true}).do(http.MethodPost, "/mcp/dns", listBody, mcpHeaders(nil))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "No MCP endpoint") || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("toolset without tools: %d %q, want 404 with no-store", rec.Code, rec.Body.String())
+	}
 }
 
 func TestForeignOriginIsServedAndLogged(t *testing.T) {
@@ -55,9 +66,10 @@ func TestForeignOriginIsServedAndLogged(t *testing.T) {
 	if got := log.String(); !strings.Contains(got, "foreign Origin") || !strings.Contains(got, "https://claude.ai") || !strings.Contains(got, "Claude-User") {
 		t.Errorf("log = %s, want the Origin and user agent", got)
 	}
+	log.Reset()
 	s.do(http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Origin": base}))
-	if n := strings.Count(log.String(), "foreign Origin"); n != 1 {
-		t.Errorf("%d foreign Origins logged, want 1: ours is not foreign", n)
+	if strings.Contains(log.String(), "foreign Origin") {
+		t.Errorf("our own Origin was logged as foreign")
 	}
 }
 
@@ -90,42 +102,61 @@ func TestOwnerKey(t *testing.T) {
 	}
 
 	// What a web page can make a browser send can't lock the owner out.
-	for i, hdr := range []map[string]string{
-		nil,
-		{"Authorization": "Basic " + ownerKey},
-		{"X-Api-Key": "guess", "Sec-Fetch-Site": "cross-site"},
-		{"X-Api-Key": "guess", "Sec-Fetch-Site": "same-site"},
+	for name, hdr := range map[string]map[string]string{
+		"no key":     nil,
+		"basic":      {"Authorization": "Basic " + ownerKey},
+		"cross-site": {"X-Api-Key": "guess", "Sec-Fetch-Site": "cross-site"},
+		"same-site":  {"X-Api-Key": "guess", "Sec-Fetch-Site": "same-site"},
 	} {
-		ip := fmt.Sprintf("198.51.100.%d", 10+i)
-		for n := range 10 {
+		ip := map[string]string{"no key": "198.51.100.1", "basic": "198.51.100.3", "cross-site": "198.51.100.4", "same-site": "198.51.100.5"}[name]
+		for i := range 10 {
 			if code := try(ip, hdr); code != http.StatusForbidden {
-				t.Fatalf("%v, try %d = %d, want 403", hdr, n+1, code)
+				t.Fatalf("%s, try %d = %d, want 403", name, i+1, code)
 			}
 		}
 		if code := try(ip, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusOK {
-			t.Errorf("%v ten times, then the right key = %d, want 200", hdr, code)
+			t.Errorf("%s ten times, then the right key = %d, want 200", name, code)
 		}
 	}
-	if code := try("198.51.100.9", map[string]string{"Authorization": "bearer " + ownerKey}); code != http.StatusOK {
-		t.Errorf("the key as a bearer token = %d, want 200", code)
-	}
 
+	browser := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}
 	page, unknown := s.do(http.MethodGet, "/mcp/owner", "", browser), s.do(http.MethodGet, "/mcp/nope", "", browser)
 	if page.Code != http.StatusNotFound || page.Body.String() != unknown.Body.String() {
 		t.Errorf("browser GET /mcp/owner = %d %.80q, want the unknown path's 404 %.80q", page.Code, page.Body, unknown.Body)
 	}
+
+	// A gateway's own token doesn't touch the public endpoints.
 	if code := s.do(http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Authorization": "Bearer someone-elses"})).Code; code != http.StatusOK {
 		t.Errorf("public endpoint with an unrelated bearer token = %d, want 200", code)
 	}
-}
 
-func TestCapabilitiesAreToolsOnly(t *testing.T) {
-	caps := newStack(t, stackOpts{}).client(t, "/mcp/ip", nil).InitializeResult().Capabilities
-	if caps.Tools == nil || caps.Tools.ListChanged || caps.Logging != nil {
-		t.Errorf("capabilities = %+v, want tools and no listChanged or logging", caps)
+	for name, hdr := range map[string]map[string]string{
+		"X-Api-Key": {"X-Api-Key": ownerKey},
+		"Bearer":    {"Authorization": "bearer " + ownerKey},
+	} {
+		hdr["CF-Connecting-IP"] = "198.51.100.9"
+		res := listTools(t, s.client(t, "/mcp/owner", hdr, nil))
+		if res.CacheScope != "private" || len(res.Tools) != 3 {
+			t.Errorf("owner list by %s = %q with %d tools, want private and the 3 owner tools", name, res.CacheScope, len(res.Tools))
+		}
+	}
+	if res := listTools(t, s.client(t, "/mcp", nil, nil)); res.CacheScope != "public" {
+		t.Errorf("public list scope = %q", res.CacheScope)
 	}
 }
 
+// TestCapabilities: tools only, not the logging and listChanged the SDK defaults to.
+func TestCapabilities(t *testing.T) {
+	init := newStack(t, stackOpts{}).do(http.MethodPost, "/mcp/ip", rpc(1, "initialize", map[string]any{
+		"protocolVersion": "2025-11-25", "capabilities": map[string]any{},
+		"clientInfo": map[string]any{"name": "raw", "version": "1"},
+	}), mcpHeaders(nil))
+	if b := init.Body.String(); init.Code != http.StatusOK || !strings.Contains(b, `"tools":{}`) || strings.Contains(b, "logging") {
+		t.Errorf("initialize = %d %s, want tools and no listChanged or logging", init.Code, b)
+	}
+}
+
+// TestSubscriptionsListenReturns: nothing to listen for, so no stream held open.
 func TestSubscriptionsListenReturns(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	body := rpc(1, "subscriptions/listen", map[string]any{
@@ -152,24 +183,35 @@ func TestSubscriptionsListenReturns(t *testing.T) {
 }
 
 func TestPanickingToolIsAnErrorAndTheProcessLives(t *testing.T) {
-	cs := newStack(t, stackOpts{geo: &fakeGeo{panic: true}}).client(t, "/mcp/ip", nil)
-	res := call(t, cs, "ip_lookup", required["ip_lookup"])
-	failsWith(t, res, "Internal error")
-	if strings.Contains(text(t, res), "exploded") {
-		t.Errorf("the panic's text reached the client: %q", text(t, res))
+	s := newStack(t, stackOpts{geo: &fakeGeo{panic: true}})
+	cs := s.client(t, "/mcp/ip", nil, nil)
+	res := call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"})
+	if !res.IsError || !strings.Contains(text(t, res), "Internal error") || strings.Contains(text(t, res), "exploded") {
+		t.Errorf("panicking tool = %q, want an internal error without the panic's text", text(t, res))
 	}
-	object(t, call(t, cs, "ip_cidr", required["ip_cidr"]))
+	object(t, call(t, cs, "ip_cidr", map[string]any{"cidr": "10.0.0.0/8"}))
 }
 
+// TestNullArgumentsAreNoArguments: defaults apply and a missing required field is named.
 func TestNullArgumentsAreNoArguments(t *testing.T) {
 	var log syncBuffer
 	s := newStack(t, stackOpts{log: &log})
 	hdr := mcpHeaders(map[string]string{"Mcp-Protocol-Version": "2025-11-25"})
 	for tool, wantErr := range map[string]bool{"cipher_random": false, "dns_lookup": true} {
 		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + tool + `","arguments":null}}`
-		got := s.do(http.MethodPost, "/mcp", body, hdr).Body.String()
-		if strings.Contains(got, `"isError":true`) != wantErr || strings.Contains(got, "Internal error") || wantErr && !strings.Contains(got, "name") {
-			t.Errorf("%s with null arguments = %.300s, want isError %v", tool, got, wantErr)
+		var resp struct {
+			Result struct {
+				IsError bool                    `json:"isError"`
+				Content []struct{ Text string } `json:"content"`
+			} `json:"result"`
+		}
+		rec := s.do(http.MethodPost, "/mcp", body, hdr)
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Result.Content) != 1 {
+			t.Fatalf("%s with null arguments = %d %s", tool, rec.Code, rec.Body)
+		}
+		got := resp.Result.Content[0].Text
+		if resp.Result.IsError != wantErr || strings.Contains(got, "Internal error") || wantErr && !strings.Contains(got, "name") {
+			t.Errorf("%s with null arguments = isError %v %.120q, want isError %v", tool, resp.Result.IsError, got, wantErr)
 		}
 	}
 	if strings.Contains(log.String(), "mcp: panic") {
@@ -179,7 +221,8 @@ func TestNullArgumentsAreNoArguments(t *testing.T) {
 
 func TestRecordsNeverHoldArguments(t *testing.T) {
 	var log syncBuffer
-	cs := newStack(t, stackOpts{log: &log}).client(t, "/mcp/ip", nil)
+	s := newStack(t, stackOpts{log: &log})
+	cs := s.client(t, "/mcp/ip", nil, nil)
 	call(t, cs, "ip_cidr", map[string]any{"cidr": "172.31.255.0/24"})
 	call(t, cs, "ip_cidr", map[string]any{"cidr": "secret-looking-input"})
 	got := log.String()
@@ -193,4 +236,28 @@ func TestRecordsNeverHoldArguments(t *testing.T) {
 			t.Errorf("log holds an argument (%s):\n%s", leak, got)
 		}
 	}
+}
+
+// syncBuffer is a bytes.Buffer safe for the logger and the test at once.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func (s *syncBuffer) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.b.Reset()
 }

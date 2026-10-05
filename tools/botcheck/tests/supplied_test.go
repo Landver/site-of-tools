@@ -12,6 +12,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
+// The rules that read header- or IP-derived fields; everything else skips
+// only for a missing fingerprint.
 var (
 	headerRules = []string{
 		"bot_user_agent", "ua_header_mismatch", "ch_platform_mismatch", "embedded_runtime", "lang_mismatch",
@@ -19,6 +21,8 @@ var (
 	}
 	ipRules = []string{"tz_mismatch", "datacenter_ip", "proxy_ip", "ip_blocklisted", "webrtc_ip_mismatch"}
 )
+
+var cmpSorted = cmpopts.SortSlices(func(a, b string) bool { return a < b })
 
 func withoutHeaders(s botcheck.Signals) botcheck.Signals {
 	s.HeadersSupplied = false
@@ -35,6 +39,16 @@ func withoutIP(s botcheck.Signals) botcheck.Signals {
 	return s
 }
 
+func skippedIDs(r botcheck.Report) []string {
+	var ids []string
+	for _, c := range r.Checks {
+		if c.Skipped {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
 func TestUnsuppliedHalvesSkipNotFail(t *testing.T) {
 	cases := []struct {
 		name string
@@ -48,19 +62,24 @@ func TestUnsuppliedHalvesSkipNotFail(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := botcheck.Evaluate(tc.s)
-			var skipped []string
-			for _, c := range r.Checks {
-				if c.Skipped {
-					skipped = append(skipped, c.ID)
-				}
-			}
-			if diff := cmp.Diff(tc.want, skipped, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			if diff := cmp.Diff(tc.want, skippedIDs(r), cmpSorted); diff != "" {
 				t.Errorf("skipped (-want +got):\n%s", diff)
 			}
 			if r.Score != 100 || r.Verdict != "human" {
 				t.Errorf("score=%d verdict=%q, want 100/human (fired: %v)", r.Score, r.Verdict, triggeredIDs(r))
 			}
 		})
+	}
+}
+
+// An absent header is evidence only when headers were supplied: the same
+// empty User-Agent fires bot_user_agent in one case and is skipped in the other.
+func TestEmptyUserAgentCountsOnlyWhenHeadersSupplied(t *testing.T) {
+	if c := check(t, botcheck.Evaluate(botcheck.Signals{}), "bot_user_agent"); !c.Skipped || c.Triggered {
+		t.Errorf("no headers: bot_user_agent = %+v, want skipped", c)
+	}
+	if c := check(t, botcheck.Evaluate(botcheck.Signals{HeadersSupplied: true}), "bot_user_agent"); c.Skipped || !c.Triggered {
+		t.Errorf("headers supplied, no UA: bot_user_agent = %+v, want fired", c)
 	}
 }
 
@@ -78,6 +97,7 @@ func TestCoverageCounts(t *testing.T) {
 		{"everything supplied", cleanChrome(), botcheck.Coverage{Hard: tier(8, 0, 0), Consistency: tier(31, 0, 0), Soft: tier(29, 0, 0)}},
 		{"fired", stealth, botcheck.Coverage{Hard: tier(8, 0, 1), Consistency: tier(31, 0, 1), Soft: tier(29, 0, 1)}},
 		{"fingerprint only", withoutIP(withoutHeaders(cleanChrome())), botcheck.Coverage{Hard: tier(7, 1, 0), Consistency: tier(21, 10, 0), Soft: tier(25, 4, 0)}},
+		{"server only", crawler("curl/8.4.0", ""), botcheck.Coverage{Hard: tier(1, 7, 1), Consistency: tier(4, 27, 0), Soft: tier(4, 25, 0)}},
 		{"nothing supplied", botcheck.Signals{}, botcheck.Coverage{Hard: tier(0, 8, 0), Consistency: tier(0, 31, 0), Soft: tier(0, 29, 0)}},
 	}
 	for _, tc := range cases {

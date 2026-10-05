@@ -1,4 +1,65 @@
 {
+  "default_type": {
+    "status": 200,
+    "body": {
+      "name": "example.com",
+      "qname": "example.com.",
+      "type": "A",
+      "hops": [
+        {
+          "zone": ".",
+          "server": "a.root-servers.net",
+          "server_ip": "198.41.0.4",
+          "rtt_ms": 10,
+          "authoritative": false,
+          "referral": "com.",
+          "nameservers": [
+            "a.gtld-servers.net"
+          ],
+          "glue": [
+            "192.5.6.30"
+          ]
+        },
+        {
+          "zone": "example.com.",
+          "server": "ns1.example.com",
+          "server_ip": "192.0.2.53",
+          "rtt_ms": 8,
+          "authoritative": true,
+          "nameservers": [],
+          "glue": []
+        }
+      ],
+      "chain": [],
+      "dnssec": "insecure",
+      "verdict": {
+        "level": "info",
+        "text": "This name is not signed."
+      },
+      "root_server": "a.root-servers.net",
+      "answer": [
+        "192.0.2.10"
+      ],
+      "answer_signed": false,
+      "answer_verified": false,
+      "notes": [],
+      "queries": 0,
+      "query_ms": 30
+    }
+  },
+  "error": {
+    "status": 400,
+    "body": {
+      "error": "unsupported record type",
+      "name": "example.com"
+    }
+  },
+  "no_name": {
+    "status": 400,
+    "body": {
+      "error": "no name; pass ?name=, e.g. /trace?name=example.com"
+    }
+  },
   "ok": {
     "status": 200,
     "body": {
@@ -45,6 +106,12 @@
       "notes": [],
       "queries": 0,
       "query_ms": 30
+    }
+  },
+  "unavailable": {
+    "status": 503,
+    "body": {
+      "error": "This check isn't available right now."
     }
   }
 }

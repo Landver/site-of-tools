@@ -1,8 +1,76 @@
 {
+  "bad_a": {
+    "status": 400,
+    "body": {
+      "error": "URL A is not valid: missing ']' in host"
+    }
+  },
   "bad_b": {
     "status": 400,
     "body": {
       "error": "URL B is not valid: invalid URL escape \"%zz\""
+    }
+  },
+  "cosmetic": {
+    "status": 200,
+    "body": {
+      "a": "HTTPS://Example.com:443/a/./b?x=%7e",
+      "b": "https://example.com/a/b?x=~",
+      "fields": [
+        {
+          "field": "host",
+          "a": "Example.com",
+          "b": "example.com",
+          "cosmetic": true
+        },
+        {
+          "field": "port",
+          "a": "443",
+          "cosmetic": true
+        },
+        {
+          "field": "path",
+          "a": "/a/./b",
+          "b": "/a/b",
+          "cosmetic": true
+        }
+      ],
+      "params": [
+        {
+          "key": "x",
+          "kind": "same",
+          "a": "~",
+          "b": "~",
+          "index_a": 1,
+          "index_b": 1
+        }
+      ],
+      "identical": true,
+      "notes": [
+        {
+          "severity": "info",
+          "title": "Different text, same URL",
+          "detail": "Every difference is formatting: letter case, a default port written out, a dot segment, an escape. A server reads both URLs the same way."
+        }
+      ]
+    }
+  },
+  "identical": {
+    "status": 200,
+    "body": {
+      "a": "https://example.com/?a=1",
+      "b": "https://example.com/?a=1",
+      "params": [
+        {
+          "key": "a",
+          "kind": "same",
+          "a": "1",
+          "b": "1",
+          "index_a": 1,
+          "index_b": 1
+        }
+      ],
+      "identical": true
     }
   },
   "missing_b": {
@@ -56,6 +124,12 @@
         }
       ],
       "identical": false
+    }
+  },
+  "wrong_tool": {
+    "status": 400,
+    "body": {
+      "error": "That looks like a curl command, not a URL."
     }
   }
 }

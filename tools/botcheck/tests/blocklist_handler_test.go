@@ -18,6 +18,9 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
+// The live corpus end-to-end through the handler, gated on MONGODB_TEST_URI;
+// supplied_test.go covers the BlockLookup→Signals mapping offline.
+
 func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	t.Helper()
 	uri := os.Getenv("MONGODB_TEST_URI")
