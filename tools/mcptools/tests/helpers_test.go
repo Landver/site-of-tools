@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +26,9 @@ import (
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/shared"
+	"github.com/Landver/site-of-tools/site"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/ciphertools"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
@@ -32,14 +36,18 @@ import (
 )
 
 const (
-	mcpHost  = "mcp.test"
-	ipHost   = "ip.test"
-	dnsHost  = "dns.test"
-	linkHost = "link.test"
-	base     = "http://" + mcpHost
-	linkBase = "http://" + linkHost
-	ownerKey = "owner-test-key"
-	clientIP = "203.0.113.9"
+	mcpHost    = "mcp.test"
+	ipHost     = "ip.test"
+	dnsHost    = "dns.test"
+	linkHost   = "link.test"
+	cipherHost = "cipher.test"
+	botHost    = "botcheck.test"
+	apexHost   = "corpberry.test"
+	base       = "http://" + mcpHost
+	linkBase   = "http://" + linkHost
+	apexURL    = "https://" + apexHost
+	ownerKey   = "owner-test-key"
+	clientIP   = "203.0.113.9"
 )
 
 // fakeGeo answers every valid address with a copy of res, refuses the rest the
@@ -121,20 +129,23 @@ type stackOpts struct {
 	ipLim *iptools.Limits
 	log   io.Writer
 
-	// bare leaves out every dns and link dependency not set here, as a boot
-	// with them off does.
-	bare    bool
-	dns     dnstools.Looker
-	dom     *dnstools.DomainClient
-	link    *linktools.Service
-	tracer  *linktools.Tracer
-	short   *linktools.Shortener
-	dnsLim  *dnstools.Limits
-	linkLim *linktools.Limits
+	// bare leaves out every dns, link and blog dependency not set here, as a
+	// boot with them off does.
+	bare      bool
+	dns       dnstools.Looker
+	dom       *dnstools.DomainClient
+	link      *linktools.Service
+	tracer    *linktools.Tracer
+	short     *linktools.Shortener
+	posts     fs.FS
+	dnsLim    *dnstools.Limits
+	linkLim   *linktools.Limits
+	cipherLim *ciphertools.Limits
+	botLim    *botcheck.Limits
 }
 
-// stack is the vhost handler as main.go builds it: the ip, dns and link REST
-// apps and the mcp app, each pair sharing one Limits.
+// stack is the vhost handler as main.go builds it: the REST apps and the mcp
+// app, each pair sharing one Limits.
 type stack struct {
 	handler http.Handler
 	srv     *httptest.Server
@@ -164,12 +175,21 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		if o.short == nil {
 			o.short = linktools.NewShortener(offlineStore(), "", linkBase)
 		}
+		if o.posts == nil {
+			o.posts = testPosts
+		}
 	}
 	if o.dnsLim == nil {
 		o.dnsLim = roomyDNS()
 	}
 	if o.linkLim == nil {
 		o.linkLim = roomyLink()
+	}
+	if o.cipherLim == nil {
+		o.cipherLim = roomyCipher()
+	}
+	if o.botLim == nil {
+		o.botLim = roomyBot()
 	}
 	renderer := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
@@ -189,6 +209,18 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		hosts[linkHost] = app()
 		linktools.Register(hosts[linkHost], o.link, o.tracer, o.short, linkBase, o.linkLim)
 	}
+	hosts[cipherHost] = app()
+	ciphertools.Register(hosts[cipherHost], "http://"+cipherHost, fstest.MapFS{}, o.cipherLim)
+	hosts[botHost] = app()
+	botcheck.Register(hosts[botHost], o.geo, nil, o.chk, o.botLim)
+	var blog *site.Blog
+	if o.posts != nil {
+		hosts[apexHost] = app()
+		var err error
+		if blog, err = site.Register(hosts[apexHost], platform.Config{Env: "prod", BaseDomain: apexHost}, o.posts); err != nil {
+			t.Fatal(err)
+		}
+	}
 	mcpApp := app()
 	if o.log != nil {
 		mcpApp.Logger = slog.New(slog.NewJSONHandler(o.log, nil))
@@ -197,7 +229,13 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		Geo: o.geo, Blocklist: o.chk, IPLimits: o.ipLim,
 		DNS: o.dns, DNSGeo: dnsGeo, DNSBlocklist: fakeBlock{}, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
-		ToolURL: func(sub string) string { return "http://" + sub + ".test" },
+		CipherLimits: o.cipherLim, BotLimits: o.botLim, Blog: blog,
+		ToolURL: func(sub string) string {
+			if sub == "" {
+				return apexURL
+			}
+			return "http://" + sub + ".test"
+		},
 	}, base)
 	if err != nil {
 		t.Fatal(err)

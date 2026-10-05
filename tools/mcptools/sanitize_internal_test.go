@@ -25,7 +25,7 @@ func TestClean(t *testing.T) {
 		{"x" + strings.Repeat("é", maxString), "x" + strings.Repeat("é", (maxString-1)/2) + "…[truncated 2050 bytes]"},
 	}
 	for _, tc := range cases {
-		if got := clean(tc.in); got != tc.want {
+		if got := clean(tc.in, maxString); got != tc.want {
 			t.Errorf("clean(%.40q) = %.80q, want %.80q", tc.in, got, tc.want)
 		}
 	}
@@ -43,7 +43,7 @@ func TestSanitize(t *testing.T) {
 		"url":         "https://x.test/?a=1&b=<2>",
 	}
 	raw, _ := json.Marshal(in)
-	res, size, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "")
+	res, size, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "", false)
 	if err != nil || res.IsError {
 		t.Fatalf("sanitize = %v %v", res, err)
 	}
@@ -79,19 +79,19 @@ func TestSanitizeRefuses(t *testing.T) {
 		big["rows"].([]string)[i] = strings.Repeat("r", 60)
 	}
 	raw, _ := json.Marshal(big)
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "Ask for one record type.")
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "Ask for one record type.", false)
 	if err != nil || !res.IsError || !strings.HasSuffix(res.Content[0].(*mcp.TextContent).Text, "Ask for one record type.") {
 		t.Errorf("over the hard cap = %+v %v, want an error that says how to narrow", res, err)
 	}
 
 	for _, sc := range []any{nil, json.RawMessage(`[1,2]`), json.RawMessage(`"s"`)} {
-		if _, _, err := sanitize(&mcp.CallToolResult{StructuredContent: sc}, ""); err == nil {
+		if _, _, err := sanitize(&mcp.CallToolResult{StructuredContent: sc}, "", false); err == nil {
 			t.Errorf("structuredContent %v accepted; it must be an object", sc)
 		}
 	}
 
 	errRes := errorResult("upstream said \u202eevil " + strings.Repeat("e", 5000))
-	got, _, _ := sanitize(errRes, "")
+	got, _, _ := sanitize(errRes, "", false)
 	if txt := got.Content[0].(*mcp.TextContent).Text; !got.IsError || !strings.Contains(txt, `\u{202E}`) || len(txt) > maxString+40 {
 		t.Errorf("error text = %.60q (%d bytes), want escaped and capped", txt, len(txt))
 	}
@@ -99,11 +99,29 @@ func TestSanitizeRefuses(t *testing.T) {
 
 func TestSanitizeKeepsOrderOfLists(t *testing.T) {
 	raw := json.RawMessage(`{"a":[3,1,2],"b":{"z":1,"y":2}}`)
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: raw}, "")
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: raw}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if diff := cmp.Diff(`{"a":[3,1,2],"b":{"y":2,"z":1}}`, res.Content[0].(*mcp.TextContent).Text); diff != "" {
 		t.Errorf("(-want +got):\n%s", diff)
+	}
+}
+
+// A whole result, such as a generated RSA-4096 key, keeps its long strings;
+// invisible characters are still shown and the hard cap still holds.
+func TestSanitizeWhole(t *testing.T) {
+	pem := strings.Repeat("k", 3300)
+	raw, _ := json.Marshal(map[string]any{"private_pem": pem, "text": "a\u202eb"})
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "", true)
+	if err != nil || res.IsError {
+		t.Fatalf("sanitize = %v %v", res, err)
+	}
+	if diff := cmp.Diff(`{"private_pem":"`+pem+`","text":"a\\u{202E}b"}`, res.Content[0].(*mcp.TextContent).Text); diff != "" {
+		t.Errorf("(-want +got):\n%s", diff)
+	}
+	big, _ := json.Marshal(map[string]any{"text": strings.Repeat("x", maxResult)})
+	if res, _, _ := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(big)}, "", true); !res.IsError {
+		t.Error("a whole result over the hard cap was sent")
 	}
 }

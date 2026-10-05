@@ -25,7 +25,6 @@ func TestGate(t *testing.T) {
 		{"any other GET is the SDK's 405", http.MethodGet, "/mcp", "", map[string]string{"Accept": "text/event-stream"}, http.StatusMethodNotAllowed, ""},
 		{"DELETE is 405", http.MethodDelete, "/mcp", "", nil, http.StatusMethodNotAllowed, ""},
 		{"unknown toolset", http.MethodPost, "/mcp/nope", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
-		{"toolset without tools yet", http.MethodPost, "/mcp/cipher", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
 		{"empty toolset", http.MethodPost, "/mcp/", listBody, mcpHeaders(nil), http.StatusNotFound, "Not Found"},
 		{"owner endpoint off without a key", http.MethodPost, "/mcp/owner", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
 		{"body over 1 MiB", http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"x":"` + strings.Repeat("a", 1<<20) + `"}}`, mcpHeaders(nil), http.StatusRequestEntityTooLarge, "1 MiB"},
@@ -49,6 +48,13 @@ func TestGate(t *testing.T) {
 		if got := rec.Header().Get("Cache-Control"); !byEcho[tc.name] && got != "no-store" {
 			t.Errorf("%s: Cache-Control %q, want no-store", tc.name, got)
 		}
+	}
+
+	// Every toolset has tools, but one whose dependencies are off at boot has
+	// none, and so no endpoint.
+	rec := newStack(t, stackOpts{bare: true}).do(http.MethodPost, "/mcp/dns", listBody, mcpHeaders(nil))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "No MCP endpoint") || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("toolset without tools: %d %q, want 404 with no-store", rec.Code, rec.Body.String())
 	}
 }
 

@@ -107,7 +107,11 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 	d = withDefaults(d)
 	base = strings.TrimRight(base, "/")
 	m := &calls{protocol: platform.NewLimiter(5, 20), reqlog: d.RequestLog, log: log}
-	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log))
+	cipher, err := cipherSpecs(d)
+	if err != nil {
+		return nil, err
+	}
+	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipher, botSpecs(d), siteSpecs(d))
 	eps, err := buildEndpoints(public, ownerSpecs(d, log), d.Owner.HasKey(), m, base)
 	if err != nil {
 		return nil, err

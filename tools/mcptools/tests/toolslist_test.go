@@ -3,6 +3,8 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,10 +18,13 @@ import (
 
 var toolName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
-// Budgets for what a client puts in the model's context before any call.
+// Budgets for what a client puts in the model's context before any call, as
+// tools/list sends it. One tool may take 3 KB: a cipher op with eleven fields
+// needs most of it for ciphertools' own field descriptions.
 const (
-	maxToolBytes = 2 << 10
-	maxListBytes = 40 << 10
+	maxToolBytes = 3 << 10
+	maxListBytes = 64 << 10 // /mcp, every public tool
+	maxSetBytes  = 32 << 10 // one toolset's endpoint
 )
 
 func listTools(t *testing.T, cs *mcp.ClientSession) *mcp.ListToolsResult {
@@ -40,6 +45,9 @@ var endpoints = []struct{ path, file, scope string }{
 	{"/mcp/ip", "tools-list-ip.golden.json", "public"},
 	{"/mcp/dns", "tools-list-dns.golden.json", "public"},
 	{"/mcp/link", "tools-list-link.golden.json", "public"},
+	{"/mcp/cipher", "tools-list-cipher.golden.json", "public"},
+	{"/mcp/botcheck", "tools-list-botcheck.golden.json", "public"},
+	{"/mcp/site", "tools-list-site.golden.json", "public"},
 	{"/mcp/owner", "tools-list-owner.golden.json", "private"},
 }
 
@@ -48,8 +56,10 @@ var endpoints = []struct{ path, file, scope string }{
 // golden diff (UPDATE_GOLDEN=1 rewrites the files).
 func TestToolsListGolden(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
-	for _, ep := range endpoints {
-		res := listTools(t, s.client(t, ep.path, map[string]string{"CF-Connecting-IP": clientIP, "X-Api-Key": ownerKey}, nil))
+	for i, ep := range endpoints {
+		// One address per endpoint: every message spends the protocol budget.
+		hdr := map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}
+		res := listTools(t, s.client(t, ep.path, hdr, nil))
 		got, err := json.MarshalIndent(res.Tools, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -71,8 +81,14 @@ func TestToolsListGolden(t *testing.T) {
 			t.Errorf("%s tools/list changed (-golden +got):\n%s", ep.path, diff)
 		}
 
-		if len(got) > maxListBytes {
-			t.Errorf("%s tools/list is %d bytes, over the %d budget", ep.path, len(got), maxListBytes)
+		wire := s.do(http.MethodPost, ep.path, listBody, mcpHeaders(hdr)).Body.Len()
+		budget := maxSetBytes
+		if ep.path == "/mcp" {
+			budget = maxListBytes
+		}
+		t.Logf("%s tools/list: %d bytes", ep.path, wire)
+		if wire > budget {
+			t.Errorf("%s tools/list is %d bytes, over the %d budget", ep.path, wire, budget)
 		}
 		for i, tool := range res.Tools {
 			b, _ := json.Marshal(tool)
@@ -98,9 +114,9 @@ func TestToolsListGolden(t *testing.T) {
 // which of two look-alike tools fits.
 func TestInstructionsNameOnlyTheirTools(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
-	const routing = "link_redirect_chain follows a URL's HTTP redirects"
-	for _, ep := range endpoints {
-		cs := s.client(t, ep.path, map[string]string{"CF-Connecting-IP": clientIP, "X-Api-Key": ownerKey}, nil)
+	routing := []string{"link_redirect_chain follows a URL's HTTP redirects", "cipher_encode converts bytes"}
+	for i, ep := range endpoints {
+		cs := s.client(t, ep.path, map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}, nil)
 		got := cs.InitializeResult().Instructions
 		served := map[string]bool{}
 		for _, tool := range listTools(t, cs).Tools {
@@ -114,8 +130,10 @@ func TestInstructionsNameOnlyTheirTools(t *testing.T) {
 				t.Errorf("%s instructions name %s, which it doesn't serve: %q", ep.path, name, got)
 			}
 		}
-		if strings.Contains(got, routing) != (ep.path == "/mcp") {
-			t.Errorf("%s instructions: routing hint present = %v, want it on /mcp only", ep.path, !strings.Contains(got, routing))
+		for _, hint := range routing {
+			if strings.Contains(got, hint) != (ep.path == "/mcp") {
+				t.Errorf("%s instructions: %q present = %v, want it on /mcp only", ep.path, hint, strings.Contains(got, hint))
+			}
 		}
 	}
 }

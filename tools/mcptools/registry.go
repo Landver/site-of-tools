@@ -34,8 +34,14 @@ type toolSpec struct {
 	// REST twin's global breaker; its refusal reads as busy. Nil for none.
 	breaker platform.Limiter
 	cap     *platform.Cap // nil: no bound on calls in flight
-	narrow  string        // how to ask for less, when a result is over the hard cap
-	add     func(*mcp.Server, *mcp.Tool)
+	// weight is how much of cap a call holds, read from its raw arguments
+	// before the SDK validates them; nil holds 1.
+	weight func(json.RawMessage) int64
+	narrow string // how to ask for less, when a result is over the hard cap
+	// whole keeps every string of a result uncut: it holds no third-party
+	// text, only the caller's own input worked on or the site's own posts.
+	whole bool
+	add   func(*mcp.Server, *mcp.Tool)
 }
 
 // handle adapts a typed handler for toolSpec.add: a result becomes
@@ -126,9 +132,8 @@ type Decision struct {
 // without a route.
 func Coverage() map[Route]Decision { return maps.Clone(coverage) }
 
-func served(tools ...string) Decision  { return Decision{Status: StatusTool, Tools: tools} }
-func planned(tools ...string) Decision { return Decision{Status: StatusPlanned, Tools: tools} }
-func excluded(reason string) Decision  { return Decision{Status: StatusExcluded, Reason: reason} }
+func served(tools ...string) Decision { return Decision{Status: StatusTool, Tools: tools} }
+func excluded(reason string) Decision { return Decision{Status: StatusExcluded, Reason: reason} }
 
 const (
 	get, post, del = http.MethodGet, http.MethodPost, http.MethodDelete
@@ -137,16 +142,16 @@ const (
 
 var coverage = map[Route]Decision{
 	{"", get, "/"}:              excluded("The apex JSON tool catalog: tools/list, the server instructions and the landing page's JSON replace it."),
-	{"", get, "/blog"}:          planned("site_blog"),
-	{"", get, "/blog/:slug"}:    planned("site_blog"),
+	{"", get, "/blog"}:          served("site_blog"),
+	{"", get, "/blog/:slug"}:    served("site_blog"),
 	{"", get, "/blog/feed.xml"}: excluded("RSS; site_blog covers the posts."),
 
 	{"ip", get, "/"}:        served("ip_lookup"),
 	{"ip", get, "/cidr"}:    served("ip_cidr"),
 	{"ip", get, "/history"}: excluded("D9: addresses other visitors looked up on the web page; no agent task needs them."),
 
-	{"botcheck", get, "/"}:               planned("botcheck_score"),
-	{"botcheck", post, "/check"}:         planned("botcheck_score"),
+	{"botcheck", get, "/"}:               served("botcheck_score"),
+	{"botcheck", post, "/check"}:         served("botcheck_score"),
 	{"botcheck", get, "/botcheck-sw.js"}: excluded("The in-browser collector's service worker; botcheck_score scores what a collector produced."),
 
 	{"dns", get, "/"}:            served("dns_lookup"),
@@ -173,21 +178,21 @@ var coverage = map[Route]Decision{
 	{"link", get, "/encoding"}:          excluded("A static reference document with no JSON form."),
 	{"link", get, "/extension/privacy"}: excluded("The browser extension's privacy policy, a static document."),
 
-	{"cipher", post, "/jwt/decode"}:      planned("cipher_jwt_decode"),
-	{"cipher", post, "/jwt/sign"}:        planned("cipher_jwt_sign"),
-	{"cipher", post, "/hash"}:            planned("cipher_hash"),
-	{"cipher", post, "/hmac"}:            planned("cipher_hmac"),
-	{"cipher", post, "/password/hash"}:   planned("cipher_password_hash"),
-	{"cipher", post, "/password/verify"}: planned("cipher_password_verify"),
-	{"cipher", post, "/encrypt"}:         planned("cipher_encrypt"),
-	{"cipher", post, "/keys/generate"}:   planned("cipher_keys_generate"),
-	{"cipher", post, "/keys/inspect"}:    planned("cipher_keys_inspect"),
-	{"cipher", post, "/cert"}:            planned("cipher_cert"),
-	{"cipher", post, "/totp"}:            planned("cipher_totp"),
-	{"cipher", post, "/random"}:          planned("cipher_random"),
-	{"cipher", post, "/encode"}:          planned("cipher_encode"),
-	{"cipher", post, "/encode/basic"}:    planned("cipher_basic_auth"),
-	{"cipher", post, "/identify"}:        planned("cipher_identify"),
+	{"cipher", post, "/jwt/decode"}:      served("cipher_jwt_decode"),
+	{"cipher", post, "/jwt/sign"}:        served("cipher_jwt_sign"),
+	{"cipher", post, "/hash"}:            served("cipher_hash"),
+	{"cipher", post, "/hmac"}:            served("cipher_hmac"),
+	{"cipher", post, "/password/hash"}:   served("cipher_password_hash"),
+	{"cipher", post, "/password/verify"}: served("cipher_password_verify"),
+	{"cipher", post, "/encrypt"}:         served("cipher_encrypt"),
+	{"cipher", post, "/keys/generate"}:   served("cipher_keys_generate"),
+	{"cipher", post, "/keys/inspect"}:    served("cipher_keys_inspect"),
+	{"cipher", post, "/cert"}:            served("cipher_cert"),
+	{"cipher", post, "/totp"}:            served("cipher_totp"),
+	{"cipher", post, "/random"}:          served("cipher_random"),
+	{"cipher", post, "/encode"}:          served("cipher_encode"),
+	{"cipher", post, "/encode/basic"}:    served("cipher_basic_auth"),
+	{"cipher", post, "/identify"}:        served("cipher_identify"),
 	{"cipher", get, "/"}:                 excluded(cipherShell),
 	{"cipher", get, "/hash"}:             excluded(cipherShell),
 	{"cipher", get, "/hmac"}:             excluded(cipherShell),

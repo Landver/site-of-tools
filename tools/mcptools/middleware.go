@@ -91,11 +91,15 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 					got = outcomeBusy
 					return refuse(call, codeRefused, platform.BusyMessage)
 				}
-				if !spec.cap.TryAcquire(1) {
+				w := int64(1)
+				if spec.weight != nil {
+					w = spec.weight(call.Params.Arguments)
+				}
+				if !spec.cap.TryAcquire(w) {
 					got = outcomeBusy
 					return refuse(call, codeRefused, platform.BusyMessage)
 				}
-				defer spec.cap.Release(1)
+				defer spec.cap.Release(w)
 			}
 
 			res, err = next(ctx, method, req)
@@ -116,11 +120,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 					got = outcomeCancelled
 				}
 			}
-			narrow := ""
+			narrow, whole := "", false
 			if spec != nil {
-				narrow = spec.narrow
+				narrow, whole = spec.narrow, spec.whole
 			}
-			out, n, serr := sanitize(r, narrow)
+			out, n, serr := sanitize(r, narrow, whole)
 			if serr != nil {
 				m.log.Error("mcp: unusable tool result", "uri", path+"#"+name, "error", serr.Error())
 				got = outcomeInternal

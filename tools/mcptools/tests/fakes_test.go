@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/ciphertools"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
@@ -314,4 +316,15 @@ func roomyLink() *linktools.Limits {
 	l := linktools.NewLimits()
 	l.Pure, l.Fetch, l.Short = platform.NewLimiter(100, 1000), platform.NewLimiter(100, 1000), platform.NewLimiter(100, 1000)
 	return l
+}
+
+// roomyCipher keeps the real heavy byte budget, which TestHeavyCipherOps fills.
+func roomyCipher() *ciphertools.Limits {
+	l := ciphertools.NewLimits()
+	l.Pure, l.Heavy = platform.NewLimiter(100, 1000), platform.NewLimiter(100, 1000)
+	return l
+}
+
+func roomyBot() *botcheck.Limits {
+	return &botcheck.Limits{Check: platform.NewLimiter(100, 1000), CheckCap: platform.NewCap(8)}
 }

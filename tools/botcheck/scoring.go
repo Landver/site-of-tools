@@ -7,11 +7,12 @@ import (
 
 // rule = one detection signal. eval reports whether anomaly fired + short
 // human detail for table. needsClient marks rules reading client-collected
-// field -> Evaluate can skip (not fail) them on server-only req; needsHeaders
-// and needsIP do the same for header- and IP-derived fields. A rule reading
-// the header User-Agent only as a fallback for the client's (clientUA) is not
-// a header rule. Weights = starting proposal, tuned against botcheck/tests —
-// not gospel; adjust there, w/ fixtures, not by feel.
+// field -> Evaluate can skip (not fail) them on server-only req; needsHeaders,
+// needsIP and needsCorpus do the same for header-, IP- and corpus-derived
+// fields. A rule reading the header User-Agent only as a fallback for the
+// client's (clientUA) is not a header rule. Weights = starting proposal,
+// tuned against botcheck/tests — not gospel; adjust there, w/ fixtures, not
+// by feel.
 type rule struct {
 	id           string
 	label        string
@@ -21,6 +22,7 @@ type rule struct {
 	needsClient  bool
 	needsHeaders bool
 	needsIP      bool
+	needsCorpus  bool
 	eval         func(Signals) (bool, string)
 }
 
@@ -686,7 +688,7 @@ var rules = []rule{
 		// networks reaches couple IPs honestly, hence five-IP floor. Verified
 		// crawler fleets legitimately share one fingerprint across many IPs ->
 		// deduction suppressed for them (suppressedForGoodBot).
-		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true,
+		id: "fingerprint_reuse", label: "This exact fingerprint was seen from many IP addresses", tier: TierConsistency, subgroup: subgroupNetwork, weight: 25, needsClient: true, needsCorpus: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintIPs < fingerprintReuseMinIPs {
 				return false, ""
@@ -911,7 +913,7 @@ var rules = []rule{
 		// many browsers from one address -> only bites as part of cluster, never
 		// docks lone visitor. Backed by same Mongo corpus as fingerprint_reuse
 		// (see corpus.go).
-		id: "ip_fingerprint_churn", label: "This IP presented many different fingerprints in a short window", tier: TierSoft, weight: 8, needsClient: true,
+		id: "ip_fingerprint_churn", label: "This IP presented many different fingerprints in a short window", tier: TierSoft, weight: 8, needsClient: true, needsCorpus: true,
 		eval: func(s Signals) (bool, string) {
 			if s.FingerprintChurn < fingerprintChurnMinHashes {
 				return false, ""

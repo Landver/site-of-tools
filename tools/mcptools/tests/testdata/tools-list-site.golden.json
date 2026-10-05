@@ -1,0 +1,23 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the corpberry.com blog: technical write-ups by the site's author on bot detection, Go and the tools on the site. Without slug it lists every post, newest first, with its slug, title, date, description and url; with slug it returns that post as Markdown, its links and images made absolute. Example: slug the-bug-is-still-there.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "description": "the post to read, e.g. the-bug-is-still-there; leave it out for the list of posts",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "site_blog",
+    "title": "corpberry.com blog"
+  }
+]

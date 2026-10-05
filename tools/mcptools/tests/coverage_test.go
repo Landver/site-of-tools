@@ -56,7 +56,8 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 
 // TestEveryRouteHasAnMCPDecision: a REST route added without a Coverage entry,
 // or an entry left behind by a removed route, fails here; every tool an entry
-// says is served must be served, and a planned one must not be yet.
+// says is served must be served. Every floor has landed, so nothing may be
+// left planned.
 func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 	routes := restRoutes(t)
 	coverage := mcptools.Coverage()
@@ -81,17 +82,19 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 			t.Errorf("Coverage has %q %s %s, which no Register serves", r.Host, r.Method, r.Path)
 		}
 		switch d.Status {
-		case mcptools.StatusTool, mcptools.StatusPlanned:
+		case mcptools.StatusTool:
 			mapped++
 			if len(d.Tools) == 0 || d.Reason != "" {
-				t.Errorf("%s %s: a %s entry names its tools and no reason", r.Method, r.Path, d.Status)
+				t.Errorf("%s %s: a served entry names its tools and no reason", r.Method, r.Path)
 			}
 			for _, name := range d.Tools {
 				covered[name] = true
-				if served := listed[name]; served != (d.Status == mcptools.StatusTool) {
-					t.Errorf("%s %s: %s is %s but served=%v", r.Method, r.Path, name, d.Status, served)
+				if !listed[name] {
+					t.Errorf("%s %s: %s is not served", r.Method, r.Path, name)
 				}
 			}
+		case mcptools.StatusPlanned:
+			t.Errorf("%q %s %s is still planned (%v): every route is served or excluded now", r.Host, r.Method, r.Path, d.Tools)
 		case mcptools.StatusExcluded:
 			if d.Reason == "" || len(d.Tools) != 0 {
 				t.Errorf("%s %s: an exclusion gives a reason and names no tool", r.Method, r.Path)

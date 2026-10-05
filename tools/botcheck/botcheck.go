@@ -235,6 +235,9 @@ type Signals struct {
 	// FingerprintIPs. Handler-filled from Mongo on POST /check only; 0 = no
 	// corpus data → ip_fingerprint_churn treats as no signal, never evidence.
 	FingerprintChurn int `json:"-"`
+	// CorpusSkipped: the corpus was never consulted (a synthetic payload must
+	// not train it), so both corpus rules skip instead of reading as clean.
+	CorpusSkipped bool `json:"-"`
 	// IP blocklist (G37), filled by AddIPSignals from shared ip_blocklist corpus
 	// (ipsum feed + any other service writing flagged IPs). Sources = distinct
 	// sources w/ this egress IP listed; empty = not listed / corpus off →
@@ -458,7 +461,8 @@ func Evaluate(s Signals) Report {
 	for _, r := range rules {
 		skipped := r.needsClient && !s.ClientCollected ||
 			r.needsHeaders && !s.HeadersSupplied ||
-			r.needsIP && !s.IPSupplied
+			r.needsIP && !s.IPSupplied ||
+			r.needsCorpus && s.CorpusSkipped
 		triggered, detail := false, ""
 		if !skipped {
 			triggered, detail = r.eval(s)

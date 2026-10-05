@@ -36,11 +36,18 @@ func TestLandingJSON(t *testing.T) {
 		}
 	}
 	// The owner's endpoint exists here, but is not advertised.
-	if diff := cmp.Diff([]string{"/mcp", "/mcp/ip", "/mcp/dns", "/mcp/link"}, paths); diff != "" {
+	if diff := cmp.Diff([]string{"/mcp", "/mcp/ip", "/mcp/dns", "/mcp/link", "/mcp/cipher", "/mcp/botcheck", "/mcp/site"}, paths); diff != "" {
 		t.Errorf("endpoints (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]string{"ip_cidr", "ip_lookup"}, tools["/mcp/ip"]); diff != "" {
-		t.Errorf("/mcp/ip tools (-want +got):\n%s", diff)
+	for path, want := range map[string][]string{
+		"/mcp/ip": {"ip_cidr", "ip_lookup"}, "/mcp/botcheck": {"botcheck_score"}, "/mcp/site": {"site_blog"},
+	} {
+		if diff := cmp.Diff(want, tools[path]); diff != "" {
+			t.Errorf("%s tools (-want +got):\n%s", path, diff)
+		}
+	}
+	if n := len(tools["/mcp/cipher"]); n != 15 || len(tools["/mcp"]) != 35 {
+		t.Errorf("%d cipher tools and %d in all, want 15 and the catalog's 35", n, len(tools["/mcp"]))
 	}
 }
 
@@ -54,6 +61,9 @@ func TestLandingPage(t *testing.T) {
 		"claude mcp add --scope user --transport http corpberry http://mcp.test/mcp",
 		"ip_lookup", "ip_cidr", "IP Tools", `href="http://ip.test"`,
 		"dns_lookup", "DNS Tools", "link_redirect_chain", "Link Tools", `href="http://link.test"`,
+		`data-copy="http://mcp.test/mcp/cipher"`, "cipher_jwt_decode", "Cipher Tools", `href="http://cipher.test"`,
+		`data-copy="http://mcp.test/mcp/botcheck"`, "botcheck_score", `href="http://botcheck.test"`,
+		`data-copy="http://mcp.test/mcp/site"`, "site_blog", `href="https://corpberry.test"`,
 		"IP2Location LITE", "DROP list", "InternetDB", "crt.sh", "rdap.org", // the footer's credits
 	} {
 		if !strings.Contains(body, want) {

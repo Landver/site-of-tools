@@ -20,15 +20,16 @@ const (
 var errNotObject = errors.New("structuredContent is not a JSON object")
 
 // sanitize readies a tool result for a model: in structuredContent every
-// string is capped and its invisible characters shown, the text block is
-// rebuilt from that same JSON, and no list is ever cut, since the one dropped
-// item can be the one that matters. A result still over maxResult becomes an
-// error saying how to ask for less. It returns the JSON size sent.
-func sanitize(r *mcp.CallToolResult, narrow string) (*mcp.CallToolResult, int, error) {
+// string is capped (unless whole) and its invisible characters shown, the
+// text block is rebuilt from that same JSON, and no list is ever cut, since
+// the one dropped item can be the one that matters. A result still over
+// maxResult becomes an error saying how to ask for less. It returns the JSON
+// size sent.
+func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolResult, int, error) {
 	if r.IsError {
 		for _, c := range r.Content {
 			if t, ok := c.(*mcp.TextContent); ok {
-				t.Text = clean(t.Text)
+				t.Text = clean(t.Text, maxString)
 			}
 		}
 		return r, 0, nil
@@ -47,7 +48,11 @@ func sanitize(r *mcp.CallToolResult, narrow string) (*mcp.CallToolResult, int, e
 	if !ok {
 		return nil, 0, errNotObject
 	}
-	out, err := encode(walk(obj))
+	limit := maxString
+	if whole {
+		limit = maxResult
+	}
+	out, err := encode(walk(obj, limit))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -64,28 +69,28 @@ func sanitize(r *mcp.CallToolResult, narrow string) (*mcp.CallToolResult, int, e
 	return &s, len(out), nil
 }
 
-func walk(v any) any {
+func walk(v any, limit int) any {
 	switch t := v.(type) {
 	case string:
-		return clean(t)
+		return clean(t, limit)
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, e := range t {
-			out[clean(k)] = walk(e)
+			out[clean(k, limit)] = walk(e, limit)
 		}
 		return out
 	case []any:
 		for i, e := range t {
-			t[i] = walk(e)
+			t[i] = walk(e, limit)
 		}
 	}
 	return v
 }
 
 // clean shows what s holds: characters that change how text renders without
-// being seen become \u{XXXX}, then anything past maxString is cut on a rune
+// being seen become \u{XXXX}, then anything past limit is cut on a rune
 // boundary, with a marker saying how much went.
-func clean(s string) string {
+func clean(s string, limit int) string {
 	if strings.ContainsFunc(s, invisible) {
 		var b strings.Builder
 		for _, r := range s {
@@ -97,10 +102,10 @@ func clean(s string) string {
 		}
 		s = b.String()
 	}
-	if len(s) <= maxString {
+	if len(s) <= limit {
 		return s
 	}
-	cut := maxString
+	cut := limit
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
