@@ -144,3 +144,12 @@ numbers, `mx_reputation`, the 26 inline terminal blocks, …). No blockers.
 
 Verdict, in the reviewer's words: with these edits "a cold reader can answer
 floor 0 from the plan alone, and the plan meets the owner's request."
+
+## Code review, after the build
+
+Two read-only reviewers over the implementation; fixes in `89a078f` and `ccdfd54`.
+
+| Lens | Found | Changed |
+|---|---|---|
+| Correctness and security | 1 major: one client could fill a shared concurrency cap and make everyone else "busy". 5 minor: cross-site requests could lock the owner out; `"arguments": null` panicked inside the SDK; the sanitizer missed variation selectors and other invisible characters; the 2 KB cap cut the caller's own output; rdap.org and crt.sh had no process-wide budget | per-client cap shares and a separate `/domain` cap; `Sec-Fetch-Site` checked before the key, missing keys not counted, `/mcp/owner` hidden from browsers; null treated as absent; more characters escaped; caller-input tools keep strings whole; one limiter per upstream |
+| DRY / KISS / YAGNI | rate limits written in three places, 8 copies of the golden helper, duplicated transports and messages, unused flags and statuses, ~600 added comment lines, ~16k lines of goldens | limits read from the limiters themselves, one `platform/goldentest`, one `EgressGuard.Transport`, dead code removed, comments halved, goldens down to ~6k lines |
