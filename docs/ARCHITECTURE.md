@@ -356,7 +356,7 @@ site-of-tools/
 │       ├── handler.go        #     Register: landing page (HTML + JSON) + the /mcp gate
 │       ├── server.go · middleware.go · sanitize.go · registry.go · schema.go
 │       ├── ip.go · dns.go · link.go · owner.go · cipher.go · botcheck.go · site.go  # adapters
-│       ├── templates/ · tests/ (testdata: golden tools/list per endpoint)
+│       ├── templates/ · tests/ (testdata: golden tools/list per toolset)
 │       └── docs/             #     plan, research, tool catalog, security + ops
 ├── .githooks/pre-push        # test gate (enable: make hooks)
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile
@@ -406,13 +406,13 @@ root = 1 thing nothing imports. No single-file folder for its own sake.
    `templates/`, `tests/` sub-package.
 3. Handlers call domain service, then `platform.Respond(...)` — free HTML+JSON+fragment.
 4. Register tool's `TemplateSource` in `main.go` renderer; (new subdomain) add
-   `*echo.Echo` + `apps`/`subdomains` entry in `main.go` + nginx block
+   it to `main.go`'s subdomain list + nginx block
    (DEPLOYMENT §3).
 5. Tool data files? Keep in `mytool/assets/`, env-configured path, gitignored,
    bind-mounted — never baked into image.
 6. Every route gets an MCP decision: a tool in `tools/mcptools` (adapter +
-   `toolSpec` spending the package's `Limits`, a `rateLimits` entry for the
-   landing page) or a `Coverage` exclusion w/ its reason. The coverage test
+   `toolSpec` spending the package's `Limits`) or a `Coverage` exclusion w/
+   its reason. The coverage test
    fails otherwise; re-run the `tools/list` goldens w/ `UPDATE_GOLDEN=1` and
    review the diff. A page's "Using this from the terminal" block ends w/
    `{{template "partials/mcp-hint" "<toolset>"}}`.

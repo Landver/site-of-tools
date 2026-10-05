@@ -510,8 +510,7 @@ func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname st
 // answerKey collapses a sorted answer set into one comparable string.
 func answerKey(vals []string) string { return strings.Join(vals, "\n") }
 
-// nsRoutable: whether a nameserver address taken from a caller-chosen zone may
-// be sent a packet. Nil-safe.
+// nsRoutable: may a nameserver address from a caller-chosen zone get a packet?
 func (s *Service) nsRoutable(ipStr string) bool {
 	ip, err := netip.ParseAddr(ipStr)
 	if err != nil {
@@ -521,14 +520,6 @@ func (s *Service) nsRoutable(ipStr string) bool {
 		return s.guard.AllowAddr(ip) == nil
 	}
 	return platform.PubliclyRoutable(ip)
-}
-
-// routable is MX reputation's address filter. It only gates a corpus read,
-// never a dial, so it stays looser than nsRoutable.
-func routable(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
 }
 
 // summarise derives the verdict: who agrees with whom, whether the zone's own
@@ -821,15 +812,12 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	return usedASN
 }
 
-// Spreader: Consistency's zone canvass, apart from Looker so a test can fake
-// either half. *Service satisfies both.
+// Spreader is apart from Looker so a test can fake either half.
 type Spreader interface {
 	Spread(ctx context.Context, name, qtype string) (*Spread, error)
 }
 
-// Consistency is GET /consistency: the zone canvass, the ECS steering card
-// run beside it (best-effort, ecs may be nil), and the delegation health only
-// geo and dom can supply. A blank type is A.
+// Consistency is GET /consistency: the canvass, the ECS card (ecs may be nil) beside it.
 func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looker, dom *DomainClient, name, qtype string) (*ECSEnvelope, error) {
 	if spr == nil {
 		return nil, ErrDisabled
@@ -866,9 +854,8 @@ func walkType(qtype string) string {
 	return "A"
 }
 
-// delegationHealth fetches what Spread's probes cannot reach: each
-// nameserver's ASN, and the registry's delegation for sp.Zone (the registry
-// knows the zone apex, not the name asked about).
+// delegationHealth adds what Spread's probes can't reach: each nameserver's
+// ASN, and the registry's delegation for sp.Zone (it knows only the apex).
 func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *DomainClient) {
 	var asnOf func(string) string
 	if geo != nil {

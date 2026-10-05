@@ -2,72 +2,22 @@
 <footer class="border-t border-line mt-auto">
   <div class="w-full px-6 py-6 text-xs text-faint flex flex-col gap-1">
     <span>© 2026 corpberry.com</span>
-    {{/* The credits' words live in platform/credits.go, where results served
-         without a page get them too.
-         IP2Location LITE license requires this exact acknowledgment; Spamhaus
-         asked only for credit + keeping their © notice with the data (which the
-         ip_blocklist corpus itself does, per record — see iptools/spamhaus.go).
-         One flag each, because the two sources stopped travelling together.
-         .Attribution = this page read IP2Location: the IP tool, botcheck, and
-         the DNS pages that enrich an address with its ASN.
-         .SpamhausAttribution = this page read the ip_blocklist corpus: the IP
-         tool, botcheck, and the DNS mail-server reputation card, which reads
-         the corpus and no IP2Location data at all. Neither on apex.
-
-         Welded together they were wrong in both directions at once: /email
-         owed Spamhaus a credit it did not print, while / and /consistency
-         printed one they had not earned. */}}
-    {{if .Attribution}}{{with credit "ip2location"}}
-    <span>
-      {{.Lead}}
-      <a href="{{.URL}}" target="_blank" rel="noopener"
-         class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
-      {{.}}{{end}}
-    </span>
-    {{end}}{{end}}
-    {{if .SpamhausAttribution}}{{with credit "spamhaus"}}
-    <span>
-      {{.Lead}}
-      <a href="{{.URL}}" target="_blank" rel="noopener"
-         class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
-      {{.}}{{end}}
-    </span>
-    {{end}}{{end}}
-    {{/* Shodan's ToS requires a visible credit wherever their data appears.
-         Gated on its OWN flag, not .Attribution: only the IP-lookup page that
-         actually consulted InternetDB sets it (see iptools handler.show), so it
-         never shows on botcheck — which sets .Attribution but does NOT use
-         Shodan. */}}
-    {{if .ShodanAttribution}}{{with credit "shodan"}}
-    <span>
-      {{.Lead}}
-      <a href="{{.URL}}" target="_blank" rel="noopener"
-         class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
-      {{.}}{{end}}
-    </span>
-    {{end}}{{end}}
-
-    {{/* Certificate Transparency data comes from crt.sh, run by Sectigo.
-         Own flag, page-scoped: only the DNS tool's /domain page queries it,
-         so the credit must not follow the visitor onto the other pages. */}}
-    {{if .CertsAttribution}}{{with credit "crtsh"}}
-    <span>
-      {{.Lead}} <a href="{{.URL}}" target="_blank" rel="noopener"
-        class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
-      {{.}}{{end}}
-    </span>
-    {{end}}{{end}}
-
-    {{/* RDAP registration data is fetched through rdap.org's bootstrap, which
-         redirects to the registry actually responsible for the TLD. Same
-         page-scoping rule. */}}
-    {{if .RDAPAttribution}}{{with credit "rdap"}}
-    <span>
-      {{.Lead}} <a href="{{.URL}}" target="_blank" rel="noopener"
-        class="underline hover:text-muted">{{.LinkText}}</a>{{.Punct}}{{with .Tail}}
-      {{.}}{{end}}
-    </span>
-    {{end}}{{end}}
+    {{/* One flag per source, set only by a page that shows its data: each
+         credit is owed there and nowhere else (e.g. botcheck reads IP2Location
+         but never Shodan; /email reads Spamhaus but never IP2Location). */}}
+    {{if .Attribution}}{{template "partials/credit" "ip2location"}}{{end}}
+    {{if .SpamhausAttribution}}{{template "partials/credit" "spamhaus"}}{{end}}
+    {{if .ShodanAttribution}}{{template "partials/credit" "shodan"}}{{end}}
+    {{if .CertsAttribution}}{{template "partials/credit" "crtsh"}}{{end}}
+    {{if .RDAPAttribution}}{{template "partials/credit" "rdap"}}{{end}}
   </div>
 </footer>
 {{end}}
+
+{{/* A credit's words, from platform/credits.go. */}}
+{{define "partials/credit"}}{{with credit .}}
+    <span>
+      {{.Lead}} <a href="{{.URL}}" target="_blank" rel="noopener"
+        class="underline hover:text-muted">{{.LinkText}}</a>{{.Rest}}
+    </span>
+{{end}}{{end}}

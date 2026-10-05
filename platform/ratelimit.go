@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -9,49 +10,54 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// Limiter is a token-bucket store keyed by client. A tool package builds its
-// stores once and hands the same values to every door (REST, MCP), so a client
-// has one budget whichever it uses.
-type Limiter = middleware.RateLimiterStore
+// Limiter is a token-bucket store keyed by client, built once per tool and handed
+// to every door (REST, MCP), so a client has one budget whichever it uses.
+type Limiter interface {
+	middleware.RateLimiterStore
+	Rate() (perSecond float64, burst int)
+}
 
-// BusyMessage answers a request refused because a Cap is full.
-const BusyMessage = "Busy, try again in a few seconds."
+const (
+	LimitedMessage = "Too many requests from your address. Try again in a few seconds."
+	BusyMessage    = "Busy, try again in a few seconds."
+)
+
+var ErrBusy = errors.New(BusyMessage)
 
 const limiterExpiry = 3 * time.Minute
 
-// NewLimiter returns a per-client store refilling rate tokens a second, up to
-// burst.
-func NewLimiter(rate float64, burst int) Limiter {
-	return newStore(rate, burst)
-}
+func NewLimiter(rate float64, burst int) Limiter { return newStore(rate, burst) }
 
-// NewGlobalLimiter returns a store with one bucket for every caller, whatever
-// key it is asked about: a breaker for a resource all clients share, which
-// per-client buckets cannot protect.
+// NewGlobalLimiter is one bucket for every caller: a breaker for what all share.
 func NewGlobalLimiter(rate float64, burst int) Limiter {
 	return globalLimiter{newStore(rate, burst)}
 }
 
-func newStore(rate float64, burst int) *middleware.RateLimiterMemoryStore {
-	return middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
+type memStore struct {
+	*middleware.RateLimiterMemoryStore
+	perSecond float64
+	burst     int
+}
+
+func newStore(rate float64, burst int) memStore {
+	return memStore{middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
 		Rate: rate, Burst: burst, ExpiresIn: limiterExpiry,
-	})
+	}), rate, burst}
 }
 
-type globalLimiter struct {
-	s *middleware.RateLimiterMemoryStore
-}
+func (s memStore) Rate() (float64, int) { return s.perSecond, s.burst }
 
-func (g globalLimiter) Allow(string) (bool, error) { return g.s.Allow("") }
+type globalLimiter struct{ memStore }
+
+func (g globalLimiter) Allow(string) (bool, error) { return g.memStore.Allow("") }
 
 // AllowContext keeps the X-RateLimit-* headers the memory store sets in Echo.
 func (g globalLimiter) AllowContext(c *echo.Context, _ string) (bool, error) {
-	return g.s.AllowContext(c, "")
+	return g.memStore.AllowContext(c, "")
 }
 
-// RateLimit spends one token of the client's bucket in l per request, keyed by
-// RateLimitKey(c.RealIP()) exactly as AllowKey keys it, and answers with deny
-// once the bucket is empty. skip (nil for none) exempts requests that do no work.
+// RateLimit keys on RateLimitKey(c.RealIP()), as AllowKey does; skip exempts
+// requests that do no work.
 func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context) error) echo.MiddlewareFunc {
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: skip,
@@ -63,18 +69,14 @@ func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context
 	})
 }
 
-// AllowKey spends one token of a client's bucket in l, for callers outside
-// Echo. client is the raw IP or its RateLimitKey; both reach the bucket
-// RateLimit uses. A store error refuses.
+// AllowKey is RateLimit outside Echo; client may be the raw IP or its key.
 func AllowKey(l Limiter, client string) bool {
 	ok, err := l.Allow(RateLimitKey(client))
 	return ok && err == nil
 }
 
-// Cap bounds work in flight and never queues: TryAcquire fails at once when
-// the budget is spent, so the caller answers busy. Each client's share is a
-// quarter of it, so one client held up by a slow upstream can't make everyone
-// else busy. A nil Cap is unbounded.
+// Cap bounds work in flight and never queues. A client may hold a quarter: one
+// stuck on a slow upstream can't make everyone busy. A nil Cap is unbounded.
 type Cap struct {
 	sem   *semaphore.Weighted
 	share int64
@@ -82,14 +84,12 @@ type Cap struct {
 	held  map[string]int64
 }
 
-// NewCap returns a Cap of n units, shared by every door like a Limiter.
 func NewCap(n int64) *Cap {
 	return &Cap{sem: semaphore.NewWeighted(n), share: max(1, n/4), held: map[string]int64{}}
 }
 
-// TryAcquire takes w units for client, the raw IP or its RateLimitKey, if
-// they are free now and within the client's share. A client holding nothing
-// may exceed its share, so no single call is refused forever.
+// TryAcquire lets a client holding nothing exceed its share, so no call is
+// refused forever.
 func (c *Cap) TryAcquire(client string, w int64) bool {
 	if c == nil {
 		return true
@@ -107,7 +107,6 @@ func (c *Cap) TryAcquire(client string, w int64) bool {
 	return true
 }
 
-// Release returns w units client took with TryAcquire.
 func (c *Cap) Release(client string, w int64) {
 	if c == nil {
 		return

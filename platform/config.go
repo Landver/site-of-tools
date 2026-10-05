@@ -40,9 +40,7 @@ type Config struct {
 	// (tools/linktools/docs/04-short-links.md §1).
 	LinkAPIKey string
 
-	// MCPOwnerKey gates mcp.corpberry.com/mcp/owner, the owner's short-link
-	// tools. Separate from LinkAPIKey so either rotates alone; empty disables
-	// the endpoint (404).
+	// MCPOwnerKey gates /mcp/owner; apart from LinkAPIKey so each rotates alone.
 	MCPOwnerKey string
 
 	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
@@ -54,9 +52,8 @@ type Config struct {
 	MongoURI      string
 	MongoDatabase string
 
-	// EgressDenyAddrs: this host's public addresses or CIDR prefixes
-	// (EGRESS_DENY_ADDRS, comma-separated), refused by every outbound guard.
-	// Inside the container net.InterfaceAddrs never sees them.
+	// EgressDenyAddrs: this host's public addresses, which every outbound guard
+	// refuses; inside the container net.InterfaceAddrs never sees them.
 	EgressDenyAddrs []string
 }
 

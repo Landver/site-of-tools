@@ -151,7 +151,6 @@ type CurlRequest struct {
 	Notes     []Note   `json:"notes,omitempty"`
 }
 
-// CurlParse is a pasted command taken apart, with its URL inspected.
 type CurlParse struct {
 	BodyBytes  int         `json:"body_bytes,omitempty"`
 	Headers    []Header    `json:"headers"`

@@ -7,22 +7,21 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// Looker resolves an IP to geolocation and proxy facts. *iptools.Service
-// satisfies it (a nil one answers ErrUnavailable); tests inject a fake.
 type Looker interface {
 	Lookup(ip string) (*iptools.Result, error)
 }
 
-// HTTPSignals are the request headers the rules read.
+// HTTPSignals are the request headers the rules read, as an API caller names them.
 type HTTPSignals struct {
-	UserAgent               string
-	Accept                  string
-	AcceptLanguage          string
-	AcceptEncoding          string
-	SecCHUA                 string
-	SecCHUAPlatform         string
-	SecFetchMode            string
-	UpgradeInsecureRequests string
+	UserAgent       string `json:"user_agent,omitempty" jsonschema:"User-Agent"`
+	Accept          string `json:"accept,omitempty" jsonschema:"Accept"`
+	AcceptLanguage  string `json:"accept_language,omitempty" jsonschema:"Accept-Language"`
+	AcceptEncoding  string `json:"accept_encoding,omitempty" jsonschema:"Accept-Encoding"`
+	SecCHUA         string `json:"sec_ch_ua,omitempty" jsonschema:"Sec-CH-UA"`
+	SecCHUAPlatform string `json:"sec_ch_ua_platform,omitempty" jsonschema:"Sec-CH-UA-Platform"`
+	SecFetchMode    string `json:"sec_fetch_mode,omitempty" jsonschema:"Sec-Fetch-Mode"`
+	// No rule reads it (Safari never sends it), so no caller is asked for it.
+	UpgradeInsecureRequests string `json:"-"`
 }
 
 // AddHTTPSignals copies h into sig and counts the headers as supplied, so an
@@ -39,10 +38,8 @@ func AddHTTPSignals(sig *Signals, h HTTPSignals) {
 	sig.HTTPUpgradeInsecureRequests = h.UpgradeInsecureRequests
 }
 
-// AddIPSignals fills the IP half of sig for ip, the address the request came
-// from, and counts the IP as supplied. The caller still sets sig.Now: a zero
-// Now silently skips tz_mismatch. Returns the lookup (nil when there is none)
-// so callers needn't repeat it.
+// AddIPSignals fills the IP half of sig for ip and counts it as supplied; the
+// caller still sets sig.Now (zero skips tz_mismatch). Returns the lookup, or nil.
 func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc Looker, chk iptools.Checker) *iptools.Result {
 	sig.IPSupplied = true
 	sig.EgressIP = ip
@@ -80,8 +77,7 @@ func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc Looker, chk 
 	return res
 }
 
-// cleanPlaceholder maps IP2Location's "-" (unknown) to "", so an unknown
-// timezone can't trip the timezone cross-check.
+// cleanPlaceholder: IP2Location's "-" is unknown, which must not trip the tz check.
 func cleanPlaceholder(s string) string {
 	if s == "-" {
 		return ""

@@ -118,7 +118,6 @@ func NewBlockList(db *mongo.Database) *BlockList {
 	return &BlockList{coll: db.Collection(blocklistCollection)}
 }
 
-// Checker is the read side of the corpus that lookups are enriched from.
 type Checker interface {
 	Check(ctx context.Context, ip string) (BlockLookup, error)
 }

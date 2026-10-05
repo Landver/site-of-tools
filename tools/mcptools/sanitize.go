@@ -19,12 +19,8 @@ const (
 
 var errNotObject = errors.New("structuredContent is not a JSON object")
 
-// sanitize readies a tool result for a model: in structuredContent every
-// string is capped (unless whole) and its invisible characters shown, the
-// text block is rebuilt from that same JSON, and no list is ever cut, since
-// the one dropped item can be the one that matters. A result still over
-// maxResult becomes an error saying how to ask for less. It returns the JSON
-// size sent.
+// sanitize caps strings (unless whole) and shows invisible characters, but
+// never cuts a list: the dropped item can be the one that matters.
 func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolResult, int, error) {
 	if r.IsError {
 		for _, c := range r.Content {
@@ -87,9 +83,6 @@ func walk(v any, limit int) any {
 	return v
 }
 
-// clean shows what s holds: characters that change how text renders without
-// being seen become \u{XXXX}, then anything past limit is cut on a rune
-// boundary, with a marker saying how much went.
 func clean(s string, limit int) string {
 	if strings.ContainsFunc(s, invisible) {
 		var b strings.Builder
@@ -113,8 +106,7 @@ func clean(s string, limit int) string {
 }
 
 // invisible: characters that hide text or carry text a reader never sees:
-// format characters (bidi controls, zero-width characters, the BOM), the tag
-// block, variation selectors, DEL, C1 controls, U+2028/U+2029, Hangul fillers.
+// format, tag block, variation selectors, DEL, C1, U+2028/9, Hangul fillers.
 func invisible(r rune) bool {
 	switch r {
 	case 0x7F, 0x2028, 0x2029, 0x115F, 0x1160, 0x3164, 0xFFA0:
@@ -124,8 +116,7 @@ func invisible(r rune) bool {
 		(r >= 0x80 && r <= 0x9F) || (r >= 0xE0000 && r <= 0xE007F)
 }
 
-// encode is json.Marshal without HTML escaping: a model reads this text, and
-// \u0026 for every & in a URL costs tokens and reads worse.
+// encode skips HTML escaping: \u0026 for every & in a URL costs a model tokens.
 func encode(v any) ([]byte, error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
@@ -136,7 +127,6 @@ func encode(v any) ([]byte, error) {
 	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
 }
 
-// errorResult is an isError result the model reads.
 func errorResult(msg string) *mcp.CallToolResult {
 	r := &mcp.CallToolResult{}
 	r.SetError(errors.New(msg))

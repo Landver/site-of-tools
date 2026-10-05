@@ -123,9 +123,7 @@ func TestEgressGuardHosts(t *testing.T) {
 	}
 }
 
-// TestEgressGuardDeniesListedAddresses: inside a container the host's public
-// addresses are invisible to net.InterfaceAddrs, so they arrive as deny
-// entries, and Control is the only check that sees a name resolved to them.
+// TestEgressGuardDeniesListedAddresses: only Control sees a name resolve to a listed address.
 func TestEgressGuardDeniesListedAddresses(t *testing.T) {
 	g := platform.NewEgressGuard([]string{"443"}, []string{
 		"93.184.216.34",
@@ -164,8 +162,7 @@ func TestEgressGuardDeniesListedAddresses(t *testing.T) {
 	}
 }
 
-// AllowAddr is Control without the port check: a guard allowing only 443 still
-// judges a port-53 destination by address alone.
+// AllowAddr judges a port-53 destination by address alone, whatever the ports.
 func TestEgressGuardAllowAddr(t *testing.T) {
 	g := platform.NewEgressGuard([]string{"443"}, []string{"93.184.216.34", "2a01:4f8:c0c:1234::/64"})
 	for _, a := range []string{
@@ -216,8 +213,7 @@ func TestRateLimitKey(t *testing.T) {
 	if a == c {
 		t.Errorf("addresses in different /64s share a key (%q); that would over-block", a)
 	}
-	// Fail closed: a forged CF-Connecting-IP per request must not buy a fresh
-	// bucket per value.
+	// Fail closed: a forged CF-Connecting-IP must not buy a bucket per value.
 	junk := platform.RateLimitKey("not an ip")
 	for _, in := range []string{"", "also junk", "999.1.1.1", "8.8.8.8:53", "10.0.0.0/8", "2001:db8::/48"} {
 		if got := platform.RateLimitKey(in); got != junk {
@@ -229,8 +225,7 @@ func TestRateLimitKey(t *testing.T) {
 			t.Errorf("%q landed in the shared unparseable bucket", valid)
 		}
 	}
-	// A key fed back in is unchanged, so a caller holding the key and one
-	// holding the raw IP spend the same bucket.
+	// A key fed back in is unchanged: the key and the raw IP spend one bucket.
 	for _, in := range []string{"8.8.8.8", "::ffff:8.8.8.8", "2001:db8:1:2:aaaa::1", "not an ip"} {
 		k := platform.RateLimitKey(in)
 		if again := platform.RateLimitKey(k); again != k {

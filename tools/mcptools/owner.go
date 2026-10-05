@@ -1,7 +1,6 @@
 package mcptools
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -28,16 +27,12 @@ type shortRevokeArgs struct {
 	Code string `json:"code" jsonschema:"the code to revoke"`
 }
 
-// shortList is the most link_short_list returns, as the REST console lists.
-const shortList = 50
-
 type ownerTools struct {
 	owner *linktools.Shortener
 	log   *slog.Logger
 }
 
-// ownerSpecs are served only at /mcp/owner, never beside tools that return
-// third-party text (D4).
+// ownerSpecs serve at /mcp/owner only, never beside tools returning third-party text.
 func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 	if !d.Owner.HasKey() {
 		return nil
@@ -68,7 +63,7 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 				Title: "List short links",
 				Description: "List the newest short links, newest first: each one's code, target, note, creation and expiry, " +
 					"revocation and hit count. limit caps how many.",
-				InputSchema: inputSchema[shortListArgs](between("limit", 1, shortList), defaultTo("limit", shortList)),
+				InputSchema: inputSchema[shortListArgs](between("limit", 1, linktools.RecentLimit), defaultTo("limit", linktools.RecentLimit)),
 				Annotations: readOnly(false),
 			},
 			deadline: fetchDeadline,
@@ -103,8 +98,7 @@ func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a shortC
 }
 
 func (t ownerTools) list(ctx context.Context, _ *mcp.CallToolRequest, a shortListArgs) (any, error) {
-	// A limit of 0 would be no limit at all to the store.
-	links, err := t.owner.Recent(ctx, int64(cmp.Or(a.Limit, shortList)))
+	links, err := t.owner.Recent(ctx, int64(a.Limit))
 	if err != nil {
 		return nil, publicError(t.log, "link_short_list", err)
 	}

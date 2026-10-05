@@ -368,8 +368,7 @@ type Service struct {
 	// only the TXT pointer and not the policy is the shortcut most tools take.
 	http  *http.Client
 	cache *cache
-	// guard, once set by WithEgressGuard, also judges every nameserver address
-	// a probe is sent to, so this host's own addresses are refused too.
+	// guard (WithEgressGuard) also vets every nameserver address a probe goes to.
 	guard *platform.EgressGuard
 	// inflight collapses concurrent identical questions into one upstream
 	// query: a fan-out over 8 types for a popular domain, hit by several
@@ -392,6 +391,16 @@ func NewService(timeout time.Duration) *Service {
 // the network.
 type Looker interface {
 	LookupSet(ctx context.Context, name, resolver string, types []string) (*ResultSet, error)
+}
+
+// Checks returns the checks svc also serves; a test fake implements only some.
+func Checks(svc Looker) (Spreader, ECSer, Tracer, Mailer, Reputer) {
+	spr, _ := svc.(Spreader)
+	ecs, _ := svc.(ECSer)
+	tra, _ := svc.(Tracer)
+	mail, _ := svc.(Mailer)
+	rep, _ := svc.(Reputer)
+	return spr, ecs, tra, mail, rep
 }
 
 // LookupSet queries several types concurrently and folds the answers into one
@@ -647,9 +656,7 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	return set, nil
 }
 
-// LookupEnriched is GET /'s lookup, defaults included: name normalised like
-// pasted input, blank or "ALL" type = the fan-out, blank resolver = the
-// default. geo (nil-able) adds each A/AAAA answer's network.
+// LookupEnriched is GET /'s lookup; geo (nil-able) adds each A/AAAA answer's network.
 func LookupEnriched(ctx context.Context, svc Looker, geo iptools.Looker, name, qtype, resolver string) (*ResultSet, error) {
 	var types []string
 	if t := lookupType(qtype); t != "" {

@@ -111,7 +111,7 @@
       "additionalProperties": false,
       "properties": {
         "detailed": {
-          "description": "also return every record as zone-file text and the dig command for each type",
+          "description": "also return every record as a zone-file line and the dig command for each type",
           "type": "boolean"
         },
         "name": {

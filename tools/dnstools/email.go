@@ -237,15 +237,13 @@ var commonDKIMSelectors = []string{
 // with deeply nested includes turns one click into unbounded DNS traffic.
 const maxSPFIncludes = 15
 
-// Mailer: EmailReport's record checks, apart from Looker so a test can fake
-// them alone. *Service satisfies it.
+// Mailer is apart from Looker so a test can fake it alone.
 type Mailer interface {
 	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
 }
 
-// EmailReport is GET /email: EmailAuth, plus its mail servers' reputation
-// when rep and bl are both wired. The reputation is best-effort: a corpus
-// that is off or unreadable leaves MXRep nil rather than failing the report.
+// EmailReport is GET /email: EmailAuth plus, when rep and bl are wired, the
+// mail servers' reputation; a corpus that is off leaves MXRep nil, not a failure.
 func EmailReport(ctx context.Context, mail Mailer, rep Reputer, bl BlockChecker, name string) (*EmailAuth, error) {
 	if mail == nil {
 		return nil, ErrDisabled
@@ -822,31 +820,22 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 // maxSTSAge is RFC 8461 §3.2's ceiling on max_age, a little over a year.
 const maxSTSAge = 31557600
 
-// maxQuotedHeader bounds a header value the policy's server chose before a
-// finding quotes it; Go accepts up to 10 MB of headers.
+// maxQuotedHeader bounds a header the policy's server chose before a finding quotes it.
 const maxQuotedHeader = 100
 
 // mtaSTSTransport gates the policy fetch on g: any domain can point
 // mta-sts.<domain> wherever it likes, and the reply is reflected into the page.
 func mtaSTSTransport(g *platform.EgressGuard) *http.Transport {
-	return &http.Transport{
-		// With a proxy every dial goes to the proxy's address, so the guard
-		// would judge the proxy instead of the destination.
-		Proxy:       nil,
-		DialContext: g.DialContext(5 * time.Second),
-		// The guard only runs on a dial, so a pooled connection would skip it.
-		DisableKeepAlives:   true,
-		TLSHandshakeTimeout: 5 * time.Second,
-	}
+	tr := g.Transport(5 * time.Second)
+	tr.TLSHandshakeTimeout = 5 * time.Second
+	return tr
 }
 
-// defaultMTASTSTransport serves a Service that WithEgressGuard never
-// configured: public addresses on 443 only.
+// defaultMTASTSTransport serves a Service WithEgressGuard never configured.
 var defaultMTASTSTransport = mtaSTSTransport(platform.NewEgressGuard([]string{"443"}, nil))
 
-// WithEgressGuard sends the MTA-STS policy fetch through g, which should allow
-// port 443 only, and refuses nameserver probes to any address g denies. Call
-// it before the Service is used. Nil-safe.
+// WithEgressGuard sends the MTA-STS fetch (443 only) and every nameserver probe
+// through g. Nil-safe.
 func (s *Service) WithEgressGuard(g *platform.EgressGuard) *Service {
 	if s != nil {
 		c := *s.http

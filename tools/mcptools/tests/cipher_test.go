@@ -25,8 +25,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Vectors from tools/ciphertools/tests, where each is checked against its
-// source.
 const (
 	jwtioToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
 	signKey    = "0123456789abcdef0123456789abcdef"
@@ -39,8 +37,6 @@ const (
 	zeroKey, zeroIV = "00000000000000000000000000000000", "000000000000000000000000"
 )
 
-// testCert is a self-signed certificate for mcp-test.example and the SHA-256
-// fingerprint of its DER, as the cert op writes one.
 var testCert = sync.OnceValues(func() (string, string) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -64,8 +60,7 @@ type cipherCase struct {
 	tool string
 	args map[string]any
 	want map[string]any // values at dotted paths of the result
-	// random results differ run to run, so parity compares their shape;
-	// varies names single values that do, left out of it.
+	// random results are compared by shape; varies names single values left out.
 	random bool
 	varies []string
 }
@@ -114,7 +109,6 @@ func cipherCases() []cipherCase {
 	}
 }
 
-// dig is the value at a dotted path of keys and list indices, or nil.
 func dig(v any, path string) any {
 	for _, k := range strings.Split(path, ".") {
 		switch c := v.(type) {
@@ -133,8 +127,6 @@ func dig(v any, path string) any {
 	return v
 }
 
-// TestCipherToolsKnownVectors: every op, through MCP, with a published or
-// fixed vector.
 func TestCipherToolsKnownVectors(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/cipher", nil, nil)
 	cases := cipherCases()
@@ -171,8 +163,7 @@ func TestCipherToolsKnownVectors(t *testing.T) {
 	}
 }
 
-// TestCipherJSONFieldKeepsItsOrder: payload is JSON text in a string, signed
-// as written; an object would come back re-ordered, so it is refused.
+// TestCipherJSONFieldKeepsItsOrder: payload is signed as written, so an object is refused.
 func TestCipherJSONFieldKeepsItsOrder(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/cipher", nil, nil)
 	const payload = `{"sub":"42","name":"Ada","admin":true}`
@@ -209,8 +200,6 @@ func TestCipherBadInput(t *testing.T) {
 	object(t, call(t, cs, "cipher_totp", map[string]any{"secret": "JBSWY3DPEHPK3PXP", "mode": "hotp", "counter": 1<<53 - 1}))
 }
 
-// TestCipherWholeStrings: a cipher result is the caller's own material, so
-// a value past the sanitizer's 2 KB cap comes back whole.
 func TestCipherWholeStrings(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/cipher", nil, nil)
 	text := strings.Repeat("0123456789abcdef", 200)
@@ -220,8 +209,7 @@ func TestCipherWholeStrings(t *testing.T) {
 	}
 }
 
-// TestHeavyCipherOps: a heavy op holds its own memory cost of the byte budget
-// REST shares, read from its arguments; a full budget answers busy.
+// TestHeavyCipherOps: a heavy op holds its memory cost of the budget REST shares.
 func TestHeavyCipherOps(t *testing.T) {
 	var log syncBuffer
 	lim := roomyCipher()
@@ -256,26 +244,6 @@ func TestHeavyCipherOps(t *testing.T) {
 	}
 }
 
-// TestCipherBudgetWhicheverDoor: heavy signing spent over REST is spent over
-// MCP too; the pure ops' budget is separate.
-func TestCipherBudgetWhicheverDoor(t *testing.T) {
-	const client = "198.51.100.70"
-	s := newStack(t, stackOpts{cipherLim: ciphertools.NewLimits()})
-	cs := s.client(t, "/mcp/cipher", map[string]string{"CF-Connecting-IP": client}, nil)
-	hdr := map[string]string{"Host": cipherHost, "Accept": "application/json", "Content-Type": "application/json", "CF-Connecting-IP": client}
-	body := `{"key":"` + signKey + `","now":1700000000}`
-	for i := 0; s.do(http.MethodPost, "/jwt/sign", body, hdr).Code != http.StatusTooManyRequests; i++ {
-		if i == 30 {
-			t.Fatal("the REST heavy budget never ran out")
-		}
-	}
-	if res := call(t, cs, "cipher_jwt_sign", map[string]any{"key": signKey}); !res.IsError || text(t, res) != limitedText {
-		t.Errorf("MCP after REST spent the heavy budget = %q, want limited", text(t, res))
-	}
-	object(t, call(t, cs, "cipher_hash", map[string]any{"text": "abc"}))
-}
-
-// del removes the value at a dotted path.
 func del(m map[string]any, path string) {
 	if i := strings.LastIndex(path, "."); i >= 0 {
 		m, _ = dig(m, path[:i]).(map[string]any)
@@ -284,8 +252,6 @@ func del(m map[string]any, path string) {
 	delete(m, path)
 }
 
-// shape is v with every leaf replaced by its JSON kind, for results drawn at
-// random.
 func shape(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
@@ -304,8 +270,6 @@ func shape(v any) any {
 	return fmt.Sprintf("%T", v)
 }
 
-// TestCipherParity: for the same input MCP's structuredContent is the REST
-// JSON body; results drawn at random match in shape. Timings are left out.
 func TestCipherParity(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	cs := s.client(t, "/mcp", nil, nil)

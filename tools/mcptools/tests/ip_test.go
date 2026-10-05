@@ -100,7 +100,6 @@ func TestIPCIDR(t *testing.T) {
 	}
 }
 
-// TestIPParity: an MCP result is the REST body plus its declared additions.
 func TestIPParity(t *testing.T) {
 	s := newStack(t, stackOpts{chk: fakeChecker{lk: iptools.BlockLookup{Sources: []string{"ipsum"}, MaxCount: 3}}})
 	cs := s.client(t, "/mcp", nil, nil)
@@ -126,9 +125,7 @@ func TestIPParity(t *testing.T) {
 	}
 }
 
-// TestUntrustedStringsThroughTheStack: what a third party chose reaches the
-// model capped and with its invisible characters shown; lists stay whole, and
-// a result over the hard cap is an error rather than a cut.
+// TestUntrustedStringsThroughTheStack: strings capped and shown, lists whole, too big an error.
 func TestUntrustedStringsThroughTheStack(t *testing.T) {
 	r := richResult
 	r.ASName = "Evil\u202eCorp\U000E0041" + strings.Repeat("x", 10<<10)

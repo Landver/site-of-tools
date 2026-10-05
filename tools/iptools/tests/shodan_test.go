@@ -135,13 +135,16 @@ func TestShodanSkippedJSON(t *testing.T) {
 	}
 }
 
+// shodanCredit is the footer's Shodan credit as html/template writes it.
+const shodanCredit = "uses © Shodan&#39;s"
+
 func TestHandlerShodanSkippedState(t *testing.T) {
 	res := &iptools.Result{IP: "8.8.8.8", Shodan: &iptools.ShodanInfo{Skipped: true}}
 	body := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"}).Body.String()
 	if !strings.Contains(body, "Open-ports check skipped") {
 		t.Errorf("skipped card missing its line:\n%s", body)
 	}
-	for _, absent := range []string{"No open ports on record", "uses © Shodan's"} {
+	for _, absent := range []string{"No open ports on record", shodanCredit} {
 		if strings.Contains(body, absent) {
 			t.Errorf("skipped lookup shows %q, which claims Shodan data we never fetched", absent)
 		}
@@ -253,14 +256,14 @@ func TestFullPageShowsShodanCredit(t *testing.T) {
 	// consulted InternetDB, never on botcheck.
 	withData := &iptools.Result{IP: "8.8.8.8", Shodan: &iptools.ShodanInfo{Found: true, Ports: []int{443}}}
 	rec := do(newTestApp(fakeLooker{res: withData}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
-	if !strings.Contains(rec.Body.String(), "uses © Shodan's") {
+	if !strings.Contains(rec.Body.String(), shodanCredit) {
 		t.Errorf("full page with Shodan data must carry the © Shodan footer credit, got:\n%s", rec.Body.String())
 	}
 
 	// Lookup that never consulted Shodan (no Result.Shodan) gets no credit —
 	// unlike IP2Location, always credited on IP-tool pages.
 	rec2 := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
-	if strings.Contains(rec2.Body.String(), "uses © Shodan's") {
+	if strings.Contains(rec2.Body.String(), shodanCredit) {
 		t.Errorf("page without Shodan data must not carry the Shodan footer credit")
 	}
 }

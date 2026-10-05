@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,67 +8,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/platform/goldentest"
 	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// Golden REST JSON for every dns.corpberry.com route. Regenerate only with
-// UPDATE_GOLDEN=1, and review the diff like code.
-
-type goldenCase struct {
-	Status int             `json:"status"`
-	Body   json.RawMessage `json:"body"`
-}
-
-func checkGolden(t *testing.T, file string, got map[string]goldenCase) {
-	t.Helper()
-	path := filepath.Join("testdata", file+".golden.json")
-	have, err := json.MarshalIndent(got, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal %s: %v", file, err)
-	}
-	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, append(have, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v (generate it with UPDATE_GOLDEN=1)", err)
-	}
-	if diff := cmp.Diff(decodeJSON(t, want), decodeJSON(t, have)); diff != "" {
-		t.Errorf("%s differs from the golden file (-want +got):\n%s", path, diff)
-	}
-}
-
-func decodeJSON(t *testing.T, b []byte) any {
-	t.Helper()
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	var v any
-	if err := d.Decode(&v); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, b)
-	}
-	return v
-}
-
-// goldenDNS answers every interface the handler looks for, from fixed data
-// built fresh per call (enrichment and delegation health write into it).
+// goldenDNS serves every check from fixed data built fresh per call.
 type goldenDNS struct {
 	lookErr   error
 	delegated bool
@@ -269,7 +221,7 @@ type dnsCase struct {
 
 func runDNSGolden(t *testing.T, file string, cases []dnsCase) {
 	t.Helper()
-	got := map[string]goldenCase{}
+	got := map[string]goldentest.Response{}
 	for _, tc := range cases {
 		e := echo.New()
 		e.Renderer = platform.NewRenderer(false, nil,
@@ -282,9 +234,9 @@ func runDNSGolden(t *testing.T, file string, cases []dnsCase) {
 		if tc.scrub != "" {
 			body = strings.ReplaceAll(body, tc.scrub, "upstream.test")
 		}
-		got[tc.name] = goldenCase{Status: rec.Code, Body: json.RawMessage(body)}
+		got[tc.name] = goldentest.Response{Status: rec.Code, Body: json.RawMessage(body)}
 	}
-	checkGolden(t, file, got)
+	goldentest.JSON(t, file, got)
 }
 
 func TestGoldenLookupJSON(t *testing.T) {

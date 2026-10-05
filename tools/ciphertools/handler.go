@@ -71,24 +71,17 @@ var pages = []page{
 // limit: a file hashed there never travels.
 const maxBody = 8 << 20
 
-// Limits are this tool's budgets, built once and shared by every door. Ops are
-// pure CPU with no upstream, so the ordinary ones are generous; Heavy ops
-// (password hashing, RSA key generation, signing) are what a stranger would
-// use to burn this box's CPU and memory, so they are not.
+// Limits are shared by every door; Heavy ops are what would burn this box's CPU.
 type Limits struct {
 	Pure, Heavy platform.Limiter
-	// Engine bounds how fast one address can pull the multi-MB wasm engine; a
-	// page load fetches it once and the browser keeps it.
+	// Engine bounds pulls of the multi-MB wasm engine, which a browser keeps.
 	Engine platform.Limiter
-	// HeavyCap is a byte budget for Heavy ops in flight, each holding
-	// HeavyWeight of it while it runs.
+	// HeavyCap is a byte budget; each Heavy op holds HeavyWeight of it.
 	HeavyCap *platform.Cap
 }
 
 const heavyBudget = 256 << 20
 
-// NewLimits returns fresh budgets: Pure 10/s (burst 50), Heavy 1/s (burst 5),
-// Engine 1/s (burst 10); 256 MiB of Heavy ops in flight.
 func NewLimits() *Limits {
 	return &Limits{
 		Pure:     platform.NewLimiter(10, 50),
@@ -98,13 +91,10 @@ func NewLimits() *Limits {
 	}
 }
 
-// HeavyWeight is what a Heavy op holds of HeavyCap: its MemoryCost, at least
-// 1 MiB, and never more than the whole budget, so no input is refused forever.
+// HeavyWeight is MemoryCost within [1 MiB, the budget], so no input waits forever.
 func HeavyWeight(name string, in Input) int64 {
 	return min(max(MemoryCost(name, in), 1<<20), heavyBudget)
 }
-
-var errBusy = errors.New(platform.BusyMessage)
 
 type handler struct {
 	base string
@@ -122,8 +112,8 @@ type handler struct {
 // there is what keeps anybody from building that habit.
 //
 // static is the shared static FS the app serves /static from; the engine is read
-// from it once and served pre-compressed (engine below). lim nil means fresh
-// limits.
+// from it once and served pre-compressed (engine below).
+// lim nil means fresh limits.
 func Register(e *echo.Echo, base string, static fs.FS, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
@@ -267,7 +257,7 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 		}
 		code := http.StatusOK
 		switch {
-		case errors.Is(err, errBusy):
+		case errors.Is(err, platform.ErrBusy):
 			code = http.StatusServiceUnavailable
 		case err != nil:
 			code = http.StatusBadRequest
@@ -291,15 +281,14 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 	}
 }
 
-// run holds a Heavy op's share of HeavyCap while it runs, after its input is
-// parsed, since the weight depends on it.
+// run holds a Heavy op's weight of HeavyCap, known once its input is parsed.
 func (h *handler) run(client string, op Op, in Input) (any, error) {
 	if !op.Heavy {
 		return Run(op, in)
 	}
 	w := HeavyWeight(op.Name, in)
 	if !h.lim.HeavyCap.TryAcquire(client, w) {
-		return nil, errBusy
+		return nil, platform.ErrBusy
 	}
 	defer h.lim.HeavyCap.Release(client, w)
 	return Run(op, in)

@@ -18,8 +18,6 @@ type siteBlogArgs struct {
 	Slug string `json:"slug,omitempty" jsonschema:"the post to read, e.g. the-bug-is-still-there; leave it out for the list of posts"`
 }
 
-// blogPost is a post as site_blog returns it; Markdown only when one post
-// is asked for.
 type blogPost struct {
 	Slug        string `json:"slug"`
 	Title       string `json:"title"`
@@ -38,10 +36,7 @@ func siteSpecs(d Deps) []toolSpec {
 	if d.Blog == nil {
 		return nil
 	}
-	t := siteTools{blog: d.Blog}
-	if d.ToolURL != nil {
-		t.base = d.ToolURL("")
-	}
+	t := siteTools{blog: d.Blog, base: d.ToolURL("")}
 	return []toolSpec{{
 		toolset: "site",
 		tool: &mcp.Tool{
@@ -99,9 +94,8 @@ var (
 	htmlDest   = regexp.MustCompile(`(\b(?:src|href)=["'])([^"']+)`)
 )
 
-// absolutize resolves every relative link and image in a post's Markdown
-// against the post's URL, as a browser would: read as source, there is no
-// page to resolve /static/… against. Code blocks and spans are left alone.
+// absolutize resolves a post's relative links and images against its URL, as a
+// browser would: read as source, nothing resolves /static/…. Code is left alone.
 func absolutize(md, postURL string) string {
 	base, err := url.Parse(postURL)
 	if err != nil || !base.IsAbs() {
@@ -143,8 +137,6 @@ func absolutize(md, postURL string) string {
 	return strings.Join(lines, "")
 }
 
-// fenceOf is the run of three or more backticks or tildes a line opens a
-// code block with, or "".
 func fenceOf(line string) string {
 	for _, c := range []string{"`", "~"} {
 		if n := len(line) - len(strings.TrimLeft(line, c)); n >= 3 {

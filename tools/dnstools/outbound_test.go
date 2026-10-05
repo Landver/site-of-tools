@@ -14,8 +14,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// A zone the caller chose names these addresses, and a probe of one would be a
-// port-53 packet into our own network.
+// A caller-chosen zone names these: a probe would be a port-53 packet into our network.
 func TestNameserverProbeRefusesNonPublicAddresses(t *testing.T) {
 	t.Parallel()
 	_, via := serveZone(t, testZone{
@@ -46,8 +45,7 @@ func TestNameserverProbeRefusesNonPublicAddresses(t *testing.T) {
 	}
 }
 
-// This host's public addresses come from config, not from a range rule, so
-// only the guard knows to refuse them.
+// This host's public addresses come from config, so only the guard refuses them.
 func TestNameserverProbeRefusesOwnAddresses(t *testing.T) {
 	t.Parallel()
 	_, via := serveZone(t, testZone{
@@ -81,8 +79,7 @@ func TestNameserverProbeRefusesOwnAddresses(t *testing.T) {
 	}
 }
 
-// A hostile policy server picks its Content-Type, and the error quoting it
-// becomes a note on the page.
+// A hostile policy server picks its Content-Type, which a note then quotes.
 func TestMTASTSContentTypeIsBounded(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,8 +108,7 @@ func TestMTASTSContentTypeIsBounded(t *testing.T) {
 	}
 }
 
-// The configured RDAP and CT hosts are the only ones dialled directly; a
-// redirect anywhere else goes through the guard, judged on the address.
+// Only the configured RDAP and CT hosts are dialled directly; redirects go through the guard.
 func TestDomainClientGuardsEveryOtherHost(t *testing.T) {
 	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

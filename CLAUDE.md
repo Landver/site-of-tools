@@ -118,8 +118,8 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
   one toolset, `/mcp/owner` short-link writes behind `MCP_OWNER_KEY`. Echo gate
   → SDK → receiving middleware (recover, deadline, the package's shared
   `Limits`, sanitizer, per-call record) → adapter: args → same domain call as
-  REST → result. Tool packages never import the SDK. `tools/list` per endpoint
-  pinned by goldens (`UPDATE_GOLDEN=1` rewrites; review the diff). Every page's
+  REST → result. Tool packages never import the SDK. `tools/list` per toolset
+  pinned by goldens, `/mcp` their union (`UPDATE_GOLDEN=1` rewrites; review the diff). Every page's
   "Using this from the terminal" block ends w/ `partials/mcp-hint` for its
   toolset. Docs: `tools/mcptools/docs/`.
 - Don't reintroduce `internal/` or `cmd/`, don't split tool's code from its

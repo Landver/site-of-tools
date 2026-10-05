@@ -568,7 +568,7 @@ func (s *Service) repAddresses(ctx context.Context, host, addr string) ([]string
 			if len(ips) >= repMaxAddrsPerHost {
 				break
 			}
-			if seen[rec.Value] || !routable(rec.Value) {
+			if seen[rec.Value] || !iptools.Routable(rec.Value) {
 				continue
 			}
 			seen[rec.Value] = true

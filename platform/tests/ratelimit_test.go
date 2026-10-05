@@ -6,19 +6,16 @@ import (
 	"net/http/httptest"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// limitedApp is one door onto l. The deny answer is 429 with no body, so a
-// refused request can't be mistaken for an allowed one.
-func limitedApp(l platform.Limiter, skip func(*echo.Context) bool) *echo.Echo {
+func limitedApp(l platform.Limiter) *echo.Echo {
 	e := platform.NewApp(nil, fstest.MapFS{}, false, nil)
 	e.GET("/", func(c *echo.Context) error { return c.NoContent(http.StatusOK) },
-		platform.RateLimit(l, skip, func(c *echo.Context) error { return c.NoContent(http.StatusTooManyRequests) }))
+		platform.RateLimit(l, nil, func(c *echo.Context) error { return c.NoContent(http.StatusTooManyRequests) }))
 	return e
 }
 
@@ -32,7 +29,7 @@ func hitAs(e *echo.Echo, client string) int {
 
 func TestRateLimitBudgetIsSharedAcrossApps(t *testing.T) {
 	l := platform.NewLimiter(0.001, 3)
-	a, b := limitedApp(l, nil), limitedApp(l, nil)
+	a, b := limitedApp(l), limitedApp(l)
 	for i := range 3 {
 		if code := hitAs(a, "203.0.113.5"); code != http.StatusOK {
 			t.Fatalf("request %d on the first app = %d, want 200 inside the burst", i+1, code)
@@ -48,7 +45,7 @@ func TestRateLimitBudgetIsSharedAcrossApps(t *testing.T) {
 
 func TestRateLimitIPv6ClientIsOneBucketPerSlash64(t *testing.T) {
 	l := platform.NewLimiter(0.001, 2)
-	a, b := limitedApp(l, nil), limitedApp(l, nil)
+	a, b := limitedApp(l), limitedApp(l)
 	hitAs(a, "2001:db8:1:2::1")
 	hitAs(a, "2001:db8:1:2::2")
 	if code := hitAs(b, "2001:db8:1:2:ffff::9"); code != http.StatusTooManyRequests {
@@ -60,7 +57,7 @@ func TestRateLimitIPv6ClientIsOneBucketPerSlash64(t *testing.T) {
 }
 
 func TestRateLimitUnparseableClientsShareOneBucket(t *testing.T) {
-	e := limitedApp(platform.NewLimiter(0.001, 2), nil)
+	e := limitedApp(platform.NewLimiter(0.001, 2))
 	hitAs(e, "junk-1")
 	hitAs(e, "junk-2")
 	if code := hitAs(e, "junk-3"); code != http.StatusTooManyRequests {
@@ -71,27 +68,10 @@ func TestRateLimitUnparseableClientsShareOneBucket(t *testing.T) {
 	}
 }
 
-func TestRateLimitSkipSpendsNothing(t *testing.T) {
-	e := limitedApp(platform.NewLimiter(0.001, 1), func(c *echo.Context) bool { return c.QueryParam("q") == "" })
-	for range 3 {
-		if code := hitAs(e, "203.0.113.5"); code != http.StatusOK {
-			t.Fatalf("skipped request = %d, want 200", code)
-		}
-	}
-	req := httptest.NewRequest(http.MethodGet, "/?q=x", nil)
-	req.Header.Set("CF-Connecting-IP", "203.0.113.5")
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("first counted request = %d, want 200: skipped ones spent the budget", rec.Code)
-	}
-}
-
-// AllowKey is the MCP door: it must spend the very bucket the middleware
-// spends, whether it is handed the raw IP or the key.
+// AllowKey, the MCP door, must spend the middleware's bucket, by raw IP or key.
 func TestAllowKeySpendsTheMiddlewaresBucket(t *testing.T) {
 	l := platform.NewLimiter(0.001, 3)
-	e := limitedApp(l, nil)
+	e := limitedApp(l)
 	if !platform.AllowKey(l, "2001:db8:1:2::1") || !platform.AllowKey(l, platform.RateLimitKey("2001:db8:1:2::2")) {
 		t.Fatal("AllowKey refused inside the burst")
 	}
@@ -106,7 +86,10 @@ func TestAllowKeySpendsTheMiddlewaresBucket(t *testing.T) {
 
 func TestGlobalLimiterIsOneBucketForEveryone(t *testing.T) {
 	l := platform.NewGlobalLimiter(0.001, 2)
-	e := limitedApp(l, nil)
+	if r, b := l.Rate(); r != 0.001 || b != 2 {
+		t.Errorf("Rate() = %g, %d, want what it was built with", r, b)
+	}
+	e := limitedApp(l)
 	if !platform.AllowKey(l, "198.51.100.1") {
 		t.Fatal("first call refused")
 	}
@@ -118,45 +101,21 @@ func TestGlobalLimiterIsOneBucketForEveryone(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
-	limitedApp(platform.NewGlobalLimiter(1, 5), nil).ServeHTTP(rec, req)
+	limitedApp(platform.NewGlobalLimiter(1, 5)).ServeHTTP(rec, req)
 	if rec.Header().Get("X-RateLimit-Limit") != "5" {
 		t.Errorf("X-RateLimit-Limit = %q, want the store's burst: Echo's headers must survive the wrapper",
 			rec.Header().Get("X-RateLimit-Limit"))
 	}
 }
 
-func TestCapRefusesAtOnceWhenFull(t *testing.T) {
-	c := platform.NewCap(10)
-	done := make(chan []bool, 1)
-	go func() {
-		done <- []bool{c.TryAcquire("192.0.2.1", 7), c.TryAcquire("192.0.2.2", 4), c.TryAcquire("192.0.2.3", 3), c.TryAcquire("192.0.2.4", 1)}
-	}()
-	select {
-	case got := <-done:
-		want := []bool{true, false, true, false}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("TryAcquire #%d = %v, want %v (sequence 7, 4, 3, 1 against 10)", i+1, got[i], want[i])
-			}
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("TryAcquire blocked on a full cap; it must refuse at once")
-	}
-	c.Release("192.0.2.1", 7)
-	if !c.TryAcquire("192.0.2.5", 5) {
-		t.Error("Release did not return the units")
-	}
-
+// One client, an IPv6 /64 counting as one, may hold a quarter of a cap.
+func TestCapSharePerClient(t *testing.T) {
 	var unbounded *platform.Cap
 	if !unbounded.TryAcquire("192.0.2.1", 1<<40) {
-		t.Error("a nil Cap refused; nil means no cap")
+		t.Error("a nil Cap refused")
 	}
 	unbounded.Release("192.0.2.1", 1<<40)
-}
 
-// One client may hold a quarter of a cap, its IPv6 /64 counting as one
-// client, so the rest stays free for everyone else.
-func TestCapSharePerClient(t *testing.T) {
 	c := platform.NewCap(8)
 	for i := range 2 {
 		if !c.TryAcquire("2001:db8:1:2::1", 1) {

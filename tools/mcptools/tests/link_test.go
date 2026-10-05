@@ -15,8 +15,7 @@ import (
 
 const safeLinks = "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fwww.example.com%2Farticle%3Fid%3D42%26utm_source%3Dnewsletter&data=05%7C02&reserved=0"
 
-// newsletter is a click-tracked HTML email: n stories, each behind its own
-// ESP redirect, and footer links repeated in the header.
+// newsletter is a click-tracked HTML email with n stories behind ESP redirects.
 func newsletter(n int) string {
 	var b strings.Builder
 	b.WriteString("<html><body><p>Hi there,</p>")
@@ -43,8 +42,6 @@ func TestLinkInspect(t *testing.T) {
 	failsWith(t, call(t, cs, "link_inspect", map[string]any{"url": ""}), "url")
 }
 
-// TestLinkCleanDefaults: unwrap is on unless false is passed; affiliate tags
-// and parameter order are kept unless asked.
 func TestLinkCleanDefaults(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	clean := func(args map[string]any) map[string]any {
@@ -109,8 +106,6 @@ func TestLinkDiff(t *testing.T) {
 	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "https://example.com/"}), "url_b")
 }
 
-// TestLinkRedirectChainRefusesOwnHostsAndLoopback: the real tracer behind the
-// real guard refuses this server's own hosts and loopback before connecting.
 func TestLinkRedirectChainRefusesOwnHostsAndLoopback(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	for _, u := range []string{"http://mcp.localhost:8080/mcp", "https://mcp.corpberry.com/mcp", "http://mcp.test/mcp", "http://127.0.0.1/", "http://[::1]/"} {
@@ -179,8 +174,7 @@ func TestLinkExtract(t *testing.T) {
 	failsWith(t, call(t, cs, "link_extract", map[string]any{"text": "  \n "}), "no text given")
 }
 
-// TestLinkUTMAbsentKeepsEmptyRemoves: a tag left out is kept, "" removes it,
-// a value replaces it; REST's form cannot remove one.
+// TestLinkUTMAbsentKeepsEmptyRemoves: unlike REST's form, "" removes a tag.
 func TestLinkUTMAbsentKeepsEmptyRemoves(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	const tagged = "https://example.com/landing?utm_source=old&utm_medium=email&id=1"
@@ -216,8 +210,7 @@ func TestLinkPercentEncode(t *testing.T) {
 	failsWith(t, call(t, cs, "link_percent_encode", map[string]any{"value": ""}), "value")
 }
 
-// TestLinkWholeStrings: a tool that only reworks the caller's own input gives
-// a long value back whole; one quoting decoded or pasted text cuts it at 2 KB.
+// TestLinkWholeStrings: a tool reworking only the caller's input returns it uncut.
 func TestLinkWholeStrings(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	state := strings.Repeat("a", 2500)
@@ -244,8 +237,7 @@ func TestLinkWholeStrings(t *testing.T) {
 	}
 }
 
-// TestLinkShortResolveOffline: everything that is refused before the store.
-// The live round trip, hits included, is in owner_test.go.
+// TestLinkShortResolveOffline: refusals before the store; owner_test.go has the live trip.
 func TestLinkShortResolveOffline(t *testing.T) {
 	var log syncBuffer
 	cs := newStack(t, stackOpts{log: &log}).client(t, "/mcp/link", nil, nil)
@@ -286,8 +278,7 @@ func extractConcise(body map[string]any) {
 	}
 }
 
-// TestLinkParity: every public link tool against its REST twin, through the
-// declared projections; timings differ between two runs and are left out.
+// TestLinkParity: every public link tool against its REST twin; timings are left out.
 func TestLinkParity(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	cs := s.client(t, "/mcp", nil, nil)

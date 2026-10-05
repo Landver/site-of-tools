@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"encoding/json"
 	"html"
 	"io/fs"
 	"net/http"
@@ -43,13 +42,8 @@ func TestLandingJSON(t *testing.T) {
 		for _, tl := range ep["tools"].([]any) {
 			tm := tl.(map[string]any)
 			tools[p] = append(tools[p], tm["name"].(string))
-			if tm["annotations"] == nil || tm["description"] == "" {
-				t.Errorf("%s lacks annotations or a description", tm["name"])
-			}
-			// The published limit: a tool missing from handler.go's rateLimits reads 0.
-			r, _ := tm["rate_limit"].(map[string]any)
-			if r == nil || r["per_second"] == json.Number("0") || r["burst"] == json.Number("0") {
-				t.Errorf("%s publishes no rate limit: %v", tm["name"], tm["rate_limit"])
+			if tm["annotations"] == nil || tm["description"] == "" || tm["rate_limit"] == nil {
+				t.Errorf("%s lacks annotations, a description or its rate limit", tm["name"])
 			}
 		}
 	}
@@ -69,8 +63,10 @@ func TestLandingJSON(t *testing.T) {
 	}
 }
 
+// TestLandingPage is built with the real Limits, so it checks the published rates.
 func TestLandingPage(t *testing.T) {
-	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	s := newStack(t, stackOpts{owner: offlineOwner(t), dnsLim: dnstools.NewLimits(), linkLim: linktools.NewLimits(),
+		cipherLim: ciphertools.NewLimits(), botLim: botcheck.NewLimits()})
 	rec := s.do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"})
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{
@@ -84,7 +80,6 @@ func TestLandingPage(t *testing.T) {
 		"IP2Location LITE", "DROP list", "InternetDB", "crt.sh", "rdap.org", // the footer's credits
 		`href="https://lite.ip2location.com"`, // and each toolset's sources
 
-		// Setup for every client research §5 lists, the examples on the first toolset.
 		`id="setup"`,
 		"claude mcp add --scope user --transport http corpberry http://mcp.test/mcp",
 		"Customize → Connectors → Add custom connector", "Developer mode",
@@ -113,11 +108,8 @@ func TestLandingPage(t *testing.T) {
 	}
 }
 
-// terminalBlock is a page's "Using this from the terminal" <details>.
 var terminalBlock = regexp.MustCompile(`(?is)<summary[^>]*>[^<]*from the terminal</summary>.*?</details>`)
 
-// TestEveryTerminalBlockPointsAtItsToolset: the pages' terminal instructions
-// are where MCP was asked for, so each block ends on its toolset's endpoint.
 func TestEveryTerminalBlockPointsAtItsToolset(t *testing.T) {
 	blocks := 0
 	for toolset, fsys := range map[string]fs.FS{

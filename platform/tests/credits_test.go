@@ -3,13 +3,13 @@ package tests
 import (
 	"bytes"
 	"encoding/json"
+	"html"
 	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
 )
 
 var creditIDs = []string{platform.CreditIP2Location, platform.CreditSpamhaus, platform.CreditShodan, platform.CreditCrtSh, platform.CreditRDAP}
@@ -39,25 +39,15 @@ func TestCreditFor(t *testing.T) {
 	}
 }
 
-// The footer and a page-less result must say the same words.
+// Each credit's Flag prints, in the footer, the words a page-less result carries.
 func TestFooterPrintsEachNotice(t *testing.T) {
-	r := platform.NewRenderer(false, nil, platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"})
-	data := map[string]any{}
-	for _, f := range footerFlags {
-		data[f] = true
-	}
-	var buf bytes.Buffer
-	if err := r.Render(nil, &buf, "partials/footer", data); err != nil {
-		t.Fatal(err)
-	}
-	text := strings.Join(strings.Fields(regexp.MustCompile(`<[^>]*>`).ReplaceAllString(buf.String(), "")), " ")
+	tags := regexp.MustCompile(`<[^>]*>`)
 	for _, id := range creditIDs {
 		c, _ := platform.CreditFor(id)
-		if !strings.Contains(text, c.Notice) {
-			t.Errorf("footer does not print %s's notice %q:\n%s", id, c.Notice, text)
-		}
-		if !strings.Contains(buf.String(), `<a href="`+c.URL+`"`) {
-			t.Errorf("footer does not link %s to %s", id, c.URL)
+		page := renderFooter(t, map[string]any{c.Flag: true})
+		text := strings.Join(strings.Fields(html.UnescapeString(tags.ReplaceAllString(page, ""))), " ")
+		if !strings.Contains(text, c.Notice) || !strings.Contains(page, `<a href="`+c.URL+`"`) {
+			t.Errorf("%s's flag %q: the footer lacks its notice or link:\n%s", id, c.Flag, text)
 		}
 	}
 }

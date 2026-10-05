@@ -18,20 +18,18 @@ type handler struct {
 	lim       *Limits
 }
 
-// Limits are this tool's budgets, built once and shared by every door. A
-// score looks the caller's IP up (Shodan included) and reads the corpus.
+// Limits are shared by every door; a score looks the IP up and reads the corpus.
 type Limits struct {
 	Check    platform.Limiter
 	CheckCap *platform.Cap
 }
 
-// NewLimits returns fresh budgets: 2 scores/s (burst 10), 8 in flight.
 func NewLimits() *Limits {
 	return &Limits{Check: platform.NewLimiter(2, 10), CheckCap: platform.NewCap(8)}
 }
 
-// Register wires botcheck.corpberry.com routes onto e. blocklist may be nil
-// (build it with iptools.CheckerFrom); lim nil means fresh limits.
+// Register wires botcheck.corpberry.com routes onto e.
+// blocklist (from iptools.CheckerFrom) may be nil; lim nil means fresh limits.
 //
 //	GET  /                  check page (browser) — or server-only score (curl/JSON)
 //	POST /check             accepts collected client fingerprint, returns full score
@@ -52,8 +50,7 @@ func limited(c *echo.Context) error {
 	return refuse(c, http.StatusTooManyRequests, "Too many checks from your address. Try again in a few seconds.")
 }
 
-// refuse answers a request turned away before scoring: JSON for an API caller,
-// the result slot's error fragment for the page.
+// refuse turns a request away before scoring, as JSON or the result fragment.
 func refuse(c *echo.Context, code int, msg string) error {
 	if platform.WantsJSON(c) {
 		return c.JSON(code, map[string]string{"error": msg})
@@ -171,9 +168,8 @@ func (h *handler) check(c *echo.Context) error {
 	})
 }
 
-// addServerSignals fills the half of sig Go sees without JS: the request's
-// headers and its IP's reputation/geo, both best-effort. Returns the conn-card
-// network from the same lookup, so the check handler needs no second one.
+// addServerSignals fills the half of sig Go sees without JS, returning the
+// conn-card network from the same lookup.
 func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnNetwork {
 	sig.Now = time.Now()
 	AddHTTPSignals(sig, requestHeaders(c.Request()))

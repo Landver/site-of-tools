@@ -808,17 +808,14 @@ func (c RuleCatalog) Summary() RuleSummary {
 	}
 }
 
-// RuleMatches is every tracking rule and never-strip entry naming one
-// parameter, exact names before prefixes. Whether one fires still depends on
-// the host and, for affiliate rules, on asking for them; Verdict decides that.
+// RuleMatches is every rule naming one parameter; whether one fires is Verdict's call.
 type RuleMatches struct {
 	Param      string `json:"param"`
 	Tracking   []Rule `json:"tracking"`
 	NeverStrip []Deny `json:"never_strip"`
 }
 
-// Matches names param the way Clean's lookup does: lower-cased, exactly or by
-// literal prefix.
+// Matches names param as Clean's lookup does: lower-cased, exactly or by prefix.
 func (c RuleCatalog) Matches(param string) RuleMatches {
 	k := strings.ToLower(strings.TrimSpace(param))
 	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}

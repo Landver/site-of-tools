@@ -33,9 +33,8 @@ type UTMResult struct {
 	Notes []Note   `json:"notes,omitempty"`
 }
 
-// BuildUTM applies changes to raw's campaign tags. A value replaces the URL's
-// own (analytics tools disagree about duplicates), "" removes it, and a key
-// absent from changes keeps whatever the URL has.
+// BuildUTM applies changes to raw's campaign tags: a value replaces the URL's
+// own (analytics tools disagree about duplicates), "" removes it, absent keeps it.
 func (s *Service) BuildUTM(raw string, changes map[string]string) (*UTMResult, error) {
 	raw = strings.TrimSpace(raw)
 	in, err := s.Parse(raw)

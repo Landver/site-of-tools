@@ -28,8 +28,7 @@ In code, ` + "`[kept](/as/is)`" + ` stays.
 [paper]: /static/files/paper.pdf
 `
 
-// firstStepsMarkdown is firstSteps as site_blog returns it: no frontmatter,
-// every relative link resolved against the post's URL, code untouched.
+// firstStepsMarkdown is firstSteps as site_blog returns it, code untouched.
 const firstStepsMarkdown = `![The first page](https://corpberry.test/static/img/first.png "First")
 
 Read [the next post](https://corpberry.test/blog/second-thoughts), the [notes](https://corpberry.test/blog/notes.txt) beside this one,
@@ -44,8 +43,7 @@ In code, ` + "`[kept](/as/is)`" + ` stays.
 [paper]: https://corpberry.test/static/files/paper.pdf
 `
 
-// testPosts are two published posts and a draft; the second is over the
-// sanitizer's per-string cap, which a post must not be cut at.
+// testPosts are two posts and a draft; the second is over the sanitizer's string cap.
 var testPosts = fstest.MapFS{
 	"2026-09-01-first-steps.md": {Data: []byte(firstSteps)},
 	"2026-09-20-second-thoughts.md": {Data: []byte("---\ntitle: \"Second thoughts\"\ndescription: \"Later, and longer.\"\ndate: \"2026-09-20\"\n---\n\n" +
@@ -89,8 +87,7 @@ func TestSiteBlogPost(t *testing.T) {
 	}
 }
 
-// TestSiteBlogParity: the list and a post are the REST view model's posts,
-// projected; the Markdown has no REST twin.
+// TestSiteBlogParity: posts are the REST view model's, projected.
 func TestSiteBlogParity(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	cs := s.client(t, "/mcp", nil, nil)

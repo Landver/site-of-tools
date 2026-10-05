@@ -19,7 +19,7 @@ type linkInspectArgs struct {
 
 type linkCleanArgs struct {
 	URL            string `json:"url" jsonschema:"the URL to clean"`
-	Unwrap         *bool  `json:"unwrap,omitempty" jsonschema:"unwrap a redirect wrapper to its destination first"`
+	Unwrap         bool   `json:"unwrap,omitempty" jsonschema:"unwrap a redirect wrapper to its destination first"`
 	StripAffiliate bool   `json:"strip_affiliate,omitempty" jsonschema:"also remove affiliate tags, which pay whoever recommended the link"`
 	Sort           bool   `json:"sort,omitempty" jsonschema:"sort the parameters left by name"`
 }
@@ -74,7 +74,6 @@ type linkResolveArgs struct {
 	Code string `json:"code" jsonschema:"a short link's code, or its whole short URL"`
 }
 
-// extractRows is how many distinct links a concise link_extract lists.
 const extractRows = 30
 
 type linkTools struct {
@@ -92,7 +91,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 		personas = append(personas, p.Key)
 	}
 	var specs []toolSpec
-	// These return only the caller's own input reworked (toolSpec.whole).
+	// These return only the caller's own input reworked.
 	whole := map[string]bool{"link_clean": true, "link_diff": true, "link_curl_parse": true,
 		"link_curl_build": true, "link_utm": true, "link_percent_encode": true}
 	pure := func(name, title, desc, narrow string, schema any, add func(*mcp.Server, *mcp.Tool)) {
@@ -207,14 +206,12 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 	return specs
 }
 
-// wrongTool refuses, as REST's pages do, a curl command or text with links in
-// it passed as a URL, naming the tool that takes it.
 func wrongTool(raw string) error {
 	switch linktools.WrongTool(raw) {
 	case linktools.ToolCurl:
-		return errors.New("That looks like a curl command, not a URL. Take it apart with link_curl_parse.")
+		return errors.New(linktools.CurlNotURL + " Take it apart with link_curl_parse.")
 	case linktools.ToolExtract:
-		return errors.New("That looks like text with links in it, not one URL. Pull them out with link_extract.")
+		return errors.New(linktools.TextNotURL + " Pull them out with link_extract.")
 	}
 	return nil
 }
@@ -230,13 +227,10 @@ func (t linkTools) clean(_ context.Context, _ *mcp.CallToolRequest, a linkCleanA
 	if err := wrongTool(a.URL); err != nil {
 		return nil, err
 	}
-	return t.svc.Clean(a.URL, linktools.CleanOptions{
-		Unwrap: a.Unwrap == nil || *a.Unwrap, StripAffiliate: a.StripAffiliate, Sort: a.Sort,
-	})
+	return t.svc.Clean(a.URL, linktools.CleanOptions{Unwrap: a.Unwrap, StripAffiliate: a.StripAffiliate, Sort: a.Sort})
 }
 
-// rules: param, url and full each ask a different question of the table, so
-// they don't combine.
+// rules: param, url and full each ask the table a different question.
 func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesArgs) (any, error) {
 	cat := linktools.Rules()
 	asked := 0
@@ -294,8 +288,7 @@ func (t linkTools) curlBuild(_ context.Context, _ *mcp.CallToolRequest, a linkCu
 	return map[string]string{"curl": line}, nil
 }
 
-// extract is GET/POST /extract; concise drops each link's positions and lists
-// the first extractRows links, with a note saying how many there are.
+// extract is GET/POST /extract; concise drops positions and lists extractRows links.
 func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtractArgs) (any, error) {
 	res, err := t.svc.Extract(strings.TrimSpace(a.Text))
 	if err != nil {
@@ -341,8 +334,7 @@ func (t linkTools) encode(_ context.Context, _ *mcp.CallToolRequest, a linkEncod
 	return linktools.EncodeAll(a.Value), nil
 }
 
-// resolve answers what GET /s/:code would redirect to, without the redirect
-// or its hit. Expired, revoked and unknown read alike, as they do there.
+// resolve is GET /s/:code without the redirect or its hit; expired, revoked and unknown read alike.
 func (t linkTools) resolve(ctx context.Context, _ *mcp.CallToolRequest, a linkResolveArgs) (any, error) {
 	code, ok := linktools.CodeFromShortURL(a.Code, t.short.ShortURL(""))
 	if !ok {
@@ -362,9 +354,7 @@ func (t linkTools) resolve(ctx context.Context, _ *mcp.CallToolRequest, a linkRe
 	return map[string]string{"code": l.Code, "short": t.short.ShortURL(l.Code), "target": l.Target}, nil
 }
 
-// publicError is err as linktools.PublicError lets a caller see it. A store
-// failure becomes its fixed sentence and only the log gets the detail, which
-// can name hosts and connection strings.
+// publicError logs a store failure's detail, which can name hosts, and hides it.
 func publicError(log *slog.Logger, tool string, err error) error {
 	code, msg := linktools.PublicError(err)
 	if code == http.StatusInternalServerError {

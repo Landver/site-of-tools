@@ -11,9 +11,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// fieldInputs gives, per op and field, an input the op accepts that also
-// takes it down the branch reading that field: algo=scrypt for scrypt_n,
-// kind=uuid for version, mode=decrypt for data, and so on.
+// fieldInputs gives, per op and field, an accepted input that reaches the branch
+// reading that field (algo=scrypt for scrypt_n, kind=uuid for version, …).
 func fieldInputs(t *testing.T) func(op, field string) url.Values {
 	t.Helper()
 	key := strings.Repeat("ab", 32)
@@ -77,8 +76,7 @@ func run(t *testing.T, op string, in url.Values) (any, error) {
 	return runOp(t, op, in, nil)
 }
 
-// refusal is the op's error, or why a JWT result couldn't read its key:
-// jwt-decode reports a bad key_enc there instead of failing.
+// refusal is the op's error, or the key error jwt-decode reports in its result.
 func refusal(res any, err error) string {
 	if err != nil {
 		return err.Error()
@@ -109,8 +107,7 @@ func TestIntFieldBounds(t *testing.T) {
 				tries = append(tries, try{past.String(), false}, try{strconv.Itoa(*f.Max), true})
 			}
 			for _, tr := range tries {
-				// The Heavy ops' fields are read by intField, so their bounds
-				// are the spec's own; at the caps they take seconds.
+				// Heavy ops' bounds are the spec's own (intField); at the caps they take seconds.
 				if tr.ok && op.Heavy {
 					continue
 				}
@@ -150,8 +147,7 @@ func TestEnumFieldsRefuseOtherValues(t *testing.T) {
 				t.Errorf("%s %s=%s: want it refused, got %q", op.Name, f.Name, bad, why)
 			}
 
-			// keys-generate's Enum is KeyTypes, the list generateKey reads, and
-			// an RSA-4096 key takes seconds.
+			// keys-generate's Enum is what generateKey reads; RSA-4096 takes seconds.
 			if op.Name == "keys-generate" {
 				continue
 			}
@@ -159,8 +155,7 @@ func TestEnumFieldsRefuseOtherValues(t *testing.T) {
 				in := input(op.Name, f.Name)
 				in.Set(f.Name, v)
 				why := refusal(run(t, op.Name, in))
-				// Other values only need not be refused by name: decrypt with
-				// no ciphertext, say, fails for want of the ciphertext.
+				// Other values must only not be refused by name.
 				if f.Kind == ciphertools.KindInt && why != "" || strings.Contains(why, strconv.Quote(v)) {
 					t.Errorf("%s %s=%s is in the spec's Enum but refused: %s", op.Name, f.Name, v, why)
 				}
@@ -175,9 +170,7 @@ func TestRequiredFlags(t *testing.T) {
 		for _, f := range op.Fields {
 			in := input(op.Name, f.Name)
 			if !f.Required {
-				// An optional field the base input carries must be droppable;
-				// not tried on password-hash, where every default is a
-				// full-cost hash.
+				// An optional field must be droppable (not on password-hash: full-cost defaults).
 				if in = input(op.Name, ""); !in.Has(f.Name) || op.Name == "password-hash" {
 					continue
 				}

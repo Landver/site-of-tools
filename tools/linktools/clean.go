@@ -258,8 +258,7 @@ func TrackingRuleFor(key string) string {
 	return r.name()
 }
 
-// ParamVerdict is what Clean does with one query parameter, and why.
-// Affiliate: a rule matches, but Clean strips it only when asked to.
+// ParamVerdict is Clean's call on one parameter; an Affiliate one goes only when asked.
 type ParamVerdict struct {
 	Key        string `json:"key"`
 	Strip      bool   `json:"strip"`
@@ -269,17 +268,15 @@ type ParamVerdict struct {
 	Why        string `json:"why,omitempty"`
 }
 
-// URLVerdict judges a URL's query as Clean does by default: nothing
-// unwrapped, affiliate tags kept. Signed names the signature that makes Clean
-// leave the whole URL alone, in which case nothing has Strip set.
+// URLVerdict judges a query as Clean does by default. Signed names the
+// signature that makes Clean leave the whole URL alone.
 type URLVerdict struct {
 	Host   string         `json:"host"`
 	Signed string         `json:"signed,omitempty"`
 	Params []ParamVerdict `json:"params"`
 }
 
-// Verdict runs Clean's own lookup over raw's parameters. That lookup reads
-// the package tables Rules copies, not the receiver.
+// Verdict runs Clean's own lookup, which reads the package tables, not the receiver.
 func (RuleCatalog) Verdict(raw string) (*URLVerdict, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

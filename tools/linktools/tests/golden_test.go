@@ -1,65 +1,19 @@
 package tests
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
+	"github.com/Landver/site-of-tools/platform/goldentest"
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
-
-// Golden REST JSON for link.corpberry.com's routes. Regenerate only with
-// UPDATE_GOLDEN=1, and review the diff like code.
-
-type goldenCase struct {
-	Status int             `json:"status"`
-	Body   json.RawMessage `json:"body"`
-}
-
-func checkGolden(t *testing.T, file string, got map[string]goldenCase) {
-	t.Helper()
-	path := filepath.Join("testdata", file+".golden.json")
-	have, err := json.MarshalIndent(got, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal %s: %v", file, err)
-	}
-	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, append(have, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v (generate it with UPDATE_GOLDEN=1)", err)
-	}
-	if diff := cmp.Diff(decodeJSON(t, want), decodeJSON(t, have)); diff != "" {
-		t.Errorf("%s differs from the golden file (-want +got):\n%s", path, diff)
-	}
-}
-
-func decodeJSON(t *testing.T, b []byte) any {
-	t.Helper()
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	var v any
-	if err := d.Decode(&v); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, b)
-	}
-	return v
-}
 
 type linkCase struct {
 	name, method, target string
@@ -71,15 +25,14 @@ type linkCase struct {
 
 func runLinkGolden(t *testing.T, file string, cases []linkCase) {
 	t.Helper()
-	got := map[string]goldenCase{}
+	got := map[string]*httptest.ResponseRecorder{}
 	for _, tc := range cases {
-		e := newLinkApp(t, nil, tc.short)
-		got[tc.name] = linkCall(t, e, tc)
+		got[tc.name] = linkCall(t, newLinkApp(t, nil, tc.short), tc)
 	}
-	checkGolden(t, file, got)
+	goldentest.JSON(t, file, goldentest.Recorded(got))
 }
 
-func linkCall(t *testing.T, e *echo.Echo, tc linkCase) goldenCase {
+func linkCall(t *testing.T, e *echo.Echo, tc linkCase) *httptest.ResponseRecorder {
 	t.Helper()
 	method := tc.method
 	if method == "" {
@@ -95,7 +48,7 @@ func linkCall(t *testing.T, e *echo.Echo, tc linkCase) goldenCase {
 	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	return goldenCase{Status: rec.Code, Body: json.RawMessage(rec.Body.String())}
+	return rec
 }
 
 func q(kv ...string) string {
@@ -135,9 +88,21 @@ func TestGoldenCleanJSON(t *testing.T) {
 	})
 }
 
-func TestGoldenRulesJSON(t *testing.T) {
+// The rules page's JSON is the whole table, as Rules holds it.
+func TestRulesJSON(t *testing.T) {
 	t.Parallel()
-	runLinkGolden(t, "link_rules", []linkCase{{name: "catalog", target: "/clean/rules"}})
+	rec := linkCall(t, newLinkApp(t, nil, nil), linkCase{target: "/clean/rules"})
+	want, err := json.Marshal(linktools.Rules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w, g any
+	if err := json.Unmarshal(want, &w); err != nil || json.Unmarshal(rec.Body.Bytes(), &g) != nil || rec.Code != http.StatusOK {
+		t.Fatalf("GET /clean/rules = %d %.100s", rec.Code, rec.Body)
+	}
+	if diff := cmp.Diff(w, g); diff != "" {
+		t.Errorf("GET /clean/rules vs Rules() (-want +got):\n%s", diff)
+	}
 }
 
 func TestGoldenDiffJSON(t *testing.T) {

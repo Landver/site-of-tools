@@ -202,8 +202,8 @@ Deviations and traps:
   `utm_campaign` to a tagged URL would silently lose `utm_source`; so an
   omitted argument keeps the existing value and `""` removes it. Declared
   deviation, tested with arguments omitted.
-- **`link_clean.unwrap` defaults to true**, as on REST: a pointer-typed
-  argument, not a plain `bool` that would default to false.
+- **`link_clean.unwrap` defaults to true**, as on REST: the schema's default,
+  which the SDK fills in before the handler runs.
 - **`link_tracking_rules`**: the REST body is the whole table (95 tracking
   rules, 64 never-strip entries, 21 wrappers), the extension's data feed. Rules
   can be exact, prefix (`utm_`), host-scoped (`ref`) or affiliate-gated, and a
@@ -230,7 +230,7 @@ Deviations and traps:
 
 One tool per op, **generated** from the per-op field specs `ciphertools`
 exports (floor 1a: name, kind, enum, default, min, max, description). The
-same specs drive the ops' own parsing, and an AST test fails if an op reads a
+same specs drive the ops' own parsing, and a source-scan test fails if an op reads a
 field (`in.Get`, `intField`, `in.Fields`, `in.Files`) the spec doesn't declare.
 The golden `tools/list` (`tests/testdata/tools-list-cipher.golden.json`) is the
 contract; the table below is read off it. One generic adapter builds a

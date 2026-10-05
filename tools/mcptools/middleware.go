@@ -15,14 +15,11 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-const limitedMessage = "Too many requests from your address. Try again in a few seconds."
-
-// codeRefused is the JSON-RPC error code for a message turned away (limited,
-// busy); MCP defines none, so it comes from the server-error range.
+// codeRefused answers a message turned away; MCP defines no code for one.
 const codeRefused = -32000
 
 // outcome is what one MCP message came to. Records carry it, never the
-// message's arguments, result or error text: cipher errors quote their input.
+// arguments, result or error text: cipher errors quote their input.
 type outcome struct {
 	name   string
 	status int
@@ -40,17 +37,14 @@ var (
 	outcomePanic     = outcome{"panic", http.StatusInternalServerError}
 )
 
-// calls is what every server's receiving middleware shares.
 type calls struct {
 	protocol platform.Limiter // every message that isn't a tools/call
 	reqlog   *platform.RequestLog
 	log      *slog.Logger
 }
 
-// middleware runs around every message to the server at path, outermost
-// first: recover, deadline, rate limit and concurrency cap, the call itself,
-// sanitizing, and one record. The SDK runs handlers in their own goroutines
-// with no recover, so without this a panicking tool takes every subdomain down.
+// middleware wraps every message in recover, deadline, budget, sanitizer and
+// record. The SDK has no recover: a panicking tool would take every host down.
 func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (res mcp.Result, err error) {
@@ -82,14 +76,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 			}
 			ctx, cancel := context.WithTimeout(ctx, deadline)
 			defer cancel()
-			// Only 2026-07-28 requests are cancelled by the SDK when the client
-			// goes away; this covers the older eras too.
-			if who.http != nil {
-				defer context.AfterFunc(who.http, cancel)()
-			}
+			// The SDK cancels only 2026-07-28 requests when the client goes.
+			defer context.AfterFunc(who.http, cancel)()
 			if !platform.AllowKey(lim, who.key) {
 				got = outcomeLimited
-				return refuse(call, codeRefused, limitedMessage)
+				return refuse(call, codeRefused, platform.LimitedMessage)
 			}
 			if spec != nil {
 				if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.key) {
@@ -144,8 +135,7 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 	}
 }
 
-// refuse answers a message that will not run: an isError result for a tool
-// call, which the model reads and can act on, a JSON-RPC error otherwise.
+// refuse: an isError result for a call, which the model can act on; else a JSON-RPC error.
 func refuse(call *mcp.CallToolRequest, code int64, msg string) (mcp.Result, error) {
 	if call != nil {
 		return errorResult(msg), nil
@@ -153,9 +143,7 @@ func refuse(call *mcp.CallToolRequest, code int64, msg string) (mcp.Result, erro
 	return nil, &jsonrpc.Error{Code: code, Message: msg}
 }
 
-// record logs one message through slog and the request log, like the REST
-// request logger does for an HTTP request (platform.ShouldRecord leaves /mcp
-// to this). The client is named by its clientInfo when it sends one.
+// record logs a message as the REST logger does a request (ShouldRecord skips /mcp).
 func (m *calls) record(who *caller, uri string, o outcome, size int, d time.Duration, req mcp.Request) {
 	client := who.userAgent
 	if ci, ok := req.(interface{ ClientInfo() *mcp.Implementation }); ok {

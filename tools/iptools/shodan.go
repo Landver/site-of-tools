@@ -61,8 +61,7 @@ type Shodan struct {
 
 // NewShodan builds InternetDB client. baseURL == "" disables it (returns nil →
 // nil-safe no-op). timeout bounds each lookup so slow upstream never stalls page
-// (InternetDB fast & Cloudflare-cached ~5 days). Every caller sharing the
-// returned client shares one request budget, so build one per process.
+// (InternetDB fast & Cloudflare-cached ~5 days).
 func NewShodan(baseURL string, timeout time.Duration) *Shodan {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -110,8 +109,8 @@ func (s *Shodan) Lookup(ctx context.Context, ip string) (*ShodanInfo, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		// InternetDB JSON fields line up 1:1 w/ ShodanInfo, so decode straight into
-		// it (omitempty affects marshal only, not unmarshal); Found and Skipped
-		// are ours, not the body's, so set them. Extra "ip" key ignored.
+		// it (omitempty affects marshal only, not unmarshal); Found not in body, so
+		// set it. Extra "ip" key ignored.
 		var info ShodanInfo
 		if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 			return nil, err

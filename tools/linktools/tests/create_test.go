@@ -85,7 +85,11 @@ func TestCreatedKeepsTheAPIShape(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if diff := cmp.Diff(decodeJSON(t, []byte(tc.want)), decodeJSON(t, got)); diff != "" {
+		var w, g any
+		if json.Unmarshal([]byte(tc.want), &w) != nil || json.Unmarshal(got, &g) != nil {
+			t.Fatalf("%s: not JSON: %s", tc.name, got)
+		}
+		if diff := cmp.Diff(w, g); diff != "" {
 			t.Errorf("%s (-want +got):\n%s", tc.name, diff)
 		}
 	}

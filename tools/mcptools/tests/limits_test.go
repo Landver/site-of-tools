@@ -9,59 +9,77 @@ import (
 	"time"
 
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/ciphertools"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-const limitedText = "Too many requests from your address. Try again in a few seconds."
-
-// spendREST uses up the IP lookup budget of client over the REST door.
-func spendREST(t *testing.T, s *stack, client string) {
-	t.Helper()
-	hdr := map[string]string{"Host": ipHost, "Accept": "application/json", "CF-Connecting-IP": client}
-	for range 30 {
-		if s.do(http.MethodGet, "/?ip=8.8.8.8", "", hdr).Code == http.StatusTooManyRequests {
-			return
-		}
-	}
-	t.Fatal("the REST lookup budget never ran out")
-}
-
-// TestOneBudgetWhicheverDoor: a client that spent its lookups over REST is
-// refused over MCP, an IPv6 client by its /64 on both doors.
+// TestOneBudgetWhicheverDoor: a budget spent over REST is spent over MCP, an
+// IPv6 client's by its /64; a tool on another budget still answers.
 func TestOneBudgetWhicheverDoor(t *testing.T) {
-	for _, tc := range []struct{ rest, mcp string }{
-		{"198.51.100.20", "198.51.100.20"},
-		{"2001:db8:5:6::1", "2001:db8:5:6::2"},
+	resolve := func(set func(*linktools.Limits)) stackOpts { l := roomyLink(); set(l); return stackOpts{linkLim: l} }
+	type rest struct{ host, method, target, body string }
+	for _, tc := range []struct {
+		name          string
+		opts          stackOpts
+		rest          rest
+		restIP, mcpIP string
+		tool          string
+		args          map[string]any
+		want, free    string
+	}{
+		{"ip", stackOpts{}, rest{ipHost, http.MethodGet, "/?ip=8.8.8.8", ""}, "198.51.100.20", "198.51.100.20",
+			"ip_lookup", map[string]any{"ip": "1.1.1.1"}, platform.LimitedMessage, "ip_cidr"},
+		{"ip by /64", stackOpts{}, rest{ipHost, http.MethodGet, "/?ip=8.8.8.8", ""}, "2001:db8:5:6::1", "2001:db8:5:6::2",
+			"ip_lookup", map[string]any{"ip": "1.1.1.1"}, platform.LimitedMessage, "ip_cidr"},
+		{"botcheck", stackOpts{botLim: botcheck.NewLimits()}, rest{botHost, http.MethodGet, "/", ""}, "198.51.100.80", "198.51.100.80",
+			"botcheck_score", map[string]any{"http": map[string]any{"user_agent": "curl/8.7.1"}}, platform.LimitedMessage, ""},
+		{"cipher heavy", stackOpts{cipherLim: ciphertools.NewLimits()}, rest{cipherHost, http.MethodPost, "/jwt/sign", `{"key":"` + signKey + `","now":1700000000}`},
+			"198.51.100.70", "198.51.100.70", "cipher_jwt_sign", map[string]any{"key": signKey}, platform.LimitedMessage, "cipher_hash"},
+		{"short link per client", resolve(func(l *linktools.Limits) { l.Resolve = platform.NewLimiter(0.001, 1) }), rest{linkHost, http.MethodGet, "/s/no-such", ""},
+			"198.51.100.40", "198.51.100.40", "link_short_resolve", map[string]any{"code": "no such!"}, platform.LimitedMessage, ""},
+		// The breaker every client shares reads as busy, not as this client's fault.
+		{"short link breaker", resolve(func(l *linktools.Limits) { l.ResolveGlobal = platform.NewGlobalLimiter(0.001, 1) }), rest{linkHost, http.MethodGet, "/s/no-such", ""},
+			"198.51.100.41", "198.51.100.41", "link_short_resolve", map[string]any{"code": "no such!"}, platform.BusyMessage, ""},
 	} {
-		s := newStack(t, stackOpts{})
+		s := newStack(t, tc.opts)
 		// Connected first, so the bucket has no time to refill between doors.
-		cs := s.client(t, "/mcp/ip", map[string]string{"CF-Connecting-IP": tc.mcp}, nil)
-		spendREST(t, s, tc.rest)
-		res := call(t, cs, "ip_lookup", map[string]any{"ip": "1.1.1.1"})
-		if !res.IsError || !strings.Contains(text(t, res), "Too many requests") {
-			t.Errorf("MCP from %s after REST from %s spent the budget = %q, want refused", tc.mcp, tc.rest, text(t, res))
+		cs := s.client(t, "/mcp", map[string]string{"CF-Connecting-IP": tc.mcpIP}, nil)
+		hdr := map[string]string{"Host": tc.rest.host, "Accept": "application/json", "Content-Type": "application/json", "CF-Connecting-IP": tc.restIP}
+		for i := 0; ; i++ {
+			if code := s.do(tc.rest.method, tc.rest.target, tc.rest.body, hdr).Code; code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable {
+				break
+			}
+			if i == 60 {
+				t.Fatalf("%s: the REST budget never ran out", tc.name)
+			}
 		}
-		object(t, call(t, cs, "ip_cidr", map[string]any{"cidr": "10.0.0.0/8"}))
+		if res := call(t, cs, tc.tool, tc.args); !res.IsError || text(t, res) != tc.want {
+			t.Errorf("%s: MCP after REST spent the budget = %q, want %q", tc.name, text(t, res), tc.want)
+		}
+		if tc.free != "" {
+			object(t, call(t, cs, tc.free, required[tc.free]))
+		}
 	}
 }
 
 func TestFullCapIsBusy(t *testing.T) {
-	lim := iptools.NewLimits()
-	if !lim.LookupCap.TryAcquire(otherClient, 8) {
-		t.Fatal("a fresh lookup cap is not 8")
+	ipLim, botLim := iptools.NewLimits(), roomyBot()
+	cs := newStack(t, stackOpts{ipLim: ipLim, botLim: botLim}).client(t, "/mcp", nil, nil)
+	for tool, c := range map[string]*platform.Cap{"ip_lookup": ipLim.LookupCap, "botcheck_score": botLim.CheckCap} {
+		if !c.TryAcquire(otherClient, 8) {
+			t.Fatalf("%s: a fresh cap is not 8", tool)
+		}
+		if res := call(t, cs, tool, required[tool]); !res.IsError || text(t, res) != platform.BusyMessage {
+			t.Errorf("%s with its cap full = %q, want busy", tool, text(t, res))
+		}
+		c.Release(otherClient, 8)
+		object(t, call(t, cs, tool, required[tool]))
 	}
-	cs := newStack(t, stackOpts{ipLim: lim}).client(t, "/mcp/ip", nil, nil)
-	if res := call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"}); !res.IsError || text(t, res) != platform.BusyMessage {
-		t.Errorf("full cap = %q, want %q", text(t, res), platform.BusyMessage)
-	}
-	lim.LookupCap.Release(otherClient, 8)
-	object(t, call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"}))
 }
 
-// stalledDNS is fakeDNS held up until release closes, like a resolver chasing
-// a zone whose nameservers drop packets. Each lookup signals entered.
 type stalledDNS struct {
 	fakeDNS
 	entered, release chan struct{}
@@ -77,9 +95,7 @@ func (s *stalledDNS) LookupSet(ctx context.Context, name, resolver string, types
 	return s.fakeDNS.LookupSet(ctx, name, resolver, types)
 }
 
-// TestOneClientCannotFillACap: a client whose calls are stuck on a slow
-// upstream holds its share of the cap, 2 of dns_lookup's 8, and no more, so
-// another client is still served.
+// TestOneClientCannotFillACap: stuck calls hold their client's share, 2 of 8, no more.
 func TestOneClientCannotFillACap(t *testing.T) {
 	dns := &stalledDNS{entered: make(chan struct{}, 16), release: make(chan struct{})}
 	s := newStack(t, stackOpts{dns: dns, dnsLim: dnstools.NewLimits()})
@@ -125,8 +141,7 @@ func TestOneClientCannotFillACap(t *testing.T) {
 	}
 }
 
-// TestDomainInfoHasItsOwnCap: dns_domain_info waits on RDAP and crt.sh, so it
-// holds a cap of its own and full lookup slots don't refuse it.
+// TestDomainInfoHasItsOwnCap: it waits on RDAP and crt.sh, not on lookup slots.
 func TestDomainInfoHasItsOwnCap(t *testing.T) {
 	lim := roomyDNS()
 	lim.LookupCap.TryAcquire(otherClient, 8)
@@ -157,7 +172,6 @@ func TestListFloodIsLimited(t *testing.T) {
 	t.Error("60 tools/list in a row were never limited")
 }
 
-// blockingChecker holds a lookup until its context ends, and says how it ended.
 type blockingChecker struct{ ended chan error }
 
 func (b blockingChecker) Check(ctx context.Context, _ string) (iptools.BlockLookup, error) {
@@ -166,9 +180,8 @@ func (b blockingChecker) Check(ctx context.Context, _ string) (iptools.BlockLook
 	return iptools.BlockLookup{}, ctx.Err()
 }
 
-// TestHangUpCancelsTheCall: the SDK cancels only 2026-07-28 requests when the
-// client goes; a 2025-11-25 client hanging up must stop the work too, long
-// before the 25 s deadline.
+// TestHangUpCancelsTheCall: the SDK cancels only 2026-07-28 requests; a
+// 2025-11-25 client hanging up must stop the work too.
 func TestHangUpCancelsTheCall(t *testing.T) {
 	chk := blockingChecker{ended: make(chan error, 1)}
 	s := newStack(t, stackOpts{chk: chk})
@@ -189,28 +202,5 @@ func TestHangUpCancelsTheCall(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the call kept running after its client hung up")
-	}
-}
-
-// TestShortResolveSpendsBothRESTBudgets: link_short_resolve spends the
-// client's /s/:code bucket and then the breaker every client shares, and a
-// tripped breaker reads as busy, not as this client's fault.
-func TestShortResolveSpendsBothRESTBudgets(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		set  func(*linktools.Limits)
-		want string
-	}{
-		{"per client", func(l *linktools.Limits) { l.Resolve = platform.NewLimiter(0.001, 1) }, limitedText},
-		{"global", func(l *linktools.Limits) { l.ResolveGlobal = platform.NewGlobalLimiter(0.001, 1) }, platform.BusyMessage},
-	} {
-		lim := roomyLink()
-		tc.set(lim)
-		s := newStack(t, stackOpts{linkLim: lim})
-		cs := s.client(t, "/mcp/link", map[string]string{"CF-Connecting-IP": "198.51.100.40"}, nil)
-		s.do(http.MethodGet, "/s/no-such", "", map[string]string{"Host": linkHost, "CF-Connecting-IP": "198.51.100.40"})
-		if res := call(t, cs, "link_short_resolve", map[string]any{"code": "no such!"}); !res.IsError || text(t, res) != tc.want {
-			t.Errorf("%s budget spent over REST, then MCP = %q, want %q", tc.name, text(t, res), tc.want)
-		}
 	}
 }

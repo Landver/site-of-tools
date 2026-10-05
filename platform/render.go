@@ -30,12 +30,9 @@ var navBaseFuncs = template.FuncMap{
 	"navTools": func() []Tool { return nil },
 	// Origin of a sibling tool, for links that hand off to it.
 	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
-	// A toolset's MCP endpoint (partials/mcp-hint).
-	"mcpURL": func(toolset string) string { return "https://mcp.corpberry.com/mcp/" + toolset },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
-	"asset": StaticURL,
-	// A data source's credit, for the footer (credits.go).
+	"asset":  StaticURL,
 	"credit": creditFunc,
 }
 
@@ -208,9 +205,7 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 }
 
 // Reply is Respond for routes whose JSON body and page differ: API callers get
-// body, the page (or the htmx fragment) gets vm. Page templates read .Title and
-// .Desc through partials/head, which a bare domain struct lacks, and a view
-// model handed to JSON would leak them.
+// body, the page or fragment vm, so the page's Title and Desc never reach JSON.
 func Reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
 	SetNegotiationHeaders(c, code)
 	switch {

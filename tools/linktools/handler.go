@@ -26,9 +26,7 @@ const (
 	privacyDesc  = "What the Corpberry Link browser extension sends, stores and does not collect."
 )
 
-// Limits are this tool's budgets, built once and shared by every door.
-// Parsing is pure CPU with no upstream, so Pure is generous; the routes that
-// cost someone else bandwidth are not (docs/06-security-and-abuse.md §4).
+// Limits are shared by every door; only routes costing others bandwidth are strict.
 type Limits struct {
 	Pure                   platform.Limiter
 	Fetch                  platform.Limiter // /trace
@@ -37,10 +35,6 @@ type Limits struct {
 	FetchCap               *platform.Cap
 }
 
-// NewLimits returns fresh budgets: Pure 10/s (burst 50), Fetch and Short 1/s
-// (burst 5), Resolve 20/s (burst 60) per client and 200/s (burst 400) in all;
-// 4 traces in flight. The global breaker only stops one client saturating the
-// shared Mongo: no personal shortener serves 200 redirects a second.
 func NewLimits() *Limits {
 	return &Limits{
 		Pure:          platform.NewLimiter(10, 50),
@@ -52,8 +46,8 @@ func NewLimits() *Limits {
 	}
 }
 
-// recentLimit bounds the key-gated console list.
-const recentLimit = 50
+// RecentLimit bounds the owner's list of short links.
+const RecentLimit = 50
 
 // handler: transport-layer dependencies for link.corpberry.com.
 //
@@ -90,8 +84,6 @@ type handler struct {
 //	GET  /encode            Encode / decode playground
 //	GET  /encoding          Percent-encoding reference
 //	GET  /extension/privacy Extension privacy policy
-//
-// lim nil means fresh limits.
 func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string, lim *Limits) {
 	if svc == nil {
 		panic("linktools.Register: svc is nil")
@@ -191,14 +183,14 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 	var msg string
 	switch WrongTool(raw) {
 	case ToolCurl:
-		msg = "That looks like a curl command, not a URL."
+		msg = CurlNotURL
 		label := "Take it apart on the curl page"
 		if page == "link/curl" {
 			label = "Take it apart instead"
 		}
 		vm["Suggest"] = suggestion{Label: label, Action: "/curl", Field: "curl", Value: raw}
 	case ToolExtract:
-		msg = "That looks like text with links in it, not one URL."
+		msg = TextNotURL
 		vm["Suggest"] = suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: raw}
 	default:
 		return false, nil
@@ -397,7 +389,7 @@ func (h *handler) shortConsole(c *echo.Context) error {
 	vm["Authed"] = authed
 	body := map[string]any{"enabled": true, "authorized": authed}
 	if authed {
-		links, err := h.short.Recent(c.Request().Context(), recentLimit)
+		links, err := h.short.Recent(c.Request().Context(), RecentLimit)
 		if err != nil {
 			return h.storageError(c, vm, err, "link/short")
 		}
@@ -799,7 +791,7 @@ func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string)
 // --- middleware ------------------------------------------------------------
 
 func limited(c *echo.Context) error {
-	const msg = "Too many requests from your address. Try again in a few seconds."
+	const msg = platform.LimitedMessage
 	// A link back to the refused page; a POST can't be replayed by one.
 	retry := c.Request().URL.Path
 	if c.Request().Method == http.MethodGet {

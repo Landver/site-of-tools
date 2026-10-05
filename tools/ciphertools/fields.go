@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// Kind is how a field's value is written in a form or a JSON body.
 type Kind string
 
 const (
@@ -19,23 +18,17 @@ const (
 	KindFile   Kind = "file" // an uploaded file: multipart forms only, never JSON
 )
 
-// Field is one input an op reads, as Op.Fields declares it: the contract the
-// API's tool schemas are generated from, and for an int field the default
-// and bounds intField enforces.
+// Field is one input an op reads, the contract tool schemas are generated from.
 type Field struct {
 	Name        string
 	Kind        Kind
 	Description string
-	// Enum lists the accepted values: an enum's choices, a list's members,
-	// or the only values an int field's range allows.
+	// Enum: an enum's choices, a list's members, or an int field's only values.
 	Enum []string
-	// Default is what the op uses when the field is absent or blank, written
-	// as form text; "" when there is none or it depends on another field.
+	// Default is form text; "" when there is none or it depends on another field.
 	Default string
-	// Min and Max bound an int field. Where a bound depends on another field
-	// they are the widest, and Description gives the narrower ones.
+	// Min, Max bound an int field; where a bound depends on another field, the widest.
 	Min, Max *int
-	// Required: the op refuses a request without it.
 	Required bool
 }
 
@@ -43,10 +36,8 @@ func (f Field) withMax(n int) Field { f.Max = &n; return f }
 
 func (f Field) withDefault(n int) Field { f.Default = strconv.Itoa(n); return f }
 
-// intField reads a whole-number field: f's default when it is absent or blank,
-// and an error naming the field and its range otherwise. The range is the cap,
-// so it is checked here, before any work starts: for the Heavy ops the upper
-// bound is what keeps one request from tying up the server.
+// intField reads f as a whole number, its Default when blank. The range is
+// checked here, before any work: for Heavy ops it is what bounds a request.
 func intField(in Input, f Field) (int, error) {
 	v := strings.TrimSpace(in.Get(f.Name))
 	if v == "" {

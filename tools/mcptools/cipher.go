@@ -13,8 +13,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// cipherTool is what one op's tool says to a model. Its schema is generated
-// from the op's own field specs, so only these words are written by hand.
 type cipherTool struct{ name, title, desc string }
 
 const testMaterial = "Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only."
@@ -88,8 +86,7 @@ var cipherTools = map[string]cipherTool{
 // maxSafeInt is the largest integer every JSON parser reads exactly.
 const maxSafeInt = 1<<53 - 1
 
-// cipherSpecs is one tool per ciphertools op. An op without words here, or
-// words for no op, stops the boot rather than ship a tool nobody described.
+// cipherSpecs is one tool per op; an op without words here stops the boot.
 func cipherSpecs(d Deps) ([]toolSpec, error) {
 	lim := d.CipherLimits
 	ops := ciphertools.Ops()
@@ -136,8 +133,7 @@ func cipherRun(op ciphertools.Op) func(context.Context, *mcp.CallToolRequest, ma
 	}
 }
 
-// cipherInput is the form the arguments would have posted: a list joined
-// with commas, the rest as InputFromJSON reads a JSON body.
+// cipherInput is the Input a form post would have made: lists joined with commas.
 func cipherInput(op ciphertools.Op, args map[string]any) (ciphertools.Input, error) {
 	for _, f := range op.Fields {
 		list, ok := args[f.Name].([]any)
@@ -153,9 +149,8 @@ func cipherInput(op ciphertools.Op, args map[string]any) (ciphertools.Input, err
 	return ciphertools.InputFromJSON(args)
 }
 
-// cipherSchema is op's input schema, from its field specs. A JSON field stays
-// a string: re-encoding a payload would reorder the claims it signs. A file
-// field has no JSON form and is left out.
+// cipherSchema is op's input schema. A JSON field stays a string: re-encoding
+// a payload would reorder the claims it signs. A file field has no JSON form.
 func cipherSchema(op ciphertools.Op) *jsonschema.Schema {
 	s := &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{},
 		AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}}
@@ -191,8 +186,7 @@ func cipherSchema(op ciphertools.Op) *jsonschema.Schema {
 		default:
 			panic("cipher field " + op.Name + " " + f.Name + " has unknown kind " + string(f.Kind))
 		}
-		// The SDK fills a default in before the handler runs, so only the op's
-		// own default may appear; one that depends on another field has none.
+		// The SDK fills a default in before the handler runs (see defaultTo).
 		if f.Default != "" {
 			raw, err := json.Marshal(def)
 			if err != nil {
@@ -209,7 +203,6 @@ func cipherSchema(op ciphertools.Op) *jsonschema.Schema {
 	return s
 }
 
-// values are a field's Enum as schema values: numbers for an int field.
 func values(enum []string, ints bool) []any {
 	out := make([]any, len(enum))
 	for i, v := range enum {

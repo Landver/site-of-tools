@@ -5,22 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
+	"path"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/Landver/site-of-tools/platform/goldentest"
 )
 
-var toolName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
-
-// Budgets for what a client puts in the model's context before any call, as
-// tools/list sends it. One tool may take 3 KB: a cipher op with eleven fields
-// needs most of it for ciphertools' own field descriptions.
+// Budgets for what a client puts in the model's context before any call. One
+// tool may take 3 KB: a cipher op with eleven fields needs most of it.
 const (
 	maxToolBytes = 3 << 10
 	maxListBytes = 64 << 10 // /mcp, every public tool
@@ -38,47 +36,27 @@ func listTools(t *testing.T, cs *mcp.ClientSession) *mcp.ListToolsResult {
 	return res
 }
 
-// endpoints are the paths tools/list is pinned for, with the golden file and
-// the cache scope each must carry.
-var endpoints = []struct{ path, file, scope string }{
-	{"/mcp", "tools-list.golden.json", "public"},
-	{"/mcp/ip", "tools-list-ip.golden.json", "public"},
-	{"/mcp/dns", "tools-list-dns.golden.json", "public"},
-	{"/mcp/link", "tools-list-link.golden.json", "public"},
-	{"/mcp/cipher", "tools-list-cipher.golden.json", "public"},
-	{"/mcp/botcheck", "tools-list-botcheck.golden.json", "public"},
-	{"/mcp/site", "tools-list-site.golden.json", "public"},
-	{"/mcp/owner", "tools-list-owner.golden.json", "private"},
+var endpoints = []struct{ path, scope string }{
+	{"/mcp", "public"}, {"/mcp/ip", "public"}, {"/mcp/dns", "public"}, {"/mcp/link", "public"},
+	{"/mcp/cipher", "public"}, {"/mcp/botcheck", "public"}, {"/mcp/site", "public"}, {"/mcp/owner", "private"},
 }
 
-// TestToolsListGolden pins the agent-facing contract of each endpoint: names
-// in order, titles, descriptions, schemas and hints. A change is a reviewed
-// golden diff (UPDATE_GOLDEN=1 rewrites the files).
+// TestToolsListGolden pins each toolset's tools/list; /mcp must list their union.
 func TestToolsListGolden(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	var all, union []*mcp.Tool
 	for i, ep := range endpoints {
 		// One address per endpoint: every message spends the protocol budget.
 		hdr := map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}
 		res := listTools(t, s.client(t, ep.path, hdr, nil))
-		got, err := json.MarshalIndent(res.Tools, "", "  ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		golden := filepath.Join("testdata", ep.file)
-		if os.Getenv("UPDATE_GOLDEN") == "1" {
-			if err := os.WriteFile(golden, append(got, '\n'), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		want, err := os.ReadFile(golden)
-		if err != nil {
-			t.Fatalf("%v (run with UPDATE_GOLDEN=1 to create it)", err)
-		}
-		var w, g any
-		_ = json.Unmarshal(want, &w)
-		_ = json.Unmarshal(got, &g)
-		if diff := cmp.Diff(w, g); diff != "" {
-			t.Errorf("%s tools/list changed (-golden +got):\n%s", ep.path, diff)
+		switch ep.path {
+		case "/mcp":
+			all = res.Tools
+		case "/mcp/owner":
+			goldentest.JSON(t, "tools-list-owner", res.Tools)
+		default:
+			goldentest.JSON(t, "tools-list-"+path.Base(ep.path), res.Tools)
+			union = append(union, res.Tools...)
 		}
 
 		wire := s.do(http.MethodPost, ep.path, listBody, mcpHeaders(hdr)).Body.Len()
@@ -90,28 +68,35 @@ func TestToolsListGolden(t *testing.T) {
 		if wire > budget {
 			t.Errorf("%s tools/list is %d bytes, over the %d budget", ep.path, wire, budget)
 		}
-		for i, tool := range res.Tools {
-			b, _ := json.Marshal(tool)
-			switch {
-			case !toolName.MatchString(tool.Name):
-				t.Errorf("tool name %q is not %s", tool.Name, toolName)
-			case len(b) > maxToolBytes:
+		for _, tool := range res.Tools {
+			if b, _ := json.Marshal(tool); len(b) > maxToolBytes {
 				t.Errorf("%s is %d bytes, over the %d per-tool budget", tool.Name, len(b), maxToolBytes)
-			case i > 0 && res.Tools[i-1].Name >= tool.Name:
-				t.Errorf("tools/list not in name order at %s", tool.Name)
-			case tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || tool.Annotations.OpenWorldHint == nil:
-				t.Errorf("%s leaves a hint unset, so it reads as destructive or open-world", tool.Name)
 			}
 		}
 		if res.TTLMs != 3_600_000 || res.CacheScope != ep.scope {
 			t.Errorf("%s list cache = %d %q, want 3600000 %s", ep.path, res.TTLMs, res.CacheScope, ep.scope)
 		}
 	}
+	slices.SortFunc(union, func(a, b *mcp.Tool) int { return strings.Compare(a.Name, b.Name) })
+	if diff := cmp.Diff(asJSON(t, union), asJSON(t, all)); diff != "" {
+		t.Errorf("/mcp is not the union of the toolsets (-union +/mcp):\n%s", diff)
+	}
 }
 
-// TestInstructionsNameOnlyTheirTools: a client connected to one endpoint must
-// not be told about tools it can't call; only /mcp, which serves both, says
-// which of two look-alike tools fits.
+func asJSON(t *testing.T, v any) any {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestInstructionsNameOnlyTheirTools: only /mcp tells look-alike tools apart.
 func TestInstructionsNameOnlyTheirTools(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	routing := []string{"link_redirect_chain follows a URL's HTTP redirects", "cipher_encode converts bytes"}

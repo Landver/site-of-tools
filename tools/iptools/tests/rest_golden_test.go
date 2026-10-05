@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/Landver/site-of-tools/platform/goldentest"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
@@ -88,7 +89,7 @@ func TestLookupJSONGolden(t *testing.T) {
 	for _, tc := range cases {
 		got[tc.name] = getJSON(goldenIPApp(tc.svc, tc.chk), tc.target, tc.remote)
 	}
-	checkGolden(t, "lookup", got)
+	goldentest.JSON(t, "lookup", goldentest.Recorded(got))
 }
 
 func TestCIDRJSONGolden(t *testing.T) {
@@ -106,5 +107,5 @@ func TestCIDRJSONGolden(t *testing.T) {
 		got[name] = getJSON(app, "/cidr?cidr="+q, "")
 	}
 	got["empty"] = getJSON(app, "/cidr", "")
-	checkGolden(t, "cidr", got)
+	goldentest.JSON(t, "cidr", goldentest.Recorded(got))
 }

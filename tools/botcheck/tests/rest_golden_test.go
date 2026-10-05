@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/Landver/site-of-tools/platform/goldentest"
 	"github.com/Landver/site-of-tools/tools/botcheck"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
@@ -22,8 +23,7 @@ const (
 	winChromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
-// browserHeaders is what desktop Chrome sends alongside the collector's JSON
-// POST, Accept aside.
+// browserHeaders is what desktop Chrome sends with the collector's POST.
 func browserHeaders() map[string]string {
 	return map[string]string{
 		"Accept":                    "application/json",
@@ -48,8 +48,7 @@ func with(h map[string]string, kv ...string) map[string]string {
 	return h
 }
 
-// collectorPayload is testdata/collector_payload.json (a real v4 collector
-// shape, clean desktop Chrome) with the given top-level keys overridden.
+// collectorPayload is the real v4 fixture with the given top-level keys overridden.
 func collectorPayload(t *testing.T, overrides map[string]any) string {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/collector_payload.json")
@@ -148,12 +147,37 @@ func fingerprintCases(t *testing.T) []restCase {
 	}
 }
 
+// golden pins case full's whole report, and of the rest what the verdict rests on.
+func golden(t *testing.T, name, full string, got map[string]*httptest.ResponseRecorder) {
+	t.Helper()
+	pinned := map[string]any{}
+	for k, rec := range got {
+		if k == full {
+			pinned[k] = goldentest.Response{Status: rec.Code, Body: rec.Body.Bytes()}
+			continue
+		}
+		var r botcheck.Report
+		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
+			t.Fatalf("%s: %v", k, err)
+		}
+		fired := []string{}
+		for _, c := range r.Checks {
+			if c.Triggered {
+				fired = append(fired, c.ID)
+			}
+		}
+		pinned[k] = map[string]any{"status": rec.Code, "score": r.Score, "verdict": r.Verdict, "bot": r.Bot,
+			"coverage": r.Coverage, "fired": fired}
+	}
+	goldentest.JSON(t, name, pinned)
+}
+
 func TestServerSignalsJSONGolden(t *testing.T) {
 	got := map[string]*httptest.ResponseRecorder{}
 	for _, c := range serverOnlyCases() {
 		got[c.name] = serveBotcheck(c, http.MethodGet, "/")
 	}
-	checkGolden(t, "server_signals", got)
+	golden(t, "server_signals", "browser_datacenter", got)
 }
 
 func TestCheckJSONGolden(t *testing.T) {
@@ -161,5 +185,5 @@ func TestCheckJSONGolden(t *testing.T) {
 	for _, c := range fingerprintCases(t) {
 		got[c.name] = serveBotcheck(c, http.MethodPost, "/check")
 	}
-	checkGolden(t, "check", got)
+	golden(t, "check", "stealth_vpn", got)
 }

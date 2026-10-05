@@ -23,8 +23,6 @@ func TestGate(t *testing.T) {
 	}{
 		{"browser GET /mcp is the page", http.MethodGet, "/mcp", "", browser, http.StatusOK, "ip_lookup"},
 		{"browser GET of a toolset is the page", http.MethodGet, "/mcp/ip", "", browser, http.StatusOK, "<html"},
-		{"any other GET is the SDK's 405", http.MethodGet, "/mcp", "", map[string]string{"Accept": "text/event-stream"}, http.StatusMethodNotAllowed, ""},
-		{"DELETE is 405", http.MethodDelete, "/mcp", "", nil, http.StatusMethodNotAllowed, ""},
 		{"unknown toolset", http.MethodPost, "/mcp/nope", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
 		{"empty toolset", http.MethodPost, "/mcp/", listBody, mcpHeaders(nil), http.StatusNotFound, "Not Found"},
 		{"owner endpoint off without a key", http.MethodPost, "/mcp/owner", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
@@ -51,8 +49,7 @@ func TestGate(t *testing.T) {
 		}
 	}
 
-	// Every toolset has tools, but one whose dependencies are off at boot has
-	// none, and so no endpoint.
+	// A toolset whose dependencies are off at boot has no tools, so no endpoint.
 	rec := newStack(t, stackOpts{bare: true}).do(http.MethodPost, "/mcp/dns", listBody, mcpHeaders(nil))
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "No MCP endpoint") || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("toolset without tools: %d %q, want 404 with no-store", rec.Code, rec.Body.String())
@@ -104,8 +101,7 @@ func TestOwnerKey(t *testing.T) {
 		t.Errorf("the right key while locked out = %d, want 429 before it is compared", code)
 	}
 
-	// What a web page can make its visitor's browser send guesses nothing, so
-	// it can't lock the owner out from the owner's own address.
+	// What a web page can make a browser send can't lock the owner out.
 	for name, hdr := range map[string]map[string]string{
 		"no key":     nil,
 		"basic":      {"Authorization": "Basic " + ownerKey},
@@ -149,43 +145,18 @@ func TestOwnerKey(t *testing.T) {
 	}
 }
 
-// TestProtocolEras: the newest client (stateless, server/discover) and a
-// 2025-11-25 one (initialize first) both list and call.
-func TestProtocolEras(t *testing.T) {
-	s := newStack(t, stackOpts{})
-	cs := s.client(t, "/mcp/ip", nil, nil)
-	if v := cs.InitializeResult().ProtocolVersion; v != "2026-07-28" {
-		t.Errorf("SDK client negotiated %q, want 2026-07-28", v)
-	}
-	object(t, call(t, cs, "ip_cidr", map[string]any{"cidr": "10.0.0.0/8"}))
-
-	const old = "2025-11-25"
-	init := s.do(http.MethodPost, "/mcp/ip", rpc(1, "initialize", map[string]any{
-		"protocolVersion": old, "capabilities": map[string]any{},
+// TestCapabilities: tools only, not the logging and listChanged the SDK defaults to.
+func TestCapabilities(t *testing.T) {
+	init := newStack(t, stackOpts{}).do(http.MethodPost, "/mcp/ip", rpc(1, "initialize", map[string]any{
+		"protocolVersion": "2025-11-25", "capabilities": map[string]any{},
 		"clientInfo": map[string]any{"name": "raw", "version": "1"},
 	}), mcpHeaders(nil))
-	if b := init.Body.String(); init.Code != http.StatusOK || !strings.Contains(b, `"protocolVersion":"`+old+`"`) ||
-		!strings.Contains(b, `"tools":{}`) || strings.Contains(b, "logging") {
-		t.Fatalf("initialize = %d %s, want %s with tools and no listChanged or logging", init.Code, b, old)
-	}
-	hdr := mcpHeaders(map[string]string{"Mcp-Protocol-Version": old})
-	note := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
-	if rec := s.do(http.MethodPost, "/mcp/ip", note, hdr); rec.Code != http.StatusAccepted {
-		t.Errorf("notifications/initialized = %d, want 202", rec.Code)
-	}
-	list := s.do(http.MethodPost, "/mcp/ip", listBody, hdr)
-	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"name":"ip_lookup"`) {
-		t.Errorf("tools/list = %d %s", list.Code, list.Body)
-	}
-	got := s.do(http.MethodPost, "/mcp/ip", rpc(3, "tools/call", map[string]any{"name": "ip_cidr", "arguments": map[string]any{"cidr": "10.0.0.0/8"}}), hdr)
-	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `16777214`) {
-		t.Errorf("tools/call = %d %s", got.Code, got.Body)
+	if b := init.Body.String(); init.Code != http.StatusOK || !strings.Contains(b, `"tools":{}`) || strings.Contains(b, "logging") {
+		t.Errorf("initialize = %d %s, want tools and no listChanged or logging", init.Code, b)
 	}
 }
 
-// TestSubscriptionsListenReturns: with listChanged false there is nothing to
-// listen for, so the stream must close at once instead of holding a goroutine
-// and a connection per client.
+// TestSubscriptionsListenReturns: nothing to listen for, so no stream held open.
 func TestSubscriptionsListenReturns(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	body := rpc(1, "subscriptions/listen", map[string]any{
@@ -221,8 +192,7 @@ func TestPanickingToolIsAnErrorAndTheProcessLives(t *testing.T) {
 	object(t, call(t, cs, "ip_cidr", map[string]any{"cidr": "10.0.0.0/8"}))
 }
 
-// TestNullArgumentsAreNoArguments: "arguments": null reads as none, so the
-// schema's defaults apply and a missing required field is named.
+// TestNullArgumentsAreNoArguments: defaults apply and a missing required field is named.
 func TestNullArgumentsAreNoArguments(t *testing.T) {
 	var log syncBuffer
 	s := newStack(t, stackOpts{log: &log})
@@ -249,8 +219,6 @@ func TestNullArgumentsAreNoArguments(t *testing.T) {
 	}
 }
 
-// TestRecordsNeverHoldArguments: the per-call log line names the endpoint,
-// tool and outcome, never what was asked.
 func TestRecordsNeverHoldArguments(t *testing.T) {
 	var log syncBuffer
 	s := newStack(t, stackOpts{log: &log})

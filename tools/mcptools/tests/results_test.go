@@ -1,13 +1,9 @@
 package tests
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
-// required holds each tool's required arguments and nothing else, so every
-// optional one is left to its default. A tool with none that still needs an
-// input (one of several) gets the smallest one.
+// required holds each tool's required arguments only, so every optional one
+// takes its default; one needing one of several inputs gets the smallest.
 var required = map[string]map[string]any{
 	"ip_lookup":           {"ip": "8.8.8.8"},
 	"ip_cidr":             {"cidr": "192.168.1.0/24"},
@@ -46,9 +42,7 @@ var required = map[string]map[string]any{
 	"site_blog":              {},
 }
 
-// TestEveryToolAnswersAnObject: structuredContent is a JSON object for every
-// public tool with its optional arguments omitted. link_short_resolve answers
-// only from a store, so TestShortLinksLive covers it.
+// TestEveryToolAnswersAnObject; link_short_resolve needs a store, so TestShortLinksLive covers it.
 func TestEveryToolAnswersAnObject(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
 	for _, name := range toolNames(t, cs) {
@@ -59,10 +53,6 @@ func TestEveryToolAnswersAnObject(t *testing.T) {
 			}
 			continue
 		}
-		res := call(t, cs, name, args)
-		object(t, res)
-		if raw, _ := json.Marshal(res.StructuredContent); raw[0] != '{' {
-			t.Errorf("%s structuredContent = %.60s, want an object", name, raw)
-		}
+		object(t, call(t, cs, name, args))
 	}
 }

@@ -195,9 +195,8 @@ func passwordAlgo(in Input) string {
 }
 
 // passwordHasher checks the chosen algorithm's parameters and returns the
-// derivation to time, and for Argon2 and scrypt the bytes it will allocate.
-// Everything that can be refused is refused here, before any expensive work
-// starts.
+// derivation to time and its memory. Everything that can be refused is refused
+// here, before any expensive work starts.
 func passwordHasher(algo string, in Input, pw, salt []byte) (derive func() (string, error), mem int64, err error) {
 	switch algo {
 	case AlgoBcrypt:
@@ -296,15 +295,11 @@ func passwordHasher(algo string, in Input, pw, salt []byte) (derive func() (stri
 // all p lanes (they run one after another), beside B (128·r·p) and XY (256·r).
 func scryptMemory(n, r, p int) int64 { return 128 * int64(r) * int64(n+p+2) }
 
-// flatMemory is MemoryCost's charge for every op whose memory doesn't follow
-// its parameters.
+// flatMemory is MemoryCost's charge when memory doesn't follow the parameters.
 const flatMemory = 16 << 20
 
-// MemoryCost is roughly how many bytes running op name on in allocates, for a
-// budget shared by concurrent calls: Argon2 and scrypt are charged what their
-// parameters make them allocate, chosen (password-hash) or read from the
-// pasted hash (password-verify); everything else, and any input the op would
-// refuse before hashing, a flat 16 MiB.
+// MemoryCost is roughly what op name allocates on in: Argon2's and scrypt's
+// parameters (chosen, or read from a pasted hash) decide it, else flatMemory.
 func MemoryCost(name string, in Input) int64 {
 	var mem int64
 	switch name {

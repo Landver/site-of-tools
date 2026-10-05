@@ -3,6 +3,8 @@ package tests
 import (
 	"net/http/httptest"
 	"testing"
+
+	"github.com/Landver/site-of-tools/platform/goldentest"
 )
 
 func TestBlogJSONGolden(t *testing.T) {
@@ -17,5 +19,5 @@ func TestBlogJSONGolden(t *testing.T) {
 	} {
 		got[name] = get(app, path, "application/json")
 	}
-	checkGolden(t, "blog", got)
+	goldentest.JSON(t, "blog", goldentest.Recorded(got))
 }

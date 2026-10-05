@@ -348,8 +348,7 @@ func TestCertNamesUpstreamFailure(t *testing.T) {
 	}
 }
 
-// Each upstream has one request budget for every caller of the client; a half
-// whose budget is spent reports busy without asking, and the other still runs.
+// A half whose upstream budget is spent reports busy without asking; the other still runs.
 func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
 	t.Parallel()
 	var rdapHits, ctHits atomic.Int32
@@ -397,8 +396,7 @@ func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
 	}
 }
 
-// rdap.org redirects wherever the registry's bootstrap entry says, so each hop
-// off the configured host must be HTTPS and pass the egress guard. ownOnly
+// Each redirect hop off the configured host must pass the egress guard; ownOnly
 // marks the hops only the configured guard knows to refuse.
 func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
 	t.Parallel()

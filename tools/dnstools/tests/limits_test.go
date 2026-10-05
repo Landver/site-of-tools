@@ -15,8 +15,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-// limitsApp is one door onto lim, the way main.go hands one Limits value to
-// REST and to MCP.
+// limitsApp is one door onto lim, as main.go hands one Limits to REST and MCP.
 func limitsApp(t *testing.T, lim *dnstools.Limits) *echo.Echo {
 	t.Helper()
 	e := echo.New()
@@ -39,8 +38,7 @@ func from(e *echo.Echo, target, remote string, headers map[string]string) *httpt
 	return rec
 }
 
-// within fails the test if f waits instead of answering: a full cap must
-// refuse, never queue.
+// within fails the test if f waits: a full cap must refuse, never queue.
 func within(t *testing.T, f func() *httptest.ResponseRecorder) *httptest.ResponseRecorder {
 	t.Helper()
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -54,8 +52,7 @@ func within(t *testing.T, f func() *httptest.ResponseRecorder) *httptest.Respons
 	}
 }
 
-// A walk costs 50 to 100 upstream queries, so /consistency and /trace share
-// one class, 1 per 2 s with burst 3, apart from the lookup budget.
+// A walk costs 50 to 100 upstream queries, so walks have a budget apart from lookups.
 func TestWalksHaveTheirOwnStricterBudget(t *testing.T) {
 	t.Parallel()
 	e := limitsApp(t, nil)
@@ -74,8 +71,7 @@ func TestWalksHaveTheirOwnStricterBudget(t *testing.T) {
 	}
 }
 
-// One Limits value is one budget, whichever app spends it, and an IPv6 client
-// is one client across its /64 (dnstools used to key on the bare address).
+// One Limits value is one budget, whichever app spends it, an IPv6 client's by its /64.
 func TestOneLimitsIsOneBudgetAcrossApps(t *testing.T) {
 	t.Parallel()
 	lim := dnstools.NewLimits()
@@ -91,8 +87,7 @@ func TestOneLimitsIsOneBudgetAcrossApps(t *testing.T) {
 	}
 }
 
-// /domain waits on RDAP and crt.sh, so it has a cap of its own: full lookup
-// slots don't refuse it, and a full /domain cap leaves lookups alone.
+// /domain waits on RDAP and crt.sh, so it has a cap of its own.
 func TestDomainReportsHaveTheirOwnCap(t *testing.T) {
 	t.Parallel()
 	lim := dnstools.NewLimits()

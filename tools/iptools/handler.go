@@ -32,15 +32,12 @@ type handler struct {
 	lim  *Limits
 }
 
-// Limits are this tool's budgets, built once and shared by every door. A
-// lookup may call Shodan and reads the blocklist corpus; /cidr is pure math.
+// Limits are this tool's budgets, built once and shared by every door.
 type Limits struct {
 	Lookup, CIDR, History platform.Limiter
 	LookupCap             *platform.Cap
 }
 
-// NewLimits returns fresh budgets: lookups and history 2/s (burst 10), /cidr
-// 10/s (burst 50); 8 lookups in flight.
 func NewLimits() *Limits {
 	return &Limits{
 		Lookup:    platform.NewLimiter(2, 10),
@@ -50,13 +47,10 @@ func NewLimits() *Limits {
 	}
 }
 
-// errBusy is a lookup refused because LookupCap is full.
-var errBusy = errors.New(platform.BusyMessage)
-
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
 // (?ip=…), consistent w/ /cidr?cidr=… — no /:ip pretty route. hist may be nil
-// (Mongo off) → /history view empty; chk nil → no blocklist enrichment (build
-// it with CheckerFrom); lim nil → fresh limits.
+// (Mongo off) → /history view empty.
+// chk (from CheckerFrom) may be nil too; lim nil means fresh limits.
 //
 //	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
@@ -73,26 +67,42 @@ func Register(e *echo.Echo, svc Looker, hist *History, chk Checker, lim *Limits)
 
 // limited answers a spent budget the way each route answers its own errors.
 func (h *handler) limited(c *echo.Context) error {
-	const code, msg = http.StatusTooManyRequests, "Too many requests from your address. Try again in a few seconds."
+	const code = http.StatusTooManyRequests
 	platform.SetNegotiationHeaders(c, code)
 	if platform.WantsJSON(c) {
-		return c.JSON(code, map[string]string{"error": msg})
+		return c.JSON(code, map[string]string{"error": platform.LimitedMessage})
 	}
+	var page string
+	var vm map[string]any
 	switch c.Path() {
 	case "/cidr":
-		return c.Render(code, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr",
-			"Query": strings.TrimSpace(c.QueryParam("cidr")), "Error": msg})
+		page, vm = "ip/cidr", cidrVM(strings.TrimSpace(c.QueryParam("cidr")))
 	case "/history":
-		return c.Render(code, "ip/history", map[string]any{"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
-			"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true, "Error": msg})
+		page, vm = "ip/history", h.historyVM()
+	default:
+		page, vm = "ip/index", lookupVM(strings.TrimSpace(c.QueryParam("ip")))
+		if platform.IsHTMX(c) {
+			page = "ip/result"
+		} else {
+			vm["Conn"] = platform.Conn(c)
+		}
 	}
-	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup",
-		"Query": strings.TrimSpace(c.QueryParam("ip")), "Attribution": true, "SpamhausAttribution": true, "Error": msg}
-	if platform.IsHTMX(c) {
-		return c.Render(code, "ip/result", vm)
-	}
-	vm["Conn"] = platform.Conn(c)
-	return c.Render(code, "ip/index", vm)
+	vm["Error"] = platform.LimitedMessage
+	return c.Render(code, page, vm)
+}
+
+func lookupVM(query string) map[string]any {
+	return map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": query,
+		"Attribution": true, "SpamhausAttribution": true}
+}
+
+func cidrVM(query string) map[string]any {
+	return map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": query}
+}
+
+func (h *handler) historyVM() map[string]any {
+	return map[string]any{"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
+		"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true}
 }
 
 // index serves visitor's own IP by default, or ?ip= to look one up. Bare hit
@@ -117,9 +127,9 @@ func (h *handler) index(c *echo.Context) error {
 		case platform.IsHTMX(c):
 			return c.Render(http.StatusOK, "ip/result", map[string]any{})
 		}
-		return c.Render(http.StatusOK, "ip/index", map[string]any{
-			"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": "", "Attribution": true, "SpamhausAttribution": true, "Conn": platform.Conn(c),
-		})
+		vm := lookupVM("")
+		vm["Conn"] = platform.Conn(c)
+		return c.Render(http.StatusOK, "ip/index", vm)
 	}
 	return h.show(c, ip, self)
 }
@@ -133,7 +143,7 @@ func (h *handler) cidr(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "provide a CIDR, e.g. /cidr?cidr=192.168.1.0/24"})
 		}
-		return c.Render(http.StatusOK, "ip/cidr", map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": ""})
+		return c.Render(http.StatusOK, "ip/cidr", cidrVM(""))
 	}
 	sub, err := ParseSubnet(input)
 	if platform.WantsJSON(c) {
@@ -142,7 +152,7 @@ func (h *handler) cidr(c *echo.Context) error {
 		}
 		return c.JSON(http.StatusOK, sub)
 	}
-	vm := map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": input}
+	vm := cidrVM(input)
 	code := http.StatusOK
 	if err != nil {
 		vm["Error"] = err.Error()
@@ -172,10 +182,8 @@ func (h *handler) history(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]any{"lookups": entries})
 	}
 
-	vm := map[string]any{
-		"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
-		"Entries": entries, "Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true,
-	}
+	vm := h.historyVM()
+	vm["Entries"] = entries
 	if err != nil {
 		vm["Error"] = err.Error()
 	}
@@ -212,19 +220,13 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	}
 
 	// Browser / htmx: view model rendered as full page or fragment.
-	// Attribution: IP2Location LITE license requires credit on any page using
-	// databases (see shared/templates/partials/footer.html). Scoped to this
-	// tool via VM flag → apex (no such data) omits it.
-	vm := map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": ip, "Self": self, "Attribution": true, "SpamhausAttribution": true}
+	vm := lookupVM(ip)
+	vm["Self"] = self
 	if err != nil {
 		vm["Error"] = pageError(err)
 	} else {
 		vm["Result"] = res
-		// Shodan ToS wants visible credit wherever their data appears. Gate
-		// footer credit on this Shodan-specific flag (NOT shared .Attribution,
-		// which botcheck also sets but doesn't use Shodan). True whenever we
-		// consulted InternetDB for this lookup — data found or clean 404.
-		vm["ShodanAttribution"] = res.Shodan != nil && !res.Shodan.Skipped
+		vm["ShodanAttribution"] = res.ShodanConsulted()
 	}
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
@@ -243,7 +245,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 
 func (h *handler) lookup(c *echo.Context, ip string) (*Result, error) {
 	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
-		return nil, errBusy
+		return nil, platform.ErrBusy
 	}
 	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 	return LookupWithReputation(c.Request().Context(), h.svc, h.chk, ip)
@@ -258,7 +260,7 @@ func pageError(err error) string {
 }
 
 func statusFor(err error) int {
-	if errors.Is(err, ErrUnavailable) || errors.Is(err, errBusy) {
+	if errors.Is(err, ErrUnavailable) || errors.Is(err, platform.ErrBusy) {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest

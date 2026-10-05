@@ -31,8 +31,7 @@ var ErrDisabled = errors.New("this lookup is switched off")
 // failure because for RDAP a 404 is an answer, not a breakdown.
 var errUpstreamNotFound = errors.New("upstream has no record")
 
-// errUpstreamBusy: this process spent its budget for that upstream, so the
-// request was not sent.
+// errUpstreamBusy: this process's budget for that upstream is spent; nothing was sent.
 var errUpstreamBusy = errors.New("busy, try again shortly")
 
 // errNoRDAPRecord: the registry answered, and what it said is that it holds no
@@ -142,15 +141,13 @@ const maxSubdomains = 200
 // maxResponseBytes bounds what we read from either upstream.
 const maxResponseBytes = 8 << 20
 
-// rdap.org and crt.sh are free services that throttle or ban a busy address,
-// and every request this process makes comes from the one server address.
+// rdap.org and crt.sh throttle a busy address, and all our requests come from one.
 const (
 	upstreamPerSecond = 1
 	upstreamBurst     = 5
 )
 
 // DomainClient talks to RDAP and Certificate Transparency. nil disables both.
-// Every caller sharing one client shares its request budgets.
 type DomainClient struct {
 	client             *http.Client
 	rdapURL            string
@@ -158,13 +155,10 @@ type DomainClient struct {
 	rdapLimit, ctLimit *rate.Limiter
 }
 
-// errRedirectRefused: a redirect to a non-HTTP(S) scheme or to a destination
-// the egress guard refuses.
 var errRedirectRefused = errors.New("redirect refused")
 
-// NewDomainClient builds the client. Blank URLs disable that half. Redirects
-// off the configured hosts go through a default guard (public addresses, ports
-// 80 and 443) until WithEgressGuard replaces it.
+// NewDomainClient builds the client. Blank URLs disable that half.
+// Until WithEgressGuard, redirects off the configured hosts get a default guard.
 func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient {
 	if rdapURL == "" && ctURL == "" {
 		return nil
@@ -179,8 +173,7 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient
 	return d
 }
 
-// WithEgressGuard sends every dial to a host other than the configured RDAP
-// and CT hosts through g. Call it before the client is used. Nil-safe.
+// WithEgressGuard sends every dial off the configured hosts through g. Nil-safe.
 func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
 	if d != nil {
 		d.client = d.httpClient(d.client.Timeout, g)
@@ -188,8 +181,7 @@ func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
 	return d
 }
 
-// httpClient dials the configured hosts directly and everything else, i.e.
-// wherever rdap.org's bootstrap redirect points, through g.
+// httpClient dials the configured hosts directly, where they redirect through g.
 func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
 	base := map[string]bool{}
 	for _, raw := range []string{d.rdapURL, d.ctURL} {
@@ -198,7 +190,14 @@ func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard
 		}
 	}
 	direct := &net.Dialer{Timeout: timeout}
-	gated := g.DialContext(timeout)
+	tr := g.Transport(timeout)
+	gated := tr.DialContext
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if base[strings.ToLower(addr)] {
+			return direct.DialContext(ctx, network, addr)
+		}
+		return gated(ctx, network, addr)
+	}
 	return &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -218,19 +217,7 @@ func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard
 			}
 			return nil
 		},
-		Transport: &http.Transport{
-			// With a proxy every dial goes to the proxy's address, so the
-			// guard would judge the proxy instead of the destination.
-			Proxy: nil,
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				if base[strings.ToLower(addr)] {
-					return direct.DialContext(ctx, network, addr)
-				}
-				return gated(ctx, network, addr)
-			},
-			// The guard only runs on a dial, so a pooled connection would skip it.
-			DisableKeepAlives: true,
-		},
+		Transport: tr,
 	}
 }
 
@@ -512,8 +499,7 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 	return out, nil
 }
 
-// DomainReport is GET /domain's body. RegErr and CertErr keep each half's own
-// failure for the caller; Err judges the report as a whole.
+// DomainReport is GET /domain's body; Err judges it as a whole.
 type DomainReport struct {
 	CertNames         *CertNames    `json:"certificate_names,omitempty"`
 	CertNamesError    string        `json:"certificate_names_error,omitempty"`
@@ -527,8 +513,7 @@ type DomainReport struct {
 	CertErr error `json:"-"`
 }
 
-// DomainInfo asks RDAP about name's registrable domain and CT about name
-// itself, concurrently, so one upstream failing still leaves the other. Its
+// DomainInfo asks RDAP and CT side by side, so one failing leaves the other; its
 // error is bad input only.
 func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string) (*DomainReport, error) {
 	name = NormalizeName(name)
@@ -584,9 +569,6 @@ func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string)
 	return out, nil
 }
 
-// Err is ErrDisabled when neither upstream is configured, an error naming
-// both failures when neither answered and no delegation vouches for the
-// name, else nil.
 func (r *DomainReport) Err() error {
 	switch {
 	case errors.Is(r.RegErr, ErrDisabled) && errors.Is(r.CertErr, ErrDisabled):

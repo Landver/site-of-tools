@@ -28,8 +28,7 @@ type Post struct {
 	Image string
 	Draft bool
 	HTML  template.HTML
-	// Markdown: the source minus its frontmatter. Post has no json tags, so
-	// without "-" this would join the REST view model.
+	// Markdown is the source minus frontmatter; "-" keeps it out of the REST view model.
 	Markdown string `json:"-"`
 }
 

@@ -6,16 +6,14 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// inputSchema infers T's input schema, then applies mods. The jsonschema struct
-// tag carries descriptions only, so enums, bounds and defaults are set here,
-// from the domain's own lists. A type it can't infer is a programming error.
+// inputSchema infers T's input schema, then applies mods: the jsonschema tag
+// carries descriptions only, so enums, bounds and defaults come from the domain.
 func inputSchema[T any](mods ...func(*jsonschema.Schema)) *jsonschema.Schema {
 	s, err := jsonschema.For[T](nil)
 	if err != nil {
 		panic(err)
 	}
-	// A pointer field only tells an absent argument from a zero one; inferred,
-	// it would also invite an explicit null, which means nothing here.
+	// A pointer field tells absent from zero; it must not invite an explicit null.
 	for _, p := range s.Properties {
 		if len(p.Types) == 2 && p.Types[0] == "null" {
 			p.Type, p.Types = p.Types[1], nil
@@ -27,12 +25,10 @@ func inputSchema[T any](mods ...func(*jsonschema.Schema)) *jsonschema.Schema {
 	return s
 }
 
-// minLength requires the string property prop to hold at least n characters.
 func minLength(prop string, n int) func(*jsonschema.Schema) {
 	return func(s *jsonschema.Schema) { s.Properties[prop].MinLength = jsonschema.Ptr(n) }
 }
 
-// oneOf limits the string property prop to values.
 func oneOf(prop string, values []string) func(*jsonschema.Schema) {
 	return func(s *jsonschema.Schema) {
 		p := s.Properties[prop]
@@ -43,8 +39,7 @@ func oneOf(prop string, values []string) func(*jsonschema.Schema) {
 	}
 }
 
-// defaultTo is what the SDK fills in for an absent prop before the handler
-// runs, so it must be what the domain does with an absent value too.
+// defaultTo is what the SDK fills in for an absent prop, so it must match the domain's.
 func defaultTo(prop string, v any) func(*jsonschema.Schema) {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -53,7 +48,6 @@ func defaultTo(prop string, v any) func(*jsonschema.Schema) {
 	return func(s *jsonschema.Schema) { s.Properties[prop].Default = raw }
 }
 
-// between bounds the integer property prop to [lo, hi].
 func between(prop string, lo, hi int) func(*jsonschema.Schema) {
 	return func(s *jsonschema.Schema) {
 		p := s.Properties[prop]

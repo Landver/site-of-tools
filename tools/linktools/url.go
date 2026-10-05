@@ -53,10 +53,12 @@ func parseReason(err error) error {
 	return err
 }
 
-// WrongTool's answers.
+// WrongTool's answers, and the sentences refusing each as a URL.
 const (
 	ToolCurl    = "curl"
 	ToolExtract = "extract"
+	CurlNotURL  = "That looks like a curl command, not a URL."
+	TextNotURL  = "That looks like text with links in it, not one URL."
 )
 
 // WrongTool names the page an input belongs on when it is plainly not one URL

@@ -7,12 +7,10 @@ import (
 
 // rule = one detection signal. eval reports whether anomaly fired + short
 // human detail for table. needsClient marks rules reading client-collected
-// field -> Evaluate can skip (not fail) them on server-only req; needsHeaders,
-// needsIP and needsCorpus do the same for header-, IP- and corpus-derived
-// fields. A rule reading the header User-Agent only as a fallback for the
-// client's (clientUA) is not a header rule. Weights = starting proposal,
-// tuned against botcheck/tests — not gospel; adjust there, w/ fixtures, not
-// by feel.
+// field -> Evaluate can skip (not fail) them on server-only req. Weights =
+// starting proposal, tuned against botcheck/tests — not gospel; adjust there,
+// w/ fixtures, not by feel. needsHeaders, needsIP and needsCorpus do the same
+// for their halves; clientUA's header fallback doesn't make a header rule.
 type rule struct {
 	id           string
 	label        string

@@ -64,9 +64,8 @@ type CreateOptions struct {
 	CreatedIP string        // forensics only, never rendered or serialised
 }
 
-// CreateRequest is a create as the API receives it. String fields only, so a
-// decoded {"slug":{"$ne":null}} can never reach a Mongo filter as an operator
-// (docs/04-short-links.md §3).
+// CreateRequest has string fields only, so a decoded {"slug":{"$ne":null}}
+// can never reach a Mongo filter as an operator.
 type CreateRequest struct {
 	URL   string `json:"url" form:"url"`
 	Slug  string `json:"slug" form:"slug"`
@@ -75,8 +74,7 @@ type CreateRequest struct {
 	Clean bool   `json:"clean" form:"clean"`
 }
 
-// Created is what a successful create answers with. Note is for the page;
-// the API body leaves it out.
+// Created answers a create; Note is for the page, never the API body.
 type Created struct {
 	Cleaned   []string   `json:"cleaned,omitempty"`
 	Code      string     `json:"code"`
@@ -218,8 +216,7 @@ func (s *Shortener) ShortURL(code string) string {
 	return s.baseURL + shortPath + code
 }
 
-// CodeFromShortURL reads a bare code, or a short URL (scheme optional) on
-// base's host, and reports whether s named one of ours.
+// CodeFromShortURL reads a bare code or a short URL on base's host.
 func CodeFromShortURL(s, base string) (code string, ok bool) {
 	s = strings.TrimSpace(s)
 	if c, err := validateCode(s); err == nil {
@@ -340,8 +337,7 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 	return nil, fmt.Errorf("no free code after %d attempts", maxCodeAttempts)
 }
 
-// CreateFrom is Create from a CreateRequest, its TTL parsed; ip is recorded
-// for forensics only.
+// CreateFrom is Create with req's TTL parsed; ip is recorded for forensics only.
 func (s *Shortener) CreateFrom(ctx context.Context, req CreateRequest, ip string) (*Created, error) {
 	opt := CreateOptions{Slug: req.Slug, Note: req.Note, Clean: req.Clean, CreatedIP: ip}
 	if req.TTL != "" {
@@ -365,9 +361,7 @@ func (s *Shortener) CreateFrom(ctx context.Context, req CreateRequest, ip string
 	}, nil
 }
 
-// PublicError maps a create's error to a status and the message safe to show.
-// Anything unrecognised is a storage failure: one fixed sentence, and the
-// detail is the caller's to log.
+// PublicError maps a create's error to a status and a message safe to show.
 func PublicError(err error) (status int, msg string) {
 	switch {
 	case errors.Is(err, ErrSlugTaken):

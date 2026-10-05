@@ -18,11 +18,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// blocklist_handler_test.go drives the real corpus end-to-end through the
-// handler — gated on MONGODB_TEST_URI, mirrors TestCorpusLiveViaHandler. The
-// BlockLookup→Signals mapping itself ("any non-ipsum source ⇒
-// IPBlocklistDeliberate") is covered offline with a fake iptools.Checker in
-// supplied_test.go and rest_golden_test.go.
+// The live corpus end-to-end through the handler, gated on MONGODB_TEST_URI;
+// supplied_test.go covers the BlockLookup→Signals mapping offline.
 
 func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	t.Helper()

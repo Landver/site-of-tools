@@ -14,12 +14,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/ciphertools"
+	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
 // White-box: no owner tool reports the headers it was handed, so a probe tool
 // on the owner server shows what a handler gets.
-
 type probe struct {
 	header http.Header
 	who    caller
@@ -32,7 +34,9 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := linktools.NewShortener(linktools.NewLinkStore(context.Background(), client.Database("offline")), "k3y", "http://link.test")
-	h, err := newHandler(Deps{Owner: owner}, "http://mcp.test", slog.New(slog.DiscardHandler))
+	d := Deps{Owner: owner, IPLimits: iptools.NewLimits(), LinkLimits: linktools.NewLimits(),
+		CipherLimits: ciphertools.NewLimits(), BotLimits: botcheck.NewLimits(), ToolURL: func(string) string { return "" }}
+	h, err := newHandler(d, "http://mcp.test", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,9 +69,9 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 		if got.header.Get("X-Api-Key") != "" || got.header.Get("Authorization") != "" {
 			t.Errorf("%v: the handler saw the key: %v", auth, got.header)
 		}
-		if w := got.who; w.ip != "127.0.0.1" || w.key != "127.0.0.1" || !w.owner || w.userAgent != "probe-agent" || w.http == nil ||
+		if w := got.who; w.ip != "127.0.0.1" || w.key != "127.0.0.1" || w.userAgent != "probe-agent" || w.http == nil ||
 			!strings.HasPrefix(w.host, "127.0.0.1:") {
-			t.Errorf("%v: caller in the handler = %+v, want the raw address, its key, the owner flag", auth, w)
+			t.Errorf("%v: caller in the handler = %+v, want the raw address and its key", auth, w)
 		}
 	}
 }

@@ -88,12 +88,11 @@ type EnvInfo struct {
 }
 
 // Signals: everything scorer needs. Client-collected (bound from POSTed
-// fingerprint JSON via json tags) + server-observed (headers + IP lookup via
-// AddHTTPSignals/AddIPSignals, json:"-"), flattened → scorer imports only
-// stdlib. Zero = not supplied; ClientCollected splits "browser reported
-// false/empty" from "no fingerprint posted" (plain curl) → client checks skip,
-// not pass. HeadersSupplied and IPSupplied do the same for the header and IP
-// halves.
+// fingerprint JSON via json tags) + server-observed (headers + IP lookup,
+// handler-filled, json:"-"), flattened → package imports only stdlib. Zero =
+// not supplied; ClientCollected splits "browser reported false/empty" from
+// "no fingerprint posted" (plain curl) → client checks skip, not pass.
+// HeadersSupplied and IPSupplied do the same for the other halves.
 type Signals struct {
 	ClientCollected bool `json:"-"`
 	HeadersSupplied bool `json:"-"`
@@ -238,13 +237,13 @@ type Signals struct {
 	// CorpusSkipped: the corpus was never consulted (a synthetic payload must
 	// not train it), so both corpus rules skip instead of reading as clean.
 	CorpusSkipped bool `json:"-"`
-	// IP blocklist (G37), filled by AddIPSignals from shared ip_blocklist corpus
+	// IP blocklist (G37), handler-filled from shared ip_blocklist corpus
 	// (ipsum feed + any other service writing flagged IPs). Sources = distinct
 	// sources w/ this egress IP listed; empty = not listed / corpus off →
 	// ip_blocklisted never fires. Count = highest ipsum-style occurrence count
 	// (how many feeds list it), 0 = no counted source. Deliberate = ≥1 source
 	// is deliberate ban (anything but ipsum feed) → trusted regardless of
-	// count. AddIPSignals computes it (owns iptools source-name vocab) so pure
+	// count. Handler computes it (owns iptools source-name vocab) so pure
 	// scorer needs no import.
 	IPBlocklistSources    []string `json:"-"`
 	IPBlocklistCount      int      `json:"-"`
@@ -316,7 +315,6 @@ type Report struct {
 	FingerprintChurn int `json:"fingerprintChurn,omitempty"`
 }
 
-// Coverage says how much of each tier the supplied signals could evaluate.
 type Coverage struct {
 	Hard        TierCoverage `json:"hard"`
 	Consistency TierCoverage `json:"consistency"`

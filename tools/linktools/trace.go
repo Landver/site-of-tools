@@ -32,9 +32,7 @@ const (
 	totalTimeout = 15 * time.Second
 	// maxLocation bounds a Location header we are willing to resolve.
 	maxLocation = 2048
-	// maxHeaderValue and maxErrorText bound what a target chooses (a Server
-	// header, its certificate's names in a TLS error) before a hop or note
-	// quotes it.
+	// maxHeaderValue, maxErrorText bound target-chosen text a hop or note quotes.
 	maxHeaderValue = 256
 	maxErrorText   = 300
 	// maxHeaderBytes: Go's default is 10 MB. 10 hops x 10 MB x burst 5 x N
@@ -170,12 +168,23 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 	if timeout <= 0 {
 		timeout = totalTimeout
 	}
+	tr := guard.Transport(hopTimeout)
 	t := &Tracer{
 		guard:  guard,
-		gated:  guard.DialContext(hopTimeout),
+		gated:  tr.DialContext,
 		total:  timeout,
 		direct: &net.Dialer{Timeout: hopTimeout},
 	}
+	tr.DialContext = t.dialContext
+	// HTTP/2 is not attempted: it coalesces several authorities onto one
+	// connection, the same bypass of the guard's dial as pooling.
+	tr.ForceAttemptHTTP2 = false
+	tr.MaxResponseHeaderBytes = maxHeaderBytes
+	tr.ResponseHeaderTimeout = hopTimeout
+	tr.TLSHandshakeTimeout = hopTimeout
+	tr.ExpectContinueTimeout = time.Second
+	// Never InsecureSkipVerify: a certificate failure is a finding we report.
+	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	t.client = &http.Client{
 		// Walk the chain by hand, one request at a time, so every hop is a
 		// fresh gated dial and every hop is recorded (doc §2).
@@ -186,40 +195,8 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 		Jar: nil,
 		// No client-wide deadline: each hop carries its own context timeout and
 		// the caller's context carries the total.
-		Timeout: 0,
-		Transport: &http.Transport{
-			// Proxy is nil DELIBERATELY, not by omission. With
-			// http.ProxyFromEnvironment and HTTP_PROXY/HTTPS_PROXY set,
-			// DialContext is handed the PROXY's address, so the gate validates
-			// the proxy while the attacker-chosen hostname travels to the
-			// target inside a CONNECT.
-			// The gate is then completely bypassed. docker-compose.yml loads
-			// .env wholesale, so such a variable is invisible in the repo, and
-			// Go caches the environment read in a sync.Once. Doc §2(a).
-			Proxy:       nil,
-			DialContext: t.dialContext,
-			// A Dialer.Control hook only fires when a dial actually happens.
-			// http.Transport serves a matching authority from the idle pool
-			// with no dial at all, so hop 2 of pub.evil.com -> int.evil.com
-			// (A -> 10.0.0.5, one certificate covering both) could be answered
-			// with neither the address nor the port check running. Trace is one
-			// request per hop at 1/s, so pooling buys nothing and this costs
-			// nothing. Doc §2(b).
-			DisableKeepAlives: true,
-			// HTTP/2 is not attempted for the same reason: it coalesces
-			// several authorities onto one connection, which is the same
-			// bypass with a second mechanism. Every host that speaks h2 also
-			// speaks HTTP/1.1, and a single request per hop gains nothing.
-			ForceAttemptHTTP2:      false,
-			MaxResponseHeaderBytes: maxHeaderBytes,
-			ResponseHeaderTimeout:  hopTimeout,
-			TLSHandshakeTimeout:    hopTimeout,
-			ExpectContinueTimeout:  time.Second,
-			// TLS is verified. InsecureSkipVerify is absent on purpose and must
-			// stay absent: a certificate failure is a FINDING we report, never
-			// a reason to retry over http (doc §3).
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
-		},
+		Timeout:   0,
+		Transport: tr,
 	}
 	return t
 }
@@ -600,9 +577,8 @@ func transportNote(ctx context.Context, err error) Note {
 	return Note{SevFail, "The request failed", clipCause(err)}
 }
 
-// clipCause is err's text with only the cause clipped. net/http reports
-// `Get "<hop URL>": <cause>`, and only the cause is the target's text: a
-// certificate's name list, a malformed status line.
+// clipCause clips only err's cause: net/http writes `Get "<hop URL>": <cause>`,
+// and only the cause is the target's text.
 func clipCause(err error) string {
 	msg := err.Error()
 	var ue *url.Error

@@ -1,5 +1,4 @@
-// Package tests: black-box tests for mcptools, driving the real stack: the
-// vhost handler main.go builds, the gate, the SDK, and the SDK's own client.
+// Package tests drives the real stack: main.go's vhost handler, the gate, the SDK and its client.
 package tests
 
 import (
@@ -52,8 +51,6 @@ const (
 	otherClient = "198.51.100.250"
 )
 
-// fakeGeo answers every valid address with a copy of res, refuses the rest the
-// way iptools.Service does, and remembers what it was asked.
 type fakeGeo struct {
 	res   iptools.Result
 	err   error
@@ -102,8 +99,7 @@ var richResult = iptools.Result{
 	Shodan: &iptools.ShodanInfo{Found: true, Ports: []int{53, 443}, Hostnames: []string{"dns.google"}},
 }
 
-// offlineOwner is an owner Shortener with a key whose store is unreachable:
-// the gate only ever asks it whether a key is right.
+// offlineOwner's store is unreachable: the gate only asks it whether a key is right.
 var offlineStore = sync.OnceValue(func() *linktools.LinkStore {
 	client, err := mongo.Connect(options.Client().
 		ApplyURI("mongodb://127.0.0.1:1/").
@@ -131,8 +127,7 @@ type stackOpts struct {
 	ipLim *iptools.Limits
 	log   io.Writer
 
-	// bare leaves out every dns, link and blog dependency not set here, as a
-	// boot with them off does.
+	// bare leaves out every dns, link and blog dependency not set here.
 	bare      bool
 	dns       dnstools.Looker
 	dom       *dnstools.DomainClient
@@ -146,8 +141,7 @@ type stackOpts struct {
 	botLim    *botcheck.Limits
 }
 
-// stack is the vhost handler as main.go builds it: the REST apps and the mcp
-// app, each pair sharing one Limits.
+// stack is the vhost handler as main.go builds it, each REST app and MCP sharing one Limits.
 type stack struct {
 	handler http.Handler
 	srv     *httptest.Server
@@ -249,8 +243,6 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	return &stack{handler: h, srv: srv}
 }
 
-// rest is a REST route's JSON body, as a client sending Accept:
-// application/json gets it; a form body is sent as one.
 func (s *stack) rest(t *testing.T, host, method, target, form string) map[string]any {
 	t.Helper()
 	hdr := map[string]string{"Host": host, "Accept": "application/json"}
@@ -264,7 +256,6 @@ func (s *stack) rest(t *testing.T, host, method, target, form string) map[string
 	return decode(t, rec.Body.Bytes())
 }
 
-// do sends one request in-process; Host defaults to the mcp host.
 func (s *stack) do(method, target, body string, hdr map[string]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
 	req.Host = mcpHost
@@ -280,7 +271,6 @@ func (s *stack) do(method, target, body string, hdr map[string]string) *httptest
 	return rec
 }
 
-// mcpHeaders are what a 2025-era client sends with a POST.
 func mcpHeaders(extra map[string]string) map[string]string {
 	h := map[string]string{
 		"Content-Type":     "application/json",
@@ -298,8 +288,7 @@ func rpc(id int, method string, params any) string {
 	return string(b)
 }
 
-// hostTransport delivers requests to the test server the way nginx does: with
-// the public Host, and the client's address in CF-Connecting-IP.
+// hostTransport sends the public Host and CF-Connecting-IP, as nginx does.
 type hostTransport struct {
 	host string
 	hdr  map[string]string
@@ -314,8 +303,7 @@ func (h hostTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(r)
 }
 
-// client connects the SDK's own client to path; opts nil is the newest
-// protocol, 2026-07-28.
+// client connects the SDK's own client to path; opts nil is the newest protocol.
 func (s *stack) client(t *testing.T, path string, hdr map[string]string, opts *mcp.ClientSessionOptions) *mcp.ClientSession {
 	t.Helper()
 	if hdr == nil {
@@ -346,7 +334,6 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 	return res
 }
 
-// text is a result's only text block.
 func text(t *testing.T, res *mcp.CallToolResult) string {
 	t.Helper()
 	if len(res.Content) != 1 {
@@ -359,9 +346,7 @@ func text(t *testing.T, res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-// object checks a successful result: structuredContent is a JSON object and
-// the text block holds the same JSON. It returns that object, numbers kept
-// exact.
+// object is a successful result's object, checked against its text block.
 func object(t *testing.T, res *mcp.CallToolResult) map[string]any {
 	t.Helper()
 	if res.IsError {

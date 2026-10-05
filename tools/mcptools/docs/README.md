@@ -95,8 +95,8 @@ is now the decision.
 
 - **Golden test**: saves today's output to a file and fails when a change
   alters it; the diff is then reviewed like code.
-- **AST test**: a test that reads the Go source itself (its syntax tree) to
-  check something, here that every field an op reads is declared.
+- **Source-scan test**: a test that reads the Go source itself to check
+  something, here that every field an op reads is declared.
 - **Pointer-typed argument**: `*bool` instead of `bool`, so "not sent" (`nil`)
   differs from `false`.
 - **Semaphore + `TryAcquire`**: a counter of jobs in flight; when it is full,
@@ -250,7 +250,7 @@ first by a golden test of the current REST JSON, compared semantically):
 | iptools | `show`: lookup + blocklist; the self-IP rule | `LookupWithReputation(ctx, looker, checker, ip)` over a small `Checker` interface (`*BlockList` can't be faked) converted from nil like `dnstools.BlockCheckerFrom`; `Routable(ip)`; `(*Service).Offline()` (a copy without Shodan, for 1b) |
 | dnstools | `show` + `enrich`; `consistency` (Spread ∥ ECS, delegation health, envelope); `domain` (validation, RDAP ∥ CT); `email` + MX reputation; resolver/type defaults and lower-casing | `LookupEnriched`, `Consistency`, `DomainInfo` (a struct whose fields are declared in the map's alphabetical key order so the JSON stays identical, each half's error kept as `json:"-"` for the handler's 503/502/`RegAbsent`), `EmailReport` |
 | linktools | `utm` (with **absent = keep** support); the curl → URL branch; `diff`; the owner create path (body, TTL parsing, sentinel → fixed sentence) | `BuildUTM(raw, changes)`, `ParseCurl(cmd)` (alphabetical fields), `Diff(a, b)`, `Shortener.CreateFrom(req, ip)`, `PublicError(err)`, `CodeFromShortURL`; `RuleCatalog` lookups for a `param` and for a URL's verdict |
-| ciphertools | the JSON → `Input` conversion (with its `FormatFloat 'f'` trap); field names, defaults and bounds scattered as literals | `InputFromJSON`; **per-op field specs** (name, type, enum, default, min, max, description) that the ops' parsers and MCP's `schema.go` both read, guarded by an AST test; `MemoryCost(op, in)` for 1c. All pure, wasm-safe |
+| ciphertools | the JSON → `Input` conversion (with its `FormatFloat 'f'` trap); field names, defaults and bounds scattered as literals | `InputFromJSON`; **per-op field specs** (name, type, enum, default, min, max, description) that the ops' parsers and MCP's `schema.go` both read, guarded by a source-scan test; `MemoryCost(op, in)` for 1c. All pure, wasm-safe |
 | botcheck | header → `Signals` mapping, `Now`, `EgressIP` (a zero `Now` silently skips the timezone checks); IP → timezone/ASN/proxy/blocklist | a constructor in a new file (the scorer's file imports only stdlib) and `AddIPSignals`; header and IP rules **skip** when not supplied, and `Report` counts evaluated / skipped / fired per tier (D11). Over HTTP the request's own headers always count as supplied (a missing header stays evidence), so REST verdicts don't change; REST JSON gains the counts, as one reviewed golden diff |
 
 **1b: outbound hardening** (D16; REST benefits): (1) egress:
@@ -369,11 +369,9 @@ page's view model and JSON body differ, so it answers through
 - **Per-page MCP line:** each of the 29 "Using this from the terminal" blocks
   (inline in their templates, not a partial) ends with
   `{{template "partials/mcp-hint" "<toolset>"}}`: the endpoint and a link to
-  the page's setup section. The partial builds the URL with an `mcpURL`
-  template func, in `navBaseFuncs` (fallback `https://mcp.corpberry.com/mcp/…`)
-  and in `main.go`'s funcs (from config, so dev links to
-  `mcp.localhost:8080`). Only the partial calls it, so the cipher
-  `FragmentTemplates` stubs need nothing new. A test scans every tool
+  the page's setup section. The partial builds the URL from `toolURL "mcp"`,
+  in `navBaseFuncs` (fallback `https://mcp.corpberry.com`) and in `main.go`'s
+  funcs (from config, so dev links to `mcp.localhost:8080`). A test scans every tool
   package's templates and fails on a block without its toolset's line.
 - **Apex catalog:** `site.Tools` has "MCP server" (last, keeping A→Z), so the
   apex index and the header's Tools menu list it.
@@ -392,9 +390,9 @@ no BINs.
 | Test | Catches |
 |---|---|
 | **Golden REST JSON** (each 1a move, written before it; semantic compare, since struct fields replace sorted map keys) | a refactor changing a REST response |
-| **Coverage**: each `Register` built offline with fakes; every route from `e.Router().Routes()` (minus `/static*`, sitemap, robots) must have a `Coverage` entry, a tool or an exclusion with its reason; a *planned* entry (allowed while floors 3–7 were landing) now fails; no stale entries; every tool an entry names is served, every served tool has a route; 41 routes map to tools | a REST endpoint added without an MCP decision |
-| **Golden `tools/list`** per endpoint (names in order, descriptions, schemas, hints); names match `^[a-z0-9_]{1,64}$` | an accidental change to the agent-facing contract |
-| **Cipher field specs**: AST scan finds every `in.Get` / `intField` / `in.Fields` / `in.Files` key declared; schema bound vs the op's error at bound + 1 | contracts drifting from the code |
+| **Coverage**: each `Register` built offline with fakes; every route from `e.Router().Routes()` (minus `/static*`, sitemap, robots) must have a `Coverage` entry, a tool or an exclusion with its reason; no stale entries; every tool an entry names is served, every served tool has a route; 41 routes map to tools | a REST endpoint added without an MCP decision |
+| **Golden `tools/list`** per toolset, `/mcp` their union (names in order, descriptions, schemas, hints); names match `^[a-z0-9_]{1,64}$` at boot | an accidental change to the agent-facing contract |
+| **Cipher field specs**: a source scan finds every `in.Get` / `intField` / `in.Fields` / `in.Files` key declared; schema bound vs the op's error at bound + 1 | contracts drifting from the code |
 | **Size budgets**: `tools/list` at most 3 KB per tool, 64 KB for `/mcp`, 32 KB per toolset (measured: `/mcp` 46.9 KB; ip 1.9, dns 5.9, link 10.2, cipher 26.6, botcheck 1.9, site 0.8, owner 2.2 KB; the largest tool, `cipher_encrypt`, 2.9 KB); concise results under 20 KB on the fixtures where REST is over it (TXT-heavy zone, 230 CT names, click-tracked newsletter: `dns_lookup` 12 vs 22 KB, `dns_consistency` 17 vs 55, `dns_domain_info` 2 vs 21, `link_extract` 14 vs 76) | context bloat |
 | **Parity**: MCP `structuredContent` == the tool's declared projection of the REST body, semantic compare (`UseNumber`); exempt tools listed with the reason | MCP and REST drifting apart |
 | **Result shape**: every tool returns an object, never `null`, with each optional argument omitted in turn (absent ≠ empty ≠ false) | legacy-client failures; `unwrap`/`utm` defaults |
@@ -429,7 +427,7 @@ REST only.
 | Floor | Ships | Done when |
 |---|---|---|
 | 0 | Owner answers the six **bold** decisions (D4, D9, D12, D14, D16, D17) | **done 2026-10-04**: all six accepted as leaned |
-| 1a | Push-down: iptools, dnstools, linktools, ciphertools (field specs + AST test), botcheck (skip-not-fail + coverage counts) | **built**: golden REST tests green before and after; botcheck's JSON gained its coverage counts as one reviewed golden diff |
+| 1a | Push-down: iptools, dnstools, linktools, ciphertools (field specs + source-scan test), botcheck (skip-not-fail + coverage counts) | **built**: golden REST tests green before and after; botcheck's JSON gained its coverage counts as one reviewed golden diff |
 | 1b | Egress (incl. `EgressGuard` literal addresses + config, one subdomain list); Shodan (`Offline()` + process-wide limiter); string bounds at the source + credits in Go | **built**: egress tests green; DNS makes no Shodan calls |
 | 1c | `platform/ratelimit.go`, per-package `Limits` with caps, REST on the new classes, `RateLimitKey` fail-closed | **built**: limits tests green, incl. updated `netgate_test` |
 | 2a | `tools/mcptools`: SDK pinned, vhost, gate, middleware, sanitizer, landing page, per-call records, coverage test with *planned* entries, **`ip` toolset**; `reply` moved into `platform`; config (`MCP_OWNER_KEY`) + `.env.example` + `config_test` | **built**; the MCP lines moved to floor 8 |
@@ -469,7 +467,7 @@ REST only.
 | Shodan bans the site's IP | DB-only enrichment; process-wide ~1/s limiter; open ports skipped when spent |
 | 35 tools on `/mcp` too many for some clients | `/mcp` recommended only with tool search; toolset URLs (1–15 tools) for the rest |
 | A third-party string steers the model (prompt injection) | sanitized, capped, labelled; the owner tools live on their own endpoint and create asks first |
-| Cipher contracts drift from the ops | generated from the ops' own field specs; AST test |
+| Cipher contracts drift from the ops | generated from the ops' own field specs; source-scan test |
 | Spec churn (three versions in 13 months) | stateless + no optional features = little surface; an SDK bump is one PR |
 | The SDK's ctx-value propagation (undocumented) changes | pinned by a test; fallback is `req.Extra.Header` + the CF header |
 | The agent-facing contract changes by accident | golden `tools/list` turns every change into a reviewed diff |

@@ -32,10 +32,8 @@ type Input struct {
 // trim, because for a hash input the whitespace IS the data.
 func (in Input) Get(key string) string { return in.Fields.Get(key) }
 
-// InputFromJSON turns a flat JSON object, as encoding/json decodes it into
-// map[string]any, into the Input a form would have made: strings as they are,
-// numbers in plain decimal, booleans as "true"/"false", null as absent. A
-// nested object or array is an error naming its key.
+// InputFromJSON is the Input a form would have made of a flat JSON object:
+// numbers in plain decimal, booleans "true"/"false", null absent, nesting an error.
 func InputFromJSON(obj map[string]any) (Input, error) {
 	in := Input{Fields: url.Values{}, Files: map[string][]byte{}}
 	for k, v := range obj {
@@ -86,12 +84,10 @@ type Op struct {
 	Page string
 	// Fragment is the template that renders a successful result.
 	Fragment string
-	// Heavy marks CPU-expensive ops (password hashing, RSA keygen, signing):
-	// stricter server rate limit, a share of the server's memory budget, and
-	// never run on a keystroke in the browser.
+	// Heavy marks CPU-expensive ops (password hashing, RSA keygen): stricter
+	// server rate limit, and never run on a keystroke in the browser.
 	Heavy bool
-	// Fields is every input Run reads; tests/fields_test.go holds the two to
-	// each other.
+	// Fields is every input Run reads (tests/fields_test.go checks).
 	Fields []Field
 	Run    func(Input) (any, error)
 }

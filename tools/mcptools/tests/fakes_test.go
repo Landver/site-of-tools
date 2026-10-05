@@ -21,16 +21,13 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// fakeDNS answers every interface dnstools.Register looks for, from data built
-// fresh per call (enrichment writes into it). heavy gives the zone the sixty
-// TXT records of a domain verified with every SaaS vendor going.
+// fakeDNS serves every check from data built per call; heavy adds sixty TXT records.
 type fakeDNS struct {
 	heavy bool
 	err   error // every check answers this
 }
 
-// lookOnly is a Looker and nothing else, so the walk, mail and trace checks
-// have nothing to run on.
+// lookOnly is a Looker and nothing else, so the other checks have nothing to run on.
 type lookOnly struct{ f *fakeDNS }
 
 func (l lookOnly) LookupSet(ctx context.Context, name, resolver string, types []string) (*dnstools.ResultSet, error) {
@@ -76,8 +73,7 @@ func (f *fakeDNS) records(qtype string) []dnstools.Record {
 	return nil
 }
 
-// LookupSet renders dig lines and zone text the way the real one does, since
-// those re-renderings are what a concise dns_lookup leaves out.
+// LookupSet renders the dig lines and zone text a concise dns_lookup leaves out.
 func (f *fakeDNS) LookupSet(_ context.Context, name, resolver string, types []string) (*dnstools.ResultSet, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -128,8 +124,7 @@ func (f *fakeDNS) check(name string) error {
 	return nil
 }
 
-// Spread: the zone's servers agree, one resolver still holds an older answer,
-// and one nameserver timed out.
+// Spread: the zone agrees, one resolver holds an older answer, one server timed out.
 func (f *fakeDNS) Spread(_ context.Context, name, qtype string) (*dnstools.Spread, error) {
 	if err := f.check(name); err != nil {
 		return nil, err
@@ -227,7 +222,6 @@ func (f *fakeDNS) MXReputation(_ context.Context, domain string, _ dnstools.Bloc
 	}, nil
 }
 
-// netGeo labels the fake zone's addresses with their networks.
 type netGeo map[string]*iptools.Result
 
 func (g netGeo) Lookup(ip string) (*iptools.Result, error) {
@@ -245,7 +239,6 @@ var dnsGeo = netGeo{
 	"198.51.100.53": {ASN: "64501", ASName: "Other Net", Country: "Elsewhere"},
 }
 
-// fakeBlock is a blocklist corpus that lists nothing and synced an hour ago.
 type fakeBlock struct{}
 
 func (fakeBlock) Check(context.Context, string) (iptools.BlockLookup, error) {
@@ -256,9 +249,7 @@ func (fakeBlock) LastSync(context.Context, string) (time.Time, error) {
 	return time.Now().Add(-time.Hour), nil
 }
 
-// upstream serves RDAP and crt.sh on loopback: a registration for whatever
-// domain is asked, and `names` Certificate Transparency names under it. A
-// half that is down answers 500.
+// upstream serves RDAP and crt.sh on loopback, with `names` CT names per domain.
 type upstream struct {
 	names            int
 	rdapDown, ctDown bool
@@ -295,18 +286,14 @@ func (u upstream) client(t *testing.T) *dnstools.DomainClient {
 	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second)
 }
 
-// ownHosts are what main.go's outbound guards refuse: every vhost, here and in
-// production.
 var ownHosts = []string{mcpHost, ipHost, dnsHost, linkHost, "mcp.localhost:8080", "mcp.corpberry.com", "link.corpberry.com"}
 
-// guardedTracer is the real tracer behind the real guard, as main.go builds
-// it. Every URL the tests trace is refused before a connection is made.
+// guardedTracer is main.go's tracer: every URL traced here is refused before a dial.
 func guardedTracer() *linktools.Tracer {
 	return linktools.NewTracer(platform.NewEgressGuard([]string{"80", "443"}, ownHosts), 2*time.Second)
 }
 
-// roomy limits leave tests that aren't about limits room for several calls;
-// the walk budget is three a client.
+// roomy limits let tests that aren't about limits make several calls.
 func roomyDNS() *dnstools.Limits {
 	return &dnstools.Limits{Lookup: platform.NewLimiter(100, 1000), Walk: platform.NewLimiter(100, 1000),
 		LookupCap: platform.NewCap(8), WalkCap: platform.NewCap(4), DomainCap: platform.NewCap(4)}

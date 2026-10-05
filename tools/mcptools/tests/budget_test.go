@@ -6,13 +6,10 @@ import (
 	"testing"
 )
 
-// softBudget is the catalog's typical result size, about 5K tokens; the hard
-// cap past which a result becomes an error is the sanitizer's 80 KB.
+// softBudget is a typical result, about 5K tokens; the sanitizer's hard cap is 80 KB.
 const softBudget = 20 << 10
 
-// TestConciseResultsFitTheBudget: on the fixtures the review measured over
-// budget (a TXT-heavy zone, 200+ CT names, a click-tracked newsletter) the
-// REST body is over the soft budget and the concise default is not.
+// TestConciseResultsFitTheBudget: where the REST body is over the soft budget, concise is not.
 func TestConciseResultsFitTheBudget(t *testing.T) {
 	s := newStack(t, stackOpts{dns: &fakeDNS{heavy: true}, dom: upstream{names: 230}.client(t)})
 	cs := s.client(t, "/mcp", nil, nil)

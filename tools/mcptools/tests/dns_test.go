@@ -16,7 +16,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-// failsWith checks an isError result whose text holds want.
 func failsWith(t *testing.T, res *mcp.CallToolResult, want string) {
 	t.Helper()
 	if !res.IsError || res.StructuredContent != nil || !strings.Contains(text(t, res), want) {
@@ -24,7 +23,6 @@ func failsWith(t *testing.T, res *mcp.CallToolResult, want string) {
 	}
 }
 
-// rows is the JSON array at key, as objects.
 func rows(t *testing.T, obj map[string]any, key string) []map[string]any {
 	t.Helper()
 	list, ok := obj[key].([]any)
@@ -195,8 +193,6 @@ func TestDNSEmailAuth(t *testing.T) {
 	failsWith(t, call(t, cs, "dns_email_auth", map[string]any{"name": "192.0.2.1"}), dnstools.ErrNeedDomain.Error())
 }
 
-// TestDNSToolsNeedTheirDependencies: a check whose dependency is off at boot
-// is left out, not served to fail.
 func TestDNSToolsNeedTheirDependencies(t *testing.T) {
 	s := newStack(t, stackOpts{bare: true, dns: lookOnly{&fakeDNS{}}})
 	if diff := cmp.Diff([]string{"dns_lookup"}, toolNames(t, s.client(t, "/mcp/dns", nil, nil))); diff != "" {
@@ -204,8 +200,7 @@ func TestDNSToolsNeedTheirDependencies(t *testing.T) {
 	}
 }
 
-// groupServers is dns_consistency's concise projection, restated over the
-// REST body: a server whose values are one of groups carries its index.
+// groupServers is dns_consistency's concise projection, restated over the REST body.
 func groupServers(body map[string]any) {
 	groups, _ := body["groups"].([]any)
 	for _, side := range []string{"authoritative", "resolvers"} {
@@ -248,8 +243,7 @@ func firstCertNames(body map[string]any) {
 	}
 }
 
-// capped is v as the sanitizer leaves it, for fixtures without invisible
-// characters: every string over 2 KB cut on a rune boundary, with a marker.
+// capped is v as the sanitizer leaves it when nothing is invisible: strings cut at 2 KB.
 func capped(v any) any {
 	const limit = 2 << 10
 	switch t := v.(type) {
@@ -282,9 +276,6 @@ func drop(keys ...string) func(map[string]any) {
 	}
 }
 
-// TestDNSParity: concise is the REST body through its declared projection,
-// detailed is the REST body (dns_lookup's zone as lines); both add only
-// attribution.
 func TestDNSParity(t *testing.T) {
 	cases := []struct {
 		tool    string
@@ -302,8 +293,7 @@ func TestDNSParity(t *testing.T) {
 		{"dns_email_auth", map[string]any{"name": "example.com"}, "/email?name=example.com", nil},
 	}
 	for _, tc := range cases {
-		// A stack each: all the cases on one would spend its RDAP client's
-		// request budget and see busy.
+		// A stack each, or the RDAP client's request budget runs out.
 		s := newStack(t, stackOpts{dns: &fakeDNS{heavy: true}, dom: upstream{names: 230}.client(t)})
 		got := object(t, call(t, s.client(t, "/mcp", nil, nil), tc.tool, tc.args))
 		delete(got, "attribution")

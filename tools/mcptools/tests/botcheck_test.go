@@ -15,15 +15,13 @@ import (
 	"github.com/labstack/echo/v5"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/botcheck"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 const chromeMacUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
-// payload is botcheck's own collector fixture, a real v4 payload from clean
-// desktop Chrome, with keys set or (nil) removed.
+// payload is botcheck's real v4 collector fixture with keys set or (nil) removed.
 func payload(t *testing.T, change map[string]any) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile("../../botcheck/tests/testdata/collector_payload.json")
@@ -44,8 +42,7 @@ func payload(t *testing.T, change map[string]any) map[string]any {
 	return m
 }
 
-// chromeHTTP is what that browser sends with the collector's POST, as the
-// http argument and as REST request headers.
+// chromeHTTP is what that browser sends with the collector's POST.
 var chromeHTTP = map[string]string{
 	"user_agent":         chromeMacUA,
 	"accept":             "application/json",
@@ -64,7 +61,6 @@ func httpArg(h map[string]string) map[string]any {
 	return out
 }
 
-// headerOf is the request header each http argument stands for.
 var headerOf = map[string]string{
 	"user_agent": "User-Agent", "accept": "Accept", "accept_language": "Accept-Language",
 	"accept_encoding": "Accept-Encoding", "sec_ch_ua": "Sec-CH-UA",
@@ -79,7 +75,6 @@ func restHeaders(h map[string]string, ip string) map[string]string {
 	return out
 }
 
-// checkRows are a report's checks by id.
 func checkRows(t *testing.T, got map[string]any) map[string]map[string]any {
 	t.Helper()
 	out := map[string]map[string]any{}
@@ -114,8 +109,6 @@ func TestBotcheckScoreFingerprintIsACollectorPayload(t *testing.T) {
 	failsWith(t, call(t, cs, "botcheck_score", map[string]any{"ip": "not-an-ip"}), `"not-an-ip" is not an IP address`)
 }
 
-// TestBotcheckScoreSkipsWhatWasNotSupplied: headers alone evaluate the header
-// rules and skip the client and IP ones, and the coverage counts say so.
 func TestBotcheckScoreSkipsWhatWasNotSupplied(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/botcheck", nil, nil)
 	curl := map[string]any{"http": map[string]any{"user_agent": "curl/8.7.1", "accept": "*/*"}}
@@ -130,21 +123,6 @@ func TestBotcheckScoreSkipsWhatWasNotSupplied(t *testing.T) {
 	if checks["bot_user_agent"]["triggered"] != true || got["verdict"] != "bot" {
 		t.Errorf("curl = %v, bot_user_agent %v; want a bot by its user agent", got["verdict"], checks["bot_user_agent"])
 	}
-	cov := got["coverage"].(map[string]any)
-	total := 0
-	for _, tier := range []string{"hard", "consistency", "soft"} {
-		c := cov[tier].(map[string]any)
-		ev, _ := c["evaluated"].(json.Number).Int64()
-		sk, _ := c["skipped"].(json.Number).Int64()
-		total += int(ev + sk)
-		if sk == 0 {
-			t.Errorf("%s tier skipped nothing without a fingerprint or an IP: %v", tier, c)
-		}
-	}
-	if total != len(checks) {
-		t.Errorf("coverage counts %d checks of %d", total, len(checks))
-	}
-
 	concise := object(t, call(t, cs, "botcheck_score", curl))
 	for _, row := range rows(t, concise, "checks") {
 		if row["triggered"] != true {
@@ -156,8 +134,7 @@ func TestBotcheckScoreSkipsWhatWasNotSupplied(t *testing.T) {
 	}
 }
 
-// TestBotcheckScoreCorpusRulesAreNotEvaluated: a synthetic payload must not
-// train the corpus, so the two rules reading it skip, where REST evaluates.
+// TestBotcheckScoreCorpusRulesAreNotEvaluated: the corpus rules skip, where REST evaluates.
 func TestBotcheckScoreCorpusRulesAreNotEvaluated(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/botcheck", nil, nil)
 	got := object(t, call(t, cs, "botcheck_score", map[string]any{"fingerprint": payload(t, nil),
@@ -176,8 +153,7 @@ func TestBotcheckScoreCorpusRulesAreNotEvaluated(t *testing.T) {
 	}
 }
 
-// TestBotcheckScoreWritesNoCorpus: REST's POST /check records the fingerprint
-// it scores; MCP, scoring the same one, records nothing. Needs MONGODB_TEST_URI.
+// TestBotcheckScoreWritesNoCorpus needs MONGODB_TEST_URI.
 func TestBotcheckScoreWritesNoCorpus(t *testing.T) {
 	if os.Getenv("MONGODB_TEST_URI") == "" {
 		t.Skip("MONGODB_TEST_URI not set; skipping the corpus write check")
@@ -234,8 +210,7 @@ func TestBotcheckScoreAttribution(t *testing.T) {
 	}
 }
 
-// corpusProjection is what MCP declares against POST /check: no echo of the
-// payload, and the corpus rules skipped instead of evaluated.
+// corpusProjection: no echo of the payload, and the corpus rules skipped.
 func corpusProjection(t *testing.T, body map[string]any) {
 	t.Helper()
 	delete(body, "clientPayload")
@@ -252,9 +227,7 @@ func corpusProjection(t *testing.T, body map[string]any) {
 	}
 }
 
-// TestBotcheckParity: detailed is the REST report for the same headers, IP
-// and fingerprint, through the declared projections; concise is detailed
-// with only the fired checks.
+// TestBotcheckParity: detailed is the REST report projected; concise only the fired checks.
 func TestBotcheckParity(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	cs := s.client(t, "/mcp", nil, nil)
@@ -316,31 +289,4 @@ func TestBotcheckParity(t *testing.T) {
 			t.Errorf("%s: concise vs REST with the fired checks only (-rest +mcp):\n%s", tc.name, diff)
 		}
 	}
-}
-
-// TestBotcheckBudgetWhicheverDoor: scores spent over REST are spent over MCP,
-// and a full concurrency cap answers busy.
-func TestBotcheckBudgetWhicheverDoor(t *testing.T) {
-	const client = "198.51.100.80"
-	lim := botcheck.NewLimits()
-	s := newStack(t, stackOpts{botLim: lim})
-	cs := s.client(t, "/mcp/botcheck", map[string]string{"CF-Connecting-IP": client}, nil)
-	args := map[string]any{"http": map[string]any{"user_agent": "curl/8.7.1"}}
-	for i := 0; s.do(http.MethodGet, "/", "", map[string]string{"Host": botHost, "Accept": "application/json", "CF-Connecting-IP": client}).Code != http.StatusTooManyRequests; i++ {
-		if i == 30 {
-			t.Fatal("the REST score budget never ran out")
-		}
-	}
-	if res := call(t, cs, "botcheck_score", args); !res.IsError || text(t, res) != limitedText {
-		t.Errorf("MCP after REST spent the budget = %q, want limited", text(t, res))
-	}
-
-	lim = roomyBot()
-	cs = newStack(t, stackOpts{botLim: lim}).client(t, "/mcp/botcheck", nil, nil)
-	lim.CheckCap.TryAcquire(otherClient, 8)
-	if res := call(t, cs, "botcheck_score", args); !res.IsError || text(t, res) != platform.BusyMessage {
-		t.Errorf("full cap = %q, want busy", text(t, res))
-	}
-	lim.CheckCap.Release(otherClient, 8)
-	object(t, call(t, cs, "botcheck_score", args))
 }

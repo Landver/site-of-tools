@@ -12,8 +12,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// endpoint is one MCP server: /mcp (name ""), a toolset's /mcp/<name>, or the
-// owner's. Its tool list is fixed for the life of the process.
 type endpoint struct {
 	name   string
 	path   string
@@ -24,8 +22,7 @@ type endpoint struct {
 // toolName is what every client accepts: the Claude API rejects dots.
 var toolName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
-// routing tells a model on /mcp which of two similar tools in different
-// toolsets fits; a toolset's own server never names another's tools.
+// routing tells a model on /mcp which of two look-alike tools fits.
 var routing = []struct {
 	tools []string
 	text  string
@@ -36,9 +33,7 @@ var routing = []struct {
 		"link_percent_encode is URL percent-encoding; cipher_encode converts bytes between text, hex, base64 and base32."},
 }
 
-// buildEndpoints makes one server per endpoint: every public tool at /mcp,
-// each toolset with a tool at /mcp/<toolset>, and the owner's endpoint when
-// ownerOn. A toolset left without tools has no endpoint (404).
+// buildEndpoints gives /mcp every public tool, and each toolset with a tool its own server.
 func buildEndpoints(public, owner []toolSpec, ownerOn bool, m *calls, base string) (map[string]*endpoint, error) {
 	seen, known := map[string]bool{}, map[string]bool{}
 	for _, ts := range toolsets {
@@ -91,8 +86,8 @@ func newServer(ep *endpoint, impl *mcp.Implementation, m *calls) *mcp.Server {
 	}
 	srv := mcp.NewServer(impl, &mcp.ServerOptions{
 		Instructions: instructions(ep),
-		// Left nil, the SDK advertises deprecated logging and infers
-		// listChanged, and then subscriptions/listen holds a stream open.
+		// Left nil, the SDK advertises logging and listChanged, and then
+		// subscriptions/listen holds a stream open.
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: false}},
 		SetCacheable: func(_ context.Context, _ mcp.Request, c *mcp.Cacheable) {
 			c.TTLMs, c.CacheScope = int(time.Hour/time.Millisecond), scope
@@ -107,28 +102,23 @@ func newServer(ep *endpoint, impl *mcp.Implementation, m *calls) *mcp.Server {
 	return srv
 }
 
-// instructions name only the tools this endpoint serves, since a client may
-// connect to any one of them.
+// instructions name only this endpoint's tools: a client may connect to any one.
 func instructions(ep *endpoint) string {
 	var b strings.Builder
 	b.WriteString("Free network and developer tools from corpberry.com, running the same code as its web pages and JSON API. ")
 	if ep.name == ownerEndpoint {
 		b.WriteString("This is the site owner's endpoint. ")
 	}
-	if len(ep.specs) == 0 {
-		b.WriteString("It serves no tools yet. ")
-	} else {
-		names := make([]string, len(ep.specs))
-		have := make(map[string]bool, len(ep.specs))
-		for i, s := range ep.specs {
-			names[i] = s.tool.Name + " (" + s.tool.Title + ")"
-			have[s.tool.Name] = true
-		}
-		b.WriteString("Tools here: " + strings.Join(names, ", ") + ". ")
-		for _, r := range routing {
-			if !slices.ContainsFunc(r.tools, func(t string) bool { return !have[t] }) {
-				b.WriteString(r.text + " ")
-			}
+	names := make([]string, len(ep.specs))
+	have := make(map[string]bool, len(ep.specs))
+	for i, s := range ep.specs {
+		names[i] = s.tool.Name + " (" + s.tool.Title + ")"
+		have[s.tool.Name] = true
+	}
+	b.WriteString("Tools here: " + strings.Join(names, ", ") + ". ")
+	for _, r := range routing {
+		if !slices.ContainsFunc(r.tools, func(t string) bool { return !have[t] }) {
+			b.WriteString(r.text + " ")
 		}
 	}
 	b.WriteString("Each tool shares its rate limit with its JSON API, and a refused call says when to try again. " +
@@ -136,7 +126,6 @@ func instructions(ep *endpoint) string {
 	return b.String()
 }
 
-// version is the build's VCS revision, or "dev" for a build without one.
 func version() string {
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, s := range bi.Settings {

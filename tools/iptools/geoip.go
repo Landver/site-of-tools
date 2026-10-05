@@ -29,9 +29,8 @@ type Result struct {
 	ASName      string  `json:"as_name"`
 	Proxy       *Proxy  `json:"proxy,omitempty"`
 	// Blocklist: abuse/threat reputation from shared ip_blocklist corpus
-	// (G37), set by LookupWithReputation (NOT by Lookup — separate
-	// repository). nil = not checked (corpus off); non-nil = checked,
-	// Listed() false when clean.
+	// (G37), handler-populated (NOT by Lookup — separate repository). nil =
+	// not checked (corpus off); non-nil = checked, Listed() false when clean.
 	Blocklist *BlockLookup `json:"blocklist,omitempty"`
 	// Shodan: open-port intel for looked-up IP from Shodan free InternetDB
 	// (handler-populated, best-effort — NOT by Lookup, same shape as Blocklist).
@@ -39,6 +38,9 @@ type Result struct {
 	// for Found semantics. Attribution to Shodan shown in result card.
 	Shodan *ShodanInfo `json:"shodan,omitempty"`
 }
+
+// ShodanConsulted: was InternetDB asked about r? Its credit hangs on that.
+func (r *Result) ShodanConsulted() bool { return r != nil && r.Shodan != nil && !r.Shodan.Skipped }
 
 // Proxy: IP2Proxy view (VPN / proxy / threat). Populated only when PX12
 // database loaded + lookup succeeds.
@@ -74,8 +76,7 @@ func (s *Service) WithShodan(sh *Shodan) *Service {
 	return s
 }
 
-// Offline returns a copy of s, sharing its open databases, that never calls
-// Shodan. Nil-safe.
+// Offline is s without Shodan, sharing its open databases. Nil-safe.
 func (s *Service) Offline() *Service {
 	if s == nil {
 		return nil
@@ -195,9 +196,8 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 	return res, nil
 }
 
-// LookupWithReputation looks ip up via svc and, when chk is set, attaches the
-// blocklist reputation. A failed blocklist read leaves Blocklist nil (not
-// checked), never an empty "clean" lookup.
+// LookupWithReputation is svc's lookup plus, when chk is set, the blocklist
+// reputation; a failed read leaves Blocklist nil (not checked), never "clean".
 func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip string) (*Result, error) {
 	if svc == nil {
 		return nil, ErrUnavailable
@@ -212,8 +212,7 @@ func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip strin
 	return res, nil
 }
 
-// Routable reports whether ip is a public address worth geolocating: not
-// loopback, private, link-local or unspecified.
+// Routable reports whether ip is a public address worth geolocating.
 func Routable(ip string) bool {
 	a := net.ParseIP(ip)
 	return a != nil && !a.IsLoopback() && !a.IsPrivate() &&

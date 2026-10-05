@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -94,9 +95,8 @@ type EgressGuard struct {
 	// the database host). Belt and braces beyond the address check, since those
 	// hosts resolve to public addresses and would otherwise pass.
 	denyHosts map[string]bool
-	// denyAddrs, denyPrefixes: this machine's interface addresses plus the
-	// literal addresses and prefixes the caller listed, checked at dial time.
-	// Stops a request looping back into the origin behind Cloudflare.
+	// denyAddrs, denyPrefixes: the interface addresses and the caller's deny
+	// list, checked at dial time, so a request can't loop back into the origin.
 	denyAddrs    map[netip.Addr]bool
 	denyPrefixes []netip.Prefix
 	// allowLoopback: test-only seam. Never set in production; the constructor
@@ -104,13 +104,12 @@ type EgressGuard struct {
 	allowLoopback bool
 }
 
-// NewEgressGuard builds a guard allowing only the given ports, refusing every
-// address of every local interface, and refusing each deny entry: a hostname,
-// a literal address or a CIDR prefix, bare, as host:port or inside a URL.
+// NewEgressGuard builds a guard allowing only the given ports, refusing the
+// given hosts, addresses and prefixes, and every address of every local interface.
 //
 // Enumerating local interfaces can fail on an unusual host; that is non-fatal
-// and only forfeits the self-connection check, which the deny list and the
-// routable check already cover in the ordinary case.
+// and only forfeits the self-connection check, which the hostname deny list and
+// the routable check already cover in the ordinary case.
 func NewEgressGuard(ports []string, deny []string) *EgressGuard {
 	g := &EgressGuard{
 		ports:     make(map[string]bool, len(ports)),
@@ -197,9 +196,8 @@ func (g *EgressGuard) AllowHost(host string) error {
 	return nil
 }
 
-// AllowAddr reports whether addr may be sent anything, on any port: Control's
-// address check, for callers that send outside the port allowlist (DNS probes
-// on 53).
+// AllowAddr is Control's address check alone, for packets outside the port
+// allowlist (DNS probes on 53).
 func (g *EgressGuard) AllowAddr(addr netip.Addr) error {
 	if g == nil || !g.permitted(addr) {
 		return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
@@ -264,16 +262,20 @@ func (g *EgressGuard) DialContext(timeout time.Duration) func(context.Context, s
 	return d.DialContext
 }
 
+// Transport makes every connection a fresh dial through g. A proxy would make
+// g judge the proxy, not the destination; a pooled connection would skip g.
+func (g *EgressGuard) Transport(timeout time.Duration) *http.Transport {
+	return &http.Transport{Proxy: nil, DialContext: g.DialContext(timeout), DisableKeepAlives: true}
+}
+
 // RateLimitKey normalises a client IP into a rate-limiting identifier.
 //
 // A bare IP is not a usable key over IPv6: an ordinary residential or mobile
 // client is handed a /64, i.e. 2^64 addresses, so a per-address bucket is no
 // limit at all — and every distinct address also allocates a bucket that is
 // held for the store's expiry window, which makes it a memory-growth path too.
-// IPv4 keys on the full address; IPv6 keys on the /64 prefix. A key passed
-// back in comes out unchanged, so a caller holding either reaches one bucket.
-// Anything else unparseable shares a single bucket: forged junk in
-// CF-Connecting-IP must not mint a fresh budget per value.
+// IPv4 keys on the full address; IPv6 keys on the /64 prefix.
+// Unparseable junk (a forged CF-Connecting-IP) shares one bucket, not one per value.
 func RateLimitKey(ip string) string {
 	s := strings.TrimSpace(ip)
 	if addr, err := netip.ParseAddr(s); err == nil {

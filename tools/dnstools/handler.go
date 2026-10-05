@@ -58,10 +58,7 @@ type handler struct {
 	lim *Limits
 }
 
-// Limits are this tool's budgets, built once and shared by every door. One
-// lookup fans out to up to 8 upstream queries, which is the difference between
-// a tool and an open DNS proxy (reports/abuse-ratelimits-and-ethics.md); a walk
-// (/consistency, /trace) costs 50 to 100.
+// Limits are shared by every door; a walk costs 50 to 100 upstream queries.
 type Limits struct {
 	Lookup, Walk       platform.Limiter
 	LookupCap, WalkCap *platform.Cap
@@ -70,8 +67,6 @@ type Limits struct {
 	DomainCap *platform.Cap
 }
 
-// NewLimits returns fresh budgets: lookups 2/s (burst 10), walks one per 2 s
-// (burst 3); 8 lookups, 4 walks and 4 domain reports in flight.
 func NewLimits() *Limits {
 	return &Limits{
 		Lookup:    platform.NewLimiter(2, 10),
@@ -103,13 +98,7 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 		lim = NewLimits()
 	}
 	h := &handler{svc: svc, geo: geo, dom: dom, block: bl, lim: lim}
-	// The same *Service satisfies both interfaces; a test can pass a fake that
-	// only implements one.
-	h.spr, _ = svc.(Spreader)
-	h.mail, _ = svc.(Mailer)
-	h.tra, _ = svc.(Tracer)
-	h.ecs, _ = svc.(ECSer)
-	h.rep, _ = svc.(Reputer)
+	h.spr, h.ecs, h.tra, h.mail, h.rep = Checks(svc)
 	lookup := platform.RateLimit(lim.Lookup, bare, limited)
 	walk := platform.RateLimit(lim.Walk, bare, limited)
 	e.GET("/", h.index, lookup)
@@ -119,8 +108,7 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 	e.GET("/email", h.email, lookup)
 }
 
-// reply is platform.Reply plus this tool's fragments also carrying the nav,
-// title and status line out of band (dns/oob).
+// reply is platform.Reply with the nav, title and status line out of band (dns/oob).
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
 	if platform.IsHTMX(c) {
 		vm["OOB"] = true
@@ -184,10 +172,11 @@ func needName(c *echo.Context, name string, vm map[string]any, page, frag, examp
 // or 502: the caller asked correctly and no upstream failed us, the feature
 // simply is not running.
 func unavailable(c *echo.Context, vm map[string]any, page, frag string) error {
-	const msg = "This check isn't available right now."
-	vm["Error"] = msg
-	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, frag)
+	vm["Error"] = UnavailableMessage
+	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": UnavailableMessage}, vm, page, frag)
 }
+
+const UnavailableMessage = "This check isn't available right now."
 
 // answered renders the outcome of a domain-layer call: the struct on success,
 // the mapped status and the named error on failure. Callers attach their own
@@ -342,8 +331,7 @@ func (h *handler) consistency(c *echo.Context) error {
 
 	env, err := Consistency(c.Request().Context(), h.spr, h.ecs, h.geo, h.dom, c.QueryParam("name"), c.QueryParam("type"))
 	if err == nil {
-		// A nil ECS is falsy to {{with}}, so the card renders nothing when the
-		// check did not run.
+		// A nil ECS is falsy to {{with}}: no card when the check didn't run.
 		vm["Spread"], vm["ECS"] = env.Spread, env.ECS
 	}
 	return answered(c, name, env, err, vm, "dns/consistency", "dns/spread")
@@ -381,9 +369,6 @@ func (h *handler) trace(c *echo.Context) error {
 // bare pages query nothing, so they don't count.
 func bare(c *echo.Context) bool { return strings.TrimSpace(c.QueryParam("name")) == "" }
 
-// limited answers a spent budget, negotiated three ways like every other
-// response here. Rendering one route's fragment to everyone gave browsers an
-// unstyled partial and htmx nothing it would swap.
 func limited(c *echo.Context) error {
 	const msg = "Too many lookups from your IP address. One lookup asks several upstream servers, so this tool is rate limited. Try again in a second."
 	active := strings.TrimPrefix(c.Request().URL.Path, "/")
@@ -425,11 +410,8 @@ func (h *handler) index(c *echo.Context) error {
 	if done, err := needName(c, name, vm, "dns/index", "dns/result", "/?name=example.com&type=A"); done {
 		return err
 	}
-	// No "your request" connection card here, unlike iptools/botcheck: this
-	// tool answers questions about someone else's domain, so the visitor's own
-	// connection is a non-sequitur. The DNS-relevant version of that idea is
-	// resolver identity ("which resolver do YOU use"), which needs a delegated
-	// beacon zone and is Tier 2 (02-build-fit.md §4).
+	// No "your request" card, unlike iptools/botcheck: the question is about
+	// someone else's domain, not the visitor's connection.
 	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
 		return busy(c, vm, "dns/index", "dns/result")
 	}

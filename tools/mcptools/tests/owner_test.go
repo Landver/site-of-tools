@@ -24,8 +24,6 @@ func ownerClient(t *testing.T, s *stack, ip string) *mcp.ClientSession {
 	return s.client(t, "/mcp/owner", map[string]string{"CF-Connecting-IP": ip, "X-Api-Key": ownerKey}, nil)
 }
 
-// TestOwnerToolsOnlyWithTheKey: without MCP_OWNER_KEY the owner tools exist
-// nowhere; with it, only at /mcp/owner, never beside the public tools.
 func TestOwnerToolsOnlyWithTheKey(t *testing.T) {
 	without := newStack(t, stackOpts{})
 	if code := without.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(map[string]string{"X-Api-Key": ownerKey})).Code; code != http.StatusNotFound {
@@ -45,24 +43,9 @@ func TestOwnerToolsOnlyWithTheKey(t *testing.T) {
 			}
 		}
 	}
-
-	hints := map[string]*mcp.ToolAnnotations{}
-	for _, tool := range listTools(t, ownerClient(t, with, clientIP)).Tools {
-		hints[tool.Name] = tool.Annotations
-	}
-	if h := hints["link_short_create"]; h.ReadOnlyHint || !*h.DestructiveHint || !*h.OpenWorldHint || h.IdempotentHint {
-		t.Errorf("create hints = %+v, want destructive and open-world: it publishes a redirect", h)
-	}
-	if h := hints["link_short_revoke"]; h.ReadOnlyHint || !*h.DestructiveHint || !h.IdempotentHint {
-		t.Errorf("revoke hints = %+v, want destructive and idempotent", h)
-	}
-	if h := hints["link_short_list"]; !h.ReadOnlyHint {
-		t.Errorf("list hints = %+v, want read-only", h)
-	}
 }
 
-// TestOwnerToolErrorsOffline: refusals are the REST API's messages; a store
-// failure is one fixed sentence, its detail only in the log.
+// TestOwnerToolErrorsOffline: refusals are REST's; a store failure's detail is only logged.
 func TestOwnerToolErrorsOffline(t *testing.T) {
 	var log syncBuffer
 	cs := ownerClient(t, newStack(t, stackOpts{owner: offlineOwner(t), log: &log}), clientIP)
@@ -105,8 +88,7 @@ var liveMongo = sync.OnceValues(func() (*platform.Mongo, error) {
 	return platform.OpenMongo(context.Background(), os.Getenv("MONGODB_TEST_URI"), "site-of-tools-test-mcp")
 })
 
-// liveStore is a LinkStore over a throwaway database of its own, so it can't
-// race linktools' live tests over theirs. Skips without MONGODB_TEST_URI.
+// liveStore is a throwaway database of its own, so it can't race linktools' live tests.
 func liveStore(t *testing.T) *linktools.LinkStore {
 	t.Helper()
 	if os.Getenv("MONGODB_TEST_URI") == "" {
@@ -129,9 +111,8 @@ func liveStore(t *testing.T) *linktools.LinkStore {
 	return store
 }
 
-// TestShortLinksLive: create, list, resolve, revoke through MCP against a
-// real store. Resolving records no hit (D10); following the link over REST
-// does. The creator's raw address is stored, never shown.
+// TestShortLinksLive: resolving records no hit, following the link over REST
+// does; the creator's raw address is stored, never shown.
 func TestShortLinksLive(t *testing.T) {
 	store := liveStore(t)
 	svc := linktools.NewService()

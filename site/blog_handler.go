@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -57,13 +56,13 @@ func (b *Blog) reload() error {
 	return nil
 }
 
-// Posts returns the published posts, newest first. The slice is the
-// caller's own: editing it never reaches the loaded set.
+// Posts returns the published posts, newest first.
 func (b *Blog) Posts() ([]Post, error) {
 	if b.dev {
+		// Fresh slice per request — no shared mutation under parallel requests.
 		return LoadPosts(b.fsys)
 	}
-	return slices.Clone(b.loaded), nil
+	return b.loaded, nil
 }
 
 // Post returns the published post with this slug, or ErrPostNotFound.

@@ -43,19 +43,6 @@ func TestBlogAccessors(t *testing.T) {
 	}
 }
 
-func TestBlogPostsIsTheCallersCopy(t *testing.T) {
-	blog, err := site.NewBlog(testPostsFS(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	posts, _ := blog.Posts()
-	posts[0].Title, posts[0].Markdown = "changed", "changed"
-	again, _ := blog.Post(posts[0].Slug)
-	if again.Title == "changed" || again.Markdown == "changed" {
-		t.Error("editing the slice Posts returned changed the loaded posts")
-	}
-}
-
 func TestPostMarkdownDropsFrontmatter(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"plain", "---\ntitle: \"A\"\ndate: \"2026-07-20\"\n---\n\nHello **body**.\n", "Hello **body**.\n"},

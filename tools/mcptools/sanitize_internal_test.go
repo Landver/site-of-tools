@@ -9,8 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// White-box: the sanitizer's edge cases need inputs no tool can produce yet
-// (map keys from a third party, nesting, non-object results).
+// White-box: these edge cases need inputs no tool produces yet.
 
 func TestClean(t *testing.T) {
 	long := strings.Repeat("a", 10<<10)
@@ -113,8 +112,7 @@ func TestSanitizeKeepsOrderOfLists(t *testing.T) {
 	}
 }
 
-// A whole result, such as a generated RSA-4096 key, keeps its long strings;
-// invisible characters are still shown and the hard cap still holds.
+// A whole result keeps its long strings, but invisible characters and the hard cap still apply.
 func TestSanitizeWhole(t *testing.T) {
 	pem := strings.Repeat("k", 3300)
 	raw, _ := json.Marshal(map[string]any{"private_pem": pem, "text": "a\u202eb"})

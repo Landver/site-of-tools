@@ -1,7 +1,5 @@
-{{/* mcp.corpberry.com landing page, also what a browser gets at /mcp and each
-     /mcp/<toolset>. Built from the live servers (handler.go, describe), so it
-     lists exactly the tools served. The owner's endpoint is deliberately
-     absent. */}}
+{{/* The landing page, also a browser's answer at /mcp and /mcp/<toolset>,
+     rendered from the catalog of the servers themselves (handler.go). */}}
 {{define "mcp/index"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -140,8 +138,8 @@
         Per client address (an IPv6 address counts by its /64), and shared with each tool's JSON API: a call here
         spends the budget the same request to the tool's own site would. Each tool's rate and burst are listed
         beside it below. Every other message, such as <code class="font-mono text-strong">tools/list</code>, counts
-        against 5 a second (burst 20), and all requests to <code class="font-mono text-strong">/mcp</code> from one
-        address against 20 a second (burst 100). Some tools also have a budget every caller shares, of calls
+        against {{with .Protocol}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}, and all requests to <code class="font-mono text-strong">/mcp</code> from one
+        address against {{with .PerIP}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}. Some tools also have a budget every caller shares, of calls
         running at once or calls a second. A refused call is an error result saying to try again in a few seconds.
         Hosted connectors share their provider's addresses, and so their budgets.
       </p>
@@ -151,8 +149,8 @@
     <section class="mt-10">
       <h2 class="eyebrow">{{.Title}}</h2>
       <p class="mt-2 text-sm text-muted">
-        {{with .Site}}On the web and as a JSON API at <a href="{{.}}" class="link-inline">{{.}}</a>.{{end}}
-        {{with .Credits}}Data from {{range $i, $c := .}}{{if $i}}, {{end}}<a href="{{$c.URL}}" class="link-inline">{{$c.Source}}</a>{{end}}.{{end}}
+        {{with .REST}}On the web and as a JSON API at <a href="{{.}}" class="link-inline">{{.}}</a>.{{end}}
+        {{with .Attribution}}Data from {{range $i, $c := .}}{{if $i}}, {{end}}<a href="{{$c.URL}}" class="link-inline">{{$c.Source}}</a>{{end}}.{{end}}
       </p>
       <div class="mt-3 divide-y divide-line rounded-lg border border-line">
         {{range .Tools}}
@@ -160,9 +158,9 @@
           <div class="flex flex-wrap items-baseline gap-2">
             <span class="font-mono text-sm font-medium text-strong">{{.Name}}</span>
             <span class="text-sm text-muted">{{.Title}}</span>
-            {{if .ReadOnly}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">read-only</span>{{end}}
+            {{if .Annotations.ReadOnlyHint}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">read-only</span>{{end}}
             {{if .OpenWorld}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">reaches the internet</span>{{end}}
-            <span class="ml-auto font-mono text-xs text-faint">{{.Rate}}</span>
+            <span class="ml-auto font-mono text-xs text-faint">{{.RateLimit}}</span>
           </div>
           <p class="mt-2 text-sm text-body wrap-anywhere">{{.Description}}</p>
         </div>

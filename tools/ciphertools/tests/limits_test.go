@@ -29,8 +29,8 @@ func cipherAppWith(lim *ciphertools.Limits) *echo.Echo {
 
 const signBody = `{"alg":"HS256","key":"0123456789abcdef0123456789abcdef","payload":"{}","now":1700000000}`
 
-// Signing accepts RSA-8192 keys, so it is Heavy: 1/s with burst 5, on a budget
-// shared by every app built with the same Limits, while light ops stay at 10/s.
+// Signing accepts RSA-8192 keys, so it is Heavy, on a budget every app with the
+// same Limits shares.
 func TestJWTSignIsHeavy(t *testing.T) {
 	if op, _ := ciphertools.Lookup("jwt-sign"); !op.Heavy {
 		t.Fatal("jwt-sign is not Heavy")
@@ -51,7 +51,6 @@ func TestJWTSignIsHeavy(t *testing.T) {
 	}
 }
 
-// post sends one op and fails the test if it waits: a full cap refuses.
 func post(t *testing.T, e *echo.Echo, path, body, contentType string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -65,9 +64,7 @@ func post(t *testing.T, e *echo.Echo, path, body, contentType string, headers ma
 	}
 }
 
-// Heavy ops share a memory budget, weighed by what they allocate: a flat 16 MiB
-// op fits in the last 16 MiB, a 64 MiB Argon2 does not, and a light op never
-// asks.
+// Heavy ops share a memory budget weighed by what they allocate; a light op never asks.
 func TestHeavyOpsShareAMemoryBudget(t *testing.T) {
 	lim := ciphertools.NewLimits()
 	const budget, flat = 256 << 20, 16 << 20
