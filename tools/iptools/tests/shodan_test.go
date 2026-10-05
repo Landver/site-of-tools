@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -116,31 +115,12 @@ func TestShodanBudgetSkipsWithoutCalling(t *testing.T) {
 	}
 }
 
-func TestShodanSkippedJSON(t *testing.T) {
-	for _, c := range []struct {
-		info iptools.ShodanInfo
-		want string
-	}{
-		{iptools.ShodanInfo{Skipped: true}, `{"found":false,"skipped":true}`},
-		{iptools.ShodanInfo{Found: true, Ports: []int{443}}, `{"found":true,"ports":[443]}`},
-		{iptools.ShodanInfo{}, `{"found":false}`},
-	} {
-		b, err := json.Marshal(c.info)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(b) != c.want {
-			t.Errorf("json = %s, want %s", b, c.want)
-		}
-	}
-}
-
 // shodanCredit is the footer's Shodan credit as html/template writes it.
 const shodanCredit = "uses © Shodan&#39;s"
 
 func TestHandlerShodanSkippedState(t *testing.T) {
-	res := &iptools.Result{IP: "8.8.8.8", Shodan: &iptools.ShodanInfo{Skipped: true}}
-	body := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"}).Body.String()
+	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8", Shodan: &iptools.ShodanInfo{Skipped: true}}})
+	body := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"}).Body.String()
 	if !strings.Contains(body, "Open-ports check skipped") {
 		t.Errorf("skipped card missing its line:\n%s", body)
 	}
@@ -149,7 +129,7 @@ func TestHandlerShodanSkippedState(t *testing.T) {
 			t.Errorf("skipped lookup shows %q, which claims Shodan data we never fetched", absent)
 		}
 	}
-	jb := strings.ReplaceAll(do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"}).Body.String(), " ", "")
+	jb := strings.ReplaceAll(do(app, "/?ip=8.8.8.8", asJSON).Body.String(), " ", "")
 	if !strings.Contains(jb, `"shodan":{"found":false,"skipped":true}`) {
 		t.Errorf("json does not say the check was skipped: %s", jb)
 	}

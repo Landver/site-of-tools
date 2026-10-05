@@ -44,7 +44,7 @@ type EmailAuth struct {
 	// round-trip gets scored down without anything in DNS looking wrong.
 	MailHosts []MailHost `json:"mail_hosts,omitempty"`
 	// MXRep: are these mail servers on a blocklist? Filled by EmailReport
-	// from the shared corpus, which EmailAuth cannot reach itself.
+	// from the shared corpus, which the domain layer cannot reach itself.
 	MXRep *MXReputation `json:"mx_reputation,omitempty"`
 	// MXCount: how many MX records the domain publishes, which is not always
 	// len(MailHosts) — the FCrDNS fan-out stops at maxMailHosts, and a verdict
@@ -237,17 +237,12 @@ var commonDKIMSelectors = []string{
 // with deeply nested includes turns one click into unbounded DNS traffic.
 const maxSPFIncludes = 15
 
-// Mailer is apart from Looker so a test can fake it alone.
 type Mailer interface {
 	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
 }
 
-// EmailReport is GET /email: EmailAuth plus, when rep and bl are wired, the
-// mail servers' reputation; a corpus that is off leaves MXRep nil, not a failure.
+// EmailReport is GET /email: EmailAuth, plus MXRep when rep and bl are wired and answer.
 func EmailReport(ctx context.Context, mail Mailer, rep Reputer, bl BlockChecker, name string) (*EmailAuth, error) {
-	if mail == nil {
-		return nil, ErrDisabled
-	}
 	name = NormalizeName(name)
 	res, err := mail.EmailAuth(ctx, name)
 	if err != nil {
@@ -820,40 +815,23 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 // maxSTSAge is RFC 8461 §3.2's ceiling on max_age, a little over a year.
 const maxSTSAge = 31557600
 
-// maxQuotedHeader bounds a header the policy's server chose before a finding quotes it.
 const maxQuotedHeader = 100
 
-// mtaSTSTransport gates the policy fetch on g: any domain can point
-// mta-sts.<domain> wherever it likes, and the reply is reflected into the page.
-func mtaSTSTransport(g *platform.EgressGuard) *http.Transport {
+// policyClient dials through g: any domain can point mta-sts.<domain> anywhere.
+func policyClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
 	tr := g.Transport(5 * time.Second)
 	tr.TLSHandshakeTimeout = 5 * time.Second
-	return tr
+	return &http.Client{Timeout: timeout, Transport: tr,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
-// defaultMTASTSTransport serves a Service WithEgressGuard never configured.
-var defaultMTASTSTransport = mtaSTSTransport(platform.NewEgressGuard([]string{"443"}, nil))
-
-// WithEgressGuard sends the MTA-STS fetch (443 only) and every nameserver probe
-// through g. Nil-safe.
+// WithEgressGuard sends the MTA-STS fetch and every nameserver probe through g. Nil-safe.
 func (s *Service) WithEgressGuard(g *platform.EgressGuard) *Service {
 	if s != nil {
-		c := *s.http
-		c.Transport = mtaSTSTransport(g)
-		s.http = &c
+		s.http = policyClient(s.http.Timeout, g)
 		s.guard = g
 	}
 	return s
-}
-
-func (s *Service) policyClient() *http.Client {
-	c := *s.http
-	// NewService builds a bare client; nil here would mean DefaultTransport.
-	if c.Transport == nil {
-		c.Transport = defaultMTASTSTransport
-	}
-	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &c
 }
 
 func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, error) {
@@ -862,7 +840,7 @@ func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, err
 		return "", err
 	}
 	req.Header.Set("User-Agent", domainUserAgent)
-	resp, err := s.policyClient().Do(req)
+	resp, err := s.http.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("policy file unreachable")
 	}

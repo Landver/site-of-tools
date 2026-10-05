@@ -83,10 +83,8 @@ var cipherTools = map[string]cipherTool{
 			"candidates are ranked by confidence, each with the reason and the cipher.corpberry.com page that reads it. Example: text 5d41402abc4b2a76b9719d911017c592."},
 }
 
-// maxSafeInt is the largest integer every JSON parser reads exactly.
 const maxSafeInt = 1<<53 - 1
 
-// cipherSpecs is one tool per op; an op without words here stops the boot.
 func cipherSpecs(d Deps) ([]toolSpec, error) {
 	lim := d.CipherLimits
 	ops := ciphertools.Ops()
@@ -149,8 +147,7 @@ func cipherInput(op ciphertools.Op, args map[string]any) (ciphertools.Input, err
 	return ciphertools.InputFromJSON(args)
 }
 
-// cipherSchema is op's input schema. A JSON field stays a string: re-encoding
-// a payload would reorder the claims it signs. A file field has no JSON form.
+// A JSON field stays a string: re-encoding a payload would reorder the claims it signs.
 func cipherSchema(op ciphertools.Op) *jsonschema.Schema {
 	s := &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{},
 		AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}}
@@ -186,30 +183,14 @@ func cipherSchema(op ciphertools.Op) *jsonschema.Schema {
 		default:
 			panic("cipher field " + op.Name + " " + f.Name + " has unknown kind " + string(f.Kind))
 		}
-		// The SDK fills a default in before the handler runs (see defaultTo).
+		s.Properties[f.Name] = p
+		s.PropertyOrder = append(s.PropertyOrder, f.Name)
 		if f.Default != "" {
-			raw, err := json.Marshal(def)
-			if err != nil {
-				panic(err)
-			}
-			p.Default = raw
+			defaultTo(f.Name, def)(s)
 		}
 		if f.Required {
 			s.Required = append(s.Required, f.Name)
 		}
-		s.Properties[f.Name] = p
-		s.PropertyOrder = append(s.PropertyOrder, f.Name)
 	}
 	return s
-}
-
-func values(enum []string, ints bool) []any {
-	out := make([]any, len(enum))
-	for i, v := range enum {
-		out[i] = v
-		if n, err := strconv.Atoi(v); ints && err == nil {
-			out[i] = n
-		}
-	}
-	return out
 }

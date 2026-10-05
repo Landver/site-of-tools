@@ -38,8 +38,7 @@ func init() {
 		}})
 }
 
-// maxBatch caps count for tokens and passwords; randomCountField's own
-// maximum is the UUIDs'.
+// maxBatch caps count for tokens and passwords; randomCountField's Max is the UUIDs'.
 const maxBatch = 20
 
 var (

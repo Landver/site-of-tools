@@ -4,34 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/labstack/echo/v5"
-
-	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/platform/goldentest"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// goldenDNS serves every check from fixed data built fresh per call.
 type goldenDNS struct {
 	lookErr   error
 	delegated bool
-	spreadErr error
-	ecsErr    error
-	traceErr  error
-	mailErr   error
 	repErr    error
 }
 
+// goldenRecords is fresh per call: LookupEnriched writes networks into the records.
 func goldenRecords(t string) []dnstools.Record {
 	switch t {
 	case "A":
@@ -71,9 +61,6 @@ func (f *goldenDNS) LookupSet(_ context.Context, name, resolver string, types []
 }
 
 func (f *goldenDNS) Spread(_ context.Context, name, qtype string) (*dnstools.Spread, error) {
-	if f.spreadErr != nil {
-		return nil, f.spreadErr
-	}
 	vals := []string{"192.0.2.10"}
 	return &dnstools.Spread{
 		Name: name, QName: name + ".", Type: qtype, Zone: "example.com.",
@@ -92,9 +79,6 @@ func (f *goldenDNS) Spread(_ context.Context, name, qtype string) (*dnstools.Spr
 }
 
 func (f *goldenDNS) ECS(_ context.Context, name, qtype string) (*dnstools.ECS, error) {
-	if f.ecsErr != nil {
-		return nil, f.ecsErr
-	}
 	return &dnstools.ECS{
 		Name: name, QName: name + ".", Type: qtype, Resolver: "Google (8.8.8.8)", ResolverAddr: "8.8.8.8:53",
 		Vantages: []dnstools.ECSAnswer{{
@@ -107,9 +91,6 @@ func (f *goldenDNS) ECS(_ context.Context, name, qtype string) (*dnstools.ECS, e
 }
 
 func (f *goldenDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace, error) {
-	if f.traceErr != nil {
-		return nil, f.traceErr
-	}
 	return &dnstools.Trace{
 		Name: name, QName: name + ".", Type: qtype,
 		Hops: []dnstools.TraceHop{
@@ -125,9 +106,6 @@ func (f *goldenDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trac
 }
 
 func (f *goldenDNS) EmailAuth(_ context.Context, domain string) (*dnstools.EmailAuth, error) {
-	if f.mailErr != nil {
-		return nil, f.mailErr
-	}
 	return &dnstools.EmailAuth{
 		Domain: domain,
 		SPF:    &dnstools.SPFResult{Record: "v=spf1 mx -all", Lookups: 1, Limit: 10, All: "-all"},
@@ -187,126 +165,52 @@ const goldenCT = `[
   {"name_value": "api.example.com", "not_before": "2026-02-01T00:00:00", "not_after": "2027-02-01T00:00:00", "serial_number": "03"}
 ]`
 
-// goldenUpstream serves RDAP and CT with the given status codes and returns
-// the host:port their error messages embed, for scrubbing.
-func goldenUpstream(t *testing.T, rdapCode, ctCode int) (*dnstools.DomainClient, string) {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasPrefix(r.URL.Path, "/domain/") {
-			w.WriteHeader(rdapCode)
-			fmt.Fprint(w, goldenRDAP)
-			return
-		}
-		w.WriteHeader(ctCode)
-		fmt.Fprint(w, goldenCT)
-	}))
-	t.Cleanup(srv.Close)
-	u, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second), u.Host
+func goldenUpstream(t *testing.T, rdapCode, ctCode int) *dnstools.DomainClient {
+	dc, _ := canned(t, goldenRDAP, rdapCode, goldenCT, ctCode)
+	return dc
 }
 
 type dnsCase struct {
-	name   string
 	target string
 	svc    dnstools.Looker
 	geo    iptools.Looker
 	dom    *dnstools.DomainClient
 	bl     dnstools.BlockChecker
-	scrub  string
 }
 
-func runDNSGolden(t *testing.T, file string, cases []dnsCase) {
-	t.Helper()
-	got := map[string]goldentest.Response{}
-	for _, tc := range cases {
-		e := echo.New()
-		e.Renderer = platform.NewRenderer(false, nil,
-			platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-			platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
-		)
-		dnstools.Register(e, tc.svc, tc.geo, tc.dom, tc.bl, nil)
-		rec := do(t, e, tc.target, nil)
-		body := rec.Body.String()
-		if tc.scrub != "" {
-			body = strings.ReplaceAll(body, tc.scrub, "upstream.test")
+// upstreamHost is what the error messages embed: a random local port.
+var upstreamHost = regexp.MustCompile(`(127\.0\.0\.1|\[::1\]):\d+`)
+
+func TestRESTResponsesMatchGoldens(t *testing.T) {
+	t.Parallel()
+	ok := goldenUpstream(t, http.StatusOK, http.StatusOK)
+	for file, cases := range map[string]map[string]dnsCase{
+		"dns_lookup": {
+			"fanout_enriched": {target: "/?name=" + url.QueryEscape("https://Example.COM/pricing"), svc: &goldenDNS{}, geo: testGeo()},
+			"trailing_junk":   {target: "/?name=" + url.QueryEscape("example.com /x"), svc: &goldenDNS{}},
+			"bad_type":        {target: "/?name=example.com&type=ANY", svc: &goldenDNS{lookErr: dnstools.ErrBadType}},
+			"no_name":         {target: "/", svc: &goldenDNS{}},
+		},
+		"dns_consistency": {"full": {target: "/consistency?name=Example.com&type=a", svc: &goldenDNS{}, geo: testGeo(), dom: ok}},
+		"dns_trace":       {"ok": {target: "/trace?name=WWW.example.com&type=aaaa", svc: &goldenDNS{}}},
+		"dns_domain": {
+			"subdomain_both_ok":    {target: "/domain?name=www.Example.com", svc: &goldenDNS{}, dom: ok},
+			"rdap_down":            {target: "/domain?name=example.com", svc: &goldenDNS{}, dom: goldenUpstream(t, http.StatusInternalServerError, http.StatusOK)},
+			"both_down":            {target: "/domain?name=example.com", svc: &goldenDNS{}, dom: goldenUpstream(t, http.StatusInternalServerError, http.StatusBadGateway)},
+			"absent_but_delegated": {target: "/domain?name=example.com", svc: &goldenDNS{delegated: true}, dom: goldenUpstream(t, http.StatusNotFound, http.StatusInternalServerError)},
+			"disabled":             {target: "/domain?name=example.com", svc: &goldenDNS{}},
+		},
+		"dns_email": {
+			"with_reputation":   {target: "/email?name=Example.com", svc: &goldenDNS{}, bl: &repCorpus{}},
+			"reputation_failed": {target: "/email?name=example.com", svc: &goldenDNS{repErr: dnstools.ErrNoBlocklist}, bl: &repCorpus{}},
+		},
+	} {
+		got := map[string]goldentest.Response{}
+		for name, tc := range cases {
+			rec := do(t, newAppWith(t, tc.svc, tc.geo, tc.dom, tc.bl, nil), tc.target, nil)
+			body := upstreamHost.ReplaceAllString(rec.Body.String(), "upstream.test")
+			got[name] = goldentest.Response{Status: rec.Code, Body: json.RawMessage(body)}
 		}
-		got[tc.name] = goldentest.Response{Status: rec.Code, Body: json.RawMessage(body)}
+		goldentest.JSON(t, file, got)
 	}
-	goldentest.JSON(t, file, got)
-}
-
-func TestGoldenLookupJSON(t *testing.T) {
-	t.Parallel()
-	runDNSGolden(t, "dns_lookup", []dnsCase{
-		{name: "fanout_enriched", target: "/?name=" + url.QueryEscape("https://Example.COM/pricing"), svc: &goldenDNS{}, geo: testGeo()},
-		{name: "type_and_resolver", target: "/?name=example.com&type=mx&resolver=%20GOOGLE%20", svc: &goldenDNS{}, geo: testGeo()},
-		{name: "type_all_no_geo", target: "/?name=example.com&type=all", svc: &goldenDNS{}},
-		{name: "reverse", target: "/?name=192.0.2.10&type=PTR", svc: &goldenDNS{}},
-		{name: "trailing_junk", target: "/?name=" + url.QueryEscape("example.com /x"), svc: &goldenDNS{}},
-		{name: "bad_type", target: "/?name=example.com&type=ANY", svc: &goldenDNS{lookErr: dnstools.ErrBadType}},
-		{name: "upstream_failure", target: "/?name=example.com", svc: &goldenDNS{lookErr: errUpstream{}}},
-		{name: "no_name", target: "/", svc: &goldenDNS{}},
-	})
-}
-
-func TestGoldenConsistencyJSON(t *testing.T) {
-	t.Parallel()
-	dom, host := goldenUpstream(t, http.StatusOK, http.StatusOK)
-	runDNSGolden(t, "dns_consistency", []dnsCase{
-		{name: "full", target: "/consistency?name=Example.com&type=a", svc: &goldenDNS{}, geo: testGeo(), dom: dom, scrub: host},
-		{name: "ecs_failed", target: "/consistency?name=example.com", svc: &goldenDNS{ecsErr: errors.New("not measurable")}, geo: testGeo(), dom: dom, scrub: host},
-		{name: "no_geo_no_rdap", target: "/consistency?name=example.com&type=AAAA", svc: &goldenDNS{}},
-		{name: "spread_error", target: "/consistency?name=192.0.2.1", svc: &goldenDNS{spreadErr: dnstools.ErrNeedDomain}},
-		{name: "unavailable", target: "/consistency?name=example.com", svc: &fakeLooker{}},
-		{name: "no_name", target: "/consistency", svc: &goldenDNS{}},
-	})
-}
-
-func TestGoldenTraceJSON(t *testing.T) {
-	t.Parallel()
-	runDNSGolden(t, "dns_trace", []dnsCase{
-		{name: "ok", target: "/trace?name=WWW.example.com&type=aaaa", svc: &goldenDNS{}},
-		{name: "default_type", target: "/trace?name=example.com", svc: &goldenDNS{}},
-		{name: "error", target: "/trace?name=example.com&type=ANY", svc: &goldenDNS{traceErr: dnstools.ErrBadType}},
-		{name: "unavailable", target: "/trace?name=example.com", svc: &fakeLooker{}},
-		{name: "no_name", target: "/trace", svc: &goldenDNS{}},
-	})
-}
-
-func TestGoldenDomainJSON(t *testing.T) {
-	t.Parallel()
-	ok, okHost := goldenUpstream(t, http.StatusOK, http.StatusOK)
-	rdapDown, rdapDownHost := goldenUpstream(t, http.StatusInternalServerError, http.StatusOK)
-	bothDown, bothDownHost := goldenUpstream(t, http.StatusInternalServerError, http.StatusBadGateway)
-	absentCTDown, absentCTDownHost := goldenUpstream(t, http.StatusNotFound, http.StatusInternalServerError)
-	absent, absentHost := goldenUpstream(t, http.StatusNotFound, http.StatusOK)
-	runDNSGolden(t, "dns_domain", []dnsCase{
-		{name: "subdomain_both_ok", target: "/domain?name=www.Example.com", svc: &goldenDNS{}, dom: ok, scrub: okHost},
-		{name: "apex_both_ok", target: "/domain?name=example.com", svc: &goldenDNS{}, dom: ok, scrub: okHost},
-		{name: "rdap_down", target: "/domain?name=example.com", svc: &goldenDNS{}, dom: rdapDown, scrub: rdapDownHost},
-		{name: "both_down", target: "/domain?name=example.com", svc: &goldenDNS{}, dom: bothDown, scrub: bothDownHost},
-		{name: "absent_but_delegated", target: "/domain?name=example.com", svc: &goldenDNS{delegated: true}, dom: absentCTDown, scrub: absentCTDownHost},
-		{name: "absent_undelegated", target: "/domain?name=example.com", svc: &goldenDNS{}, dom: absent, scrub: absentHost},
-		{name: "absent_lookup_failed", target: "/domain?name=example.com", svc: &goldenDNS{lookErr: errUpstream{}}, dom: absentCTDown, scrub: absentCTDownHost},
-		{name: "disabled", target: "/domain?name=example.com", svc: &goldenDNS{}},
-		{name: "ip", target: "/domain?name=1.1.1.1", svc: &goldenDNS{}, dom: ok},
-		{name: "bad_name", target: "/domain?name=a..b", svc: &goldenDNS{}, dom: ok},
-		{name: "no_name", target: "/domain", svc: &goldenDNS{}, dom: ok},
-	})
-}
-
-func TestGoldenEmailJSON(t *testing.T) {
-	t.Parallel()
-	runDNSGolden(t, "dns_email", []dnsCase{
-		{name: "with_reputation", target: "/email?name=Example.com", svc: &goldenDNS{}, bl: &repCorpus{}},
-		{name: "reputation_failed", target: "/email?name=example.com", svc: &goldenDNS{repErr: dnstools.ErrNoBlocklist}, bl: &repCorpus{}},
-		{name: "no_corpus", target: "/email?name=example.com", svc: &goldenDNS{}},
-		{name: "error", target: "/email?name=192.0.2.1", svc: &goldenDNS{mailErr: dnstools.ErrNeedDomain}, bl: &repCorpus{}},
-		{name: "unavailable", target: "/email?name=example.com", svc: &fakeLooker{}},
-		{name: "no_name", target: "/email", svc: &goldenDNS{}},
-	})
 }

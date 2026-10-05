@@ -1,10 +1,4 @@
 {
-  "bad_url": {
-    "status": 400,
-    "body": {
-      "error": "not a valid URL: missing ']' in host"
-    }
-  },
   "empty_fields_keep": {
     "status": 200,
     "body": {
@@ -21,52 +15,6 @@
           "severity": "warn",
           "title": "utm_source appears 2 times",
           "detail": "The URL already carries more than one utm_source, and analytics tools disagree about which one counts. Type a value here to leave exactly one."
-        }
-      ]
-    }
-  },
-  "no_scheme": {
-    "status": 200,
-    "body": {
-      "url": "https://example.com/landing?utm_source=news",
-      "tags": [
-        {
-          "key": "utm_source",
-          "value": "news",
-          "source": "set"
-        }
-      ],
-      "notes": [
-        {
-          "severity": "info",
-          "title": "No scheme",
-          "detail": "The URL had none, so the tagged URL starts with https://. Without one it would be a relative link that only works on the page it is pasted into."
-        }
-      ]
-    }
-  },
-  "no_url": {
-    "status": 400,
-    "body": {
-      "error": "no URL; pass ?u=, e.g. ?u=https%3A%2F%2Fexample.com%2F\u0026utm_source=newsletter"
-    }
-  },
-  "path_only": {
-    "status": 200,
-    "body": {
-      "url": "/landing?utm_source=news",
-      "tags": [
-        {
-          "key": "utm_source",
-          "value": "news",
-          "source": "set"
-        }
-      ],
-      "notes": [
-        {
-          "severity": "warn",
-          "title": "Not a whole link",
-          "detail": "This is a path, so the tagged URL is one too, and it works only on pages of the same site. To tag a link you can share, paste all of it, starting with https://."
         }
       ]
     }

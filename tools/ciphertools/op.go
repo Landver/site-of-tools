@@ -32,8 +32,7 @@ type Input struct {
 // trim, because for a hash input the whitespace IS the data.
 func (in Input) Get(key string) string { return in.Fields.Get(key) }
 
-// InputFromJSON is the Input a form would have made of a flat JSON object:
-// numbers in plain decimal, booleans "true"/"false", null absent, nesting an error.
+// InputFromJSON is the Input a form would have made of a flat JSON object.
 func InputFromJSON(obj map[string]any) (Input, error) {
 	in := Input{Fields: url.Values{}, Files: map[string][]byte{}}
 	for k, v := range obj {
@@ -41,8 +40,7 @@ func InputFromJSON(obj map[string]any) (Input, error) {
 		case string:
 			in.Fields.Set(k, t)
 		case float64:
-			// 'f', not fmt.Sprint: that writes 1e6 as "1e+06", which no
-			// integer field reads (and "now" read as 1 second past 1970).
+			// Not fmt.Sprint, whose "1e+06" no integer field reads.
 			in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64))
 		case bool:
 			in.Fields.Set(k, strconv.FormatBool(t))
@@ -84,12 +82,11 @@ type Op struct {
 	Page string
 	// Fragment is the template that renders a successful result.
 	Fragment string
+	Fields   []Field
 	// Heavy marks CPU-expensive ops (password hashing, RSA keygen): stricter
 	// server rate limit, and never run on a keystroke in the browser.
 	Heavy bool
-	// Fields is every input Run reads (tests/fields_test.go checks).
-	Fields []Field
-	Run    func(Input) (any, error)
+	Run   func(Input) (any, error)
 }
 
 // ops is filled by each feature file's init, so adding a page never touches a

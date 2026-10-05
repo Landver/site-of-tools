@@ -792,7 +792,6 @@ func Rules() RuleCatalog {
 	}
 }
 
-// RuleSummary is the catalog without its tables.
 type RuleSummary struct {
 	Version    string `json:"version"`
 	Scope      string `json:"scope"`
@@ -808,14 +807,13 @@ func (c RuleCatalog) Summary() RuleSummary {
 	}
 }
 
-// RuleMatches is every rule naming one parameter; whether one fires is Verdict's call.
 type RuleMatches struct {
 	Param      string `json:"param"`
 	Tracking   []Rule `json:"tracking"`
 	NeverStrip []Deny `json:"never_strip"`
 }
 
-// Matches names param as Clean's lookup does: lower-cased, exactly or by prefix.
+// Matches lists the rules naming param as Clean's lookup does; Verdict says which fires.
 func (c RuleCatalog) Matches(param string) RuleMatches {
 	k := strings.ToLower(strings.TrimSpace(param))
 	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}

@@ -11,22 +11,16 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
+var asJSON = map[string]string{"Accept": "application/json"}
+
 func limitsApp(lim *iptools.Limits) *echo.Echo {
-	e := echo.New()
-	e.Renderer = platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
-	)
-	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}, nil, nil, lim)
-	return e
+	return newAppWith(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}, nil, lim)
 }
 
-// spend uses up a route's burst and returns the first refused response. A slow
-// run may refill a token or two meanwhile, so it keeps asking a little longer.
+// spend keeps asking past the burst: a slow run may refill a token or two meanwhile.
 func spend(t *testing.T, e *echo.Echo, target string, burst int, hdr map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	for i := range burst {
@@ -50,7 +44,7 @@ func TestEveryRouteIsRateLimited(t *testing.T) {
 		hdr    map[string]string
 		want   string // in the 429 body
 	}{
-		{"/?ip=8.8.8.8", 10, map[string]string{"Accept": "application/json"}, `"error":"Too many requests`},
+		{"/?ip=8.8.8.8", 10, asJSON, `"error":"Too many requests`},
 		{"/?ip=8.8.8.8", 10, map[string]string{"Accept": "text/html"}, "<html"},
 		{"/?ip=8.8.8.8", 10, map[string]string{"HX-Request": "true"}, `class="alert-error`},
 		{"/cidr?cidr=10.0.0.0/8", 50, map[string]string{"Accept": "text/html"}, "Subnet calculator"},
@@ -67,7 +61,6 @@ func TestEveryRouteIsRateLimited(t *testing.T) {
 
 func TestOneLimitsIsOneBudgetAcrossApps(t *testing.T) {
 	lim := iptools.NewLimits()
-	asJSON := map[string]string{"Accept": "application/json"}
 	spend(t, limitsApp(lim), "/?ip=8.8.8.8", 10, asJSON)
 	if rec := do(limitsApp(lim), "/?ip=1.1.1.1", asJSON); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("the other app on the same Limits = %d, want 429", rec.Code)
@@ -85,7 +78,7 @@ func TestFullLookupCapAnswersBusy(t *testing.T) {
 	}
 	e := limitsApp(lim)
 	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- do(e, "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"}) }()
+	go func() { done <- do(e, "/?ip=8.8.8.8", asJSON) }()
 	var rec *httptest.ResponseRecorder
 	select {
 	case rec = <-done:
@@ -102,7 +95,7 @@ func TestFullLookupCapAnswersBusy(t *testing.T) {
 		t.Errorf("browser with a full cap = %d, want the page saying busy", page.Code)
 	}
 	lim.LookupCap.Release(otherClient, 8)
-	if rec := do(e, "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"}); rec.Code != http.StatusOK {
+	if rec := do(e, "/?ip=8.8.8.8", asJSON); rec.Code != http.StatusOK {
 		t.Errorf("lookup after the cap freed = %d, want 200", rec.Code)
 	}
 }

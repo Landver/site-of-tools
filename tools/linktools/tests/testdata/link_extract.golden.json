@@ -40,26 +40,5 @@
       "unique": 2,
       "source": "html"
     }
-  },
-  "post": {
-    "status": 200,
-    "body": {
-      "urls": [
-        {
-          "url": "https://example.com/docs",
-          "anchor": "docs",
-          "anchors": [
-            "docs"
-          ],
-          "count": 1,
-          "positions": [
-            4
-          ]
-        }
-      ],
-      "total": 1,
-      "unique": 1,
-      "source": "markdown"
-    }
   }
 }

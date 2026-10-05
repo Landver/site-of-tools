@@ -161,7 +161,6 @@ type CurlParse struct {
 	URL        string      `json:"url"`
 }
 
-// ParseCurl is FromCurlRequest followed by Parse of the URL it found.
 func (s *Service) ParseCurl(cmd string) (*CurlParse, error) {
 	r, err := s.FromCurlRequest(strings.TrimSpace(cmd))
 	if err != nil {

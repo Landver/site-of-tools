@@ -3,6 +3,7 @@ package mcptools
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,8 +21,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// White-box: no owner tool reports the headers it was handed, so a probe tool
-// on the owner server shows what a handler gets.
+// No owner tool reports the headers it was handed, so a probe tool shows what a handler gets.
 type probe struct {
 	header http.Header
 	who    caller
@@ -53,9 +53,7 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 
 	for _, auth := range []map[string]string{{"X-Api-Key": "k3y"}, {"Authorization": "Bearer k3y"}} {
 		hdr := map[string]string{"User-Agent": "probe-agent"}
-		for k, v := range auth {
-			hdr[k] = v
-		}
+		maps.Copy(hdr, auth)
 		cs, err := mcp.NewClient(&mcp.Implementation{Name: "probe", Version: "1"}, nil).Connect(context.Background(),
 			&mcp.StreamableClientTransport{Endpoint: srv.URL + "/mcp/owner", HTTPClient: &http.Client{Transport: headers(hdr)}}, nil)
 		if err != nil {

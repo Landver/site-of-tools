@@ -22,7 +22,6 @@ type endpoint struct {
 // toolName is what every client accepts: the Claude API rejects dots.
 var toolName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
-// routing tells a model on /mcp which of two look-alike tools fits.
 var routing = []struct {
 	tools []string
 	text  string
@@ -33,8 +32,7 @@ var routing = []struct {
 		"link_percent_encode is URL percent-encoding; cipher_encode converts bytes between text, hex, base64 and base32."},
 }
 
-// buildEndpoints gives /mcp every public tool, and each toolset with a tool its own server.
-func buildEndpoints(public, owner []toolSpec, ownerOn bool, m *calls, base string) (map[string]*endpoint, error) {
+func buildEndpoints(public, owner []toolSpec, m *calls, base string) (map[string]*endpoint, error) {
 	seen, known := map[string]bool{}, map[string]bool{}
 	for _, ts := range toolsets {
 		known[ts.name] = true
@@ -64,7 +62,7 @@ func buildEndpoints(public, owner []toolSpec, ownerOn bool, m *calls, base strin
 		}
 		ep.specs = append(ep.specs, s)
 	}
-	if ownerOn {
+	if len(owner) > 0 {
 		ep := &endpoint{name: ownerEndpoint, path: "/mcp/" + ownerEndpoint}
 		for i := range owner {
 			ep.specs = append(ep.specs, &owner[i])
@@ -86,8 +84,7 @@ func newServer(ep *endpoint, impl *mcp.Implementation, m *calls) *mcp.Server {
 	}
 	srv := mcp.NewServer(impl, &mcp.ServerOptions{
 		Instructions: instructions(ep),
-		// Left nil, the SDK advertises logging and listChanged, and then
-		// subscriptions/listen holds a stream open.
+		// Left nil, the SDK advertises logging and listChanged, and subscriptions/listen then holds a stream open.
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: false}},
 		SetCacheable: func(_ context.Context, _ mcp.Request, c *mcp.Cacheable) {
 			c.TTLMs, c.CacheScope = int(time.Hour/time.Millisecond), scope

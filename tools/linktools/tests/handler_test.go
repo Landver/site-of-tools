@@ -31,6 +31,10 @@ import (
 // production value for "that feature is not configured here", which is what the
 // 503 tests below depend on.
 func newLinkApp(t *testing.T, tracer *linktools.Tracer, short *linktools.Shortener) *echo.Echo {
+	return newLinkAppWith(t, tracer, short, nil)
+}
+
+func newLinkAppWith(t *testing.T, tracer *linktools.Tracer, short *linktools.Shortener, lim *linktools.Limits) *echo.Echo {
 	t.Helper()
 	// Embedded FS for both sources, so the tests do not depend on the working
 	// directory — the same choice dnstools and iptools make.
@@ -39,14 +43,17 @@ func newLinkApp(t *testing.T, tracer *linktools.Tracer, short *linktools.Shorten
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil) // nil RequestLog: persistence off
-	linktools.Register(e, linktools.NewService(), tracer, short, "https://link.example", nil)
+	linktools.Register(e, linktools.NewService(), tracer, short, "https://link.example", lim)
 	return e
 }
 
 // request drives one call through the whole middleware stack.
-func request(t *testing.T, e *echo.Echo, method, target string, headers map[string]string) *httptest.ResponseRecorder {
+func request(t *testing.T, e *echo.Echo, method, target string, headers map[string]string, body ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, target, nil)
+	if len(body) > 0 {
+		req = httptest.NewRequest(method, target, strings.NewReader(body[0]))
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -155,9 +162,9 @@ func TestBareHitIsAFormForABrowserAndAnErrorForAnAPI(t *testing.T) {
 
 // TestNilTracerIsUnavailableNotABadGateway.
 //
-// 503, never 502: nothing failed, the feature is not running (the note on
-// handler.disabled). A 502 says the upstream broke, which sends whoever reads
-// the log looking for an outage that does not exist.
+// 503, never 502: nothing failed, the feature is not running. A 502 says the
+// upstream broke, which sends whoever reads the log looking for an outage that
+// does not exist.
 //
 // This test is valid only because Tracer is a concrete pointer. Held as an
 // interface, a nil *Tracer inside it would not be == nil, the branch would be
@@ -379,14 +386,7 @@ func TestShortConsoleShowsNoListWithoutTheKey(t *testing.T) {
 	}
 }
 
-// TestJSONNeverCarriesViewModelKeys is why this package has a local reply helper
-// instead of calling platform.Respond.
-//
-// Every page template pulls .Title and .Desc through partials/head, so handing
-// Respond a bare domain struct fails the render — and handing it the view-model
-// map puts Title, Desc and Active into the API's response body. reply picks one
-// per representation, and this test is what keeps anyone from "simplifying" it
-// back into the shared helper.
+// platform.Respond would put the page's view model (Title, Desc, Active) in the JSON body.
 func TestJSONNeverCarriesViewModelKeys(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -409,7 +409,7 @@ func TestJSONNeverCarriesViewModelKeys(t *testing.T) {
 		}
 		for _, leaked := range []string{"Title", "Desc", "Active", "Heading", "Base", "Query"} {
 			if _, ok := body[leaked]; ok {
-				t.Errorf("%s: the JSON body carries the view-model key %q. That is what platform.Respond would do; reply exists to keep the two representations apart.", target, leaked)
+				t.Errorf("%s: the JSON body carries the view-model key %q", target, leaked)
 			}
 		}
 	}

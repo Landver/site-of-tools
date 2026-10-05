@@ -176,8 +176,7 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 		direct: &net.Dialer{Timeout: hopTimeout},
 	}
 	tr.DialContext = t.dialContext
-	// HTTP/2 is not attempted: it coalesces several authorities onto one
-	// connection, the same bypass of the guard's dial as pooling.
+	// No HTTP/2: it coalesces authorities onto one connection, bypassing the guard's dial.
 	tr.ForceAttemptHTTP2 = false
 	tr.MaxResponseHeaderBytes = maxHeaderBytes
 	tr.ResponseHeaderTimeout = hopTimeout
@@ -577,8 +576,7 @@ func transportNote(ctx context.Context, err error) Note {
 	return Note{SevFail, "The request failed", clipCause(err)}
 }
 
-// clipCause clips only err's cause: net/http writes `Get "<hop URL>": <cause>`,
-// and only the cause is the target's text.
+// clipCause clips only the target's text, not net/http's `Get "<hop URL>": ` prefix.
 func clipCause(err error) string {
 	msg := err.Error()
 	var ue *url.Error

@@ -28,14 +28,16 @@ func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.er
 
 // newTestApp builds bare echo w/ real (embedded) templates + given Looker.
 // Embedded FS → works regardless of test cwd.
-func newTestApp(svc iptools.Looker) *echo.Echo {
+func newTestApp(svc iptools.Looker) *echo.Echo { return newAppWith(svc, nil, nil) }
+
+func newAppWith(svc iptools.Looker, chk iptools.Checker, lim *iptools.Limits) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc, nil, nil, nil) // nil History/BlockList: enrichment off in handler tests
+	iptools.Register(e, svc, nil, chk, lim)
 	return e
 }
 

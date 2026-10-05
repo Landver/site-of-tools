@@ -122,8 +122,7 @@ type Checker interface {
 	Check(ctx context.Context, ip string) (BlockLookup, error)
 }
 
-// CheckerFrom returns b as a Checker, nil when b is nil: a nil *BlockList
-// answers "not listed", which inside an interface would read as checked-clean.
+// CheckerFrom returns nil for nil b: a nil *BlockList answers "not listed", read as checked-clean.
 func CheckerFrom(b *BlockList) Checker {
 	if b == nil {
 		return nil

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,14 +24,15 @@ import (
 // Server-side tests: the JSON API and the no-JS page path. The browser path is
 // covered by render_test.go, which drives the same Render the wasm engine calls.
 
-func newCipherApp(t *testing.T) *echo.Echo {
-	t.Helper()
-	r := platform.NewRenderer(false, nil,
+func newCipherApp(t *testing.T) *echo.Echo { return cipherApp(nil, nil, nil) }
+
+func cipherApp(funcs template.FuncMap, static fstest.MapFS, lim *ciphertools.Limits) *echo.Echo {
+	r := platform.NewRenderer(false, funcs,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
+	e := platform.NewApp(r, static, false, nil)
+	ciphertools.Register(e, "https://cipher.example", static, lim)
 	return e
 }
 
@@ -183,13 +185,7 @@ func TestNoJSFormPostRendersPage(t *testing.T) {
 }
 
 func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	static := fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}
-	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static, nil)
+	e := cipherApp(nil, fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}, nil)
 
 	rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", nil)
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
@@ -227,14 +223,8 @@ func TestNavOrder(t *testing.T) {
 // compressed once and served as is: gzipped exactly once (not again by the
 // engine's gzip middleware), raw for a client that doesn't take gzip.
 func TestEngineServedPrecompressed(t *testing.T) {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
 	wasm := bytes.Repeat([]byte("\x00asm engine bytes "), 4096)
-	static := fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}
-	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static, nil)
+	e := cipherApp(nil, fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}, nil)
 
 	var first []byte
 	for i := 0; i < 2; i++ {

@@ -19,7 +19,6 @@ type ipCIDRArgs struct {
 	CIDR string `json:"cidr" jsonschema:"a network in CIDR notation, e.g. 192.168.1.0/24 or 2001:db8::/32; a bare address counts as /32 or /128"`
 }
 
-// ipLookupResult is the REST body plus self, notes and the footer's credits.
 type ipLookupResult struct {
 	*iptools.Result
 	Self        bool              `json:"self,omitempty"`
@@ -101,14 +100,9 @@ func (t ipTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a ipLookupA
 }
 
 func (t ipTools) cidr(_ context.Context, _ *mcp.CallToolRequest, a ipCIDRArgs) (any, error) {
-	sub, err := iptools.ParseSubnet(a.CIDR)
-	if err != nil {
-		return nil, err
-	}
-	return sub, nil
+	return iptools.ParseSubnet(a.CIDR)
 }
 
-// ipCredits are what a result built on lookup res owes; res may be nil.
 func ipCredits(res *iptools.Result) []platform.Credit {
 	ids := []string{platform.CreditIP2Location, platform.CreditSpamhaus}
 	if res.ShodanConsulted() {

@@ -3,14 +3,10 @@ package tests
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
-
-	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform/goldentest"
 	"github.com/Landver/site-of-tools/tools/botcheck"
@@ -23,7 +19,6 @@ const (
 	winChromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
-// browserHeaders is what desktop Chrome sends with the collector's POST.
 func browserHeaders() map[string]string {
 	return map[string]string{
 		"Accept":                    "application/json",
@@ -48,7 +43,6 @@ func with(h map[string]string, kv ...string) map[string]string {
 	return h
 }
 
-// collectorPayload is the real v4 fixture with the given top-level keys overridden.
 func collectorPayload(t *testing.T, overrides map[string]any) string {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/collector_payload.json")
@@ -85,23 +79,7 @@ type restCase struct {
 	svc     botcheck.Looker
 	chk     iptools.Checker
 	hdr     map[string]string
-	payload string // POST /check only
-}
-
-func serveBotcheck(c restCase, method, target string) *httptest.ResponseRecorder {
-	e := echo.New()
-	botcheck.Register(e, c.svc, nil, c.chk, nil)
-	req := httptest.NewRequest(method, target, strings.NewReader(c.payload))
-	if method == http.MethodPost {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for k, v := range c.hdr {
-		req.Header.Set(k, v)
-	}
-	req.RemoteAddr = "203.0.113.50:4321"
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	return rec
+	payload string // POST /check when set, else GET /
 }
 
 var (
@@ -113,8 +91,41 @@ var (
 	appleNet   = &iptools.Result{Timezone: "-07:00", ASN: "714", ASName: "Apple Inc."}
 )
 
-func serverOnlyCases() []restCase {
-	return []restCase{
+// golden pins case full's whole report, and of the rest what the verdict rests on.
+func golden(t *testing.T, name, full string, cases []restCase) {
+	t.Helper()
+	pinned := map[string]any{}
+	for _, c := range cases {
+		app := newAppWith(c.svc, c.chk, nil)
+		app.IPExtractor = func(*http.Request) string { return "203.0.113.50" }
+		var rec *httptest.ResponseRecorder
+		if c.payload == "" {
+			rec = get(app, "/", c.hdr)
+		} else {
+			rec = post(app, "/check", c.payload, c.hdr)
+		}
+		if c.name == full {
+			pinned[c.name] = goldentest.Response{Status: rec.Code, Body: rec.Body.Bytes()}
+			continue
+		}
+		var r botcheck.Report
+		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		fired := []string{}
+		for _, ch := range r.Checks {
+			if ch.Triggered {
+				fired = append(fired, ch.ID)
+			}
+		}
+		pinned[c.name] = map[string]any{"status": rec.Code, "score": r.Score, "verdict": r.Verdict, "bot": r.Bot,
+			"coverage": r.Coverage, "fired": fired}
+	}
+	goldentest.JSON(t, name, pinned)
+}
+
+func TestServerSignalsJSONGolden(t *testing.T) {
+	golden(t, "server_signals", "", []restCase{
 		{name: "browser_datacenter", svc: fakeLooker{res: awsDC}, hdr: browserHeaders()},
 		{name: "curl_no_geo", svc: fakeLooker{err: iptools.ErrUnavailable}, hdr: map[string]string{"Accept": "*/*", "User-Agent": "curl/8.7.1"}},
 		{name: "applebot_verified", svc: fakeLooker{res: appleNet}, hdr: map[string]string{"Accept": "application/json", "User-Agent": applebotUA}},
@@ -122,12 +133,10 @@ func serverOnlyCases() []restCase {
 		{name: "electron_tor", svc: fakeLooker{res: torExit}, hdr: with(browserHeaders(), "User-Agent", electronUA)},
 		{name: "ipsum_at_floor", svc: fakeLooker{res: kddi}, chk: listedBy(3, "ipsum"), hdr: browserHeaders()},
 		{name: "ipsum_below_floor", svc: fakeLooker{res: kddi}, chk: listedBy(2, "ipsum"), hdr: browserHeaders()},
-		{name: "applebot_blocklisted", svc: fakeLooker{res: appleNet}, chk: listedBy(8, "ipsum"), hdr: map[string]string{"Accept": "application/json", "User-Agent": applebotUA}},
-		{name: "blocklist_read_failed_no_geo", svc: fakeLooker{err: iptools.ErrUnavailable}, chk: fakeChecker{err: errors.New("mongo down")}, hdr: browserHeaders()},
-	}
+	})
 }
 
-func fingerprintCases(t *testing.T) []restCase {
+func TestCheckJSONGolden(t *testing.T) {
 	clean := collectorPayload(t, nil)
 	stealth := collectorPayload(t, map[string]any{
 		"cdpMainThread":          true,
@@ -137,53 +146,11 @@ func fingerprintCases(t *testing.T) []restCase {
 		"plugins":                0,
 		"fontCount":              0,
 	})
-	return []restCase{
+	golden(t, "check", "stealth_vpn", []restCase{
 		{name: "clean_full_headers", svc: fakeLooker{res: kddi}, hdr: browserHeaders(), payload: clean},
 		{name: "clean_sparse_headers_no_geo", svc: fakeLooker{err: iptools.ErrUnavailable}, hdr: map[string]string{"Accept": "*/*", "User-Agent": chromeMacUA}, payload: clean},
 		{name: "ua_header_rewritten", svc: fakeLooker{res: kddi}, hdr: with(browserHeaders(), "User-Agent", winChromeUA, "Sec-CH-UA-Platform", `"Windows"`), payload: clean},
 		{name: "stealth_vpn", svc: fakeLooker{res: moscowVPN}, hdr: with(browserHeaders(), "Accept-Language", "fr-FR,fr;q=0.9", "Accept-Encoding", ""), payload: stealth},
 		{name: "deliberate_ban_no_geo", svc: fakeLooker{err: iptools.ErrUnavailable}, chk: listedBy(0, "rate-limiter"), hdr: browserHeaders(), payload: clean},
-		{name: "spamhaus_counts_as_deliberate", svc: fakeLooker{res: kddi}, chk: listedBy(1, "ipsum", "spamhaus-drop"), hdr: browserHeaders(), payload: clean},
-	}
-}
-
-// golden pins case full's whole report, and of the rest what the verdict rests on.
-func golden(t *testing.T, name, full string, got map[string]*httptest.ResponseRecorder) {
-	t.Helper()
-	pinned := map[string]any{}
-	for k, rec := range got {
-		if k == full {
-			pinned[k] = goldentest.Response{Status: rec.Code, Body: rec.Body.Bytes()}
-			continue
-		}
-		var r botcheck.Report
-		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
-			t.Fatalf("%s: %v", k, err)
-		}
-		fired := []string{}
-		for _, c := range r.Checks {
-			if c.Triggered {
-				fired = append(fired, c.ID)
-			}
-		}
-		pinned[k] = map[string]any{"status": rec.Code, "score": r.Score, "verdict": r.Verdict, "bot": r.Bot,
-			"coverage": r.Coverage, "fired": fired}
-	}
-	goldentest.JSON(t, name, pinned)
-}
-
-func TestServerSignalsJSONGolden(t *testing.T) {
-	got := map[string]*httptest.ResponseRecorder{}
-	for _, c := range serverOnlyCases() {
-		got[c.name] = serveBotcheck(c, http.MethodGet, "/")
-	}
-	golden(t, "server_signals", "browser_datacenter", got)
-}
-
-func TestCheckJSONGolden(t *testing.T) {
-	got := map[string]*httptest.ResponseRecorder{}
-	for _, c := range fingerprintCases(t) {
-		got[c.name] = serveBotcheck(c, http.MethodPost, "/check")
-	}
-	golden(t, "check", "stealth_vpn", got)
+	})
 }

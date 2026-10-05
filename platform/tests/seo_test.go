@@ -29,9 +29,13 @@ func seoApp(base string, pages []platform.Page) *echo.Echo {
 	return e
 }
 
-func hit(app *echo.Echo, path string) *httptest.ResponseRecorder {
+func hit(app *echo.Echo, path string, hdr map[string]string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	app.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -40,7 +44,7 @@ func TestSitemapExpandsPathsAgainstHost(t *testing.T) {
 	rec := hit(seoApp("https://ip.corpberry.com", []platform.Page{
 		{Path: "/"},
 		{Path: "/cidr", LastMod: when},
-	}), "/sitemap.xml")
+	}), "/sitemap.xml", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -72,7 +76,7 @@ func TestSitemapExpandsPathsAgainstHost(t *testing.T) {
 }
 
 func TestRobotsAdvertisesOwnHostSitemap(t *testing.T) {
-	body := hit(seoApp("https://botcheck.corpberry.com", nil), "/robots.txt").Body.String()
+	body := hit(seoApp("https://botcheck.corpberry.com", nil), "/robots.txt", nil).Body.String()
 	if !strings.Contains(body, "Sitemap: https://botcheck.corpberry.com/sitemap.xml") {
 		t.Errorf("robots.txt should advertise this host's sitemap, got:\n%s", body)
 	}
@@ -83,7 +87,7 @@ func TestRobotsAdvertisesOwnHostSitemap(t *testing.T) {
 }
 
 func TestEmptySitemapIsStillValidXML(t *testing.T) {
-	rec := hit(seoApp("https://corpberry.com", nil), "/sitemap.xml")
+	rec := hit(seoApp("https://corpberry.com", nil), "/sitemap.xml", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}

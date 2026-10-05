@@ -3,15 +3,13 @@ package platform
 import (
 	"errors"
 	"sync"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"golang.org/x/sync/semaphore"
 )
 
-// Limiter is a token-bucket store keyed by client, built once per tool and handed
-// to every door (REST, MCP), so a client has one budget whichever it uses.
+// Limiter: build one per tool and hand it to REST and MCP alike, so a client has one budget.
 type Limiter interface {
 	middleware.RateLimiterStore
 	Rate() (perSecond float64, burst int)
@@ -24,11 +22,8 @@ const (
 
 var ErrBusy = errors.New(BusyMessage)
 
-const limiterExpiry = 3 * time.Minute
-
 func NewLimiter(rate float64, burst int) Limiter { return newStore(rate, burst) }
 
-// NewGlobalLimiter is one bucket for every caller: a breaker for what all share.
 func NewGlobalLimiter(rate float64, burst int) Limiter {
 	return globalLimiter{newStore(rate, burst)}
 }
@@ -41,7 +36,7 @@ type memStore struct {
 
 func newStore(rate float64, burst int) memStore {
 	return memStore{middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
-		Rate: rate, Burst: burst, ExpiresIn: limiterExpiry,
+		Rate: rate, Burst: burst,
 	}), rate, burst}
 }
 
@@ -51,13 +46,11 @@ type globalLimiter struct{ memStore }
 
 func (g globalLimiter) Allow(string) (bool, error) { return g.memStore.Allow("") }
 
-// AllowContext keeps the X-RateLimit-* headers the memory store sets in Echo.
+// Echo calls AllowContext when a store has it, so it too must drop the client key.
 func (g globalLimiter) AllowContext(c *echo.Context, _ string) (bool, error) {
 	return g.memStore.AllowContext(c, "")
 }
 
-// RateLimit keys on RateLimitKey(c.RealIP()), as AllowKey does; skip exempts
-// requests that do no work.
 func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context) error) echo.MiddlewareFunc {
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: skip,
@@ -88,8 +81,7 @@ func NewCap(n int64) *Cap {
 	return &Cap{sem: semaphore.NewWeighted(n), share: max(1, n/4), held: map[string]int64{}}
 }
 
-// TryAcquire lets a client holding nothing exceed its share, so no call is
-// refused forever.
+// TryAcquire lets a client holding nothing exceed its share, so no call is refused forever.
 func (c *Cap) TryAcquire(client string, w int64) bool {
 	if c == nil {
 		return true

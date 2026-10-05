@@ -32,8 +32,7 @@ import (
 //
 // TTLHuman sits alongside TTL, never instead of it: every tool surveyed that
 // humanises TTL keeps the raw integer too (feature inventory §1).
-// ASN/ASName/Country are best-effort IP enrichment that LookupEnriched adds
-// from iptools; LookupSet itself stays pure DNS.
+// ASN/ASName/Country are best-effort IP enrichment, filled only by LookupEnriched.
 // Field: one decoded part of a record whose value is a packed tuple (SOA's
 // timers, for instance). Shown under the raw value, never instead of it.
 type Field struct {
@@ -368,7 +367,6 @@ type Service struct {
 	// only the TXT pointer and not the policy is the shortcut most tools take.
 	http  *http.Client
 	cache *cache
-	// guard (WithEgressGuard) also vets every nameserver address a probe goes to.
 	guard *platform.EgressGuard
 	// inflight collapses concurrent identical questions into one upstream
 	// query: a fan-out over 8 types for a popular domain, hit by several
@@ -381,7 +379,7 @@ func NewService(timeout time.Duration) *Service {
 	return &Service{
 		udp:   &dns.Client{Timeout: timeout},
 		tcp:   &dns.Client{Net: "tcp", Timeout: timeout},
-		http:  &http.Client{Timeout: timeout},
+		http:  policyClient(timeout, platform.NewEgressGuard([]string{"443"}, nil)),
 		cache: newCache(),
 	}
 }
@@ -670,7 +668,6 @@ func LookupEnriched(ctx context.Context, svc Looker, geo iptools.Looker, name, q
 	return set, nil
 }
 
-// lookupType: "" is the fan-out.
 func lookupType(qtype string) string {
 	t := strings.ToUpper(strings.TrimSpace(qtype))
 	if t == "ALL" {
@@ -798,8 +795,8 @@ func (s *Service) lookup(ctx context.Context, qname, qtype, addr string) (Result
 	return cloneResult(e.result, false, 0), e.err
 }
 
-// cloneResult returns a Result whose Records slice is the caller's own, so
-// LookupEnriched adding ASN and country can never write into the cache or
+// cloneResult returns a Result whose Records slice is the caller's own, so a
+// caller enriching records (ASN, country) can never write into the cache or
 // into another request's answer. age is how long the answer has been held.
 func cloneResult(r Result, cached bool, age time.Duration) Result {
 	out := r

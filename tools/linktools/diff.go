@@ -57,7 +57,6 @@ type Diff struct {
 	Notes     []Note        `json:"notes,omitempty"`
 }
 
-// Diff parses and compares two URLs; an error names the side that failed.
 func (s *Service) Diff(a, b string) (*Diff, error) {
 	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
 	if a == "" || b == "" {

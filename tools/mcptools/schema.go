@@ -2,12 +2,12 @@ package mcptools
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// inputSchema infers T's input schema, then applies mods: the jsonschema tag
-// carries descriptions only, so enums, bounds and defaults come from the domain.
+// The jsonschema tag carries descriptions only: enums, bounds and defaults come from the domain, as mods.
 func inputSchema[T any](mods ...func(*jsonschema.Schema)) *jsonschema.Schema {
 	s, err := jsonschema.For[T](nil)
 	if err != nil {
@@ -29,14 +29,19 @@ func minLength(prop string, n int) func(*jsonschema.Schema) {
 	return func(s *jsonschema.Schema) { s.Properties[prop].MinLength = jsonschema.Ptr(n) }
 }
 
-func oneOf(prop string, values []string) func(*jsonschema.Schema) {
-	return func(s *jsonschema.Schema) {
-		p := s.Properties[prop]
-		p.Enum = make([]any, len(values))
-		for i, v := range values {
-			p.Enum[i] = v
+func oneOf(prop string, vals []string) func(*jsonschema.Schema) {
+	return func(s *jsonschema.Schema) { s.Properties[prop].Enum = values(vals, false) }
+}
+
+func values(enum []string, ints bool) []any {
+	out := make([]any, len(enum))
+	for i, v := range enum {
+		out[i] = v
+		if n, err := strconv.Atoi(v); ints && err == nil {
+			out[i] = n
 		}
 	}
+	return out
 }
 
 // defaultTo is what the SDK fills in for an absent prop, so it must match the domain's.

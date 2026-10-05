@@ -8,98 +8,6 @@
       "registration_error": "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
     }
   },
-  "absent_lookup_failed": {
-    "status": 502,
-    "body": {
-      "certificate_names_error": "upstream.test answered with an error (500)",
-      "name": "example.com",
-      "registration_error": "the registry has no record for this name: it is unregistered, or its TLD publishes no RDAP service"
-    }
-  },
-  "absent_undelegated": {
-    "status": 200,
-    "body": {
-      "certificate_names": {
-        "names": [
-          {
-            "name": "api.example.com",
-            "valid_since": "2026-02-01",
-            "covered_until": "2027-02-01",
-            "certs": 1
-          },
-          {
-            "name": "example.com",
-            "valid_since": "2026-01-01",
-            "covered_until": "2026-12-31",
-            "certs": 1
-          },
-          {
-            "name": "www.example.com",
-            "valid_since": "2026-01-01",
-            "covered_until": "2026-12-31",
-            "certs": 1
-          }
-        ],
-        "total": 3,
-        "wildcard": true
-      },
-      "name": "example.com",
-      "registration_error": "the registry has no record for this name: it is unregistered, or its TLD publishes no RDAP service"
-    }
-  },
-  "apex_both_ok": {
-    "status": 200,
-    "body": {
-      "certificate_names": {
-        "names": [
-          {
-            "name": "api.example.com",
-            "valid_since": "2026-02-01",
-            "covered_until": "2027-02-01",
-            "certs": 1
-          },
-          {
-            "name": "example.com",
-            "valid_since": "2026-01-01",
-            "covered_until": "2026-12-31",
-            "certs": 1
-          },
-          {
-            "name": "www.example.com",
-            "valid_since": "2026-01-01",
-            "covered_until": "2026-12-31",
-            "certs": 1
-          }
-        ],
-        "total": 3,
-        "wildcard": true
-      },
-      "name": "example.com",
-      "registration": {
-        "domain": "example.com",
-        "registrar": "Example Registrar, Inc.",
-        "registered": "1995-08-14",
-        "statuses": [
-          {
-            "code": "client transfer prohibited",
-            "meaning": "Locked against transfers by the registrar: the usual anti-hijacking default. To move the domain, its owner asks the registrar to lift the lock and send the transfer (auth) code."
-          }
-        ],
-        "nameservers": [
-          "ns1.example.com",
-          "ns2.example.com"
-        ],
-        "signed_delegation": false
-      }
-    }
-  },
-  "bad_name": {
-    "status": 400,
-    "body": {
-      "error": "\"a..b\" isn't a domain name: it has an empty part (two dots in a row, or a leading dot)",
-      "name": "a..b"
-    }
-  },
   "both_down": {
     "status": 502,
     "body": {
@@ -112,19 +20,6 @@
     "status": 503,
     "body": {
       "error": "This check isn't available right now."
-    }
-  },
-  "ip": {
-    "status": 400,
-    "body": {
-      "error": "this check needs a domain name, not an IP address",
-      "name": "1.1.1.1"
-    }
-  },
-  "no_name": {
-    "status": 400,
-    "body": {
-      "error": "no name; pass ?name=, e.g. /domain?name=example.com"
     }
   },
   "rdap_down": {

@@ -38,10 +38,8 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 		return nil
 	}
 	t := ownerTools{owner: d.Owner, log: log}
-	lim := d.LinkLimits.Short
-	return []toolSpec{
+	specs := []toolSpec{
 		{
-			toolset: "link",
 			tool: &mcp.Tool{
 				Name:  "link_short_create",
 				Title: "Create a short link",
@@ -52,12 +50,9 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 				InputSchema: inputSchema[shortCreateArgs](minLength("url", 1)),
 				Annotations: acts(true, false, true),
 			},
-			deadline: fetchDeadline,
-			limiter:  lim,
-			add:      handle(t.create),
+			add: handle(t.create),
 		},
 		{
-			toolset: "link",
 			tool: &mcp.Tool{
 				Name:  "link_short_list",
 				Title: "List short links",
@@ -66,13 +61,10 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 				InputSchema: inputSchema[shortListArgs](between("limit", 1, linktools.RecentLimit), defaultTo("limit", linktools.RecentLimit)),
 				Annotations: readOnly(false),
 			},
-			deadline: fetchDeadline,
-			limiter:  lim,
-			narrow:   "Ask for fewer with limit.",
-			add:      handle(t.list),
+			narrow: "Ask for fewer with limit.",
+			add:    handle(t.list),
 		},
 		{
-			toolset: "link",
 			tool: &mcp.Tool{
 				Name:  "link_short_revoke",
 				Title: "Revoke a short link",
@@ -81,11 +73,13 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 				InputSchema: inputSchema[shortRevokeArgs](minLength("code", 1)),
 				Annotations: acts(true, true, false),
 			},
-			deadline: fetchDeadline,
-			limiter:  lim,
-			add:      handle(t.revoke),
+			add: handle(t.revoke),
 		},
 	}
+	for i := range specs {
+		specs[i].toolset, specs[i].deadline, specs[i].limiter = "link", fetchDeadline, d.LinkLimits.Short
+	}
+	return specs
 }
 
 func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a shortCreateArgs) (any, error) {

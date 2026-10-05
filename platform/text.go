@@ -2,8 +2,7 @@ package platform
 
 import "unicode/utf8"
 
-// Clip bounds s to limit bytes (limit ≥ 3), cut on a rune boundary and marked
-// with "…" so a reader can tell it was shortened.
+// Clip cuts s to at most limit bytes (limit ≥ 3) on a rune boundary, marking the cut with "…".
 func Clip(s string, limit int) string {
 	if len(s) <= limit {
 		return s

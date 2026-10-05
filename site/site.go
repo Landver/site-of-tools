@@ -53,7 +53,7 @@ func Tools(cfg platform.Config) []platform.Tool {
 // Register wires apex routes onto e. blogFS = posts filesystem (embedded in
 // prod, disk dir in dev — caller builds it via platform.SubFS). A malformed
 // post fails Register in prod → main treats it as fatal, refusing to boot a
-// broken blog. It returns the blog it serves.
+// broken blog.
 func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) (*Blog, error) {
 	blog, err := NewBlog(blogFS, cfg.IsDev())
 	if err != nil {

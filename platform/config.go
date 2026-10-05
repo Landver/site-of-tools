@@ -52,8 +52,7 @@ type Config struct {
 	MongoURI      string
 	MongoDatabase string
 
-	// EgressDenyAddrs: this host's public addresses, which every outbound guard
-	// refuses; inside the container net.InterfaceAddrs never sees them.
+	// EgressDenyAddrs: the host's public IPs, invisible to net.InterfaceAddrs in a container.
 	EgressDenyAddrs []string
 }
 

@@ -31,7 +31,6 @@ var ErrDisabled = errors.New("this lookup is switched off")
 // failure because for RDAP a 404 is an answer, not a breakdown.
 var errUpstreamNotFound = errors.New("upstream has no record")
 
-// errUpstreamBusy: this process's budget for that upstream is spent; nothing was sent.
 var errUpstreamBusy = errors.New("busy, try again shortly")
 
 // errNoRDAPRecord: the registry answered, and what it said is that it holds no
@@ -158,7 +157,6 @@ type DomainClient struct {
 var errRedirectRefused = errors.New("redirect refused")
 
 // NewDomainClient builds the client. Blank URLs disable that half.
-// Until WithEgressGuard, redirects off the configured hosts get a default guard.
 func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient {
 	if rdapURL == "" && ctURL == "" {
 		return nil
@@ -181,7 +179,6 @@ func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
 	return d
 }
 
-// httpClient dials the configured hosts directly, where they redirect through g.
 func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
 	base := map[string]bool{}
 	for _, raw := range []string{d.rdapURL, d.ctURL} {
@@ -204,8 +201,7 @@ func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard
 			switch {
 			case len(via) >= 10:
 				return errors.New("stopped after 10 redirects")
-			// Plain HTTP stays allowed: .kg and .mg RDAP has no HTTPS, and the
-			// guard, not the scheme, keeps hops off private addresses.
+			// Plain HTTP too: .kg and .mg RDAP has no HTTPS, and g vets the address.
 			case req.URL.Scheme != "https" && req.URL.Scheme != "http":
 				return errRedirectRefused
 			case base[hostPort(req.URL)]:
@@ -513,11 +509,9 @@ type DomainReport struct {
 	CertErr error `json:"-"`
 }
 
-// DomainInfo asks RDAP and CT side by side, so one failing leaves the other; its
-// error is bad input only.
+// DomainInfo's error is bad input only: an upstream failing lands in the report.
 func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string) (*DomainReport, error) {
 	name = NormalizeName(name)
-	// Checked here, not left to a resolver: both upstreams are plain HTTP.
 	if err := needDomain(name); err != nil {
 		return nil, err
 	}
@@ -527,44 +521,32 @@ func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string)
 		out.RegistrableDomain = regName
 	}
 
-	var (
-		wg     sync.WaitGroup
-		reg    *Registration
-		regErr error
-		ct     *CertNames
-		ctErr  error
-	)
+	var wg sync.WaitGroup
 	wg.Add(2)
 	go safe(func() {
 		defer wg.Done()
-		regErr = errPanic
-		reg, regErr = dom.Registration(ctx, regName)
+		out.RegErr = errPanic
+		out.Registration, out.RegErr = dom.Registration(ctx, regName)
 	})
 	go safe(func() {
 		defer wg.Done()
-		ctErr = errPanic
-		ct, ctErr = dom.CertNames(ctx, name)
+		out.CertErr = errPanic
+		out.CertNames, out.CertErr = dom.CertNames(ctx, name)
 	})
 	wg.Wait()
 
-	out.RegErr, out.CertErr = regErr, ctErr
-	if regErr == nil {
-		out.Registration = reg
-	} else {
-		out.RegistrationError = regErr.Error()
-		// A name with nameservers is registered whatever its TLD's RDAP says
-		// (.de has none).
-		if errors.Is(regErr, errNoRDAPRecord) && svc != nil {
+	if out.RegErr != nil {
+		out.RegistrationError = out.RegErr.Error()
+		// Nameservers mean registered, whatever the TLD's RDAP says (.de has none).
+		if errors.Is(out.RegErr, errNoRDAPRecord) {
 			if set, err := svc.LookupSet(ctx, regName, DefaultResolver, []string{"NS"}); err == nil && len(set.Found) > 0 {
 				out.Delegated = true
 				out.RegistrationError = "the registry publishes no RDAP record for this name; it has nameservers delegated to it, so it is registered"
 			}
 		}
 	}
-	if ctErr == nil {
-		out.CertNames = ct
-	} else {
-		out.CertNamesError = ctErr.Error()
+	if out.CertErr != nil {
+		out.CertNamesError = out.CertErr.Error()
 	}
 	return out, nil
 }

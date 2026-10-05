@@ -17,10 +17,7 @@ const (
 	maxResult = 80 << 10
 )
 
-var errNotObject = errors.New("structuredContent is not a JSON object")
-
-// sanitize caps strings (unless whole) and shows invisible characters, but
-// never cuts a list: the dropped item can be the one that matters.
+// Strings are capped, never lists: the dropped item can be the one that matters.
 func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolResult, int, error) {
 	if r.IsError {
 		for _, c := range r.Content {
@@ -30,19 +27,12 @@ func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolRe
 		}
 		return r, 0, nil
 	}
-	raw, err := json.Marshal(r.StructuredContent)
+	obj, err := object(r.StructuredContent)
 	if err != nil {
 		return nil, 0, err
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, 0, err
-	}
-	obj, ok := v.(map[string]any)
-	if !ok {
-		return nil, 0, errNotObject
+	if obj == nil {
+		return nil, 0, errors.New("structuredContent is not a JSON object")
 	}
 	limit := maxString
 	if whole {
@@ -105,8 +95,7 @@ func clean(s string, limit int) string {
 	return fmt.Sprintf("%s…[truncated %d bytes]", s[:cut], len(s)-cut)
 }
 
-// invisible: characters that hide text or carry text a reader never sees:
-// format, tag block, variation selectors, DEL, C1, U+2028/9, Hangul fillers.
+// invisible: characters that hide text or carry text a reader never sees, Hangul fillers among them.
 func invisible(r rune) bool {
 	switch r {
 	case 0x7F, 0x2028, 0x2029, 0x115F, 0x1160, 0x3164, 0xFFA0:

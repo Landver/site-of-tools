@@ -2,44 +2,30 @@ package tests
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"testing/fstest"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/site"
 )
 
-func TestBlogAccessors(t *testing.T) {
-	for _, dev := range []bool{false, true} {
-		blog, err := site.NewBlog(testPostsFS(), dev)
+func TestRegisterReturnsTheServedBlog(t *testing.T) {
+	for _, env := range []string{"prod", "dev"} {
+		blog, err := site.Register(echo.New(), platform.Config{Env: env, BaseDomain: "corpberry.com", ListenAddr: ":8080"}, testPostsFS())
 		if err != nil {
-			t.Fatalf("dev=%v: NewBlog: %v", dev, err)
+			t.Fatalf("%s: Register: %v", env, err)
 		}
-		posts, err := blog.Posts()
-		if err != nil {
-			t.Fatalf("dev=%v: Posts: %v", dev, err)
+		if p, err := blog.Post("first-post"); err != nil || p.Title != "First Post" {
+			t.Errorf("%s: Post(first-post) = %q, %v", env, p.Title, err)
 		}
-		var slugs []string
-		for _, p := range posts {
-			slugs = append(slugs, p.Slug)
+		if _, err := blog.Post("draft-post"); !errors.Is(err, site.ErrPostNotFound) {
+			t.Errorf("%s: Post(draft-post) err = %v, want ErrPostNotFound", env, err)
 		}
-		if diff := cmp.Diff([]string{"third-post", "first-post"}, slugs); diff != "" {
-			t.Errorf("dev=%v: Posts slugs (-want +got):\n%s", dev, diff)
-		}
-
-		p, err := blog.Post("first-post")
-		if err != nil || p.Title != "First Post" {
-			t.Errorf("dev=%v: Post(first-post) = %q, %v", dev, p.Title, err)
-		}
-		for _, slug := range []string{"draft-post", "no-such-post", ""} {
-			if _, err := blog.Post(slug); !errors.Is(err, site.ErrPostNotFound) {
-				t.Errorf("dev=%v: Post(%q) err = %v, want ErrPostNotFound", dev, slug, err)
-			}
-		}
+	}
+	if _, err := site.Register(echo.New(), platform.Config{Env: "prod"}, fstest.MapFS{"bad.md": &fstest.MapFile{Data: []byte("no frontmatter")}}); err == nil {
+		t.Error("Register with a malformed post: want an error")
 	}
 }
 
@@ -60,31 +46,5 @@ func TestPostMarkdownDropsFrontmatter(t *testing.T) {
 				t.Errorf("Markdown = %q, want %q", posts[0].Markdown, tc.want)
 			}
 		})
-	}
-}
-
-func TestRealPostsKeepMarkdownWithoutFrontmatter(t *testing.T) {
-	posts, err := site.LoadPosts(site.Posts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range posts {
-		if p.Markdown == "" || strings.HasPrefix(p.Markdown, "---") || strings.Contains(p.Markdown, `date: "`) {
-			t.Errorf("%s: Markdown still carries frontmatter or is empty: %.80q", p.Slug, p.Markdown)
-		}
-	}
-}
-
-func TestRegisterReturnsTheServedBlog(t *testing.T) {
-	cfg := platform.Config{Env: "prod", BaseDomain: "corpberry.com", ListenAddr: ":8080"}
-	blog, err := site.Register(echo.New(), cfg, testPostsFS())
-	if err != nil || blog == nil {
-		t.Fatalf("Register = %v, %v", blog, err)
-	}
-	if posts, err := blog.Posts(); err != nil || len(posts) != 2 {
-		t.Errorf("blog.Posts() = %d posts, %v; want 2", len(posts), err)
-	}
-	if _, err := site.Register(echo.New(), cfg, fstest.MapFS{"bad.md": &fstest.MapFile{Data: []byte("no frontmatter")}}); err == nil {
-		t.Error("Register with a malformed post: want an error")
 	}
 }

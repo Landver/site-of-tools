@@ -28,9 +28,9 @@ import (
 
 // Deps are the REST routes' own values, Limits included; a nil one drops its tools.
 type Deps struct {
-	Geo          iptools.Looker  // with Shodan
-	DNSGeo       iptools.Looker  // the same without Shodan
-	Blocklist    iptools.Checker // from iptools.CheckerFrom
+	Geo          iptools.Looker // with Shodan
+	DNSGeo       iptools.Looker // the same without Shodan
+	Blocklist    iptools.Checker
 	DNSBlocklist dnstools.BlockChecker
 	DNS          dnstools.Looker
 	Domain       *dnstools.DomainClient
@@ -94,7 +94,7 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 		return nil, err
 	}
 	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipher, botSpecs(d), siteSpecs(d))
-	eps, err := buildEndpoints(public, ownerSpecs(d, log), d.Owner.HasKey(), m, base)
+	eps, err := buildEndpoints(public, ownerSpecs(d, log), m, base)
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +170,7 @@ func (h *handler) serve(c *echo.Context) error {
 		case len(body) > maxBody:
 			return refuseHTTP(c, http.StatusRequestEntityTooLarge, "Request body over 1 MiB.")
 		}
-		// Without MCP-Protocol-Version the SDK assumes 2025-03-26, where a batch
-		// is still legal, uncapped, and every reply in it buffered.
+		// Without MCP-Protocol-Version the SDK speaks 2025-03-26, where an uncapped batch is legal.
 		if b := bytes.TrimLeft(body, " \t\r\n"); len(b) > 0 && b[0] == '[' {
 			return refuseHTTP(c, http.StatusBadRequest, "JSON-RPC batching is not supported: send one message per request.")
 		}
@@ -192,8 +191,7 @@ func refuseHTTP(c *echo.Context, code int, msg string) error {
 	return c.JSON(code, map[string]string{"error": msg})
 }
 
-// checkKey compares a key only for a client not locked out, so guessing runs at
-// one try a second; sending no key guesses nothing and costs no try.
+// No key costs no try, and a locked-out client's key isn't compared: guessing runs at one try a second.
 func (h *handler) checkKey(hdr http.Header, client string) (int, string) {
 	const needKey = "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer."
 	k := ownerKey(hdr)
@@ -251,8 +249,7 @@ func (g *keyGuard) fail(client string) {
 	l.Allow()
 }
 
-// prune forgets clients whose bucket has refilled, and everyone if that frees
-// nothing: a flood from that many addresses is past what per-client counts stop.
+// Forgetting everyone is fine: a flood from keyClients addresses is past what per-client counts stop.
 func (g *keyGuard) prune() {
 	for k, l := range g.clients {
 		if l.Tokens() >= keyTries {
@@ -266,14 +263,13 @@ func (g *keyGuard) prune() {
 
 type callerKey struct{}
 
-// caller is the request behind a message: the SDK passes its context, not its address.
+// The SDK hands a tool only the request's context, so serve puts the caller there, always.
 type caller struct {
 	ip, key         string
 	host, userAgent string
 	http            context.Context // ends when the client goes away
 }
 
-// callerFrom is the caller serve put in ctx; nothing else reaches the SDK.
 func callerFrom(ctx context.Context) *caller { return ctx.Value(callerKey{}).(*caller) }
 
 func SitemapPages() ([]platform.Page, error) {
@@ -303,7 +299,6 @@ type catalogTool struct {
 	RateLimit   rateLimit            `json:"rate_limit"`
 }
 
-// OpenWorld is the hint as the spec reads it: unset means open.
 func (t catalogTool) OpenWorld() bool {
 	h := t.Annotations.OpenWorldHint
 	return h == nil || *h
@@ -326,7 +321,6 @@ func (r rateLimit) String() string {
 	return fmt.Sprintf("%g/s, burst %d", r.PerSecond, r.Burst)
 }
 
-// describe reads the catalog off the servers, so it can't list a tool they don't serve.
 func (h *handler) describe(toolURL func(string) string) {
 	h.catalog = catalog{Name: "corpberry", Version: version()}
 	add := func(ep *endpoint, title, rest string, cr []platform.Credit) {
@@ -349,43 +343,38 @@ func (h *handler) describe(toolURL func(string) string) {
 // setup names each server after its toolset, so a second can sit beside it.
 func setup(all, toolset string) map[string]string {
 	name := "corpberry-" + path.Base(toolset)
+	config := func(servers, server string) string {
+		return fmt.Sprintf(`{
+  "%s": {
+    "%s": { %s }
+  }
+}`, servers, name, server)
+	}
+	url := `"url": "` + toolset + `"`
 	return map[string]string{
 		"ClaudeCode": "claude mcp add --scope user --transport http corpberry " + all,
-		"VSCode": fmt.Sprintf(`{
-  "servers": {
-    "%s": { "type": "http", "url": "%s" }
-  }
-}`, name, toolset),
-		"Cursor": fmt.Sprintf(`{
-  "mcpServers": {
-    "%s": { "url": "%s" }
-  }
-}`, name, toolset),
-		"Codex": "codex mcp add " + name + " --url " + toolset,
-		"CodexTOML": fmt.Sprintf(`[mcp_servers.%s]
-url = "%s"`, name, toolset),
-		"Gemini": "gemini mcp add --transport http " + name + " " + toolset,
-		"GeminiJSON": fmt.Sprintf(`{
-  "mcpServers": {
-    "%s": { "httpUrl": "%s" }
-  }
-}`, name, toolset),
-		"Remote": "npx mcp-remote " + toolset,
+		"VSCode":     config("servers", `"type": "http", `+url),
+		"Cursor":     config("mcpServers", url),
+		"Codex":      "codex mcp add " + name + " --url " + toolset,
+		"CodexTOML":  "[mcp_servers." + name + "]\nurl = \"" + toolset + "\"",
+		"Gemini":     "gemini mcp add --transport http " + name + " " + toolset,
+		"GeminiJSON": config("mcpServers", `"httpUrl": "`+toolset+`"`),
+		"Remote":     "npx mcp-remote " + toolset,
 	}
 }
 
 func (h *handler) landing(c *echo.Context) error {
 	eps := h.catalog.Endpoints
-	all, example := eps[0], eps[min(1, len(eps)-1)]
+	example := eps[min(1, len(eps)-1)]
 	vm := map[string]any{
-		"Title":    "MCP server — corpberry.com",
-		"Desc":     landingDesc,
-		"All":      all,
-		"Toolsets": eps[1:],
-		"Example":  example,
-		"Setup":    setup(all.URL, example.URL),
-		"Protocol": rateOf(h.protocol),
-		"PerIP":    rateOf(h.perIP),
+		"Title":     "MCP server — corpberry.com",
+		"Desc":      landingDesc,
+		"Endpoints": eps,
+		"Toolsets":  eps[1:],
+		"Example":   example,
+		"Setup":     setup(eps[0].URL, example.URL),
+		"Protocol":  rateOf(h.protocol),
+		"PerIP":     rateOf(h.perIP),
 	}
 	for _, ep := range eps {
 		for _, cr := range ep.Attribution {

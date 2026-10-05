@@ -18,8 +18,7 @@ import (
 // codeRefused answers a message turned away; MCP defines no code for one.
 const codeRefused = -32000
 
-// outcome is what one MCP message came to. Records carry it, never the
-// arguments, result or error text: cipher errors quote their input.
+// A record carries the outcome, never the arguments, result or error text: cipher errors quote their input.
 type outcome struct {
 	name   string
 	status int
@@ -43,19 +42,21 @@ type calls struct {
 	log      *slog.Logger
 }
 
-// middleware wraps every message in recover, deadline, budget, sanitizer and
-// record. The SDK has no recover: a panicking tool would take every host down.
+// The SDK has no recover: a panicking tool would take every host down.
 func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middleware {
+	protocol := &toolSpec{deadline: quickDeadline, limiter: m.protocol}
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (res mcp.Result, err error) {
 			start := time.Now()
 			who := callerFrom(ctx)
 			call, _ := req.(*mcp.CallToolRequest)
-			name, spec := method, (*toolSpec)(nil)
+			name, spec := method, protocol
 			if call != nil && call.Params != nil {
-				name, spec = platform.Clip(call.Params.Name, 64), specs[call.Params.Name]
-				// The SDK writes schema defaults into the nil map "arguments": null
-				// decodes to, and panics.
+				name = platform.Clip(call.Params.Name, 64)
+				if s := specs[call.Params.Name]; s != nil {
+					spec = s
+				}
+				// "arguments": null decodes to a nil map, which the SDK writes defaults into and panics.
 				if string(call.Params.Arguments) == "null" {
 					call.Params.Arguments = nil
 				}
@@ -70,33 +71,27 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				m.record(who, path+"#"+name, got, size, time.Since(start), req)
 			}()
 
-			deadline, lim := quickDeadline, m.protocol
-			if spec != nil {
-				deadline, lim = spec.deadline, spec.limiter
-			}
-			ctx, cancel := context.WithTimeout(ctx, deadline)
+			ctx, cancel := context.WithTimeout(ctx, spec.deadline)
 			defer cancel()
 			// The SDK cancels only 2026-07-28 requests when the client goes.
 			defer context.AfterFunc(who.http, cancel)()
-			if !platform.AllowKey(lim, who.key) {
+			if !platform.AllowKey(spec.limiter, who.key) {
 				got = outcomeLimited
 				return refuse(call, codeRefused, platform.LimitedMessage)
 			}
-			if spec != nil {
-				if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.key) {
-					got = outcomeBusy
-					return refuse(call, codeRefused, platform.BusyMessage)
-				}
-				w := int64(1)
-				if spec.weight != nil {
-					w = spec.weight(call.Params.Arguments)
-				}
-				if !spec.cap.TryAcquire(who.key, w) {
-					got = outcomeBusy
-					return refuse(call, codeRefused, platform.BusyMessage)
-				}
-				defer spec.cap.Release(who.key, w)
+			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.key) {
+				got = outcomeBusy
+				return refuse(call, codeRefused, platform.BusyMessage)
 			}
+			w := int64(1)
+			if spec.weight != nil {
+				w = spec.weight(call.Params.Arguments)
+			}
+			if !spec.cap.TryAcquire(who.key, w) {
+				got = outcomeBusy
+				return refuse(call, codeRefused, platform.BusyMessage)
+			}
+			defer spec.cap.Release(who.key, w)
 
 			res, err = next(ctx, method, req)
 			if err != nil {
@@ -111,16 +106,12 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				got = outcomeToolError
 				switch {
 				case errors.Is(ctx.Err(), context.DeadlineExceeded):
-					got, r = outcomeTimeout, errorResult(fmt.Sprintf("Timed out after %s. Try again, or ask for less.", deadline))
+					got, r = outcomeTimeout, errorResult(fmt.Sprintf("Timed out after %s. Try again, or ask for less.", spec.deadline))
 				case ctx.Err() != nil:
 					got = outcomeCancelled
 				}
 			}
-			narrow, whole := "", false
-			if spec != nil {
-				narrow, whole = spec.narrow, spec.whole
-			}
-			out, n, serr := sanitize(r, narrow, whole)
+			out, n, serr := sanitize(r, spec.narrow, spec.whole)
 			if serr != nil {
 				m.log.Error("mcp: unusable tool result", "uri", path+"#"+name, "error", serr.Error())
 				got = outcomeInternal
@@ -135,7 +126,7 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 	}
 }
 
-// refuse: an isError result for a call, which the model can act on; else a JSON-RPC error.
+// A call is refused with an isError result, which the model can act on.
 func refuse(call *mcp.CallToolRequest, code int64, msg string) (mcp.Result, error) {
 	if call != nil {
 		return errorResult(msg), nil
@@ -143,7 +134,7 @@ func refuse(call *mcp.CallToolRequest, code int64, msg string) (mcp.Result, erro
 	return nil, &jsonrpc.Error{Code: code, Message: msg}
 }
 
-// record logs a message as the REST logger does a request (ShouldRecord skips /mcp).
+// The request log skips /mcp: each message is recorded here instead.
 func (m *calls) record(who *caller, uri string, o outcome, size int, d time.Duration, req mcp.Request) {
 	client := who.userAgent
 	if ci, ok := req.(interface{ ClientInfo() *mcp.Implementation }); ok {

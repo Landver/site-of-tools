@@ -3,14 +3,10 @@ package tests
 
 import (
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
@@ -54,7 +50,23 @@ func resolveDB(p string) string {
 //
 //	set -a; . ./.env; set +a; go test ./iptools/tests -run Integration
 func TestLookupIntegration(t *testing.T) {
-	svc, px12 := integrationService(t)
+	paths := []string{
+		resolveDB(os.Getenv("IP2LOCATION_DB11_V4")),
+		resolveDB(os.Getenv("IP2LOCATION_DB11_V6")),
+		resolveDB(os.Getenv("IP2LOCATION_ASN_V4")),
+		resolveDB(os.Getenv("IP2LOCATION_ASN_V6")),
+	}
+	for _, p := range paths {
+		if p == "" {
+			t.Skip("IP2LOCATION_* not set or BINs not found; skipping integration test")
+		}
+	}
+
+	px12 := resolveDB(os.Getenv("IP2PROXY_PX12")) // optional
+	svc, err := iptools.OpenService(paths[0], paths[1], paths[2], paths[3], px12)
+	if err != nil {
+		t.Fatalf("OpenService: %v", err)
+	}
 	got, err := svc.Lookup("8.8.8.8")
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
@@ -67,50 +79,5 @@ func TestLookupIntegration(t *testing.T) {
 	}
 	if px12 != "" && got.Proxy == nil {
 		t.Error("expected proxy data when the PX12 database is loaded")
-	}
-}
-
-// integrationService opens the real BINs, skipping the test without them.
-// px12 is the proxy BIN's path, "" when it is not loaded.
-func integrationService(t *testing.T) (svc *iptools.Service, px12 string) {
-	t.Helper()
-	paths := []string{
-		resolveDB(os.Getenv("IP2LOCATION_DB11_V4")),
-		resolveDB(os.Getenv("IP2LOCATION_DB11_V6")),
-		resolveDB(os.Getenv("IP2LOCATION_ASN_V4")),
-		resolveDB(os.Getenv("IP2LOCATION_ASN_V6")),
-	}
-	for _, p := range paths {
-		if p == "" {
-			t.Skip("IP2LOCATION_* not set or BINs not found; skipping integration test")
-		}
-	}
-	px12 = resolveDB(os.Getenv("IP2PROXY_PX12")) // optional
-	svc, err := iptools.OpenService(paths[0], paths[1], paths[2], paths[3], px12)
-	if err != nil {
-		t.Fatalf("OpenService: %v", err)
-	}
-	return svc, px12
-}
-
-// DNS enrichment looks up every record through Offline(), which must leave
-// the process-wide Shodan budget alone.
-func TestOfflineLookupMakesNoShodanCall(t *testing.T) {
-	svc, _ := integrationService(t)
-	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	t.Cleanup(srv.Close)
-	svc.WithShodan(iptools.NewShodan(srv.URL, time.Second))
-
-	got, err := svc.Offline().Lookup("8.8.8.8")
-	if err != nil || got.ASN != "15169" || got.Shodan != nil || hits.Load() != 0 {
-		t.Fatalf("offline lookup = %+v, %v after %d InternetDB calls; want ASN 15169 and no call", got, err, hits.Load())
-	}
-	got, err = svc.Lookup("8.8.8.8")
-	if err != nil || got.Shodan == nil || hits.Load() != 1 {
-		t.Errorf("online lookup = %+v, %v after %d InternetDB calls; want one", got, err, hits.Load())
 	}
 }

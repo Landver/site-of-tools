@@ -204,15 +204,10 @@ func Respond(c *echo.Context, code int, data any, pageTmpl, fragTmpl string) err
 	}
 }
 
-// Reply is Respond for routes whose JSON body and page differ: API callers get
-// body, the page or fragment vm, so the page's Title and Desc never reach JSON.
+// Reply sends API callers body and pages vm, so page-only fields never reach JSON.
 func Reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
-	SetNegotiationHeaders(c, code)
-	switch {
-	case WantsJSON(c):
-		return c.JSON(code, body)
-	case IsHTMX(c):
-		return c.Render(code, frag, vm)
+	if WantsJSON(c) {
+		return Respond(c, code, body, page, frag)
 	}
-	return c.Render(code, page, vm)
+	return Respond(c, code, vm, page, frag)
 }

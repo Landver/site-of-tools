@@ -1,5 +1,3 @@
-{{/* The landing page, also a browser's answer at /mcp and /mcp/<toolset>,
-     rendered from the catalog of the servers themselves (handler.go). */}}
 {{define "mcp/index"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -17,22 +15,16 @@
     <section class="mt-8">
       <h2 class="eyebrow">Endpoints</h2>
       <ul class="mt-3 space-y-4">
-        {{with .All}}
+        {{range $i, $ep := .Endpoints}}
         <li>
           <div class="flex flex-wrap items-center gap-3">
             <code class="min-w-0 flex-1 break-all font-mono text-sm text-strong">{{.URL}}</code>
             <button type="button" class="btn-copy" data-copy="{{.URL}}">Copy</button>
           </div>
-          <p class="mt-1 text-xs text-muted">All {{len .Tools}} tools, for Claude Code.</p>
-        </li>
-        {{end}}
-        {{range .Toolsets}}
-        <li>
-          <div class="flex flex-wrap items-center gap-3">
-            <code class="min-w-0 flex-1 break-all font-mono text-sm text-strong">{{.URL}}</code>
-            <button type="button" class="btn-copy" data-copy="{{.URL}}">Copy</button>
-          </div>
-          <p class="mt-1 text-xs text-muted">{{.Title}} only ({{len .Tools}} {{if eq (len .Tools) 1}}tool{{else}}tools{{end}}), for every other client.</p>
+          <p class="mt-1 text-xs text-muted">
+            {{- if $i}}{{.Title}} only ({{len .Tools}} {{if eq (len .Tools) 1}}tool{{else}}tools{{end}}), for every other client.
+            {{- else}}All {{len .Tools}} tools, for Claude Code.{{end -}}
+          </p>
         </li>
         {{end}}
       </ul>
@@ -176,7 +168,6 @@
 </html>
 {{end}}
 
-{{/* A snippet to paste, with its copy button. */}}
 {{define "mcp/snippet"}}
 <div class="mt-2 flex flex-wrap items-start gap-3">
   <pre class="min-w-0 flex-1 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.}}</pre>

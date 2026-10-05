@@ -9,8 +9,8 @@ import (
 // human detail for table. needsClient marks rules reading client-collected
 // field -> Evaluate can skip (not fail) them on server-only req. Weights =
 // starting proposal, tuned against botcheck/tests — not gospel; adjust there,
-// w/ fixtures, not by feel. needsHeaders, needsIP and needsCorpus do the same
-// for their halves; clientUA's header fallback doesn't make a header rule.
+// w/ fixtures, not by feel.
+// needsHeaders/needsIP/needsCorpus do the same per half; clientUA's header fallback doesn't count.
 type rule struct {
 	id           string
 	label        string

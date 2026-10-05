@@ -39,7 +39,6 @@ type Result struct {
 	Shodan *ShodanInfo `json:"shodan,omitempty"`
 }
 
-// ShodanConsulted: was InternetDB asked about r? Its credit hangs on that.
 func (r *Result) ShodanConsulted() bool { return r != nil && r.Shodan != nil && !r.Shodan.Skipped }
 
 // Proxy: IP2Proxy view (VPN / proxy / threat). Populated only when PX12
@@ -196,8 +195,7 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 	return res, nil
 }
 
-// LookupWithReputation is svc's lookup plus, when chk is set, the blocklist
-// reputation; a failed read leaves Blocklist nil (not checked), never "clean".
+// LookupWithReputation adds chk's verdict; a failed read leaves Blocklist nil, never "clean".
 func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip string) (*Result, error) {
 	if svc == nil {
 		return nil, ErrUnavailable
@@ -212,7 +210,6 @@ func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip strin
 	return res, nil
 }
 
-// Routable reports whether ip is a public address worth geolocating.
 func Routable(ip string) bool {
 	a := net.ParseIP(ip)
 	return a != nil && !a.IsLoopback() && !a.IsPrivate() &&

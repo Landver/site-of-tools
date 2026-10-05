@@ -28,7 +28,7 @@ type Post struct {
 	Image string
 	Draft bool
 	HTML  template.HTML
-	// Markdown is the source minus frontmatter; "-" keeps it out of the REST view model.
+	// Markdown is the body as written, frontmatter stripped; kept out of REST JSON.
 	Markdown string `json:"-"`
 }
 
@@ -101,8 +101,7 @@ func parsePost(fsys fs.FS, p string) (Post, error) {
 	}, nil
 }
 
-// stripFrontmatter returns src after its frontmatter, by goldmark-meta's rule:
-// a first line of only dashes, closed by the next such line.
+// stripFrontmatter follows goldmark-meta: a first line of only dashes, closed by the next such line.
 func stripFrontmatter(src []byte) string {
 	first, rest, ok := bytes.Cut(src, []byte("\n"))
 	if !ok || !isDashes(first) {

@@ -26,7 +26,7 @@ func TestNilRequestLogIsSafe(t *testing.T) {
 }
 
 // TestShouldRecord: page requests persisted, static assets not — high volume,
-// no analytic value — and MCP not, which records each message itself.
+// no analytic value.
 func TestShouldRecord(t *testing.T) {
 	cases := map[string]bool{
 		"/":                   true,

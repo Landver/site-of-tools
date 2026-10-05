@@ -106,8 +106,7 @@ func (t botTools) score(ctx context.Context, _ *mcp.CallToolRequest, a botScoreA
 	return out, nil
 }
 
-// collectorPayload decodes strictly: without its v stamp the version gates
-// can't apply, and an unknown field is a hand-built payload's mistake.
+// Strict: an unknown field is a hand-built payload's mistake.
 func collectorPayload(raw json.RawMessage, sig *botcheck.Signals) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()

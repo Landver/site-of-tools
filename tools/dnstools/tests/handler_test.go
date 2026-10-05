@@ -44,6 +44,10 @@ type fakeGeo struct{ res *iptools.Result }
 func (f *fakeGeo) Lookup(string) (*iptools.Result, error) { return f.res, nil }
 
 func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {
+	return newAppWith(t, svc, geo, nil, nil, nil)
+}
+
+func newAppWith(t *testing.T, svc dnstools.Looker, geo iptools.Looker, dom *dnstools.DomainClient, bl dnstools.BlockChecker, lim *dnstools.Limits) *echo.Echo {
 	t.Helper()
 	e := echo.New()
 	// Embedded FS for both sources → independent of test cwd, same as the IP
@@ -52,7 +56,7 @@ func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 	)
-	dnstools.Register(e, svc, geo, nil, nil, nil) // nil domain client + nil corpus: RDAP/CT and the reputation card off in handler tests
+	dnstools.Register(e, svc, geo, dom, bl, lim)
 	return e
 }
 

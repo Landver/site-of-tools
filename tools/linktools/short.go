@@ -64,8 +64,7 @@ type CreateOptions struct {
 	CreatedIP string        // forensics only, never rendered or serialised
 }
 
-// CreateRequest has string fields only, so a decoded {"slug":{"$ne":null}}
-// can never reach a Mongo filter as an operator.
+// CreateRequest's fields are scalars, so a decoded {"slug":{"$ne":null}} can't reach Mongo as an operator.
 type CreateRequest struct {
 	URL   string `json:"url" form:"url"`
 	Slug  string `json:"slug" form:"slug"`
@@ -74,7 +73,6 @@ type CreateRequest struct {
 	Clean bool   `json:"clean" form:"clean"`
 }
 
-// Created answers a create; Note is for the page, never the API body.
 type Created struct {
 	Cleaned   []string   `json:"cleaned,omitempty"`
 	Code      string     `json:"code"`
@@ -95,8 +93,7 @@ var (
 	errTTLShort  = errors.New("ttl must be at least 1m; leave it out for a link that never expires")
 )
 
-// storageFailure is all a caller is told of a storage or driver error, whose
-// own text can carry connection strings and internal topology.
+// storageFailure replaces a driver error's text, which can carry connection strings.
 const storageFailure = "Something went wrong on our side. Nothing was changed."
 
 var (
@@ -337,7 +334,6 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 	return nil, fmt.Errorf("no free code after %d attempts", maxCodeAttempts)
 }
 
-// CreateFrom is Create with req's TTL parsed; ip is recorded for forensics only.
 func (s *Shortener) CreateFrom(ctx context.Context, req CreateRequest, ip string) (*Created, error) {
 	opt := CreateOptions{Slug: req.Slug, Note: req.Note, Clean: req.Clean, CreatedIP: ip}
 	if req.TTL != "" {
@@ -345,7 +341,6 @@ func (s *Shortener) CreateFrom(ctx context.Context, req CreateRequest, ip string
 		if err != nil {
 			return nil, errTTLFormat
 		}
-		// CreateOptions reads <= 0 as permanent; leaving ttl out asks for that.
 		if d < minTTL {
 			return nil, errTTLShort
 		}

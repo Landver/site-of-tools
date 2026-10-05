@@ -29,14 +29,16 @@ func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.er
 // newTestApp builds bare echo w/ real (embedded) templates + given Looker.
 // Embedded FS → works regardless of test cwd. Corpus nil (Mongo off) —
 // corpus tests live in corpus_test.go.
-func newTestApp(svc botcheck.Looker) *echo.Echo {
+func newTestApp(svc botcheck.Looker) *echo.Echo { return newAppWith(svc, nil, nil) }
+
+func newAppWith(svc botcheck.Looker, chk iptools.Checker, lim *botcheck.Limits) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
 	)
 	e := echo.New()
 	e.Renderer = r
-	botcheck.Register(e, svc, nil, nil, nil)
+	botcheck.Register(e, svc, nil, chk, lim)
 	return e
 }
 
@@ -106,9 +108,14 @@ func TestCheckPlainCurlGetsJSON(t *testing.T) {
 }
 
 func TestCheckBadPayloadIs400(t *testing.T) {
-	rec := post(newTestApp(fakeLooker{}), "/check", `{not json`, map[string]string{"Accept": "application/json"})
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("bad payload code = %d, want 400", rec.Code)
+	for _, tc := range []struct{ accept, want string }{
+		{"application/json", "invalid fingerprint payload"},
+		{"text/html", "Invalid fingerprint payload"},
+	} {
+		rec := post(newTestApp(fakeLooker{}), "/check", `{not json`, map[string]string{"Accept": tc.accept})
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("Accept %s: bad payload = %d, want 400 saying %q:\n%s", tc.accept, rec.Code, tc.want, rec.Body)
+		}
 	}
 }
 

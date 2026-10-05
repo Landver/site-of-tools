@@ -812,16 +812,12 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	return usedASN
 }
 
-// Spreader is apart from Looker so a test can fake either half.
 type Spreader interface {
 	Spread(ctx context.Context, name, qtype string) (*Spread, error)
 }
 
 // Consistency is GET /consistency: the canvass, the ECS card (ecs may be nil) beside it.
 func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looker, dom *DomainClient, name, qtype string) (*ECSEnvelope, error) {
-	if spr == nil {
-		return nil, ErrDisabled
-	}
 	name, qtype = NormalizeName(name), walkType(qtype)
 	var (
 		wg    sync.WaitGroup
@@ -854,8 +850,6 @@ func walkType(qtype string) string {
 	return "A"
 }
 
-// delegationHealth adds what Spread's probes can't reach: each nameserver's
-// ASN, and the registry's delegation for sp.Zone (it knows only the apex).
 func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *DomainClient) {
 	var asnOf func(string) string
 	if geo != nil {

@@ -92,7 +92,6 @@ type EnvInfo struct {
 // handler-filled, json:"-"), flattened → package imports only stdlib. Zero =
 // not supplied; ClientCollected splits "browser reported false/empty" from
 // "no fingerprint posted" (plain curl) → client checks skip, not pass.
-// HeadersSupplied and IPSupplied do the same for the other halves.
 type Signals struct {
 	ClientCollected bool `json:"-"`
 	HeadersSupplied bool `json:"-"`
@@ -234,8 +233,7 @@ type Signals struct {
 	// FingerprintIPs. Handler-filled from Mongo on POST /check only; 0 = no
 	// corpus data → ip_fingerprint_churn treats as no signal, never evidence.
 	FingerprintChurn int `json:"-"`
-	// CorpusSkipped: the corpus was never consulted (a synthetic payload must
-	// not train it), so both corpus rules skip instead of reading as clean.
+	// CorpusSkipped: corpus not consulted (a synthetic payload mustn't train it), so its rules skip.
 	CorpusSkipped bool `json:"-"`
 	// IP blocklist (G37), handler-filled from shared ip_blocklist corpus
 	// (ipsum feed + any other service writing flagged IPs). Sources = distinct
@@ -249,8 +247,7 @@ type Signals struct {
 	IPBlocklistCount      int      `json:"-"`
 	IPBlocklistDeliberate bool     `json:"-"`
 
-	// Now = request time, stamped by whoever builds Signals; a zero Now
-	// silently skips both timezone checks. Input not a clock call → Evaluate
+	// Now = request time, handler-stamped. Input not a clock call → Evaluate
 	// stays pure/testable; resolves browser tz's current UTC offset
 	// (DST-aware).
 	Now time.Time `json:"-"`
@@ -321,8 +318,7 @@ type Coverage struct {
 	Soft        TierCoverage `json:"soft"`
 }
 
-// TierCoverage counts one tier's checks: Evaluated + Skipped = all of them;
-// Fired = evaluated ones that triggered, suppressed good-bot hits included.
+// TierCoverage: Evaluated + Skipped = the tier's checks; Fired counts suppressed good-bot hits too.
 type TierCoverage struct {
 	Evaluated int `json:"evaluated"`
 	Skipped   int `json:"skipped"`
@@ -341,14 +337,13 @@ func (c *Coverage) add(ch Check) {
 	default:
 		return
 	}
-	switch {
-	case ch.Skipped:
+	if ch.Skipped {
 		t.Skipped++
-	case ch.Triggered:
-		t.Evaluated++
+		return
+	}
+	t.Evaluated++
+	if ch.Triggered {
 		t.Fired++
-	default:
-		t.Evaluated++
 	}
 }
 

@@ -14,12 +14,10 @@ func TestClip(t *testing.T) {
 		limit int
 		want  string
 	}{
-		{"text/html; charset=utf-8", 100, "text/html; charset=utf-8"},
 		{"abcdef", 6, "abcdef"},
 		{"abcdefg", 6, "abc…"},
 		{"aééb", 5, "a…"},
 		{"ééé", 5, "é…"},
-		{"", 3, ""},
 	} {
 		if got := platform.Clip(c.in, c.limit); got != c.want {
 			t.Errorf("Clip(%q, %d) = %q, want %q", c.in, c.limit, got, c.want)

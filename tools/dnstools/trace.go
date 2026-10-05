@@ -307,7 +307,7 @@ var traceAddrOverride func(ip string) (string, bool)
 // address is one we are willing to send a packet to. The nameserver names come
 // from zones the caller chose, so this is the guard that stops a hostile
 // delegation turning the walk into a port-53 probe of our own host — the same
-// rule spread.go's nameserverAddress applies, with s's guard when it has one.
+// rule nameserverAddress applies.
 func (t traceServer) addr(s *Service) string {
 	for _, ip := range [...]string{t.IP, t.IP6} {
 		if ip == "" {

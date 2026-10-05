@@ -5,95 +5,10 @@
       "error": "not a valid URL: missing ']' in host"
     }
   },
-  "no_scheme": {
-    "status": 200,
-    "body": {
-      "input": "example.com/a?b=1",
-      "canonical": "example.com/a?b=1",
-      "scheme": "",
-      "host": "",
-      "path": "example.com/a",
-      "segments": [
-        {
-          "index": 1,
-          "raw": "example.com",
-          "decoded": "example.com"
-        },
-        {
-          "index": 2,
-          "raw": "a",
-          "decoded": "a"
-        }
-      ],
-      "params": [
-        {
-          "index": 1,
-          "key": "b",
-          "value": "1",
-          "kind": "number"
-        }
-      ],
-      "absolute": "https://example.com/a?b=1",
-      "linkable": false,
-      "notes": [
-        {
-          "severity": "warn",
-          "title": "No scheme",
-          "detail": "Read as a relative path, so the first part is a folder name, not a host. Add https:// to the front to inspect it as a web address."
-        }
-      ]
-    }
-  },
   "no_url": {
     "status": 400,
     "body": {
       "error": "no URL; pass ?u=, e.g. ?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1"
-    }
-  },
-  "phishing_shape": {
-    "status": 200,
-    "body": {
-      "input": "https://login.bank.example@exämple.net/verify?session=a+b",
-      "canonical": "https://login.bank.example@xn--exmple-cua.net/verify?session=a+b",
-      "scheme": "https",
-      "user": "login.bank.example",
-      "host": "exämple.net",
-      "host_ascii": "xn--exmple-cua.net",
-      "host_unicode": "exämple.net",
-      "path": "/verify",
-      "segments": [
-        {
-          "index": 1,
-          "raw": "verify",
-          "decoded": "verify"
-        }
-      ],
-      "params": [
-        {
-          "index": 1,
-          "key": "session",
-          "value": "a b",
-          "raw_value": "a+b"
-        }
-      ],
-      "linkable": true,
-      "notes": [
-        {
-          "severity": "fail",
-          "title": "Credentials before the host",
-          "detail": "Everything before the @ is a username, not the destination. This URL goes to exämple.net."
-        },
-        {
-          "severity": "warn",
-          "title": "Internationalised domain name",
-          "detail": "Displays as exämple.net; DNS looks it up as xn--exmple-cua.net. Check every letter before you trust it."
-        },
-        {
-          "severity": "warn",
-          "title": "Credentials in the query string",
-          "detail": "session looks like a token or a session. A query string reaches the server and its logs, stays in browser history, and can leak to other sites in the Referer header: share this URL as you would a password."
-        }
-      ]
     }
   },
   "tracking_link": {

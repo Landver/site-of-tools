@@ -15,8 +15,7 @@ import (
 // shodanUserAgent IDs our lookups to Shodan / Cloudflare.
 const shodanUserAgent = "corpberry-iptools/1.0 (+https://ip.corpberry.com)"
 
-// InternetDB bans a client IP for an hour after a few hundred rapid requests,
-// and every lookup this process makes comes from the one server IP.
+// InternetDB bans an IP for an hour after a few hundred quick requests; ours all share one IP.
 const (
 	shodanPerSecond = 1
 	shodanBurst     = 5

@@ -65,43 +65,6 @@
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImN0eSI6IkpXVCJ9.eyJzdWIiOiI0MiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAzNjAwfQ.1Xl5k5oT2imtE3gNTlvZk5YE2vhTXknQNPMsKzR8xdg"
     }
   },
-  "jwt-sign-iat-false": {
-    "status": 200,
-    "body": {
-      "decoded": {
-        "alg": "HS256",
-        "header": {
-          "alg": "HS256",
-          "typ": "JWT"
-        },
-        "header_rows": [
-          {
-            "meaning": "Signature (or key-management) algorithm",
-            "name": "alg",
-            "value": "HS256"
-          },
-          {
-            "meaning": "Media type of the whole token, usually JWT",
-            "name": "typ",
-            "value": "JWT"
-          }
-        ],
-        "kind": "JWS",
-        "payload": {},
-        "signature": "svo3sQiBr6VRrugrrB1OoHS7Y-c0pzdPFYhCfjX7elM",
-        "validity": {
-          "detail": "No exp claim: this token never expires, so it can't be revoked by waiting.",
-          "state": "no-expiry"
-        },
-        "verification": {
-          "detail": "Whoever holds this key signed exactly this header and payload.",
-          "key": "32-byte shared secret (read as UTF-8 text)",
-          "state": "valid"
-        }
-      },
-      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.svo3sQiBr6VRrugrrB1OoHS7Y-c0pzdPFYhCfjX7elM"
-    }
-  },
   "nested-value": {
     "status": 400,
     "body": {

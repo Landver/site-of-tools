@@ -95,8 +95,8 @@ type EgressGuard struct {
 	// the database host). Belt and braces beyond the address check, since those
 	// hosts resolve to public addresses and would otherwise pass.
 	denyHosts map[string]bool
-	// denyAddrs, denyPrefixes: the interface addresses and the caller's deny
-	// list, checked at dial time, so a request can't loop back into the origin.
+	// denyAddrs, denyPrefixes: interface and deny-list addresses, enumerated once at
+	// startup. Stops a request looping back into the origin behind Cloudflare.
 	denyAddrs    map[netip.Addr]bool
 	denyPrefixes []netip.Prefix
 	// allowLoopback: test-only seam. Never set in production; the constructor
@@ -144,8 +144,6 @@ func NewEgressGuard(ports []string, deny []string) *EgressGuard {
 			h = host
 		}
 		h = strings.TrimSuffix(strings.Trim(h, "[]"), ".")
-		// A literal has to reach the address set: Control only ever sees
-		// addresses, so in the hostname map it would never match a dial.
 		if a, err := netip.ParseAddr(h); err == nil {
 			g.denyAddrs[a.Unmap().WithZone("")] = true
 			continue
@@ -196,8 +194,7 @@ func (g *EgressGuard) AllowHost(host string) error {
 	return nil
 }
 
-// AllowAddr is Control's address check alone, for packets outside the port
-// allowlist (DNS probes on 53).
+// AllowAddr is Control without the port check, for DNS probes to port 53.
 func (g *EgressGuard) AllowAddr(addr netip.Addr) error {
 	if g == nil || !g.permitted(addr) {
 		return fmt.Errorf("%w: %s", ErrBlockedAddress, addr)
@@ -214,8 +211,7 @@ func (g *EgressGuard) AllowPort(port string) error {
 }
 
 func (g *EgressGuard) permitted(addr netip.Addr) bool {
-	// Zone dropped: a zoned address never equals a map key or falls inside a
-	// prefix, so "[2001:db8::1%eth0]" would otherwise walk past both.
+	// A zoned address never equals a map key or falls inside a prefix.
 	addr = addr.Unmap().WithZone("")
 	if g.allowLoopback && addr.IsLoopback() {
 		return true
@@ -262,8 +258,7 @@ func (g *EgressGuard) DialContext(timeout time.Duration) func(context.Context, s
 	return d.DialContext
 }
 
-// Transport makes every connection a fresh dial through g. A proxy would make
-// g judge the proxy, not the destination; a pooled connection would skip g.
+// Transport dials every request afresh and unproxied, so g judges each real destination.
 func (g *EgressGuard) Transport(timeout time.Duration) *http.Transport {
 	return &http.Transport{Proxy: nil, DialContext: g.DialContext(timeout), DisableKeepAlives: true}
 }
@@ -289,7 +284,5 @@ func RateLimitKey(ip string) string {
 	if p, err := netip.ParsePrefix(s); err == nil && p.Addr().Is6() && p.Bits() == 64 {
 		return p.Masked().String()
 	}
-	return unknownClient
+	return "unknown"
 }
-
-const unknownClient = "unknown"

@@ -86,16 +86,14 @@ func (t siteTools) entry(p site.Post) blogPost {
 		URL: t.base + "/blog/" + p.Slug}
 }
 
-// A link or image destination: inline, a reference definition, or an HTML
-// attribute. Group 2 is the destination; nothing follows it in the match.
+// Group 2 is a link or image destination, and nothing follows it in the match.
 var (
 	inlineDest = regexp.MustCompile(`(\]\(\s*<?)([^\s)>]+)`)
 	refDest    = regexp.MustCompile(`^( {0,3}\[[^\]]+\]:[ \t]*<?)([^\s>]+)`)
 	htmlDest   = regexp.MustCompile(`(\b(?:src|href)=["'])([^"']+)`)
 )
 
-// absolutize resolves a post's relative links and images against its URL, as a
-// browser would: read as source, nothing resolves /static/…. Code is left alone.
+// Read as source, a relative link resolves against nothing, so it is resolved against the post's URL.
 func absolutize(md, postURL string) string {
 	base, err := url.Parse(postURL)
 	if err != nil || !base.IsAbs() {

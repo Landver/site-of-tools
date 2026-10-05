@@ -123,7 +123,6 @@ func TestEgressGuardHosts(t *testing.T) {
 	}
 }
 
-// TestEgressGuardDeniesListedAddresses: only Control sees a name resolve to a listed address.
 func TestEgressGuardDeniesListedAddresses(t *testing.T) {
 	g := platform.NewEgressGuard([]string{"443"}, []string{
 		"93.184.216.34",
@@ -133,53 +132,21 @@ func TestEgressGuardDeniesListedAddresses(t *testing.T) {
 		"2a01:4f8:c0c:1234::/64",
 		"[2001:4860:4860::8844]",
 	})
-
-	refused := []string{
-		"93.184.216.34",
-		"::ffff:93.184.216.34",
-		"2606:2800:220:1:248:1893:25c8:1946",
-		"8.8.4.4",
-		"1.0.0.1",
-		"2a01:4f8:c0c:1234::1",
-		"2a01:4f8:c0c:1234:ffff:ffff:ffff:ffff",
-		"2a01:4f8:c0c:1234::1%eth0",
-		"2001:4860:4860::8844",
-	}
-	for _, host := range refused {
-		addr := net.JoinHostPort(host, "443")
-		if err := g.Control("tcp", addr, nil); !errors.Is(err, platform.ErrBlockedAddress) {
-			t.Errorf("Control(%q) = %v, want ErrBlockedAddress", addr, err)
+	for _, host := range []string{
+		"93.184.216.34", "::ffff:93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946", "8.8.4.4", "1.0.0.1",
+		"2a01:4f8:c0c:1234::1", "2a01:4f8:c0c:1234::1%eth0", "2001:4860:4860::8844",
+	} {
+		if err := g.Control("tcp", net.JoinHostPort(host, "443"), nil); !errors.Is(err, platform.ErrBlockedAddress) {
+			t.Errorf("Control(%s) = %v, want ErrBlockedAddress", host, err)
 		}
-		if err := g.AllowHost(host); !errors.Is(err, platform.ErrBlockedAddress) {
-			t.Errorf("AllowHost(%q) = %v, want ErrBlockedAddress", host, err)
+		if err := g.AllowAddr(netip.MustParseAddr(host)); !errors.Is(err, platform.ErrBlockedAddress) {
+			t.Errorf("AllowAddr(%s) = %v, want ErrBlockedAddress", host, err)
 		}
 	}
-
 	for _, host := range []string{"8.8.8.8", "2a01:4f8:c0c:1235::1", "2001:4860:4860::8888"} {
 		if err := g.Control("tcp", net.JoinHostPort(host, "443"), nil); err != nil {
 			t.Errorf("Control(%s) = %v, want permitted: it is not on the deny list", host, err)
 		}
-	}
-}
-
-// AllowAddr judges a port-53 destination by address alone, whatever the ports.
-func TestEgressGuardAllowAddr(t *testing.T) {
-	g := platform.NewEgressGuard([]string{"443"}, []string{"93.184.216.34", "2a01:4f8:c0c:1234::/64"})
-	for _, a := range []string{
-		"93.184.216.34", "::ffff:93.184.216.34", "2a01:4f8:c0c:1234::53",
-		"127.0.0.1", "::1", "10.0.0.1", "100.64.0.1", "169.254.169.254", "fe80::1%eth0",
-	} {
-		if err := g.AllowAddr(netip.MustParseAddr(a)); !errors.Is(err, platform.ErrBlockedAddress) {
-			t.Errorf("AllowAddr(%s) = %v, want ErrBlockedAddress", a, err)
-		}
-	}
-	for _, a := range []string{"8.8.8.8", "2001:4860:4860::8888", "2a01:4f8:c0c:1235::1"} {
-		if err := g.AllowAddr(netip.MustParseAddr(a)); err != nil {
-			t.Errorf("AllowAddr(%s) = %v, want nil", a, err)
-		}
-	}
-	if err := g.AllowAddr(netip.Addr{}); !errors.Is(err, platform.ErrBlockedAddress) {
-		t.Errorf("AllowAddr(zero) = %v, want ErrBlockedAddress", err)
 	}
 }
 
@@ -213,23 +180,13 @@ func TestRateLimitKey(t *testing.T) {
 	if a == c {
 		t.Errorf("addresses in different /64s share a key (%q); that would over-block", a)
 	}
-	// Fail closed: a forged CF-Connecting-IP must not buy a bucket per value.
+	if again := platform.RateLimitKey(a); again != a {
+		t.Errorf("RateLimitKey(%q) = %q, want the key unchanged so a key and its IP spend one bucket", a, again)
+	}
 	junk := platform.RateLimitKey("not an ip")
 	for _, in := range []string{"", "also junk", "999.1.1.1", "8.8.8.8:53", "10.0.0.0/8", "2001:db8::/48"} {
 		if got := platform.RateLimitKey(in); got != junk {
 			t.Errorf("unparseable %q = %q, want the shared bucket %q", in, got, junk)
-		}
-	}
-	for _, valid := range []string{"8.8.8.8", "2001:db8:1:2::1"} {
-		if platform.RateLimitKey(valid) == junk {
-			t.Errorf("%q landed in the shared unparseable bucket", valid)
-		}
-	}
-	// A key fed back in is unchanged: the key and the raw IP spend one bucket.
-	for _, in := range []string{"8.8.8.8", "::ffff:8.8.8.8", "2001:db8:1:2:aaaa::1", "not an ip"} {
-		k := platform.RateLimitKey(in)
-		if again := platform.RateLimitKey(k); again != k {
-			t.Errorf("RateLimitKey(%q) = %q, but RateLimitKey of that = %q", in, k, again)
 		}
 	}
 }

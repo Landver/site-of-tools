@@ -155,7 +155,6 @@ func run() error {
 		platform.TemplateSource{Embed: mcptools.Templates, DevDir: "tools/mcptools/templates"},
 	)
 
-	// One app per subdomain, and every outbound guard refuses all of them.
 	apps := map[string]*echo.Echo{}
 	ownHosts := []string{cfg.MongoURI}
 	for _, sub := range []string{"", "ip", "botcheck", "dns", "link", "cipher", "mcp"} {
@@ -163,12 +162,10 @@ func run() error {
 		ownHosts = append(ownHosts, cfg.VHost(sub))
 	}
 	ownHosts = append(ownHosts, cfg.EgressDenyAddrs...)
-	// MTA-STS is HTTPS by definition. RDAP/CT redirect hops and the link tracer
-	// also take port 80: some registries (.kg, .mg) serve RDAP over HTTP only.
+	// MTA-STS is HTTPS-only; RDAP hops can be plain HTTP (.kg, .mg), and so can traced links.
 	httpsGuard := platform.NewEgressGuard([]string{"443"}, ownHosts)
 	webGuard := platform.NewEgressGuard([]string{"80", "443"}, ownHosts)
 
-	// Built once: every door onto a tool must spend the same budget.
 	ipLim, dnsLim, linkLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits()
 	cipherLim, botLim := ciphertools.NewLimits(), botcheck.NewLimits()
 	ipCheck, dnsCheck := iptools.CheckerFrom(blocklist), dnstools.BlockCheckerFrom(blocklist)
@@ -231,7 +228,6 @@ func run() error {
 		return s
 	}
 	shortener := newShortener(cfg.LinkAPIKey)
-	// /trace dials any URL a stranger chose, so only through the guard.
 	tracer := linktools.NewTracer(webGuard, 15*time.Second)
 	linktools.Register(apps["link"], linkSvc, tracer, shortener, cfg.URL("link"), linkLim)
 
@@ -242,8 +238,6 @@ func run() error {
 	// (tools/ciphertools/docs/02-build-plan.md).
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), staticFS, cipherLim)
 
-	// mcp.corpberry.com — the same tools over MCP. The owner's Shortener shares
-	// the store but not the key, so MCP_OWNER_KEY and LINK_API_KEY rotate apart.
 	if err := mcptools.Register(apps["mcp"], mcptools.Deps{
 		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck, DNSBlocklist: dnsCheck,
 		DNS: dnsSvc, Domain: domainClient, Blog: blog,

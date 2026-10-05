@@ -30,8 +30,8 @@ const (
 type Limits struct {
 	Pure                   platform.Limiter
 	Fetch                  platform.Limiter // /trace
-	Short                  platform.Limiter // the key-gated /short routes
-	Resolve, ResolveGlobal platform.Limiter // /s/:code, per client and for everyone
+	Short                  platform.Limiter
+	Resolve, ResolveGlobal platform.Limiter // /s/:code
 	FetchCap               *platform.Cap
 }
 
@@ -46,7 +46,6 @@ func NewLimits() *Limits {
 	}
 }
 
-// RecentLimit bounds the owner's list of short links.
 const RecentLimit = 50
 
 // handler: transport-layer dependencies for link.corpberry.com.
@@ -195,8 +194,7 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 	default:
 		return false, nil
 	}
-	vm["Error"] = msg
-	return true, platform.Reply(c, http.StatusBadRequest, map[string]string{"error": msg}, vm, page, "link/error")
+	return true, h.fail(c, vm, http.StatusBadRequest, msg, page)
 }
 
 // --- inspect ---------------------------------------------------------------
@@ -336,8 +334,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	vm["Disabled"] = h.trace == nil
 
 	if h.trace == nil {
-		return h.disabled(c, vm, "link/trace",
-			"Tracing is not enabled on this server.")
+		return h.fail(c, vm, http.StatusServiceUnavailable, "Tracing is not enabled on this server.", "link/trace")
 	}
 	if done, err := h.needURL(c, raw, vm, "link/trace", "link/chain",
 		"?u=http%3A%2F%2Fexample.com%2F"); done {
@@ -354,7 +351,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
 		if errors.Is(err, ErrDisabled) {
-			return h.disabled(c, vm, "link/trace", "Tracing is not enabled on this server.")
+			return h.fail(c, vm, http.StatusServiceUnavailable, "Tracing is not enabled on this server.", "link/trace")
 		}
 		return h.badRequest(c, vm, err, "link/trace")
 	}
@@ -373,7 +370,7 @@ func (h *handler) shortOff(c *echo.Context, vm map[string]any) error {
 	if h.short == nil {
 		msg = "Short links are switched off on this server: no storage is configured, so links can be neither created nor followed."
 	}
-	return h.disabled(c, vm, "link/short", msg)
+	return h.fail(c, vm, http.StatusServiceUnavailable, msg, "link/short")
 }
 
 // shortConsole renders the create form, and the recent list ONLY to a caller
@@ -414,9 +411,7 @@ func (h *handler) shortCreate(c *echo.Context) error {
 	if !h.short.Authorized(c.Request().Header.Get("X-Api-Key")) {
 		// Same body for a missing key and a wrong one: saying which is a free
 		// hint to anyone probing.
-		const msg = "Creating a short link needs a valid API key."
-		vm["Error"] = msg
-		return platform.Reply(c, http.StatusUnauthorized, map[string]string{"error": msg}, vm, "link/short", "link/error")
+		return h.fail(c, vm, http.StatusUnauthorized, "Creating a short link needs a valid API key.", "link/short")
 	}
 
 	var req CreateRequest
@@ -429,13 +424,9 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		if code == http.StatusInternalServerError {
 			return h.storageError(c, vm, err, "link/short")
 		}
-		vm["Error"] = sentence(msg)
-		return platform.Reply(c, code, map[string]string{"error": msg}, vm, "link/short", "link/error")
+		return h.fail(c, vm, code, msg, "link/short")
 	}
-	vm["Created"] = map[string]any{
-		"Short": created.Short, "Target": created.Target, "Cleaned": created.Cleaned,
-		"Note": created.Note, "ExpiresAt": created.ExpiresAt,
-	}
+	vm["Created"] = created
 	listChanged(c)
 	return platform.Reply(c, http.StatusCreated, created, vm, "link/short", "link/created")
 }
@@ -447,15 +438,8 @@ func (h *handler) storageError(c *echo.Context, vm map[string]any, err error, pa
 }
 
 func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page string) error {
-	vm["Error"] = msg
+	vm["Error"] = sentence(msg)
 	return platform.Reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
-}
-
-// failErr gives JSON the Go error string, as the API always has, and the page
-// a sentence.
-func (h *handler) failErr(c *echo.Context, vm map[string]any, code int, err error, page string) error {
-	vm["Error"] = sentence(err.Error())
-	return platform.Reply(c, code, map[string]string{"error": err.Error()}, vm, page, "link/error")
 }
 
 // consoleRow is the console's view of a Link: everything the page renders and
@@ -746,11 +730,7 @@ func (h *handler) encode(c *echo.Context) error {
 
 // --- static pages ----------------------------------------------------------
 
-// encoding and privacy render directly rather than through reply, and that is
-// deliberate: both are static documents with no result to negotiate and no
-// fragment to swap, so a JSON representation would be an empty promise and an
-// htmx representation would be the whole page. Nothing links to either with
-// hx-get — adding one would need a fragment first (golden rule #2).
+// Static documents: no result to negotiate and no fragment to swap.
 func (h *handler) encoding(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/encoding",
 		h.vm("encoding", "Percent-encoding reference", encodingDesc, ""))
@@ -764,7 +744,7 @@ func (h *handler) privacy(c *echo.Context) error {
 // --- shared error paths ----------------------------------------------------
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
-	return h.failErr(c, vm, http.StatusBadRequest, err, page)
+	return h.fail(c, vm, http.StatusBadRequest, err.Error(), page)
 }
 
 func sentence(s string) string {
@@ -780,12 +760,6 @@ func sentence(s string) string {
 		s += "."
 	}
 	return s
-}
-
-// disabled answers 503, never 502: nothing failed, the feature is not running.
-func (h *handler) disabled(c *echo.Context, vm map[string]any, page, msg string) error {
-	vm["Error"] = msg
-	return platform.Reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
 // --- middleware ------------------------------------------------------------

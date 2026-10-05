@@ -305,7 +305,7 @@ var ecsVantages = []ecsVantage{
 	{region: "Oceania", place: "Melbourne, AU", subnet: "130.194.0.0/24"},              // Monash University
 }
 
-// ECSer: Consistency's dependency for the geo-steering card. Separate from Looker
+// ECSer: handler dependency for the geo-steering card. Separate from Looker
 // and Spreader so a test can fake this half alone. *Service satisfies it.
 type ECSer interface {
 	ECS(ctx context.Context, name, qtype string) (*ECS, error)

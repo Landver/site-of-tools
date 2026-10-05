@@ -10,12 +10,12 @@ type Kind string
 
 const (
 	KindString Kind = "string"
-	KindInt    Kind = "int"  // a whole number, in decimal
-	KindBool   Kind = "bool" // a checkbox: "false", "off", "0", "no" and absent are unset
+	KindInt    Kind = "int"
+	KindBool   Kind = "bool"
 	KindJSON   Kind = "json" // a string holding JSON text
-	KindEnum   Kind = "enum" // one of Enum
+	KindEnum   Kind = "enum"
 	KindList   Kind = "list" // a comma-separated subset of Enum
-	KindFile   Kind = "file" // an uploaded file: multipart forms only, never JSON
+	KindFile   Kind = "file" // multipart forms only, never JSON
 )
 
 // Field is one input an op reads, the contract tool schemas are generated from.
@@ -36,8 +36,7 @@ func (f Field) withMax(n int) Field { f.Max = &n; return f }
 
 func (f Field) withDefault(n int) Field { f.Default = strconv.Itoa(n); return f }
 
-// intField reads f as a whole number, its Default when blank. The range is
-// checked here, before any work: for Heavy ops it is what bounds a request.
+// intField checks the range before any work: for Heavy ops it is what bounds a request.
 func intField(in Input, f Field) (int, error) {
 	v := strings.TrimSpace(in.Get(f.Name))
 	if v == "" {

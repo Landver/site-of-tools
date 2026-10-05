@@ -28,11 +28,11 @@ type Looker interface {
 type handler struct {
 	svc  Looker
 	hist *History // nil when Mongo disabled — Record/Recent nil-safe
-	chk  Checker  // nil when Mongo disabled → no blocklist row (G37)
+	chk  Checker  // nil when Mongo disabled → no blocklist row
 	lim  *Limits
 }
 
-// Limits are this tool's budgets, built once and shared by every door.
+// Limits are built once and shared by REST and MCP, so both spend one budget.
 type Limits struct {
 	Lookup, CIDR, History platform.Limiter
 	LookupCap             *platform.Cap
@@ -50,7 +50,6 @@ func NewLimits() *Limits {
 // Register wires ip.corpberry.com routes onto e. Lookups query-param only
 // (?ip=…), consistent w/ /cidr?cidr=… — no /:ip pretty route. hist may be nil
 // (Mongo off) → /history view empty.
-// chk (from CheckerFrom) may be nil too; lim nil means fresh limits.
 //
 //	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
 //	GET /cidr     subnet / CIDR calculator (?cidr=…)
@@ -65,7 +64,6 @@ func Register(e *echo.Echo, svc Looker, hist *History, chk Checker, lim *Limits)
 	e.GET("/history", h.history, platform.RateLimit(lim.History, nil, h.limited))
 }
 
-// limited answers a spent budget the way each route answers its own errors.
 func (h *handler) limited(c *echo.Context) error {
 	const code = http.StatusTooManyRequests
 	platform.SetNegotiationHeaders(c, code)

@@ -6,10 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
@@ -232,12 +230,7 @@ func TestEncodePageLinksToLinkTools(t *testing.T) {
 	funcs := template.FuncMap{"navTools": func() []platform.Tool {
 		return []platform.Tool{{Name: "Link Tools", URL: "https://link.example"}}
 	}}
-	r := platform.NewRenderer(false, funcs,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
+	e := cipherApp(funcs, nil, nil)
 	rec := do(t, e, http.MethodGet, "/encode", "", "", asBrowser)
 	if !strings.Contains(rec.Body.String(), `href="https://link.example/encode"`) {
 		t.Fatal("no link to Link Tools' encode page")

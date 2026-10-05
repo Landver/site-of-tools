@@ -349,31 +349,25 @@ func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
 	}
 }
 
-// A target picks its headers and its certificate's names. Normal values are
-// kept as sent; oversized ones are clipped before a hop or note holds them.
 func TestTraceBoundsTargetChosenStrings(t *testing.T) {
-	normal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Server", "nginx/1.27.0")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Location", "/next?utm_source=a")
-		w.WriteHeader(http.StatusFound)
-	}))
-	defer normal.Close()
-	hop := trace(t, testTracer(t), normal.URL).Hops[0]
-	if hop.Server != "nginx/1.27.0" || hop.ContentType != "text/plain; charset=utf-8" || hop.Location != "/next?utm_source=a" {
+	chainWith := func(server, ctype, loc string) *Chain {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Server", server)
+			w.Header().Set("Content-Type", ctype)
+			w.Header().Set("Location", loc)
+			w.WriteHeader(http.StatusFound)
+		}))
+		defer srv.Close()
+		return trace(t, testTracer(t), srv.URL)
+	}
+	if hop := chainWith("nginx/1.27.0", "text/plain; charset=utf-8", "/next?utm_source=a").Hops[0]; hop.Server != "nginx/1.27.0" ||
+		hop.ContentType != "text/plain; charset=utf-8" || hop.Location != "/next?utm_source=a" {
 		t.Errorf("normal hop changed: server %q, type %q, location %q", hop.Server, hop.ContentType, hop.Location)
 	}
 
 	loc := "http://example.com/" + strings.Repeat("a", 5000)
-	hostile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Server", strings.Repeat("‮s", 10_000))
-		w.Header().Set("Content-Type", "text/html; "+strings.Repeat("c", 10_000))
-		w.Header().Set("Location", loc)
-		w.WriteHeader(http.StatusFound)
-	}))
-	defer hostile.Close()
-	ch := trace(t, testTracer(t), hostile.URL)
-	hop = ch.Hops[0]
+	ch := chainWith(strings.Repeat("‮s", 10_000), "text/html; "+strings.Repeat("c", 10_000), loc)
+	hop := ch.Hops[0]
 	for name, c := range map[string]struct {
 		got   string
 		limit int
@@ -402,12 +396,11 @@ func TestTransportNoteClipsOnlyTheCause(t *testing.T) {
 	const tlsTail = ". This is the finding, not an obstacle: the trace stops rather than retrying over plain HTTP or ignoring the certificate."
 
 	short := tlsErr(longURL, &x509.Certificate{DNSNames: []string{"other.example"}})
-	if got := transportNote(context.Background(), short); got.Detail != short.Error()+tlsTail {
-		t.Errorf("normal TLS note changed:\n%s", got.Detail)
-	}
 	plain := &url.Error{Op: "Get", URL: longURL, Err: errors.New("EOF")}
-	if got := transportNote(context.Background(), plain); got.Detail != plain.Error() {
-		t.Errorf("normal failure note changed: %s", got.Detail)
+	for err, want := range map[error]string{short: short.Error() + tlsTail, plain: plain.Error()} {
+		if got := transportNote(context.Background(), err).Detail; got != want {
+			t.Errorf("normal note changed:\n%s", got)
+		}
 	}
 
 	for _, err := range []error{

@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// Credit is a data source's attribution, owed in a page's footer or a page-less result.
 type Credit struct {
 	ID     string `json:"-"`
 	Source string `json:"source"`
@@ -25,8 +24,7 @@ const (
 	CreditRDAP        = "rdap"
 )
 
-// IP2Location's licence requires its notice word for word, and Shodan's terms
-// a visible credit wherever its data appears.
+// Licences: IP2Location's notice must be verbatim; Shodan wants a credit wherever its data shows.
 var credits = []Credit{
 	{ID: CreditIP2Location, Flag: "Attribution", Source: "IP2Location LITE", URL: "https://lite.ip2location.com", LinkText: "IP geolocation",
 		Notice: "corpberry.com uses the IP2Location LITE database for IP geolocation."},
@@ -51,8 +49,7 @@ func CreditFor(id string) (Credit, bool) {
 
 type footerCredit struct{ URL, Lead, LinkText, Rest string }
 
-// creditFunc is the "credit" template func. An unknown ID fails the render: a
-// credit a licence requires must not vanish over a typo.
+// An unknown ID fails the render, so a credit a licence requires can't vanish over a typo.
 func creditFunc(id string) (footerCredit, error) {
 	c, ok := CreditFor(id)
 	if !ok {

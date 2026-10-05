@@ -70,14 +70,14 @@ func TestWithNetworkMapsProxyTypes(t *testing.T) {
 	}
 }
 
-func renderConn(t *testing.T, ci platform.ConnInfo) string {
+func renderPartial(t *testing.T, name string, data any) string {
 	t.Helper()
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 	)
 	var buf bytes.Buffer
-	if err := r.Render(nil, &buf, "partials/conn", ci); err != nil {
-		t.Fatalf("render conn partial: %v", err)
+	if err := r.Render(nil, &buf, name, data); err != nil {
+		t.Fatalf("render %s: %v", name, err)
 	}
 	return buf.String()
 }
@@ -85,7 +85,7 @@ func renderConn(t *testing.T, ci platform.ConnInfo) string {
 func TestConnPartialUnenrichedRendersUnchanged(t *testing.T) {
 	// Every tool today renders partial w/ transport fields only → G38/G44 rows
 	// mustn't appear (not even labels) when empty.
-	body := renderConn(t, platform.ConnInfo{
+	body := renderPartial(t, "partials/conn", platform.ConnInfo{
 		IP: "203.0.113.7", Via: "direct", Scheme: "https",
 		Host: "ip.corpberry.com", Browser: "TestBrowser/1.0", Language: "en-US",
 	})
@@ -102,7 +102,7 @@ func TestConnPartialUnenrichedRendersUnchanged(t *testing.T) {
 }
 
 func TestConnPartialRendersNetworkRows(t *testing.T) {
-	body := renderConn(t, platform.ConnInfo{
+	body := renderPartial(t, "partials/conn", platform.ConnInfo{
 		IP: "203.0.113.7", Via: "direct", Scheme: "https",
 		Host: "botcheck.corpberry.com", Browser: "TestBrowser/1.0",
 	}.WithNetwork(platform.ConnNetwork{
@@ -116,7 +116,7 @@ func TestConnPartialRendersNetworkRows(t *testing.T) {
 
 	// Partial enrichment: ASN w/o name, no proxy data → only what's really
 	// there renders.
-	body = renderConn(t, platform.ConnInfo{IP: "203.0.113.7"}.WithNetwork(platform.ConnNetwork{ASN: "714"}))
+	body = renderPartial(t, "partials/conn", platform.ConnInfo{IP: "203.0.113.7"}.WithNetwork(platform.ConnNetwork{ASN: "714"}))
 	if !strings.Contains(body, "AS714") {
 		t.Errorf("a bare ASN should render without a name:\n%s", body)
 	}

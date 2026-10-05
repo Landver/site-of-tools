@@ -23,7 +23,6 @@ const (
 	EncBase32    = "base32"
 )
 
-// byteEncodings is every encoding DecodeBytes reads, as a field's Enum.
 var byteEncodings = []string{EncUTF8, EncHex, EncBase64, EncBase64URL, EncBase32}
 
 // DecodeBytes reads s as enc. UTF-8 is taken verbatim, whitespace included,

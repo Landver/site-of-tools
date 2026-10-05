@@ -67,11 +67,14 @@ var pages = []page{
 		Desc:  "Paste a string to see what it could be: hash types with hashcat modes, JWT, JWE, PEM keys and certificates, SSH keys, bcrypt and Argon2 hashes, UUIDs, otpauth:// URIs, base64, hex or base32. Ranked candidates, each linked to the page that reads it."},
 }
 
-// maxBody bounds every POST, uploads included. The browser engine has no such
-// limit: a file hashed there never travels.
-const maxBody = 8 << 20
+const (
+	heavyBudget = 256 << 20
 
-// Limits are shared by every door; Heavy ops are what would burn this box's CPU.
+	// maxBody bounds every POST, uploads included. The browser engine has no
+	// such limit: a file hashed there never travels.
+	maxBody = 8 << 20
+)
+
 type Limits struct {
 	Pure, Heavy platform.Limiter
 	// Engine bounds pulls of the multi-MB wasm engine, which a browser keeps.
@@ -79,8 +82,6 @@ type Limits struct {
 	// HeavyCap is a byte budget; each Heavy op holds HeavyWeight of it.
 	HeavyCap *platform.Cap
 }
-
-const heavyBudget = 256 << 20
 
 func NewLimits() *Limits {
 	return &Limits{
@@ -91,7 +92,7 @@ func NewLimits() *Limits {
 	}
 }
 
-// HeavyWeight is MemoryCost within [1 MiB, the budget], so no input waits forever.
+// HeavyWeight is MemoryCost within [1 MiB, the budget], so no input is refused forever.
 func HeavyWeight(name string, in Input) int64 {
 	return min(max(MemoryCost(name, in), 1<<20), heavyBudget)
 }
@@ -281,7 +282,6 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 	}
 }
 
-// run holds a Heavy op's weight of HeavyCap, known once its input is parsed.
 func (h *handler) run(client string, op Op, in Input) (any, error) {
 	if !op.Heavy {
 		return Run(op, in)

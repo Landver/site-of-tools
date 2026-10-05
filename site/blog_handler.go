@@ -13,7 +13,6 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// ErrPostNotFound: slug has no published post → handler maps it to 404.
 var ErrPostNotFound = errors.New("blog: post not found")
 
 // absoluteURL expands a site path ("/static/img/x.png") against base;

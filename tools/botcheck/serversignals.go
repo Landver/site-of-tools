@@ -11,7 +11,6 @@ type Looker interface {
 	Lookup(ip string) (*iptools.Result, error)
 }
 
-// HTTPSignals are the request headers the rules read, as an API caller names them.
 type HTTPSignals struct {
 	UserAgent       string `json:"user_agent,omitempty" jsonschema:"User-Agent"`
 	Accept          string `json:"accept,omitempty" jsonschema:"Accept"`
@@ -24,8 +23,7 @@ type HTTPSignals struct {
 	UpgradeInsecureRequests string `json:"-"`
 }
 
-// AddHTTPSignals copies h into sig and counts the headers as supplied, so an
-// empty one is evidence (a browser that didn't send it), not a skip.
+// AddHTTPSignals marks the headers supplied, so an empty one is evidence, not a skip.
 func AddHTTPSignals(sig *Signals, h HTTPSignals) {
 	sig.HeadersSupplied = true
 	sig.HTTPUserAgent = h.UserAgent
@@ -38,13 +36,11 @@ func AddHTTPSignals(sig *Signals, h HTTPSignals) {
 	sig.HTTPUpgradeInsecureRequests = h.UpgradeInsecureRequests
 }
 
-// AddIPSignals fills the IP half of sig for ip and counts it as supplied; the
-// caller still sets sig.Now (zero skips tz_mismatch). Returns the lookup, or nil.
+// AddIPSignals fills sig's IP half, returning the lookup or nil; zero sig.Now skips the tz checks.
 func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc Looker, chk iptools.Checker) *iptools.Result {
 	sig.IPSupplied = true
 	sig.EgressIP = ip
-	// The blocklist is read even without geo BINs. Any source but the ipsum
-	// feed is a deliberate ban, so the scorer needn't know iptools' sources.
+	// Any source but the ipsum feed is a deliberate ban; the scorer needn't know iptools' sources.
 	if chk != nil {
 		if lk, err := chk.Check(ctx, ip); err == nil {
 			sig.IPBlocklistSources = lk.Sources

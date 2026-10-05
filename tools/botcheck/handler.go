@@ -14,11 +14,11 @@ import (
 type handler struct {
 	svc       Looker
 	corpus    *Corpus         // nil-safe: Mongo disabled → fingerprint corpus no-ops
-	blocklist iptools.Checker // nil when Mongo off → ip_blocklisted silent (G37)
+	blocklist iptools.Checker // nil when Mongo off → ip_blocklisted silent
 	lim       *Limits
 }
 
-// Limits are shared by every door; a score looks the IP up and reads the corpus.
+// Limits are shared by REST and MCP; a score looks the IP up and reads the corpus.
 type Limits struct {
 	Check    platform.Limiter
 	CheckCap *platform.Cap
@@ -29,7 +29,6 @@ func NewLimits() *Limits {
 }
 
 // Register wires botcheck.corpberry.com routes onto e.
-// blocklist (from iptools.CheckerFrom) may be nil; lim nil means fresh limits.
 //
 //	GET  /                  check page (browser) — or server-only score (curl/JSON)
 //	POST /check             accepts collected client fingerprint, returns full score
@@ -50,7 +49,6 @@ func limited(c *echo.Context) error {
 	return refuse(c, http.StatusTooManyRequests, "Too many checks from your address. Try again in a few seconds.")
 }
 
-// refuse turns a request away before scoring, as JSON or the result fragment.
 func refuse(c *echo.Context, code int, msg string) error {
 	if platform.WantsJSON(c) {
 		return c.JSON(code, map[string]string{"error": msg})
@@ -130,9 +128,7 @@ func (h *handler) check(c *echo.Context) error {
 		if platform.WantsJSON(c) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid fingerprint payload"})
 		}
-		return c.Render(http.StatusBadRequest, "botcheck/result", map[string]any{
-			"Report": Report{Verdict: "error", Checks: []Check{{Label: "Invalid fingerprint payload"}}},
-		})
+		return refuse(c, http.StatusBadRequest, "Invalid fingerprint payload")
 	}
 	if !h.lim.CheckCap.TryAcquire(c.RealIP(), 1) {
 		return refuse(c, http.StatusServiceUnavailable, platform.BusyMessage)
@@ -168,8 +164,6 @@ func (h *handler) check(c *echo.Context) error {
 	})
 }
 
-// addServerSignals fills the half of sig Go sees without JS, returning the
-// conn-card network from the same lookup.
 func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnNetwork {
 	sig.Now = time.Now()
 	AddHTTPSignals(sig, requestHeaders(c.Request()))

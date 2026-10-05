@@ -62,8 +62,7 @@ type handler struct {
 type Limits struct {
 	Lookup, Walk       platform.Limiter
 	LookupCap, WalkCap *platform.Cap
-	// DomainCap is /domain's own: crt.sh and RDAP can take 20 s, and lookup
-	// slots held that long would starve plain lookups.
+	// DomainCap is apart: RDAP and crt.sh can hold a slot for 20 s.
 	DomainCap *platform.Cap
 }
 
@@ -79,7 +78,6 @@ func NewLimits() *Limits {
 
 // Register wires dns.corpberry.com routes onto e. Query-param only
 // (?name=&type=&resolver=), matching iptools' convention — no /:name route.
-// lim nil means fresh limits.
 //
 //	GET /             DNS record lookup
 //	GET /consistency  the zone's own nameservers vs the public resolvers
@@ -108,7 +106,7 @@ func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, b
 	e.GET("/email", h.email, lookup)
 }
 
-// reply is platform.Reply with the nav, title and status line out of band (dns/oob).
+// reply is platform.Reply, with htmx fragments also carrying the nav, title and status line.
 func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error {
 	if platform.IsHTMX(c) {
 		vm["OOB"] = true
@@ -168,12 +166,12 @@ func needName(c *echo.Context, name string, vm map[string]any, page, frag, examp
 	return true, c.Render(http.StatusOK, page, vm)
 }
 
-// unavailable answers a route whose dependency is switched off. 503, not 400
+// unavailable answers a route that is switched off or busy. 503, not 400
 // or 502: the caller asked correctly and no upstream failed us, the feature
 // simply is not running.
-func unavailable(c *echo.Context, vm map[string]any, page, frag string) error {
-	vm["Error"] = UnavailableMessage
-	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": UnavailableMessage}, vm, page, frag)
+func unavailable(c *echo.Context, msg string, vm map[string]any, page, frag string) error {
+	vm["Error"] = msg
+	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, frag)
 }
 
 const UnavailableMessage = "This check isn't available right now."
@@ -229,10 +227,10 @@ func (h *handler) email(c *echo.Context) error {
 		return err
 	}
 	if h.mail == nil {
-		return unavailable(c, vm, "dns/email", "dns/emailauth")
+		return unavailable(c, UnavailableMessage, vm, "dns/email", "dns/emailauth")
 	}
 	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
-		return busy(c, vm, "dns/email", "dns/emailauth")
+		return unavailable(c, platform.BusyMessage, vm, "dns/email", "dns/emailauth")
 	}
 	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 
@@ -265,22 +263,20 @@ func (h *handler) domain(c *echo.Context) error {
 		return err
 	}
 	if !h.lim.DomainCap.TryAcquire(c.RealIP(), 1) {
-		return busy(c, vm, "dns/domain", "dns/domaininfo")
+		return unavailable(c, platform.BusyMessage, vm, "dns/domain", "dns/domaininfo")
 	}
 	defer h.lim.DomainCap.Release(c.RealIP(), 1)
 	rep, err := DomainInfo(c.Request().Context(), h.svc, h.dom, c.QueryParam("name"))
 	if err != nil {
 		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
 	}
-	if rep.RegistrableDomain != "" {
-		vm["RegFor"] = rep.RegistrableDomain
-	}
+	vm["RegFor"] = rep.RegistrableDomain
 
 	// Partial success stays 200; total failure must not.
 	code := http.StatusOK
 	switch err := rep.Err(); {
 	case errors.Is(err, ErrDisabled):
-		return unavailable(c, vm, "dns/domain", "dns/domaininfo")
+		return unavailable(c, UnavailableMessage, vm, "dns/domain", "dns/domaininfo")
 	case err != nil:
 		code = http.StatusBadGateway
 	default:
@@ -290,12 +286,10 @@ func (h *handler) domain(c *echo.Context) error {
 		vm["Registration"] = rep.Registration
 	} else {
 		vm["RegError"] = rep.RegErr.Error()
-		// "The registry holds nothing for this name" is an answer; only a
-		// failed lookup deserves the disclaimer.
+		// Distinguish "the registry answered, and holds nothing for this name"
+		// from "the lookup failed". Only the latter deserves the disclaimer.
 		vm["RegAbsent"] = errors.Is(rep.RegErr, errNoRDAPRecord)
-		if rep.Delegated {
-			vm["RegHasNS"] = true
-		}
+		vm["RegHasNS"] = rep.Delegated
 	}
 	if rep.CertErr == nil {
 		vm["Certs"] = rep.CertNames
@@ -322,10 +316,10 @@ func (h *handler) consistency(c *echo.Context) error {
 		return err
 	}
 	if h.spr == nil {
-		return unavailable(c, vm, "dns/consistency", "dns/spread")
+		return unavailable(c, UnavailableMessage, vm, "dns/consistency", "dns/spread")
 	}
 	if !h.lim.WalkCap.TryAcquire(c.RealIP(), 1) {
-		return busy(c, vm, "dns/consistency", "dns/spread")
+		return unavailable(c, platform.BusyMessage, vm, "dns/consistency", "dns/spread")
 	}
 	defer h.lim.WalkCap.Release(c.RealIP(), 1)
 
@@ -351,10 +345,10 @@ func (h *handler) trace(c *echo.Context) error {
 		return err
 	}
 	if h.tra == nil {
-		return unavailable(c, vm, "dns/trace", "dns/tracewalk")
+		return unavailable(c, UnavailableMessage, vm, "dns/trace", "dns/tracewalk")
 	}
 	if !h.lim.WalkCap.TryAcquire(c.RealIP(), 1) {
-		return busy(c, vm, "dns/trace", "dns/tracewalk")
+		return unavailable(c, platform.BusyMessage, vm, "dns/trace", "dns/tracewalk")
 	}
 	defer h.lim.WalkCap.Release(c.RealIP(), 1)
 
@@ -379,7 +373,6 @@ func limited(c *echo.Context) error {
 	vm := withName(map[string]any{"Title": "Slow down · DNS Tools", "Desc": msg, "Error": msg,
 		"Active": active, "Query": name, "Retry": c.Request().URL.RequestURI()}, name, "")
 	if platform.IsHTMX(c) {
-		// Not a history entry.
 		c.Response().Header().Set("HX-Push-Url", "false")
 		// Above the last result, not over it.
 		c.Response().Header().Set("HX-Reswap", "afterbegin")
@@ -387,12 +380,6 @@ func limited(c *echo.Context) error {
 	return reply(c, http.StatusTooManyRequests,
 		map[string]string{"error": msg}, vm,
 		"dns/ratelimited", "dns/slowdown")
-}
-
-// busy answers a full cap: 503 like unavailable, but only for now.
-func busy(c *echo.Context, vm map[string]any, page, frag string) error {
-	vm["Error"] = platform.BusyMessage
-	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": platform.BusyMessage}, vm, page, frag)
 }
 
 // index serves the lookup page, and the lookup itself when ?name= is present.
@@ -410,10 +397,8 @@ func (h *handler) index(c *echo.Context) error {
 	if done, err := needName(c, name, vm, "dns/index", "dns/result", "/?name=example.com&type=A"); done {
 		return err
 	}
-	// No "your request" card, unlike iptools/botcheck: the question is about
-	// someone else's domain, not the visitor's connection.
 	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
-		return busy(c, vm, "dns/index", "dns/result")
+		return unavailable(c, platform.BusyMessage, vm, "dns/index", "dns/result")
 	}
 	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 	res, err := LookupEnriched(c.Request().Context(), h.svc, h.geo,

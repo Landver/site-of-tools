@@ -47,9 +47,8 @@
   {{end}}
   {{/* Shodan InternetDB: what the internet already knows is open on this IP —
        last-seen (≈weekly), NOT a live scan. Handler-populated best-effort; the
-       card renders only when we checked or deliberately skipped (.Shodan
-       non-nil). Attribution to Shodan is mandatory + kept inline with the data
-       (their terms). */}}
+       card renders only when we checked or skipped (.Shodan non-nil). Attribution
+       to Shodan is mandatory + kept inline with the data (their terms). */}}
   {{with .Shodan}}
   <div class="card order-5">
     <div class="eyebrow">open ports · shodan</div>

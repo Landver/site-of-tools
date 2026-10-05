@@ -195,8 +195,8 @@ func passwordAlgo(in Input) string {
 }
 
 // passwordHasher checks the chosen algorithm's parameters and returns the
-// derivation to time and its memory. Everything that can be refused is refused
-// here, before any expensive work starts.
+// derivation to time. Everything that can be refused is refused here, before
+// any expensive work starts.
 func passwordHasher(algo string, in Input, pw, salt []byte) (derive func() (string, error), mem int64, err error) {
 	switch algo {
 	case AlgoBcrypt:
@@ -295,11 +295,9 @@ func passwordHasher(algo string, in Input, pw, salt []byte) (derive func() (stri
 // all p lanes (they run one after another), beside B (128·r·p) and XY (256·r).
 func scryptMemory(n, r, p int) int64 { return 128 * int64(r) * int64(n+p+2) }
 
-// flatMemory is MemoryCost's charge when memory doesn't follow the parameters.
 const flatMemory = 16 << 20
 
-// MemoryCost is roughly what op name allocates on in: Argon2's and scrypt's
-// parameters (chosen, or read from a pasted hash) decide it, else flatMemory.
+// MemoryCost is roughly what op name allocates: Argon2's or scrypt's memory, else flatMemory.
 func MemoryCost(name string, in Input) int64 {
 	var mem int64
 	switch name {
@@ -406,7 +404,7 @@ type PasswordHashInfo struct {
 
 	warnings []Warning
 	check    func(pw []byte) (bool, error)
-	mem      int64 // bytes check allocates (Argon2 and scrypt), for MemoryCost
+	mem      int64 // bytes check allocates (Argon2 and scrypt)
 }
 
 func (h *PasswordHashInfo) warn(level, text string) {

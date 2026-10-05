@@ -14,7 +14,6 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Rates and caps are not set here: every tool spends its REST twin's Limits.
 const (
 	quickDeadline    = 5 * time.Second // also every method but tools/call
 	heavyDeadline    = 15 * time.Second
@@ -29,16 +28,12 @@ type toolSpec struct {
 	tool     *mcp.Tool
 	deadline time.Duration
 	limiter  platform.Limiter
-	// breaker is a budget every client shares; its refusal reads as busy.
-	breaker platform.Limiter
-	cap     *platform.Cap
-	// weight is how much of cap a call holds, read from the raw arguments
-	// before the SDK validates them; nil holds 1.
-	weight func(json.RawMessage) int64
-	narrow string // how to ask for less, when a result is over the hard cap
-	// whole keeps every string uncut: the result holds no third-party text.
-	whole bool
-	add   func(*mcp.Server, *mcp.Tool)
+	breaker  platform.Limiter // a budget every client shares; its refusal reads as busy
+	cap      *platform.Cap
+	weight   func(json.RawMessage) int64 // of cap, from arguments not yet validated; nil weighs 1
+	narrow   string                      // how to ask for less, when a result is over the hard cap
+	whole    bool                        // no third-party text, so no string is cut
+	add      func(*mcp.Server, *mcp.Tool)
 }
 
 func handle[In any](f func(context.Context, *mcp.CallToolRequest, In) (any, error)) func(*mcp.Server, *mcp.Tool) {
@@ -95,7 +90,6 @@ const ownerEndpoint = "owner"
 // Route is a REST route; Host "" is the apex.
 type Route struct{ Host, Method, Path string }
 
-// Decision names the Tools serving a route, or the Reason it is not a tool.
 type Decision struct {
 	Tools  []string
 	Reason string

@@ -67,8 +67,14 @@ func dnsSpecs(d Deps) []toolSpec {
 		resolvers[i] = r.Key
 	}
 
-	specs := []toolSpec{{
-		toolset: "dns",
+	var specs []toolSpec
+	spec := func(on bool, s toolSpec) {
+		if on {
+			s.toolset, s.deadline, s.tool.Annotations = "dns", upstreamDeadline, readOnly(true)
+			specs = append(specs, s)
+		}
+	}
+	spec(true, toolSpec{
 		tool: &mcp.Tool{
 			Name:  "dns_lookup",
 			Title: "DNS lookup",
@@ -81,101 +87,78 @@ func dnsSpecs(d Deps) []toolSpec {
 			InputSchema: inputSchema[dnsLookupArgs](minLength("name", 1),
 				oneOf("type", append([]string{"ALL"}, dnstools.Types...)), defaultTo("type", "ALL"),
 				oneOf("resolver", resolvers), defaultTo("resolver", dnstools.DefaultResolver)),
-			Annotations: readOnly(true),
 		},
-		deadline: upstreamDeadline,
-		limiter:  lim.Lookup,
-		cap:      lim.LookupCap,
-		narrow:   "Ask for one record type instead of ALL, and leave detailed off.",
-		add:      handle(t.lookup),
-	}}
-	if t.spr != nil {
-		specs = append(specs, toolSpec{
-			toolset: "dns",
-			tool: &mcp.Tool{
-				Name:  "dns_consistency",
-				Title: "DNS consistency",
-				Description: "Check whether a DNS change has reached everywhere: asks the zone's own nameservers directly (up to 8) and the public resolvers, " +
-					"then groups the answers and compares SOA serials, cache ages and delegation health. " +
-					"consistent means every server returned the same records; auth_consistent that the zone's own servers agree, " +
-					"so resolvers that differ are only caching or steering by location. " +
-					"Each server names its answer by index into groups. Example: name example.com, type TXT. " + thirdParty,
-				InputSchema: inputSchema[dnsConsistencyArgs](minLength("name", 1),
-					oneOf("type", dnstools.Types), defaultTo("type", "A")),
-				Annotations: readOnly(true),
-			},
-			deadline: upstreamDeadline,
-			limiter:  lim.Walk,
-			cap:      lim.WalkCap,
-			narrow:   "Leave detailed off.",
-			add:      handle(t.consistency),
-		})
-	}
-	if t.tra != nil {
-		specs = append(specs, toolSpec{
-			toolset: "dns",
-			tool: &mcp.Tool{
-				Name:  "dns_trace",
-				Title: "DNS trace",
-				Description: "Walk a name's DNS delegation down from a root server, one zone cut at a time with recursion off, " +
-					"and check the DNSSEC chain of trust against the IANA root trust anchors. " +
-					"Each hop names the server that answered, its round-trip time, the nameservers it referred to and whether glue came with them; " +
-					"dnssec is secure, insecure (unsigned: the common case, not a fault), bogus or indeterminate. " +
-					"Use it for a broken delegation or a lame nameserver; for the records themselves, use dns_lookup. Example: name www.example.com. " + thirdParty,
-				InputSchema: inputSchema[dnsTraceArgs](minLength("name", 1),
-					oneOf("type", dnstools.Types), defaultTo("type", "A")),
-				Annotations: readOnly(true),
-			},
-			deadline: upstreamDeadline,
-			limiter:  lim.Walk,
-			cap:      lim.WalkCap,
-			add:      handle(t.trace),
-		})
-	}
-	if t.dom != nil {
-		specs = append(specs, toolSpec{
-			toolset: "dns",
-			tool: &mcp.Tool{
-				Name:  "dns_domain_info",
-				Title: "Domain info",
-				Description: "Who registered a domain and which names exist under it: the registration from RDAP " +
-					"(registrar, created and expiry dates, days left, lock statuses explained, nameservers, DNSSEC) " +
-					"and the subdomains Certificate Transparency logs have seen. " +
-					"Neither lookup sends anything to the domain itself, and when one fails the other still comes back, with the failure named. " +
-					"Lists the first 50 names with the total; detailed: true lists up to 200 with their certificate dates. Example: name github.com. " + thirdParty,
-				InputSchema: inputSchema[dnsDomainArgs](minLength("name", 1)),
-				Annotations: readOnly(true),
-			},
-			deadline: upstreamDeadline,
-			limiter:  lim.Lookup,
-			cap:      lim.DomainCap,
-			narrow:   "Leave detailed off.",
-			add:      handle(t.domain),
-		})
-	}
-	if t.mail != nil {
-		specs = append(specs, toolSpec{
-			toolset: "dns",
-			tool: &mcp.Tool{
-				Name:  "dns_email_auth",
-				Title: "Email authentication",
-				Description: "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), " +
-					"DMARC policy strength, DKIM keys at common selectors, MTA-STS with its policy fetched over HTTPS, TLS-RPT and BIMI, " +
-					"plus each mail server's reverse DNS and whether a blocklist lists it. " +
-					"notes carry the findings, worst first. Example: name example.com. " + thirdParty,
-				InputSchema: inputSchema[dnsEmailArgs](minLength("name", 1)),
-				Annotations: readOnly(true),
-			},
-			deadline: upstreamDeadline,
-			limiter:  lim.Lookup,
-			cap:      lim.LookupCap,
-			add:      handle(t.email),
-		})
-	}
+		limiter: lim.Lookup,
+		cap:     lim.LookupCap,
+		narrow:  "Ask for one record type instead of ALL, and leave detailed off.",
+		add:     handle(t.lookup),
+	})
+	spec(t.spr != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_consistency",
+			Title: "DNS consistency",
+			Description: "Check whether a DNS change has reached everywhere: asks the zone's own nameservers directly (up to 8) and the public resolvers, " +
+				"then groups the answers and compares SOA serials, cache ages and delegation health. " +
+				"consistent means every server returned the same records; auth_consistent that the zone's own servers agree, " +
+				"so resolvers that differ are only caching or steering by location. " +
+				"Each server names its answer by index into groups. Example: name example.com, type TXT. " + thirdParty,
+			InputSchema: inputSchema[dnsConsistencyArgs](minLength("name", 1),
+				oneOf("type", dnstools.Types), defaultTo("type", "A")),
+		},
+		limiter: lim.Walk,
+		cap:     lim.WalkCap,
+		narrow:  "Leave detailed off.",
+		add:     handle(t.consistency),
+	})
+	spec(t.tra != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_trace",
+			Title: "DNS trace",
+			Description: "Walk a name's DNS delegation down from a root server, one zone cut at a time with recursion off, " +
+				"and check the DNSSEC chain of trust against the IANA root trust anchors. " +
+				"Each hop names the server that answered, its round-trip time, the nameservers it referred to and whether glue came with them; " +
+				"dnssec is secure, insecure (unsigned: the common case, not a fault), bogus or indeterminate. " +
+				"Use it for a broken delegation or a lame nameserver; for the records themselves, use dns_lookup. Example: name www.example.com. " + thirdParty,
+			InputSchema: inputSchema[dnsTraceArgs](minLength("name", 1),
+				oneOf("type", dnstools.Types), defaultTo("type", "A")),
+		},
+		limiter: lim.Walk,
+		cap:     lim.WalkCap,
+		add:     handle(t.trace),
+	})
+	spec(t.dom != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_domain_info",
+			Title: "Domain info",
+			Description: "Who registered a domain and which names exist under it: the registration from RDAP " +
+				"(registrar, created and expiry dates, days left, lock statuses explained, nameservers, DNSSEC) " +
+				"and the subdomains Certificate Transparency logs have seen. " +
+				"Neither lookup sends anything to the domain itself, and when one fails the other still comes back, with the failure named. " +
+				"Lists the first 50 names with the total; detailed: true lists up to 200 with their certificate dates. Example: name github.com. " + thirdParty,
+			InputSchema: inputSchema[dnsDomainArgs](minLength("name", 1)),
+		},
+		limiter: lim.Lookup,
+		cap:     lim.DomainCap,
+		narrow:  "Leave detailed off.",
+		add:     handle(t.domain),
+	})
+	spec(t.mail != nil, toolSpec{
+		tool: &mcp.Tool{
+			Name:  "dns_email_auth",
+			Title: "Email authentication",
+			Description: "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), " +
+				"DMARC policy strength, DKIM keys at common selectors, MTA-STS with its policy fetched over HTTPS, TLS-RPT and BIMI, " +
+				"plus each mail server's reverse DNS and whether a blocklist lists it. " +
+				"notes carry the findings, worst first. Example: name example.com. " + thirdParty,
+			InputSchema: inputSchema[dnsEmailArgs](minLength("name", 1)),
+		},
+		limiter: lim.Lookup,
+		cap:     lim.LookupCap,
+		add:     handle(t.email),
+	})
 	return specs
 }
 
-// lookup is GET /; concise drops the zone and dig re-renderings of the records.
 func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLookupArgs) (any, error) {
 	set, err := dnstools.LookupEnriched(ctx, t.svc, t.geo, a.Name, a.Type, a.Resolver)
 	if err != nil {
@@ -196,7 +179,6 @@ func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLooku
 	return out, nil
 }
 
-// consistency is GET /consistency; concise names a server's group, not its values.
 func (t dnsTools) consistency(ctx context.Context, _ *mcp.CallToolRequest, a dnsConsistencyArgs) (any, error) {
 	env, err := dnstools.Consistency(ctx, t.spr, t.ecs, t.geo, t.dom, a.Name, a.Type)
 	if err != nil {
@@ -233,7 +215,6 @@ func (t dnsTools) trace(ctx context.Context, _ *mcp.CallToolRequest, a dnsTraceA
 	return t.tra.Trace(ctx, dnstools.NormalizeName(a.Name), a.Type)
 }
 
-// domain is GET /domain; both halves failing is an error, as REST's 502.
 func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomainArgs) (any, error) {
 	rep, err := dnstools.DomainInfo(ctx, t.svc, t.dom, a.Name)
 	if err != nil {

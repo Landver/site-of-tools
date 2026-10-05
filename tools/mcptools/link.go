@@ -56,7 +56,6 @@ type linkExtractArgs struct {
 	Detailed bool   `json:"detailed,omitempty" jsonschema:"list up to 2,000 links, each with its byte positions in the text"`
 }
 
-// The UTM tags are pointers: absent keeps the URL's own tag, "" removes it.
 type linkUTMArgs struct {
 	URL         string  `json:"url" jsonschema:"the URL to tag"`
 	UTMSource   *string `json:"utm_source,omitempty" jsonschema:"where the traffic comes from, e.g. newsletter"`
@@ -91,7 +90,6 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 		personas = append(personas, p.Key)
 	}
 	var specs []toolSpec
-	// These return only the caller's own input reworked.
 	whole := map[string]bool{"link_clean": true, "link_diff": true, "link_curl_parse": true,
 		"link_curl_build": true, "link_utm": true, "link_percent_encode": true}
 	pure := func(name, title, desc, narrow string, schema any, add func(*mcp.Server, *mcp.Tool)) {
@@ -206,12 +204,14 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 	return specs
 }
 
-func wrongTool(raw string) error {
-	switch linktools.WrongTool(raw) {
-	case linktools.ToolCurl:
-		return errors.New(linktools.CurlNotURL + " Take it apart with link_curl_parse.")
-	case linktools.ToolExtract:
-		return errors.New(linktools.TextNotURL + " Pull them out with link_extract.")
+func wrongTool(raws ...string) error {
+	for _, raw := range raws {
+		switch linktools.WrongTool(raw) {
+		case linktools.ToolCurl:
+			return errors.New(linktools.CurlNotURL + " Take it apart with link_curl_parse.")
+		case linktools.ToolExtract:
+			return errors.New(linktools.TextNotURL + " Pull them out with link_extract.")
+		}
 	}
 	return nil
 }
@@ -230,7 +230,6 @@ func (t linkTools) clean(_ context.Context, _ *mcp.CallToolRequest, a linkCleanA
 	return t.svc.Clean(a.URL, linktools.CleanOptions{Unwrap: a.Unwrap, StripAffiliate: a.StripAffiliate, Sort: a.Sort})
 }
 
-// rules: param, url and full each ask the table a different question.
 func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesArgs) (any, error) {
 	cat := linktools.Rules()
 	asked := 0
@@ -256,10 +255,8 @@ func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesA
 }
 
 func (t linkTools) diff(_ context.Context, _ *mcp.CallToolRequest, a linkDiffArgs) (any, error) {
-	for _, u := range []string{a.URLA, a.URLB} {
-		if err := wrongTool(u); err != nil {
-			return nil, err
-		}
+	if err := wrongTool(a.URLA, a.URLB); err != nil {
+		return nil, err
 	}
 	return t.svc.Diff(a.URLA, a.URLB)
 }
@@ -288,7 +285,6 @@ func (t linkTools) curlBuild(_ context.Context, _ *mcp.CallToolRequest, a linkCu
 	return map[string]string{"curl": line}, nil
 }
 
-// extract is GET/POST /extract; concise drops positions and lists extractRows links.
 func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtractArgs) (any, error) {
 	res, err := t.svc.Extract(strings.TrimSpace(a.Text))
 	if err != nil {
@@ -334,7 +330,6 @@ func (t linkTools) encode(_ context.Context, _ *mcp.CallToolRequest, a linkEncod
 	return linktools.EncodeAll(a.Value), nil
 }
 
-// resolve is GET /s/:code without the redirect or its hit; expired, revoked and unknown read alike.
 func (t linkTools) resolve(ctx context.Context, _ *mcp.CallToolRequest, a linkResolveArgs) (any, error) {
 	code, ok := linktools.CodeFromShortURL(a.Code, t.short.ShortURL(""))
 	if !ok {
