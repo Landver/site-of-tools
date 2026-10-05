@@ -270,34 +270,26 @@ calls non-negotiable are in place:
   no label IDNA refused (raw UTF-8 would only come back as a false NXDOMAIN).
   It also bounds the zone walk's input and, on `/trace`, the number of zone
   cuts there can be.
-- **Publicly-routable-only egress.** `/consistency` and `/trace` are where a
-  request decides which address we send packets to, and a hostile delegation
-  can name any address it likes for its own children. Both send a nameserver
-  nothing until its address passes `nsRoutable` (`spread.go`): the
-  `platform.EgressGuard` that `main.go` hands `WithEgressGuard`, i.e.
-  `platform.PubliclyRoutable` (loopback, private, link-local, CGNAT,
-  multicast, reserved and NAT64 all refused) plus this host's own vhosts and
-  `EGRESS_DENY_ADDRS`; without a guard, `PubliclyRoutable` alone. Port 53 only
-  — not a general port oracle, but still ours to close.
-  `/email`'s MTA-STS fetch dials through the same guard: port 443 only, no
-  proxy (a proxy would make the guard judge the proxy's address) and no
-  keep-alive (a pooled connection would skip it), so every connection is
-  judged at dial time, after resolution; it refuses to follow redirects
-  (RFC 8461 §3.3). `/domain`'s RDAP and crt.sh clients send every hop off
-  their configured hosts through a guard too.
-- **Rate limits**, per client (`platform.RateLimitKey(c.RealIP())`, so an
-  IPv6 client counts by its /64), in-process, in `dnstools.Limits`: built once
-  in `main.go` and shared with the `dns_*` MCP tools, so one client has one
-  budget whichever door. Lookups (`/`, `/domain`, `/email`) 2/s with a burst
-  of 10; walks (`/consistency`, `/trace`), at 50 to 100 upstream queries each,
-  one per 2 s with a burst of 3. On top, caps on work in flight across all
-  clients: 8 lookups, 4 walks and 4 `/domain` reports, no client holding more
-  than a quarter of one; a full cap answers 503 busy at once rather than
-  queueing. rdap.org and crt.sh each get one request a second (burst 5) from
-  the whole process; past that, that half of `/domain` says busy. A bare page
-  (no `?name=`) asks no upstream anything and is not counted. 429s are
-  content-negotiated like everything else: an amber notice to htmx, and to a
-  browser a page that keeps the nav and offers the refused request again.
+- **Publicly-routable-only egress.** `/consistency` and `/trace` send packets
+  wherever a zone's delegation points, and a hostile delegation can name any
+  address for its children. So no nameserver is probed (on port 53) until its
+  address passes `nsRoutable` (`spread.go`): the `platform.EgressGuard`
+  `main.go` hands `WithEgressGuard` (`PubliclyRoutable` plus this host's
+  vhosts and `EGRESS_DENY_ADDRS`), or `PubliclyRoutable` alone without one.
+  `/email`'s MTA-STS fetch dials through that guard on 443 with no proxy and
+  no keep-alive, so every connection is judged at dial time, and refuses
+  redirects (RFC 8461 §3.3). `/domain`'s RDAP and crt.sh clients send every
+  hop off their configured hosts through a guard too.
+- **Rate limits** per client (`platform.RateLimitKey`: IPv6 counts by its
+  /64), in `dnstools.Limits`, which the `dns_*` MCP tools share: lookups (`/`,
+  `/domain`, `/email`) 2/s, burst 10; walks (`/consistency`, `/trace`) one per
+  2 s, burst 3. Work in flight is capped at 8 lookups, 4 walks and 4 `/domain`
+  reports, no client holding more than a quarter of one; a full cap answers
+  503 at once. rdap.org and crt.sh each get 1 request/s (burst 5) from the
+  whole process; past that, that half of `/domain` says busy. A bare page (no
+  `?name=`) asks no upstream anything and is not counted. 429s are
+  content-negotiated: an amber notice to htmx, and to a browser a page that
+  keeps the nav and offers the refused request again.
 - **Answer cache** (`cache.go`) **+ single-flight** (`Service.inflight`, in
   `dns.go`). Answers are held for the
   shortest TTL in them, clamped to 5s–5m, negatives for 30s, bounded at 4096

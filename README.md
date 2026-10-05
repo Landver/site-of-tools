@@ -39,20 +39,17 @@ More detail and my firsthand research on 12 commercial detectors live in
 
 ## MCP server, for AI agents
 
-Every tool here is also served over the Model Context Protocol at
+Every tool is also served over the Model Context Protocol at
 **[mcp.corpberry.com](https://mcp.corpberry.com)**, so Claude, ChatGPT, Cursor,
-VS Code, Codex or Gemini can call the tools themselves instead of being told
-how to `curl` them: the same domain code, the same results as the pages and
-their JSON API, the same rate limits, no account or key. Per-client setup is
-on the landing page; design, tool catalog and security notes in
-[tools/mcptools/docs/](tools/mcptools/docs/README.md).
+VS Code, Codex or Gemini can call the tools directly: same code, results and rate
+limits as the pages and their JSON API, no account or key. Setup per client is
+on that page; internals in [tools/mcptools/docs/](tools/mcptools/docs/README.md).
 
 - `https://mcp.corpberry.com/mcp`: all 35 tools, for Claude Code (it loads
   tools through tool search):
   `claude mcp add --scope user --transport http corpberry https://mcp.corpberry.com/mcp`
-- `https://mcp.corpberry.com/mcp/ip`, `/mcp/dns`, `/mcp/link`, `/mcp/cipher`,
-  `/mcp/botcheck`, `/mcp/site`: one toolset each (1 to 15 tools), for every
-  other client.
+- `/mcp/ip`, `/mcp/dns`, `/mcp/link`, `/mcp/cipher`, `/mcp/botcheck`,
+  `/mcp/site`: one toolset each, for every other client.
 
 ## Stack
 
@@ -117,7 +114,7 @@ nginx blocks live in the reverse proxy's own project; full steps in
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Cloudflare → nginx → Docker, ports, IP trust
 - [tools/iptools/](tools/iptools/docs/README.md) — the IP tools
 - [tools/botcheck/](tools/botcheck/docs/README.md) — the Bot check tool (docs split by topic: RESEARCH.md, roadmap/, testing/, reports/)
-- [tools/mcptools/](tools/mcptools/docs/README.md) — the MCP server: plan, research, tool catalog, security
+- [tools/mcptools/](tools/mcptools/docs/README.md) — the MCP server: design, tool catalog, security, research
 - [CLAUDE.md](CLAUDE.md) — conventions for anyone (incl. AI) developing here
 
 ## Layout
