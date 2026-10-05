@@ -6,9 +6,11 @@ package mcptools
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -54,8 +56,8 @@ type Deps struct {
 
 const maxBody = 1 << 20
 
-const landingDesc = "Every corpberry.com tool for AI agents, over the Model Context Protocol: IP lookups and more, " +
-	"with the same results as the web pages and the JSON API. Free, no account, no key."
+const landingDesc = "An MCP server for AI agents: corpberry.com's IP, DNS, Link and Cipher Tools, Bot check and blog, " +
+	"with the same results as the web pages and their JSON API. Free, no account, no key."
 
 // creditFlags are the footer flags (partials/footer) of each credit.
 var creditFlags = map[string]string{
@@ -341,9 +343,12 @@ type catalog struct {
 }
 
 type catalogEndpoint struct {
-	Path  string        `json:"path"`
-	URL   string        `json:"url"`
-	Tools []catalogTool `json:"tools"`
+	Path        string            `json:"path"`
+	URL         string            `json:"url"`
+	Title       string            `json:"title"`
+	REST        string            `json:"rest,omitempty"` // the site serving the same tools as pages and JSON
+	Attribution []platform.Credit `json:"attribution,omitempty"`
+	Tools       []catalogTool     `json:"tools"`
 }
 
 type catalogTool struct {
@@ -351,18 +356,59 @@ type catalogTool struct {
 	Title       string               `json:"title"`
 	Description string               `json:"description"`
 	Annotations *mcp.ToolAnnotations `json:"annotations"`
+	RateLimit   rateLimit            `json:"rate_limit"`
+}
+
+// rateLimit is a tool's published budget per client address.
+type rateLimit struct {
+	PerSecond float64 `json:"per_second"`
+	Burst     int     `json:"burst"`
+}
+
+func (r rateLimit) String() string {
+	if r.PerSecond > 0 && r.PerSecond < 1 {
+		return fmt.Sprintf("1 per %g s, burst %d", 1/r.PerSecond, r.Burst)
+	}
+	return fmt.Sprintf("%g/s, burst %d", r.PerSecond, r.Burst)
+}
+
+// The rates each tool package's NewLimits sets, published per tool: a change
+// there belongs here too, and the landing test fails on a tool left out.
+var (
+	ratePure   = rateLimit{10, 50}
+	rateLookup = rateLimit{2, 10}
+	rateWalk   = rateLimit{0.5, 3}
+	rateSlow   = rateLimit{1, 5}
+	rateShort  = rateLimit{20, 60}
+)
+
+var rateLimits = map[string]rateLimit{
+	"ip_lookup": rateLookup, "ip_cidr": ratePure,
+	"dns_lookup": rateLookup, "dns_domain_info": rateLookup, "dns_email_auth": rateLookup,
+	"dns_consistency": rateWalk, "dns_trace": rateWalk,
+	"link_inspect": ratePure, "link_clean": ratePure, "link_tracking_rules": ratePure, "link_diff": ratePure,
+	"link_curl_parse": ratePure, "link_curl_build": ratePure, "link_extract": ratePure, "link_utm": ratePure,
+	"link_percent_encode": ratePure, "link_redirect_chain": rateSlow, "link_short_resolve": rateShort,
+	"cipher_jwt_decode": ratePure, "cipher_hash": ratePure, "cipher_hmac": ratePure, "cipher_encrypt": ratePure,
+	"cipher_keys_inspect": ratePure, "cipher_cert": ratePure, "cipher_totp": ratePure, "cipher_random": ratePure,
+	"cipher_encode": ratePure, "cipher_basic_auth": ratePure, "cipher_identify": ratePure,
+	"cipher_jwt_sign": rateSlow, "cipher_keys_generate": rateSlow,
+	"cipher_password_hash": rateSlow, "cipher_password_verify": rateSlow,
+	"botcheck_score": rateLookup, "site_blog": ratePure,
 }
 
 // endpointView is one endpoint on the landing page; Site is the REST host its
 // tools mirror.
 type endpointView struct {
 	Title, URL, Site string
+	Credits          []platform.Credit
 	Tools            []toolView
 }
 
 type toolView struct {
 	Name, Title, Description string
 	ReadOnly, OpenWorld      bool
+	Rate                     rateLimit
 }
 
 // describe builds the landing page and its JSON from the servers themselves,
@@ -370,20 +416,21 @@ type toolView struct {
 // advertised.
 func (h *handler) describe(toolURL func(string) string) {
 	h.catalog = catalog{Name: "corpberry", Version: version()}
-	add := func(ep *endpoint, title, rest string) {
+	add := func(ep *endpoint, title, rest string, cr []platform.Credit) {
 		tools := make([]catalogTool, len(ep.specs))
 		views := make([]toolView, len(ep.specs))
 		for i, s := range ep.specs {
-			t, a := s.tool, s.tool.Annotations
-			tools[i] = catalogTool{Name: t.Name, Title: t.Title, Description: t.Description, Annotations: a}
+			t, a, r := s.tool, s.tool.Annotations, rateLimits[s.tool.Name]
+			tools[i] = catalogTool{Name: t.Name, Title: t.Title, Description: t.Description, Annotations: a, RateLimit: r}
 			views[i] = toolView{Name: t.Name, Title: t.Title, Description: t.Description,
-				ReadOnly: a.ReadOnlyHint, OpenWorld: a.OpenWorldHint == nil || *a.OpenWorldHint}
+				ReadOnly: a.ReadOnlyHint, OpenWorld: a.OpenWorldHint == nil || *a.OpenWorldHint, Rate: r}
 		}
 		url := h.base + ep.path
-		h.catalog.Endpoints = append(h.catalog.Endpoints, catalogEndpoint{Path: ep.path, URL: url, Tools: tools})
-		h.pages = append(h.pages, endpointView{Title: title, URL: url, Site: rest, Tools: views})
+		h.catalog.Endpoints = append(h.catalog.Endpoints,
+			catalogEndpoint{Path: ep.path, URL: url, Title: title, REST: rest, Attribution: cr, Tools: tools})
+		h.pages = append(h.pages, endpointView{Title: title, URL: url, Site: rest, Credits: cr, Tools: views})
 	}
-	add(h.endpoints[""], "All tools", "")
+	add(h.endpoints[""], "All tools", "", nil)
 	for _, ts := range toolsets {
 		ep := h.endpoints[ts.name]
 		if ep == nil {
@@ -393,18 +440,50 @@ func (h *handler) describe(toolURL func(string) string) {
 		if toolURL != nil {
 			rest = toolURL(ts.host)
 		}
-		add(ep, ts.title, rest)
+		add(ep, ts.title, rest, credits(ts.credits...))
 		h.credits = append(h.credits, ts.credits...)
 	}
 }
 
+// setup is each client's snippet on the page: Claude Code gets the URL with
+// every tool, the other clients one toolset's, named after it so a second
+// toolset can sit beside it.
+func setup(all, toolset string) map[string]string {
+	name := "corpberry-" + path.Base(toolset)
+	return map[string]string{
+		"ClaudeCode": "claude mcp add --scope user --transport http corpberry " + all,
+		"VSCode": fmt.Sprintf(`{
+  "servers": {
+    "%s": { "type": "http", "url": "%s" }
+  }
+}`, name, toolset),
+		"Cursor": fmt.Sprintf(`{
+  "mcpServers": {
+    "%s": { "url": "%s" }
+  }
+}`, name, toolset),
+		"Codex": "codex mcp add " + name + " --url " + toolset,
+		"CodexTOML": fmt.Sprintf(`[mcp_servers.%s]
+url = "%s"`, name, toolset),
+		"Gemini": "gemini mcp add --transport http " + name + " " + toolset,
+		"GeminiJSON": fmt.Sprintf(`{
+  "mcpServers": {
+    "%s": { "httpUrl": "%s" }
+  }
+}`, name, toolset),
+		"Remote": "npx mcp-remote " + toolset,
+	}
+}
+
 func (h *handler) landing(c *echo.Context) error {
+	all, example := h.pages[0], h.pages[min(1, len(h.pages)-1)]
 	vm := map[string]any{
-		"Title":      "MCP server — corpberry.com",
-		"Desc":       landingDesc,
-		"All":        h.pages[0],
-		"Toolsets":   h.pages[1:],
-		"ClaudeCode": "claude mcp add --scope user --transport http corpberry " + h.base + "/mcp",
+		"Title":    "MCP server — corpberry.com",
+		"Desc":     landingDesc,
+		"All":      all,
+		"Toolsets": h.pages[1:],
+		"Example":  example,
+		"Setup":    setup(all.URL, example.URL),
 	}
 	for _, id := range h.credits {
 		vm[creditFlags[id]] = true

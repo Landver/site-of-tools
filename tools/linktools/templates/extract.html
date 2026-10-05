@@ -80,6 +80,7 @@
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/extract' --data-urlencode 'text=see https://example.com'</pre>
       <p class="mt-1 text-xs text-muted">GET with <code class="font-mono">?text=</code> works too, for anything small enough to fit in a URL.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
   </main>
 

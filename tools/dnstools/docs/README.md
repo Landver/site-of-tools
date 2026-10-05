@@ -271,20 +271,31 @@ calls non-negotiable are in place:
   It also bounds the zone walk's input and, on `/trace`, the number of zone
   cuts there can be.
 - **Publicly-routable-only egress.** `/consistency` and `/trace` are where a
-  request decides which address we send packets to: a nameserver name
-  resolving to a loopback, private or link-local address is refused rather
-  than probed (port 53, A records only — not a general port oracle, but still
-  ours to close). `/trace` applies the same rule through `traceRoutable`,
-  tightened with its own reserved-range list, because a hostile delegation can
-  name any address it likes for its own children.
-  `/email`'s MTA-STS fetch gates the same way at dial time, after resolution,
-  and refuses to follow redirects (RFC 8461 §3.3).
-- **Rate limit**, per client IP (`c.RealIP()`, Cloudflare-aware), 2/s with a
-  burst of 10, in-process. A bare page (no `?name=`) asks no upstream anything
-  and is not counted. 429s are content-negotiated like everything else: an
-  amber notice to htmx, and to a browser a page that keeps the nav and offers
-  the refused request again.
-  This is the first rate limiter in the repo.
+  request decides which address we send packets to, and a hostile delegation
+  can name any address it likes for its own children. Both send a nameserver
+  nothing until its address passes `nsRoutable` (`spread.go`): the
+  `platform.EgressGuard` that `main.go` hands `WithEgressGuard`, i.e.
+  `platform.PubliclyRoutable` (loopback, private, link-local, CGNAT,
+  multicast, reserved and NAT64 all refused) plus this host's own vhosts and
+  `EGRESS_DENY_ADDRS`; without a guard, `PubliclyRoutable` alone. Port 53 only
+  — not a general port oracle, but still ours to close.
+  `/email`'s MTA-STS fetch dials through the same guard: port 443 only, no
+  proxy (a proxy would make the guard judge the proxy's address) and no
+  keep-alive (a pooled connection would skip it), so every connection is
+  judged at dial time, after resolution; it refuses to follow redirects
+  (RFC 8461 §3.3). `/domain`'s RDAP and crt.sh clients send every hop off
+  their configured hosts through a guard too.
+- **Rate limits**, per client (`platform.RateLimitKey(c.RealIP())`, so an
+  IPv6 client counts by its /64), in-process, in `dnstools.Limits`: built once
+  in `main.go` and shared with the `dns_*` MCP tools, so one client has one
+  budget whichever door. Lookups (`/`, `/domain`, `/email`) 2/s with a burst
+  of 10; walks (`/consistency`, `/trace`), at 50 to 100 upstream queries each,
+  one per 2 s with a burst of 3. On top, caps on work in flight across all
+  clients: 8 lookups and 4 walks; a full cap answers 503 busy at once rather
+  than queueing. A bare page (no `?name=`) asks no upstream anything and is
+  not counted. 429s are content-negotiated like everything else: an amber
+  notice to htmx, and to a browser a page that keeps the nav and offers the
+  refused request again.
 - **Answer cache** (`cache.go`) **+ single-flight** (`Service.inflight`, in
   `dns.go`). Answers are held for the
   shortest TTL in them, clamped to 5s–5m, negatives for 30s, bounded at 4096

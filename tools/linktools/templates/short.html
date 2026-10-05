@@ -214,6 +214,7 @@
   -H 'X-Api-Key: …' -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com/long","clean":true,"ttl":"720h"}'</pre>
       <p class="mt-1 text-xs text-muted"><code class="font-mono">ttl</code> takes any Go duration, or leave it out for a link that never expires. <code class="font-mono">slug</code> and <code class="font-mono">note</code> are optional.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
   </main>
   {{template "partials/htmx-errors" .}}

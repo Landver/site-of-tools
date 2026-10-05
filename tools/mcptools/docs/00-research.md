@@ -180,8 +180,9 @@ v1.14.0 pins `go-sdk v1.8.0` [S28].
 
 ## 5. Clients and install snippets
 
-What the public servers below all document, and what the landing page will
-show [P3][P13][P9][P22][P39]:
+What the public servers below all document, and what the landing page shows
+(all eight; Cursor's deeplink left out, its format unverified)
+[P3][P13][P9][P22][P39]:
 
 | Client | How | Endpoint to give it |
 |---|---|---|

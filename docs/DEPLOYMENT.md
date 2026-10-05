@@ -33,23 +33,49 @@ safe.
 
 ## 3. nginx (per subdomain)
 
-Canonical blocks in [`deploy/nginx/`](../deploy/nginx/) — one per subdomain,
-both -> same `:8080` upstream, both forward `Host` (else host routing collapses)
-+ client-IP headers. **Already installed** in proxy's `conf.d`, proxy reloaded.
+One `server{}` block per subdomain, living in the reverse-proxy project's
+`conf.d` (`/srv/my_projects/nginx-reverse-proxy/conf.d/`), not in this repo.
+All -> same `:8080` upstream, all forward `Host` (else host routing collapses)
++ client-IP headers.
 
 TLS reuses proxy's Let's Encrypt cert
 (`/etc/letsencrypt/live/llm.corpberry.com/`), like every *.corpberry.com vhost —
 Cloudflare terminates browser TLS (proxy ON), so origin cert name needn't match.
-Re-deploy after editing a block:
+Reload after editing a block:
 ```bash
-cp deploy/nginx/*.conf /srv/my_projects/nginx-reverse-proxy/conf.d/
 docker exec nginx-reverse-proxy-nginx-1 nginx -t \
   && docker exec nginx-reverse-proxy-nginx-1 nginx -s reload
 ```
 `nginx -t` must pass before reload; bad config rejected, running config stays —
-other (client) sites safe. New subdomain = block in `deploy/nginx/` + proxied
-Cloudflare DNS record + `cfg.VHost` entry in `main.go`. 502s until app runs on
-`:8080` & DNS points here.
+other (client) sites safe. New subdomain = block in proxy's `conf.d` + proxied
+Cloudflare DNS record + entry in `main.go`'s `subdomains` list and `apps` map.
+502s until app runs on `:8080` & DNS points here.
+
+### `mcp.corpberry.com` (launch checklist)
+
+The MCP server ships in the binary; this is what the edge needs before it is
+announced (tools/mcptools/docs/02-security-and-ops.md §10).
+
+- **Cloudflare DNS:** proxied record `mcp`. Proxied records publish `A`
+  records, which claude.ai needs (its connectors are IPv4-only).
+- **nginx block:** a copy of an existing corpberry block with
+  `server_name mcp.corpberry.com;`, forwarding `Host` + the client-IP headers
+  like every block, plus `client_max_body_size 1m;` (the app refuses bodies
+  over 1 MiB anyway; don't copy cipher's 8m). **No SSE settings**: every
+  request gets one plain JSON body (stateless, JSON responses), so no
+  `proxy_buffering off`, long `proxy_read_timeout` or `X-Accel-Buffering`.
+- **Ingress gate (§4):** confirm on the proxy host that it accepts connections
+  only from Cloudflare's published ranges, or uses Authenticated Origin Pulls.
+- **Bot Fight Mode off.** On the Free plan it is zone-wide and can't be
+  skipped per hostname; it can block Anthropic's connectors and MCP scanners. The
+  site's own `curl` users suggest it is off: confirm. Optional backstop: one
+  generous Cloudflare rate-limit rule on `mcp.*`, sized for connector IPs that
+  many users share.
+- **`.env.prod`:** `EGRESS_DENY_ADDRS` and `MCP_OWNER_KEY` (§5).
+- **Check:** `claude mcp add --scope user --transport http corpberry
+  https://mcp.corpberry.com/mcp` lists and calls tools, and so does a claude.ai
+  custom connector on a toolset URL. Its `Origin`, logged as `mcp: foreign
+  Origin`, is what D15's allowlist will be built from.
 
 ---
 
@@ -63,6 +89,12 @@ Request log records *real* visitor IP (not nginx's); future features may use it.
   (1) app published only on bridge gateway (§2), not public interface -> nginx =
   sole front door; (2) Cloudflare = only thing upstream -> nginx sets
   `CF-Connecting-IP` from Cloudflare, client can't inject it.
+- Guard (2) holds only if the proxy **accepts connections from Cloudflare
+  alone** (its published ranges, or Authenticated Origin Pulls). Not checkable
+  from this repo; verify on the proxy host. **Load-bearing for rate limits:**
+  every per-client budget, REST and MCP, keys on this IP
+  (`platform.RateLimitKey`), so a forged header reaching nginx directly would
+  buy a fresh bucket per request on every subdomain.
 
 ---
 
@@ -108,6 +140,15 @@ ports:    ["172.17.0.1:8080:8080"]
 env_file: [.env, .env.prod]
 volumes:  ["./tools/iptools/assets:/tools/iptools/assets:ro"]   # IP2LOCATION_* env → /tools/iptools/assets/...
 ```
+`.env.prod` (per host, gitignored) also needs:
+- `EGRESS_DENY_ADDRS` — the host's public IPv4 and its IPv6 /64,
+  comma-separated. Every outbound guard (link trace, RDAP/CT redirects,
+  MTA-STS, nameserver probes) refuses them; inside the container
+  `net.InterfaceAddrs` never sees them, so without this a trace can loop back
+  to the origin behind Cloudflare.
+- `MCP_OWNER_KEY` — the owner's key for `mcp.corpberry.com/mcp/owner`
+  (`openssl rand -base64 32`). Empty → that endpoint is 404; the public ones
+  don't need it.
 
 ---
 

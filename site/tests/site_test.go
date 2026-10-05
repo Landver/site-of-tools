@@ -90,6 +90,14 @@ func TestToolsAlphabetical(t *testing.T) {
 	}
 }
 
+func TestToolsListTheMCPServer(t *testing.T) {
+	tools := site.Tools(platform.Config{Env: "prod", BaseDomain: "corpberry.com"})
+	i := slices.IndexFunc(tools, func(tl platform.Tool) bool { return tl.Name == "MCP server" })
+	if i < 0 || tools[i].URL != "https://mcp.corpberry.com" {
+		t.Errorf("site.Tools = %v, want an MCP server entry at https://mcp.corpberry.com", tools)
+	}
+}
+
 func TestHomeOGTags(t *testing.T) {
 	body := get(newTestApp(t), "/", "text/html").Body.String()
 	for _, want := range []string{

@@ -27,6 +27,7 @@ prebuilt binary.
 | GeoIP            | `github.com/ip2location/ip2location-go/v9`         | v9.8.x            |
 | Proxy/VPN        | `github.com/ip2location/ip2proxy-go/v4` (needs ≥v4 for PX12) | v4.2.x   |
 | Database         | MongoDB — `go.mongodb.org/mongo-driver/v2` (**/v2**, not v1; request log + IP-tool lookup history + botcheck fingerprint corpus + link-tool short links) | v2.8.x |
+| MCP              | official Go SDK `github.com/modelcontextprotocol/go-sdk` + `github.com/google/jsonschema-go` (input schemas) — mcp.corpberry.com (§4) | v1.8.x / v0.4.x |
 | Tests            | stdlib `testing` + `github.com/google/go-cmp`      | go-cmp v0.7.x     |
 | Container base   | `gcr.io/distroless/static-debian12:nonroot`        | —                 |
 
@@ -68,8 +69,8 @@ on purpose.
    └──────────────┘
 ```
 
-Deployment specifics (nginx blocks in `deploy/nginx/`, Docker, ports, CF trust)
-in [DEPLOYMENT.md](DEPLOYMENT.md).
+Deployment specifics (nginx blocks, Docker, ports, CF trust) in
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
@@ -107,6 +108,11 @@ echo.StartConfig{Address: cfg.ListenAddr}.Start(context.Background(), handler)
   (`ip.localhost:8080`), prod nginx forwards bare host (`ip.corpberry.com`);
   `VHost` handles diff.
 - **New subdomain = 1 `*echo.Echo` + 1 map entry + 1 nginx block.** Never new service.
+- Hosts today: `corpberry.com` (`site`), `ip.` (`iptools`), `botcheck.`,
+  `dns.` (`dnstools`), `link.` (`linktools`), `cipher.` (`ciphertools`),
+  `mcp.` (`mcptools`, every tool above over MCP, §4). One `subdomains` list in
+  `main.go` feeds the vhost map **and** the outbound guards' deny list; serving
+  a subdomain missing from it fails startup.
 
 ---
 
@@ -172,6 +178,24 @@ it the browser cache keyed on the URL alone and Back after an htmx swap showed
 the cached fragment as the whole document. A page whose forms push history
 also includes `partials/htmx-history`, which resets the fields from the URL on
 restore (htmx snapshots markup, and markup holds the value first rendered).
+
+**Third transport: MCP.** `tools/mcptools` serves the same domain calls to AI
+agents at `mcp.corpberry.com` (Model Context Protocol; stateless streamable
+HTTP, JSON responses): `/mcp` = every public tool (for clients w/ tool search),
+`/mcp/<toolset>` = one toolset, `/mcp/owner` = owner's short-link writes behind
+`MCP_OWNER_KEY`. An adapter only maps typed args → the domain call the REST
+handler makes → result (REST body, or a declared concise projection where it
+blows a model's budget; `detailed: true` = full body). No logic of its own.
+Each tool spends its REST twin's `Limits` (rate stores + concurrency caps,
+built once in `main.go`), so a client has one budget whichever door.
+`mcptools.Coverage` maps every REST route to a tool or a reasoned exclusion;
+a test builds every `Register` and fails on a route w/o one. Plan, catalog,
+security: [tools/mcptools/docs/](../tools/mcptools/docs/README.md).
+
+```
+GET dns.corpberry.com/?name=x  → handler → dnstools.LookupEnriched → Respond (HTML | fragment | JSON)
+POST mcp.corpberry.com/mcp/dns → gate → SDK → middleware → adapter → dnstools.LookupEnriched → structuredContent
+```
 
 > Real, documented, versioned **public JSON API** later → add **Huma**
 > (`humaecho` adapter) on `/api/v1` of relevant sub-app. Reuses same domain fns —
@@ -266,6 +290,8 @@ attacker-chosen URLs, into a blocked load instead of stored XSS.
 | `IP2LOCATION_DOWNLOAD_TOKEN` | used by `make assets` only (not app) | — |
 | `MONGODB_URI` | Mongo conn string (credentials + auth db). Optional — empty disables Mongo | `mongodb://user:pass@localhost/admin` |
 | `MONGODB_DATABASE` | app database name; defaults to `site-of-tools` | `site-of-tools` |
+| `EGRESS_DENY_ADDRS` | this host's public addresses or CIDR prefixes, comma-separated; every outbound guard refuses them (inside the container `net.InterfaceAddrs` never sees them) | `203.0.113.7,2001:db8:1:2::/64` |
+| `MCP_OWNER_KEY` | key for `mcp.corpberry.com/mcp/owner` (owner's short-link tools), sent as `X-Api-Key` or `Authorization: Bearer`; own key, rotates apart from `LINK_API_KEY`; empty → endpoint 404 | `openssl rand -base64 32` |
 
 **MongoDB** = *network* dep, not bind-mounted file like BINs — same `MONGODB_URI`
 works dev + prod (add to `.env` wherever app runs; dev & prod share host but not
@@ -288,6 +314,7 @@ site-of-tools/
 ├── main.go                   # package main — entrypoint: config → sub-apps → vhost → listen
 ├── platform/                 # shared engine (importable): config.go, app.go, render.go, conn.go, mongo.go
 │                            #   netgate.go · redact.go — see note under the tree
+│                            #   ratelimit.go (Limiter, RateLimit, Cap) · credits.go · text.go (Clip)
 ├── shared/                   # shared front-end ONLY: base partials + vendored htmx/alpine/css
 │   ├── embed.go              #   (its own package so it can go:embed what lives here)
 │   ├── templates/partials/   #   head · header · footer
@@ -320,12 +347,17 @@ site-of-tools/
 │   │   ├── store.go · resolvecache.go  #  Mongo `links` + its cache/hit batcher
 │   │   ├── extension/        #     MV3 browser extension — no .go files
 │   │   └── docs/             #     numbered design docs + reports/
-│   └── ciphertools/          #   cipher.corpberry.com — same shape, built TWICE
-│       ├── op.go · jwt.go · hash.go · keys.go · cert.go · …  # pure Go ops
-│       ├── handler.go        #     //go:build !js — the only Echo/platform file
-│       ├── wasm/main.go      #     GOOS=js entrypoint: ops run in the browser
-│       └── docs/             #     landscape, inventory, build plan, traps
-├── deploy/nginx/             # ready-to-install reverse-proxy server blocks
+│   ├── ciphertools/          #   cipher.corpberry.com — same shape, built TWICE
+│   │   ├── op.go · jwt.go · hash.go · keys.go · cert.go · …  # pure Go ops
+│   │   ├── handler.go        #     //go:build !js — the only Echo/platform file
+│   │   ├── wasm/main.go      #     GOOS=js entrypoint: ops run in the browser
+│   │   └── docs/             #     landscape, inventory, build plan, traps
+│   └── mcptools/             #   mcp.corpberry.com — every tool above over MCP
+│       ├── handler.go        #     Register: landing page (HTML + JSON) + the /mcp gate
+│       ├── server.go · middleware.go · sanitize.go · registry.go · schema.go
+│       ├── ip.go · dns.go · link.go · owner.go · cipher.go · botcheck.go · site.go  # adapters
+│       ├── templates/ · tests/ (testdata: golden tools/list per endpoint)
+│       └── docs/             #     plan, research, tool catalog, security + ops
 ├── .githooks/pre-push        # test gate (enable: make hooks)
 ├── .air.toml · Dockerfile · docker-compose.yml · Makefile
 ├── go.mod · go.sum · mongoinit.go
@@ -374,9 +406,16 @@ root = 1 thing nothing imports. No single-file folder for its own sake.
    `templates/`, `tests/` sub-package.
 3. Handlers call domain service, then `platform.Respond(...)` — free HTML+JSON+fragment.
 4. Register tool's `TemplateSource` in `main.go` renderer; (new subdomain) add
-   `*echo.Echo` + `cfg.VHost` map entry + `deploy/nginx/` block.
+   `*echo.Echo` + `apps`/`subdomains` entry in `main.go` + nginx block
+   (DEPLOYMENT §3).
 5. Tool data files? Keep in `mytool/assets/`, env-configured path, gitignored,
    bind-mounted — never baked into image.
+6. Every route gets an MCP decision: a tool in `tools/mcptools` (adapter +
+   `toolSpec` spending the package's `Limits`, a `rateLimits` entry for the
+   landing page) or a `Coverage` exclusion w/ its reason. The coverage test
+   fails otherwise; re-run the `tools/list` goldens w/ `UPDATE_GOLDEN=1` and
+   review the diff. A page's "Using this from the terminal" block ends w/
+   `{{template "partials/mcp-hint" "<toolset>"}}`.
 
 ---
 
@@ -402,7 +441,12 @@ root = 1 thing nothing imports. No single-file folder for its own sake.
 - **Persistence / MongoDB** — wired, now used by 4 features: IP tool's **lookup
   history** (`tools/iptools/history.go`, repository below domain per rule #5),
   engine-level **request log** (`platform/requestlog.go`, shared async writer fed
-  by request-logger middleware), botcheck's **fingerprint corpus**
+  by request-logger middleware; also one record per MCP message, written by
+  mcptools' middleware: method `MCP`, URI `/mcp/<endpoint>#<tool or method>`,
+  status = outcome class (200 ok, 422 tool error, 429 limited, 503 busy, 504
+  timeout, 500 panic/internal, …), latency, raw client IP, client name or UA —
+  never arguments, results or error text; `ShouldRecord` skips the HTTP-level
+  `/mcp` line so a call isn't counted twice), botcheck's **fingerprint corpus**
   (`tools/botcheck/corpus.go`, rolling 30-day store behind `fingerprint_reuse`
   rule), link tool's **short links** (`tools/linktools/store.go`, `links`
   collection; the only one that is the feature rather than a side-record, hence

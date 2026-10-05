@@ -140,6 +140,7 @@ func run() error {
 		"apexURL":  func() string { return cfg.URL("") },
 		"navTools": func() []platform.Tool { return site.Tools(cfg) },
 		"toolURL":  cfg.URL,
+		"mcpURL":   func(toolset string) string { return cfg.URL("mcp") + "/mcp/" + toolset },
 		"asset":    asset,
 	}
 

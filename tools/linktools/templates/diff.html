@@ -88,6 +88,7 @@
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/diff?a=https%3A%2F%2Fexample.com%2F%3Fq%3D1&amp;b=https%3A%2F%2Fexample.com%2F%3Fq%3D2'</pre>
       <p class="mt-1 text-xs text-muted">Components and parameters come back as ordered arrays, each row carrying its <code class="font-mono">kind</code>: added, removed, modified, moved or same.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
   </main>
 

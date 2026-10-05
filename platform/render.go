@@ -30,6 +30,8 @@ var navBaseFuncs = template.FuncMap{
 	"navTools": func() []Tool { return nil },
 	// Origin of a sibling tool, for links that hand off to it.
 	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
+	// A toolset's MCP endpoint (partials/mcp-hint).
+	"mcpURL": func(toolset string) string { return "https://mcp.corpberry.com/mcp/" + toolset },
 	// Unversioned fallback → templates calling {{asset ...}} parse+render w/
 	// nil funcs (tests). main.go overrides w/ content-hash version.
 	"asset": StaticURL,

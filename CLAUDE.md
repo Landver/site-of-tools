@@ -14,8 +14,11 @@ stack. Favor simple, idiomatic path, explain Go-specific choices.
    returns structs), never handler. Handlers parse input → call domain →
    `platform.Respond(...)`. Lets one feature serve HTML + JSON + htmx
    fragment w/ zero duplication. See ARCHITECTURE §4.
-2. **Every feature speaks HTML + JSON** via content negotiation (browser/htmx →
-   HTML, everyone else → JSON). Don't build separate API + web features.
+2. **Every feature speaks HTML + JSON + MCP**: content negotiation (browser/htmx →
+   HTML, everyone else → JSON), plus an MCP tool at mcp.corpberry.com
+   (`tools/mcptools`) over the same domain call. Don't build separate API + web
+   features. New API endpoint ships w/ its MCP tool or a `mcptools.Coverage`
+   exclusion — coverage test fails otherwise.
 3. **No Node/npm. Ever.** Frontend JS (htmx, Alpine) vendored under
    `shared/static/js/`. CSS built by Tailwind **standalone binary**. Task
    tempts toward `npm`/`node_modules` → stop.
@@ -52,6 +55,8 @@ v4.2.x · `github.com/miekg/dns` v1.1.73 · `go.mongodb.org/mongo-driver/v2` v2.
 `golang.org/x/crypto` v0.54.x (direct: bcrypt/argon2/scrypt/blake2/sha3/chacha20poly1305/ssh, ciphertools only) ·
 `github.com/google/go-cmp`
 v0.7.x · `github.com/yuin/goldmark` v1.8.4 · `github.com/yuin/goldmark-meta` v1.1.0 ·
+`github.com/modelcontextprotocol/go-sdk` v1.8.x (official MCP SDK, mcptools only) ·
+`github.com/google/jsonschema-go` v0.4.x (direct: `tools/mcptools/schema.go`) ·
 base `gcr.io/distroless/static-debian12:nonroot`.
 
 ## Echo v5, not v4 (important)
@@ -70,13 +75,20 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
 ## Layout (Go: one folder = one package)
 
 - `main.go` at repo **root** — single binary's entrypoint.
-- `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`,
-  `conn.go`, `mongo.go` (shared Mongo client — see rule #5),
+- `platform/` — shared importable engine: `config.go`, `app.go`, `render.go`
+  (`Respond`; `Reply` when page view model ≠ JSON body), `conn.go`, `mongo.go`
+  (shared Mongo client — see rule #5),
   `netgate.go` (**outbound SSRF gate**: `PubliclyRoutable`, `EgressGuard`
   w/ `Dialer.Control` + port allowlist + host deny list, `RateLimitKey`
   keying IPv6 on /64 — any feature dialling a caller-chosen host uses this,
   never its own copy), `redact.go` (strips pasted-URL values from the request
-  URI before **both** the stdout slog line and the Mongo corpus).
+  URI before **both** the stdout slog line and the Mongo corpus),
+  `ratelimit.go` (`Limiter`/`NewLimiter`, `RateLimit` middleware keyed by
+  `RateLimitKey`, `Cap` = non-queueing concurrency cap; each tool package's
+  `Limits` built once in `main.go`, handed to REST **and** MCP → one budget per
+  client whichever door), `credits.go` (data-source credits: footer's `credit`
+  func + MCP results' `attribution`), `text.go` (`Clip`: bound a third-party
+  string on a rune boundary).
 - `shared/` — shared front-end only (base partials + vendored htmx/alpine/css); own
   package so it can `go:embed` those files.
 - `site/` — apex corpberry.com project (own package, same embed reason):
@@ -101,6 +113,15 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
   pure Go (stdlib + `x/crypto`), no I/O, or wasm build breaks. Ops register in
   `init()`; results render w/ same `templates/` both sides. Page never posts
   when engine fails — no silent server fallback (docs/02-build-plan.md).
+- `tools/mcptools/` (mcp.corpberry.com) — every tool over MCP (stateless
+  streamable HTTP, JSON responses): `/mcp` all public tools, `/mcp/<toolset>`
+  one toolset, `/mcp/owner` short-link writes behind `MCP_OWNER_KEY`. Echo gate
+  → SDK → receiving middleware (recover, deadline, the package's shared
+  `Limits`, sanitizer, per-call record) → adapter: args → same domain call as
+  REST → result. Tool packages never import the SDK. `tools/list` per endpoint
+  pinned by goldens (`UPDATE_GOLDEN=1` rewrites; review the diff). Every page's
+  "Using this from the terminal" block ends w/ `partials/mcp-hint` for its
+  toolset. Docs: `tools/mcptools/docs/`.
 - Don't reintroduce `internal/` or `cmd/`, don't split tool's code from its
   templates/assets/docs — co-location deliberate. New tools go under `tools/`.
 
@@ -130,6 +151,12 @@ Unsure of exact v5 signature → check pinned v5 docs (context7:
 - `GOOS=js GOARCH=wasm go vet` only `./tools/ciphertools ./tools/ciphertools/wasm`
   — `tests/` imports `Register`, which is `!js`.
 - `{{else with}}` doesn't parse in templates here — nest `if`/`with`.
+- New template func → `navBaseFuncs` (safe fallback, `platform/render.go`) +
+  `main.go` navFuncs (config-aware); a cipher template calling it directly
+  also needs a `ciphertools.FragmentTemplates` stub, or the wasm engine can't parse.
+- Prod `.env.prod` needs `EGRESS_DENY_ADDRS` (host's public IPv4 + IPv6 /64:
+  the container can't see them, every outbound guard refuses them) +
+  `MCP_OWNER_KEY` (empty → `/mcp/owner` 404).
 
 ## Don't do
 

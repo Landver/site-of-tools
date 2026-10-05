@@ -42,6 +42,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then remove its tracking parameters, follow where it redirects, or compare it with another.",
 			URL:  cfg.URL("link"),
 		},
+		{
+			Name: "MCP server",
+			Desc: "Every tool here, for AI agents: connect Claude, ChatGPT, Cursor, VS Code, Codex or Gemini by URL and they call the tools directly, free and with no key.",
+			URL:  cfg.URL("mcp"),
+		},
 	}
 }
 

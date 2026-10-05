@@ -76,6 +76,7 @@
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/trace?u=http%3A%2F%2Fexample.com%2F&amp;ua=googlebot'</pre>
       <p class="mt-1 text-xs text-muted"><code class="font-mono">ua</code> takes the same names as the menu: <code class="font-mono">browser</code>, <code class="font-mono">googlebot</code>, <code class="font-mono">bingbot</code>, <code class="font-mono">twitterbot</code>, <code class="font-mono">slackbot</code>, <code class="font-mono">facebook</code>, <code class="font-mono">gptbot</code>, <code class="font-mono">curl</code>. Hops come back in order, each with its status, timing and notes, and <code class="font-mono">final</code> is absent when the chain did not end.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
     {{end}}
   </main>

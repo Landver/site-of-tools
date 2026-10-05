@@ -30,7 +30,7 @@ func init() {
 				Description: "How a token is written (kind token): hex, base64url (URL-safe, unpadded), base64 (padded) or alnum (A-Z, a-z and 0-9)."},
 			passwordLengthField,
 			{Name: "sets", Kind: KindList, Enum: []string{"lower", "upper", "digits", "symbols"}, Default: "lower,upper,digits,symbols",
-				Description: "The character sets a password draws from (kind password), comma-separated, e.g. lower,upper,digits; each chosen set appears at least once."},
+				Description: "The character sets a password draws from (kind password), any of lower, upper, digits and symbols; each chosen set appears at least once."},
 			{Name: "exclude_ambiguous", Kind: KindBool, Default: "false",
 				Description: "Leave out characters easily misread when copied by hand, 0 O 1 l I | and ` (kind password)."},
 			uuidVersionField,

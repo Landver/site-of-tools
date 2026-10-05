@@ -91,7 +91,8 @@
     <details class="mt-2 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl '{{.Base}}/utm?u=https%3A%2F%2Fexample.com%2F&amp;utm_source=newsletter'</pre>
-      <p class="mt-1 text-xs text-muted">The tagged URL comes back as <code class="font-mono">{"url": "…"}</code>.</p>
+      <p class="mt-1 text-xs text-muted">The tagged URL comes back as <code class="font-mono">url</code>, with <code class="font-mono">tags</code> saying where each tag came from and <code class="font-mono">notes</code> for what trips analytics tools.</p>
+      {{template "partials/mcp-hint" "link"}}
     </details>
   </main>
 
