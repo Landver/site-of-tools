@@ -1,4 +1,4 @@
-// Shared white-box fixtures (loopback DNS servers behind the dns.go/trace.go seams) and note matchers.
+// Shared white-box fixtures (loopback DNS servers behind the resolverOverride seam) and note matchers.
 package dnstools
 
 import (
@@ -37,15 +37,12 @@ func (r *loopbackRegistry) add(t *testing.T, key, addr string) {
 	})
 }
 
-var (
-	testResolvers   = &loopbackRegistry{m: map[string]string{}} // for resolverOverride
-	testNameservers = &loopbackRegistry{m: map[string]string{}} // for traceAddrOverride
-)
+// testResolvers backs resolverOverride, the one seam for resolvers and trace nameservers alike.
+var testResolvers = &loopbackRegistry{m: map[string]string{}}
 
 func TestMain(m *testing.M) {
-	// Set before any test goroutine exists, so no parallel test races on the seams.
+	// Set before any test goroutine exists, so no parallel test races on the seam.
 	resolverOverride = testResolvers.lookup
-	traceAddrOverride = testNameservers.lookup
 	os.Exit(m.Run())
 }
 
@@ -75,7 +72,7 @@ func serveNS(t *testing.T, h dns.HandlerFunc) traceServer {
 	addr := serveLoopbackUDP(t, h)
 	// Not an IP, so if it were never registered nsRoutable would refuse it rather than dial it.
 	ip := "ns-" + addr
-	testNameservers.add(t, ip, addr)
+	testResolvers.add(t, ip, addr)
 	return traceServer{Name: "ns." + ip + ".", IP: ip}
 }
 

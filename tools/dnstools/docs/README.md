@@ -390,11 +390,8 @@ Resolved from [02-build-fit.md §5](02-build-fit.md#5-open-questions-for-the-own
   set is well over 512 bytes, so a blocked TCP retry is routine, and reading
   the fragment it leaves behind as the zone's whole key set had `/trace`
   calling the root zone and `org.` broken several times an hour on a healthy
-  network. `traceUnreadable` and `traceKeySetVerdict` in `trace.go` hold that
-  rule in one place each, and are tested branch by branch — over a real socket,
-  through `query()`, because the struct that reaches the classifier is built by
-  `query()` and a test that constructs it by hand is asserting the author's
-  belief about that mapping rather than the mapping.
+  network. `query()` in `trace.go` holds that rule in one place, handing on
+  only a whole NOERROR reply, and is tested branch by branch over a real socket.
   Two corollaries, both of them mistakes this rule was written down to prevent
   and both of them made anyway:
   - **A refusal is not a verdict either.** SERVFAIL, REFUSED and NOTAUTH from a

@@ -1,4 +1,4 @@
-// Wire tests: hand-built traceReply values test a belief about query(); these test query() itself.
+// Wire tests: the link checks driven through query() against loopback nameservers.
 package dnstools
 
 import (
@@ -13,11 +13,18 @@ import (
 func traceWireLink(t *testing.T, parent traceDS, h dns.HandlerFunc) TraceLink {
 	t.Helper()
 	w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}}
-	link, _ := w.validateZone("example.test.", "test.", []traceServer{serveNS(t, h)}, parent, true)
+	link, _ := w.validateZone("example.test.", "test.", []traceServer{serveNS(t, h)}, parent)
 	return link
 }
 
-func verifiedDS(ds *dns.DS) traceDS { return traceDS{set: []*dns.DS{ds}, status: traceDSVerified} }
+// traceWireDS fetches example.test.'s DS under parentKey from one loopback nameserver answering with h.
+func traceWireDS(t *testing.T, parentKey *dns.DNSKEY, h dns.HandlerFunc) traceDS {
+	t.Helper()
+	w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}}
+	return w.fetchDS("example.test.", []traceServer{serveNS(t, h)}, []*dns.DNSKEY{parentKey})
+}
+
+func verifiedDS(ds *dns.DS) traceDS { return traceDS{set: []*dns.DS{ds}} }
 
 func wireTruncated(w dns.ResponseWriter, req *dns.Msg) {
 	m := new(dns.Msg).SetReply(req)
@@ -122,29 +129,26 @@ func TestFetchDSOverTheWireTellsTransportApartFromAnUnsignedDelegation(t *testin
 	t.Parallel()
 	parentKey, _, _, _ := traceTestZone(t, "test")
 
-	fetch := func(h dns.HandlerFunc) traceDS {
-		w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}}
-		return w.fetchDS("example.test.", []traceServer{serveNS(t, h)}, []*dns.DNSKEY{parentKey}, true)
-	}
+	// An empty status with no DS set is a parent publishing no DS: the zone is unsigned.
+	absent := func(d traceDS) bool { return d.status == "" && len(d.set) == 0 }
 
-	truncated := fetch(wireTruncated)
-	if truncated.status == traceDSAbsent {
+	truncated := traceWireDS(t, parentKey, wireTruncated)
+	if absent(truncated) {
 		t.Error("a truncated DS reply was read as a parent publishing no DS, which marks a signed zone unsigned")
 	}
-	if truncated.status != traceDSUnreadable {
-		t.Errorf("a truncated DS reply gave %q, want %q", truncated.status, traceDSUnreadable)
+	if truncated.status != traceUnknown {
+		t.Errorf("a truncated DS reply gave %q, want %q", truncated.status, traceUnknown)
 	}
 
 	for _, rcode := range []int{dns.RcodeServerFailure, dns.RcodeRefused, dns.RcodeNotAuth} {
-		got := fetch(wireRcode(rcode))
-		if got.status == traceDSAbsent || got.status == traceDSBogus {
+		got := traceWireDS(t, parentKey, wireRcode(rcode))
+		if absent(got) || got.status == traceBogus {
 			t.Errorf("%s on the DS query gave %q, which is a verdict about the zone", dns.RcodeToString[rcode], got.status)
 		}
 	}
 
-	absent := fetch(wireAnswer())
-	if absent.status != traceDSAbsent {
-		t.Errorf("a whole NOERROR reply with no DS gave %q, want %q", absent.status, traceDSAbsent)
+	if got := traceWireDS(t, parentKey, wireAnswer()); !absent(got) {
+		t.Errorf("a whole NOERROR reply with no DS gave %q with %d DS records, want none", got.status, len(got.set))
 	}
 }
 
@@ -153,10 +157,10 @@ func TestAnUncheckedLinkIsNotReportedAsAnUnsignedDelegation(t *testing.T) {
 	t.Parallel()
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
-	w.addLink(TraceLink{Zone: ".", Parent: "IANA trust anchor", Status: traceUnknown,
+	w.out.Chain = append(w.out.Chain, TraceLink{Zone: ".", Parent: "IANA trust anchor", Status: traceUnknown,
 		Detail: "This zone's DNSKEY set could not be read."})
 
-	link, keys := w.validateZone("com.", ".", nil, traceDS{status: traceDSAbsent}, false)
+	link, keys := w.validateZone("com.", ".", nil, w.fetchDS("com.", nil, nil))
 	if keys != nil {
 		t.Errorf("keys = %v, want none", keys)
 	}
@@ -197,7 +201,7 @@ func TestAnUncheckedLinkIsNotReportedAsAnUnsignedDelegation(t *testing.T) {
 func TestValidateZoneOverTheWireFindsKeysWithoutADS(t *testing.T) {
 	t.Parallel()
 	key, _, _, _ := traceTestZone(t, "example.test")
-	noDS := traceDS{status: traceDSAbsent}
+	noDS := traceDS{}
 
 	signed := traceWireLink(t, noDS, wireAnswer(key))
 	if signed.Status != traceInsecure || !signed.KeysWithoutDS {
