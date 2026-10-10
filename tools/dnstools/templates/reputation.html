@@ -1,48 +1,20 @@
-{{/* Mail-server reputation card for /email.
-
-     Renders from the page view model, not from .Email, so the include is
-     {{template "dns/mxrep" $}} wherever it sits inside dns/emailauth. Absent
-     key = no card: a switched-off corpus must leave no trace rather than an
-     empty panel that reads as "nothing found".
-
-     Card shape, class names and the shared dns/notes list all match the other
-     cards in email.html on purpose — this is another finding about the same
-     domain, not a different kind of thing. */}}
+{{/* Call with the page view model ($): no .MXRep key means no card, not an empty one. */}}
 {{define "dns/mxrep"}}
 {{with .MXRep}}{{if .Show}}
 <div class="card sm:col-span-2">
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-    {{/* Inbound: these servers receive the mail; senders may be other machines. */}}
     <h2 class="eyebrow">inbound mx on blocklists</h2>
-    {{/* The headline number, and only ever over the denominator that was
-         actually read. "3 clean" is a claim about three addresses, which is
-         what Checked counts — distinct addresses, so one IP shared by two MX
-         names is one of them.
-
-         The green wording is gated on CorpusUsable for the same reason the
-         notes are: an empty or long-unsynced corpus answers "not listed" to
-         every address, and a green count over it would be the card's worst
-         possible lie dressed as its best news. */}}
+    {{/* Green needs a usable corpus: an empty or stale one says "not listed" to every address. */}}
     <div class="text-sm">
       {{if .Listed}}<span class="text-danger">{{.Listed}} of {{.Checked}} listed</span>
-      {{/* "none in this corpus", never a bare "none listed": the corpus is two
-           feeds, and the shorter phrase is a claim about every blocklist in
-           the world. Same words as the per-address rows below. */}}
       {{else if and .Checked .CorpusUsable}}<span class="text-ok">{{.Checked}} checked, none in this corpus</span>
       {{else if .Checked}}<span class="text-warn-ink">{{.Checked}} read, corpus not usable</span>
       {{else}}<span class="text-muted">nothing checked</span>{{end}}
-      {{/* An address the corpus couldn't be read for is neither listed nor
-           clean, so it gets counted next to the verdict rather than inside
-           it. */}}
       {{if .Unread}}<span class="text-faint"> · </span><span class="text-warn-ink">{{.Unread}} unread</span>{{end}}
     </div>
   </div>
 
-  {{/* The caveat sits above the rows, not in a footnote under them: the size
-       of this claim is smaller than "is my mail server blocklisted", and a
-       reader has to know that before they read a green row, not after. The
-       corpus's own age belongs in the same sentence — how old the data is
-       bounds the claim exactly as much as which feeds it came from. */}}
+  {{/* Above the rows: the reader needs the claim's size before reading a green row. */}}
   <p class="mb-3 text-xs text-faint">
     {{.Corpus}}
     {{if not .CorpusSynced.IsZero}} Corpus last updated {{.CorpusSynced.Format "2006-01-02 15:04 UTC"}}.{{end}}
@@ -58,27 +30,16 @@
       <span class="block text-faint">preference {{.Preference}}</span>
     </dt>
     <dd>
-      {{/* A host with no address is a finding about the lookup, not about the
-           machine's reputation, so it is warn rather than danger: "does not
-           exist" and "the lookup failed" are both reasons we know nothing,
-           and neither is a listing. */}}
       {{if .Error}}<span class="text-xs text-warn-ink">{{.Error}}</span>{{end}}
       {{range .Addrs}}
       <a href="{{toolURL "ip"}}/?ip={{.IP}}" title="Look up {{.IP}} in IP Tools" class="block font-mono text-xs wrap-anywhere text-strong underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.IP}}<span class="sr-only"> in IP Tools</span></a>
       {{if .Error}}
-        {{/* Not clean, and not listed either: the corpus was unreadable for
-             this address. Anything that looked like a verdict here would be
-             the tool inventing one. */}}
         <span class="block text-xs text-warn-ink">{{.Error}}</span>
       {{else if .Listed}}
         <span class="block text-xs text-danger">listed by {{.Sources}}{{if .Count}} · confidence {{.Count}}{{end}}</span>
       {{else}}
         <span class="block text-xs text-ok">not in this corpus</span>
       {{end}}
-      {{/* Same address on an earlier mail server: read once, counted once,
-           shown here because what this host resolves to is part of its row.
-           Saying so keeps the row count and the "N checked" number from
-           looking like they disagree. */}}
       {{if .Duplicate}}<span class="block text-xs text-faint">same address as above, counted once</span>{{end}}
       {{end}}
     </dd>

@@ -3,7 +3,7 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
+  {{template "dns/skip"}}
   {{template "partials/header" .}}
 
   <main id="main" class="page-main">
@@ -14,17 +14,12 @@
       Enter an IP to get its reverse (PTR) record instead.
     </p>
 
-    <!-- Pure htmx, GET-shaped: every control is a query param, so any result is
-         a shareable URL (the one pattern every tool surveyed shares — see
-         tools/dnstools/docs/reports/firsthand-ui-observations.md). -->
     <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Querying every record type…"
           class="mt-6 flex flex-wrap gap-2">
       <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
              aria-label="Domain name or IP address to look up"
              placeholder="example.com or an IP"
              class="field basis-full sm:basis-0">
-      {{/* Defaults to every type at once — picking one is narrowing, not the
-           price of entry. */}}
       <select name="type" aria-label="Record type"
               class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
         <option value="all"{{if .AllTypes}} selected{{end}}>All types</option>
@@ -61,9 +56,7 @@
       </div>
     </details>
 
-    <!-- Two-column grid, same pattern as botcheck: each card fills its column
-         instead of being sized by a flex basis. #result = display:contents so
-         swapped-in cards become grid items directly. -->
+    {{/* #result is display:contents, so swapped-in cards are grid items themselves. */}}
     {{template "dns/status" .}}
     <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
       <div id="result" class="contents">
@@ -72,10 +65,7 @@
     </div>
   </main>
 
-  {{template "partials/footer" .}}
-  {{template "partials/htmx-errors" .}}
-  {{template "partials/htmx-history" .}}
-  {{template "dns/script" .}}
+  {{template "dns/foot" .}}
   {{template "partials/copy" .}}
   {{/* Copy needs script. */}}
   <noscript><style>[data-copy]{display:none}</style></noscript>

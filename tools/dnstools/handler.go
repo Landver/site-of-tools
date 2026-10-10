@@ -14,51 +14,41 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// Page description, surfaced as <meta name="description"> + og:description by
-// shared/templates/partials/head.html via the "Desc" VM key.
-const emailDesc = "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), DMARC policy strength, DKIM keys at common selectors, MTA-STS policy fetched over HTTPS not just its DNS pointer, TLS-RPT and BIMI. Free, open source, JSON API included."
+// Page descriptions, rendered as <meta name="description"> and og:description via the "Desc" key.
+const (
+	emailDesc = "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), DMARC policy strength, DKIM keys at common selectors, MTA-STS policy fetched over HTTPS not just its DNS pointer, TLS-RPT and BIMI. Free, open source, JSON API included."
 
-const domainDesc = "Who registered this domain, when it expires, what its registry lock status actually means, and every subdomain Certificate Transparency has seen under it. Registration via RDAP, subdomains via CT logs: both public, both free, and neither sends a packet at the domain itself."
+	domainDesc = "Who registered this domain, when it expires, what its registry lock status actually means, and every subdomain Certificate Transparency has seen under it. Registration via RDAP, subdomains via CT logs: both public, both free, and neither sends a packet at the domain itself."
 
-const consistencyDesc = "Is your DNS change live yet? Asks every one of the zone's own authoritative nameservers directly, with recursion off, and compares them against the public resolvers. Shows which servers disagree, whether their SOA serials match, and how long the cached copies have left."
+	consistencyDesc = "Is your DNS change live yet? Asks every one of the zone's own authoritative nameservers directly, with recursion off, and compares them against the public resolvers. Shows which servers disagree, whether their SOA serials match, and how long the cached copies have left."
 
-const traceDesc = "Walk the DNS delegation for any name from a root server down, one zone cut at a time, with recursion off. Every hop is shown: the server that answered, its round-trip time, the nameservers it handed back and whether the referral carried glue. The DNSSEC chain of trust is verified here against the IANA root trust anchors, not read off a resolver's AD bit. Free, open source, JSON API included."
+	traceDesc = "Walk the DNS delegation for any name from a root server down, one zone cut at a time, with recursion off. Every hop is shown: the server that answered, its round-trip time, the nameservers it handed back and whether the referral carried glue. The DNSSEC chain of trust is verified here against the IANA root trust anchors, not read off a resolver's AD bit. Free, open source, JSON API included."
 
-const lookupDesc = "Look up DNS records for any domain: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, PTR, against Cloudflare, Google or Quad9. Shows TTL as seconds and as a duration, plus rcode, header flags and query time. Free, open source, with a curl-able JSON API."
+	lookupDesc = "Look up DNS records for any domain: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, PTR, against Cloudflare, Google or Quad9. Shows TTL as seconds and as a duration, plus rcode, header flags and query time. Free, open source, with a curl-able JSON API."
+)
 
-// Tracer: handler dependency for the delegation walk. Separate from Looker and
-// Spreader so a test can fake one half on its own. *Service satisfies all.
+// Tracer is the handler's dependency for the delegation walk; *Service satisfies it.
 type Tracer interface {
 	Trace(ctx context.Context, name, qtype string) (*Trace, error)
 }
 
-// handler: transport-layer deps for dns.corpberry.com routes.
+// handler holds the routes' deps; all but svc may be nil, which leaves that card or page off.
 type handler struct {
 	svc  Looker
 	spr  Spreader
 	mail Mailer
 	tra  Tracer
-	// ecs: the EDNS-client-subnet steering card on /consistency. A Looker that
-	// does not implement ECSer simply leaves the card off the page.
-	ecs ECSer
-	// rep / block: mail-server reputation on /email. block is the shared
-	// blocklist corpus, which dnstools never opens itself. Either one nil
-	// means the card is not rendered — golden rule #5.
-	rep   Reputer
+	ecs  ECSer
+	rep  Reputer
+	// The shared blocklist corpus, which dnstools never opens itself.
 	block BlockChecker
-	// dom: RDAP + Certificate Transparency. Best-effort and nil-safe; when it
-	// is off or an upstream is down, the page says so rather than implying the
-	// domain has no registration or no subdomains.
-	dom *DomainClient
-	// geo: best-effort ASN/country enrichment for resolved addresses, reusing
-	// iptools' already-open IP2Location handles in-process. Same binary, no
-	// new dependency, no HTTP hop (02-build-fit.md §2). nil (or nil *Service
-	// behind it) degrades to plain records.
+	dom   *DomainClient
+	// Reuses iptools' open IP2Location handles in-process: no HTTP hop.
 	geo iptools.Looker
 	lim *Limits
 }
 
-// Limits are shared by every door; a walk costs 50 to 100 upstream queries.
+// Limits are shared by REST and MCP; a walk costs 50 to 100 upstream queries.
 type Limits struct {
 	Lookup, Walk       platform.Limiter
 	LookupCap, WalkCap *platform.Cap
@@ -76,19 +66,9 @@ func NewLimits() *Limits {
 	}
 }
 
-// Register wires dns.corpberry.com routes onto e. Query-param only
-// (?name=&type=&resolver=), matching iptools' convention — no /:name route.
-//
-//	GET /             DNS record lookup
-//	GET /consistency  the zone's own nameservers vs the public resolvers
-//	GET /trace        the delegation walk from the root, chain of trust checked here
-//	GET /domain       registration (RDAP) + subdomains (Certificate Transparency)
-//	GET /email        SPF / DMARC / DKIM / MTA-STS / TLS-RPT / BIMI
+// Register wires dns.corpberry.com's routes onto e; all take ?name= (and ?type=, ?resolver=).
 func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, bl BlockChecker, lim *Limits) {
-	// Every other dependency here is optional and degrades to a 503 or to a
-	// thinner page. svc is not: a nil one can only be a wiring mistake, and
-	// left to be discovered per request it surfaces as a panic-recovered 500
-	// instead of an error at startup.
+	// A nil svc is a wiring mistake: fail at startup, not as a recovered 500 per request.
 	if svc == nil {
 		panic("dnstools.Register: svc is nil")
 	}
@@ -114,8 +94,7 @@ func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag st
 	return platform.Reply(c, code, body, vm, page, frag)
 }
 
-// readName normalises ?name= and returns what was typed when reading it took
-// more than trimming. For htmx, history gets the clean URL (HX-Push-Url).
+// readName normalises ?name= and returns what was typed when reading it took more than trimming.
 func readName(c *echo.Context) (name, typed string) {
 	raw := c.QueryParam("name")
 	name = NormalizeName(raw)
@@ -145,10 +124,8 @@ func withName(vm map[string]any, name, typed string) map[string]any {
 	return vm
 }
 
-// needName answers the bare hit: the empty form to a browser, an empty result
-// slot to htmx, and 400 to a JSON caller, for whom asking nothing is a mistake
-// rather than a starting point. Reports whether it has already answered.
-func needName(c *echo.Context, name string, vm map[string]any, page, frag, example string) (bool, error) {
+// needName answers a bare hit (form, empty htmx slot, or JSON 400) and reports whether it did.
+func needName(c *echo.Context, name string, vm map[string]any, page, example string) (bool, error) {
 	if name != "" {
 		return false, nil
 	}
@@ -166,9 +143,7 @@ func needName(c *echo.Context, name string, vm map[string]any, page, frag, examp
 	return true, c.Render(http.StatusOK, page, vm)
 }
 
-// unavailable answers a route that is switched off or busy. 503, not 400
-// or 502: the caller asked correctly and no upstream failed us, the feature
-// simply is not running.
+// unavailable answers 503: the request was fine, the feature is just off or busy.
 func unavailable(c *echo.Context, msg string, vm map[string]any, page, frag string) error {
 	vm["Error"] = msg
 	return reply(c, http.StatusServiceUnavailable, map[string]string{"error": msg}, vm, page, frag)
@@ -176,9 +151,7 @@ func unavailable(c *echo.Context, msg string, vm map[string]any, page, frag stri
 
 const UnavailableMessage = "This check isn't available right now."
 
-// answered renders the outcome of a domain-layer call: the struct on success,
-// the mapped status and the named error on failure. Callers attach their own
-// view-model keys first, and only when err is nil.
+// answered renders a domain-layer result, or its error with the mapped status.
 func answered(c *echo.Context, name string, body any, err error, vm map[string]any, page, frag string) error {
 	if err != nil {
 		vm["Error"] = sentence(err.Error())
@@ -213,24 +186,22 @@ func sentence(s string) string {
 
 // email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
 func (h *handler) email(c *echo.Context) error {
+	const page, frag = "dns/email", "dns/emailauth"
 	name, typed := readName(c)
-	// Page-scoped, like every other credit here: the footer sits outside the
-	// htmx target, so a per-result flag never reaches the DOM on a form submit.
-	// Spamhaus only — the reputation card reads the blocklist corpus, and
-	// nothing on this page consults IP2Location.
+	// Credits are page-scoped: the footer sits outside the htmx target.
 	vm := withName(map[string]any{
 		"Title": "Email DNS", "Desc": emailDesc, "Active": "email", "Query": name,
 		"SpamhausAttribution": true,
 	}, name, typed)
 
-	if done, err := needName(c, name, vm, "dns/email", "dns/emailauth", "/email?name=example.com"); done {
+	if done, err := needName(c, name, vm, page, "/email?name=example.com"); done {
 		return err
 	}
 	if h.mail == nil {
-		return unavailable(c, UnavailableMessage, vm, "dns/email", "dns/emailauth")
+		return unavailable(c, UnavailableMessage, vm, page, frag)
 	}
 	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
-		return unavailable(c, platform.BusyMessage, vm, "dns/email", "dns/emailauth")
+		return unavailable(c, platform.BusyMessage, vm, page, frag)
 	}
 	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 
@@ -242,33 +213,28 @@ func (h *handler) email(c *echo.Context) error {
 			vm["MXRep"] = res.MXRep
 		}
 	}
-	return answered(c, name, res, err, vm, "dns/email", "dns/emailauth")
+	return answered(c, name, res, err, vm, page, frag)
 }
 
-// domain serves the two questions DNS itself cannot answer: who registered
-// this name, and what subdomains exist under it. Both halves are independent
-// and best-effort, so one upstream failing still leaves the other rendered.
+// domain serves registration (RDAP) and CT subdomains; each half degrades on its own.
 func (h *handler) domain(c *echo.Context) error {
+	const page, frag = "dns/domain", "dns/domaininfo"
 	name, typed := readName(c)
-	// Credits ride on the PAGE, not the result: the footer lives outside the
-	// htmx target, so a per-result flag never reaches the DOM on a form
-	// submit — which is how these pages are actually used. iptools does the
-	// same. IP2Location's licence makes this an obligation, not a nicety.
 	vm := withName(map[string]any{
 		"Title": "Domain info", "Desc": domainDesc, "Active": "domain", "Query": name,
 		"CertsAttribution": true, "RDAPAttribution": true,
 	}, name, typed)
 
-	if done, err := needName(c, name, vm, "dns/domain", "dns/domaininfo", "/domain?name=example.com"); done {
+	if done, err := needName(c, name, vm, page, "/domain?name=example.com"); done {
 		return err
 	}
 	if !h.lim.DomainCap.TryAcquire(c.RealIP(), 1) {
-		return unavailable(c, platform.BusyMessage, vm, "dns/domain", "dns/domaininfo")
+		return unavailable(c, platform.BusyMessage, vm, page, frag)
 	}
 	defer h.lim.DomainCap.Release(c.RealIP(), 1)
 	rep, err := DomainInfo(c.Request().Context(), h.svc, h.dom, c.QueryParam("name"))
 	if err != nil {
-		return answered(c, name, nil, err, vm, "dns/domain", "dns/domaininfo")
+		return answered(c, name, nil, err, vm, page, frag)
 	}
 	vm["RegFor"] = rep.RegistrableDomain
 
@@ -276,7 +242,7 @@ func (h *handler) domain(c *echo.Context) error {
 	code := http.StatusOK
 	switch err := rep.Err(); {
 	case errors.Is(err, ErrDisabled):
-		return unavailable(c, UnavailableMessage, vm, "dns/domain", "dns/domaininfo")
+		return unavailable(c, UnavailableMessage, vm, page, frag)
 	case err != nil:
 		code = http.StatusBadGateway
 	default:
@@ -286,8 +252,7 @@ func (h *handler) domain(c *echo.Context) error {
 		vm["Registration"] = rep.Registration
 	} else {
 		vm["RegError"] = rep.RegErr.Error()
-		// Distinguish "the registry answered, and holds nothing for this name"
-		// from "the lookup failed". Only the latter deserves the disclaimer.
+		// "The registry holds nothing" is not "the lookup failed"; only the latter gets the disclaimer.
 		vm["RegAbsent"] = errors.Is(rep.RegErr, errNoRDAPRecord)
 		vm["RegHasNS"] = rep.Delegated
 	}
@@ -296,30 +261,28 @@ func (h *handler) domain(c *echo.Context) error {
 	} else {
 		vm["CertError"] = rep.CertErr.Error()
 	}
-	return reply(c, code, rep, vm, "dns/domain", "dns/domaininfo")
+	return reply(c, code, rep, vm, page, frag)
 }
 
-// consistency serves the "is my change live yet" check: the zone's own
-// nameservers asked directly, plus the public resolvers, grouped by what they
-// actually returned.
+// consistency serves the zone's own nameservers against the public resolvers.
 func (h *handler) consistency(c *echo.Context) error {
+	const page, frag = "dns/consistency", "dns/spread"
 	name, typed := readName(c)
 	qtype := walkType(c.QueryParam("type"))
 
 	vm := withName(map[string]any{
 		"Title": "DNS consistency", "Desc": consistencyDesc, "Active": "consistency",
 		"Query": name, "QType": qtype, "Types": Types,
-		// Page-scoped credits, same reason as /domain above.
 		"Attribution": true, "RDAPAttribution": true,
 	}, name, typed)
-	if done, err := needName(c, name, vm, "dns/consistency", "dns/spread", "/consistency?name=example.com"); done {
+	if done, err := needName(c, name, vm, page, "/consistency?name=example.com"); done {
 		return err
 	}
 	if h.spr == nil {
-		return unavailable(c, UnavailableMessage, vm, "dns/consistency", "dns/spread")
+		return unavailable(c, UnavailableMessage, vm, page, frag)
 	}
 	if !h.lim.WalkCap.TryAcquire(c.RealIP(), 1) {
-		return unavailable(c, platform.BusyMessage, vm, "dns/consistency", "dns/spread")
+		return unavailable(c, platform.BusyMessage, vm, page, frag)
 	}
 	defer h.lim.WalkCap.Release(c.RealIP(), 1)
 
@@ -328,12 +291,12 @@ func (h *handler) consistency(c *echo.Context) error {
 		// A nil ECS is falsy to {{with}}: no card when the check didn't run.
 		vm["Spread"], vm["ECS"] = env.Spread, env.ECS
 	}
-	return answered(c, name, env, err, vm, "dns/consistency", "dns/spread")
+	return answered(c, name, env, err, vm, page, frag)
 }
 
-// trace serves the delegation walk from the root, with the chain of trust
-// validated in the domain layer rather than taken from a resolver's AD bit.
+// trace serves the delegation walk from the root, with the chain of trust validated here.
 func (h *handler) trace(c *echo.Context) error {
+	const page, frag = "dns/trace", "dns/tracewalk"
 	name, typed := readName(c)
 	qtype := walkType(c.QueryParam("type"))
 
@@ -341,23 +304,22 @@ func (h *handler) trace(c *echo.Context) error {
 		"Title": "DNS trace", "Desc": traceDesc, "Active": "trace",
 		"Query": name, "QType": qtype, "Types": Types,
 	}, name, typed)
-	if done, err := needName(c, name, vm, "dns/trace", "dns/tracewalk", "/trace?name=example.com"); done {
+	if done, err := needName(c, name, vm, page, "/trace?name=example.com"); done {
 		return err
 	}
 	if h.tra == nil {
-		return unavailable(c, UnavailableMessage, vm, "dns/trace", "dns/tracewalk")
+		return unavailable(c, UnavailableMessage, vm, page, frag)
 	}
 	if !h.lim.WalkCap.TryAcquire(c.RealIP(), 1) {
-		return unavailable(c, platform.BusyMessage, vm, "dns/trace", "dns/tracewalk")
+		return unavailable(c, platform.BusyMessage, vm, page, frag)
 	}
 	defer h.lim.WalkCap.Release(c.RealIP(), 1)
 
-	// No attribution flags: this walk uses neither IP2Location nor RDAP.
 	res, err := h.tra.Trace(c.Request().Context(), name, qtype)
 	if err == nil {
 		vm["Trace"] = res
 	}
-	return answered(c, name, res, err, vm, "dns/trace", "dns/tracewalk")
+	return answered(c, name, res, err, vm, page, frag)
 }
 
 // bare pages query nothing, so they don't count.
@@ -383,22 +345,23 @@ func limited(c *echo.Context) error {
 }
 
 // index serves the lookup page, and the lookup itself when ?name= is present.
-// Bare hit renders the empty form to a browser, an empty result fragment to
-// htmx, and 400 to a JSON caller — same contract iptools' /cidr follows.
 func (h *handler) index(c *echo.Context) error {
+	const page, frag = "dns/index", "dns/result"
 	name, typed := readName(c)
-	// Blank or "all" = the default fan-out. Naming one type narrows to it, so
-	// a ?type= permalink still works, but nobody has to click through nine
-	// types to find out what a domain publishes.
+	// Blank or "all" is the full fan-out; naming one type narrows to it.
 	qtype := lookupType(c.QueryParam("type"))
 	resolver := resolverKey(c.QueryParam("resolver"))
 
-	vm := withName(h.vm(name, qtype, resolver), name, typed)
-	if done, err := needName(c, name, vm, "dns/index", "dns/result", "/?name=example.com&type=A"); done {
+	vm := withName(map[string]any{
+		"Title": "DNS Tools", "Desc": lookupDesc, "Active": "lookup", "Attribution": true,
+		"Query": name, "QType": qtype, "AllTypes": qtype == "", "Resolver": resolver,
+		"Types": Types, "Resolvers": Resolvers,
+	}, name, typed)
+	if done, err := needName(c, name, vm, page, "/?name=example.com&type=A"); done {
 		return err
 	}
 	if !h.lim.LookupCap.TryAcquire(c.RealIP(), 1) {
-		return unavailable(c, platform.BusyMessage, vm, "dns/index", "dns/result")
+		return unavailable(c, platform.BusyMessage, vm, page, frag)
 	}
 	defer h.lim.LookupCap.Release(c.RealIP(), 1)
 	res, err := LookupEnriched(c.Request().Context(), h.svc, h.geo,
@@ -406,28 +369,10 @@ func (h *handler) index(c *echo.Context) error {
 	if err == nil {
 		vm["Result"] = res
 	}
-	return answered(c, name, res, err, vm, "dns/index", "dns/result")
+	return answered(c, name, res, err, vm, page, frag)
 }
 
-// vm builds the shared view model every render of this page needs.
-func (h *handler) vm(name, qtype, resolver string) map[string]any {
-	return map[string]any{
-		"Title":       "DNS Tools",
-		"Desc":        lookupDesc,
-		"Active":      "lookup", // which sub-nav entry is current
-		"Attribution": true,
-		"Query":       name,
-		"QType":       qtype, // "" = the all-types fan-out
-		"AllTypes":    qtype == "",
-		"Resolver":    resolver,
-		"Types":       Types,
-		"Resolvers":   Resolvers,
-	}
-}
-
-// statusFor maps domain errors to HTTP status: caller's fault (bad type,
-// unknown resolver, empty or malformed name) is 400, a failed upstream query
-// is 502 — the resolver failed us, the request itself was fine.
+// statusFor maps domain errors to HTTP status: the caller's mistakes are 400, upstream failures 502.
 func statusFor(err error) int {
 	switch {
 	case errors.Is(err, ErrBadType), errors.Is(err, ErrBadResolver),

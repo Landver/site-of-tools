@@ -1,9 +1,4 @@
-{{/* One severity-tagged finding list, shared by the email checks and the
-     delegation-health panel so the two can't drift apart on markup or wording.
-     Call it with the note slice itself: {{template "dns/notes" .Notes}}.
-
-     The dot is the whole severity ranking, and a dot has no text, so without a
-     name on it the ranking exists for sighted users only (WCAG 1.4.1). */}}
+{{/* Call with the note slice. The aria-label keeps severity from being color-only (WCAG 1.4.1). */}}
 {{define "dns/notes"}}
 <ul class="flex flex-col divide-y divide-line text-sm">
   {{range .}}

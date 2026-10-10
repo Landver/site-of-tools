@@ -1,7 +1,4 @@
 {{define "dns/domaininfo"}}
-{{/* A bad name or a switched-off dependency reaches this fragment with only
-     .Error set, so without this branch the page answers 400 and 503 with an
-     empty result slot. */}}
 {{template "dns/oob" .}}
 {{if .Error}}
   {{template "dns/error" .}}
@@ -9,11 +6,8 @@
 {{template "dns/asked" .}}
 {{$page := .}}
 {{if .Registration}}{{with .Registration}}
-{{/* Full width when the status card isn't there to pair with it: a span-2
-     card after a lone one-column card strands an empty half-row. */}}
 <div class="card {{if not .Statuses}}sm:col-span-2{{end}}">
   <h2 class="eyebrow">registration</h2>
-  {{/* A subdomain has no registry record of its own; say whose this is. */}}
   {{with $page.RegFor}}
   <p class="-mt-1 mb-3 text-xs text-faint"><span class="font-mono text-muted">{{$page.Query}}</span> is a name under <span class="font-mono text-muted">{{.}}</span>, so this is {{.}}'s registration.</p>
   {{end}}
@@ -24,8 +18,6 @@
     <dt>Expires</dt>
     <dd class="tabular-nums">
       {{.Expires}}
-      {{/* The number people actually need, and the one a bare date hides.
-           Unknown, "expires today" and "already expired" are three answers. */}}
       {{if .DaysKnown}}
         {{if lt .Days 0}}<span class="text-danger"> — expired</span>
         {{else}}<span class="whitespace-nowrap {{if lt .Days 30}}text-danger{{else if lt .Days 90}}text-warn-ink{{else}}text-faint{{end}}"> — {{.Days}}&nbsp;days</span>{{end}}
@@ -48,8 +40,6 @@
   {{end}}
 </div>
 
-{{/* EPP codes decoded. Raw they are unreadable, and they are the answer to
-     "why can't I transfer this domain". */}}
 {{if .Statuses}}
 <div class="card">
   <h2 class="eyebrow">registry status</h2>
@@ -63,15 +53,10 @@
 {{end}}
 {{end}}
 {{else if .RegError}}
-{{/* Always full width: a notice has no second column of data to pair with,
-     and left at one column it strands an empty half-row before the span-2
-     subdomains card below. */}}
 <div class="card sm:col-span-2">
   <h2 class="eyebrow">registration</h2>
   {{if .RegAbsent}}
-    {{/* The registry answered and holds no object for this name. Saying "we
-         couldn't look it up" here would contradict the answer we got. A name
-         with nameservers is never offered as "unregistered". */}}
+    {{/* A name with nameservers is never offered as "unregistered". */}}
     {{if .RegHasNS}}
     <p class="text-sm text-muted">Registered, but its registry publishes no RDAP record.</p>
     <p class="mt-1 text-xs text-faint"><span class="font-mono">{{or .RegFor .Query}}</span> has nameservers delegated to it. Some TLDs (.de, for one) run no RDAP service, and their WHOIS is the only place the registration details are published.</p>
@@ -123,8 +108,6 @@
   {{else}}
   <p class="text-sm text-muted">No certificates found for subdomains of this name.</p>
   {{end}}
-  {{/* State the method's blind spot rather than letting the list imply
-       completeness. */}}
   {{if .Truncated}}
   <p class="mt-3 text-xs text-warn-ink">Showing the first {{len .Names}} of {{.Total}} names.</p>
   {{end}}
@@ -136,7 +119,6 @@
 </div>
 {{end}}
 {{else if .CertError}}
-{{/* Couldn't check: amber, with both ways forward. */}}
 <div class="card sm:col-span-2">
   <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
   <p class="text-sm text-warn-ink">crt.sh didn't return the certificate list.</p>
@@ -154,7 +136,7 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
+  {{template "dns/skip"}}
   {{template "partials/header" .}}
 
   <main id="main" class="page-main">
@@ -195,10 +177,7 @@
     </div>
   </main>
 
-  {{template "partials/footer" .}}
-  {{template "partials/htmx-errors" .}}
-  {{template "partials/htmx-history" .}}
-  {{template "dns/script" .}}
+  {{template "dns/foot" .}}
 </body>
 </html>
 {{end}}

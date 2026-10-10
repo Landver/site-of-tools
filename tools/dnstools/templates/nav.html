@@ -1,12 +1,4 @@
-{{/* Sub-nav for the DNS Tools suite, styled as a segmented control so it reads
-     as a view switcher, not body text. Same markup as link/nav and cipher/nav.
-     .Active = the current page's key. Links are relative → they stay on
-     dns.corpberry.com. They carry ?name= (.NavName); after an htmx swap the
-     nav comes back out of band (dns/oob).
-
-     Five pages ship today. Adding the next one (see
-     tools/dnstools/docs/01-feature-inventory.md) is a new route + one entry
-     here. */}}
+{{/* Links carry ?name= (.NavName); after an htmx swap the nav returns out of band (dns/oob). */}}
 {{define "dns/nav"}}
 <nav id="dns-nav" aria-label="DNS Tools sections" {{if .OOB}}hx-swap-oob="true"{{end}}
      class="mb-8 inline-flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
@@ -55,9 +47,13 @@
 {{end}}
 {{end}}
 
-{{/* Status-line text in flight, aria-invalid after an error, the phone
-     keyboard folded once a result arrives. */}}
-{{define "dns/script"}}
+{{define "dns/skip"}}<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>{{end}}
+
+{{define "dns/foot"}}
+  {{template "partials/footer" .}}
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/htmx-history" .}}
+{{/* Status line in flight, aria-invalid after an error, the phone keyboard folded on a result. */}}
 <script>
   (function () {
     var status = function (text) {

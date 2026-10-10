@@ -7,15 +7,10 @@
   {{$page := .}}
   {{with .Email}}
 
-  {{/* Findings first. Counts, not a grade out of
-       100: a single number invites arguing with the number instead of fixing
-       the finding. */}}
+  {{/* Counts, not a score out of 100: a single number invites arguing with the number. */}}
   <div class="card sm:col-span-2">
     <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h2 class="eyebrow">findings</h2>
-      {{/* Each separator is behind a test of what precedes it, or a clean
-           domain opens with a dangling bullet. Nothing counts "info" notes,
-           so a findings list made only of those needs a line of its own. */}}
       <div class="text-sm tabular-nums">
         {{if $.Fail}}<span class="text-danger">{{$.Fail}} failing</span>{{end}}
         {{if $.Warn}}{{if $.Fail}}<span class="text-faint"> · </span>{{end}}<span class="text-warn-ink">{{$.Warn}} to improve</span>{{end}}
@@ -29,12 +24,7 @@
   {{template "dns/mxrep" $}}
 
   {{if not .NXDomain}}
-  {{/* Two explicit columns, botcheck's pattern. With plain auto-placement a
-       long SPF card pushes the next card underneath it instead of filling the
-       short right-hand column. */}}
-  {{/* Each column wrapper is a grid item whether or not it holds a card, so
-       an unguarded one strands an empty half-row beside the other column — on
-       exactly the domain (no SPF at all) this page exists to catch. */}}
+  {{/* Column wrappers are grid items even when empty: guard each, or it strands a half-row. */}}
   {{if .SPF}}
   <div class="grid gap-4 content-start">
   {{with .SPF}}
@@ -58,7 +48,6 @@
   </div>
   {{end}}
 
-  {{/* Full width without an SPF column beside it. */}}
   <div class="grid gap-4 content-start {{if not .SPF}}sm:col-span-2{{end}}">
   {{with .DMARC}}
   <div class="card">
@@ -74,7 +63,6 @@
   </div>
   {{end}}
 
-  {{/* Every other record, "not published" when absent. */}}
   <div class="card">
     <h2 class="eyebrow">other records</h2>
     <dl class="spec">
@@ -110,7 +98,7 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
+  {{template "dns/skip"}}
   {{template "partials/header" .}}
   <main id="main" class="page-main">
     {{template "dns/nav" .}}
@@ -150,10 +138,7 @@
       </div>
     </div>
   </main>
-  {{template "partials/footer" .}}
-  {{template "partials/htmx-errors" .}}
-  {{template "partials/htmx-history" .}}
-  {{template "dns/script" .}}
+  {{template "dns/foot" .}}
 </body>
 </html>
 {{end}}
