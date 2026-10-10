@@ -11,7 +11,7 @@
         <span class="block text-base font-medium text-warn-ink">Signed, but the parent has no DS record for it.</span>
       {{else if eq .DNSSEC "insecure"}}
         <span class="block text-base font-medium text-strong">Not signed with DNSSEC.</span>
-      {{else if and (eq .DNSSEC "indeterminate") .AnswerRcode}}
+      {{else if and (eq .DNSSEC "indeterminate") .AnswerRcode (not .Answer) (not .CNAME)}}
         <span class="block text-base font-medium text-strong">{{if eq .AnswerRcode "NXDOMAIN"}}The zone says this name does not exist.{{else}}The zone says it has no {{.Type}} record.{{end}}</span>
       {{else if eq .DNSSEC "indeterminate"}}
         <span class="block text-base font-medium text-warn-ink">No verdict: this walk could not check it.</span>

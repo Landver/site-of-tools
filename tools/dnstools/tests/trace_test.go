@@ -432,3 +432,25 @@ func TestTraceStillProvesASignedNameSecure(t *testing.T) {
 	t.Fatalf("not one of these %d signed names verified end to end: %s. A lost packet does that to one name at a time, not to all of them at once — and this is exactly the state in which every other live trace test in this file skips rather than fails.",
 		len(signed), strings.Join(why, " | "))
 }
+
+// "The zone says it has no record" is the headline only when no record or alias is printed below it.
+func TestTraceHeadlineDoesNotDenyRecordsItPrints(t *testing.T) {
+	t.Parallel()
+	const absent = "The zone says it has no A record."
+	for _, tc := range []struct {
+		name   string
+		tr     dnstools.Trace
+		denies bool
+	}{
+		{"records", dnstools.Trace{Answer: []string{"192.0.2.1"}}, false},
+		{"alias", dnstools.Trace{CNAME: "target.example.com."}, false},
+		{"nothing", dnstools.Trace{}, true},
+	} {
+		tr := tc.tr
+		tr.Type, tr.DNSSEC, tr.AnswerRcode = "A", "indeterminate", "NOERROR"
+		out := renderCard(t, "dns/tracewalk", map[string]any{"Trace": &tr})
+		if got := strings.Contains(out, absent); got != tc.denies {
+			t.Errorf("%s: headline %q shown = %v, want %v:\n%s", tc.name, absent, got, tc.denies, out)
+		}
+	}
+}

@@ -61,6 +61,8 @@ type Spread struct {
 	// StaleFor: the longest TTL at a public resolver, i.e. how long a stale answer can survive.
 	StaleFor string `json:"stale_for,omitempty"`
 	QueryMS  int64  `json:"query_ms"`
+
+	nsErr error // why zoneNameservers found none: only NXDOMAIN means "none delegated"
 }
 
 // ServerAnswer: what one server said, or why it didn't.
@@ -115,8 +117,8 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	start := time.Now()
 
 	via, _ := resolverAddr(DefaultResolver)
-	nsNames, zone, total := s.zoneNameservers(ctx, qname, via)
-	out.Zone, out.NSTotal, out.NSTruncated = zone, total, total > len(nsNames)
+	nsNames, zone, total, nsErr := s.zoneNameservers(ctx, qname, via)
+	out.Zone, out.NSTotal, out.NSTruncated, out.nsErr = zone, total, total > len(nsNames), nsErr
 
 	n := len(nsNames)
 	out.Authoritative, out.Resolvers = make([]ServerAnswer, n), make([]ServerAnswer, len(Resolvers))
@@ -136,28 +138,33 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	return out, nil
 }
 
-// zoneNameservers walks up from qname to the first name with NS records, stopping at the
-// registrable domain: above it sit the registry's servers, not the zone's own.
-func (s *Service) zoneNameservers(ctx context.Context, qname, addr string) (names []string, zone string, total int) {
+// zoneNameservers walks up from qname to the first name with NS records, stopping at the registrable
+// domain (above it sit the registry's servers). With none, err is NXDOMAIN, NODATA (no cut) or the failure.
+func (s *Service) zoneNameservers(ctx context.Context, qname, addr string) (names []string, zone string, total int, err error) {
 	apex, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(qname, "."))
 	if err != nil {
-		return nil, "", 0 // qname is a public suffix
+		return nil, "", 0, errNoData // qname is a public suffix
 	}
 	n := qname
+	var unread error
 	for range maxZoneWalk {
-		if r, err := s.lookup(ctx, n, "NS", addr); err == nil {
+		r, err := s.lookup(ctx, n, "NS", addr)
+		if err == nil {
 			for _, rec := range r.Records {
 				names = append(names, rec.Value)
 			}
 			slices.Sort(names)
-			return names[:min(len(names), maxAuthoritative)], n, len(names)
+			return names[:min(len(names), maxAuthoritative)], n, len(names), nil
+		}
+		if !errors.Is(err, errNXDomain) && !errors.Is(err, errNoData) {
+			unread = err
 		}
 		if n == apex+"." {
-			break
+			return nil, "", 0, cmp.Or(unread, err)
 		}
 		_, n, _ = strings.Cut(n, ".")
 	}
-	return nil, "", 0
+	return nil, "", 0, cmp.Or(unread, errNoData)
 }
 
 // askAuthoritative asks one nameserver with RD=0, then probes recursion, TCP/53 and its serial.
@@ -426,6 +433,10 @@ func (sp *Spread) health() {
 
 	// RFC 2182: at least two nameservers, and they should not share a fate.
 	switch n := len(sp.Authoritative); {
+	case n == 0 && errors.Is(sp.nsErr, errNoData):
+		sp.addHealth("warn", "No zone cut was found between this name and its registrable domain, so its nameservers were not checked.")
+	case n == 0 && sp.nsErr != nil && !errors.Is(sp.nsErr, errNXDomain):
+		sp.addHealth("warn", "This name's NS records could not be read (no answer, or an error instead of one), so its nameservers are unknown and were not checked. That is a gap in this check, not a finding about the delegation.")
 	case n == 0:
 		sp.addHealth("fail", "No nameservers are delegated for this name, so nothing serves it.")
 	case live == 0:

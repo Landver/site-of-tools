@@ -493,8 +493,8 @@ type traceReply struct {
 	skipped []string
 }
 
-// query asks servers in turn with recursion off. msg is the first whole NOERROR reply (or NXDOMAIN,
-// when final): a fragment or another rcode says nothing about the zone, so it is skipped, never read.
+// query asks servers in turn with recursion off. msg is the first whole NOERROR reply, or NXDOMAIN when
+// final; a DS or DNSKEY reply (not final) also needs AA=1, as a lame server's referral is not "no keys".
 func (w *traceWalk) query(servers []traceServer, qname, qtype string, final bool) traceReply {
 	var out traceReply
 	for _, srv := range w.liveFirst(servers)[:min(len(servers), traceMaxServersPerHop)] {
@@ -524,6 +524,8 @@ func (w *traceWalk) query(servers []traceServer, qname, qtype string, final bool
 			out.skipped = append(out.skipped, name+": answer truncated and the TCP retry did not complete")
 		case r.Rcode != dns.RcodeSuccess && (!final || r.Rcode != dns.RcodeNameError):
 			out.skipped = append(out.skipped, name+": answered "+dns.RcodeToString[r.Rcode])
+		case !final && !r.Authoritative:
+			out.skipped = append(out.skipped, name+": answered without authority")
 		default:
 			out.msg, out.srv, out.rttMS = r, srv, time.Since(start).Milliseconds()
 			return out

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +64,24 @@ func TestSpreadWalksUpToTheServingZone(t *testing.T) {
 	}
 	if len(sp.Authoritative) == 0 {
 		t.Error("walked up to a zone but listed none of its nameservers")
+	}
+}
+
+// github.io's users and public suffixes have no zone cut of their own, which is not "nothing serves it".
+func TestSpreadDoesNotCallANameWithoutItsOwnCutUndelegated(t *testing.T) {
+	requireEgress(t)
+	svc := dnstools.NewService(5 * time.Second)
+
+	for _, name := range []string{"octocat.github.io", "github.io", "com"} {
+		sp, err := svc.Spread(context.Background(), name, "A")
+		if err != nil {
+			t.Fatalf("%s: consistency check: %v", name, err)
+		}
+		for _, n := range sp.Health {
+			if n.Level == "fail" && strings.Contains(n.Text, "nothing serves it") {
+				t.Errorf("%s: %q, but the name resolves through a zone above it", name, n.Text)
+			}
+		}
 	}
 }
 

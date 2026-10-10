@@ -92,6 +92,35 @@ func TestValidateZoneOverTheWireTellsTransportApartFromABrokenZone(t *testing.T)
 		}
 	})
 
+	// Without AA=1 an empty reply or an upward referral is a lame server, not a zone without keys.
+	t.Run("lame", func(t *testing.T) {
+		t.Parallel()
+		upward := func(w dns.ResponseWriter, req *dns.Msg) {
+			m := new(dns.Msg).SetReply(req)
+			m.Ns = []dns.RR{&dns.NS{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 3600}, Ns: "a.root-servers.net."}}
+			_ = w.WriteMsg(m)
+		}
+		for name, h := range map[string]dns.HandlerFunc{"empty": wireRcode(dns.RcodeSuccess), "upward referral": upward} {
+			link := traceWireLink(t, verifiedDS(ds), h)
+			if link.Status != traceUnknown || len(link.Unanswered) == 0 {
+				t.Errorf("%s: a lame server gave %q, unanswered %v; want %q naming it. Detail: %s", name, link.Status, link.Unanswered, traceUnknown, link.Detail)
+			}
+			accusesTheZone(t, name, link.Detail)
+		}
+
+		parentKey, _, _, _ := traceTestZone(t, "test")
+		if got := traceWireDS(t, parentKey, wireRcode(dns.RcodeSuccess)); got.status != traceUnknown {
+			t.Errorf("a lame parent's empty DS reply gave %q with %d DS records, want %q", got.status, len(got.set), traceUnknown)
+		}
+
+		_, rrset, sig, realDS := traceTestZone(t, "example.test")
+		w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}}
+		servers := []traceServer{serveNS(t, wireRcode(dns.RcodeSuccess)), serveNS(t, wireAnswer(append(rrset, sig)...))}
+		if link, _ := w.validateZone("example.test.", "test.", servers, verifiedDS(realDS)); link.Status != traceSecure {
+			t.Errorf("a lame server before a good sibling gave %q, want %q. Detail: %s", link.Status, traceSecure, link.Detail)
+		}
+	})
+
 	// A guard answering "could not tell" to everything would pass every case above.
 	t.Run("nodata is still bogus", func(t *testing.T) {
 		t.Parallel()

@@ -390,8 +390,9 @@ Resolved from [02-build-fit.md §5](02-build-fit.md#5-open-questions-for-the-own
   the fragment it leaves behind as the zone's whole key set had `/trace`
   calling the root zone and `org.` broken several times an hour on a healthy
   network. `query()` in `trace.go` holds that rule in one place, handing on
-  only a whole NOERROR reply (or NXDOMAIN to the walk's own question), and is
-  tested branch by branch over a real socket.
+  only a whole NOERROR reply (or NXDOMAIN to the walk's own question), and for
+  a DS or DNSKEY only an authoritative one, since a lame server's referral is
+  not "no keys". It is tested branch by branch over a real socket.
   Two corollaries, both of them mistakes this rule was written down to prevent
   and both of them made anyway:
   - **A refusal is not a verdict either.** SERVFAIL, REFUSED and NOTAUTH from a

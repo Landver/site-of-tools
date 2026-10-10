@@ -1,8 +1,14 @@
 package dnstools
 
 import (
+	"context"
+	"errors"
+	"net"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/miekg/dns"
 )
 
 // A timeout and a refusal are different claims; only a refusal earns the word "refused".
@@ -82,5 +88,72 @@ func TestDelegationHealthFlagsOneSlashTwentyFour(t *testing.T) {
 
 	if _, ok := noteWith(sp.Health, "same /24"); !ok {
 		t.Errorf("no /24 finding for two addresses in one /24; got %+v", sp.Health)
+	}
+}
+
+// A failed NS lookup is not an empty delegation: "nothing serves it" needs an answer that says so.
+func TestUnreadNSIsNotNoDelegation(t *testing.T) {
+	t.Parallel()
+
+	refuseNS := func(rcode int) func(*testing.T) string {
+		return func(t *testing.T) string {
+			_, addr := serveZoneWith(t, testZone{zoneKey("example.test", "NS"): {"example.test. 300 IN NS ns1.example.test."}},
+				func(m *dns.Msg, q dns.Question) {
+					if q.Qtype == dns.TypeNS {
+						m.Answer, m.Rcode = nil, rcode
+					}
+				})
+			return addr
+		}
+	}
+	cases := map[string]func(*testing.T) string{
+		"SERVFAIL": refuseNS(dns.RcodeServerFailure),
+		"REFUSED":  refuseNS(dns.RcodeRefused),
+		"timeout": func(t *testing.T) string {
+			pc, err := net.ListenPacket("udp", "127.0.0.1:0") // accepts and never replies
+			if err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+			t.Cleanup(func() { _ = pc.Close() })
+			return pc.LocalAddr().String()
+		},
+	}
+	for name, serve := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			names, _, _, err := NewService(300*time.Millisecond).zoneNameservers(context.Background(), "www.example.test.", serve(t))
+			if len(names) != 0 || err == nil {
+				t.Fatalf("names=%v err=%v, want none and the lookup's error", names, err)
+			}
+			sp := &Spread{nsErr: err}
+			sp.health()
+			if hasNote(sp.Health, "fail", "No nameservers are delegated") || !hasNote(sp.Health, "warn", "could not be read") {
+				t.Errorf("health = %+v, want the unread-delegation warn and no fail", sp.Health)
+			}
+		})
+	}
+
+	// The resolver saying NXDOMAIN is evidence, so the fail stays.
+	_, addr := serveZone(t, testZone{})
+	names, _, _, err := newTestService().zoneNameservers(context.Background(), "example.test.", addr)
+	sp := &Spread{nsErr: err}
+	sp.health()
+	if len(names) != 0 || !errors.Is(err, errNXDomain) || !hasNote(sp.Health, "fail", "No nameservers are delegated") {
+		t.Errorf("NXDOMAIN zone: names=%v err=%v health=%+v, want the no-delegation fail", names, err, sp.Health)
+	}
+}
+
+// A name served by a zone above its registrable domain (github.io's users, a public suffix) is not undelegated.
+func TestNoZoneCutIsNotNoDelegation(t *testing.T) {
+	t.Parallel()
+	_, addr := serveZone(t, testZone{zoneKey("octocat.github.io", "A"): {"octocat.github.io. 300 IN A 192.0.2.1"}})
+
+	for _, name := range []string{"octocat.github.io.", "github.io.", "com."} {
+		names, _, _, err := newTestService().zoneNameservers(context.Background(), name, addr)
+		sp := &Spread{nsErr: err}
+		sp.health()
+		if len(names) != 0 || hasNote(sp.Health, "fail", "No nameservers are delegated") || !hasNote(sp.Health, "warn", "No zone cut was found") {
+			t.Errorf("%s: names=%v err=%v health=%+v, want the no-zone-cut warn and no fail", name, names, err, sp.Health)
+		}
 	}
 }
