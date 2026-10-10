@@ -150,6 +150,22 @@ func safe(f func()) {
 	f()
 }
 
+// fanOut runs f(0)..f(n-1), at most limit at once, and waits; a panic in f is logged, not fatal.
+func fanOut(n, limit int, f func(i int)) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, limit)
+	for i := range n {
+		wg.Add(1)
+		go safe(func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			f(i)
+		})
+	}
+	wg.Wait()
+}
+
 type Resolver struct {
 	Key  string // what callers pass: ?resolver=cloudflare
 	Name string
@@ -312,20 +328,11 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	errs := make([]error, len(types))
 
 	start := time.Now()
-	var wg sync.WaitGroup
 	// A per-request query budget; the per-IP limiter alone isn't enough.
-	sem := make(chan struct{}, 4)
-	for i, t := range types {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			errs[i] = errPanic // overwritten unless the lookup panics
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			results[i], errs[i] = s.lookup(ctx, qname, t, addr)
-		})
-	}
-	wg.Wait()
+	fanOut(len(types), 4, func(i int) {
+		errs[i] = errPanic // overwritten unless the lookup panics
+		results[i], errs[i] = s.lookup(ctx, qname, types[i], addr)
+	})
 
 	set := &ResultSet{
 		Name:         name,
@@ -706,17 +713,17 @@ func newQuery(qname, qtype string) *dns.Msg {
 	m.SetQuestion(qname, dns.StringToType[qtype])
 	m.RecursionDesired = true
 	m.SetEdns0(1232, true)
-	if opt := m.IsEdns0(); opt != nil {
-		opt.Option = append(opt.Option, &dns.EDNS0_NSID{Code: dns.EDNS0NSID})
-	}
+	opt := m.IsEdns0()
+	opt.Option = append(opt.Option, &dns.EDNS0_NSID{Code: dns.EDNS0NSID})
 	return m
 }
 
-// ednsOption returns m's first EDNS0 option of type T that keep accepts (nil keeps any), else nil.
-func ednsOption[T dns.EDNS0](m *dns.Msg, keep func(T) bool) (none T) {
+// ednsOption returns m's first EDNS0 option of type T, or nil.
+func ednsOption[T dns.EDNS0](m *dns.Msg) T {
+	var none T
 	if opt := m.IsEdns0(); opt != nil {
 		for _, o := range opt.Option {
-			if t, ok := o.(T); ok && (keep == nil || keep(t)) {
+			if t, ok := o.(T); ok {
 				return t
 			}
 		}
@@ -725,7 +732,7 @@ func ednsOption[T dns.EDNS0](m *dns.Msg, keep func(T) bool) (none T) {
 }
 
 func edeOf(m *dns.Msg) *EDE {
-	e := ednsOption[*dns.EDNS0_EDE](m, nil)
+	e := ednsOption[*dns.EDNS0_EDE](m)
 	if e == nil {
 		return nil
 	}
@@ -738,8 +745,8 @@ func edeOf(m *dns.Msg) *EDE {
 
 // nsidOf decodes the hex NSID when it is printable; operators put names like "ams01" in it.
 func nsidOf(m *dns.Msg) string {
-	n := ednsOption(m, func(n *dns.EDNS0_NSID) bool { return n.Nsid != "" })
-	if n == nil {
+	n := ednsOption[*dns.EDNS0_NSID](m)
+	if n == nil || n.Nsid == "" {
 		return ""
 	}
 	if raw, err := hex.DecodeString(n.Nsid); err == nil && isPrintable(raw) {

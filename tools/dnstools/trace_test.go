@@ -709,7 +709,7 @@ func TestTraceKeySetVerdictWillNotCallALostPacketBroken(t *testing.T) {
 	accusesTheZone(t, "truncated", detail)
 
 	// Every server sent a fragment, so query() ends with no message.
-	status, detail, usable = traceKeySetVerdict(traceReply{answered: true, unreadable: "truncated"}, false)
+	status, detail, usable = traceKeySetVerdict(traceReply{answered: true, truncated: true}, false)
 	if usable || status != traceUnknown {
 		t.Errorf("fragments from every server gave %q (usable=%v), want %q", status, usable, traceUnknown)
 	}

@@ -153,9 +153,8 @@ func TestAnUncheckedLinkIsNotReportedAsAnUnsignedDelegation(t *testing.T) {
 	t.Parallel()
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
-	w.out.Chain = append(w.out.Chain, TraceLink{Zone: ".", Parent: "IANA trust anchor", Status: traceUnknown,
+	w.addLink(TraceLink{Zone: ".", Parent: "IANA trust anchor", Status: traceUnknown,
 		Detail: "This zone's DNSKEY set could not be read."})
-	w.noteLinkStatus(traceUnknown)
 
 	link, keys := w.validateZone("com.", ".", nil, traceDS{status: traceDSAbsent}, false)
 	if keys != nil {

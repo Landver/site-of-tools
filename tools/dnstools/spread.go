@@ -333,22 +333,25 @@ func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname st
 // answerKey collapses a sorted answer set into one comparable string.
 func answerKey(vals []string) string { return strings.Join(vals, "\n") }
 
-// answerGroups groups labels by identical answer set, first-seen order; an empty set is a group.
-func answerGroups(labels []string, sets [][]string) (values [][]string, members [][]string) {
+// answerGroups groups labels by identical answer set, largest first, ties first-seen; an empty set is a group.
+func answerGroups(labels []string, sets [][]string) []AnswerGroup {
+	var groups []AnswerGroup
 	at := map[string]int{}
 	for i, s := range sets {
 		k := answerKey(s)
 		j, seen := at[k]
 		if !seen {
-			j = len(values)
+			j = len(groups)
 			at[k] = j
 			// The set itself, not the key split back apart: Split turns the empty set into [""].
-			values = append(values, s)
-			members = append(members, nil)
+			groups = append(groups, AnswerGroup{Values: s})
 		}
-		members[j] = append(members[j], labels[i])
+		groups[j].Servers = append(groups[j].Servers, labels[i])
 	}
-	return values, members
+	sort.SliceStable(groups, func(i, j int) bool {
+		return len(groups[i].Servers) > len(groups[j].Servers)
+	})
+	return groups
 }
 
 // nsRoutable: may a nameserver address from a caller-chosen zone get a packet?
@@ -378,13 +381,7 @@ func (sp *Spread) summarise() {
 		labels = append(labels, a.Label)
 		sets = append(sets, a.Values)
 	}
-	values, servers := answerGroups(labels, sets)
-	for i, vals := range values {
-		sp.Groups = append(sp.Groups, AnswerGroup{Values: vals, Servers: servers[i]})
-	}
-	sort.SliceStable(sp.Groups, func(i, j int) bool {
-		return len(sp.Groups[i].Servers) > len(sp.Groups[j].Servers)
-	})
+	sp.Groups = answerGroups(labels, sets)
 	sp.Consistent = sp.Answered > 0 && len(sp.Groups) <= 1
 
 	sp.SerialsAgree = true
@@ -474,13 +471,14 @@ func (sp *Spread) summarise() {
 func unanimousRcode[T any](all []T, rcodeOf func(T) string) string {
 	var code string
 	for _, a := range all {
-		switch c := rcodeOf(a); {
-		case c == "":
-		case code == "":
-			code = c
-		case c != code:
+		c := rcodeOf(a)
+		if c == "" {
+			continue
+		}
+		if code != "" && c != code {
 			return ""
 		}
+		code = c
 	}
 	return code
 }
@@ -525,11 +523,8 @@ func (sp *Spread) health() {
 	sortNotes(sp.Health)
 }
 
-// AddDelegationHealth adds ASN-diversity and registry findings (registryNS describes sp.Zone).
-// Reports whether an ASN reached a finding, which triggers the IP2Location licence credit.
-func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS []string) bool {
-	usedASN := false
-
+// addDelegationHealth adds ASN-diversity and registry findings (registryNS describes sp.Zone).
+func (sp *Spread) addDelegationHealth(asnOf func(ip string) string, registryNS []string) {
 	if asnOf != nil {
 		asns, nets := map[string]bool{}, map[string]bool{}
 		resolved, v4 := 0, 0
@@ -554,10 +549,8 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 				for asn := range asns {
 					sp.addHealth("warn", "Every nameserver sits in the same network (AS"+asn+"). One provider outage takes the whole domain offline; the usual fix is a secondary DNS provider.")
 				}
-				usedASN = true
 			case len(asns) > 1:
 				sp.addHealth("ok", fmt.Sprintf("Nameservers are spread across %d different networks.", len(asns)))
-				usedASN = true
 			}
 			// All-IPv4 only: one shared /24 says nothing about where v6 servers sit.
 			if len(nets) == 1 && v4 == resolved && len(asns) <= 1 {
@@ -567,7 +560,7 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	}
 
 	if len(registryNS) == 0 {
-		return usedASN
+		return
 	}
 	atRegistry := map[string]bool{}
 	for _, ns := range registryNS {
@@ -589,7 +582,6 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 		sp.addHealth("ok", "The registry's delegation matches the nameservers the zone serves.")
 	}
 	sortNotes(sp.Health)
-	return usedASN
 }
 
 type Spreader interface {
@@ -650,7 +642,7 @@ func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *
 			registryNS = reg.Nameservers
 		}
 	}
-	sp.AddDelegationHealth(asnOf, registryNS)
+	sp.addDelegationHealth(asnOf, registryNS)
 }
 
 // providerKey reduces a nameserver to its operator: decode.go's providers table first (Route 53

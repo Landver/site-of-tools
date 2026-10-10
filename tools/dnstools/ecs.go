@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -101,9 +99,6 @@ const (
 // as untailored. Google forwards the subnet and echoes the zone's scope.
 const ecsResolverKey = "google"
 
-// ecsSourceNetmask documents the table's prefix length; the wire uses each entry's own CIDR.
-const ecsSourceNetmask = 24
-
 // maxECSVantages caps the fan-out (one upstream query each), whatever the table grows to.
 const maxECSVantages = 8
 
@@ -163,7 +158,7 @@ func (s *Service) ECS(ctx context.Context, name, qtype string) (*ECS, error) {
 	return s.ecsRun(ctx, name, qtype, addr, ResolverName(ecsResolverKey))
 }
 
-// ecsRun takes the resolver as a parameter so a white-box test can aim it at loopback.
+// ecsRun takes addr so a white-box test can aim it at loopback; production passes only the pinned resolver.
 func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName string) (*ECS, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -193,24 +188,16 @@ func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName st
 	}
 
 	start := time.Now()
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, ecsConcurrency)
-	for i, v := range points {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			// Stands until the probe returns, so a recovered panic reads as a failure, not a blank answer.
-			out.Vantages[i] = ecsBlank(v, errPanic.Error())
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if ctx.Err() != nil {
-				out.Vantages[i] = ecsBlank(v, "the request ended before this vantage point was asked")
-				return
-			}
-			out.Vantages[i] = s.ecsAsk(ctx, qname, qtype, addr, v)
-		})
-	}
-	wg.Wait()
+	fanOut(len(points), ecsConcurrency, func(i int) {
+		v := points[i]
+		// Stands until the probe returns, so a recovered panic reads as a failure, not a blank answer.
+		out.Vantages[i] = ecsBlank(v, errPanic.Error())
+		if ctx.Err() != nil {
+			out.Vantages[i] = ecsBlank(v, "the request ended before this vantage point was asked")
+			return
+		}
+		out.Vantages[i] = s.ecsAsk(ctx, qname, qtype, addr, v)
+	})
 
 	out.QueryMS = time.Since(start).Milliseconds()
 	out.summarise()
@@ -241,10 +228,6 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVa
 	// newQuery sets a 1232-byte EDNS0 buffer; at 512 bytes truncation could split vantage points.
 	m := newQuery(qname, qtype)
 	opt := m.IsEdns0()
-	if opt == nil {
-		a.Error = "could not attach a client subnet to the query"
-		return a
-	}
 	// Family 1 = IPv4: the subnet describes the client, not the record, so AAAA keeps it.
 	opt.Option = append(opt.Option, &dns.EDNS0_SUBNET{
 		Code:          dns.EDNS0SUBNET,
@@ -272,7 +255,7 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVa
 		a.Values = []string{}
 	}
 	// nil, not scope 0, means no client-subnet option came back.
-	if sub := ednsOption[*dns.EDNS0_SUBNET](resp, nil); sub != nil {
+	if sub := ednsOption[*dns.EDNS0_SUBNET](resp); sub != nil {
 		a.Echoed = true
 		a.Scope = sub.SourceScope
 		a.EchoedSubnet = fmt.Sprintf("%s/%d", sub.Address, sub.SourceNetmask)
@@ -317,16 +300,12 @@ func (e *ECS) summarise() {
 		sets = append(sets, v.Values)
 	}
 
-	values, members := answerGroups(labels, sets)
-	for i, vals := range values {
-		if vals == nil {
-			vals = []string{}
+	for _, g := range answerGroups(labels, sets) {
+		if g.Values == nil {
+			g.Values = []string{}
 		}
-		e.Groups = append(e.Groups, ECSGroup{Values: vals, Vantages: members[i]})
+		e.Groups = append(e.Groups, ECSGroup{Values: g.Values, Vantages: g.Servers})
 	}
-	sort.SliceStable(e.Groups, func(i, j int) bool {
-		return len(e.Groups[i].Vantages) > len(e.Groups[j].Vantages)
-	})
 
 	differ := len(e.Groups) > 1
 	switch {

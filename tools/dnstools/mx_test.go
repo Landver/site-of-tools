@@ -19,11 +19,10 @@ func TestMXPreferenceDecidesWhichHostsAreChecked(t *testing.T) {
 		{Type: "MX", Value: "30 last.example.net."},
 	}
 
-	sorted := slices.Clone(rotated)
-	slices.SortStableFunc(sorted, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
+	hosts, _ := mailHosts(rotated)
 	var order []string
-	for _, rec := range sorted[:maxMailHosts] {
-		order = append(order, mxHost(rec.Value))
+	for _, h := range hosts[:maxMailHosts] {
+		order = append(order, h.host)
 	}
 	want := []string{"mx1.example.net", "mx2.example.net", "mx3.example.net", "mx4.example.net", "mx5.example.net"}
 	if !slices.Equal(order, want) {

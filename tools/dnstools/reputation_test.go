@@ -262,8 +262,8 @@ func TestMXReputationBoundsItsFanOut(t *testing.T) {
 	if m.MXCount != 9 {
 		t.Fatalf("MXCount = %d, want all 9 published records counted", m.MXCount)
 	}
-	if len(m.Hosts) > repMaxHosts {
-		t.Errorf("checked %d hosts, cap is %d", len(m.Hosts), repMaxHosts)
+	if len(m.Hosts) > maxMailHosts {
+		t.Errorf("checked %d hosts, cap is %d", len(m.Hosts), maxMailHosts)
 	}
 	for _, h := range m.Hosts {
 		if len(h.Addrs) > repMaxAddrsPerHost {
@@ -614,8 +614,8 @@ func TestMXReputationTruncationNoteCountsWhatItLookedAt(t *testing.T) {
 	corpus := &repFakeCorpus{}
 	m := newTestService().repRun(context.Background(), "part.test", addr, corpus)
 
-	if !m.HostsTruncated || len(m.Hosts) != repMaxHosts {
-		t.Fatalf("hosts=%d truncated=%v, want the %d-host cap to bite", len(m.Hosts), m.HostsTruncated, repMaxHosts)
+	if !m.HostsTruncated || len(m.Hosts) != maxMailHosts {
+		t.Fatalf("hosts=%d truncated=%v, want the %d-host cap to bite", len(m.Hosts), m.HostsTruncated, maxMailHosts)
 	}
 	if m.Checked != 3 || corpus.count() != 3 {
 		t.Fatalf("checked=%d reads=%d, want 3: two of the five rows resolve to nothing", m.Checked, corpus.count())

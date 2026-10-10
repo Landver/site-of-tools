@@ -13,6 +13,9 @@ import (
 	"github.com/miekg/dns"
 )
 
+// ecsSourceNetmask is every ecsVantages prefix length; the wire uses each entry's own CIDR.
+const ecsSourceNetmask = 24
+
 // ecsServer answers by the client subnet the query carried; the other fields fake wrong echoes.
 type ecsServer struct {
 	// reply gets the query's "a.b.c.d/len" or ""; a missing echo must never read as scope 0.
@@ -571,20 +574,20 @@ func TestECSFansOutInASingleWave(t *testing.T) {
 func TestAnswerGroupsKeepsEmptySetsAsTheirOwnGroup(t *testing.T) {
 	t.Parallel()
 
-	values, members := answerGroups(
+	groups := answerGroups(
 		[]string{"a", "b", "c", "d"},
 		[][]string{{"1.2.3.4"}, {}, {"1.2.3.4"}, nil},
 	)
-	if len(values) != 2 {
-		t.Fatalf("%d groups, want 2 (the record, and no record): %v", len(values), values)
+	if len(groups) != 2 {
+		t.Fatalf("%d groups, want 2 (the record, and no record): %v", len(groups), groups)
 	}
-	if len(values[0]) != 1 || values[0][0] != "1.2.3.4" {
-		t.Errorf("first group = %v, want the record set", values[0])
+	if len(groups[0].Values) != 1 || groups[0].Values[0] != "1.2.3.4" {
+		t.Errorf("first group = %v, want the record set", groups[0].Values)
 	}
-	if len(values[1]) != 0 {
-		t.Errorf("second group = %#v, want an empty set, not a one-element set of the empty string", values[1])
+	if len(groups[1].Values) != 0 {
+		t.Errorf("second group = %#v, want an empty set, not a one-element set of the empty string", groups[1].Values)
 	}
-	if strings.Join(members[0], ",") != "a,c" || strings.Join(members[1], ",") != "b,d" {
-		t.Errorf("members = %v, want [a c] and [b d]", members)
+	if strings.Join(groups[0].Servers, ",") != "a,c" || strings.Join(groups[1].Servers, ",") != "b,d" {
+		t.Errorf("members = %v, want [a c] and [b d]", groups)
 	}
 }

@@ -1,4 +1,4 @@
-// Loopback DNS servers, reachable only through the test-only seams in dns.go and trace.go.
+// Shared white-box fixtures (loopback DNS servers behind the dns.go/trace.go seams) and note matchers.
 package dnstools
 
 import (
@@ -94,7 +94,7 @@ func spfZone(records map[string]string) testZone {
 	return z
 }
 
-// serveZone serves z on loopback: key is for LookupSet/EmailAuth, addr for lookup and checkSPF.
+// serveZone serves z on loopback: key is for LookupSet, addr for internals that take one (lookup, checkSPF, repRun).
 func serveZone(t *testing.T, z testZone) (key, addr string) {
 	t.Helper()
 	return serveZoneWith(t, z, nil)
@@ -164,4 +164,30 @@ func TestLoopbackResolverSeam(t *testing.T) {
 			t.Errorf("resolver %q: got %v, want ErrBadResolver", bad, err)
 		}
 	}
+}
+
+func hasNote(notes []Note, level, substr string) bool {
+	for _, n := range notes {
+		if n.Level == level && strings.Contains(n.Text, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func noteWith(notes []Note, substr string) (Note, bool) {
+	for _, n := range notes {
+		if strings.Contains(n.Text, substr) {
+			return n, true
+		}
+	}
+	return Note{}, false
+}
+
+// regresses names the review finding a failing case pins, if it has one.
+func regresses(finding string) string {
+	if finding == "" {
+		return ""
+	}
+	return " [regresses " + finding + "]"
 }

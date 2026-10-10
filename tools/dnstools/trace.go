@@ -195,16 +195,12 @@ type traceWalk struct {
 	unchecked bool
 }
 
-func (w *traceWalk) noteLinkStatus(status string) {
-	if status == traceUnknown {
-		w.unchecked = true
-	}
-}
-
 // addLink records a chain link and reports whether the chain is still secure.
 func (w *traceWalk) addLink(link TraceLink) bool {
 	w.out.Chain = append(w.out.Chain, link)
-	w.noteLinkStatus(link.Status)
+	if link.Status == traceUnknown {
+		w.unchecked = true
+	}
 	return link.Status == traceSecure
 }
 
@@ -545,7 +541,7 @@ func traceKeySetVerdict(r traceReply, walkStopped bool) (status, detail string, 
 		return traceInsecure, "This walk stopped before it could fetch this zone's keys, so the chain is unfinished rather than broken. Nothing here says anything about the zone itself.", false
 	case !r.answered:
 		return traceUnknown, "None of this zone's nameservers answered the query for its DNSKEY set, so the chain could not be checked here. Lost packets or a blocked TCP retry look exactly like this, and neither is a fault in the zone.", false
-	case r.unreadable != "":
+	case r.truncated:
 		return traceUnknown, "This zone's servers answered the DNSKEY query with a truncated message and the retry over TCP did not complete, so only a fragment of the key set ever arrived. A fragment is not evidence about the zone: the key the parent's DS points at may be sitting in the part that never got here.", false
 	default:
 		// Only rcodes came back (SERVFAIL, REFUSED, NOTAUTH): a server fault, not a failed signature.
@@ -609,7 +605,7 @@ func (w *traceWalk) fetchDS(child string, parentServers []traceServer, parentKey
 	}
 	r := w.query(parentServers, child, "DS")
 	if r.msg == nil {
-		if r.unreadable != "" {
+		if r.truncated {
 			return traceDS{status: traceDSUnreadable, unanswered: r.skipped,
 				why: "every server that replied sent a truncated message and the retry over TCP did not complete"}
 		}
@@ -657,7 +653,7 @@ func (w *traceWalk) askZone(zone string, servers []traceServer, qname, qtype str
 	hop.Skipped = r.skipped
 	if r.msg == nil {
 		hop.Error = "no server for this zone answered"
-		if r.unreadable != "" {
+		if r.truncated {
 			hop.Error = "every server that replied sent a truncated answer and the retry over TCP did not complete"
 		}
 		if w.out.Truncated {
@@ -695,8 +691,8 @@ type traceReply struct {
 	skipped []string
 	// answered: some server sent any DNS response, even a refusal, as opposed to silence.
 	answered bool
-	// unreadable: only a truncated fragment came back, which is not the same as an empty answer.
-	unreadable string
+	// truncated: only a TC=1 fragment came back, which is not the same as an empty answer.
+	truncated bool
 }
 
 // query asks servers in turn with recursion off; msg is nil when no usable answer came back.
@@ -734,7 +730,7 @@ func (w *traceWalk) query(servers []traceServer, qname, qtype string) traceReply
 			out.skipped = append(out.skipped, name+": answered "+dns.RcodeToString[r.Rcode])
 		case r.Truncated:
 			// TC=1 survived the TCP retry: a prefix of the RRset. Try the next server (the root has 13).
-			out.answered, out.unreadable = true, "truncated"
+			out.answered, out.truncated = true, true
 			out.skipped = append(out.skipped, name+": answer truncated and the TCP retry did not complete")
 		default:
 			out.msg, out.srv, out.rttMS, out.answered = r, srv, rtt, true

@@ -72,7 +72,7 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
   TXT purpose labels, and the nameserver-suffix → DNS-provider table.
 - `spread.go` — **domain**: `/consistency`. The zone-apex NS walk, the
   authoritative and resolver probes, `summarise()`, and the health audit
-  (`AddDelegationHealth` takes the ASN lookup and the registry NS list as
+  (`addDelegationHealth` takes the ASN lookup and the registry NS list as
   injected inputs, so the transport stays out of it).
 - `ecs.go` — **domain**: the steering card on `/consistency`. The same
   question sent once per fixed vantage subnet with an EDNS Client Subnet

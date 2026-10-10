@@ -131,7 +131,7 @@ type MailHost struct {
 	FCrDNS bool   `json:"fcrdns"`
 }
 
-// maxMailHosts bounds the FCrDNS fan-out: each host costs three or four queries.
+// maxMailHosts bounds the per-host fan-out (3-4 queries each); the reputation card shares it, so both cover the same servers.
 const maxMailHosts = 5
 
 type DKIMKey struct {
@@ -511,18 +511,9 @@ func parseDMARC(rec string) *DMARCResult {
 func (s *Service) checkDKIM(ctx context.Context, domain, addr string) (keys []DKIMKey, revoked []string, wildcard bool) {
 	// Indexed, not appended: selector-list order, not goroutine completion order.
 	recs := make([]string, len(commonDKIMSelectors))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 6)
-	for i, sel := range commonDKIMSelectors {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			recs[i] = s.firstTXT(ctx, dnsFqdn(sel+"._domainkey."+domain), addr, "v=DKIM1")
-		})
-	}
-	wg.Wait()
+	fanOut(len(commonDKIMSelectors), 6, func(i int) {
+		recs[i] = s.firstTXT(ctx, dnsFqdn(commonDKIMSelectors[i]+"._domainkey."+domain), addr, "v=DKIM1")
+	})
 
 	for i, rec := range recs {
 		switch {

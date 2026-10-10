@@ -61,7 +61,7 @@ func TestDelegationHealthReadsIPv6Addresses(t *testing.T) {
 		{Label: "ns1.example.com", Addr: "[2001:db8::1]:53"},
 		{Label: "ns2.example.com", Addr: "192.0.2.1:53"},
 	}}
-	sp.AddDelegationHealth(asnOf, nil)
+	sp.addDelegationHealth(asnOf, nil)
 
 	if len(asked) != 2 || asked[0] != "2001:db8::1" || asked[1] != "192.0.2.1" {
 		t.Errorf("addresses handed to the ASN lookup = %v, want the two unbracketed addresses", asked)
@@ -78,7 +78,7 @@ func TestDelegationHealthFlagsOneSlashTwentyFour(t *testing.T) {
 		{Label: "ns1.example.com", Addr: "192.0.2.1:53"},
 		{Label: "ns2.example.com", Addr: "192.0.2.2:53"},
 	}}
-	sp.AddDelegationHealth(func(string) string { return "" }, nil)
+	sp.addDelegationHealth(func(string) string { return "" }, nil)
 
 	if _, ok := noteWith(sp.Health, "same /24"); !ok {
 		t.Errorf("no /24 finding for two addresses in one /24; got %+v", sp.Health)

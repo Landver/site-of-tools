@@ -36,7 +36,6 @@ type Reputer interface {
 var ErrNoBlocklist = errors.New("the blocklist corpus is not available")
 
 const (
-	repMaxHosts        = maxMailHosts // both cards then cover the same servers
 	repMaxAddrsPerHost = 2
 	repMaxChecks       = 8 // corpus reads per request; an address already read is free
 	repCorpusTimeout   = 3 * time.Second
@@ -134,7 +133,7 @@ func (s *Service) MXReputation(ctx context.Context, domain string, bl BlockCheck
 	return s.repRun(ctx, domain, addr, bl), nil
 }
 
-// repRun takes the resolver address so white-box tests can aim it at a loopback zone.
+// repRun takes addr so white-box tests can aim it at loopback; production passes only resolverAddr's.
 func (s *Service) repRun(ctx context.Context, domain, addr string, bl BlockChecker) *MXReputation {
 	out := &MXReputation{
 		Domain: domain,
@@ -164,8 +163,8 @@ func (s *Service) repRun(ctx context.Context, domain, addr string, bl BlockCheck
 	hosts, nullMX := mailHosts(mx.Records)
 	out.NullMX = nullMX && len(hosts) == 0
 	out.NullMXConflict = nullMX && len(hosts) > 0
-	if len(hosts) > repMaxHosts {
-		hosts = hosts[:repMaxHosts]
+	if len(hosts) > maxMailHosts {
+		hosts = hosts[:maxMailHosts]
 		out.HostsTruncated = true
 	}
 
