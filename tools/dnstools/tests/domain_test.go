@@ -125,6 +125,28 @@ func TestRegistrationDecodesTheRegistryRecord(t *testing.T) {
 	}
 }
 
+// Thin registries (Verisign's .com) name the registrar only by handle or IANA ID, with no jCard.
+func TestRegistrationNamesARegistrarWithNoJCard(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ entity, want string }{
+		{`{"roles": ["registrar"], "handle": "292"}`, "292"},
+		{`{"roles": ["registrar"], "publicIds": [{"type": "IANA Registrar ID", "identifier": "292"}]}`, "IANA Registrar ID 292"},
+		{`{"roles": ["registrar"], "vcardArray": ["vcard", [["fn", {}, "text", ""]]], "handle": "292"}`, "292"},
+	}
+	for _, c := range cases {
+		body := `{"objectClassName": "domain", "ldhName": "example.com", "entities": [` + c.entity + `]}`
+		dc, _ := canned(t, body, http.StatusOK, "[]", http.StatusOK)
+		reg, err := dc.Registration(context.Background(), "example.com")
+		if err != nil {
+			t.Fatalf("Registration: %v", err)
+		}
+		if reg.Registrar != c.want {
+			t.Errorf("entity %s: registrar = %q, want %q", c.entity, reg.Registrar, c.want)
+		}
+	}
+}
+
 func TestDomainClientDisabled(t *testing.T) {
 	t.Parallel()
 

@@ -139,6 +139,11 @@ func (s *Service) repRun(ctx context.Context, domain, addr string, bl BlockCheck
 		m.readCorpusAge(ctx, bl)
 	}
 	for _, h := range hosts {
+		// One note, not a "could not be resolved" per host: MCP runs this under a deadline.
+		if ctx.Err() != nil {
+			m.note("warn", "The check was cut short before every mail server was read, so this result is partial.")
+			break
+		}
 		if m.Checked+m.Unread >= repMaxChecks {
 			m.HostsTruncated = true
 			break

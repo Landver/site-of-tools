@@ -24,7 +24,7 @@ func caaFields(c *dns.CAA) []Field {
 	if issuer, _, _ := strings.Cut(c.Value, ";"); tag.forbids != "" && strings.TrimSpace(issuer) == "" {
 		f = []Field{{"Certificates", tag.forbids}}
 	}
-	// Bit 0 (0x80) is Issuer Critical (RFC 8659 §4.1); the raw value shows any other flag.
+	// Bit 0 (0x80) is Issuer Critical (RFC 8659 §4.1); only then is a Flag row shown, raw value included.
 	if c.Flag&0x80 != 0 {
 		f = append(f, Field{"Flag", fmt.Sprintf("%d (critical)", c.Flag)})
 	}
@@ -101,7 +101,7 @@ func soaFields(s *dns.SOA) []Field {
 	)
 }
 
-// txtLabels maps a TXT prefix to what the record is for. Vendor tokens name the vendor in the value itself.
+// txtLabels maps a TXT prefix to what the record is for.
 var txtLabels = []struct{ prefix, label string }{
 	{"v=spf1", "SPF — which servers may send mail"},
 	{"v=DMARC1", "DMARC — what to do with failing mail"},
@@ -109,7 +109,36 @@ var txtLabels = []struct{ prefix, label string }{
 	{"v=STSv1", "MTA-STS — enforced mail transport security"},
 	{"v=TLSRPTv1", "TLS-RPT — where to send TLS reports"},
 	{"v=DKIM1", "DKIM — mail signing key"},
+	{"google-site-verification=", "Google — site ownership"},
 	{"MS=", "Microsoft — domain ownership"},
+	{"ms-domain-verification=", "Microsoft — domain ownership"},
+	{"apple-domain-verification=", "Apple — domain ownership"},
+	{"atlassian-domain-verification=", "Atlassian — domain ownership"},
+	{"facebook-domain-verification=", "Meta — domain ownership"},
+	{"docusign=", "DocuSign"},
+	{"stripe-verification=", "Stripe"},
+	{"adobe-idp-site-verification=", "Adobe"},
+	{"canva-site-verification=", "Canva"},
+	{"zoom-domain-verification=", "Zoom"},
+	{"ZOOM_verify_", "Zoom"},
+	{"slack-domain-verification=", "Slack"},
+	{"notion-domain-verification=", "Notion"},
+	{"linkedin-site-verification=", "LinkedIn"},
+	{"shopify-site-verification=", "Shopify"},
+	{"tailscale-domain-verification=", "Tailscale"},
+	{"TAILSCALE-", "Tailscale"},
+	{"anthropic-domain-verification=", "Anthropic"},
+	{"openai-domain-verification=", "OpenAI"},
+	{"brevo-code:", "Brevo"},
+	{"sendinblue-site-verification=", "Brevo (Sendinblue)"},
+	{"trustpilot-", "Trustpilot"},
+	{"calendly-site-verification=", "Calendly"},
+	{"cursor-domain-verification=", "Cursor"},
+	{"status-page-domain-verification=", "Atlassian Statuspage"},
+	{"_globalsign-domain-verification=", "GlobalSign"},
+	{"have-i-been-pwned-verification=", "Have I Been Pwned"},
+	{"asv=", "Apple (ASV)"},
+	{"docker-verification=", "Docker"},
 }
 
 // txtLabel names a TXT record's purpose from its prefix, case-insensitively: publishers vary.
@@ -137,7 +166,8 @@ var providers = []struct{ suffix, name string }{
 	{"dnsimple.com", "DNSimple"},
 	{"digitalocean.com", "DigitalOcean"},
 	{"vercel-dns.com", "Vercel"},
-	{"netlify", "Netlify"},
+	{"netlify.com", "Netlify"},
+	{"netlifydns.com", "Netlify"},
 	{"fastly.net", "Fastly"},
 	{"akam.net", "Akamai"},
 	{"ultradns", "UltraDNS"},

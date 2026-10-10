@@ -271,8 +271,19 @@ func (e *ECS) summarise() {
 		e.Verdict = ECSVerdictMatches
 	}
 
-	// The headline prose lives in templates/ecs.html.
+	// The headline prose lives in templates/ecs.html; notes carry what JSON and MCP readers need beside it.
+	add := func(level, text string) { e.Notes = append(e.Notes, Note{Level: level, Text: text}) }
 	if missing := e.Asked - e.Answered; missing > 0 {
-		e.Notes = []Note{{Level: "warn", Text: fmt.Sprintf("%d of %d networks got no usable answer; the comparison is over the rest.", missing, e.Asked)}}
+		add("warn", fmt.Sprintf("%d of %d networks got no usable answer; the comparison is over the rest.", missing, e.Asked))
+	}
+	if e.Echoed > 0 && e.Echoed < e.Answered {
+		add("warn", fmt.Sprintf("Only %d of %d answers carried a client-subnet option, so the rest neither support nor contradict the verdict.", e.Echoed, e.Answered))
+	}
+	if e.Mismatched > 0 {
+		what := "response carried a scope"
+		if e.Mismatched > 1 {
+			what = "responses carried a scope"
+		}
+		add("warn", fmt.Sprintf("%d %s for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched, what))
 	}
 }

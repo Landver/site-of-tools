@@ -537,13 +537,14 @@ func (e *EmailAuth) judge() {
 	}
 
 	// policy is what applies to this name: sp= on an inherited record (RFC 7489 §6.6.3).
-	policy, allMail := "", false
+	policy, allMail, pctOK := "", false, true
 	if d := e.DMARC; d != nil {
 		policy = d.Policy
 		if d.Inherited && d.SubPolicy != "" {
 			policy = d.SubPolicy
 		}
 		pct, err := strconv.Atoi(d.Percent)
+		pctOK = d.Percent == "" || (err == nil && pct >= 0 && pct <= 100)
 		allMail = d.Percent == "" || (err == nil && pct == 100)
 	}
 
@@ -597,6 +598,8 @@ func (e *EmailAuth) judge() {
 			add("warn", "DMARC is published but the policy is none, so failing mail is still delivered. It collects reports and protects nothing until you move to quarantine or reject.")
 		case policy != "quarantine" && policy != "reject":
 			add("warn", "DMARC record has no usable p= policy tag, so receivers treat it as p=none at best.")
+		case !pctOK:
+			add("warn", "DMARC pct="+d.Percent+" is not a percentage (0-100), so receivers may ignore the tag or discard the whole record. Use a whole number from 0 to 100, or drop the tag.")
 		case !allMail:
 			add("warn", "DMARC is p="+policy+" but pct="+d.Percent+", so the policy does not cover all failing mail. Move to pct=100 once the reports look clean.")
 		default:
@@ -614,7 +617,10 @@ func (e *EmailAuth) judge() {
 	if !e.HasMX && (e.SPF == nil || e.DMARC == nil) {
 		add("info", "This domain publishes no MX record and lacks SPF or DMARC, so nothing tells a receiver to refuse mail forged in its name. If it sends no mail, v=spf1 -all and a DMARC record with p=reject say so.")
 	}
-	if e.NullMX {
+	switch {
+	case e.NullMX && e.SPF != nil && e.SPF.All == "-all" && policy == "reject":
+		add("ok", "This domain publishes a null MX (RFC 7505), SPF -all and DMARC p=reject: it declares that it neither sends nor receives mail.")
+	case e.NullMX:
 		add("info", "This domain publishes a null MX (RFC 7505), so it is telling every sender that it receives no mail. If it sends none either, the matching declarations are v=spf1 -all and DMARC p=reject.")
 	}
 

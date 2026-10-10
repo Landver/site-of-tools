@@ -233,6 +233,12 @@ type rdapResponse struct {
 	Entities []struct {
 		Roles      []string `json:"roles"`
 		VCardArray []any    `json:"vcardArray"`
+		// Handle and PublicIDs name a registrar that publishes no jCard.
+		Handle    string `json:"handle"`
+		PublicIDs []struct {
+			Type       string `json:"type"`
+			Identifier string `json:"identifier"`
+		} `json:"publicIds"`
 	} `json:"entities"`
 	Nameservers []struct {
 		LDHName string `json:"ldhName"`
@@ -291,7 +297,10 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 	// The first registrar-role entity is sometimes an empty stub wrapping the named one.
 	for _, e := range r.Entities {
 		if out.Registrar == "" && slices.ContainsFunc(e.Roles, func(r string) bool { return strings.EqualFold(r, "registrar") }) {
-			out.Registrar = vcardName(e.VCardArray)
+			out.Registrar = cmp.Or(vcardName(e.VCardArray), strings.TrimSpace(e.Handle))
+			for i := 0; out.Registrar == "" && i < len(e.PublicIDs); i++ {
+				out.Registrar = strings.TrimSpace(e.PublicIDs[i].Type + " " + e.PublicIDs[i].Identifier)
+			}
 		}
 	}
 	return out, nil

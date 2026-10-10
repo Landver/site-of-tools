@@ -641,6 +641,43 @@ func TestMXReputationStopsWhenTheCallerGoesAway(t *testing.T) {
 	}
 }
 
+// cancelOnCheck ends the request during the first corpus read, as a deadline would mid-check.
+type cancelOnCheck struct {
+	*repFakeCorpus
+	cancel context.CancelFunc
+}
+
+func (c cancelOnCheck) Check(ctx context.Context, ip string) (iptools.BlockLookup, error) {
+	c.cancel()
+	return c.repFakeCorpus.Check(ctx, ip)
+}
+
+func TestMXReputationCutShortSaysSoOnce(t *testing.T) {
+	t.Parallel()
+
+	_, a := serveZone(t, testZone{
+		zoneKey("late.test", "MX"): {
+			"late.test. 300 IN MX 10 mx1.late.test.",
+			"late.test. 300 IN MX 20 mx2.late.test.",
+			"late.test. 300 IN MX 30 mx3.late.test.",
+		},
+		zoneKey("mx1.late.test", "A"): {"mx1.late.test. 300 IN A 192.0.2.61"},
+		zoneKey("mx2.late.test", "A"): {"mx2.late.test. 300 IN A 192.0.2.62"},
+		zoneKey("mx3.late.test", "A"): {"mx3.late.test. 300 IN A 192.0.2.63"},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	m := newTestService().repRun(ctx, "late.test", a, cancelOnCheck{&repFakeCorpus{}, cancel})
+
+	if !hasNote(m.Notes, "warn", "cut short before every mail server was read") {
+		t.Errorf("no note says the check was cut short: %+v", m.Notes)
+	}
+	if hasNote(m.Notes, "warn", "could not be resolved") {
+		t.Errorf("hosts never reached are reported as unresolvable: %+v", m.Notes)
+	}
+}
+
 // Slices marshal as [], and the caveat travels in the payload, not only in the template.
 func TestMXReputationJSONShape(t *testing.T) {
 	t.Parallel()

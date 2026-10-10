@@ -144,6 +144,11 @@ func TestJudgeGradesEachFinding(t *testing.T) {
 		{"voids within the limit", "warn", "resolve to nothing", EmailAuth{SPF: spf(1, "gone.test")}},
 		{"voids past the limit", "fail", "resolve to nothing", EmailAuth{SPF: spf(3, "a.test", "b.test", "c.test")}},
 		{"partial pct", "warn", "pct=50", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "50"}}},
+		{"unparsable pct", "warn", "not a percentage (0-100)", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "abc"}}},
+		{"pct over 100", "warn", "not a percentage (0-100)", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "150"}}},
+		{"decimal pct", "warn", "not a percentage (0-100)", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "100.0"}}},
+		{"null MX that also declares it sends nothing", "ok", "neither sends nor receives mail",
+			EmailAuth{HasMX: true, NullMX: true, SPF: &SPFResult{All: "-all", Limit: 10}, DMARC: strong}},
 		{"inherited sp=none is the policy", "warn", "policy is none", EmailAuth{DMARC: &DMARCResult{Policy: "reject", SubPolicy: "none", Inherited: true}}},
 		{"BIMI behind a strong policy", "ok", "BIMI", EmailAuth{BIMI: "v=BIMI1", DMARC: strong}},
 		{"BIMI with no DMARC", "fail", "BIMI", EmailAuth{BIMI: "v=BIMI1"}},
@@ -160,6 +165,18 @@ func TestJudgeGradesEachFinding(t *testing.T) {
 		if !hasNote(c.e.Notes, c.level, c.substr) {
 			t.Errorf("%s: no %s note containing %q; got %+v", c.name, c.level, c.substr, c.e.Notes)
 		}
+	}
+
+	// A domain already declaring no mail must not be told to add the declarations it has.
+	done := EmailAuth{HasMX: true, NullMX: true, SPF: &SPFResult{All: "-all", Limit: 10}, DMARC: strong}
+	done.judge()
+	if hasNote(done.Notes, "info", "matching declarations") {
+		t.Errorf("null MX with -all and p=reject still advises adding them: %+v", done.Notes)
+	}
+	partial := EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "50"}}
+	partial.judge()
+	if hasNote(partial.Notes, "warn", "not a percentage") {
+		t.Errorf("a valid pct=50 is called not a percentage: %+v", partial.Notes)
 	}
 }
 

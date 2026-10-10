@@ -451,6 +451,23 @@ func TestECSIgnoresAScopeForAPrefixWeNeverSent(t *testing.T) {
 			t.Errorf("%s: EchoedSubnet = %q, want the prefix the server actually echoed", v.Place, v.EchoedSubnet)
 		}
 	}
+	if !hasNote(got.Notes, "warn", "a prefix we never sent") {
+		t.Errorf("no note about the mismatched echoes: %+v", got.Notes)
+	}
+}
+
+// JSON and MCP readers get no template, so a partial echo has to be said in the notes.
+func TestECSSaysWhenOnlySomeAnswersCarriedTheOption(t *testing.T) {
+	t.Parallel()
+
+	first := ecsVantages[0].Subnet
+	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
+		return []string{"192.0.2.10"}, ecsSourceNetmask, subnet == first
+	})
+	got := runECS(t, "partial.test", addr)
+	if want := fmt.Sprintf("Only 1 of %d answers carried a client-subnet option", len(ecsVantages)); !hasNote(got.Notes, "warn", want) {
+		t.Errorf("no note says %q: %+v", want, got.Notes)
+	}
 }
 
 // Our address, but a length we did not send.

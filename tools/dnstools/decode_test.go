@@ -230,7 +230,9 @@ func TestTXTLabel(t *testing.T) {
 		// Publishers are inconsistent about the marker's case.
 		{"v=dmarc1; p=none", "DMARC — what to do with failing mail"},
 		{"v=STSv1; id=20260101", "MTA-STS — enforced mail transport security"},
-		{"google-site-verification=abc123", "Domain ownership proof"},
+		{"google-site-verification=abc123", "Google — site ownership"},
+		{"ZOOM_verify_abc", "Zoom"},
+		{"docker-verification=abc", "Docker"},
 		{"MS=ms12345678", "Microsoft — domain ownership"},
 		// Unknown vendor, recognisable shape: say what it is, not who it is.
 		{"acme-verification=xyz", "Domain ownership proof"},
@@ -273,6 +275,7 @@ func TestProviderOf(t *testing.T) {
 		{"case is not the publisher's problem", ns("NS1.DIGITALOCEAN.COM."), "DigitalOcean"},
 		// Better blank than a wrong guess.
 		{"an unknown suffix names nobody", ns("ns1.some-host.example."), ""},
+		{"netlify in a label is not Netlify", ns("ns1.notnetlify.example."), ""},
 		{"no NS records at all", []Record{{Type: "A", Value: "192.0.2.1"}}, ""},
 	}
 
