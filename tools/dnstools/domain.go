@@ -205,11 +205,10 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	resp, err := d.client.Do(req)
 	if err != nil {
 		// Plain words: the raw error embeds the whole request URL.
-		var nerr net.Error
 		switch {
 		case errors.Is(err, errRedirectRefused), errors.Is(err, platform.ErrBlockedAddress), errors.Is(err, platform.ErrBlockedPort):
 			return fmt.Errorf("%s redirected somewhere this tool won't follow", req.URL.Host)
-		case errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded):
+		case isTimeout(err) || errors.Is(err, context.DeadlineExceeded):
 			return fmt.Errorf("%s timed out", req.URL.Host)
 		}
 		return fmt.Errorf("couldn't reach %s", req.URL.Host)
@@ -494,15 +493,6 @@ func date(s string) string {
 		return s[:10]
 	}
 	return s
-}
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
 }
 
 // vcardName digs fn out of a jCard: ["vcard", [["fn", {}, "text", NAME]]].

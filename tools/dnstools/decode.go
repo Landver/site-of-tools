@@ -260,6 +260,16 @@ var providers = []struct{ suffix, name string }{
 	{"shopifydns.com", "Shopify"},
 }
 
+// knownProvider names the DNS provider a bare nameserver name belongs to, or "".
+func knownProvider(ns string) string {
+	for _, p := range providers {
+		if strings.Contains(ns, p.suffix) {
+			return p.name
+		}
+	}
+	return ""
+}
+
 // providerOf names the provider most nameservers belong to, dropping a lone legacy straggler;
 // a zone split between providers names each ("NS1 + AWS Route 53"). Unknown suffixes give "".
 func providerOf(records []Record) string {
@@ -269,17 +279,14 @@ func providerOf(records []Record) string {
 		if r.Type != "NS" {
 			continue
 		}
-		ns := strings.ToLower(strings.TrimSuffix(r.Value, "."))
-		for _, p := range providers {
-			if !strings.Contains(ns, p.suffix) {
-				continue
-			}
-			if seen[p.name] == 0 {
-				order = append(order, p.name)
-			}
-			seen[p.name]++
-			break
+		name := knownProvider(bareName(r.Value))
+		if name == "" {
+			continue
 		}
+		if seen[name] == 0 {
+			order = append(order, name)
+		}
+		seen[name]++
 	}
 	if len(order) == 0 {
 		return ""

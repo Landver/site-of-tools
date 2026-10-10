@@ -169,17 +169,12 @@ func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName st
 	if name == "" {
 		return nil, ErrEmptyName
 	}
-	if qtype = strings.ToUpper(strings.TrimSpace(qtype)); qtype == "" {
-		qtype = "A"
-	}
+	qtype = walkType(qtype)
 	if !slices.Contains(ecsSteerableTypes, qtype) {
 		return nil, fmt.Errorf("%w: location steering is only measurable on %s",
 			ErrBadType, strings.Join(ecsSteerableTypes, ", "))
 	}
-	if _, isIP := reverseName(name); isIP {
-		return nil, ErrNeedDomain
-	}
-	if err := validDomain(name); err != nil {
+	if err := needDomain(name); err != nil {
 		return nil, err
 	}
 	qname := strings.ToLower(dns.Fqdn(name))
@@ -263,7 +258,7 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVa
 	defer cancel()
 
 	start := time.Now()
-	resp, err := s.ask(qctx, m, addr)
+	resp, _, err := s.ask(qctx, m, addr)
 	a.RTTMS = time.Since(start).Milliseconds()
 	if err != nil {
 		a.Error = "no response"
@@ -276,7 +271,8 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVa
 	if a.Values == nil {
 		a.Values = []string{}
 	}
-	if sub := ecsOptionOf(resp); sub != nil {
+	// nil, not scope 0, means no client-subnet option came back.
+	if sub := ednsOption[*dns.EDNS0_SUBNET](resp, nil); sub != nil {
 		a.Echoed = true
 		a.Scope = sub.SourceScope
 		a.EchoedSubnet = fmt.Sprintf("%s/%d", sub.Address, sub.SourceNetmask)
@@ -289,59 +285,9 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVa
 	return a
 }
 
-// ecsOptionOf returns the response's client-subnet option; nil (not scope 0) means none came back.
-func ecsOptionOf(m *dns.Msg) *dns.EDNS0_SUBNET {
-	opt := m.IsEdns0()
-	if opt == nil {
-		return nil
-	}
-	for _, o := range opt.Option {
-		if sub, ok := o.(*dns.EDNS0_SUBNET); ok {
-			return sub
-		}
-	}
-	return nil
-}
-
-// answerGroups groups labels by identical answer set, first-seen order; an empty set is a group.
-func answerGroups(labels []string, sets [][]string) (values [][]string, members [][]string) {
-	at := map[string]int{}
-	for i, s := range sets {
-		k := answerKey(s)
-		j, seen := at[k]
-		if !seen {
-			j = len(values)
-			at[k] = j
-			// The set itself, not the key split back apart: Split turns the empty set into [""].
-			values = append(values, s)
-			members = append(members, nil)
-		}
-		members[j] = append(members[j], labels[i])
-	}
-	return values, members
-}
-
-// ecsUnanimousRcode mirrors spread.go's unanimousRcode: the rcode all responders agreed on, else "".
-func ecsUnanimousRcode(vs []ECSAnswer) string {
-	var code string
-	for _, v := range vs {
-		if v.Rcode == "" {
-			continue
-		}
-		if code == "" {
-			code = v.Rcode
-			continue
-		}
-		if v.Rcode != code {
-			return ""
-		}
-	}
-	return code
-}
-
 // summarise derives the counts, groups and verdict from what the probes saw.
 func (e *ECS) summarise() {
-	e.Rcode = ecsUnanimousRcode(e.Vantages)
+	e.Rcode = unanimousRcode(e.Vantages, func(v ECSAnswer) string { return v.Rcode })
 
 	var labels []string
 	var sets [][]string

@@ -67,6 +67,20 @@ func toASCII(s string) string {
 	return strings.Join(labels, ".")
 }
 
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// bareName lowercases a name and drops its trailing dot, so two spellings compare equal.
+func bareName(s string) string {
+	return strings.ToLower(strings.TrimSuffix(s, "."))
+}
+
 // needDomain is validDomain that also refuses an IP.
 func needDomain(name string) error {
 	if net.ParseIP(name) != nil {

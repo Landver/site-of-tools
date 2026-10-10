@@ -642,18 +642,13 @@ func isTransportErr(err error) bool {
 // exchange sends one query, retrying over TCP on truncation and with CD=1 on SERVFAIL.
 func (s *Service) exchange(ctx context.Context, qname, qtype, addr string) (Result, error) {
 	m := newQuery(qname, qtype)
-
-	resp, _, err := s.udp.ExchangeContext(ctx, m, addr)
-	if err == nil && resp != nil && resp.Truncated {
-		tcpResp, _, tcpErr := s.tcp.ExchangeContext(ctx, m, addr)
-		if tcpErr != nil {
-			// A partial RRset would render and cache as complete, so it's a failure instead.
-			return Result{}, fmt.Errorf("truncated answer from %s, TCP retry failed: %w", addr, tcpErr)
-		}
-		resp = tcpResp
-	}
+	resp, tcpErr, err := s.ask(ctx, m, addr)
 	if err != nil {
 		return Result{}, fmt.Errorf("query %s: %w", addr, err)
+	}
+	if tcpErr != nil {
+		// A partial RRset would render and cache as complete, so it's a failure instead.
+		return Result{}, fmt.Errorf("truncated answer from %s, TCP retry failed: %w", addr, tcpErr)
 	}
 
 	meta := responseMeta{
@@ -692,6 +687,19 @@ func (s *Service) exchange(ctx context.Context, qname, qtype, addr string) (Resu
 	return Result{Type: qtype, Records: records, meta: meta}, statusErr(resp.Rcode, len(records))
 }
 
+// ask retries a truncated UDP reply over TCP; if that fails it returns the truncated reply and tcpErr.
+func (s *Service) ask(ctx context.Context, m *dns.Msg, addr string) (resp *dns.Msg, tcpErr, err error) {
+	resp, _, err = s.udp.ExchangeContext(ctx, m, addr)
+	if err != nil || resp == nil || !resp.Truncated {
+		return resp, nil, err
+	}
+	full, _, tcpErr := s.tcp.ExchangeContext(ctx, m, addr)
+	if tcpErr != nil {
+		return resp, tcpErr, nil
+	}
+	return full, nil, nil
+}
+
 // newQuery: EDNS0 with a 1232-byte buffer (DNS flag day 2020), DO for the AD bit, and NSID.
 func newQuery(qname, qtype string) *dns.Msg {
 	m := new(dns.Msg)
@@ -704,42 +712,40 @@ func newQuery(qname, qtype string) *dns.Msg {
 	return m
 }
 
+// ednsOption returns m's first EDNS0 option of type T that keep accepts (nil keeps any), else nil.
+func ednsOption[T dns.EDNS0](m *dns.Msg, keep func(T) bool) (none T) {
+	if opt := m.IsEdns0(); opt != nil {
+		for _, o := range opt.Option {
+			if t, ok := o.(T); ok && (keep == nil || keep(t)) {
+				return t
+			}
+		}
+	}
+	return none
+}
+
 func edeOf(m *dns.Msg) *EDE {
-	opt := m.IsEdns0()
-	if opt == nil {
+	e := ednsOption[*dns.EDNS0_EDE](m, nil)
+	if e == nil {
 		return nil
 	}
-	for _, o := range opt.Option {
-		e, ok := o.(*dns.EDNS0_EDE)
-		if !ok {
-			continue
-		}
-		text := dns.ExtendedErrorCodeToString[e.InfoCode]
-		if text == "" {
-			text = "Unknown"
-		}
-		return &EDE{Code: e.InfoCode, Text: text, Extra: e.ExtraText}
+	text := dns.ExtendedErrorCodeToString[e.InfoCode]
+	if text == "" {
+		text = "Unknown"
 	}
-	return nil
+	return &EDE{Code: e.InfoCode, Text: text, Extra: e.ExtraText}
 }
 
 // nsidOf decodes the hex NSID when it is printable; operators put names like "ams01" in it.
 func nsidOf(m *dns.Msg) string {
-	opt := m.IsEdns0()
-	if opt == nil {
+	n := ednsOption(m, func(n *dns.EDNS0_NSID) bool { return n.Nsid != "" })
+	if n == nil {
 		return ""
 	}
-	for _, o := range opt.Option {
-		n, ok := o.(*dns.EDNS0_NSID)
-		if !ok || n.Nsid == "" {
-			continue
-		}
-		if raw, err := hex.DecodeString(n.Nsid); err == nil && isPrintable(raw) {
-			return string(raw)
-		}
-		return n.Nsid
+	if raw, err := hex.DecodeString(n.Nsid); err == nil && isPrintable(raw) {
+		return string(raw)
 	}
-	return ""
+	return n.Nsid
 }
 
 func isPrintable(b []byte) bool {
@@ -852,7 +858,7 @@ func toRecord(rr dns.RR) Record {
 	case *dns.SRV:
 		rec.Target = v.Target
 	}
-	rec.Target = strings.ToLower(strings.TrimSuffix(rec.Target, "."))
+	rec.Target = bareName(rec.Target)
 	return rec
 }
 

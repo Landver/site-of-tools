@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ type Reputer interface {
 var ErrNoBlocklist = errors.New("the blocklist corpus is not available")
 
 const (
-	repMaxHosts        = 5 // matches email.go's maxMailHosts, so both cards mean the same servers
+	repMaxHosts        = maxMailHosts // both cards then cover the same servers
 	repMaxAddrsPerHost = 2
 	repMaxChecks       = 8 // corpus reads per request; an address already read is free
 	repCorpusTimeout   = 3 * time.Second
@@ -121,13 +120,7 @@ func repFeedNames(feeds []string) []string {
 // only one address per host. A nil bl is ErrNoBlocklist, never a clean result.
 func (s *Service) MXReputation(ctx context.Context, domain string, bl BlockChecker) (*MXReputation, error) {
 	domain = strings.TrimSpace(strings.ToLower(domain))
-	if domain == "" {
-		return nil, ErrEmptyName
-	}
-	if _, isIP := reverseName(domain); isIP {
-		return nil, ErrNeedDomain
-	}
-	if err := validDomain(domain); err != nil {
+	if err := needDomain(domain); err != nil {
 		return nil, err
 	}
 	if bl == nil {
@@ -168,7 +161,7 @@ func (s *Service) repRun(ctx context.Context, domain, addr string, bl BlockCheck
 	}
 
 	out.MXCount = len(mx.Records)
-	hosts, nullMX := repMailHosts(mx.Records)
+	hosts, nullMX := mailHosts(mx.Records)
 	out.NullMX = nullMX && len(hosts) == 0
 	out.NullMXConflict = nullMX && len(hosts) > 0
 	if len(hosts) > repMaxHosts {
@@ -221,29 +214,6 @@ func (m *MXReputation) CorpusUsable() bool {
 	return len(m.Feeds) > 0 && len(m.StaleFeeds) < len(m.Feeds)
 }
 
-type repHost struct {
-	host string
-	pref int
-}
-
-// repMailHosts sorts by preference before any cap, so the checked subset doesn't rotate.
-func repMailHosts(recs []Record) (hosts []repHost, nullMX bool) {
-	byPref := slices.Clone(recs)
-	slices.SortStableFunc(byPref, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
-
-	hosts = make([]repHost, 0, len(byPref))
-	for _, rec := range byPref {
-		switch h := mxHost(rec.Value); h {
-		case "":
-		case ".":
-			nullMX = true
-		default:
-			hosts = append(hosts, repHost{host: h, pref: mxPref(rec.Value)})
-		}
-	}
-	return hosts, nullMX
-}
-
 // repResolveOutcome: why a host gave no address. NODATA is a fact about the zone; a failure isn't.
 type repResolveOutcome int
 
@@ -269,7 +239,7 @@ func (o repResolveOutcome) reason() string {
 }
 
 // repCheckHost counts on out, so the caps are global rather than per host.
-func (s *Service) repCheckHost(ctx context.Context, h repHost, addr string, bl BlockChecker, out *MXReputation) MXRepHost {
+func (s *Service) repCheckHost(ctx context.Context, h mxTarget, addr string, bl BlockChecker, out *MXReputation) MXRepHost {
 	row := MXRepHost{Host: h.host, Preference: h.pref, Addrs: []MXRepAddr{}}
 
 	ips, why := s.repAddresses(ctx, h.host, addr)

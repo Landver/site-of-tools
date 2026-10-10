@@ -111,11 +111,7 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	if !slices.Contains(Types, qtype) {
 		return nil, ErrBadType
 	}
-	if _, isIP := reverseName(name); isIP {
-		return nil, ErrNeedDomain
-	}
-
-	if err := validDomain(name); err != nil {
+	if err := needDomain(name); err != nil {
 		return nil, err
 	}
 	qname := strings.ToLower(dns.Fqdn(name))
@@ -194,20 +190,6 @@ func (s *Service) zoneNameservers(ctx context.Context, qname, addr string) (name
 	return nil, "", 0
 }
 
-// ask retries a truncated answer over TCP, or a large RRset reads as nameservers disagreeing.
-func (s *Service) ask(ctx context.Context, m *dns.Msg, addr string) (*dns.Msg, error) {
-	resp, _, err := s.udp.ExchangeContext(ctx, m, addr)
-	if err != nil {
-		return nil, err
-	}
-	if resp.Truncated {
-		if full, _, tcpErr := s.tcp.ExchangeContext(ctx, m, addr); tcpErr == nil {
-			return full, nil
-		}
-	}
-	return resp, nil
-}
-
 // askAuthoritative asks one nameserver with RD=0, then probes recursion, TCP/53 and its serial.
 func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, viaAddr string) ServerAnswer {
 	a := ServerAnswer{Label: strings.TrimSuffix(nsName, ".")}
@@ -227,7 +209,7 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 	// newQuery carries the 1232-byte EDNS0 buffer; a bare message caps this half at 512 bytes.
 	m := newQuery(qname, qtype)
 	m.RecursionDesired = false
-	resp, err := s.ask(ctx, m, a.Addr)
+	resp, _, err := s.ask(ctx, m, a.Addr)
 	a.RTTMS = time.Since(start).Milliseconds()
 	if err != nil {
 		a.Error = "no response"
@@ -311,7 +293,7 @@ func isTimeout(err error) bool {
 func (s *Service) askResolver(ctx context.Context, qname, qtype string, r Resolver) ServerAnswer {
 	a := ServerAnswer{Label: r.Name, Addr: r.Addr}
 	start := time.Now()
-	resp, err := s.ask(ctx, newQuery(qname, qtype), r.Addr)
+	resp, _, err := s.ask(ctx, newQuery(qname, qtype), r.Addr)
 	a.RTTMS = time.Since(start).Milliseconds()
 	if err != nil {
 		a.Error = "no response"
@@ -351,6 +333,24 @@ func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname st
 // answerKey collapses a sorted answer set into one comparable string.
 func answerKey(vals []string) string { return strings.Join(vals, "\n") }
 
+// answerGroups groups labels by identical answer set, first-seen order; an empty set is a group.
+func answerGroups(labels []string, sets [][]string) (values [][]string, members [][]string) {
+	at := map[string]int{}
+	for i, s := range sets {
+		k := answerKey(s)
+		j, seen := at[k]
+		if !seen {
+			j = len(values)
+			at[k] = j
+			// The set itself, not the key split back apart: Split turns the empty set into [""].
+			values = append(values, s)
+			members = append(members, nil)
+		}
+		members[j] = append(members[j], labels[i])
+	}
+	return values, members
+}
+
 // nsRoutable: may a nameserver address from a caller-chosen zone get a packet?
 func (s *Service) nsRoutable(ipStr string) bool {
 	ip, err := netip.ParseAddr(ipStr)
@@ -366,27 +366,21 @@ func (s *Service) nsRoutable(ipStr string) bool {
 func (sp *Spread) summarise() {
 	all := append(slices.Clone(sp.Authoritative), sp.Resolvers...)
 	sp.Asked = len(all)
-	sp.Rcode = unanimousRcode(all)
+	sp.Rcode = unanimousRcode(all, func(a ServerAnswer) string { return a.Rcode })
 
-	byKey := map[string][]string{}
-	var order []string
+	var labels []string
+	var sets [][]string
 	for _, a := range all {
 		if a.Error != "" || len(a.Values) == 0 {
 			continue
 		}
 		sp.Answered++
-		k := answerKey(a.Values)
-		if _, seen := byKey[k]; !seen {
-			order = append(order, k)
-		}
-		byKey[k] = append(byKey[k], a.Label)
+		labels = append(labels, a.Label)
+		sets = append(sets, a.Values)
 	}
-
-	for _, k := range order {
-		sp.Groups = append(sp.Groups, AnswerGroup{
-			Values:  strings.Split(k, "\n"),
-			Servers: byKey[k],
-		})
+	values, servers := answerGroups(labels, sets)
+	for i, vals := range values {
+		sp.Groups = append(sp.Groups, AnswerGroup{Values: vals, Servers: servers[i]})
 	}
 	sort.SliceStable(sp.Groups, func(i, j int) bool {
 		return len(sp.Groups[i].Servers) > len(sp.Groups[j].Servers)
@@ -477,17 +471,14 @@ func (sp *Spread) summarise() {
 }
 
 // unanimousRcode: one NXDOMAIN among eight NOERRORs means breakage, so only unanimity counts.
-func unanimousRcode(all []ServerAnswer) string {
+func unanimousRcode[T any](all []T, rcodeOf func(T) string) string {
 	var code string
 	for _, a := range all {
-		if a.Rcode == "" {
-			continue
-		}
-		if code == "" {
-			code = a.Rcode
-			continue
-		}
-		if a.Rcode != code {
+		switch c := rcodeOf(a); {
+		case c == "":
+		case code == "":
+			code = c
+		case c != code:
 			return ""
 		}
 	}
@@ -580,7 +571,7 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	}
 	atRegistry := map[string]bool{}
 	for _, ns := range registryNS {
-		atRegistry[strings.ToLower(strings.TrimSuffix(ns, "."))] = true
+		atRegistry[bareName(ns)] = true
 	}
 	var missing []string
 	for _, a := range sp.Authoritative {
@@ -655,7 +646,7 @@ func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *
 	}
 	var registryNS []string
 	if dom != nil && sp.Zone != "" {
-		if reg, err := dom.Registration(ctx, strings.TrimSuffix(sp.Zone, ".")); err == nil {
+		if reg, err := dom.Registration(ctx, sp.Zone); err == nil {
 			registryNS = reg.Nameservers
 		}
 	}
@@ -665,11 +656,9 @@ func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *
 // providerKey reduces a nameserver to its operator: decode.go's providers table first (Route 53
 // spans .com/.net/.org/.co.uk), else the registrable label minus a -<digits> suffix.
 func providerKey(host string) string {
-	h := strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, p := range providers {
-		if strings.Contains(h, p.suffix) {
-			return p.name
-		}
+	h := bareName(host)
+	if name := knownProvider(h); name != "" {
+		return name
 	}
 	base, err := publicsuffix.EffectiveTLDPlusOne(h)
 	if err != nil {

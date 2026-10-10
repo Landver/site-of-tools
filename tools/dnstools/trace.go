@@ -262,17 +262,12 @@ func (s *Service) Trace(ctx context.Context, name, qtype string) (*Trace, error)
 	if name == "" {
 		return nil, ErrEmptyName
 	}
-	if qtype = strings.ToUpper(strings.TrimSpace(qtype)); qtype == "" {
-		qtype = "A"
-	}
+	qtype = walkType(qtype)
 	// The package allowlist: ANY or AXFR aimed at caller-chosen nameservers would be an amplifier.
 	if !slices.Contains(Types, qtype) {
 		return nil, ErrBadType
 	}
-	if _, isIP := reverseName(name); isIP {
-		return nil, ErrNeedDomain
-	}
-	if err := validDomain(name); err != nil {
+	if err := needDomain(name); err != nil {
 		return nil, err
 	}
 
@@ -725,7 +720,7 @@ func (w *traceWalk) query(servers []traceServer, qname, qtype string) traceReply
 		m := newQuery(qname, qtype)
 		m.RecursionDesired = false
 		start := time.Now()
-		r, err := w.svc.ask(w.ctx, m, addr)
+		r, _, err := w.svc.ask(w.ctx, m, addr)
 		rtt := time.Since(start).Milliseconds()
 		switch {
 		case err != nil:

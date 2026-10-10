@@ -196,13 +196,7 @@ func EmailReport(ctx context.Context, mail Mailer, rep Reputer, bl BlockChecker,
 // EmailAuth runs every check concurrently; each goroutine writes its own fields.
 func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, error) {
 	domain = strings.TrimSpace(strings.ToLower(domain))
-	if domain == "" {
-		return nil, ErrEmptyName
-	}
-	if _, isIP := reverseName(domain); isIP {
-		return nil, ErrNeedDomain
-	}
-	if err := validDomain(domain); err != nil {
+	if err := needDomain(domain); err != nil {
 		return nil, err
 	}
 	addr, _ := resolverAddr(DefaultResolver)
@@ -366,22 +360,11 @@ func (s *Service) countSPFLookups(ctx context.Context, rec, addr string, w *spfW
 	return n, exact
 }
 
-// checkMailHosts sorts by preference before the cap, so the checked subset doesn't rotate.
-func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) (out []MailHost, nullMX bool) {
-	byPref := slices.Clone(mx)
-	slices.SortStableFunc(byPref, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
-
-	for _, rec := range byPref {
-		if len(out) >= maxMailHosts {
-			break
-		}
-		switch host := mxHost(rec.Value); host {
-		case "":
-		case ".":
-			nullMX = true
-		default:
-			out = append(out, s.probeMailHost(ctx, host, addr))
-		}
+func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) ([]MailHost, bool) {
+	hosts, nullMX := mailHosts(mx)
+	var out []MailHost
+	for _, h := range hosts[:min(len(hosts), maxMailHosts)] {
+		out = append(out, s.probeMailHost(ctx, h.host, addr))
 	}
 	// RFC 7505 §3: a null MX beside real hosts is a contradiction, not a declaration.
 	return out, nullMX && len(mx) == 1
@@ -432,6 +415,29 @@ func mxPref(rdata string) int {
 		return maxMXPref
 	}
 	return n
+}
+
+type mxTarget struct {
+	host string
+	pref int
+}
+
+// mailHosts sorts by preference before any cap, so the checked subset doesn't rotate.
+func mailHosts(recs []Record) (hosts []mxTarget, nullMX bool) {
+	byPref := slices.Clone(recs)
+	slices.SortStableFunc(byPref, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
+
+	hosts = make([]mxTarget, 0, len(byPref))
+	for _, rec := range byPref {
+		switch h := mxHost(rec.Value); h {
+		case "":
+		case ".":
+			nullMX = true
+		default:
+			hosts = append(hosts, mxTarget{host: h, pref: mxPref(rec.Value)})
+		}
+	}
+	return hosts, nullMX
 }
 
 // mxHost returns the MX target, "." for a null MX and "" when there is no target.
@@ -678,11 +684,6 @@ func dnsFqdn(s string) string {
 		return s
 	}
 	return s + "."
-}
-
-// bareName lowercases a name and drops its trailing dot, so two spellings compare equal.
-func bareName(s string) string {
-	return strings.ToLower(strings.TrimSuffix(s, "."))
 }
 
 // judge turns the records into findings; every note says what to do, not just what is wrong.
