@@ -8,8 +8,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-// The consistency check asks the zone's own nameservers directly, so a healthy
-// zone must come back consistent with its serials in step.
+// Asked of its own nameservers, a healthy zone is consistent with its serials in step.
 func TestSpreadHealthyZoneIsConsistent(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
@@ -19,15 +18,9 @@ func TestSpreadHealthyZoneIsConsistent(t *testing.T) {
 		t.Fatalf("consistency check: %v", err)
 	}
 	if len(sp.Authoritative) == 0 {
-		// The NS discovery lookup that feeds this list is one more packet at
-		// one more public resolver, and when it is the one that goes missing
-		// there is no fan-out to check. Nothing about the code is wrong, and
-		// the push gate must not turn a lost packet into a blocked deploy.
 		t.Skip("no authoritative nameservers came back — the NS discovery lookup did not answer, which is flaky network rather than a code failure")
 	}
 	if sp.Answered == 0 {
-		// Every probe timed out: the network is having a bad moment, which is
-		// not a defect in this code and must not block the deploy gate.
 		t.Skipf("no server answered out of %d asked — flaky network, not a code failure", sp.Asked)
 	}
 	// The honest denominator: every server asked is accounted for.
@@ -49,23 +42,14 @@ func TestSpreadHealthyZoneIsConsistent(t *testing.T) {
 	}
 }
 
-// A subdomain has no NS records of its own, so the check must walk up to the
-// zone that actually serves it rather than finding nothing.
-//
-// The name has to be picked carefully or the walk is never exercised: a name
-// that is itself a delegation (www.cloudflare.com publishes its own NS) and a
-// name that is an alias (the resolver chases the CNAME and hands back the
-// target zone's NS in the same answer) both return on the first iteration.
-// www.example.com is neither — a plain A record, NODATA for NS — so the loop
-// has to climb a label, and the zone it lands on is the assertion.
+// A subdomain has no NS of its own, so the check walks up to the zone serving it.
+// www.example.com is neither a delegation nor a CNAME, so the walk must climb a label.
 func TestSpreadWalksUpToTheServingZone(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 	ctx := context.Background()
 
-	// Control question, asked the way the walk asks it. Skipping on this
-	// rather than on an empty result keeps the assertion below able to fail:
-	// a broken walk also returns no zone, and must not read as a bad network.
+	// Skip on this control question, not on an empty result: a broken walk also finds no zone.
 	if ns, err := svc.LookupSet(ctx, "example.com", dnstools.DefaultResolver, []string{"NS"}); err != nil || len(ns.Found) == 0 {
 		t.Skipf("upstream did not answer NS for example.com (%v) — flaky network, not a code failure", err)
 	}

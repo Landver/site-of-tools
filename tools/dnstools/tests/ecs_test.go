@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
-	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,12 +14,10 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-// *Service must satisfy the handler dependency, or the card silently never
-// renders: the handler takes it by interface assertion, which fails quietly.
+// The handler finds ECSer by type assertion, which fails quietly: *Service must satisfy it.
 var _ dnstools.ECSer = dnstools.NewService(time.Second)
 
-// Input is rejected before anything leaves the box, and each rejection is the
-// error the handler maps to 400 rather than a 502.
+// Rejected input never leaves the box, and each rejection maps to 400, not 502.
 func TestECSRejectsInputThatCannotBeMeasured(t *testing.T) {
 	t.Parallel()
 
@@ -49,8 +47,7 @@ func TestECSRejectsInputThatCannotBeMeasured(t *testing.T) {
 	}
 }
 
-// The default type is A: /consistency defaults its own selector to A, and the
-// card must ask the same question the rest of the page is about.
+// /consistency defaults to A, so the card must ask the same question by default.
 func TestECSDefaultsToA(t *testing.T) {
 	requireEgress(t)
 
@@ -63,11 +60,8 @@ func TestECSDefaultsToA(t *testing.T) {
 	}
 }
 
-// The live shape: every vantage point in the table is accounted for, named,
-// and carries the prefix that was actually sent.
-//
-// Not parallel, and none of the live tests here are: these queries all land on
-// one public resolver and running them at once is what made this suite flaky.
+// Every vantage point is accounted for, named, and carries the prefix actually sent.
+// Not parallel, like every live test here: they all land on one public resolver.
 func TestECSLiveReportsEveryVantagePoint(t *testing.T) {
 	requireEgress(t)
 
@@ -99,16 +93,12 @@ func TestECSLiveReportsEveryVantagePoint(t *testing.T) {
 		got.Verdict, got.MaxScope, got.Echoed, len(got.Groups), got.Answered, got.Asked, got.QueryMS)
 }
 
-// The verdict must never contradict the fields it was derived from. Asserted
-// against the live internet rather than a canned scope, because the point is
-// that the resolver this feature pins actually returns a scope: pointed at one
-// that does not, every name on earth would come back "unsupported".
+// The verdict never contradicts its evidence; live, since the pinned resolver must return a scope.
 func TestECSLiveVerdictAgreesWithTheEvidence(t *testing.T) {
 	requireEgress(t)
 
 	svc := dnstools.NewService(5 * time.Second)
-	// A name known to steer and one known not to, so a bug that hard-codes
-	// either answer fails on the other.
+	// One name that steers and one that doesn't, so a hard-coded answer fails one.
 	scoped := false
 	for _, name := range []string{"www.wikipedia.org", "www.netflix.com"} {
 		got, err := svc.ECS(context.Background(), name, "A")
@@ -131,9 +121,7 @@ func TestECSLiveVerdictAgreesWithTheEvidence(t *testing.T) {
 				t.Errorf("%s: answers-differ needs a non-zero scope AND differing answers, got scope %d over %d groups",
 					name, got.MaxScope, len(got.Groups))
 			}
-			// The flag that separates a scope the zone chose from a copy of
-			// the one we sent. It cannot be set without a non-zero scope to
-			// have been chosen.
+			// ScopeDistinct marks a scope the zone chose, so it needs a non-zero one.
 			if got.ScopeDistinct && got.MaxScope == 0 {
 				t.Errorf("%s: ScopeDistinct set with no non-zero scope anywhere", name)
 			}
@@ -154,13 +142,7 @@ func TestECSLiveVerdictAgreesWithTheEvidence(t *testing.T) {
 				t.Errorf("%s: unsupported claimed while %d responses carried the option", name, got.Echoed)
 			}
 		case "no-records":
-			// Both names here publish A records, so this shape means the
-			// queries came back empty — a shared runner IP that Google is
-			// rate-limiting produces exactly this. The verdict is only ever
-			// emitted when nothing was given records, so there is no
-			// contradiction left to catch: every other live test in this
-			// package skips on upstream trouble rather than calling it a code
-			// failure, and this one was the exception.
+			// Both names publish A records: upstream trouble, e.g. a rate-limited runner IP.
 			t.Logf("%s: no vantage point was given a record (rcode %q), skipping its assertions",
 				name, got.Rcode)
 			continue
@@ -175,12 +157,7 @@ func TestECSLiveVerdictAgreesWithTheEvidence(t *testing.T) {
 	}
 }
 
-// Whatever else is true, "we could not tell" must never be rendered as a
-// verdict about tailoring: they are separate values, and this is the design
-// value the whole card rests on. "untailored" is itself the weaker of the two
-// claims the card used to make here: it says no client-subnet tailoring
-// happened on this resolver's path, not that the name answers the same
-// everywhere.
+// "We could not tell" must never render as "untailored", which needs an echoed scope of 0.
 func TestECSNeverCallsAnUnmeasuredNameNotSteered(t *testing.T) {
 	requireEgress(t)
 
@@ -196,32 +173,27 @@ func TestECSNeverCallsAnUnmeasuredNameNotSteered(t *testing.T) {
 	}
 }
 
-// ecsTemplates parses this tool's own templates. Only this package's, not the
-// shared partials: the card is a fragment, the shared set needs the renderer's
-// function map, and nothing here is testing the site chrome. toolURL is stubbed.
-func ecsTemplates(t *testing.T) *template.Template {
+// renderCard executes one of this tool's templates without the site chrome; toolURL is stubbed.
+func renderCard(t *testing.T, name string, data any) string {
 	t.Helper()
-	sub, err := fs.Sub(dnstools.Templates, "templates")
-	if err != nil {
-		t.Fatalf("sub FS: %v", err)
-	}
 	tmpl, err := template.New("dns").Funcs(template.FuncMap{
 		"toolURL": func(sub string) string { return "https://" + sub + ".example" },
-	}).ParseFS(sub, "*.html")
+	}).ParseFS(dnstools.Templates, "templates/*.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
 	}
-	return tmpl
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		t.Fatalf("render %s: %v", name, err)
+	}
+	return buf.String()
 }
 
-// The card renders, states its verdict, and carries the two classes the
-// consistency page's CSS multi-column flow needs. Without them the card is
-// split down the middle mid-render, which no Go test would otherwise catch.
+// One card in one consistency column: the page's CSS columns split anything wider mid-render.
 func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	t.Parallel()
 
-	var buf bytes.Buffer
-	err := ecsTemplates(t).ExecuteTemplate(&buf, "dns/ecs", map[string]any{
+	out := renderCard(t, "dns/ecs", map[string]any{
 		"ECS": &dnstools.ECS{
 			Name: "www.wikipedia.org", Type: "A",
 			Resolver: "Google (8.8.8.8)", Verdict: "answers-differ",
@@ -231,8 +203,7 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 					Values: []string{"185.15.59.224"}, Echoed: true, Scope: 16, SourceNetmask: 24, RTTMS: 68},
 				{Region: "Asia", Place: "Tokyo, JP", Subnet: "133.11.0.0/24",
 					Values: []string{}, Error: "no response"},
-				// Answered, with nothing to say. Reaches the branch that has to
-				// climb back to the root dot for the record type.
+				// Answered with nothing: the branch that climbs back to the root dot for the type.
 				{Region: "Oceania", Place: "Melbourne, AU", Subnet: "130.194.0.0/24",
 					Values: []string{}, Rcode: "NOERROR", Echoed: true, Scope: 0, RTTMS: 91},
 			},
@@ -240,20 +211,11 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 			Notes:  []dnstools.Note{{Level: "ok", Text: "a finding"}},
 		},
 	})
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	out := buf.String()
 	for _, want := range []string{
-		// One card in one of the consistency page's two stacking columns, at
-		// the same width as the public resolvers card it deliberately mirrors.
-		// A one-column card, never full width (checked below).
 		`class="card"`,
 		"answers by client network",
 		"This answer depends on the network that asks",
-		// A scope the zone chose has to read differently from one that merely
-		// repeats the length we sent, or the card is back to presenting an
-		// echo as evidence.
+		// A scope the zone chose must read differently from an echo of the length we sent.
 		"scope /16, the zone's own block",
 		"Amsterdam, NL", "192.87.0.0/24", "185.15.59.224", "scope /16",
 		"Tokyo, JP", "no response",
@@ -269,23 +231,16 @@ func TestECSCardRendersIntoTheConsistencyColumns(t *testing.T) {
 	}
 }
 
-// No ECS in the view model (unsupported record type, or the dependency off)
-// must render nothing at all, not an empty card explaining its own absence.
+// No ECS in the view model renders nothing, not an empty card explaining its absence.
 func TestECSCardRendersNothingWithoutAResult(t *testing.T) {
 	t.Parallel()
 
-	var buf bytes.Buffer
-	if err := ecsTemplates(t).ExecuteTemplate(&buf, "dns/ecs", map[string]any{"Query": "example.com"}); err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	if strings.TrimSpace(buf.String()) != "" {
-		t.Errorf("rendered %q, want nothing", buf.String())
+	if out := renderCard(t, "dns/ecs", map[string]any{"Query": "example.com"}); strings.TrimSpace(out) != "" {
+		t.Errorf("rendered %q, want nothing", out)
 	}
 }
 
-// The envelope is the /consistency JSON contract: every key that endpoint
-// already returns stays at the top level, and "ecs" joins them. A nested
-// shape would break published callers.
+// The /consistency JSON keeps the spread's keys at the top level; nesting would break callers.
 func TestECSEnvelopeKeepsSpreadAtTheTopLevel(t *testing.T) {
 	t.Parallel()
 
@@ -296,38 +251,27 @@ func TestECSEnvelopeKeepsSpreadAtTheTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var out map[string]json.RawMessage
-	if err := json.Unmarshal(body, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	keys := jsonKeys(t, body)
 	for _, key := range []string{"name", "type", "consistent", "auth_consistent", "ecs"} {
-		if _, ok := out[key]; !ok {
+		if !slices.Contains(keys, key) {
 			t.Errorf("the envelope lost top-level key %q: %s", key, body)
 		}
 	}
-	if _, ok := out["spread"]; ok {
+	if slices.Contains(keys, "spread") {
 		t.Errorf("the envelope nested the spread instead of inlining it: %s", body)
 	}
 }
 
-// The degenerate envelope, and why it needs a constructor: encoding/json does
-// not fail on a nil embedded pointer, it silently skips every field it would
-// have promoted. Built by hand, the endpoint answers 200 with a body that has
-// quietly dropped the whole published contract.
+// encoding/json silently drops every field a nil embedded pointer promotes, hence the constructor.
 func TestECSEnvelopeRefusesToBeBuiltWithoutASpread(t *testing.T) {
 	t.Parallel()
 
-	// The failure the constructor exists to make impossible, demonstrated so
-	// nobody "simplifies" the guard away.
+	// Demonstrated so nobody "simplifies" the guard away.
 	body, err := json.Marshal(&dnstools.ECSEnvelope{ECS: &dnstools.ECS{Name: "x", Verdict: "answers-match"}})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var degenerate map[string]json.RawMessage
-	if err := json.Unmarshal(body, &degenerate); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(degenerate) != 1 {
+	if len(jsonKeys(t, body)) != 1 {
 		t.Fatalf("a nil embedded Spread unexpectedly promoted its fields: %s", body)
 	}
 
@@ -349,14 +293,11 @@ func TestECSEnvelopeRefusesToBeBuiltWithoutASpread(t *testing.T) {
 	}
 }
 
-// The card must never print a sentence about records when no vantage point
-// was given one. "Everyone gets the same records" is the wrong sentence for
-// a name that published nothing anywhere.
+// No records anywhere must not read as "everyone gets the same records".
 func TestECSCardSaysNoRecordsRatherThanSameRecords(t *testing.T) {
 	t.Parallel()
 
-	var buf bytes.Buffer
-	err := ecsTemplates(t).ExecuteTemplate(&buf, "dns/ecs", map[string]any{
+	out := renderCard(t, "dns/ecs", map[string]any{
 		"ECS": &dnstools.ECS{
 			Name: "nodata.example", Type: "A", Verdict: "no-records",
 			Rcode: "NOERROR", Echoed: 6, Answered: 6, Asked: 6, WithRecords: 0,
@@ -367,15 +308,10 @@ func TestECSCardSaysNoRecordsRatherThanSameRecords(t *testing.T) {
 			Groups: []dnstools.ECSGroup{{Values: []string{}, Vantages: []string{"Tokyo, JP"}}},
 		},
 	})
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	out := buf.String()
 	if !strings.Contains(out, "No A record for any of the 6 networks") {
 		t.Errorf("the card does not say the name published nothing:\n%s", out)
 	}
-	// The eyebrow is the card's title and always reads "answers by location";
-	// what must not appear is a verdict sentence claiming records exist.
+	// The title always reads "answers by location"; a verdict claiming records must not.
 	for _, banned := range []string{"same records", "answers the same everywhere", "This name answers by location"} {
 		if strings.Contains(out, banned) {
 			t.Errorf("the card claims %q about a name with no records:\n%s", banned, out)
@@ -383,14 +319,11 @@ func TestECSCardSaysNoRecordsRatherThanSameRecords(t *testing.T) {
 	}
 }
 
-// A scope echoed for a prefix we never sent is rendered as such. The struct
-// has always carried EchoedSubnet; a card that never printed it left the
-// stated mitigation existing only in a comment.
+// A scope echoed for a prefix we never sent is rendered as such.
 func TestECSCardShowsAnEchoForTheWrongPrefix(t *testing.T) {
 	t.Parallel()
 
-	var buf bytes.Buffer
-	err := ecsTemplates(t).ExecuteTemplate(&buf, "dns/ecs", map[string]any{
+	out := renderCard(t, "dns/ecs", map[string]any{
 		"ECS": &dnstools.ECS{
 			Name: "cached.example", Type: "A", Verdict: "unsupported",
 			Answered: 1, Asked: 1, Mismatched: 1,
@@ -400,10 +333,6 @@ func TestECSCardShowsAnEchoForTheWrongPrefix(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	out := buf.String()
 	for _, want := range []string{"203.0.113.0/24", "not the network we sent"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the card is missing %q, so a scope for another network reads as ours:\n%s", want, out)
@@ -414,10 +343,7 @@ func TestECSCardShowsAnEchoForTheWrongPrefix(t *testing.T) {
 	}
 }
 
-// The verdict paragraph must quantify over the responses it was derived from.
-// A card that warns "only 1 of 6 carried a scope" and then asserts "every
-// response carried a scope of /24" contradicts itself, and the assertion is
-// the sentence a reader quotes.
+// The verdict quantifies over the responses that carried a scope, never "every response".
 func TestECSCardDoesNotSayEveryResponseWhenOnlySomeWereMeasured(t *testing.T) {
 	t.Parallel()
 
@@ -425,28 +351,18 @@ func TestECSCardDoesNotSayEveryResponseWhenOnlySomeWereMeasured(t *testing.T) {
 		verdict, want string
 		scope         uint8
 	}{
-		// Both branches name the denominator with the same phrase. This used
-		// to pin a whole sentence per branch, which made it an assertion
-		// about prose rather than about the guarantee — it failed twice on
-		// rewording that kept the denominator intact. The negative checks
-		// below are what stop the card claiming the full set.
 		{"answers-match", "the 1 of 6 responses that carried one", 24},
 		{"untailored", "the 1 of 6 responses that carried one", 0},
 	} {
 		t.Run(c.verdict, func(t *testing.T) {
 			t.Parallel()
 
-			var buf bytes.Buffer
-			err := ecsTemplates(t).ExecuteTemplate(&buf, "dns/ecs", map[string]any{
+			out := renderCard(t, "dns/ecs", map[string]any{
 				"ECS": &dnstools.ECS{
 					Name: "partial.example", Type: "A", Verdict: c.verdict,
 					MaxScope: c.scope, Echoed: 1, Answered: 6, Asked: 6, WithRecords: 6,
 				},
 			})
-			if err != nil {
-				t.Fatalf("render: %v", err)
-			}
-			out := buf.String()
 			if !strings.Contains(out, c.want) {
 				t.Errorf("want the measured subset named (%q):\n%s", c.want, out)
 			}

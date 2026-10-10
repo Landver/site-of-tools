@@ -20,10 +20,7 @@ func TestRepeatLookupIsCached(t *testing.T) {
 		t.Fatalf("first lookup: %v", err)
 	}
 	if len(first.Found) == 0 {
-		// A timeout lands in Failed rather than in err, so an empty Found with
-		// a populated Failed is the network, not the cache. The rest of this
-		// test compares a second lookup against the first, and there is no
-		// first to compare against.
+		// A timeout lands in Failed, not err: that is the network, not the cache.
 		if len(first.Failed) > 0 {
 			t.Skipf("upstream did not answer (%v) — flaky network, not a code failure", first.Failed)
 		}
@@ -34,9 +31,7 @@ func TestRepeatLookupIsCached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second lookup: %v", err)
 	}
-	// A cache hit is served from memory, so it is far faster than a network
-	// round trip. Generous bound: this asserts "didn't go to the network",
-	// not a performance number.
+	// Loose bound: this asserts "didn't go to the network", not a speed.
 	if second.QueryMS > 20 {
 		t.Errorf("second identical lookup took %d ms; expected a cache hit", second.QueryMS)
 	}
@@ -72,8 +67,7 @@ func TestConcurrentIdenticalLookupsCollapse(t *testing.T) {
 	if failures.Load() > 0 {
 		t.Fatalf("%d of %d callers got an error from LookupSet", failures.Load(), callers)
 	}
-	// Every caller must get the same answer; singleflight sharing one result
-	// between them must not leave anyone with a zero value.
+	// Singleflight sharing one result must not leave any caller with a zero value.
 	for i, got := range results {
 		if got != results[0] {
 			t.Errorf("caller %d saw %d found, caller 0 saw %d", i, got, results[0])

@@ -8,9 +8,10 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-func note(e *dnstools.EmailAuth, level string) []string {
+// notesAt returns the text of every note at this level.
+func notesAt(notes []dnstools.Note, level string) []string {
 	var out []string
-	for _, n := range e.Notes {
+	for _, n := range notes {
 		if n.Level == level {
 			out = append(out, n.Text)
 		}
@@ -18,17 +19,12 @@ func note(e *dnstools.EmailAuth, level string) []string {
 	return out
 }
 
-// A domain with real mail must produce a real assessment, and the SPF lookup
-// count must stay inside the limit the spec sets.
+// A real mail domain parses into MX, SPF and DMARC, with SPF lookups inside the spec's limit.
 func TestEmailAuthOnARealMailDomain(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
 
-	// MX, SPF and DMARC are three separate queries, so on a domain fixed in
-	// advance any one lost packet fails this. The property under test is that
-	// a real, fully-configured mail domain parses into all three; which domain
-	// supplies it is not. So: walk a few, assert in full on the first that
-	// answers completely, skip only if none of them did.
+	// Any of three queries can lose a packet, so assert on the first domain that answers all three.
 	candidates := []string{"github.com", "microsoft.com", "cloudflare.com", "paypal.com"}
 	var e *dnstools.EmailAuth
 	var sawMX, sawSPF, sawDMARC int
@@ -52,12 +48,7 @@ func TestEmailAuthOnARealMailDomain(t *testing.T) {
 		}
 	}
 	if e == nil {
-		// The skip has to be able to tell "the packets went missing" from
-		// "the parser stopped working", or a regression in either reader hides
-		// behind it forever and this test passes by never running. All four of
-		// these domains publish all three records, so a run that reached their
-		// zones and came back with no SPF at all, or no DMARC at all, is this
-		// package.
+		// All candidates publish all three, so MX with no SPF or DMARC anywhere is a broken reader.
 		if sawMX > 0 && (sawSPF == 0 || sawDMARC == 0) {
 			t.Fatalf("%d of %d candidate domains answered with MX, and SPF parsed %d times, DMARC %d times. That is not lost packets: one of the two readers is returning nothing.",
 				sawMX, len(candidates), sawSPF, sawDMARC)
@@ -78,14 +69,7 @@ func TestEmailAuthOnARealMailDomain(t *testing.T) {
 	}
 }
 
-// The counter must actually follow includes rather than counting only the
-// mechanisms visible in the top-level record.
-//
-// Deliberately not pinned to one domain: SPF records get flattened over time
-// (google.com used to nest three levels and now nests none), so this walks a
-// few candidates and asserts the property on whichever still nests. If the
-// whole list has been flattened it skips rather than failing, because that
-// would be the internet changing, not this code breaking.
+// The count follows includes; candidates rotate because SPF records get flattened over time.
 func TestSPFLookupCountFollowsIncludes(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
@@ -96,12 +80,10 @@ func TestSPFLookupCountFollowsIncludes(t *testing.T) {
 		if err != nil || e.SPF == nil {
 			continue
 		}
-		// Chain records every include actually resolved and walked into.
 		if len(e.SPF.Chain) < 2 {
 			continue
 		}
-		// Every walked include cost at least one lookup, so the total can
-		// never be under the number of includes followed.
+		// Every include walked into (Chain) cost at least one lookup.
 		if e.SPF.Lookups < len(e.SPF.Chain) {
 			t.Errorf("%s: lookups %d < %d includes followed (%v): the count isn't following includes",
 				d, e.SPF.Lookups, len(e.SPF.Chain), e.SPF.Chain)
@@ -122,7 +104,7 @@ func TestEmailAuthOnANonMailDomain(t *testing.T) {
 	}
 	// No MX and no SPF is an "info", not a failure: nothing is broken.
 	if e.SPF == nil && e.HasMX == false {
-		if len(note(e, "info")) == 0 {
+		if len(notesAt(e.Notes, "info")) == 0 {
 			t.Error("a domain with no mail should get an informational note, not silence")
 		}
 	}
@@ -155,13 +137,13 @@ func TestScoreMatchesNotes(t *testing.T) {
 		t.Skipf("upstream did not answer (%v) — flaky network, not a code failure", err)
 	}
 	ok, warn, fail := e.Score()
-	if got := len(note(e, "ok")); got != ok {
+	if got := len(notesAt(e.Notes, "ok")); got != ok {
 		t.Errorf("Score ok = %d, notes say %d", ok, got)
 	}
-	if got := len(note(e, "warn")); got != warn {
+	if got := len(notesAt(e.Notes, "warn")); got != warn {
 		t.Errorf("Score warn = %d, notes say %d", warn, got)
 	}
-	if got := len(note(e, "fail")); got != fail {
+	if got := len(notesAt(e.Notes, "fail")); got != fail {
 		t.Errorf("Score fail = %d, notes say %d", fail, got)
 	}
 }

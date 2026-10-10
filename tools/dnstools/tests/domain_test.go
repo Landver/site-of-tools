@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,21 +17,25 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 )
 
-// The RDAP and Certificate Transparency layer is pure decoding over fixed
-// JSON, so it is tested against canned upstreams rather than rdap.org and
-// crt.sh: no network, no rate limit, and the awkward shapes (jCard, multi-SAN
-// rows, a 404) can be asked for on purpose.
-
-// upstream records what the client asked for, so a test can assert the request
-// as well as the answer.
-type upstream struct {
-	mu       sync.Mutex
-	rdapPath string
-	ctQuery  string
+// seen is what a canned upstream has been asked so far.
+type seen struct {
+	rdapPath, ctQuery string
+	rdapHits, ctHits  int
 }
 
-// canned serves one RDAP body and one crt.sh body, with the status codes to
-// answer them with.
+type upstream struct {
+	host string // host:port, which upstream error messages embed
+	mu   sync.Mutex
+	got  seen
+}
+
+func (u *upstream) snapshot() seen {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.got
+}
+
+// canned stands in for rdap.org and crt.sh, serving one body each with the given status codes.
 func canned(t *testing.T, rdap string, rdapCode int, ct string, ctCode int) (*dnstools.DomainClient, *upstream) {
 	t.Helper()
 	u := &upstream{}
@@ -40,18 +43,21 @@ func canned(t *testing.T, rdap string, rdapCode int, ct string, ctCode int) (*dn
 		w.Header().Set("Content-Type", "application/json")
 		u.mu.Lock()
 		if strings.HasPrefix(r.URL.Path, "/domain/") {
-			u.rdapPath = r.URL.RequestURI()
+			u.got.rdapPath = r.URL.RequestURI()
+			u.got.rdapHits++
 			u.mu.Unlock()
 			w.WriteHeader(rdapCode)
 			fmt.Fprint(w, rdap)
 			return
 		}
-		u.ctQuery = r.URL.Query().Get("q")
+		u.got.ctQuery = r.URL.Query().Get("q")
+		u.got.ctHits++
 		u.mu.Unlock()
 		w.WriteHeader(ctCode)
 		fmt.Fprint(w, ct)
 	}))
 	t.Cleanup(srv.Close)
+	u.host = srv.Listener.Addr().String()
 	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second), u
 }
 
@@ -77,8 +83,7 @@ func rdapBody(expires time.Time) string {
 func TestRegistrationDecodesTheRegistryRecord(t *testing.T) {
 	t.Parallel()
 
-	// Half a day past the 30-day mark, so the day count cannot hinge on how
-	// long the test itself took.
+	// Half a day past 30 days, so the count cannot hinge on how long the test took.
 	expires := time.Now().Add(30*24*time.Hour + 12*time.Hour).UTC()
 	dc, _ := canned(t, rdapBody(expires), http.StatusOK, "[]", http.StatusOK)
 
@@ -98,8 +103,7 @@ func TestRegistrationDecodesTheRegistryRecord(t *testing.T) {
 	if got, want := reg.Updated, "2025-03-02"; got != want {
 		t.Errorf("updated = %q, want %q", got, want)
 	}
-	// DaysLeft is a pointer so "no expiry we could read" is not the same
-	// answer as "expires today"; templates read it through these two.
+	// DaysLeft is a pointer: "no readable expiry" is not "expires today".
 	if !reg.DaysKnown() {
 		t.Error("the registry published an expiry, but days left came back unknown")
 	} else if reg.Days() != 30 {
@@ -108,13 +112,11 @@ func TestRegistrationDecodesTheRegistryRecord(t *testing.T) {
 	if !reg.SignedDelegation {
 		t.Error("the registry says a DS record is published; SignedDelegation is false")
 	}
-	// Registry nameservers are compared against the zone's, so they arrive in
-	// one case.
+	// Lower-cased, because they are compared against the zone's own NS.
 	if diff := cmp.Diff([]string{"ns1.example.com", "ns2.example.com"}, reg.Nameservers); diff != "" {
 		t.Errorf("nameservers differ (-want +got):\n%s", diff)
 	}
-	// The EPP codes are the reason "why can't I transfer this" has an answer,
-	// and raw they are unreadable.
+	// Raw EPP codes are unreadable, so each must carry a plain-language meaning.
 	if len(reg.Statuses) != 2 {
 		t.Fatalf("got %d statuses, want 2", len(reg.Statuses))
 	}
@@ -138,11 +140,7 @@ func TestDomainClientDisabled(t *testing.T) {
 	}
 }
 
-// RFC 7480 §5.3: a 404 is the registry saying "no such object". Reporting it
-// as a failed lookup tells the user the opposite of what the registry said, on
-// the most common question this page is asked.
-//
-// Pins rdap-404-denied; expected red until it is fixed.
+// RFC 7480 §5.3: a 404 is the registry saying "no such object", not a failed lookup.
 func TestRegistrationNoRecordIsNotALookupFailure(t *testing.T) {
 	t.Parallel()
 
@@ -157,12 +155,7 @@ func TestRegistrationNoRecordIsNotALookupFailure(t *testing.T) {
 	}
 }
 
-// A name carrying URL syntax must never come back labelled with one domain's
-// string and another domain's record. Either the name is refused, or it
-// reaches the registry whole.
-//
-// Pins the RDAP path-escaping half of the no-name-validation finding; expected
-// red until it is fixed.
+// A name with URL syntax is refused or reaches the registry whole, never as another name.
 func TestRegistrationDoesNotMisattributeAnotherDomainsRecord(t *testing.T) {
 	t.Parallel()
 
@@ -172,9 +165,7 @@ func TestRegistrationDoesNotMisattributeAnotherDomainsRecord(t *testing.T) {
 	if _, err := dc.Registration(context.Background(), name); err != nil {
 		return // refused up front, which is the other acceptable answer
 	}
-	up.mu.Lock()
-	path := up.rdapPath
-	up.mu.Unlock()
+	path := up.snapshot().rdapPath
 	if strings.Contains(path, "?") || !strings.Contains(path, "%3F") {
 		t.Errorf("asked the registry for %q: the ? became query syntax, so another name's record is labelled %q", path, name)
 	}
@@ -212,28 +203,19 @@ func TestCertNamesRollsUpPerName(t *testing.T) {
 	if apex.Certs != 2 {
 		t.Errorf("example.com certs = %d, want 2", apex.Certs)
 	}
-	// FirstSeen is the earliest NotBefore; LastSeen is how long the name stays
-	// covered, i.e. the latest NotAfter.
+	// FirstSeen is the earliest NotBefore; LastSeen the latest NotAfter.
 	if apex.FirstSeen != "2025-11-01" || apex.LastSeen != "2026-04-01" {
 		t.Errorf("example.com seen %s..%s, want 2025-11-01..2026-04-01", apex.FirstSeen, apex.LastSeen)
 	}
-	// The wildcard row contributes the flag, not a literal "*." name.
 	if _, ok := byName["*.example.com"]; ok {
 		t.Error("the wildcard itself was listed as a subdomain")
 	}
-	up.mu.Lock()
-	q := up.ctQuery
-	up.mu.Unlock()
-	if q != "%.example.com" {
+	if q := up.snapshot().ctQuery; q != "%.example.com" {
 		t.Errorf("crt.sh query = %q, want %q", q, "%.example.com")
 	}
 }
 
-// A multi-SAN certificate can mention names in other registrable domains. They
-// are somebody else's names, and listing them under "subdomains seen in
-// certificate transparency" is a false claim about this domain.
-//
-// Pins the CT off-domain-SAN finding; expected red until it is fixed.
+// A multi-SAN certificate's names in other registrable domains are not this domain's.
 func TestCertNamesExcludesOffDomainSANs(t *testing.T) {
 	t.Parallel()
 
@@ -251,11 +233,7 @@ func TestCertNamesExcludesOffDomainSANs(t *testing.T) {
 	}
 }
 
-// crt.sh returns a row per logged certificate, and a precertificate and its
-// final certificate share a serial. Counting rows reports twice the
-// certificates that exist.
-//
-// Pins the CT row-counting finding; expected red until it is fixed.
+// A precertificate and its final certificate share a serial: two crt.sh rows, one certificate.
 func TestCertNamesCountsCertificatesNotRows(t *testing.T) {
 	t.Parallel()
 
@@ -316,11 +294,7 @@ func TestCertNamesTruncationIsDeclared(t *testing.T) {
 	}
 }
 
-// A `+` in a query string decodes back to a space, so a name carrying one is
-// asked about as a different name. Either the name is refused, or it reaches
-// the log whole.
-//
-// Pins the urlEscape finding; expected red until it is fixed.
+// A `+` in a query string decodes to a space: the name is refused or reaches the log whole.
 func TestCertNamesQueryEscapesPlus(t *testing.T) {
 	t.Parallel()
 
@@ -330,10 +304,7 @@ func TestCertNamesQueryEscapesPlus(t *testing.T) {
 	if _, err := dc.CertNames(context.Background(), name); err != nil {
 		return // refused up front, which is the other acceptable answer
 	}
-	up.mu.Lock()
-	q := up.ctQuery
-	up.mu.Unlock()
-	if q != "%."+name {
+	if q := up.snapshot().ctQuery; q != "%."+name {
 		t.Errorf("crt.sh query = %q, want %q: the + was decoded as a space", q, "%."+name)
 	}
 }
@@ -351,19 +322,7 @@ func TestCertNamesUpstreamFailure(t *testing.T) {
 // A half whose upstream budget is spent reports busy without asking; the other still runs.
 func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
 	t.Parallel()
-	var rdapHits, ctHits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasPrefix(r.URL.Path, "/domain/") {
-			rdapHits.Add(1)
-			fmt.Fprint(w, rdapBody(time.Now().AddDate(1, 0, 0)))
-			return
-		}
-		ctHits.Add(1)
-		fmt.Fprint(w, "[]")
-	}))
-	t.Cleanup(srv.Close)
-	dc := dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second)
+	dc, up := canned(t, rdapBody(time.Now().AddDate(1, 0, 0)), http.StatusOK, "[]", http.StatusOK)
 
 	var reg, regBusy, ct, ctBusy int
 	for range 20 {
@@ -391,13 +350,12 @@ func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
 	if reg == 0 || regBusy == 0 || ct == 0 || ctBusy == 0 {
 		t.Errorf("of 20 rapid reports: RDAP %d answered, %d busy; CT %d answered, %d busy; want both kinds of each", reg, regBusy, ct, ctBusy)
 	}
-	if int(rdapHits.Load()) != reg || int(ctHits.Load()) != ct {
-		t.Errorf("upstreams saw %d RDAP and %d CT requests for %d and %d answers: a busy half must not ask", rdapHits.Load(), ctHits.Load(), reg, ct)
+	if got := up.snapshot(); got.rdapHits != reg || got.ctHits != ct {
+		t.Errorf("upstreams saw %d RDAP and %d CT requests for %d and %d answers: a busy half must not ask", got.rdapHits, got.ctHits, reg, ct)
 	}
 }
 
-// Each redirect hop off the configured host must pass the egress guard; ownOnly
-// marks the hops only the configured guard knows to refuse.
+// Every redirect hop must pass the egress guard; ownOnly hops only the configured guard refuses.
 func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
 	t.Parallel()
 

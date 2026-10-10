@@ -20,8 +20,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// fakeLooker stands in for the real resolver so handler tests never touch the
-// network.
+// fakeLooker stands in for the resolver and records what it was asked.
 type fakeLooker struct {
 	set       *dnstools.ResultSet
 	err       error
@@ -43,28 +42,50 @@ type fakeGeo struct{ res *iptools.Result }
 
 func (f *fakeGeo) Lookup(string) (*iptools.Result, error) { return f.res, nil }
 
+// newApp serves the tool without RDAP/CT or the reputation card, with limits of its own.
 func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {
 	t.Helper()
+	return registerApp(svc, geo, nil, nil, nil)
+}
+
+// registerApp renders from the embedded templates, so tests do not depend on the cwd.
+func registerApp(svc dnstools.Looker, geo iptools.Looker, dom *dnstools.DomainClient, bl dnstools.BlockChecker, lim *dnstools.Limits) *echo.Echo {
 	e := echo.New()
-	// Embedded FS for both sources → independent of test cwd, same as the IP
-	// tool's handler tests. Shared partials are needed for the full-page render.
 	e.Renderer = platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 	)
-	dnstools.Register(e, svc, geo, nil, nil, nil) // nil domain client + nil corpus: RDAP/CT and the reputation card off in handler tests
+	dnstools.Register(e, svc, geo, dom, bl, lim)
 	return e
 }
 
 func do(t *testing.T, e *echo.Echo, target string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
+	return from(e, target, "", headers)
+}
+
+// from sends a GET as client remote; "" keeps httptest's default address.
+func from(e *echo.Echo, target, remote string, headers map[string]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, target, nil)
+	if remote != "" {
+		req.RemoteAddr = remote
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	return rec
+}
+
+// first429 repeats one client's request well past the burst and returns the first 429, or nil.
+func first429(e *echo.Echo, target, remote string, headers map[string]string) *httptest.ResponseRecorder {
+	for range 40 {
+		if rec := from(e, target, remote, headers); rec.Code == http.StatusTooManyRequests {
+			return rec
+		}
+	}
+	return nil
 }
 
 func sampleSet() *dnstools.ResultSet {
@@ -80,8 +101,7 @@ func sampleSet() *dnstools.ResultSet {
 	}
 }
 
-// A plain curl (no Accept: text/html) gets JSON from the same URL the browser
-// renders as a page — golden rule #2.
+// A plain curl gets JSON from the same URL the browser renders as a page.
 func TestLookupJSON(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
@@ -166,8 +186,7 @@ func TestDefaultsApplied(t *testing.T) {
 	}
 }
 
-// No name: page for browsers, 400 for API callers. Never a full page into an
-// htmx slot.
+// No name: page for browsers, 400 for API callers, never a full page into an htmx slot.
 func TestEmptyName(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
@@ -209,8 +228,7 @@ type errUpstream struct{}
 
 func (errUpstream) Error() string { return "query 1.1.1.1:53: i/o timeout" }
 
-// A and AAAA answers pick up ASN/country from iptools in-process; other record
-// types are left alone.
+// A and AAAA answers pick up ASN/country from iptools; other record types are left alone.
 func TestEnrichmentFromIPTools(t *testing.T) {
 	t.Parallel()
 	set := sampleSet()
@@ -307,25 +325,12 @@ func TestSitemapPages(t *testing.T) {
 	}
 }
 
-// The endpoint is rate limited: one click fans out to several upstream
-// queries, so an unthrottled endpoint is an open DNS proxy.
+// One click fans out to several upstream queries, so an unthrottled endpoint is an open DNS proxy.
 func TestRateLimited(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 
-	// Burst is generous enough for real use, so push well past it.
-	var limited bool
-	for range 40 {
-		req := httptest.NewRequest(http.MethodGet, "/?name=example.com", nil)
-		req.RemoteAddr = "203.0.113.9:1234" // one client
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code == http.StatusTooManyRequests {
-			limited = true
-			break
-		}
-	}
-	if !limited {
+	if first429(e, "/?name=example.com", "203.0.113.9:1234", nil) == nil {
 		t.Error("no 429 after 40 rapid lookups from one address; endpoint is unthrottled")
 	}
 }
@@ -335,33 +340,16 @@ func TestRateLimitIsContentNegotiated(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 
-	var body string
-	for range 40 {
-		req := httptest.NewRequest(http.MethodGet, "/?name=example.com", nil)
-		req.RemoteAddr = "203.0.113.10:1234"
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code == http.StatusTooManyRequests {
-			body = rec.Body.String()
-			break
-		}
-	}
-	if body == "" {
+	rec := first429(e, "/?name=example.com", "203.0.113.10:1234", nil)
+	if rec == nil {
 		t.Skip("never hit the limit; covered by TestRateLimited")
 	}
-	if !strings.HasPrefix(strings.TrimSpace(body), "{") {
+	if body := rec.Body.String(); !strings.HasPrefix(strings.TrimSpace(body), "{") {
 		t.Errorf("JSON caller got a non-JSON 429 body: %s", body)
 	}
 }
 
-// --- /consistency: the ECS card's concurrent branch -------------------------
-//
-// fakeLooker implements Looker only, so every test above leaves h.spr and
-// h.ecs nil and /consistency short-circuits to 503 before it ever reaches the
-// goroutine. The fake below implements Looker + Spreader + ECSer, which is
-// what puts the spawned query, its panic guard, its cancellation path and the
-// JSON envelope under -race.
-
+// fakeSpreadECS adds Spreader and ECSer, so /consistency reaches its ECS goroutine under -race.
 type fakeSpreadECS struct {
 	fakeLooker
 	spread *dnstools.Spread
@@ -369,8 +357,7 @@ type fakeSpreadECS struct {
 	ecs    *dnstools.ECS
 	ecsErr error
 	panic  bool
-	// block, when non-nil, holds ECS until it is closed or the request
-	// context is cancelled. started closes as soon as ECS is entered.
+	// block holds ECS until closed or the request is cancelled; started closes once ECS is entered.
 	block   chan struct{}
 	started chan struct{}
 }
@@ -379,9 +366,7 @@ func (f *fakeSpreadECS) Spread(context.Context, string, string) (*dnstools.Sprea
 	return f.spread, nil
 }
 
-// nilSpreader returns the one thing NewECSEnvelope refuses: no spread and no
-// error. The real Service never does, which is why the envelope error used to
-// look safe to swallow.
+// nilSpreader returns neither a spread nor an error, the one thing NewECSEnvelope refuses.
 type nilSpreader struct{ fakeLooker }
 
 func (*nilSpreader) Spread(context.Context, string, string) (*dnstools.Spread, error) {
@@ -429,12 +414,7 @@ func jsonKeys(t *testing.T, b []byte) []string {
 	return out
 }
 
-// TestConsistencyEnvelopeKeepsEverySpreadKey is the golden-rule-#2 guard: the
-// published /consistency body must keep every key it had at the same level
-// and merely gain "ecs". Comparing against a bare *Spread rather than a frozen
-// list keeps the assertion true as Spread grows fields, and fails loudly if
-// the embed is ever turned into a nested object or Spread grows a
-// MarshalJSON (which would swallow "ecs" entirely).
+// /consistency keeps a bare Spread's keys at the top level and only gains "ecs".
 func TestConsistencyEnvelopeKeepsEverySpreadKey(t *testing.T) {
 	sp := sampleSpread()
 	svc := &fakeSpreadECS{spread: sp, ecs: &dnstools.ECS{Name: "example.com", Verdict: "no steering"}}
@@ -456,9 +436,7 @@ func TestConsistencyEnvelopeKeepsEverySpreadKey(t *testing.T) {
 	}
 }
 
-// TestConsistencyWithoutECSPublishesTheBareSpread: an ECS half that is not
-// wired, or that failed, must leave the body byte-identical to what the
-// endpoint published before the card existed — no "ecs": null.
+// A failed ECS half leaves the body byte-identical to the bare spread, with no "ecs": null.
 func TestConsistencyWithoutECSPublishesTheBareSpread(t *testing.T) {
 	sp := sampleSpread()
 	bare, err := json.Marshal(sp)
@@ -485,9 +463,7 @@ func TestConsistencyWithoutECSPublishesTheBareSpread(t *testing.T) {
 	}
 }
 
-// TestConsistencyECSStopsWithTheRequest: the spawned query is waited on, so a
-// client that hangs up must not leave the handler parked on wg.Wait() for the
-// whole ECS budget. Fails by deadline rather than by assertion.
+// A client that hangs up must not leave the handler parked on wg.Wait() for the ECS budget.
 func TestConsistencyECSStopsWithTheRequest(t *testing.T) {
 	svc := &fakeSpreadECS{
 		spread:  sampleSpread(),
@@ -516,8 +492,7 @@ func TestConsistencyECSStopsWithTheRequest(t *testing.T) {
 	}
 }
 
-// TestTraceUnavailableWithoutTracer: a Looker that is not a Tracer leaves
-// /trace off rather than panicking on a nil interface.
+// A Looker that is not a Tracer leaves /trace off rather than panicking on a nil interface.
 func TestTraceUnavailableWithoutTracer(t *testing.T) {
 	rec := do(t, newApp(t, &fakeLooker{}, nil), "/trace?name=example.com", nil)
 	if rec.Code != http.StatusServiceUnavailable {
@@ -525,9 +500,7 @@ func TestTraceUnavailableWithoutTracer(t *testing.T) {
 	}
 }
 
-// TestConsistencyRefusesAnEmptyBody: if Spread ever answers with neither a
-// result nor an error, /consistency must fail visibly rather than publish 200
-// with a `null` body, which is what swallowing the envelope error did.
+// A Spread with neither result nor error must fail visibly, not publish 200 with a null body.
 func TestConsistencyRefusesAnEmptyBody(t *testing.T) {
 	rec := do(t, newApp(t, &nilSpreader{}, nil), "/consistency?name=example.com", nil)
 	if rec.Code == http.StatusOK {
@@ -538,8 +511,7 @@ func TestConsistencyRefusesAnEmptyBody(t *testing.T) {
 	}
 }
 
-// TestLookupFragmentIsNeverCached: Vary and no-store keep Back from showing the
-// pushed fragment bare.
+// Vary and no-store keep Back from showing the pushed fragment bare.
 func TestLookupFragmentIsNeverCached(t *testing.T) {
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 	page := do(t, e, "/?name=example.com", map[string]string{"Accept": "text/html"})
