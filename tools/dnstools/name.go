@@ -9,9 +9,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// NormalizeName turns pasted input into the name meant: a URL's host, an
-// email's domain, host:port without the port, lowercase, no trailing dot,
-// Unicode as punycode. It never refuses; validDomain does that.
+// NormalizeName turns a pasted URL, email or host:port into the bare ASCII name; it never refuses.
 func NormalizeName(raw string) string {
 	s := strings.TrimSpace(raw)
 
@@ -50,8 +48,7 @@ func stripPort(s string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(s, "["), "]")
 }
 
-// toASCII converts Unicode labels to punycode, label by label: IDNA's lookup
-// profile refuses the underscore in names like _dmarc.bücher.de.
+// toASCII punycodes label by label: IDNA's lookup profile refuses the _ in _dmarc.bücher.de.
 func toASCII(s string) string {
 	if isASCII(s) {
 		return s
@@ -78,8 +75,7 @@ func needDomain(name string) error {
 	return validDomain(name)
 }
 
-// RegistrableDomain: the name a registry holds a record for, per the Public
-// Suffix List (github.com for www.github.com); unchanged if the list can't say.
+// RegistrableDomain: the PSL's registrable name (github.com for www.github.com), else name.
 func RegistrableDomain(name string) string {
 	if d, err := publicsuffix.EffectiveTLDPlusOne(name); err == nil {
 		return d
