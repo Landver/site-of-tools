@@ -1,76 +1,4 @@
-{{define "dns/trace"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "dns/skip"}}
-  {{template "partials/header" .}}
-
-  <main id="main" class="page-main">
-    {{template "dns/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
-    <p class="mt-2 text-sm text-muted">
-      Follows the delegation from a root server down to the zone that owns the name, asking each server
-      directly with recursion off, and checks the DNSSEC chain itself against the IANA root keys rather
-      than trusting a resolver's AD bit. Every hop is shown, with its server, glue and timing.
-    </p>
-
-    <form hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Walking down from the root…"
-          class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
-             aria-label="Domain name to trace"
-             placeholder="example.com" class="field basis-full sm:basis-0">
-      <select name="type" aria-label="Record type"
-              class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
-        {{$t := .QType}}
-        {{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
-      </select>
-      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
-        <span class="inline-grid">
-          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Trace</span>
-          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Tracing…</span>
-        </span>
-      </button>
-    </form>
-
-    <details class="mt-4 text-sm">
-      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
-      <div class="mt-3 space-y-3 text-muted">
-        <p>Same URL, content-negotiated: browsers get the page, everything else gets JSON.</p>
-        <div class="space-y-2 font-mono text-xs wrap-anywhere">
-          <p><span class="text-strong">curl 'https://dns.corpberry.com/trace?name=example.com'</span></p>
-          <p><span class="text-strong">curl 'https://dns.corpberry.com/trace?name=example.com&type=MX'</span></p>
-        </div>
-        <p class="text-xs">
-          The nearest equivalent is <span class="font-mono text-strong">dig +trace +dnssec example.com</span>,
-          which prints the same walk but leaves you to check the digests and signatures yourself.
-        </p>
-        {{template "partials/mcp-hint" "dns"}}
-      </div>
-    </details>
-
-    {{template "dns/status" .}}
-    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
-      <div id="result" class="contents">
-        {{template "dns/tracewalk" .}}
-      </div>
-    </div>
-  </main>
-
-  {{template "dns/foot" .}}
-
-</body>
-</html>
-{{end}}
-
-
-{{/* Result fragment for the trace. */}}
 {{define "dns/tracewalk"}}
-{{template "dns/oob" .}}
-{{if .Error}}
-  {{template "dns/error" .}}
-{{else if .Trace}}
-  {{template "dns/asked" .}}
   {{with .Trace}}
 
   {{/* Only the headline is written here; the paragraph is .Verdict.Text, composed in verdict(). */}}
@@ -158,11 +86,8 @@
         {{end}}
         {{end}}
 
-        {{if .GlueMissing}}
-        <div class="mt-1 text-xs text-warn-ink">
-          No glue for a nameserver inside the zone being delegated, so resolving this name needs an extra detour before it can continue.
-        </div>
-        {{end}}
+        {{/* The findings card explains it; the hop only marks where. */}}
+        {{if .GlueMissing}}<div class="mt-1 text-xs text-warn-ink">no glue for an in-zone nameserver: an extra detour</div>{{end}}
         {{if .SideLookups}}
         <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</div>
         {{end}}
@@ -220,6 +145,5 @@
   {{end}}
 
   </div>
-{{end}}
 {{end}}
 {{end}}

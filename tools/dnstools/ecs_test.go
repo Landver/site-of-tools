@@ -93,7 +93,7 @@ func (s ecsServer) start(t *testing.T) string {
 // runECS runs the ECS card for an A query against the server at addr.
 func runECS(t *testing.T, name, addr string) *ECS {
 	t.Helper()
-	got, err := newTestService().ecsRun(context.Background(), name, "A", addr, "test")
+	got, err := newTestService().ecsRun(context.Background(), name, "A", addr)
 	if err != nil {
 		t.Fatalf("ecs run: %v", err)
 	}
@@ -103,7 +103,7 @@ func runECS(t *testing.T, name, addr string) *ECS {
 // ecsPerSubnet gives each vantage point its own address, like a genuinely steered zone.
 func ecsPerSubnet(subnet string) []string {
 	for i, v := range ecsVantages {
-		if v.subnet == subnet {
+		if v.Subnet == subnet {
 			return []string{fmt.Sprintf("192.0.2.%d", i+1)}
 		}
 	}
@@ -241,11 +241,11 @@ func TestECSSendsEveryVantageSubnetAsA24(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, v := range ecsVantages {
-		if !seen[v.subnet] {
-			t.Errorf("vantage %s (%s) never reached the server; saw %v", v.place, v.subnet, seen)
+		if !seen[v.Subnet] {
+			t.Errorf("vantage %s (%s) never reached the server; saw %v", v.Place, v.Subnet, seen)
 		}
-		if !strings.HasSuffix(v.subnet, fmt.Sprintf("/%d", ecsSourceNetmask)) {
-			t.Errorf("vantage %s is %s, want a /%d", v.place, v.subnet, ecsSourceNetmask)
+		if !strings.HasSuffix(v.Subnet, fmt.Sprintf("/%d", ecsSourceNetmask)) {
+			t.Errorf("vantage %s is %s, want a /%d", v.Place, v.Subnet, ecsSourceNetmask)
 		}
 	}
 }
@@ -260,7 +260,7 @@ func TestECSStopsWhenTheRequestIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	got, err := newTestService().ecsRun(ctx, "cancelled.test", "A", addr, "test")
+	got, err := newTestService().ecsRun(ctx, "cancelled.test", "A", addr)
 	if err != nil {
 		t.Fatalf("ecs run: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestECSTreatsNoRecordsAsAnAnswerThatCanDiffer(t *testing.T) {
 
 	served := map[string]bool{}
 	for _, v := range ecsVantages[:3] {
-		served[v.subnet] = true
+		served[v.Subnet] = true
 	}
 	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 		if served[subnet] {
@@ -359,16 +359,13 @@ func TestECSTreatsNoRecordsAsAnAnswerThatCanDiffer(t *testing.T) {
 	if got.WithRecords != 3 {
 		t.Errorf("WithRecords = %d, want 3", got.WithRecords)
 	}
-	if !hasNote(got.Notes, "warn", "were given no A record at all") {
-		t.Errorf("no note about the networks that got nothing: %+v", got.Notes)
-	}
 }
 
 // Scope 0 still wins, but a record for one network and none for the rest is still a difference.
 func TestECSPartialRecordsStillDifferUnderScopeZero(t *testing.T) {
 	t.Parallel()
 
-	first := ecsVantages[0].subnet
+	first := ecsVantages[0].Subnet
 	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 		if subnet == first {
 			return []string{"192.0.2.10"}, 0, true
@@ -453,9 +450,6 @@ func TestECSIgnoresAScopeForAPrefixWeNeverSent(t *testing.T) {
 		if v.EchoedSubnet != "203.0.113.0/24" {
 			t.Errorf("%s: EchoedSubnet = %q, want the prefix the server actually echoed", v.Place, v.EchoedSubnet)
 		}
-	}
-	if !hasNote(got.Notes, "warn", "a prefix we never sent") {
-		t.Errorf("no note about the mismatched echoes: %+v", got.Notes)
 	}
 }
 
@@ -544,11 +538,6 @@ func TestECSNotesDoNotRestateTheVerdict(t *testing.T) {
 func TestECSFansOutInASingleWave(t *testing.T) {
 	t.Parallel()
 
-	if ecsConcurrency < maxECSVantages || ecsConcurrency < len(ecsVantages) {
-		t.Fatalf("ecsConcurrency = %d, want at least %d: a narrower limit multiplies the worst case by the number of waves",
-			ecsConcurrency, max(maxECSVantages, len(ecsVantages)))
-	}
-
 	// A socket that accepts and never replies.
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -557,7 +546,7 @@ func TestECSFansOutInASingleWave(t *testing.T) {
 	t.Cleanup(func() { _ = pc.Close() })
 
 	start := time.Now()
-	got, err := NewService(30*time.Second).ecsRun(context.Background(), "blackhole.test", "A", pc.LocalAddr().String(), "test")
+	got, err := NewService(30*time.Second).ecsRun(context.Background(), "blackhole.test", "A", pc.LocalAddr().String())
 	if err != nil {
 		t.Fatalf("ecs run: %v", err)
 	}
@@ -567,6 +556,9 @@ func TestECSFansOutInASingleWave(t *testing.T) {
 	}
 	if got.Verdict != ECSVerdictInconclusive {
 		t.Errorf("verdict = %q, want %q when nothing answered", got.Verdict, ECSVerdictInconclusive)
+	}
+	if !hasNote(got.Notes, "warn", "6 of 6 networks got no usable answer") {
+		t.Errorf("no note about the networks that never answered: %+v", got.Notes)
 	}
 	t.Logf("dead resolver: elapsed=%v query_ms=%d answered=%d verdict=%s", elapsed, got.QueryMS, got.Answered, got.Verdict)
 }

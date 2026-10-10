@@ -1,4 +1,4 @@
-{{/* Call with the page view model ($): no .MXRep key means no card, not an empty one. */}}
+{{/* Call with anything holding .MXRep (the EmailAuth): nil means no card, not an empty one. */}}
 {{define "dns/mxrep"}}
 {{with .MXRep}}{{if .Show}}
 <div class="card sm:col-span-2">

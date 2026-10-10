@@ -1,15 +1,11 @@
+{{/* The /domain cards from .Domain, the DomainReport; each half renders or fails on its own. */}}
 {{define "dns/domaininfo"}}
-{{template "dns/oob" .}}
-{{if .Error}}
-  {{template "dns/error" .}}
-{{else if .Query}}
-{{template "dns/asked" .}}
-{{$page := .}}
+{{with .Domain}}
 {{if .Registration}}{{with .Registration}}
 <div class="card {{if not .Statuses}}sm:col-span-2{{end}}">
   <h2 class="eyebrow">registration</h2>
-  {{with $page.RegFor}}
-  <p class="-mt-1 mb-3 text-xs text-faint"><span class="font-mono text-muted">{{$page.Query}}</span> is a name under <span class="font-mono text-muted">{{.}}</span>, so this is {{.}}'s registration.</p>
+  {{with $.Domain.RegistrableDomain}}
+  <p class="-mt-1 mb-3 text-xs text-faint"><span class="font-mono text-muted">{{$.Query}}</span> is a name under <span class="font-mono text-muted">{{.}}</span>, so this is {{.}}'s registration.</p>
   {{end}}
   <dl class="spec">
     {{if .Registrar}}<dt>Registrar</dt> <dd class="text-strong">{{.Registrar}}</dd>{{end}}
@@ -33,7 +29,7 @@
   <div class="mt-3 border-t border-line pt-3">
     <div class="text-xs text-faint">Nameservers on record at the registry</div>
     <div class="mt-1 font-mono text-xs text-muted">{{range $i, $n := .Nameservers}}{{if $i}}<br>{{end}}{{$n}}{{end}}</div>
-    {{with $page.NavName}}
+    {{with $.NavName}}
     <a href="/consistency?name={{.}}" class="mt-2 inline-block text-xs link-brand">Are they all serving the same records?</a>
     {{end}}
   </div>
@@ -52,31 +48,26 @@
 </div>
 {{end}}
 {{end}}
-{{else if .RegError}}
+{{else if .RegistrationError}}
 <div class="card sm:col-span-2">
   <h2 class="eyebrow">registration</h2>
-  {{if .RegAbsent}}
+  {{if $.RegAbsent}}
     {{/* A name with nameservers is never offered as "unregistered". */}}
-    {{if .RegHasNS}}
+    {{if .Delegated}}
     <p class="text-sm text-muted">Registered, but its registry publishes no RDAP record.</p>
-    <p class="mt-1 text-xs text-faint"><span class="font-mono">{{or .RegFor .Query}}</span> has nameservers delegated to it. Some TLDs (.de, for one) run no RDAP service, and their WHOIS is the only place the registration details are published.</p>
+    <p class="mt-1 text-xs text-faint"><span class="font-mono">{{or .RegistrableDomain $.Query}}</span> has nameservers delegated to it. Some TLDs (.de, for one) run no RDAP service, and their WHOIS is the only place the registration details are published.</p>
     {{else}}
     <p class="text-sm text-muted">The registry holds no record for this name.</p>
     <p class="mt-1 text-xs text-faint">It is unregistered, or its TLD publishes no RDAP service.</p>
     {{end}}
   {{else}}
     <p class="text-sm text-warn-ink">Couldn't read the registry record.</p>
-    <p class="mt-1 text-xs text-faint wrap-anywhere">{{.RegError}}: that's a failure to look it up, not evidence the domain is unregistered.</p>
+    <p class="mt-1 text-xs text-faint wrap-anywhere">{{.RegistrationError}}: that's a failure to look it up, not evidence the domain is unregistered.</p>
   {{end}}
 </div>
 {{end}}
 
-{{template "dns/certs" .}}
-{{end}}
-{{end}}
-
-{{define "dns/certs"}}
-{{if .Certs}}{{with .Certs}}
+{{if .CertNames}}{{with .CertNames}}
 <div class="card sm:col-span-2">
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
@@ -118,66 +109,16 @@
   {{end}}
 </div>
 {{end}}
-{{else if .CertError}}
+{{else if .CertNamesError}}
 <div class="card sm:col-span-2">
   <h2 id="ct-h" class="eyebrow">subdomains in certificate logs</h2>
   <p class="text-sm text-warn-ink">crt.sh didn't return the certificate list.</p>
-  <p class="mt-1 text-xs text-faint wrap-anywhere">{{.CertError}}: it is often slow or briefly down, and this says nothing about the domain.</p>
+  <p class="mt-1 text-xs text-faint wrap-anywhere">{{.CertNamesError}}: it is often slow or briefly down, and this says nothing about the domain.</p>
   <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-    <a href="/domain?name={{.Query}}" class="link-brand">Try again</a>
-    <a href="https://crt.sh/?q=%25.{{.Query}}" target="_blank" rel="noopener" class="link-brand">Search crt.sh directly<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="/domain?name={{$.Query}}" class="link-brand">Try again</a>
+    <a href="https://crt.sh/?q=%25.{{$.Query}}" target="_blank" rel="noopener" class="link-brand">Search crt.sh directly<span class="sr-only"> (opens in a new tab)</span></a>
   </p>
 </div>
 {{end}}
 {{end}}
-
-{{define "dns/domain"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "dns/skip"}}
-  {{template "partials/header" .}}
-
-  <main id="main" class="page-main">
-    {{template "dns/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
-    <p class="mt-2 text-sm text-muted">
-      Two things DNS can't tell you: which registrar holds this name and when it expires (RDAP), and which
-      subdomains have had public certificates (Certificate Transparency). Both are public, and neither sends
-      a packet at the domain.
-    </p>
-
-    <form hx-get="/domain" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Reading the registry record…"
-          class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
-             aria-label="Domain name" placeholder="example.com" class="field basis-full sm:basis-0">
-      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
-        <span class="inline-grid">
-          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Look up</span>
-          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Looking up…</span>
-        </span>
-      </button>
-    </form>
-
-    <details class="mt-4 text-sm">
-      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
-      <div class="mt-3 space-y-3 text-muted">
-        <p>Same URL, content-negotiated: browsers get the page, everything else gets JSON.</p>
-        <p class="font-mono text-xs wrap-anywhere"><span class="text-strong">curl 'https://dns.corpberry.com/domain?name=example.com'</span></p>
-        {{template "partials/mcp-hint" "dns"}}
-      </div>
-    </details>
-
-    {{template "dns/status" .}}
-    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
-      <div id="result" class="contents">
-        {{template "dns/domaininfo" .}}
-      </div>
-    </div>
-  </main>
-
-  {{template "dns/foot" .}}
-</body>
-</html>
 {{end}}

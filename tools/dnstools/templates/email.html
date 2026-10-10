@@ -1,10 +1,4 @@
 {{define "dns/emailauth"}}
-{{template "dns/oob" .}}
-{{if .Error}}
-  {{template "dns/error" .}}
-{{else if .Email}}
-  {{template "dns/asked" .}}
-  {{$page := .}}
   {{with .Email}}
 
   {{/* Counts, not a score out of 100: a single number invites arguing with the number. */}}
@@ -15,25 +9,23 @@
         {{if $.Fail}}<span class="text-danger">{{$.Fail}} failing</span>{{end}}
         {{if $.Warn}}{{if $.Fail}}<span class="text-faint"> · </span>{{end}}<span class="text-warn-ink">{{$.Warn}} to improve</span>{{end}}
         {{if $.OK}}{{if or $.Fail $.Warn}}<span class="text-faint"> · </span>{{end}}<span class="text-ok">{{$.OK}} good</span>{{end}}
-        {{if and (not (or $.Fail $.Warn $.OK)) .Notes}}<span class="text-muted">{{len .Notes}} note{{if ne (len .Notes) 1}}s{{end}}</span>{{end}}
       </div>
     </div>
     {{template "dns/notes" .Notes}}
   </div>
 
-  {{template "dns/mxrep" $}}
+  {{template "dns/mxrep" .}}
 
   {{if not .NXDomain}}
   {{/* Column wrappers are grid items even when empty: guard each, or it strands a half-row. */}}
-  {{if .SPF}}
-  <div class="grid gap-4 content-start">
   {{with .SPF}}
+  <div class="grid gap-4 content-start">
   <div class="card">
     <h2 class="eyebrow">spf</h2>
     <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
     <dl class="spec mt-3">
       <dt>DNS lookups</dt>
-      <dd class="tabular-nums {{if gt .Lookups $.Email.SPF.Limit}}text-danger{{else if ge .Lookups 8}}text-warn-ink{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
+      <dd class="tabular-nums {{if gt .Lookups .Limit}}text-danger{{else if ge .Lookups 8}}text-warn-ink{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
       {{if .All}}<dt>Ends with</dt> <dd class="font-mono">{{.All}}</dd>{{end}}
     </dl>
     {{if .Chain}}
@@ -44,7 +36,6 @@
     </div>
     {{end}}
   </div>
-  {{end}}
   </div>
   {{end}}
 
@@ -90,55 +81,4 @@
   </div>
   {{end}}
   {{end}}
-{{end}}
-{{end}}
-
-{{define "dns/email"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "dns/skip"}}
-  {{template "partials/header" .}}
-  <main id="main" class="page-main">
-    {{template "dns/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
-    <p class="mt-2 text-sm text-muted">
-      SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI for a domain, plus whether its inbound mail servers are on
-      a blocklist. SPF is checked against its 10-lookup limit: over it, SPF fails for every message, silently.
-    </p>
-
-    <form hx-get="/email" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace" data-busy="Checking SPF, DMARC, DKIM, MTA-STS…"
-          class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
-             aria-label="Domain name, or an email address" placeholder="example.com or you@example.com" class="field basis-full sm:basis-0">
-      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
-        <span class="inline-grid">
-          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">Check</span>
-          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">Checking…</span>
-        </span>
-      </button>
-    </form>
-
-    <details class="mt-4 text-sm">
-      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
-      <div class="mt-3 space-y-3 text-muted">
-        <p>Same URL, content-negotiated: browsers get the page, everything else gets JSON.</p>
-        <div class="space-y-2 font-mono text-xs wrap-anywhere">
-          <p><span class="text-strong">curl 'https://dns.corpberry.com/email?name=example.com'</span></p>
-        </div>
-        {{template "partials/mcp-hint" "dns"}}
-      </div>
-    </details>
-
-    {{template "dns/status" .}}
-    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
-      <div id="result" class="contents">
-        {{template "dns/emailauth" .}}
-      </div>
-    </div>
-  </main>
-  {{template "dns/foot" .}}
-</body>
-</html>
 {{end}}

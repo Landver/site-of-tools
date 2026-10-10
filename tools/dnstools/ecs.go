@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -99,32 +99,20 @@ const (
 // as untailored. Google forwards the subnet and echoes the zone's scope.
 const ecsResolverKey = "google"
 
-// maxECSVantages caps the fan-out (one upstream query each), whatever the table grows to.
-const maxECSVantages = 8
-
 // ecsQueryTimeout bounds each probe, and so the whole card: all probes run in one wave.
 const ecsQueryTimeout = 3 * time.Second
-
-// ecsConcurrency covers the table in one wave; a narrower limit doubles the worst case.
-const ecsConcurrency = maxECSVantages
 
 // ecsSteerableTypes: steering hands out addresses, aliases or endpoints; MX or SOA never vary.
 var ecsSteerableTypes = []string{"A", "AAAA", "CNAME", "HTTPS"}
 
-type ecsVantage struct {
-	region string
-	place  string
-	subnet string
-}
-
 // ecsVantages: fixed, non-anycast /24s of long-standing networks; the visitor's IP is never sent.
-var ecsVantages = []ecsVantage{
-	{region: "North America (east)", place: "New York, US", subnet: "128.59.0.0/24"},   // Columbia University
-	{region: "North America (west)", place: "California, US", subnet: "171.64.0.0/24"}, // Stanford University
-	{region: "Europe", place: "Amsterdam, NL", subnet: "192.87.0.0/24"},                // SURF
-	{region: "Asia", place: "Tokyo, JP", subnet: "133.11.0.0/24"},                      // University of Tokyo
-	{region: "South America", place: "São Paulo, BR", subnet: "200.160.0.0/24"},        // NIC.br
-	{region: "Oceania", place: "Melbourne, AU", subnet: "130.194.0.0/24"},              // Monash University
+var ecsVantages = []ECSAnswer{
+	{Region: "North America (east)", Place: "New York, US", Subnet: "128.59.0.0/24"},   // Columbia University
+	{Region: "North America (west)", Place: "California, US", Subnet: "171.64.0.0/24"}, // Stanford University
+	{Region: "Europe", Place: "Amsterdam, NL", Subnet: "192.87.0.0/24"},                // SURF
+	{Region: "Asia", Place: "Tokyo, JP", Subnet: "133.11.0.0/24"},                      // University of Tokyo
+	{Region: "South America", Place: "São Paulo, BR", Subnet: "200.160.0.0/24"},        // NIC.br
+	{Region: "Oceania", Place: "Melbourne, AU", Subnet: "130.194.0.0/24"},              // Monash University
 }
 
 // ECSer is the handler's dependency for the ECS card; *Service satisfies it.
@@ -151,15 +139,12 @@ func NewECSEnvelope(sp *Spread, e *ECS) (*ECSEnvelope, error) {
 
 // ECS runs the check against the pinned resolver. qtype defaults to A.
 func (s *Service) ECS(ctx context.Context, name, qtype string) (*ECS, error) {
-	addr, ok := resolverAddr(ecsResolverKey)
-	if !ok {
-		return nil, ErrBadResolver
-	}
-	return s.ecsRun(ctx, name, qtype, addr, ResolverName(ecsResolverKey))
+	addr, _ := resolverAddr(ecsResolverKey)
+	return s.ecsRun(ctx, name, qtype, addr)
 }
 
-// ecsRun takes addr so a white-box test can aim it at loopback; production passes only the pinned resolver.
-func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName string) (*ECS, error) {
+// ecsRun takes addr so a white-box test can aim it at loopback.
+func (s *Service) ecsRun(ctx context.Context, name, qtype, addr string) (*ECS, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, ErrEmptyName
@@ -173,85 +158,55 @@ func (s *Service) ecsRun(ctx context.Context, name, qtype, addr, resolverName st
 		return nil, err
 	}
 	qname := strings.ToLower(dns.Fqdn(name))
-
-	points := ecsVantages
-	if len(points) > maxECSVantages {
-		points = points[:maxECSVantages]
-	}
-
 	out := &ECS{
 		Name: name, QName: qname, Type: qtype,
-		Resolver: resolverName, ResolverAddr: addr,
-		Asked:    len(points),
-		Vantages: make([]ECSAnswer, len(points)),
+		Resolver: ResolverName(ecsResolverKey), ResolverAddr: addr,
+		Asked:    len(ecsVantages),
+		Vantages: slices.Clone(ecsVantages),
 		Groups:   []ECSGroup{},
+	}
+	for i := range out.Vantages {
+		// Stands until the probe returns, so a recovered panic reads as a failure, not a blank answer.
+		out.Vantages[i].Values, out.Vantages[i].Error = []string{}, errPanic.Error()
 	}
 
 	start := time.Now()
-	fanOut(len(points), ecsConcurrency, func(i int) {
-		v := points[i]
-		// Stands until the probe returns, so a recovered panic reads as a failure, not a blank answer.
-		out.Vantages[i] = ecsBlank(v, errPanic.Error())
-		if ctx.Err() != nil {
-			out.Vantages[i] = ecsBlank(v, "the request ended before this vantage point was asked")
-			return
-		}
-		out.Vantages[i] = s.ecsAsk(ctx, qname, qtype, addr, v)
+	// All at once: a dead resolver then costs one ecsQueryTimeout, not one per wave.
+	fanOut(len(ecsVantages), len(ecsVantages), func(i int) {
+		out.Vantages[i] = s.ecsAsk(ctx, qname, qtype, addr, ecsVantages[i])
 	})
-
 	out.QueryMS = time.Since(start).Milliseconds()
 	out.summarise()
 	return out, nil
 }
 
-// ecsBlank is a vantage point with no answer; Values is [] so the JSON never carries null.
-func ecsBlank(v ecsVantage, reason string) ECSAnswer {
-	return ECSAnswer{
-		Region: v.region, Place: v.place, Subnet: v.subnet,
-		Values: []string{}, Error: reason,
-	}
-}
-
-// ecsAsk sends one query carrying v's client subnet and reads back the answer and its scope.
-func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVantage) ECSAnswer {
-	a := ecsBlank(v, "")
-
-	ip, netw, err := net.ParseCIDR(v.subnet)
-	ip4 := ip.To4()
-	if err != nil || ip4 == nil {
-		a.Error = "this vantage point's subnet is not a usable IPv4 prefix"
-		return a
-	}
-	// The wire length comes from the entry's own CIDR, so display and probe cannot disagree.
-	ones, _ := netw.Mask.Size()
-
+// ecsAsk sends one query carrying a's client subnet and fills in the answer and its scope.
+func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, a ECSAnswer) ECSAnswer {
+	prefix := netip.MustParsePrefix(a.Subnet)
 	// newQuery sets a 1232-byte EDNS0 buffer; at 512 bytes truncation could split vantage points.
 	m := newQuery(qname, qtype)
 	opt := m.IsEdns0()
 	// Family 1 = IPv4: the subnet describes the client, not the record, so AAAA keeps it.
 	opt.Option = append(opt.Option, &dns.EDNS0_SUBNET{
-		Code:          dns.EDNS0SUBNET,
-		Family:        1,
-		SourceNetmask: uint8(ones),
-		SourceScope:   0,
-		Address:       ip4,
+		Code: dns.EDNS0SUBNET, Family: 1,
+		SourceNetmask: uint8(prefix.Bits()), Address: prefix.Addr().AsSlice(),
 	})
 
 	qctx, cancel := context.WithTimeout(ctx, ecsQueryTimeout)
 	defer cancel()
-
 	start := time.Now()
 	resp, _, err := s.ask(qctx, m, addr)
 	a.RTTMS = time.Since(start).Milliseconds()
 	if err != nil {
-		a.Error = "no response"
+		a.Values, a.Error = []string{}, "no response"
 		return a
 	}
 
-	a.SourceNetmask = uint8(ones)
+	a.SourceNetmask = uint8(prefix.Bits())
 	a.Rcode = dns.RcodeToString[resp.Rcode]
 	a.Values, a.TTL, a.CNAME = answerValues(resp, qtype)
 	if a.Values == nil {
+		// [], not nil, so the JSON never carries null.
 		a.Values = []string{}
 	}
 	// nil, not scope 0, means no client-subnet option came back.
@@ -260,7 +215,7 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, v ecsVa
 		a.Scope = sub.SourceScope
 		a.EchoedSubnet = fmt.Sprintf("%s/%d", sub.Address, sub.SourceNetmask)
 		// RFC 7871 §7.3: the response echoes our prefix; any other describes a network we never sent.
-		a.Mismatch = int(sub.SourceNetmask) != ones || !netw.Contains(sub.Address)
+		a.Mismatch = a.EchoedSubnet != a.Subnet
 	}
 	if resp.Rcode == dns.RcodeRefused || resp.Rcode == dns.RcodeServerFailure {
 		a.Error = "answered " + a.Rcode
@@ -279,18 +234,13 @@ func (e *ECS) summarise() {
 			continue
 		}
 		e.Answered++
-		if v.Echoed {
-			if v.Mismatch {
-				e.Mismatched++
-			} else {
-				e.Echoed++
-				if v.Scope > e.MaxScope {
-					e.MaxScope = v.Scope
-				}
-				if v.Scope != 0 && v.Scope != v.SourceNetmask {
-					e.ScopeDistinct = true
-				}
-			}
+		switch {
+		case v.Mismatch:
+			e.Mismatched++
+		case v.Echoed:
+			e.Echoed++
+			e.MaxScope = max(e.MaxScope, v.Scope)
+			e.ScopeDistinct = e.ScopeDistinct || (v.Scope != 0 && v.Scope != v.SourceNetmask)
 		}
 		if len(v.Values) > 0 {
 			e.WithRecords++
@@ -299,11 +249,7 @@ func (e *ECS) summarise() {
 		labels = append(labels, v.Place)
 		sets = append(sets, v.Values)
 	}
-
 	for _, g := range answerGroups(labels, sets) {
-		if g.Values == nil {
-			g.Values = []string{}
-		}
 		e.Groups = append(e.Groups, ECSGroup{Values: g.Values, Vantages: g.Servers})
 	}
 
@@ -325,28 +271,8 @@ func (e *ECS) summarise() {
 		e.Verdict = ECSVerdictMatches
 	}
 
-	e.notes()
-}
-
-// notes adds what the verdict cannot say; the headline prose lives in templates/ecs.html.
-func (e *ECS) notes() {
-	add := func(level, text string) { e.Notes = append(e.Notes, Note{Level: level, Text: text}) }
-
+	// The headline prose lives in templates/ecs.html.
 	if missing := e.Asked - e.Answered; missing > 0 {
-		add("warn", fmt.Sprintf("%d of %d networks got no usable answer; the comparison is over the rest.", missing, e.Asked))
-	}
-	if e.Echoed > 0 && e.Echoed < e.Answered {
-		add("warn", fmt.Sprintf("Only %d of %d answers carried a client-subnet option, so the rest neither support nor contradict the verdict.", e.Echoed, e.Answered))
-	}
-	if e.Mismatched > 0 {
-		what := "response carried a scope"
-		if e.Mismatched > 1 {
-			what = "responses carried a scope"
-		}
-		add("warn", fmt.Sprintf("%d %s for a prefix we never sent, so their scope is excluded: a cached answer keyed to another network, or a middlebox rewriting the option.", e.Mismatched, what))
-	}
-	if e.WithRecords > 0 && e.WithRecords < e.Answered {
-		add("warn", fmt.Sprintf("%d of the %d networks that answered were given no %s record at all, while %d were given records; they are separate groups above.",
-			e.Answered-e.WithRecords, e.Answered, e.Type, e.WithRecords))
+		e.Notes = []Note{{Level: "warn", Text: fmt.Sprintf("%d of %d networks got no usable answer; the comparison is over the rest.", missing, e.Asked)}}
 	}
 }

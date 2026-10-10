@@ -1,10 +1,5 @@
-{{/* Result fragment for the consistency check. */}}
+{{/* The consistency check's cards, .Spread being its whole envelope. */}}
 {{define "dns/spread"}}
-{{template "dns/oob" .}}
-{{if .Error}}
-  {{template "dns/error" .}}
-{{else if .Spread}}
-  {{template "dns/asked" .}}
   {{with .Spread}}
 
   <div class="grid gap-4 content-start">
@@ -31,8 +26,6 @@
         <span class="block text-base font-medium text-warn-ink">Your nameservers disagree.</span>
         {{if and (gt .SerialsSeen 1) (not .SerialsAgree)}}
           <span class="mt-1 block text-faint">The zone's own servers return different {{.Type}} records and report different SOA serials, so a change has not finished rolling out between them.</span>
-        {{else if .MultiProvider}}
-          <span class="mt-1 block text-faint">This zone is served by more than one DNS provider, and they return different {{.Type}} records. Each provider keeps its own serial, so this is either one provider still serving the old zone or a zone that answers differently per provider. The panels below show who said what.</span>
         {{else}}
           <span class="mt-1 block text-faint">The zone's own servers return different {{.Type}} records, and no serial separates them, so this is either a change still rolling out or a zone that answers differently per query. The panels below show who said what.</span>
         {{end}}
@@ -43,12 +36,9 @@
           {{if .ResolversStale}}The public resolvers agree with each other and all of them hold a different answer, so the change has left your nameservers and is now waiting out a cache.
           {{else if gt .ResolverGroups 1}}Public resolvers see {{.ResolverGroups}} different answers, which means this zone answers differently depending on who asks (anycast or geo steering), not a change still rolling out.
           {{else}}The public resolvers hold something else; compare the two panels below.{{end}}</span>
-        {{else if gt .ResolverGroups 1}}
-          <span class="block text-base font-medium text-warn-ink">The public resolvers don't agree.</span>
-          <span class="mt-1 block text-faint">They see {{.ResolverGroups}} different answers. Too few of the zone's own nameservers answered to say whether that is deliberate steering or a change still rolling out.</span>
         {{else}}
           <span class="block text-base font-medium text-warn-ink">Not enough answers to judge.</span>
-          <span class="mt-1 block text-faint">The public resolvers agree with each other but not with the one authoritative answer this check got, and a single sample can't disagree with itself. The panels below are the whole of what was measured.</span>
+          <span class="mt-1 block text-faint">The public resolvers see {{if gt .ResolverGroups 1}}{{.ResolverGroups}} different answers{{else}}another answer{{end}}, and too few of the zone's own nameservers answered to say whether that is deliberate steering or a change still rolling out. The panels below are the whole of what was measured.</span>
         {{end}}
       {{else if not .SerialsAgree}}
         <span class="block text-base font-medium text-warn-ink">Same records, different zone versions.</span>
@@ -76,52 +66,14 @@
       Asked {{len .Authoritative}} of the {{.NSTotal}} nameservers this zone delegates. A disagreement among the rest would not show here.
     </p>
     {{end}}
-    {{if .Authoritative}}
-    <dl class="pairs">
-      {{range .Authoritative}}
-      <div>
-      <dt class="font-mono text-xs wrap-anywhere {{if .Error}}text-faint{{else}}text-muted{{end}}">
-        {{.Label}}
-        {{if .Serial}}<span class="block text-faint">serial {{.Serial}}</span>{{end}}
-        {{if .OpenResolver}}<span class="block text-danger">open resolver</span>{{end}}
-        {{if .TCPFail}}<span class="block text-warn-ink">no TCP/53</span>{{end}}
-      </dt>
-      <dd>
-        {{if .Error}}<span class="text-danger">{{.Error}}</span>
-        {{else}}{{if .Values}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
-          {{else if not .CNAME}}<span class="text-xs text-muted">{{if eq .Rcode "NXDOMAIN"}}NXDOMAIN{{else}}no {{$.Spread.Type}} record{{end}}</span>{{end}}
-          {{/* An authoritative server can't chase an alias out of its zone: alias, no values. */}}
-          {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
-          <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
-      </dd>
-      </div>
-      {{end}}
-    </dl>
-    {{else}}
-    <p class="text-sm text-muted">No authoritative nameservers found for this name.</p>
-    {{end}}
+    {{if .Authoritative}}{{template "dns/servers" .Authoritative}}
+    {{else}}<p class="text-sm text-muted">No authoritative nameservers found for this name.</p>{{end}}
   </div>
 
   <div class="card">
     <h2 class="eyebrow">public resolvers</h2>
     <p class="mb-3 text-xs text-faint">What Cloudflare, Google and Quad9 hold right now, as reached from this server, and how long they have held it.</p>
-    <dl class="pairs">
-      {{range .Resolvers}}
-      <div>
-      <dt class="text-xs {{if .Error}}text-faint{{else}}text-muted{{end}}">
-        {{.Label}}
-        {{if .CacheAge}}<span class="block text-faint">{{if eq .CacheAge "0s"}}just fetched{{else}}cached {{.CacheAge}} ago{{end}}</span>{{end}}
-      </dt>
-      <dd>
-        {{if .Error}}<span class="text-danger">{{.Error}}</span>
-        {{else}}{{if .Values}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
-          {{else if not .CNAME}}<span class="text-xs text-muted">{{if eq .Rcode "NXDOMAIN"}}NXDOMAIN{{else}}no {{$.Spread.Type}} record{{end}}</span>{{end}}
-          {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
-          <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
-      </dd>
-      </div>
-      {{end}}
-    </dl>
+    {{template "dns/servers" .Resolvers}}
   </div>
   </div>
 
@@ -167,9 +119,33 @@
   </div>
   {{end}}
 
-  {{template "dns/ecs" $}}
+  {{template "dns/ecs" .}}
   </div>
 
 {{end}}
 {{end}}
+
+{{/* One row per server; the flags a kind of server never gets are simply zero. */}}
+{{define "dns/servers"}}
+<dl class="pairs">
+  {{range .}}
+  <div>
+  <dt class="font-mono text-xs wrap-anywhere {{if .Error}}text-faint{{else}}text-muted{{end}}">
+    {{.Label}}
+    {{if .Serial}}<span class="block text-faint">serial {{.Serial}}</span>{{end}}
+    {{if .OpenResolver}}<span class="block text-danger">open resolver</span>{{end}}
+    {{if .TCPFail}}<span class="block text-warn-ink">no TCP/53</span>{{end}}
+    {{if .CacheAge}}<span class="block text-faint">{{if eq .CacheAge "0s"}}just fetched{{else}}cached {{.CacheAge}} ago{{end}}</span>{{end}}
+  </dt>
+  <dd>
+    {{if .Error}}<span class="text-danger">{{.Error}}</span>
+    {{else}}{{if .Values}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
+      {{else if not .CNAME}}<span class="text-xs text-muted">{{if eq .Rcode "NXDOMAIN"}}NXDOMAIN{{else}}no record of this type{{end}}</span>{{end}}
+      {{/* An authoritative server can't chase an alias out of its zone: alias, no values. */}}
+      {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
+      <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}
+  </dd>
+  </div>
+  {{end}}
+</dl>
 {{end}}

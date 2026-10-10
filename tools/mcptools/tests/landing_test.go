@@ -130,8 +130,8 @@ func TestEveryTerminalBlockPointsAtItsToolset(t *testing.T) {
 			}
 		}
 	}
-	if blocks < 29 {
-		t.Errorf("found %d terminal blocks, want the 29 the pages carry", blocks)
+	if blocks < 25 {
+		t.Errorf("found %d terminal blocks, want the 25 the pages carry", blocks)
 	}
 
 	// Rendered with the renderer's fallback funcs, as on an IP page.

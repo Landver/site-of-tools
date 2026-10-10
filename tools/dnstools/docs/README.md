@@ -103,18 +103,17 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
   freshness is part of that interface rather than an optional extra: an empty
   or stalled corpus answers "not listed" for every address, which is
   indistinguishable from a real clean result unless the age is checked.
-- `handler.go` — **transport**: `Register` + query-param parsing, then content
-  negotiation through four shared helpers (`reply`, `needName`, `unavailable`,
-  `answered`). The rate limiter lives here.
+- `handler.go` — **transport**: `Register` + query-param parsing; every route
+  shares `view` (the view model), `serve` (bare hit, busy cap) and `answered`
+  (result or error, content-negotiated). The rate limiter lives here.
 - `embed.go` — the `go:embed` of `templates/`.
-- `templates/` — one page and one htmx fragment per route: `index.html` +
-  `result.html`, `consistency.html` + `spread.html`, and `domain.html` /
-  `email.html` / `trace.html`, which each hold both. Two card partials sit
-  beside them rather than owning a route: `ecs.html` (`dns/ecs`, on
-  `/consistency`) and `reputation.html` (`dns/mxrep`, on `/email`), each
-  rendering nothing at all when its check did not run. Plus `nav.html` (suite
-  sub-nav, five entries), `notes.html` (the shared severity-note list, so the severity
-  aria-label is written once) and `error.html`.
+- `templates/` — `page.html` is every route's page (`dns/page`, picked by
+  `.Active`), the htmx answer `dns/frag`, the sub-nav and the 429 notice. Each
+  route's cards sit in their own file: `result.html`, `spread.html`,
+  `trace.html`, `domain.html`, `email.html`. Two card partials render nothing
+  when their check did not run: `ecs.html` (`dns/ecs`, on `/consistency`) and
+  `reputation.html` (`dns/mxrep`, on `/email`). `notes.html` is the shared
+  severity-note list, so the severity aria-label is written once.
 - `tests/` — black-box tests over the exported API. Live queries call
   `requireEgress(t)` and skip honestly when UDP/53 egress is blocked, instead
   of passing vacuously.
@@ -302,7 +301,7 @@ calls non-negotiable are in place:
   | Page | Caps | Worst case per request |
   |---|---|---|
   | `/` | `FanoutTypes` = 9 types (`maxTypesPerRequest` = 12 ceiling) + `maxDanglingChecks` = 5 | ~14 DNS |
-  | `/consistency` | `maxZoneWalk` = 8 NS steps + `maxAuthoritative` = 8 nameservers x 5 probes + 3 resolvers, plus the steering card: 1 query per vantage point, 6 in the table today under a `maxECSVantages` = 8 ceiling | ~57 DNS + 1 HTTPS |
+  | `/consistency` | `maxZoneWalk` = 8 NS steps + `maxAuthoritative` = 8 nameservers x 5 probes + 3 resolvers, plus the steering card: 1 query per vantage point, the 6 in its fixed table | ~57 DNS + 1 HTTPS |
   | `/trace` | `traceMaxQueries` = 48 for the whole walk, inside `traceMaxDepth` = 12 zone cuts, `traceMaxServersPerHop` = 3 and `traceMaxSideLookups` = 2 per glueless referral | <= 48 DNS, at root, TLD and authoritative servers |
   | `/domain` | RDAP + crt.sh, one request each | 2 HTTPS, 0 DNS |
   | `/email` | 12 DKIM selectors + `maxSPFIncludes` = 15 + `maxMailHosts` = 5 x 4 FCrDNS + DMARC parent climb <= 3 + 6 fixed, plus the reputation card: 1 MX + `repMaxHosts` = 5 x `repMaxAddrsPerHost` = 2 | ~67 DNS + 1 HTTPS + <= `repMaxChecks` = 8 corpus reads |

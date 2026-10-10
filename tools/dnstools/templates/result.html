@@ -1,89 +1,22 @@
-{{/* The receipt: what was asked and who answered. Called with the page view model, for $.NavName. */}}
-{{define "dns/querycard"}}
-{{with .Result}}
-{{/* .Cached speaks only for an all-cached set; $anyCached catches the mix. */}}
-{{$anyCached := false}}
-{{range .Found}}{{if .Cached}}{{$anyCached = true}}{{end}}{{end}}
-<h2 class="eyebrow">the query</h2>
-<dl class="spec">
-  <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
-  <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
-  <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
-  <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
-  <dt>DNSSEC</dt>
-  <dd>
-    {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate.</span>
-    {{else if .NXDomain}}<span class="text-faint">Not applicable: there is no record to validate</span>
-    {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures</span>
-    {{else if .Unvalidated}}<span class="text-warn-ink">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
-    {{else if .Signed}}<span class="text-warn-ink">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
-    {{else}}<span class="text-faint">Unsigned</span>{{end}}
-    {{/* Not when the lead card above already carries the same link. */}}
-    {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName (or .Found .Missing)}}
-    <a href="/trace?name={{$.NavName}}" class="mt-1 block w-fit text-xs link-brand">See where the chain breaks</a>
-    {{end}}
-  </dd>
-  {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
-  <dt>Took</dt>
-  <dd class="tabular-nums">
-    {{if .Cached}}<span class="text-strong">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
-    {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}
-      {{if $anyCached}}<span class="block text-xs text-faint">Some types came from this site's cache; the table marks which.</span>{{end}}{{end}}
-  </dd>
-</dl>
-{{if .Reversed}}
-<p class="mt-3 text-xs text-faint">
-  You entered an IP, so this ran as a PTR lookup against its reverse name.
-</p>
-{{end}}
-{{end}}
-{{end}}
-
-{{/* A value linked onward: an address to IP Tools, a host to its lookup. */}}
-{{define "dns/value"}}
-{{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
-{{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
-{{else}}{{.Value}}{{end}}
-{{end}}
-
 {{define "dns/result"}}
-{{template "dns/oob" .}}
-{{if .Error}}
-  {{template "dns/error" .}}
-{{else if .Result}}
-  {{template "dns/asked" .}}
-  {{$page := .}}
   {{with .Result}}
   {{$qname := .QName}}
   {{$alias := .AliasTarget}}
 
-  {{if .NXDomain}}
+  {{/* The lead card: the name does not exist, or nothing answered for it. */}}
+  {{if or .NXDomain (and (not .Found) (not .Missing) .Failed)}}
     <div class="card sm:col-span-2">
-      <h2 class="eyebrow">not found</h2>
+      <h2 class="eyebrow">{{if .NXDomain}}not found{{else}}no answer{{end}}</h2>
       <p class="text-sm">
-        <span class="block text-base font-medium text-warn-ink">This name does not exist.</span>
+        {{if .NXDomain}}<span class="block text-base font-medium text-warn-ink">This name does not exist.</span>
         <span class="mt-1 block text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
+        {{else}}<span class="block text-base font-medium text-danger">This name doesn't resolve.</span>
+        <span class="mt-1 block text-faint">{{.ResolverName}} gave no usable answer for any type{{if .Bogus}}, because the name's DNSSEC signatures don't validate{{end}}.</span>{{end}}
       </p>
-      {{with $page.NavName}}
-      <p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>
-      {{end}}
+      {{if .NXDomain}}{{with $.NavName}}<p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>{{end}}
+      {{else if .Bogus}}{{with $.NavName}}<a href="/trace?name={{.}}" class="mt-2 inline-block text-xs link-brand">See where the chain breaks</a>{{end}}{{end}}
     </div>
-    <div class="card {{if not .Failed}}sm:col-span-2{{end}}">
-      {{template "dns/querycard" $page}}
-    </div>
-    {{if .Failed}}{{template "dns/failed" .}}{{end}}
-  {{else}}
-
-    {{if and (not .Found) (not .Missing) .Failed}}
-    <div class="card sm:col-span-2">
-      <h2 class="eyebrow">no answer</h2>
-      <p class="text-sm">
-        <span class="block text-base font-medium text-danger">This name doesn't resolve.</span>
-        <span class="mt-1 block text-faint">{{.ResolverName}} gave no usable answer for any type{{if .Bogus}}, because the name's DNSSEC signatures don't validate{{end}}.</span>
-      </p>
-      {{if .Bogus}}{{with $page.NavName}}<a href="/trace?name={{.}}" class="mt-2 inline-block text-xs link-brand">See where the chain breaks</a>{{end}}{{end}}
-    </div>
-    {{end}}
+  {{end}}
 
     {{if .Found}}
     <div class="card sm:col-span-2">
@@ -93,15 +26,9 @@
       </div>
       {{if and .Chain (gt .Asked 1)}}
       <p class="mb-3 text-xs text-muted">
-        <span class="font-mono text-strong">{{$page.Query}}</span> is an alias
+        <span class="font-mono text-strong">{{$.Query}}</span> is an alias
         {{range .Chain}}→ <a href="/?name={{.Target}}" class="font-mono underline decoration-line-strong underline-offset-4 hover:text-brand-ink">{{.Target}}</a> {{end}}
         <span class="text-faint">· apart from the CNAME itself, every record below is the last name's.</span>
-      </p>
-      {{end}}
-      {{if .Reversed}}
-      <p class="mb-3 text-xs text-muted">
-        Who runs <span class="font-mono text-strong">{{$page.Query}}</span>?
-        <a href="{{toolURL "ip"}}/?ip={{$page.Query}}" class="link-brand">Look it up in IP Tools</a>
       </p>
       {{end}}
       <table aria-labelledby="records-h" class="w-full text-sm">
@@ -128,7 +55,10 @@
               {{if .Label}}<span class="block font-sans text-xs text-muted">{{.Label}}</span>{{end}}
               {{/* Records behind a CNAME are the target's (RFC 1034), so only other owners are tagged. */}}
               {{if and .Owner (ne .Owner $qname) (ne .Owner $alias)}}<span class="block font-sans text-xs text-faint">on {{.Owner}}</span>{{end}}
-              {{template "dns/value" .}}
+              {{/* Linked onward: an address to IP Tools, a host to its lookup. */}}
+              {{if or (eq .Type "A") (eq .Type "AAAA")}}<a href="{{toolURL "ip"}}/?ip={{.Value}}" title="Look up {{.Value}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Value}}<span class="sr-only"> in IP Tools</span></a>
+              {{else if .Target}}<a href="/?name={{.Target}}" title="Look up {{.Target}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Value}}<span class="sr-only">: look up {{.Target}}</span></a>
+              {{else}}{{.Value}}{{end}}
               {{if or .ASN .Country}}
               <span class="block font-sans text-xs text-faint">
                 {{if .ASN}}AS{{.ASN}}{{end}}{{if .ASName}} · {{.ASName}}{{end}}{{if .Country}} · {{.Country}}{{end}}
@@ -188,7 +118,38 @@
     {{end}}
 
     <div class="card">
-      {{template "dns/querycard" $page}}
+      <h2 class="eyebrow">the query</h2>
+      <dl class="spec">
+        <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
+        <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
+        <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
+        <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
+        <dt>DNSSEC</dt>
+        <dd>
+          {{if .Bogus}}<span class="text-danger">Broken</span> <span class="text-faint">— signed, but the signatures don't validate.</span>
+          {{else if .NXDomain}}<span class="text-faint">Not applicable: there is no record to validate</span>
+          {{else if .Authenticated}}<span class="text-ok">Validated</span> <span class="text-faint">— the resolver checked the signatures</span>
+          {{else if .Unvalidated}}<span class="text-warn-ink">Partly validated</span> <span class="text-faint">{{if .Chain}}— the resolver checked the alias, not the answers behind it{{else}}— the resolver didn't check {{range $i, $t := .Unvalidated}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}</span>
+          {{else if .Signed}}<span class="text-warn-ink">Signed, not validated</span> <span class="text-faint">— the signatures don't chain up to the root, most often a DS record missing at the registrar.</span>
+          {{else}}<span class="text-faint">Unsigned</span>{{end}}
+          {{/* Not when the lead card above already carries the same link. */}}
+          {{if and (or .Bogus (and .Signed (not .Authenticated) (not .Unvalidated))) $.NavName (or .Found .Missing)}}
+          <a href="/trace?name={{$.NavName}}" class="mt-1 block w-fit text-xs link-brand">See where the chain breaks</a>
+          {{end}}
+        </dd>
+        {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
+        <dt>Took</dt>
+        <dd class="tabular-nums">
+          {{if .Cached}}<span class="text-strong">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
+          {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}{{end}}
+        </dd>
+      </dl>
+      {{if .Reversed}}
+      <p class="mt-3 text-xs text-faint">
+        You entered an IP, so this ran as a PTR lookup against its reverse name. Who runs
+        <span class="font-mono text-muted">{{$.Query}}</span>? <a href="{{toolURL "ip"}}/?ip={{$.Query}}" class="link-brand">Look it up in IP Tools</a>
+      </p>
+      {{end}}
     </div>
     </div>
 
@@ -218,8 +179,32 @@
     </div>
     {{end}}
 
-    {{/* "Couldn't find out" is deliberately not folded in with "isn't there". */}}
-    {{if .Failed}}{{template "dns/failed" .}}{{end}}
+    {{/* "Couldn't find out" is deliberately not folded in with "isn't there". Under the lead card ($all), only the resolver's reason. */}}
+    {{if .Failed}}
+    {{$all := and (not .Found) (not .Missing)}}
+    <div class="card">
+      <h2 class="eyebrow">{{if $all}}the resolver's reason{{else}}no answer{{end}}</h2>
+      <p class="text-sm text-muted">{{if $all}}For every type asked:{{else}}The resolver didn't give a usable answer for:{{end}}</p>
+      <div class="divide-y divide-line">
+      {{range .FailureGroups}}
+      <div class="py-3">
+        <div class="font-mono text-xs text-strong">{{range $i, $t := .Types}}{{if $i}} · {{end}}{{$t}}{{end}}</div>
+        <div class="mt-1 text-sm">
+          <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
+          {{/* RFC 8914 Extended DNS Error: the resolver's own reason. */}}
+          {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
+          {{if .Bogus}}
+          <span class="block text-xs text-muted">The same query succeeds with DNSSEC checking disabled, so the signatures are broken, not the servers.</span>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+      </div>
+      <p class="text-xs text-faint">
+        A failure to answer, not proof the records are missing.{{if not .Bogus}} A resolver that blocks a name reports it this way too.{{end}}
+      </p>
+    </div>
+    {{end}}
     </div>
     {{end}}
 
@@ -247,9 +232,9 @@
           <pre tabindex="0" role="region" aria-label="Zone file" class="mt-2 overflow-x-auto rounded bg-canvas p-3 font-mono text-xs text-strong [tab-size:8]">{{.Zone}}</pre>
         </div>
         {{end}}
-        {{$curl := printf "%s/?name=%s" (toolURL "dns") $page.Query}}
-        {{with $page.QType}}{{$curl = printf "%s&type=%s" $curl .}}{{end}}
-        {{if ne $page.Resolver "cloudflare"}}{{$curl = printf "%s&resolver=%s" $curl $page.Resolver}}{{end}}
+        {{$curl := printf "%s/?name=%s" (toolURL "dns") $.Query}}
+        {{with $.QType}}{{$curl = printf "%s&type=%s" $curl .}}{{end}}
+        {{if ne $.Resolver "cloudflare"}}{{$curl = printf "%s&resolver=%s" $curl $.Resolver}}{{end}}
         {{$curl = printf "curl '%s'" $curl}}
         <div>
           <div class="flex items-center justify-between gap-4">
@@ -261,36 +246,5 @@
       </div>
     </details>
     {{end}}
-
   {{end}}
-  {{end}}
-{{end}}
-{{end}}
-
-{{/* Failed types, one entry per way they failed. */}}
-{{define "dns/failed"}}
-{{/* Under the lead card ($all), this is only the resolver's reason. */}}
-{{$all := and (not .Found) (not .Missing)}}
-<div class="card">
-  <h2 class="eyebrow">{{if $all}}the resolver's reason{{else}}no answer{{end}}</h2>
-  <p class="text-sm text-muted">{{if $all}}For every type asked:{{else}}The resolver didn't give a usable answer for:{{end}}</p>
-  <div class="divide-y divide-line">
-  {{range .FailureGroups}}
-  <div class="py-3">
-    <div class="font-mono text-xs text-strong">{{range $i, $t := .Types}}{{if $i}} · {{end}}{{$t}}{{end}}</div>
-    <div class="mt-1 text-sm">
-      <span class="text-danger">{{if .Rcode}}{{.Rcode}}{{else}}{{.Error}}{{end}}</span>
-      {{/* RFC 8914 Extended DNS Error: the resolver's own reason. */}}
-      {{with .EDE}}<span class="block text-xs text-muted">{{.Text}}{{if .Extra}} — {{.Extra}}{{end}}</span>{{end}}
-      {{if .Bogus}}
-      <span class="block text-xs text-muted">The same query succeeds with DNSSEC checking disabled, so the signatures are broken, not the servers.</span>
-      {{end}}
-    </div>
-  </div>
-  {{end}}
-  </div>
-  <p class="text-xs text-faint">
-    A failure to answer, not proof the records are missing.{{if not .Bogus}} A resolver that blocks a name reports it this way too.{{end}}
-  </p>
-</div>
 {{end}}
