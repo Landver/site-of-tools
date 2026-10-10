@@ -17,7 +17,6 @@ func TestSPFLookupCount(t *testing.T) {
 		records map[string]string
 		want    int
 		wantAll string
-		// finding names the review finding this case pins.
 		finding string
 	}{
 		{
@@ -165,11 +164,7 @@ func TestSPFLookupCount(t *testing.T) {
 				t.Fatal("no SPF result for a domain that publishes one")
 			}
 			if r.Lookups != tc.want {
-				msg := "lookups = %d, RFC 7208 cost is %d (chain %v)"
-				if tc.finding != "" {
-					msg += " [regresses " + tc.finding + "]"
-				}
-				t.Errorf(msg, r.Lookups, tc.want, r.Chain)
+				t.Errorf("lookups = %d, RFC 7208 cost is %d (chain %v)"+regresses(tc.finding), r.Lookups, tc.want, r.Chain)
 			}
 			if r.All != tc.wantAll {
 				t.Errorf("all = %q, want %q", r.All, tc.wantAll)

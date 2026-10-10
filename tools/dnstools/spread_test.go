@@ -13,14 +13,39 @@ func failed(label, why string) ServerAnswer {
 	return ServerAnswer{Label: label, Error: why}
 }
 
+func hasNote(notes []Note, level, substr string) bool {
+	for _, n := range notes {
+		if n.Level == level && strings.Contains(n.Text, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func noteWith(notes []Note, substr string) (Note, bool) {
+	for _, n := range notes {
+		if strings.Contains(n.Text, substr) {
+			return n, true
+		}
+	}
+	return Note{}, false
+}
+
+// regresses names the review finding a failing case pins, if it has one.
+func regresses(finding string) string {
+	if finding == "" {
+		return ""
+	}
+	return " [regresses " + finding + "]"
+}
+
 // The contract is grouping one operator's nameservers, not the key's shape.
 func TestProviderKeyGroupsOneOperator(t *testing.T) {
 	t.Parallel()
 
 	sameOperator := []struct {
-		name  string
-		hosts []string
-		// finding names the review finding this case pins.
+		name    string
+		hosts   []string
 		finding string
 	}{
 		{
@@ -54,11 +79,8 @@ func TestProviderKeyGroupsOneOperator(t *testing.T) {
 			first := providerKey(tc.hosts[0])
 			for _, h := range tc.hosts[1:] {
 				if got := providerKey(h); got != first {
-					msg := "providerKey(%q) = %q but providerKey(%q) = %q: one operator split across buckets"
-					if tc.finding != "" {
-						msg += " [regresses " + tc.finding + "]"
-					}
-					t.Errorf(msg, tc.hosts[0], first, h, got)
+					t.Errorf("providerKey(%q) = %q but providerKey(%q) = %q: one operator split across buckets"+regresses(tc.finding),
+						tc.hosts[0], first, h, got)
 				}
 			}
 		})
@@ -198,15 +220,6 @@ func TestSummariseSerialsAcrossRoute53Suffixes(t *testing.T) {
 	if sp.MultiProvider {
 		t.Error("a pure Route 53 zone reported as served by more than one DNS provider")
 	}
-}
-
-func hasNote(notes []Note, level, substr string) bool {
-	for _, n := range notes {
-		if n.Level == level && strings.Contains(n.Text, substr) {
-			return true
-		}
-	}
-	return false
 }
 
 // Rotation needs a witness in one provider; a cross-provider split may be a stale zone.

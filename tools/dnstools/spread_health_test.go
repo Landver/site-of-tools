@@ -5,15 +5,6 @@ import (
 	"testing"
 )
 
-func noteWith(notes []Note, substr string) (Note, bool) {
-	for _, n := range notes {
-		if strings.Contains(n.Text, substr) {
-			return n, true
-		}
-	}
-	return Note{}, false
-}
-
 // A timeout and a refusal are different claims; only a refusal earns the word "refused".
 func TestTCPFindingSaysWhatWasSeen(t *testing.T) {
 	t.Parallel()

@@ -2,7 +2,6 @@ package dnstools
 
 import (
 	"context"
-	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -10,69 +9,11 @@ import (
 	"github.com/miekg/dns"
 )
 
-// startLoopbackDNS serves h over UDP on loopback until the test ends and returns its address.
-func startLoopbackDNS(t *testing.T, h dns.HandlerFunc) string {
-	t.Helper()
-
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	srv := &dns.Server{PacketConn: pc, Handler: h}
-	started := make(chan struct{})
-	srv.NotifyStartedFunc = func() { close(started) }
-	go func() { _ = srv.ActivateAndServe() }()
-	<-started
-	t.Cleanup(func() { _ = srv.Shutdown() })
-	return pc.LocalAddr().String()
-}
-
-// zoneReply answers req from z the way serveZone does: records, NODATA or NXDOMAIN.
-func zoneReply(t *testing.T, z testZone, req *dns.Msg) *dns.Msg {
-	m := new(dns.Msg).SetReply(req)
-	m.Authoritative = true
-	if len(req.Question) != 1 {
-		return m
-	}
-	q := req.Question[0]
-	name := strings.ToLower(q.Name)
-	for _, s := range z[zoneKey(name, dns.TypeToString[q.Qtype])] {
-		rr, err := dns.NewRR(s)
-		if err != nil {
-			t.Errorf("canned record %q: %v", s, err)
-			continue
-		}
-		m.Answer = append(m.Answer, rr)
-	}
-	exists := false
-	for k := range z {
-		exists = exists || strings.HasPrefix(k, name+"|")
-	}
-	if len(m.Answer) == 0 && !exists {
-		m.Rcode = dns.RcodeNameError
-	}
-	return m
-}
-
 // serveADZone is serveZone that also sets AD on the given query types.
 func serveADZone(t *testing.T, z testZone, ad map[string]bool) string {
 	t.Helper()
-
-	addr := startLoopbackDNS(t, func(w dns.ResponseWriter, req *dns.Msg) {
-		m := zoneReply(t, z, req)
-		if len(req.Question) == 1 {
-			m.AuthenticatedData = ad[dns.TypeToString[req.Question[0].Qtype]]
-		}
-		_ = w.WriteMsg(m)
-	})
-	key := "test-" + addr
-	testResolvers.mu.Lock()
-	testResolvers.m[key] = addr
-	testResolvers.mu.Unlock()
-	t.Cleanup(func() {
-		testResolvers.mu.Lock()
-		delete(testResolvers.m, key)
-		testResolvers.mu.Unlock()
+	key, _ := serveZoneWith(t, z, func(m *dns.Msg, q dns.Question) {
+		m.AuthenticatedData = ad[dns.TypeToString[q.Qtype]]
 	})
 	return key
 }
@@ -149,11 +90,7 @@ func TestRecordTargetNamesTheHost(t *testing.T) {
 		{"example.com. 300 IN MX 0 .", ""},
 		{"example.com. 300 IN A 192.0.2.1", ""},
 	} {
-		rr, err := dns.NewRR(tc.rr)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.rr, err)
-		}
-		if got := toRecord(rr).Target; got != tc.want {
+		if got := toRecord(mustRR(t, tc.rr)).Target; got != tc.want {
 			t.Errorf("%s: Target = %q, want %q", tc.rr, got, tc.want)
 		}
 	}

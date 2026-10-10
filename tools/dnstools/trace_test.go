@@ -399,8 +399,7 @@ func TestValidateZoneDoesNotCallAnUnansweredLinkBroken(t *testing.T) {
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
 	link, keys := w.validateZone("example.test.", "test.",
-		[]traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}},
-		traceDS{set: []*dns.DS{ds}, status: traceDSVerified}, true)
+		[]traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}}, verifiedDS(ds), true)
 
 	if link.Status != traceUnknown {
 		t.Fatalf("status = %q (%s), want %q — nobody answered, so nothing is proved either way", link.Status, link.Detail, traceUnknown)

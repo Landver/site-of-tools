@@ -67,17 +67,6 @@ func (f *repFakeCorpus) read() []string {
 	return append([]string(nil), f.seen...)
 }
 
-// repNoteAt returns the texts of every note at one severity.
-func repNoteAt(m *MXReputation, level string) []string {
-	var out []string
-	for _, n := range m.Notes {
-		if n.Level == level {
-			out = append(out, n.Text)
-		}
-	}
-	return out
-}
-
 func TestMXReputationNamesAListedMailServer(t *testing.T) {
 	t.Parallel()
 
@@ -105,8 +94,8 @@ func TestMXReputationNamesAListedMailServer(t *testing.T) {
 			t.Errorf("no failing note mentions %q; notes: %+v", want, m.Notes)
 		}
 	}
-	if ok := repNoteAt(m, "ok"); len(ok) > 0 {
-		t.Errorf("a listed server produced an ok note too: %v", ok)
+	if hasNote(m.Notes, "ok", "") {
+		t.Errorf("a listed server produced an ok note too: %+v", m.Notes)
 	}
 }
 
@@ -135,7 +124,7 @@ func TestMXReputationCleanIsStatedNotImplied(t *testing.T) {
 	// Bounded by the corpus read, named as a reader knows the feeds rather than by our slugs.
 	if !hasNote(m.Notes, "ok", "IPsum") ||
 		!hasNote(m.Notes, "ok", "Spamhaus DROP") {
-		t.Errorf("the clean note doesn't name the corpus it read: %+v", repNoteAt(m, "ok"))
+		t.Errorf("the clean note doesn't name the corpus it read: %+v", m.Notes)
 	}
 	if !strings.Contains(m.Corpus, "not a live query") {
 		t.Errorf("Corpus caveat = %q, want it to disclaim live DNSBL queries", m.Corpus)
@@ -233,7 +222,8 @@ func TestMXReputationTakesHostsInPreferenceOrder(t *testing.T) {
 	for i, h := range []string{"first", "second", "third"} {
 		z[zoneKey(h+".order.test", "A")] = []string{fmt.Sprintf("%s.order.test. 300 IN A 192.0.2.%d", h, 30+i)}
 	}
-	m := newTestService().repRun(context.Background(), "order.test", repAddrOf(t, z), &repFakeCorpus{})
+	_, addr := serveZone(t, z)
+	m := newTestService().repRun(context.Background(), "order.test", addr, &repFakeCorpus{})
 
 	var got []string
 	for _, h := range m.Hosts {
@@ -265,8 +255,9 @@ func TestMXReputationBoundsItsFanOut(t *testing.T) {
 	}
 	z[zoneKey("big.test", "MX")] = mx
 
+	_, addr := serveZone(t, z)
 	corpus := &repFakeCorpus{}
-	m := newTestService().repRun(context.Background(), "big.test", repAddrOf(t, z), corpus)
+	m := newTestService().repRun(context.Background(), "big.test", addr, corpus)
 
 	if m.MXCount != 9 {
 		t.Fatalf("MXCount = %d, want all 9 published records counted", m.MXCount)
@@ -309,8 +300,9 @@ func TestMXReputationSaysWhenTheBudgetRanOutInsideAHost(t *testing.T) {
 	}
 	z[zoneKey("bud.test", "MX")] = mx
 
+	_, addr := serveZone(t, z)
 	corpus := &repFakeCorpus{}
-	m := newTestService().repRun(context.Background(), "bud.test", repAddrOf(t, z), corpus)
+	m := newTestService().repRun(context.Background(), "bud.test", addr, corpus)
 
 	if corpus.count() != repMaxChecks {
 		t.Fatalf("corpus reads = %d, want the budget %d to be spent exactly", corpus.count(), repMaxChecks)
@@ -325,7 +317,7 @@ func TestMXReputationSaysWhenTheBudgetRanOutInsideAHost(t *testing.T) {
 		t.Errorf("no note tells the reader some addresses were never read: %+v", m.Notes)
 	}
 	if !hasNote(m.Notes, "ok", fmt.Sprintf("all %d mail-server addresses", repMaxChecks)) {
-		t.Errorf("the clean note's denominator is not what was read: %+v", repNoteAt(m, "ok"))
+		t.Errorf("the clean note's denominator is not what was read: %+v", m.Notes)
 	}
 }
 
@@ -589,13 +581,13 @@ func TestMXReputationReadsASharedAddressOnce(t *testing.T) {
 	if !m.Hosts[1].Addrs[0].Duplicate {
 		t.Error("the repeated address is not marked, so the row count and the checked count look inconsistent")
 	}
-	fails := repNoteAt(m, "fail")
+	fails := slices.DeleteFunc(slices.Clone(m.Notes), func(n Note) bool { return n.Level != "fail" })
 	if len(fails) != 1 {
-		t.Fatalf("%d failing notes for one listed address: %v", len(fails), fails)
+		t.Fatalf("%d failing notes for one listed address: %+v", len(fails), fails)
 	}
 	for _, want := range []string{"a.dup.test", "b.dup.test", "are listed"} {
-		if !strings.Contains(fails[0], want) {
-			t.Errorf("the finding does not mention %q: %s", want, fails[0])
+		if !strings.Contains(fails[0].Text, want) {
+			t.Errorf("the finding does not mention %q: %s", want, fails[0].Text)
 		}
 	}
 }
@@ -618,8 +610,9 @@ func TestMXReputationTruncationNoteCountsWhatItLookedAt(t *testing.T) {
 	}
 	z[zoneKey("part.test", "MX")] = mx
 
+	_, addr := serveZone(t, z)
 	corpus := &repFakeCorpus{}
-	m := newTestService().repRun(context.Background(), "part.test", repAddrOf(t, z), corpus)
+	m := newTestService().repRun(context.Background(), "part.test", addr, corpus)
 
 	if !m.HostsTruncated || len(m.Hosts) != repMaxHosts {
 		t.Fatalf("hosts=%d truncated=%v, want the %d-host cap to bite", len(m.Hosts), m.HostsTruncated, repMaxHosts)
@@ -627,12 +620,11 @@ func TestMXReputationTruncationNoteCountsWhatItLookedAt(t *testing.T) {
 	if m.Checked != 3 || corpus.count() != 3 {
 		t.Fatalf("checked=%d reads=%d, want 3: two of the five rows resolve to nothing", m.Checked, corpus.count())
 	}
-	note := strings.Join(repNoteAt(m, "info"), "\n")
-	if !strings.Contains(note, "looked at") {
-		t.Errorf("the truncation note counts rows as checked when two were never read: %s", note)
+	if !hasNote(m.Notes, "info", "looked at") {
+		t.Errorf("the truncation note counts rows as checked when two were never read: %+v", m.Notes)
 	}
-	if strings.Contains(note, "most-preferred were checked") {
-		t.Errorf("the note still says five were checked when three were: %s", note)
+	if hasNote(m.Notes, "info", "most-preferred were checked") {
+		t.Errorf("the note still says five were checked when three were: %+v", m.Notes)
 	}
 }
 
@@ -695,24 +687,13 @@ func TestMXReputationJSONShape(t *testing.T) {
 	}
 }
 
-// repAddrOf is serveZone for cases that only need the address.
-func repAddrOf(t *testing.T, z testZone) string {
-	t.Helper()
-	_, a := serveZone(t, z)
-	return a
-}
-
 // serveFailingZone is serveZone where the keys in servfail answer SERVFAIL.
 func serveFailingZone(t *testing.T, z testZone, servfail []string) string {
 	t.Helper()
-	return startLoopbackDNS(t, func(w dns.ResponseWriter, req *dns.Msg) {
-		m := zoneReply(t, z, req)
-		if len(req.Question) == 1 {
-			q := req.Question[0]
-			if slices.Contains(servfail, zoneKey(q.Name, dns.TypeToString[q.Qtype])) {
-				m.Answer, m.Rcode = nil, dns.RcodeServerFailure
-			}
+	_, addr := serveZoneWith(t, z, func(m *dns.Msg, q dns.Question) {
+		if slices.Contains(servfail, zoneKey(q.Name, dns.TypeToString[q.Qtype])) {
+			m.Answer, m.Rcode = nil, dns.RcodeServerFailure
 		}
-		_ = w.WriteMsg(m)
 	})
+	return addr
 }

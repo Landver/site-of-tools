@@ -49,7 +49,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func serveLoopbackUDP(t *testing.T, h dns.Handler) string {
+func serveLoopbackUDP(t *testing.T, h dns.HandlerFunc) string {
 	t.Helper()
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -97,13 +97,19 @@ func spfZone(records map[string]string) testZone {
 // serveZone serves z on loopback: key is for LookupSet/EmailAuth, addr for lookup and checkSPF.
 func serveZone(t *testing.T, z testZone) (key, addr string) {
 	t.Helper()
+	return serveZoneWith(t, z, nil)
+}
+
+// serveZoneWith is serveZone with edit applied to each single-question reply before it is sent.
+func serveZoneWith(t *testing.T, z testZone, edit func(m *dns.Msg, q dns.Question)) (key, addr string) {
+	t.Helper()
 
 	names := map[string]bool{}
 	for k := range z {
 		names[k[:strings.LastIndex(k, "|")]] = true
 	}
 
-	addr = serveLoopbackUDP(t, dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
+	addr = serveLoopbackUDP(t, func(w dns.ResponseWriter, req *dns.Msg) {
 		m := new(dns.Msg).SetReply(req)
 		m.Authoritative = true
 		if len(req.Question) == 1 {
@@ -120,9 +126,12 @@ func serveZone(t *testing.T, z testZone) (key, addr string) {
 			if len(m.Answer) == 0 && !names[name] {
 				m.Rcode = dns.RcodeNameError
 			}
+			if edit != nil {
+				edit(m, q)
+			}
 		}
 		_ = w.WriteMsg(m)
-	}))
+	})
 	key = "test-" + addr
 	testResolvers.add(t, key, addr)
 	return key, addr

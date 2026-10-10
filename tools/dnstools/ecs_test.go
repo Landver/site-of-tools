@@ -31,7 +31,7 @@ func ecsTestServer(t *testing.T, reply func(subnet string) (vals []string, scope
 
 func (s ecsServer) start(t *testing.T) string {
 	t.Helper()
-	return startLoopbackDNS(t, func(w dns.ResponseWriter, req *dns.Msg) {
+	return serveLoopbackUDP(t, func(w dns.ResponseWriter, req *dns.Msg) {
 		m := new(dns.Msg).SetReply(req)
 		m.Authoritative = true
 		m.Rcode = s.rcode
