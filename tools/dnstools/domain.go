@@ -1,18 +1,18 @@
 package dnstools
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
-	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -104,12 +104,6 @@ const (
 	maxResponseBytes = 8 << 20
 )
 
-// rdap.org and crt.sh throttle a busy address, and all our requests come from one.
-const (
-	upstreamPerSecond = 1
-	upstreamBurst     = 5
-)
-
 // DomainClient talks to RDAP and Certificate Transparency. nil disables both.
 type DomainClient struct {
 	client             *http.Client
@@ -125,11 +119,12 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient
 	if rdapURL == "" && ctURL == "" {
 		return nil
 	}
+	// rdap.org and crt.sh throttle a busy address, and all our requests come from one.
 	d := &DomainClient{
 		rdapURL:   strings.TrimSuffix(rdapURL, "/"),
 		ctURL:     strings.TrimSuffix(ctURL, "/"),
-		rdapLimit: rate.NewLimiter(upstreamPerSecond, upstreamBurst),
-		ctLimit:   rate.NewLimiter(upstreamPerSecond, upstreamBurst),
+		rdapLimit: rate.NewLimiter(1, 5),
+		ctLimit:   rate.NewLimiter(1, 5),
 	}
 	d.client = d.httpClient(timeout, platform.NewEgressGuard([]string{"80", "443"}, nil))
 	return d
@@ -172,10 +167,7 @@ func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard
 				return nil
 			}
 			// By name too: our own vhosts resolve to public addresses.
-			if err := g.AllowHost(req.URL.Hostname()); err != nil {
-				return fmt.Errorf("%w: %w", errRedirectRefused, err)
-			}
-			return nil
+			return g.AllowHost(req.URL.Hostname())
 		},
 		Transport: tr,
 	}
@@ -193,9 +185,6 @@ func hostPort(u *url.URL) string {
 }
 
 func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error {
-	if d == nil {
-		return ErrDisabled
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return err
@@ -220,21 +209,14 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s answered with an error (%d)", req.URL.Host, resp.StatusCode)
 	}
-	// An HTML error page served as 200 would surface as a JSON syntax error. A missing
-	// type is allowed: some RDAP servers send none.
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		mt, _, err := mime.ParseMediaType(ct)
-		if err != nil || (mt != "application/json" && mt != "text/json" && !strings.HasSuffix(mt, "+json")) {
-			return fmt.Errorf("upstream returned %s, not JSON", ct)
-		}
-	}
 	// One byte past the cap tells our truncation from a stream the upstream cut short.
 	lr := &io.LimitedReader{R: resp.Body, N: maxResponseBytes + 1}
 	if err := json.NewDecoder(lr).Decode(into); err != nil {
 		if lr.N == 0 {
 			return fmt.Errorf("upstream response exceeded %d MB", maxResponseBytes>>20)
 		}
-		return err
+		// Plain words: an HTML error page served as 200 would otherwise read as a JSON syntax error.
+		return fmt.Errorf("%s sent a reply that couldn't be read as JSON", req.URL.Host)
 	}
 	return nil
 }
@@ -249,14 +231,8 @@ type rdapResponse struct {
 		Date   string `json:"eventDate"`
 	} `json:"events"`
 	Entities []struct {
-		Roles      []string          `json:"roles"`
-		VCardArray []json.RawMessage `json:"vcardArray"`
-		// Handle and PublicIDs name a registrar that publishes no jCard.
-		Handle    string `json:"handle"`
-		PublicIDs []struct {
-			Type       string `json:"type"`
-			Identifier string `json:"identifier"`
-		} `json:"publicIds"`
+		Roles      []string `json:"roles"`
+		VCardArray []any    `json:"vcardArray"`
 	} `json:"entities"`
 	Nameservers []struct {
 		LDHName string `json:"ldhName"`
@@ -283,19 +259,13 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 		return nil, err
 	}
 
-	if r.ObjectClassName != "" && !strings.EqualFold(r.ObjectClassName, "domain") {
-		return nil, fmt.Errorf("the registry answered with a %s object, not a domain", r.ObjectClassName)
-	}
 	gotName := bareName(r.LDHName)
 	// An IDN comes back as its A-label, so only names whose two forms match are compared.
-	if gotName != "" && isASCII(asked) && gotName != asked {
-		return nil, fmt.Errorf("the registry answered about %s, not %s", gotName, asked)
+	if (r.ObjectClassName != "" && !strings.EqualFold(r.ObjectClassName, "domain")) || (gotName != "" && isASCII(asked) && gotName != asked) {
+		return nil, fmt.Errorf("the registry answered about something other than the domain %s", asked)
 	}
 
-	out := &Registration{Domain: domain, SignedDelegation: r.SecureDNS.DelegationSigned}
-	if gotName != "" {
-		out.Domain = gotName
-	}
+	out := &Registration{Domain: cmp.Or(gotName, domain), SignedDelegation: r.SecureDNS.DelegationSigned}
 	for _, e := range r.Events {
 		switch strings.ToLower(e.Action) {
 		case "registration":
@@ -318,20 +288,10 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 		// Trailing dot off, so names compare equal to the zone's own NS records.
 		out.Nameservers = append(out.Nameservers, bareName(ns.LDHName))
 	}
+	// The first registrar-role entity is sometimes an empty stub wrapping the named one.
 	for _, e := range r.Entities {
-		if !slices.ContainsFunc(e.Roles, func(r string) bool { return strings.EqualFold(r, "registrar") }) {
-			continue
-		}
-		out.Registrar = vcardName(e.VCardArray)
-		if out.Registrar == "" {
-			out.Registrar = strings.TrimSpace(e.Handle)
-		}
-		for i := 0; out.Registrar == "" && i < len(e.PublicIDs); i++ {
-			out.Registrar = strings.TrimSpace(e.PublicIDs[i].Type + " " + e.PublicIDs[i].Identifier)
-		}
-		// The first registrar-role entity is sometimes an empty stub wrapping the named one.
-		if out.Registrar != "" {
-			break
+		if out.Registrar == "" && slices.ContainsFunc(e.Roles, func(r string) bool { return strings.EqualFold(r, "registrar") }) {
+			out.Registrar = vcardName(e.VCardArray)
 		}
 	}
 	return out, nil
@@ -364,17 +324,13 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 		return nil, errUpstreamBusy
 	}
 	var rows []ctRow
-	q := url.Values{
-		"q":       {"%." + strings.TrimSuffix(domain, ".")},
-		"output":  {"json"},
-		"exclude": {"expired"},
-	}
+	q := url.Values{"q": {"%." + strings.TrimSuffix(domain, ".")}, "output": {"json"}, "exclude": {"expired"}}
 	if err := d.get(ctx, d.ctURL+"/?"+q.Encode(), &rows); err != nil {
 		return nil, err
 	}
 
 	base := bareName(domain)
-	agg := map[string]*Subdomain{}
+	agg := map[string]Subdomain{}
 	counted := map[string]bool{} // name+serial: a precertificate and its certificate count once
 	wildcard := false
 	for _, row := range rows {
@@ -391,11 +347,8 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 				wildcard = true
 				continue
 			}
-			s, ok := agg[n]
-			if !ok {
-				s = &Subdomain{Name: n}
-				agg[n] = s
-			}
+			s := agg[n]
+			s.Name = n
 			if key := n + "\x00" + row.SerialNumber; row.SerialNumber == "" || !counted[key] {
 				counted[key] = true
 				s.Certs++
@@ -406,14 +359,12 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 			if a := date(row.NotAfter); a != "" && a > s.LastSeen {
 				s.LastSeen = a
 			}
+			agg[n] = s
 		}
 	}
 
-	out := &CertNames{Total: len(agg), Wildcard: wildcard}
-	for _, s := range agg {
-		out.Names = append(out.Names, *s)
-	}
-	sort.Slice(out.Names, func(i, j int) bool { return out.Names[i].Name < out.Names[j].Name })
+	out := &CertNames{Total: len(agg), Wildcard: wildcard,
+		Names: slices.SortedFunc(maps.Values(agg), func(a, b Subdomain) int { return strings.Compare(a.Name, b.Name) })}
 	if len(out.Names) > maxSubdomains {
 		out.Names = out.Names[:maxSubdomains]
 		out.Truncated = true
@@ -447,18 +398,12 @@ func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string)
 		out.RegistrableDomain = regName
 	}
 
+	// errPanic stays only if a half panics before it answers.
+	out.RegErr, out.CertErr = errPanic, errPanic
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go safe(func() {
-		defer wg.Done()
-		out.RegErr = errPanic
-		out.Registration, out.RegErr = dom.Registration(ctx, regName)
-	})
-	go safe(func() {
-		defer wg.Done()
-		out.CertErr = errPanic
-		out.CertNames, out.CertErr = dom.CertNames(ctx, name)
-	})
+	go safe(func() { defer wg.Done(); out.Registration, out.RegErr = dom.Registration(ctx, regName) })
+	go safe(func() { defer wg.Done(); out.CertNames, out.CertErr = dom.CertNames(ctx, name) })
 	wg.Wait()
 
 	if out.RegErr != nil {
@@ -496,27 +441,15 @@ func date(s string) string {
 }
 
 // vcardName digs fn out of a jCard: ["vcard", [["fn", {}, "text", NAME]]].
-func vcardName(raw []json.RawMessage) string {
-	if len(raw) < 2 {
+func vcardName(card []any) string {
+	if len(card) < 2 {
 		return ""
 	}
-	var props [][]json.RawMessage
-	if err := json.Unmarshal(raw[1], &props); err != nil {
-		return ""
-	}
+	props, _ := card[1].([]any)
 	for _, p := range props {
-		if len(p) < 4 {
-			continue
-		}
-		var key string
-		if json.Unmarshal(p[0], &key) != nil || key != "fn" {
-			continue
-		}
-		var name string
-		// An empty fn falls through to the caller's handle/ID fallback.
-		if json.Unmarshal(p[3], &name) == nil {
-			if name = strings.TrimSpace(name); name != "" {
-				return name
+		if prop, _ := p.([]any); len(prop) >= 4 && prop[0] == "fn" {
+			if name, _ := prop[3].(string); strings.TrimSpace(name) != "" {
+				return strings.TrimSpace(name)
 			}
 		}
 	}

@@ -125,6 +125,44 @@ func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 	}
 }
 
+func TestJudgeGradesEachFinding(t *testing.T) {
+	t.Parallel()
+	spf := func(lookups int, voids ...string) *SPFResult {
+		return &SPFResult{Record: "v=spf1", Lookups: lookups, Limit: 10, Voids: voids, VoidLimit: 2}
+	}
+	strong := &DMARCResult{Name: "_dmarc.example.com", Policy: "reject", Aggregate: "mailto:r@example.com"}
+	host := []MailHost{{Host: "mx1.example.com", IP: "192.0.2.25", FCrDNS: true}}
+	sts := func(mode string) *MTASTSResult {
+		return &MTASTSResult{Fetched: true, PolicyFound: true, Mode: mode, MX: []string{"*.other.example"}}
+	}
+	cases := []struct {
+		name, level, substr string
+		e                   EmailAuth
+	}{
+		{"over the lookup limit", "fail", "needs 11 DNS lookups", EmailAuth{SPF: spf(11)}},
+		{"near the lookup limit", "warn", "uses 9 of the 10", EmailAuth{SPF: spf(9)}},
+		{"voids within the limit", "warn", "resolve to nothing", EmailAuth{SPF: spf(1, "gone.test")}},
+		{"voids past the limit", "fail", "resolve to nothing", EmailAuth{SPF: spf(3, "a.test", "b.test", "c.test")}},
+		{"partial pct", "warn", "pct=50", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "50"}}},
+		{"inherited sp=none is the policy", "warn", "policy is none", EmailAuth{DMARC: &DMARCResult{Policy: "reject", SubPolicy: "none", Inherited: true}}},
+		{"BIMI behind a strong policy", "ok", "BIMI", EmailAuth{BIMI: "v=BIMI1", DMARC: strong}},
+		{"BIMI with no DMARC", "fail", "BIMI", EmailAuth{BIMI: "v=BIMI1"}},
+		{"BIMI with sp=none", "fail", "BIMI", EmailAuth{BIMI: "v=BIMI1", DMARC: &DMARCResult{Policy: "reject", SubPolicy: "none"}}},
+		{"unusable MTA-STS policy", "fail", "can't be used (policy file unreachable)", EmailAuth{MTASTS: &MTASTSResult{PolicyError: "policy file unreachable"}}},
+		{"MX outside an enforced policy", "fail", "not listed", EmailAuth{MailHosts: host, MTASTS: sts("enforce")}},
+		{"MX outside a testing policy", "warn", "not listed", EmailAuth{MailHosts: host, MTASTS: sts("testing")}},
+		{"unresolved mail host", "fail", "don't resolve", EmailAuth{MailHosts: []MailHost{{Host: "gone.example.com"}}}},
+		{"no FCrDNS", "warn", "doesn't round-trip", EmailAuth{MailHosts: []MailHost{{Host: "mx1.example.com", IP: "192.0.2.25"}}}},
+		{"partial FCrDNS scope is stated", "ok", "the 1 of 3 mail hosts", EmailAuth{MailHosts: host, MXCount: 3}},
+	}
+	for _, c := range cases {
+		c.e.judge()
+		if !hasNote(c.e.Notes, c.level, c.substr) {
+			t.Errorf("%s: no %s note containing %q; got %+v", c.name, c.level, c.substr, c.e.Notes)
+		}
+	}
+}
+
 // Both cards take null MX from mailHosts, so one /email response can't contradict itself.
 func TestNullMXMeansNoTargetButDot(t *testing.T) {
 	t.Parallel()

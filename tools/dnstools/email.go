@@ -48,19 +48,8 @@ type Note struct {
 
 // sortNotes orders findings fail, warn, info, ok; stable within a level.
 func sortNotes(notes []Note) {
-	slices.SortStableFunc(notes, func(a, b Note) int { return noteRank(a.Level) - noteRank(b.Level) })
-}
-
-func noteRank(level string) int {
-	switch level {
-	case "fail":
-		return 0
-	case "warn":
-		return 1
-	case "info":
-		return 2
-	}
-	return 3
+	rank := func(n Note) int { return slices.Index([]string{"fail", "warn", "info", "ok"}, n.Level) }
+	slices.SortStableFunc(notes, func(a, b Note) int { return rank(a) - rank(b) })
 }
 
 type SPFResult struct {
@@ -92,35 +81,6 @@ type DMARCResult struct {
 	Forensic  string `json:"forensic,omitempty"`  // ruf=
 	// Extra: further v=DMARC1 records, which make receivers discard all (RFC 7489 §6.6.3).
 	Extra []string `json:"extra_records,omitempty"`
-}
-
-// Applied is the policy for the asked name: sp= on an inherited record (RFC 7489 §6.6.3).
-func (d *DMARCResult) Applied() string {
-	if d.Inherited && d.SubPolicy != "" {
-		return d.SubPolicy
-	}
-	return d.Policy
-}
-
-// pct reads pct= (100 when absent); false means not a percentage, which may void the record.
-func (d *DMARCResult) pct() (int, bool) {
-	raw := strings.TrimSpace(d.Percent)
-	if raw == "" {
-		return 100, true
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 || n > 100 {
-		return 0, false
-	}
-	return n, true
-}
-
-// nextLower is the policy RFC 7489 §6.3 applies to mail a partial pct= doesn't select.
-func nextLower(policy string) string {
-	if policy == "reject" {
-		return "quarantine"
-	}
-	return "none"
 }
 
 // MailHost is one MX host and whether IP -> PTR -> forward lands back on the same IP.
@@ -165,11 +125,8 @@ var commonDKIMSelectors = []string{
 	"dkim", "default", "mail", "s1", "zoho", "sendgrid", "amazonses",
 }
 
-const (
-	maxSPFIncludes = 15  // past 10 lookups the verdict is settled; stop spending queries
-	maxSPFSteps    = 500 // un-memoised re-walks (loops, depth cuts) grow as branching^depth
-	maxSPFDepth    = 10
-)
+// maxSPFIncludes caps the include queries; each one is a term already charged, so the cap is past the limit.
+const maxSPFIncludes = 15
 
 type Mailer interface {
 	EmailAuth(ctx context.Context, domain string) (*EmailAuth, error)
@@ -209,11 +166,9 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 	run(func() {
 		r, err := s.lookup(ctx, dnsFqdn(domain), "MX", addr)
 		mxErr = err
-		hosts, nullMX := s.checkMailHosts(ctx, r.Records, addr)
 		out.NXDomain = errors.Is(err, errNXDomain)
-		out.HasMX = len(r.Records) > 0
-		out.MXCount = len(r.Records)
-		out.MailHosts, out.NullMX = hosts, nullMX
+		out.HasMX, out.MXCount = len(r.Records) > 0, len(r.Records)
+		out.MailHosts, out.NullMX = s.checkMailHosts(ctx, r.Records, addr)
 	})
 	run(func() { out.SPF = s.checkSPF(ctx, domain, addr) })
 	run(func() { out.DMARC = s.checkDMARC(ctx, domain, addr) })
@@ -225,10 +180,8 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 
 	// A failed query is not evidence of absence: never let "missing" read as a fact.
 	if mxErr != nil && !errors.Is(mxErr, errNoData) && !errors.Is(mxErr, errNXDomain) {
-		out.Notes = append([]Note{{
-			Level: "warn",
-			Text:  "At least one DNS query failed while checking this domain, so anything reported as missing below may simply not have been reachable. Re-run before acting on it.",
-		}}, out.Notes...)
+		out.Notes = append(out.Notes, Note{Level: "warn",
+			Text: "At least one DNS query failed while checking this domain, so anything reported as missing below may simply not have been reachable. Re-run before acting on it."})
 	}
 	out.judge()
 	return out, nil
@@ -240,40 +193,65 @@ func (s *Service) checkSPF(ctx context.Context, domain, addr string) *SPFResult 
 	if len(recs) == 0 {
 		return nil
 	}
-	rec := recs[0]
-	r := &SPFResult{Record: rec, Extra: recs[1:], Limit: 10, VoidLimit: 2}
+	r := &SPFResult{Record: recs[0], Extra: recs[1:], Limit: 10, VoidLimit: 2}
+	// The checked domain starts on the path, so a self-include is a loop at once.
+	onPath := map[string]bool{bareName(domain): true}
+	queries := 0
 
-	w := &spfWalk{
-		// The checked domain starts on the path, so a self-include is a loop at once.
-		inProgress: map[string]bool{bareName(domain): true},
-		memo:       map[string]int{},
-		seen:       map[string]bool{},
+	// cost charges every evaluation (RFC 7208 §4.6.4): an include reached twice costs twice.
+	var cost func(rec string) int
+	cost = func(rec string) int {
+		toks := strings.Fields(rec)
+		// RFC 7208 §6.1: redirect= is ignored when this record has an all mechanism.
+		hasAll := slices.ContainsFunc(toks, func(tok string) bool { name, _ := spfTerm(tok); return name == "all" })
+		n := 0
+		for _, tok := range toks {
+			name, target := spfTerm(tok)
+			switch {
+			case name == "a", name == "mx", name == "ptr", name == "exists":
+				n++
+			case name == "include", name == "redirect" && !hasAll:
+				n++
+				key := bareName(target)
+				if target == "" || onPath[key] {
+					continue
+				}
+				if queries >= maxSPFIncludes || ctx.Err() != nil {
+					r.Truncated = true
+					continue
+				}
+				queries++
+				if !slices.Contains(r.Chain, target) {
+					r.Chain = append(r.Chain, target)
+				}
+				// A macro target (RFC 7208 §7) expands per message; querying it would invent a void.
+				if strings.Contains(target, "%{") {
+					continue
+				}
+				subs, void := s.matchingTXT(ctx, dnsFqdn(target), addr, "v=spf1")
+				if void {
+					r.Voids = append(r.Voids, target)
+				}
+				if len(subs) > 0 {
+					onPath[key] = true
+					n += cost(subs[0])
+					delete(onPath, key)
+				}
+			}
+		}
+		return n
 	}
-	r.Lookups, _ = s.countSPFLookups(ctx, rec, addr, w, 0)
-	r.Chain, r.Truncated, r.Voids = w.chain, w.truncated, w.voids
+	r.Lookups = cost(r.Record)
 
-	for _, tok := range strings.Fields(rec) {
+	for _, tok := range strings.Fields(r.Record) {
 		switch strings.ToLower(tok) {
 		case "all", "+all":
-			// Bare `all` carries an implicit "+", i.e. "anyone may send".
-			r.All = "+all"
+			r.All = "+all" // a bare all carries an implicit "+": anyone may send
 		case "-all", "~all", "?all":
 			r.All = strings.ToLower(tok)
 		}
 	}
 	return r
-}
-
-// spfWalk is one SPF evaluation; memo holds the cost of sub-trees walked to completion.
-type spfWalk struct {
-	// inProgress is path-local: RFC 7208 counts evaluations, so a shared include costs twice.
-	inProgress map[string]bool
-	memo       map[string]int
-	seen       map[string]bool // chain de-dup: display, never counting
-	chain      []string
-	voids      []string
-	truncated  bool
-	steps      int
 }
 
 // spfTerm splits a term into its name (lowercased, CIDR suffix cut) and its target.
@@ -287,79 +265,6 @@ func spfTerm(tok string) (name, target string) {
 	return strings.ToLower(name), target
 }
 
-// countSPFLookups returns a record's cost, and false when a cut or loop made it path-specific.
-func (s *Service) countSPFLookups(ctx context.Context, rec, addr string, w *spfWalk, depth int) (int, bool) {
-	w.steps++
-	if ctx.Err() != nil || w.steps > maxSPFSteps || depth > maxSPFDepth {
-		w.truncated = true
-		return 0, false
-	}
-	toks := strings.Fields(rec)
-
-	// RFC 7208 §6.1: redirect= is ignored when this record has an all mechanism.
-	redirectApplies := !slices.ContainsFunc(toks, func(tok string) bool {
-		name, _ := spfTerm(tok)
-		return name == "all"
-	})
-
-	n, exact := 0, true
-	for _, tok := range toks {
-		name, target := spfTerm(tok)
-		switch name {
-		case "a", "mx", "ptr", "exists":
-			n++
-		case "include", "redirect":
-			if name == "redirect" && !redirectApplies {
-				continue
-			}
-			n++
-			if target == "" {
-				continue
-			}
-			key := bareName(target)
-			if w.inProgress[key] {
-				// The term is charged; re-entering it would not terminate.
-				exact = false
-				continue
-			}
-			if cost, ok := w.memo[key]; ok {
-				n += cost
-				continue
-			}
-			if len(w.chain) >= maxSPFIncludes {
-				w.truncated, exact = true, false
-				continue
-			}
-			if !w.seen[key] {
-				w.seen[key] = true
-				w.chain = append(w.chain, target)
-			}
-			// A macro target (RFC 7208 §7) expands per message; querying it would invent a void.
-			if strings.Contains(target, "%{") {
-				continue
-			}
-			subs, void := s.matchingTXT(ctx, dnsFqdn(target), addr, "v=spf1")
-			if void {
-				w.voids = append(w.voids, target)
-			}
-			if len(subs) == 0 {
-				w.memo[key] = 0
-				continue
-			}
-			w.inProgress[key] = true
-			cost, complete := s.countSPFLookups(ctx, subs[0], addr, w, depth+1)
-			delete(w.inProgress, key)
-			n += cost
-			if complete {
-				w.memo[key] = cost
-			} else {
-				exact = false
-			}
-		}
-	}
-	return n, exact
-}
-
 func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) ([]MailHost, bool) {
 	hosts, nullMX, _ := mailHosts(mx)
 	var out []MailHost
@@ -369,34 +274,25 @@ func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) 
 	return out, nullMX
 }
 
+// probeMailHost tries AAAA only as a fallback, so an IPv6-only MX doesn't read as unresolved.
 func (s *Service) probeMailHost(ctx context.Context, host, addr string) MailHost {
 	h := MailHost{Host: host}
-	// AAAA only as a fallback, so an IPv6-only MX doesn't read as unresolved.
-	fwd, err := s.lookup(ctx, dnsFqdn(host), "A", addr)
-	if err != nil || len(fwd.Records) == 0 {
-		fwd, err = s.lookup(ctx, dnsFqdn(host), "AAAA", addr)
-	}
-	if err != nil || len(fwd.Records) == 0 {
+	for _, qtype := range []string{"A", "AAAA"} {
+		fwd, err := s.lookup(ctx, dnsFqdn(host), qtype, addr)
+		if err != nil || len(fwd.Records) == 0 {
+			continue
+		}
+		h.IP = fwd.Records[0].Value
+		rev, _ := reverseName(h.IP)
+		ptr, err := s.lookup(ctx, rev, "PTR", addr)
+		if err != nil || len(ptr.Records) == 0 {
+			return h
+		}
+		h.PTR = strings.TrimSuffix(ptr.Records[0].Value, ".")
+		back, err := s.lookup(ctx, dnsFqdn(h.PTR), qtype, addr)
+		h.FCrDNS = err == nil && slices.ContainsFunc(back.Records, func(b Record) bool { return b.Value == h.IP })
 		return h
 	}
-	h.IP = fwd.Records[0].Value
-
-	rev, ok := reverseName(h.IP)
-	if !ok {
-		return h
-	}
-	ptr, err := s.lookup(ctx, rev, "PTR", addr)
-	if err != nil || len(ptr.Records) == 0 {
-		return h
-	}
-	h.PTR = strings.TrimSuffix(ptr.Records[0].Value, ".")
-
-	fwdType := "A"
-	if strings.Contains(h.IP, ":") {
-		fwdType = "AAAA"
-	}
-	back, err := s.lookup(ctx, dnsFqdn(h.PTR), fwdType, addr)
-	h.FCrDNS = err == nil && slices.ContainsFunc(back.Records, func(b Record) bool { return b.Value == h.IP })
 	return h
 }
 
@@ -405,12 +301,9 @@ const maxMXPref = 1 << 16
 
 // mxPref reads the preference from MX rdata ("10 mail.example.com.").
 func mxPref(rdata string) int {
-	f := strings.Fields(rdata)
-	if len(f) < 2 {
-		return maxMXPref
-	}
-	n, err := strconv.Atoi(f[0])
-	if err != nil || n < 0 {
+	pref, _, _ := strings.Cut(rdata, " ")
+	n, err := strconv.Atoi(pref)
+	if err != nil {
 		return maxMXPref
 	}
 	return n
@@ -428,7 +321,6 @@ func mailHosts(recs []Record) (hosts []mxTarget, nullMX, conflict bool) {
 	slices.SortStableFunc(byPref, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
 
 	var dot bool
-	hosts = make([]mxTarget, 0, len(byPref))
 	for _, rec := range byPref {
 		switch h := mxHost(rec.Value); h {
 		case "":
@@ -453,59 +345,36 @@ func mxHost(rdata string) string {
 	return "."
 }
 
-// checkDMARC climbs to a parent when the name publishes no record (RFC 7489 §6.6.3).
+// checkDMARC climbs to a parent when the name publishes no record (RFC 7489 §6.6.3). With no
+// PSL it stops at two labels, the honest floor.
 func (s *Service) checkDMARC(ctx context.Context, domain, addr string) *DMARCResult {
 	name := domain
-	for climbed := 0; ; climbed++ {
+	for range 4 { // the name, then up to three parents
 		at := "_dmarc." + name
-		recs, _ := s.matchingTXT(ctx, dnsFqdn(at), addr, "v=DMARC1")
-		if len(recs) > 0 {
-			d := parseDMARC(recs[0])
-			d.Name, d.Inherited, d.Extra = at, name != domain, recs[1:]
-			return d
+		if recs, _ := s.matchingTXT(ctx, dnsFqdn(at), addr, "v=DMARC1"); len(recs) > 0 {
+			t := tagList(recs[0])
+			return &DMARCResult{Record: recs[0], Name: at, Inherited: name != domain, Extra: recs[1:],
+				Policy: strings.ToLower(t["p"]), SubPolicy: strings.ToLower(t["sp"]),
+				Percent: t["pct"], Aggregate: t["rua"], Forensic: t["ruf"]}
 		}
-		parent, ok := parentDomain(name)
-		if !ok || climbed >= maxDMARCParents {
+		_, parent, _ := strings.Cut(name, ".")
+		if !strings.Contains(parent, ".") {
 			return nil
 		}
 		name = parent
 	}
+	return nil
 }
 
-const maxDMARCParents = 3
-
-// parentDomain drops the leftmost label, stopping at two labels: with no PSL, the honest floor.
-func parentDomain(name string) (string, bool) {
-	_, rest, ok := strings.Cut(name, ".")
-	if !ok || !strings.Contains(rest, ".") {
-		return "", false
-	}
-	return rest, true
-}
-
-func parseDMARC(rec string) *DMARCResult {
-	d := &DMARCResult{Record: rec}
+// tagList reads a DMARC or DKIM "k=v; k=v" record. Tag names are case-insensitive: "P=reject" is valid.
+func tagList(rec string) map[string]string {
+	tags := map[string]string{}
 	for _, part := range strings.Split(rec, ";") {
-		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
-		if !ok {
-			continue
-		}
-		v = strings.TrimSpace(v)
-		// Tag names are case-insensitive (RFC 5234 §2.3): "P=reject" is valid.
-		switch strings.ToLower(strings.TrimSpace(k)) {
-		case "p":
-			d.Policy = strings.ToLower(v)
-		case "sp":
-			d.SubPolicy = strings.ToLower(v)
-		case "pct":
-			d.Percent = v
-		case "rua":
-			d.Aggregate = v
-		case "ruf":
-			d.Forensic = v
+		if k, v, ok := strings.Cut(part, "="); ok {
+			tags[strings.ToLower(strings.TrimSpace(k))] = strings.TrimSpace(v)
 		}
 	}
-	return d
+	return tags
 }
 
 // checkDKIM probes common selectors, reporting revoked keys and a wildcard apart from keys.
@@ -519,24 +388,15 @@ func (s *Service) checkDKIM(ctx context.Context, domain, addr string) (keys []DK
 	for i, rec := range recs {
 		switch {
 		case rec == "":
-		case dkimHasKey(rec):
+		case tagList(rec)["p"] != "":
 			keys = append(keys, DKIMKey{Selector: commonDKIMSelectors[i], Found: true})
 		default:
 			revoked = append(revoked, commonDKIMSelectors[i])
 		}
 	}
 	// One record under every unrelated selector is a wildcard, not twelve keys.
-	wildcard = len(recs) > 1 && recs[0] != "" && !slices.ContainsFunc(recs, func(r string) bool { return r != recs[0] })
+	wildcard = recs[0] != "" && !slices.ContainsFunc(recs, func(r string) bool { return r != recs[0] })
 	return keys, revoked, wildcard
-}
-
-func dkimHasKey(rec string) bool {
-	for _, part := range strings.Split(rec, ";") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(part), "="); ok && strings.EqualFold(strings.TrimSpace(k), "p") {
-			return strings.TrimSpace(v) != ""
-		}
-	}
-	return false
 }
 
 func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSResult {
@@ -552,13 +412,13 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 	}
 	m.Fetched = true
 	for _, line := range strings.Split(body, "\n") {
-		k, v, ok := strings.Cut(strings.TrimSpace(line), ":")
+		k, v, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
-		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		v = strings.TrimSpace(v)
 		// RFC 8461 §3.2 field names are case-insensitive: "Mode: Enforce" is valid.
-		switch strings.ToLower(k) {
+		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "mode":
 			m.Mode = strings.ToLower(v)
 		case "mx":
@@ -569,15 +429,13 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 			m.Version = v
 		}
 	}
-	// RFC 8461 §3.2 makes all four mandatory; a wildcard vhost serving HTML must not pass.
+	// RFC 8461 §3.2 makes all four mandatory (max_age at most a year); a wildcard vhost serving HTML must not pass.
 	age, ageErr := strconv.Atoi(m.MaxAge)
 	switch {
 	case !strings.EqualFold(m.Version, "STSv1"):
 		m.PolicyError = "the file at that URL has no version: STSv1 line, so it is not an MTA-STS policy"
-	case m.Mode != "enforce" && m.Mode != "testing" && m.Mode != "none":
-		m.PolicyError = "the policy has no usable mode: line"
-	case ageErr != nil || age < 1 || age > maxSTSAge:
-		m.PolicyError = "the policy's max_age is missing or outside the allowed range"
+	case !slices.Contains([]string{"enforce", "testing", "none"}, m.Mode), ageErr != nil, age < 1, age > 31557600:
+		m.PolicyError = "the policy's mode: or max_age: line is missing or invalid"
 	case m.Mode != "none" && len(m.MX) == 0:
 		m.PolicyError = "the policy lists no mx hosts, so a sender in " + m.Mode + " mode has nothing to match a server against"
 	default:
@@ -585,11 +443,6 @@ func (s *Service) checkMTASTS(ctx context.Context, domain, addr string) *MTASTSR
 	}
 	return m
 }
-
-// maxSTSAge is RFC 8461 §3.2's ceiling on max_age, a little over a year.
-const maxSTSAge = 31557600
-
-const maxQuotedHeader = 100
 
 // policyClient dials through g: any domain can point mta-sts.<domain> anywhere.
 func policyClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
@@ -627,7 +480,7 @@ func (s *Service) fetchPolicy(ctx context.Context, endpoint string) (string, err
 		return "", fmt.Errorf("policy file returned %d", resp.StatusCode)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "text/plain") {
-		return "", fmt.Errorf("policy file is served as %s, and RFC 8461 requires text/plain", platform.Clip(ct, maxQuotedHeader))
+		return "", fmt.Errorf("policy file is served as %s, and RFC 8461 requires text/plain", platform.Clip(ct, 100))
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return string(b), err
@@ -647,20 +500,16 @@ func policyCovers(pattern, host string) bool {
 // name answered nothing at all (void). A SERVFAIL is not void: it means "couldn't find out".
 func (s *Service) matchingTXT(ctx context.Context, name, addr, prefix string) (recs []string, void bool) {
 	r, err := s.lookup(ctx, name, "TXT", addr)
-	switch {
-	case errors.Is(err, errNXDomain), errors.Is(err, errNoData):
+	if errors.Is(err, errNXDomain) || errors.Is(err, errNoData) {
 		return nil, true
-	case err != nil:
-		return nil, false
 	}
 	for _, rec := range r.Records {
-		v := strings.ReplaceAll(rec.Value, `" "`, "")
-		v = strings.Trim(v, `"`)
+		v := strings.Trim(strings.ReplaceAll(rec.Value, `" "`, ""), `"`)
 		if strings.HasPrefix(strings.ToLower(v), strings.ToLower(prefix)) {
 			recs = append(recs, v)
 		}
 	}
-	return recs, len(r.Records) == 0
+	return recs, false
 }
 
 // firstTXT is matchingTXT for the checks where a second record changes nothing.
@@ -687,109 +536,86 @@ func (e *EmailAuth) judge() {
 		return
 	}
 
-	var dmarcPolicy string
-	var dmarcPct int
-	var dmarcPctOK, dmarcFull bool
-	if e.DMARC != nil {
-		dmarcPolicy = e.DMARC.Applied()
-		dmarcPct, dmarcPctOK = e.DMARC.pct()
-		dmarcFull = dmarcPctOK && dmarcPct == 100
+	// policy is what applies to this name: sp= on an inherited record (RFC 7489 §6.6.3).
+	policy, allMail := "", false
+	if d := e.DMARC; d != nil {
+		policy = d.Policy
+		if d.Inherited && d.SubPolicy != "" {
+			policy = d.SubPolicy
+		}
+		pct, err := strconv.Atoi(d.Percent)
+		allMail = d.Percent == "" || (err == nil && pct == 100)
 	}
 
-	if e.SPF == nil {
+	if spf := e.SPF; spf == nil {
 		if e.HasMX {
 			add("fail", "No SPF record. Receivers have no way to know which servers may send mail as this domain.")
 		}
 	} else {
-		if len(e.SPF.Extra) > 0 {
-			all := append([]string{e.SPF.Record}, e.SPF.Extra...)
+		if len(spf.Extra) > 0 {
+			all := append([]string{spf.Record}, spf.Extra...)
 			add("fail", fmt.Sprintf("This domain publishes %d SPF records: %s. RFC 7208 makes more than one a permerror, so receivers evaluate none of them and SPF fails for every message. Merge them into one record.", len(all), `"`+strings.Join(all, `" and "`)+`"`))
 		}
-		if e.SPF.Lookups > e.SPF.Limit {
-			add("fail", fmt.Sprintf("SPF needs %d DNS lookups but RFC 7208 allows %d. Over the limit receivers return permerror and SPF fails for every message, silently. Flatten or remove includes.", e.SPF.Lookups, e.SPF.Limit))
-		} else if e.SPF.Lookups == e.SPF.Limit {
-			add("warn", fmt.Sprintf("SPF uses all %d allowed DNS lookups: any further include will break it.", e.SPF.Limit))
-		} else if e.SPF.Lookups >= 8 {
-			add("warn", fmt.Sprintf("SPF uses %d of the %d allowed DNS lookups. Adding one more provider is likely to break it.", e.SPF.Lookups, e.SPF.Limit))
-		} else {
-			add("ok", fmt.Sprintf("SPF uses %d of the %d allowed DNS lookups.", e.SPF.Lookups, e.SPF.Limit))
+		switch {
+		case spf.Lookups > spf.Limit:
+			add("fail", fmt.Sprintf("SPF needs %d DNS lookups but RFC 7208 allows %d. Over the limit receivers return permerror and SPF fails for every message, silently. Flatten or remove includes.", spf.Lookups, spf.Limit))
+		case spf.Lookups >= 8:
+			add("warn", fmt.Sprintf("SPF uses %d of the %d allowed DNS lookups. Adding one more provider is likely to break it.", spf.Lookups, spf.Limit))
+		default:
+			add("ok", fmt.Sprintf("SPF uses %d of the %d allowed DNS lookups.", spf.Lookups, spf.Limit))
 		}
-		if n := len(e.SPF.Voids); n > 0 {
-			level, lead := "warn", "SPF points at names that resolve to nothing"
-			if n > e.SPF.VoidLimit {
+		if len(spf.Voids) > 0 {
+			level := "warn"
+			if len(spf.Voids) > spf.VoidLimit {
 				level = "fail"
-				lead = fmt.Sprintf("SPF points at %d names that resolve to nothing, and RFC 7208 lets a receiver give up after %d", n, e.SPF.VoidLimit)
 			}
-			add(level, lead+": "+strings.Join(e.SPF.Voids, ", ")+". Usually a provider that has been left in the record after it was dropped.")
+			add(level, fmt.Sprintf("SPF points at names that resolve to nothing: %s. RFC 7208 lets a receiver fail SPF past %d of these. Usually a provider left in the record after it was dropped.", strings.Join(spf.Voids, ", "), spf.VoidLimit))
 		}
-		switch e.SPF.All {
+		switch spf.All {
 		case "+all":
 			add("fail", "SPF ends in +all, which authorises the entire internet to send as this domain. That is strictly worse than having no SPF at all.")
 		case "?all":
 			add("warn", "SPF ends in ?all (neutral), which asserts nothing. Receivers treat it much like no policy.")
-		case "~all":
-			add("ok", "SPF ends in ~all (softfail), the common setting alongside DMARC.")
-		case "-all":
-			add("ok", "SPF ends in -all (hard fail), the strict setting.")
+		case "~all", "-all":
+			add("ok", "SPF ends in "+spf.All+", so mail from servers it doesn't list fails SPF.")
 		}
 	}
 
-	if e.DMARC == nil {
+	if d := e.DMARC; d == nil {
 		if e.HasMX {
 			add("fail", "No DMARC record. Without one, SPF and DKIM results are advisory and nobody is told what to do with failures.")
 		}
 	} else {
-		if len(e.DMARC.Extra) > 0 {
-			add("fail", fmt.Sprintf("%s publishes %d DMARC records. RFC 7489 has receivers discard the lot rather than pick one, so the policy is not applied at all.", e.DMARC.Name, len(e.DMARC.Extra)+1))
+		if len(d.Extra) > 0 {
+			add("fail", fmt.Sprintf("%s publishes %d DMARC records. RFC 7489 has receivers discard the lot rather than pick one, so the policy is not applied at all. Keep one.", d.Name, len(d.Extra)+1))
 		}
-		if e.DMARC.Inherited {
-			add("info", "This name publishes no DMARC record of its own, so receivers apply "+e.DMARC.Name+"'s, as RFC 7489 says they should. The DMARC findings here are about that inherited policy.")
+		if d.Inherited {
+			add("info", "This name publishes no DMARC record of its own, so receivers apply "+d.Name+"'s, as RFC 7489 says they should. The DMARC findings here are about that inherited policy.")
 		}
-		switch dmarcPolicy {
-		case "none":
+		switch {
+		case policy == "none":
 			add("warn", "DMARC is published but the policy is none, so failing mail is still delivered. It collects reports and protects nothing until you move to quarantine or reject.")
-		case "quarantine", "reject":
-			landing := "goes to spam"
-			if dmarcPolicy == "reject" {
-				landing = "is refused outright"
-			}
-			switch {
-			case dmarcFull:
-				add("ok", "DMARC p="+dmarcPolicy+": failing mail "+landing+".")
-			case dmarcPctOK:
-				add("warn", fmt.Sprintf("DMARC is p=%s but pct=%d, so only %d%% of failing mail %s; RFC 7489 gives the other %d%% the next weaker policy (%s). Move to pct=100 once the reports look clean.", dmarcPolicy, dmarcPct, dmarcPct, landing, 100-dmarcPct, nextLower(dmarcPolicy)))
-			default:
-				add("warn", "DMARC pct= is \""+e.DMARC.Percent+"\", which is not a percentage. Receivers that reject the tag may discard the whole record, so the policy protects nothing.")
-			}
-		default:
+		case policy != "quarantine" && policy != "reject":
 			add("warn", "DMARC record has no usable p= policy tag, so receivers treat it as p=none at best.")
+		case !allMail:
+			add("warn", "DMARC is p="+policy+" but pct="+d.Percent+", so the policy does not cover all failing mail. Move to pct=100 once the reports look clean.")
+		default:
+			add("ok", "DMARC p="+policy+": receivers keep failing mail out of the inbox.")
 		}
 		// On an inherited record sp= is the policy judged above, not an exemption from it.
-		if !e.DMARC.Inherited && e.DMARC.SubPolicy == "none" && e.DMARC.Policy != "none" {
+		if !d.Inherited && d.SubPolicy == "none" && d.Policy != "none" {
 			add("warn", "DMARC sets sp=none, so the strong policy above applies to this domain only: every subdomain is unprotected and can still be spoofed.")
 		}
-		if e.DMARC.Aggregate == "" {
+		if d.Aggregate == "" {
 			add("warn", "DMARC has no rua= address, so you receive no aggregate reports and cannot see who is sending as you.")
 		}
 	}
 
 	if !e.HasMX && (e.SPF == nil || e.DMARC == nil) {
-		missing := "SPF or DMARC record"
-		switch {
-		case e.SPF != nil:
-			missing = "DMARC record"
-		case e.DMARC != nil:
-			missing = "SPF record"
-		}
-		add("info", "This domain publishes no MX record and no "+missing+", so nothing tells a receiver to refuse mail forged in its name. If it sends no mail, v=spf1 -all and a DMARC record with p=reject say so.")
+		add("info", "This domain publishes no MX record and lacks SPF or DMARC, so nothing tells a receiver to refuse mail forged in its name. If it sends no mail, v=spf1 -all and a DMARC record with p=reject say so.")
 	}
-
 	if e.NullMX {
-		if e.SPF != nil && e.SPF.All == "-all" && dmarcPolicy == "reject" {
-			add("ok", "This domain publishes a null MX (RFC 7505), SPF -all and DMARC p=reject: it declares that it neither sends nor receives mail.")
-		} else {
-			add("info", "This domain publishes a null MX (RFC 7505), so it is telling every sender that it receives no mail. If it sends none either, the matching declarations are v=spf1 -all and DMARC p=reject.")
-		}
+		add("info", "This domain publishes a null MX (RFC 7505), so it is telling every sender that it receives no mail. If it sends none either, the matching declarations are v=spf1 -all and DMARC p=reject.")
 	}
 
 	var badPTR, unresolved []string
@@ -801,20 +627,18 @@ func (e *EmailAuth) judge() {
 			badPTR = append(badPTR, m.Host)
 		}
 	}
-	if len(unresolved) > 0 {
-		add("fail", "These mail hosts don't resolve to an address at all: "+strings.Join(unresolved, ", ")+". Mail to this domain cannot be delivered to them.")
+	scope := "every mail host"
+	if e.MXCount > len(e.MailHosts) {
+		scope = fmt.Sprintf("the %d of %d mail hosts a sender tries first", len(e.MailHosts), e.MXCount)
 	}
-	if len(e.MailHosts) > 0 {
-		scope, partial := "every mail host", ""
-		if e.MXCount > len(e.MailHosts) {
-			scope = fmt.Sprintf("the %d of %d mail hosts a sender tries first", len(e.MailHosts), e.MXCount)
-			partial = fmt.Sprintf(" Only %s were checked.", scope)
-		}
-		if len(badPTR) > 0 {
-			add("warn", "Reverse DNS doesn't round-trip for "+strings.Join(badPTR, ", ")+". Receivers weigh forward-confirmed reverse DNS on the address mail arrives from, so this costs deliverability for any mail these servers send, without anything else looking wrong."+partial)
-		} else if len(unresolved) == 0 {
-			add("ok", "Reverse DNS round-trips (FCrDNS) for "+scope+", checked on each host's first address.")
-		}
+	switch {
+	case len(unresolved) > 0:
+		add("fail", "These mail hosts don't resolve to an address at all: "+strings.Join(unresolved, ", ")+". Mail to this domain cannot be delivered to them.")
+	case len(badPTR) == 0 && len(e.MailHosts) > 0:
+		add("ok", "Reverse DNS round-trips (FCrDNS) for "+scope+", checked on each host's first address.")
+	}
+	if len(badPTR) > 0 {
+		add("warn", "Reverse DNS doesn't round-trip for "+strings.Join(badPTR, ", ")+". Receivers weigh forward-confirmed reverse DNS on the address mail arrives from, so this costs deliverability for any mail these servers send, without anything else looking wrong.")
 	}
 
 	switch {
@@ -823,11 +647,7 @@ func (e *EmailAuth) judge() {
 	case e.DKIMWildcard:
 		add("warn", "Every selector probed returns the same DKIM record, so there is a wildcard TXT under _domainkey. Any selector a sender invents will appear to be published, which tells a receiver nothing.")
 	case len(e.DKIM) > 0:
-		var sels []string
-		for _, k := range e.DKIM {
-			sels = append(sels, k.Selector)
-		}
-		add("ok", "DKIM keys found at common selectors: "+strings.Join(sels, ", ")+".")
+		add("ok", fmt.Sprintf("DKIM keys found at %d of the common selectors tried.", len(e.DKIM)))
 	case e.HasMX:
 		add("info", "No DKIM key at the common selectors. DNS can't list selectors, so that is not proof there is none.")
 	}
@@ -835,54 +655,39 @@ func (e *EmailAuth) judge() {
 		add("warn", "These selectors publish a revoked key (an empty p=): "+strings.Join(e.DKIMRevoked, ", ")+". Nothing signed with them can verify, so drop the records once no mail still carries those signatures.")
 	}
 
-	if e.MTASTS != nil {
+	if m := e.MTASTS; m != nil {
 		switch {
-		case !e.MTASTS.Fetched:
-			add("fail", "MTA-STS is advertised in DNS but the policy file could not be fetched ("+e.MTASTS.PolicyError+"). Senders that honour MTA-STS will ignore the policy entirely.")
-		case !e.MTASTS.PolicyFound:
-			add("fail", "MTA-STS is advertised in DNS and the policy file is served, but it isn't a usable policy: "+e.MTASTS.PolicyError+". Senders that honour MTA-STS will ignore it entirely.")
-		case e.MTASTS.Mode == "enforce":
+		case !m.PolicyFound:
+			add("fail", "MTA-STS is advertised in DNS but its policy can't be used ("+m.PolicyError+"). Senders that honour MTA-STS will ignore it entirely.")
+		case m.Mode == "enforce":
 			add("ok", "MTA-STS policy is live and in enforce mode.")
-		case e.MTASTS.Mode == "testing":
+		case m.Mode == "testing":
 			add("info", "MTA-STS policy is in testing mode: failures are reported, but senders still deliver when TLS fails, so it protects nothing yet.")
-		case e.MTASTS.Mode == "none":
+		default:
 			add("warn", "MTA-STS policy mode is none, which switches the policy off. Senders will not enforce TLS.")
 		}
-		if e.MTASTS.PolicyFound && e.MTASTS.Mode != "none" {
-			var uncovered []string
-			for _, h := range e.MailHosts {
-				if !slices.ContainsFunc(e.MTASTS.MX, func(p string) bool { return policyCovers(p, h.Host) }) {
-					uncovered = append(uncovered, h.Host)
-				}
+		var uncovered []string
+		for _, h := range e.MailHosts {
+			if !slices.ContainsFunc(m.MX, func(p string) bool { return policyCovers(p, h.Host) }) {
+				uncovered = append(uncovered, h.Host)
 			}
-			switch {
-			case len(uncovered) == 0 && len(e.MailHosts) > 0:
-				add("ok", "Every mail host checked is listed in the MTA-STS policy.")
-			case len(uncovered) > 0 && e.MTASTS.Mode == "enforce":
-				add("fail", "These MX hosts are not listed in the MTA-STS policy: "+strings.Join(uncovered, ", ")+". A sender in enforce mode refuses to deliver to them.")
-			case len(uncovered) > 0:
-				add("warn", "These MX hosts are not listed in the MTA-STS policy: "+strings.Join(uncovered, ", ")+". In testing mode that only generates reports, but it would block delivery under enforce.")
-			}
+		}
+		switch {
+		case !m.PolicyFound || m.Mode == "none" || len(e.MailHosts) == 0:
+		case len(uncovered) == 0:
+			add("ok", "Every mail host checked is listed in the MTA-STS policy.")
+		case m.Mode == "enforce":
+			add("fail", "These MX hosts are not listed in the MTA-STS policy: "+strings.Join(uncovered, ", ")+". A sender in enforce mode refuses to deliver to them.")
+		default:
+			add("warn", "These MX hosts are not listed in the MTA-STS policy: "+strings.Join(uncovered, ", ")+". In testing mode that only generates reports, but it would block delivery under enforce.")
 		}
 	}
 
 	if e.BIMI != "" {
-		const noLogo = " so no mailbox provider will ever display the logo. The BIMI record is doing nothing."
-		switch {
-		case e.DMARC == nil:
-			add("fail", "BIMI is published but the domain has no DMARC record at all,"+noLogo)
-		case dmarcPolicy != "quarantine" && dmarcPolicy != "reject":
-			applied := "p=" + dmarcPolicy
-			if dmarcPolicy == "" {
-				applied = "not set at all"
-			}
-			add("fail", "BIMI is published but the DMARC policy that applies here is "+applied+", not quarantine or reject,"+noLogo)
-		case e.DMARC.SubPolicy == "none":
-			add("fail", "BIMI is published and DMARC is strong, but sp=none exempts every subdomain,"+noLogo+" Set sp= to match p=.")
-		case !dmarcFull:
-			add("fail", "BIMI is published but DMARC pct="+e.DMARC.Percent+" covers only part of the mail, and BIMI requires the policy to apply to all of it,"+noLogo)
-		default:
+		if (policy == "quarantine" || policy == "reject") && allMail && e.DMARC.SubPolicy != "none" {
 			add("ok", "BIMI is published and the DMARC policy behind it is strong enough for it to be used.")
+		} else {
+			add("fail", "BIMI is published but DMARC does not apply quarantine or reject to all mail (pct=100, no sp=none), so no mailbox provider will display the logo. Strengthen DMARC first.")
 		}
 	}
 	sortNotes(e.Notes)
@@ -890,15 +695,9 @@ func (e *EmailAuth) judge() {
 
 // Score counts findings by level; deliberately not a grade out of 100.
 func (e *EmailAuth) Score() (ok, warn, fail int) {
-	for _, n := range e.Notes {
-		switch n.Level {
-		case "ok":
-			ok++
-		case "warn":
-			warn++
-		case "fail":
-			fail++
-		}
+	n := map[string]int{}
+	for _, note := range e.Notes {
+		n[note.Level]++
 	}
-	return
+	return n["ok"], n["warn"], n["fail"]
 }
