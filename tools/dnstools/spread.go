@@ -1,13 +1,13 @@
 package dnstools
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -102,11 +102,7 @@ const (
 
 // Spread runs the check. qtype defaults to A.
 func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, ErrEmptyName
-	}
-	qtype = walkType(qtype)
+	name, qtype = strings.TrimSpace(name), walkType(qtype)
 	// Types, not miekg's registry: ANY/AXFR at caller-chosen nameservers is an amplification pipe.
 	if !slices.Contains(Types, qtype) {
 		return nil, ErrBadType
@@ -118,37 +114,23 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	out := &Spread{Name: name, QName: qname, Type: qtype}
 	start := time.Now()
 
-	defaultAddr, _ := resolverAddr(DefaultResolver)
-	nsNames, zone, total := s.zoneNameservers(ctx, qname, defaultAddr)
-	out.Zone, out.NSTotal = zone, total
-	out.NSTruncated = total > len(nsNames)
+	via, _ := resolverAddr(DefaultResolver)
+	nsNames, zone, total := s.zoneNameservers(ctx, qname, via)
+	out.Zone, out.NSTotal, out.NSTruncated = zone, total, total > len(nsNames)
 
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 6)
-	auth := make([]ServerAnswer, len(nsNames))
-	res := make([]ServerAnswer, len(Resolvers))
-	probe := func(slot *ServerAnswer, ask func() ServerAnswer) {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			*slot = ask()
-		})
-	}
-
-	// Each slot holds errPanic until its probe returns: a blank slot would count as answering.
-	for i, ns := range nsNames {
-		auth[i] = ServerAnswer{Label: strings.TrimSuffix(ns, "."), Error: errPanic.Error()}
-		probe(&auth[i], func() ServerAnswer { return s.askAuthoritative(ctx, qname, qtype, ns, defaultAddr) })
-	}
-	for i, r := range Resolvers {
-		res[i] = ServerAnswer{Label: r.Name, Addr: r.Addr, Error: errPanic.Error()}
-		probe(&res[i], func() ServerAnswer { return s.askResolver(ctx, qname, qtype, r) })
-	}
-	wg.Wait()
-
-	out.Authoritative, out.Resolvers = auth, res
+	n := len(nsNames)
+	out.Authoritative, out.Resolvers = make([]ServerAnswer, n), make([]ServerAnswer, len(Resolvers))
+	fanOut(n+len(Resolvers), 6, func(i int) {
+		// Each slot holds errPanic until its probe returns: a blank slot would count as answering.
+		if i < n {
+			out.Authoritative[i] = ServerAnswer{Label: strings.TrimSuffix(nsNames[i], "."), Error: errPanic.Error()}
+			out.Authoritative[i] = s.askAuthoritative(ctx, qname, qtype, nsNames[i], via)
+			return
+		}
+		r := Resolvers[i-n]
+		out.Resolvers[i-n] = ServerAnswer{Label: r.Name, Addr: r.Addr, Error: errPanic.Error()}
+		out.Resolvers[i-n] = s.askResolver(ctx, qname, qtype, r)
+	})
 	out.QueryMS = time.Since(start).Milliseconds()
 	out.summarise()
 	return out, nil
@@ -161,31 +143,19 @@ func (s *Service) zoneNameservers(ctx context.Context, qname, addr string) (name
 	if err != nil {
 		return nil, "", 0 // qname is a public suffix
 	}
-	apex = dns.Fqdn(apex)
-
 	n := qname
-	for steps := 0; steps < maxZoneWalk; steps++ {
-		r, err := s.lookup(ctx, n, "NS", addr)
-		if err == nil {
-			var out []string
+	for range maxZoneWalk {
+		if r, err := s.lookup(ctx, n, "NS", addr); err == nil {
 			for _, rec := range r.Records {
-				if rec.Type == "NS" {
-					out = append(out, rec.Value)
-				}
+				names = append(names, rec.Value)
 			}
-			if len(out) > 0 {
-				sort.Strings(out)
-				total = len(out)
-				if len(out) > maxAuthoritative {
-					out = out[:maxAuthoritative]
-				}
-				return out, n, total
-			}
+			slices.Sort(names)
+			return names[:min(len(names), maxAuthoritative)], n, len(names)
 		}
-		if n == apex {
+		if n == apex+"." {
 			break
 		}
-		n = n[strings.Index(n, ".")+1:]
+		_, n, _ = strings.Cut(n, ".")
 	}
 	return nil, "", 0
 }
@@ -195,12 +165,11 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 	a := ServerAnswer{Label: strings.TrimSuffix(nsName, ".")}
 
 	ip, found := s.nameserverAddress(ctx, nsName, viaAddr)
-	switch {
-	case !found:
-		a.Error = "could not resolve this nameserver's address (no A or AAAA record)"
-		return a
-	case ip == "":
+	if ip == "" {
 		a.Error = "this nameserver resolves to a non-public address, so it was not probed"
+		if !found {
+			a.Error = "could not resolve this nameserver's address (no A or AAAA record)"
+		}
 		return a
 	}
 	a.Addr = net.JoinHostPort(ip, "53")
@@ -217,40 +186,33 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 	}
 	a.Rcode, a.AA = dns.RcodeToString[resp.Rcode], resp.Authoritative
 	a.Values, a.TTL, a.CNAME = answerValues(resp, qtype)
-	switch {
-	case resp.Rcode == dns.RcodeRefused, resp.Rcode == dns.RcodeServerFailure, resp.Rcode == dns.RcodeNotAuth:
-		a.Error = "answered " + a.Rcode + ", so it is delegated this zone but not serving it (a lame delegation)"
-		return a
-	case !resp.Authoritative && len(a.Values) == 0 && a.CNAME == "":
-		a.Error = "answered without the authoritative bit, so it is not serving this zone (a lame delegation)"
+	if resp.Rcode == dns.RcodeRefused || resp.Rcode == dns.RcodeServerFailure || resp.Rcode == dns.RcodeNotAuth ||
+		!resp.Authoritative && len(a.Values) == 0 && a.CNAME == "" {
+		a.Error = "answered " + a.Rcode + " without authority, so it is delegated this zone but not serving it (a lame delegation)"
 		return a
 	}
 
 	// A real name, since an open resolver also NXDOMAINs a random label; AA spares a server
 	// that happens to serve the probe name.
-	probe := new(dns.Msg)
-	probe.SetQuestion("a.root-servers.net.", dns.TypeA)
-	probe.RecursionDesired = true
+	probe := new(dns.Msg).SetQuestion("a.root-servers.net.", dns.TypeA) // RD=1
 	if pr, _, err := s.udp.ExchangeContext(ctx, probe, a.Addr); err == nil {
 		a.OpenResolver = pr.RecursionAvailable && !pr.Authoritative &&
 			pr.Rcode == dns.RcodeSuccess && len(pr.Answer) > 0
 	}
 
-	soa := new(dns.Msg)
-	soa.SetQuestion(qname, dns.TypeSOA)
+	// The serial comes over TCP, so TCP/53 is probed for free; UDP only when TCP fails.
+	soa := new(dns.Msg).SetQuestion(qname, dns.TypeSOA)
 	soa.RecursionDesired = false
-	// A timeout gets one retry: one slow handshake isn't evidence against a named operator.
-	if _, _, err := s.tcp.ExchangeContext(ctx, soa, a.Addr); err != nil {
-		if isTimeout(err) {
-			_, _, err = s.tcp.ExchangeContext(ctx, soa, a.Addr)
-		}
-		if err != nil {
-			a.TCPFail = true
-			a.TCPRefused = errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
-		}
+	sr, _, err := s.tcp.ExchangeContext(ctx, soa, a.Addr)
+	if isTimeout(err) { // one slow handshake isn't evidence against a named operator
+		sr, _, err = s.tcp.ExchangeContext(ctx, soa, a.Addr)
 	}
-
-	if sr, _, err := s.udp.ExchangeContext(ctx, soa, a.Addr); err == nil {
+	if err != nil {
+		a.TCPFail = true
+		a.TCPRefused = errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
+		sr, _, err = s.udp.ExchangeContext(ctx, soa, a.Addr)
+	}
+	if err == nil {
 		for _, rr := range append(sr.Answer, sr.Ns...) {
 			if v, ok := rr.(*dns.SOA); ok {
 				a.Serial = v.Serial
@@ -265,21 +227,12 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 // so this is the SSRF gate; found separates "no address" from "only unroutable ones".
 func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string) (ip string, found bool) {
 	for _, t := range [...]string{"A", "AAAA"} {
-		r, err := s.lookup(ctx, dns.Fqdn(nsName), t, viaAddr)
-		if err != nil {
-			continue
-		}
+		r, _ := s.lookup(ctx, dns.Fqdn(nsName), t, viaAddr)
 		for _, rec := range r.Records {
-			if rec.Type != t {
-				continue
-			}
 			found = true
-			if ip == "" && s.nsRoutable(rec.Value) {
-				ip = rec.Value
+			if s.nsRoutable(rec.Value) {
+				return rec.Value, true
 			}
-		}
-		if ip != "" {
-			return ip, true
 		}
 	}
 	return "", found
@@ -311,22 +264,17 @@ func (s *Service) askResolver(ctx context.Context, qname, qtype string, r Resolv
 func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname string) {
 	want := dns.StringToType[qtype]
 	for _, rr := range m.Answer {
-		rrType := rr.Header().Rrtype
-		if rrType == dns.TypeCNAME && want != dns.TypeCNAME {
-			if cname == "" {
-				cname = rdata(rr)
+		switch h := rr.Header(); {
+		case h.Rrtype == want:
+			vals = append(vals, rdata(rr))
+			if ttl == 0 || h.Ttl < ttl {
+				ttl = h.Ttl
 			}
-			continue
-		}
-		if rrType != want {
-			continue
-		}
-		vals = append(vals, rdata(rr))
-		if t := rr.Header().Ttl; ttl == 0 || t < ttl {
-			ttl = t
+		case h.Rrtype == dns.TypeCNAME && cname == "":
+			cname = rdata(rr)
 		}
 	}
-	sort.Strings(vals)
+	slices.Sort(vals)
 	return vals, ttl, cname
 }
 
@@ -341,16 +289,13 @@ func answerGroups(labels []string, sets [][]string) []AnswerGroup {
 		k := answerKey(s)
 		j, seen := at[k]
 		if !seen {
-			j = len(groups)
-			at[k] = j
+			j, at[k] = len(groups), len(groups)
 			// The set itself, not the key split back apart: Split turns the empty set into [""].
 			groups = append(groups, AnswerGroup{Values: s})
 		}
 		groups[j].Servers = append(groups[j].Servers, labels[i])
 	}
-	sort.SliceStable(groups, func(i, j int) bool {
-		return len(groups[i].Servers) > len(groups[j].Servers)
-	})
+	slices.SortStableFunc(groups, func(a, b AnswerGroup) int { return len(b.Servers) - len(a.Servers) })
 	return groups
 }
 
@@ -374,86 +319,64 @@ func (sp *Spread) summarise() {
 	var labels []string
 	var sets [][]string
 	for _, a := range all {
-		if a.Error != "" || len(a.Values) == 0 {
-			continue
+		if a.Error == "" && len(a.Values) > 0 {
+			labels, sets = append(labels, a.Label), append(sets, a.Values)
 		}
-		sp.Answered++
-		labels = append(labels, a.Label)
-		sets = append(sets, a.Values)
 	}
+	sp.Answered = len(labels)
 	sp.Groups = answerGroups(labels, sets)
-	sp.Consistent = sp.Answered > 0 && len(sp.Groups) <= 1
+	sp.Consistent = len(sp.Groups) == 1
 
+	// Serials and answer sets compare within one provider: independent providers keep independent serials.
+	serialOf, keyOf, authKeys := map[string]uint32{}, map[string]string{}, map[string]bool{}
+	var authKey string
+	var authTTL uint32
+	splitInside := false
 	sp.SerialsAgree = true
-	byProvider := map[string]uint32{}
 	for _, a := range sp.Authoritative {
-		if a.Error != "" || a.Serial == 0 {
+		if a.Error != "" {
 			continue
 		}
-		sp.SerialsSeen++
 		p := providerKey(a.Label)
-		if first, seen := byProvider[p]; !seen {
-			byProvider[p] = a.Serial
-		} else if a.Serial != first {
-			sp.SerialsAgree = false
+		if a.Serial != 0 {
+			sp.SerialsSeen++
+			if first, seen := serialOf[p]; !seen {
+				serialOf[p] = a.Serial
+			} else if first != a.Serial {
+				sp.SerialsAgree = false
+			}
 		}
-	}
-	sp.MultiProvider = len(byProvider) > 1
-
-	authKeys := map[string]bool{}
-	perProvider := map[string]map[string]bool{}
-	var authKey string
-	for _, a := range sp.Authoritative {
-		if a.Error != "" || len(a.Values) == 0 {
+		if len(a.Values) == 0 {
 			continue
 		}
 		sp.AuthAnswered++
-		k := answerKey(a.Values)
-		if authKey == "" {
-			authKey = k
+		authKey = answerKey(a.Values)
+		authKeys[authKey] = true
+		authTTL = max(authTTL, a.TTL)
+		if first, seen := keyOf[p]; !seen {
+			keyOf[p] = authKey
+		} else if first != authKey {
+			splitInside = true
 		}
-		authKeys[k] = true
-		p := providerKey(a.Label)
-		if perProvider[p] == nil {
-			perProvider[p] = map[string]bool{}
-		}
-		perProvider[p][k] = true
 	}
-	splitInside := false
-	for _, keys := range perProvider {
-		splitInside = splitInside || len(keys) > 1
-	}
+	sp.MultiProvider = len(serialOf) > 1
 	sp.AuthConsistent = len(authKeys) <= 1
-	sp.Rotation = splitInside && sp.AuthAnswered > 1 &&
-		sp.SerialsAgree && sp.SerialsSeen > 1
-
-	// Only a unanimous zone has a TTL to measure cache age against.
-	var authTTL uint32
-	if len(authKeys) == 1 {
-		for _, a := range sp.Authoritative {
-			if a.Error == "" && answerKey(a.Values) == authKey && a.TTL > authTTL {
-				authTTL = a.TTL
-			}
-		}
+	sp.Rotation = splitInside && sp.SerialsAgree && sp.SerialsSeen > 1
+	if len(authKeys) != 1 {
+		authTTL = 0 // only a unanimous zone has a TTL to measure cache age against
 	}
 
 	// StaleFor includes TTLs above the authoritative one: that is a TTL-lowering migration.
 	var worst uint32
 	resolverKeys := map[string]bool{}
-	var resolverKey string
 	for i, r := range sp.Resolvers {
 		if r.Error != "" || len(r.Values) == 0 {
 			continue
 		}
 		k := answerKey(r.Values)
-		if resolverKey == "" {
-			resolverKey = k
-		}
 		resolverKeys[k] = true
-		if r.TTL > worst {
-			worst = r.TTL
-		}
-		if authTTL > 0 && k == authKey && r.TTL > 0 && r.TTL <= authTTL {
+		worst = max(worst, r.TTL)
+		if k == authKey && r.TTL > 0 && r.TTL <= authTTL {
 			sp.Resolvers[i].CacheAge = humanizeTTL(authTTL - r.TTL)
 		}
 	}
@@ -461,9 +384,7 @@ func (sp *Spread) summarise() {
 		sp.StaleFor = humanizeTTL(worst)
 	}
 	sp.ResolverGroups = len(resolverKeys)
-	sp.ResolversStale = sp.ResolverGroups == 1 && sp.AuthConsistent &&
-		authKey != "" && resolverKey != authKey
-
+	sp.ResolversStale = sp.ResolverGroups == 1 && sp.AuthConsistent && authKey != "" && !resolverKeys[authKey]
 	sp.health()
 }
 
@@ -472,13 +393,10 @@ func unanimousRcode[T any](all []T, rcodeOf func(T) string) string {
 	var code string
 	for _, a := range all {
 		c := rcodeOf(a)
-		if c == "" {
-			continue
-		}
-		if code != "" && c != code {
+		if c != "" && code != "" && c != code {
 			return ""
 		}
-		code = c
+		code = cmp.Or(c, code)
 	}
 	return code
 }
@@ -507,61 +425,54 @@ func (sp *Spread) health() {
 	}
 
 	// RFC 2182: at least two nameservers, and they should not share a fate.
-	n := len(sp.Authoritative)
-	switch {
+	switch n := len(sp.Authoritative); {
 	case n == 0:
 		sp.addHealth("fail", "No nameservers are delegated for this name, so nothing serves it.")
 	case live == 0:
 		sp.addHealth("fail", fmt.Sprintf("None of the zone's %d nameservers answered.", n))
-	case live == 1 && n == 1:
+	case n == 1:
 		sp.addHealth("fail", "Only one nameserver is delegated. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
 	case live == 1:
 		sp.addHealth("fail", fmt.Sprintf("Only 1 of the zone's %d nameservers answered. The rest are lame, and the one left is a single point of failure for the whole domain.", n))
 	default:
 		sp.addHealth("ok", fmt.Sprintf("%d nameservers answered, so the zone survives losing one.", live))
 	}
-	sortNotes(sp.Health)
 }
 
 // addDelegationHealth adds ASN-diversity and registry findings (registryNS describes sp.Zone).
 func (sp *Spread) addDelegationHealth(asnOf func(ip string) string, registryNS []string) {
-	if asnOf != nil {
-		asns, nets := map[string]bool{}, map[string]bool{}
-		resolved, v4 := 0, 0
-		for _, a := range sp.Authoritative {
-			// SplitHostPort, not a cut at the first colon: an IPv6 Addr is bracketed.
-			ip, _, err := net.SplitHostPort(a.Addr)
-			if err != nil || a.Error != "" {
-				continue
-			}
-			resolved++
-			if i := strings.LastIndex(ip, "."); i > 0 {
-				v4++
-				nets[ip[:i]] = true // rough /24
-			}
-			if asn := asnOf(ip); asn != "" {
-				asns[asn] = true
-			}
+	asns, nets := map[string]bool{}, map[string]bool{}
+	resolved, v4 := 0, 0
+	for _, a := range sp.Authoritative {
+		// SplitHostPort, not a cut at the first colon: an IPv6 Addr is bracketed.
+		ip, _, err := net.SplitHostPort(a.Addr)
+		if err != nil || a.Error != "" {
+			continue
 		}
-		if resolved > 1 {
-			switch {
-			case len(asns) == 1:
-				for asn := range asns {
-					sp.addHealth("warn", "Every nameserver sits in the same network (AS"+asn+"). One provider outage takes the whole domain offline; the usual fix is a secondary DNS provider.")
-				}
-			case len(asns) > 1:
-				sp.addHealth("ok", fmt.Sprintf("Nameservers are spread across %d different networks.", len(asns)))
+		resolved++
+		if i := strings.LastIndex(ip, "."); i > 0 {
+			v4++
+			nets[ip[:i]] = true // rough /24
+		}
+		if asn := asnOf(ip); asn != "" {
+			asns[asn] = true
+		}
+	}
+	if resolved > 1 {
+		switch {
+		case len(asns) == 1:
+			for asn := range asns {
+				sp.addHealth("warn", "Every nameserver sits in the same network (AS"+asn+"). One provider outage takes the whole domain offline; the usual fix is a secondary DNS provider.")
 			}
-			// All-IPv4 only: one shared /24 says nothing about where v6 servers sit.
-			if len(nets) == 1 && v4 == resolved && len(asns) <= 1 {
-				sp.addHealth("warn", "All nameserver addresses are in the same /24, so they likely share a rack, a router and a fate.")
-			}
+		case len(asns) > 1:
+			sp.addHealth("ok", fmt.Sprintf("Nameservers are spread across %d different networks.", len(asns)))
+		}
+		// All-IPv4 only: one shared /24 says nothing about where v6 servers sit.
+		if len(nets) == 1 && v4 == resolved && len(asns) <= 1 {
+			sp.addHealth("warn", "All nameserver addresses are in the same /24, so they likely share a rack, a router and a fate.")
 		}
 	}
 
-	if len(registryNS) == 0 {
-		return
-	}
 	atRegistry := map[string]bool{}
 	for _, ns := range registryNS {
 		atRegistry[bareName(ns)] = true
@@ -573,6 +484,7 @@ func (sp *Spread) addDelegationHealth(asnOf func(ip string) string, registryNS [
 		}
 	}
 	switch {
+	case len(registryNS) == 0: // no registry answer, nothing to compare
 	case len(missing) > 0:
 		sp.addHealth("warn", "The zone serves nameservers the registry doesn't list ("+strings.Join(missing, ", ")+"). Resolvers follow the registry's delegation, so these may never be asked.")
 	case sp.NSTruncated: // only maxAuthoritative were probed, so the counts can't be compared
@@ -594,10 +506,8 @@ func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looke
 		return nil, ErrDisabled
 	}
 	name, qtype = NormalizeName(name), walkType(qtype)
-	var (
-		wg    sync.WaitGroup
-		steer *ECS
-	)
+	var wg sync.WaitGroup
+	var steer *ECS
 	if ecs != nil {
 		wg.Add(1)
 		go safe(func() {
@@ -619,30 +529,24 @@ func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looke
 }
 
 func walkType(qtype string) string {
-	if t := strings.ToUpper(strings.TrimSpace(qtype)); t != "" {
-		return t
-	}
-	return "A"
+	return cmp.Or(strings.ToUpper(strings.TrimSpace(qtype)), "A")
 }
 
 func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *DomainClient) {
-	var asnOf func(string) string
-	if geo != nil {
-		asnOf = func(ip string) string {
-			g, err := geo.Lookup(ip)
-			if err != nil || g == nil {
-				return ""
-			}
-			return g.ASN
-		}
-	}
 	var registryNS []string
 	if dom != nil && sp.Zone != "" {
 		if reg, err := dom.Registration(ctx, sp.Zone); err == nil {
 			registryNS = reg.Nameservers
 		}
 	}
-	sp.addDelegationHealth(asnOf, registryNS)
+	sp.addDelegationHealth(func(ip string) string {
+		if geo != nil {
+			if g, err := geo.Lookup(ip); err == nil && g != nil {
+				return g.ASN
+			}
+		}
+		return ""
+	}, registryNS)
 }
 
 // providerKey reduces a nameserver to its operator: decode.go's providers table first (Route 53
@@ -652,10 +556,6 @@ func providerKey(host string) string {
 	if name := knownProvider(h); name != "" {
 		return name
 	}
-	base, err := publicsuffix.EffectiveTLDPlusOne(h)
-	if err != nil {
-		base = h
-	}
-	label, _, _ := strings.Cut(base, ".")
+	label, _, _ := strings.Cut(RegistrableDomain(h), ".")
 	return strings.TrimRight(strings.TrimRight(label, "0123456789"), "-")
 }

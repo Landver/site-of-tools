@@ -28,13 +28,11 @@ type repFakeCorpus struct {
 
 	mu    sync.Mutex
 	calls int
-	seen  []string
 }
 
 func (f *repFakeCorpus) Check(_ context.Context, ip string) (iptools.BlockLookup, error) {
 	f.mu.Lock()
 	f.calls++
-	f.seen = append(f.seen, ip)
 	f.mu.Unlock()
 	if f.err != nil {
 		return iptools.BlockLookup{}, f.err
@@ -59,12 +57,6 @@ func (f *repFakeCorpus) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
-}
-
-func (f *repFakeCorpus) read() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.seen...)
 }
 
 func TestMXReputationNamesAListedMailServer(t *testing.T) {
@@ -565,8 +557,8 @@ func TestMXReputationReadsASharedAddressOnce(t *testing.T) {
 
 	m := newTestService().repRun(context.Background(), "dup.test", addr, corpus)
 
-	if got := corpus.read(); len(got) != 1 {
-		t.Errorf("corpus reads = %v, want the shared address read once", got)
+	if got := corpus.count(); got != 1 {
+		t.Errorf("corpus reads = %d, want the shared address read once", got)
 	}
 	if m.Checked != 1 || m.Listed != 1 {
 		t.Errorf("checked=%d listed=%d, want 1 and 1: one address, counted once", m.Checked, m.Listed)
