@@ -18,6 +18,14 @@ func mustRR(t *testing.T, s string) dns.RR {
 	return rr
 }
 
+// svcbOf is the SVCB part of an HTTPS or SVCB record.
+func svcbOf(rr dns.RR) *dns.SVCB {
+	if h, ok := rr.(*dns.HTTPS); ok {
+		return &h.SVCB
+	}
+	return rr.(*dns.SVCB)
+}
+
 func TestCAAFields(t *testing.T) {
 	t.Parallel()
 
@@ -143,7 +151,7 @@ func TestSVCBFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if diff := cmp.Diff(tc.want, svcbFields(mustRR(t, tc.rr))); diff != "" {
+			if diff := cmp.Diff(tc.want, svcbFields(svcbOf(mustRR(t, tc.rr)))); diff != "" {
 				t.Errorf("svcbFields differs (-want +got):\n%s", diff)
 			}
 		})
@@ -158,7 +166,7 @@ func TestECHByteCount(t *testing.T) {
 	rr := mustRR(t, `example.com. 300 IN HTTPS 1 . ech="`+base64.StdEncoding.EncodeToString(raw)+`"`)
 
 	var ech string
-	for _, f := range svcbFields(rr) {
+	for _, f := range svcbFields(svcbOf(rr)) {
 		if f.Name == "ECH" {
 			ech = f.Value
 		}
@@ -172,7 +180,7 @@ func TestECHByteCount(t *testing.T) {
 
 	// An empty ech= asserts a privacy property the record does not provide.
 	empty := mustRR(t, `example.com. 300 IN HTTPS 1 . ech=""`)
-	for _, f := range svcbFields(empty) {
+	for _, f := range svcbFields(svcbOf(empty)) {
 		if f.Name != "ECH" {
 			continue
 		}
@@ -201,14 +209,15 @@ func TestSOAFields(t *testing.T) {
 	}
 }
 
-// An escaped dot belongs to the local part, so the first literal dot is not the @.
-func TestMboxEmailHonoursEscaping(t *testing.T) {
+// An escaped dot belongs to the local part: rather than put the @ there, leave the address out.
+func TestSOALeavesAnEscapedMboxUndecoded(t *testing.T) {
 	t.Parallel()
 
-	soa := mustRR(t,
-		`example.com. 300 IN SOA ns1.example.com. first\.last.example.com. 1 7200 3600 1209600 900`).(*dns.SOA)
-	if got, want := mboxEmail(soa.Mbox), "first.last@example.com"; got != want {
-		t.Errorf("mboxEmail(%q) = %q, want %q", soa.Mbox, got, want)
+	for _, mbox := range []string{`first\.last.example.com.`, "."} {
+		soa := mustRR(t, `example.com. 300 IN SOA ns1.example.com. `+mbox+` 1 7200 3600 1209600 900`).(*dns.SOA)
+		if f := soaFields(soa); f[1].Name == "Hostmaster" {
+			t.Errorf("mbox %s decoded as %q, want the row left out", mbox, f[1].Value)
+		}
 	}
 }
 
@@ -221,7 +230,7 @@ func TestTXTLabel(t *testing.T) {
 		// Publishers are inconsistent about the marker's case.
 		{"v=dmarc1; p=none", "DMARC — what to do with failing mail"},
 		{"v=STSv1; id=20260101", "MTA-STS — enforced mail transport security"},
-		{"google-site-verification=abc123", "Google — site ownership"},
+		{"google-site-verification=abc123", "Domain ownership proof"},
 		{"MS=ms12345678", "Microsoft — domain ownership"},
 		// Unknown vendor, recognisable shape: say what it is, not who it is.
 		{"acme-verification=xyz", "Domain ownership proof"},

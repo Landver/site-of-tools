@@ -2,12 +2,12 @@
 package dnstools
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"slices"
@@ -61,7 +61,6 @@ type Result struct {
 
 // responseMeta: facts about the whole response, which LookupSet lifts onto the ResultSet.
 type responseMeta struct {
-	cached        bool
 	flags         string
 	authenticated bool
 	signed        bool
@@ -93,51 +92,43 @@ func validDomain(name string) error {
 		return ErrEmptyName
 	}
 	if len(name) > 253 {
-		return nameError{"that name is longer than the 253 characters DNS allows"}
+		return nameError("that name is longer than the 253 characters DNS allows")
 	}
 	labels := strings.Split(name, ".")
 	if len(labels) > maxNameLabels {
-		return badName(name, fmt.Sprintf("it has more than %d dot-separated parts", maxNameLabels))
+		return nameError(fmt.Sprintf("%q isn't a domain name: it has more than %d dot-separated parts", name, maxNameLabels))
 	}
 	for _, l := range labels {
-		if l == "" {
-			return badName(name, "it has an empty part (two dots in a row, or a leading dot)")
-		}
-		if len(l) > 63 {
-			return badName(name, fmt.Sprintf("its part %q is longer than the 63 characters a part may have", l))
-		}
-		if l[0] == '-' || l[len(l)-1] == '-' {
-			return badName(name, fmt.Sprintf("its part %q starts or ends with a hyphen", l))
-		}
+		// bad starts at the first character a label may not hold.
+		bad := strings.TrimLeft(l, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+		why := ""
+		switch {
+		case l == "":
+			why = "it has an empty part (two dots in a row, or a leading dot)"
+		case len(l) > 63:
+			why = fmt.Sprintf("its part %q is longer than the 63 characters a part may have", l)
+		case l[0] == '-' || l[len(l)-1] == '-':
+			why = fmt.Sprintf("its part %q starts or ends with a hyphen", l)
 		// IDNA refused it (NormalizeName converts the rest); sent raw it would be a false NXDOMAIN.
-		if !isASCII(l) {
-			return badName(name, fmt.Sprintf("its part %q isn't a valid internationalised name", l))
+		case !isASCII(l):
+			why = fmt.Sprintf("its part %q isn't a valid internationalised name", l)
+		case bad != "" && bad[0] == ' ':
+			why = "it contains a space"
+		case bad != "":
+			why = fmt.Sprintf("it contains %q", bad[:1])
 		}
-		for i := 0; i < len(l); i++ {
-			c := l[i]
-			ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
-				c == '-' || c == '_'
-			if !ok {
-				what := fmt.Sprintf("%q", string(c))
-				if c == ' ' {
-					what = "a space"
-				}
-				return badName(name, "it contains "+what)
-			}
+		if why != "" {
+			return nameError(fmt.Sprintf("%q isn't a domain name: %s", name, why))
 		}
 	}
 	return nil
 }
 
 // nameError is ErrBadName to errors.Is, with a message for the person who typed the input.
-type nameError struct{ msg string }
+type nameError string
 
-func (e nameError) Error() string        { return e.msg }
+func (e nameError) Error() string        { return string(e) }
 func (e nameError) Is(target error) bool { return target == ErrBadName }
-
-func badName(input, why string) error {
-	return nameError{fmt.Sprintf("%q isn't a domain name: %s", input, why)}
-}
 
 // safe logs a goroutine's panic: echo's Recover guards only the handler goroutine, not ours.
 func safe(f func()) {
@@ -288,9 +279,6 @@ func Checks(svc Looker) (Spreader, ECSer, Tracer, Mailer, Reputer) {
 // LookupSet queries types concurrently (none = FanoutTypes); a failing type never sinks the rest.
 func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []string) (*ResultSet, error) {
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, ErrEmptyName
-	}
 	addr, ok := resolverAddr(resolver)
 	if !ok {
 		return nil, ErrBadResolver
@@ -313,16 +301,13 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	// An unknown type is the caller's mistake (400), not a per-type failure.
 	types = slices.Clone(types)
 	for i, t := range types {
-		t = strings.ToUpper(strings.TrimSpace(t))
+		types[i] = strings.ToUpper(strings.TrimSpace(t))
 		// The advertised list, not the RR registry: ANY and AXFR parse but don't belong here.
-		if !slices.Contains(Types, t) {
+		if !slices.Contains(Types, types[i]) {
 			return nil, ErrBadType
 		}
-		types[i] = t
 	}
-	if len(types) > maxTypesPerRequest {
-		types = types[:maxTypesPerRequest]
-	}
+	types = types[:min(len(types), maxTypesPerRequest)]
 
 	results := make([]Result, len(types))
 	errs := make([]error, len(types))
@@ -348,24 +333,19 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	answered, nx, cached, validated := 0, 0, 0, 0
 	for i, t := range types {
 		m := results[i].meta
-		if m.cached {
+		if results[i].Cached {
 			cached++
 		}
-		// First-wins for Flags only: an earlier answer without NSID or RRSIGs mustn't mask a later one.
-		if set.Flags == "" && m.flags != "" {
-			set.Flags = m.flags
-		}
-		if set.NSID == "" {
-			set.NSID = m.nsid
-		}
+		// First-wins: an earlier answer without flags, NSID or a chain mustn't mask a later one.
+		set.Flags, set.NSID = cmp.Or(set.Flags, m.flags), cmp.Or(set.NSID, m.nsid)
 		set.Signed = set.Signed || m.signed
 		if len(set.Chain) == 0 {
 			set.Chain = m.chain
 		}
-		results[i].Cached = m.cached
 		var rcode rcodeError
 		err := errs[i]
 		if err == nil || errors.Is(err, errNXDomain) || errors.Is(err, errNoData) {
+			answered++
 			if m.authenticated {
 				validated++
 			} else {
@@ -374,10 +354,8 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		}
 		switch {
 		case err == nil:
-			answered++
 			set.Found = append(set.Found, results[i])
 		case errors.Is(err, errNXDomain):
-			answered++
 			if m.ede != nil {
 				// Blocked or filtered, not "no such name": keep it out of the NXDOMAIN verdict.
 				set.Failed = append(set.Failed, TypeFailure{Type: t, Rcode: "NXDOMAIN", EDE: m.ede})
@@ -385,12 +363,9 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 				nx++
 			}
 		case errors.Is(err, errNoData):
-			answered++
 			set.Missing = append(set.Missing, t)
 		case errors.As(err, &rcode):
-			set.Failed = append(set.Failed, TypeFailure{
-				Type: t, Rcode: string(rcode), EDE: m.ede, Bogus: m.bogus,
-			})
+			set.Failed = append(set.Failed, TypeFailure{Type: t, Rcode: string(rcode), EDE: m.ede, Bogus: m.bogus})
 		default:
 			// Transport failure: "couldn't find out", never "isn't published".
 			set.Failed = append(set.Failed, TypeFailure{Type: t, Error: err.Error()})
@@ -404,55 +379,35 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 		set.Unvalidated = nil
 	}
 
-	// Dangling-CNAME scan. Chain targets count too: ?type=A keeps the CNAME out of Found.
-	seenTarget := map[string]bool{}
-	var targets []string
-	collect := func(recs []Record) {
-		for _, rec := range recs {
-			if rec.Type != "CNAME" {
-				continue
-			}
-			target := strings.TrimSuffix(rec.Value, ".")
-			if target == "" || seenTarget[target] {
-				continue
-			}
-			seenTarget[target] = true
-			targets = append(targets, target)
-		}
-	}
+	// SPF first, then labelled TXT records: the page folds long sets.
+	var recs []Record
 	for _, r := range set.Found {
-		collect(r.Records)
+		if r.Type == "TXT" {
+			slices.SortStableFunc(r.Records, func(a, b Record) int { return txtRank(a) - txtRank(b) })
+		}
+		recs = append(recs, r.Records...)
 	}
-	collect(set.Chain)
-	if len(targets) > maxDanglingChecks {
-		targets = targets[:maxDanglingChecks]
+
+	// Dangling-CNAME scan. Chain targets count too: ?type=A keeps the CNAME out of Found.
+	var targets []string
+	for _, rec := range append(slices.Clone(recs), set.Chain...) {
+		if rec.Type == "CNAME" && rec.Target != "" && !slices.Contains(targets, rec.Target) && len(targets) < maxDanglingChecks {
+			targets = append(targets, rec.Target)
+		}
 	}
 	probedUpstream := false
 	for _, target := range targets {
 		res, err := s.lookup(ctx, dns.Fqdn(target), "A", addr)
 		// Any probe that left the box voids Cached, whatever it found.
-		if !res.meta.cached {
-			probedUpstream = true
-		}
+		probedUpstream = probedUpstream || !res.Cached
 		// NODATA is normal (the target may be AAAA-only); only a missing name dangles.
 		if errors.Is(err, errNXDomain) {
 			set.Dangling = append(set.Dangling, target)
 		}
 	}
+	set.Cached = cached == len(types) && !probedUpstream
 
-	set.Cached = cached > 0 && cached == len(types) && !probedUpstream
-
-	// SPF first, then labelled TXT records: the page folds long sets.
-	for i := range set.Found {
-		if set.Found[i].Type == "TXT" {
-			slices.SortStableFunc(set.Found[i].Records, func(a, b Record) int {
-				return txtRank(a) - txtRank(b)
-			})
-		}
-	}
-
-	var zone strings.Builder
-	// +nsid only when we got one, so the command reproduces the page's "Answered by" row.
+	// +nsid only when we got one, so the command reproduces the page's "Resolver node" row.
 	nsidFlag := ""
 	if set.NSID != "" {
 		nsidFlag = " +nsid"
@@ -460,24 +415,14 @@ func (s *Service) LookupSet(ctx context.Context, name, resolver string, types []
 	for _, t := range types {
 		set.Dig = append(set.Dig, fmt.Sprintf("dig @%s %s %s%s", strings.TrimSuffix(addr, ":53"), qname, t, nsidFlag))
 	}
-	for _, r := range set.Found {
-		for _, rec := range r.Records {
-			owner := rec.Owner
-			if owner == "" {
-				owner = qname
-			}
-			fmt.Fprintf(&zone, "%s\t%d\tIN\t%s\t%s\n", owner, rec.TTL, rec.Type, rec.Value)
-		}
+	var zone strings.Builder
+	for _, rec := range recs {
+		fmt.Fprintf(&zone, "%s\t%d\tIN\t%s\t%s\n", cmp.Or(rec.Owner, qname), rec.TTL, rec.Type, rec.Value)
 	}
 	set.Zone = zone.String()
 
 	set.Bogus = slices.ContainsFunc(set.Failed, func(f TypeFailure) bool { return f.Bogus })
-	for _, r := range set.Found {
-		if set.Provider = providerOf(r.Records); set.Provider != "" {
-			break
-		}
-	}
-
+	set.Provider = providerOf(recs)
 	// Taken last so the dangling probes' time counts.
 	set.QueryMS = time.Since(start).Milliseconds()
 	return set, nil
@@ -490,10 +435,19 @@ func LookupEnriched(ctx context.Context, svc Looker, geo iptools.Looker, name, q
 		types = []string{t}
 	}
 	set, err := svc.LookupSet(ctx, NormalizeName(name), resolverKey(resolver), types)
-	if err != nil {
-		return nil, err
+	if err != nil || geo == nil {
+		return set, err
 	}
-	enrichGeo(set, geo)
+	for _, res := range set.Found {
+		for i, r := range res.Records {
+			if r.Type != "A" && r.Type != "AAAA" {
+				continue
+			}
+			if g, err := geo.Lookup(r.Value); err == nil && g != nil {
+				res.Records[i].ASN, res.Records[i].ASName, res.Records[i].Country = g.ASN, g.ASName, g.Country
+			}
+		}
+	}
 	return set, nil
 }
 
@@ -510,26 +464,6 @@ func resolverKey(resolver string) string {
 		return r
 	}
 	return DefaultResolver
-}
-
-func enrichGeo(set *ResultSet, geo iptools.Looker) {
-	if geo == nil || set == nil {
-		return
-	}
-	for f := range set.Found {
-		for i, r := range set.Found[f].Records {
-			if r.Type != "A" && r.Type != "AAAA" {
-				continue
-			}
-			g, err := geo.Lookup(r.Value)
-			if err != nil || g == nil {
-				continue
-			}
-			set.Found[f].Records[i].ASN = g.ASN
-			set.Found[f].Records[i].ASName = g.ASName
-			set.Found[f].Records[i].Country = g.Country
-		}
-	}
 }
 
 func txtRank(r Record) int {
@@ -572,22 +506,16 @@ type FailureGroup struct {
 // FailureGroups folds Failed by failure, in first-seen order (page only).
 func (r *ResultSet) FailureGroups() []FailureGroup {
 	var out []FailureGroup
-	key := func(f TypeFailure) string {
-		k := f.Rcode + "|" + f.Error + "|" + fmt.Sprint(f.Bogus)
-		if f.EDE != nil {
-			k += "|" + fmt.Sprint(f.EDE.Code) + "|" + f.EDE.Extra
-		}
-		return k
-	}
 	index := map[string]int{}
 	for _, f := range r.Failed {
-		k := key(f)
+		// %v prints the EDE's fields, not its address.
+		k := fmt.Sprintf("%s|%s|%v|%v", f.Rcode, f.Error, f.Bogus, f.EDE)
 		if i, ok := index[k]; ok {
 			out[i].Types = append(out[i].Types, f.Type)
-			continue
+		} else {
+			index[k] = len(out)
+			out = append(out, FailureGroup{Types: []string{f.Type}, TypeFailure: f})
 		}
-		index[k] = len(out)
-		out = append(out, FailureGroup{Types: []string{f.Type}, TypeFailure: f})
 	}
 	return out
 }
@@ -614,24 +542,17 @@ func (s *Service) lookup(ctx context.Context, qname, qtype, addr string) (Result
 	return cloneResult(e.result, false, 0), e.err
 }
 
-// cloneResult gives the caller its own Records, so enrichment can't write into the cache.
 func cloneResult(r Result, cached bool, age time.Duration) Result {
-	out := r
-	out.Records = ageRecords(slices.Clone(r.Records), age)
-	out.meta.cached = cached
-	out.meta.chain = ageRecords(slices.Clone(r.meta.chain), age)
-	return out
+	r.Records, r.meta.chain = ageRecords(r.Records, age), ageRecords(r.meta.chain, age)
+	r.Cached = cached
+	return r
 }
 
-// ageRecords counts TTLs down by time spent cached, so a replayed TTL can't outlive the record.
+// ageRecords copies recs, so enrichment can't write into the cache, and counts each TTL down by age.
 func ageRecords(recs []Record, age time.Duration) []Record {
-	elapsed := int64(age / time.Second)
-	if elapsed <= 0 {
-		return recs
-	}
+	recs = slices.Clone(recs)
 	for i := range recs {
-		ttl := max(int64(recs[i].TTL)-elapsed, 0)
-		recs[i].TTL = uint32(ttl)
+		recs[i].TTL -= min(recs[i].TTL, uint32(age/time.Second))
 		recs[i].TTLHuman = humanizeTTL(recs[i].TTL)
 	}
 	return recs
@@ -639,11 +560,8 @@ func ageRecords(recs []Record, age time.Duration) []Record {
 
 // isTransportErr: the resolver wasn't reached, as opposed to answering with a rcode.
 func isTransportErr(err error) bool {
-	if err == nil {
-		return false
-	}
 	var rcode rcodeError
-	return !errors.Is(err, errNXDomain) && !errors.Is(err, errNoData) && !errors.As(err, &rcode)
+	return err != nil && !errors.Is(err, errNXDomain) && !errors.Is(err, errNoData) && !errors.As(err, &rcode)
 }
 
 // exchange sends one query, retrying over TCP on truncation and with CD=1 on SERVFAIL.
@@ -669,27 +587,21 @@ func (s *Service) exchange(ctx context.Context, qname, qtype, addr string) (Resu
 	if resp.Rcode == dns.RcodeServerFailure {
 		cd := newQuery(qname, qtype)
 		cd.CheckingDisabled = true
-		if cdResp, _, cdErr := s.udp.ExchangeContext(ctx, cd, addr); cdErr == nil && cdResp.Rcode == dns.RcodeSuccess {
-			meta.bogus = true
-		}
+		cdResp, _, cdErr := s.udp.ExchangeContext(ctx, cd, addr)
+		meta.bogus = cdErr == nil && cdResp.Rcode == dns.RcodeSuccess
 	}
 
+	// Only the asked type: a CNAME'd name returns the CNAME for every type, hiding NODATA.
 	records := []Record{}
-	wantType := dns.StringToType[qtype]
 	for _, rr := range resp.Answer {
-		// Counted before the type filter drops them: RRSIGs are the only sign the zone is signed.
-		if rr.Header().Rrtype == dns.TypeRRSIG {
+		switch rr.Header().Rrtype {
+		case dns.TypeRRSIG: // the only sign the zone is signed
 			meta.signed = true
+		case dns.StringToType[qtype]:
+			records = append(records, toRecord(rr))
+		case dns.TypeCNAME: // kept aside, or ?type=A would never show the name is an alias
+			meta.chain = append(meta.chain, toRecord(rr))
 		}
-		// Only the asked type: a CNAME'd name returns the CNAME for every type, hiding NODATA.
-		if rr.Header().Rrtype != wantType {
-			// Kept aside, or ?type=A would never show the name is an alias.
-			if rr.Header().Rrtype == dns.TypeCNAME {
-				meta.chain = append(meta.chain, toRecord(rr))
-			}
-			continue
-		}
-		records = append(records, toRecord(rr))
 	}
 	return Result{Type: qtype, Records: records, meta: meta}, statusErr(resp.Rcode, len(records))
 }
@@ -719,8 +631,7 @@ func newQuery(qname, qtype string) *dns.Msg {
 }
 
 // ednsOption returns m's first EDNS0 option of type T, or nil.
-func ednsOption[T dns.EDNS0](m *dns.Msg) T {
-	var none T
+func ednsOption[T dns.EDNS0](m *dns.Msg) (none T) {
 	if opt := m.IsEdns0(); opt != nil {
 		for _, o := range opt.Option {
 			if t, ok := o.(T); ok {
@@ -732,36 +643,23 @@ func ednsOption[T dns.EDNS0](m *dns.Msg) T {
 }
 
 func edeOf(m *dns.Msg) *EDE {
-	e := ednsOption[*dns.EDNS0_EDE](m)
-	if e == nil {
-		return nil
+	if e := ednsOption[*dns.EDNS0_EDE](m); e != nil {
+		return &EDE{Code: e.InfoCode, Text: cmp.Or(dns.ExtendedErrorCodeToString[e.InfoCode], "Unknown"), Extra: e.ExtraText}
 	}
-	text := dns.ExtendedErrorCodeToString[e.InfoCode]
-	if text == "" {
-		text = "Unknown"
-	}
-	return &EDE{Code: e.InfoCode, Text: text, Extra: e.ExtraText}
+	return nil
 }
 
 // nsidOf decodes the hex NSID when it is printable; operators put names like "ams01" in it.
 func nsidOf(m *dns.Msg) string {
 	n := ednsOption[*dns.EDNS0_NSID](m)
-	if n == nil || n.Nsid == "" {
+	if n == nil {
 		return ""
 	}
-	if raw, err := hex.DecodeString(n.Nsid); err == nil && isPrintable(raw) {
-		return string(raw)
+	raw, err := hex.DecodeString(n.Nsid)
+	if err != nil || strings.ContainsFunc(string(raw), func(r rune) bool { return r < 0x20 || r > 0x7e }) {
+		return n.Nsid
 	}
-	return n.Nsid
-}
-
-func isPrintable(b []byte) bool {
-	for _, c := range b {
-		if c < 0x20 || c > 0x7e {
-			return false
-		}
-	}
-	return len(b) > 0
+	return string(raw)
 }
 
 // statusErr maps a response to nil or the sentinel LookupSet partitions on.
@@ -789,15 +687,8 @@ func (e rcodeError) Error() string { return string(e) }
 
 // reverseName returns the arpa name for an IP literal, and whether the input was one.
 func reverseName(name string) (string, bool) {
-	ip := net.ParseIP(strings.TrimSpace(name))
-	if ip == nil {
-		return "", false
-	}
-	rev, err := dns.ReverseAddr(ip.String())
-	if err != nil {
-		return "", false
-	}
-	return rev, true
+	rev, err := dns.ReverseAddr(strings.TrimSpace(name))
+	return rev, err == nil
 }
 
 // resolverOverride lets tests reach a loopback server, which the allowlist forbids.
@@ -846,10 +737,7 @@ func toRecord(rr dns.RR) Record {
 	case *dns.CAA:
 		rec.Detail = caaFields(v)
 	case *dns.HTTPS:
-		rec.Detail = svcbFields(rr)
-		rec.Target = v.Target
-	case *dns.SVCB:
-		rec.Detail = svcbFields(rr)
+		rec.Detail = svcbFields(&v.SVCB)
 		rec.Target = v.Target
 	case *dns.NS:
 		rec.Target = v.Ns
@@ -862,8 +750,6 @@ func toRecord(rr dns.RR) Record {
 		}
 	case *dns.PTR:
 		rec.Target = v.Ptr
-	case *dns.SRV:
-		rec.Target = v.Target
 	}
 	rec.Target = bareName(rec.Target)
 	return rec
@@ -876,21 +762,11 @@ func rdata(rr dns.RR) string {
 
 // flagString renders the header bits dig prints, in dig's order.
 func flagString(m *dns.Msg) string {
+	on := []bool{m.Response, m.Authoritative, m.Truncated, m.RecursionDesired, m.RecursionAvailable, m.AuthenticatedData, m.CheckingDisabled}
 	var f []string
-	for _, b := range []struct {
-		on   bool
-		name string
-	}{
-		{m.Response, "qr"},
-		{m.Authoritative, "aa"},
-		{m.Truncated, "tc"},
-		{m.RecursionDesired, "rd"},
-		{m.RecursionAvailable, "ra"},
-		{m.AuthenticatedData, "ad"},
-		{m.CheckingDisabled, "cd"},
-	} {
-		if b.on {
-			f = append(f, b.name)
+	for i, name := range []string{"qr", "aa", "tc", "rd", "ra", "ad", "cd"} {
+		if on[i] {
+			f = append(f, name)
 		}
 	}
 	return strings.Join(f, " ")
@@ -904,12 +780,10 @@ func humanizeTTL(seconds uint32) string {
 		return fmt.Sprintf("%ds", s)
 	case s < 3600:
 		return fmt.Sprintf("%dm", s/60)
-	case s < 86400:
-		if m := s % 3600 / 60; m > 0 {
-			return fmt.Sprintf("%dh%dm", s/3600, m)
-		}
-		return fmt.Sprintf("%dh", s/3600)
-	default:
+	case s >= 86400:
 		return fmt.Sprintf("%dd", s/86400)
+	case s%3600 >= 60:
+		return fmt.Sprintf("%dh%dm", s/3600, s%3600/60)
 	}
+	return fmt.Sprintf("%dh", s/3600)
 }

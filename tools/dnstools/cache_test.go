@@ -45,6 +45,11 @@ func TestCacheLifetimeClamps(t *testing.T) {
 			want:  60 * time.Second,
 		},
 		{
+			name:  "a zero TTL is not cached at all",
+			entry: cacheEntry{result: Result{Records: rec(300, 0)}},
+			want:  0,
+		},
+		{
 			name:  "an answer with no records is negative-cached",
 			entry: cacheEntry{result: Result{Records: nil}},
 			want:  cacheNegTTL,
@@ -137,11 +142,25 @@ func TestCachedAnswerCannotBeMutatedByACaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second lookup: %v", err)
 	}
-	if !second.meta.cached {
+	if !second.Cached {
 		t.Error("the second identical question did not come from the cache")
 	}
 	if second.Records[0].ASN != "" {
 		t.Errorf("second caller sees ASN %q written by the first: the cached records are shared", second.Records[0].ASN)
+	}
+}
+
+// A replayed TTL must not outlive the record, nor the countdown write into the cached copy.
+func TestCachedTTLsCountDown(t *testing.T) {
+	t.Parallel()
+
+	stored := Result{Records: []Record{{TTL: 300}, {TTL: 30}}}
+	got := cloneResult(stored, true, 90*time.Second)
+	if got.Records[0].TTL != 210 || got.Records[0].TTLHuman != "3m" || got.Records[1].TTL != 0 {
+		t.Errorf("aged records = %+v, want TTL 210 (3m) and a floor of 0", got.Records)
+	}
+	if stored.Records[0].TTL != 300 {
+		t.Error("the countdown wrote into the cached records")
 	}
 }
 

@@ -1,6 +1,8 @@
 package dnstools
 
 import (
+	"cmp"
+	"slices"
 	"sync"
 	"time"
 )
@@ -35,48 +37,24 @@ type cacheEntry struct {
 func newCache() *cache { return &cache{m: make(map[string]cacheEntry)} }
 
 func (c *cache) get(key string, now time.Time) (cacheEntry, bool) {
-	if c == nil {
-		return cacheEntry{}, false
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.m[key]
-	if !ok || now.After(e.expires) {
-		return cacheEntry{}, false
-	}
-	return e, true
+	return e, ok && !now.After(e.expires)
 }
 
 func (c *cache) put(key string, e cacheEntry, now time.Time) {
-	if c == nil {
-		return
-	}
 	d := lifetime(e)
-	if d <= 0 {
-		return // the zone marked it uncacheable
-	}
-	if answerCost(e.result) > cacheMaxCost {
+	if d == 0 || answerCost(e.result) > cacheMaxCost {
 		return
 	}
 	e.stored, e.expires = now, now.Add(d)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Full: drop expired, then arbitrary live entries; all expire within minutes, so no LRU.
+	// Every entry expires within minutes, so a full map is simply emptied: no LRU to maintain.
 	if len(c.m) >= cacheMaxEntries {
-		for k, v := range c.m {
-			if now.After(v.expires) {
-				delete(c.m, k)
-			}
-		}
-		// Free a batch rather than one slot, so the scan doesn't run on every put.
-		const evictTo = cacheMaxEntries - cacheMaxEntries/8
-		for k := range c.m {
-			if len(c.m) <= evictTo {
-				break
-			}
-			delete(c.m, k)
-		}
+		clear(c.m)
 	}
 	c.m[key] = e
 }
@@ -86,10 +64,7 @@ func lifetime(e cacheEntry) time.Duration {
 	if e.err != nil || len(e.result.Records) == 0 {
 		return cacheNegTTL
 	}
-	ttl := e.result.Records[0].TTL
-	for _, r := range e.result.Records[1:] {
-		ttl = min(ttl, r.TTL)
-	}
+	ttl := slices.MinFunc(e.result.Records, func(a, b Record) int { return cmp.Compare(a.TTL, b.TTL) }).TTL
 	// TTL 0 means uncacheable; the floor would otherwise stretch it to cacheMinTTL.
 	if ttl == 0 {
 		return 0
