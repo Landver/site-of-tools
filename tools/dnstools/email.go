@@ -27,6 +27,9 @@ type EmailAuth struct {
 	HasMX     bool          `json:"has_mx"`
 	NXDomain  bool          `json:"nxdomain,omitempty"`
 	MailHosts []MailHost    `json:"mail_hosts,omitempty"`
+	// SPFFailed, DMARCFailed: the TXT lookup failed, so a nil record means unknown, not absent.
+	SPFFailed   bool `json:"spf_lookup_failed,omitempty"`
+	DMARCFailed bool `json:"dmarc_lookup_failed,omitempty"`
 	// MXRep is filled by EmailReport: the blocklist corpus is out of the domain layer's reach.
 	MXRep *MXReputation `json:"mx_reputation,omitempty"`
 	// MXCount can exceed len(MailHosts): the FCrDNS fan-out stops at maxMailHosts.
@@ -67,6 +70,8 @@ type SPFResult struct {
 	// bound: a, mx and exists terms are counted but never resolved.
 	Voids     []string `json:"void_lookups,omitempty"`
 	VoidLimit int      `json:"void_limit,omitempty"`
+	// Loop: an include or redirect leads back to a record on its own path, so receivers permerror.
+	Loop bool `json:"loop,omitempty"`
 }
 
 type DMARCResult struct {
@@ -157,6 +162,11 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 		return nil, err
 	}
 	addr, _ := resolverAddr(DefaultResolver)
+	return s.emailRun(ctx, domain, addr), nil
+}
+
+// emailRun takes addr so white-box tests can aim it at loopback.
+func (s *Service) emailRun(ctx context.Context, domain, addr string) *EmailAuth {
 	out := &EmailAuth{Domain: domain}
 
 	var wg sync.WaitGroup
@@ -170,8 +180,14 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 		out.HasMX, out.MXCount = len(r.Records) > 0, len(r.Records)
 		out.MailHosts, out.NullMX = s.checkMailHosts(ctx, r.Records, addr)
 	})
-	run(func() { out.SPF = s.checkSPF(ctx, domain, addr) })
-	run(func() { out.DMARC = s.checkDMARC(ctx, domain, addr) })
+	run(func() {
+		spf, err := s.checkSPF(ctx, domain, addr)
+		out.SPF, out.SPFFailed = spf, err != nil
+	})
+	run(func() {
+		dmarc, err := s.checkDMARC(ctx, domain, addr)
+		out.DMARC, out.DMARCFailed = dmarc, err != nil
+	})
 	run(func() { out.DKIM, out.DKIMRevoked, out.DKIMWildcard = s.checkDKIM(ctx, domain, addr) })
 	run(func() { out.MTASTS = s.checkMTASTS(ctx, domain, addr) })
 	run(func() { out.TLSRPT = s.firstTXT(ctx, dnsFqdn("_smtp._tls."+domain), addr, "v=TLSRPTv1") })
@@ -184,14 +200,14 @@ func (s *Service) EmailAuth(ctx context.Context, domain string) (*EmailAuth, err
 			Text: "At least one DNS query failed while checking this domain, so anything reported as missing below may simply not have been reachable. Re-run before acting on it."})
 	}
 	out.judge()
-	return out, nil
+	return out
 }
 
 // checkSPF keeps every apex v=spf1 record: two are a permerror (RFC 7208 §4.5), not a tie.
-func (s *Service) checkSPF(ctx context.Context, domain, addr string) *SPFResult {
-	recs, _ := s.matchingTXT(ctx, dnsFqdn(domain), addr, "v=spf1")
+func (s *Service) checkSPF(ctx context.Context, domain, addr string) (*SPFResult, error) {
+	recs, _, err := s.matchingTXT(ctx, dnsFqdn(domain), addr, "v=spf1")
 	if len(recs) == 0 {
-		return nil
+		return nil, err
 	}
 	r := &SPFResult{Record: recs[0], Extra: recs[1:], Limit: 10, VoidLimit: 2}
 	// The checked domain starts on the path, so a self-include is a loop at once.
@@ -213,7 +229,11 @@ func (s *Service) checkSPF(ctx context.Context, domain, addr string) *SPFResult 
 			case name == "include", name == "redirect" && !hasAll:
 				n++
 				key := bareName(target)
-				if target == "" || onPath[key] {
+				if target == "" {
+					continue
+				}
+				if onPath[key] {
+					r.Loop = true
 					continue
 				}
 				if queries >= maxSPFIncludes || ctx.Err() != nil {
@@ -228,7 +248,7 @@ func (s *Service) checkSPF(ctx context.Context, domain, addr string) *SPFResult 
 				if strings.Contains(target, "%{") {
 					continue
 				}
-				subs, void := s.matchingTXT(ctx, dnsFqdn(target), addr, "v=spf1")
+				subs, void, _ := s.matchingTXT(ctx, dnsFqdn(target), addr, "v=spf1")
 				if void {
 					r.Voids = append(r.Voids, target)
 				}
@@ -251,7 +271,7 @@ func (s *Service) checkSPF(ctx context.Context, domain, addr string) *SPFResult 
 			r.All = strings.ToLower(tok)
 		}
 	}
-	return r
+	return r, nil
 }
 
 // spfTerm splits a term into its name (lowercased, CIDR suffix cut) and its target.
@@ -347,23 +367,28 @@ func mxHost(rdata string) string {
 
 // checkDMARC climbs to a parent when the name publishes no record (RFC 7489 §6.6.3). With no
 // PSL it stops at two labels, the honest floor.
-func (s *Service) checkDMARC(ctx context.Context, domain, addr string) *DMARCResult {
+func (s *Service) checkDMARC(ctx context.Context, domain, addr string) (*DMARCResult, error) {
 	name := domain
 	for range 4 { // the name, then up to three parents
 		at := "_dmarc." + name
-		if recs, _ := s.matchingTXT(ctx, dnsFqdn(at), addr, "v=DMARC1"); len(recs) > 0 {
+		recs, _, err := s.matchingTXT(ctx, dnsFqdn(at), addr, "v=DMARC1")
+		if err != nil {
+			// Unknown here, so whether a parent's record applies is unknown too.
+			return nil, err
+		}
+		if len(recs) > 0 {
 			t := tagList(recs[0])
 			return &DMARCResult{Record: recs[0], Name: at, Inherited: name != domain, Extra: recs[1:],
 				Policy: strings.ToLower(t["p"]), SubPolicy: strings.ToLower(t["sp"]),
-				Percent: t["pct"], Aggregate: t["rua"], Forensic: t["ruf"]}
+				Percent: t["pct"], Aggregate: t["rua"], Forensic: t["ruf"]}, nil
 		}
 		_, parent, _ := strings.Cut(name, ".")
 		if !strings.Contains(parent, ".") {
-			return nil
+			return nil, nil
 		}
 		name = parent
 	}
-	return nil
+	return nil, nil
 }
 
 // tagList reads a DMARC or DKIM "k=v; k=v" record. Tag names are case-insensitive: "P=reject" is valid.
@@ -497,11 +522,14 @@ func policyCovers(pattern, host string) bool {
 }
 
 // matchingTXT returns every TXT at name starting with prefix, parts joined, and whether the
-// name answered nothing at all (void). A SERVFAIL is not void: it means "couldn't find out".
-func (s *Service) matchingTXT(ctx context.Context, name, addr, prefix string) (recs []string, void bool) {
+// name answered nothing at all (void). A SERVFAIL is err, not void: it means "couldn't find out".
+func (s *Service) matchingTXT(ctx context.Context, name, addr, prefix string) (recs []string, void bool, err error) {
 	r, err := s.lookup(ctx, name, "TXT", addr)
-	if errors.Is(err, errNXDomain) || errors.Is(err, errNoData) {
-		return nil, true
+	switch {
+	case errors.Is(err, errNXDomain), errors.Is(err, errNoData):
+		return nil, true, nil
+	case err != nil:
+		return nil, false, err
 	}
 	for _, rec := range r.Records {
 		v := strings.Trim(strings.ReplaceAll(rec.Value, `" "`, ""), `"`)
@@ -509,12 +537,12 @@ func (s *Service) matchingTXT(ctx context.Context, name, addr, prefix string) (r
 			recs = append(recs, v)
 		}
 	}
-	return recs, false
+	return recs, false, nil
 }
 
 // firstTXT is matchingTXT for the checks where a second record changes nothing.
 func (s *Service) firstTXT(ctx context.Context, name, addr, prefix string) string {
-	if recs, _ := s.matchingTXT(ctx, name, addr, prefix); len(recs) > 0 {
+	if recs, _, _ := s.matchingTXT(ctx, name, addr, prefix); len(recs) > 0 {
 		return recs[0]
 	}
 	return ""
@@ -549,7 +577,10 @@ func (e *EmailAuth) judge() {
 	}
 
 	if spf := e.SPF; spf == nil {
-		if e.HasMX {
+		switch {
+		case e.SPFFailed:
+			add("warn", "The SPF record could not be read (the lookup failed), so it was not checked. Re-run before acting on it.")
+		case e.HasMX:
 			add("fail", "No SPF record. Receivers have no way to know which servers may send mail as this domain.")
 		}
 	} else {
@@ -558,6 +589,8 @@ func (e *EmailAuth) judge() {
 			add("fail", fmt.Sprintf("This domain publishes %d SPF records: %s. RFC 7208 makes more than one a permerror, so receivers evaluate none of them and SPF fails for every message. Merge them into one record.", len(all), `"`+strings.Join(all, `" and "`)+`"`))
 		}
 		switch {
+		case spf.Loop:
+			add("fail", "SPF includes itself in a loop: evaluation never finishes, so receivers return permerror for every message. Remove the include or redirect that leads back.")
 		case spf.Lookups > spf.Limit:
 			add("fail", fmt.Sprintf("SPF needs %d DNS lookups but RFC 7208 allows %d. Over the limit receivers return permerror and SPF fails for every message, silently. Flatten or remove includes.", spf.Lookups, spf.Limit))
 		case spf.Lookups >= 8:
@@ -578,12 +611,17 @@ func (e *EmailAuth) judge() {
 		case "?all":
 			add("warn", "SPF ends in ?all (neutral), which asserts nothing. Receivers treat it much like no policy.")
 		case "~all", "-all":
-			add("ok", "SPF ends in "+spf.All+", so mail from servers it doesn't list fails SPF.")
+			if !spf.Loop {
+				add("ok", "SPF ends in "+spf.All+", so mail from servers it doesn't list fails SPF.")
+			}
 		}
 	}
 
 	if d := e.DMARC; d == nil {
-		if e.HasMX {
+		switch {
+		case e.DMARCFailed:
+			add("warn", "The DMARC record could not be read (the lookup failed), so it was not checked. Re-run before acting on it.")
+		case e.HasMX:
 			add("fail", "No DMARC record. Without one, SPF and DKIM results are advisory and nobody is told what to do with failures.")
 		}
 	} else {
@@ -614,7 +652,7 @@ func (e *EmailAuth) judge() {
 		}
 	}
 
-	if !e.HasMX && (e.SPF == nil || e.DMARC == nil) {
+	if !e.HasMX && (e.SPF == nil || e.DMARC == nil) && !e.SPFFailed && !e.DMARCFailed {
 		add("info", "This domain publishes no MX record and lacks SPF or DMARC, so nothing tells a receiver to refuse mail forged in its name. If it sends no mail, v=spf1 -all and a DMARC record with p=reject say so.")
 	}
 	switch {

@@ -3,6 +3,8 @@ package dnstools
 import (
 	"context"
 	"testing"
+
+	"github.com/miekg/dns"
 )
 
 // Each want is the RFC 7208 §4.6.4 evaluation cost: a term evaluated twice costs twice.
@@ -18,6 +20,7 @@ func TestSPFLookupCount(t *testing.T) {
 		want    int
 		wantAll string
 		finding string
+		loop    bool
 	}{
 		{
 			name:    "a and mx with a CIDR suffix each cost one",
@@ -139,6 +142,34 @@ func TestSPFLookupCount(t *testing.T) {
 			},
 			want:    2,
 			wantAll: "-all",
+			loop:    true,
+		},
+		{
+			name:    "a record including itself is a loop",
+			records: map[string]string{"t.test": "v=spf1 include:t.test -all"},
+			want:    1,
+			wantAll: "-all",
+			loop:    true,
+		},
+		{
+			name: "two records including each other are a loop",
+			records: map[string]string{
+				"t.test": "v=spf1 include:a.test -all",
+				"a.test": "v=spf1 include:b.test -all",
+				"b.test": "v=spf1 include:a.test -all",
+			},
+			want:    3,
+			wantAll: "-all",
+			loop:    true,
+		},
+		{
+			name: "a redirect back to the start is a loop",
+			records: map[string]string{
+				"t.test": "v=spf1 redirect=r.test",
+				"r.test": "v=spf1 redirect=t.test",
+			},
+			want: 2,
+			loop: true,
 		},
 		{
 			name: "a record over the ten-lookup limit is counted past it",
@@ -159,7 +190,7 @@ func TestSPFLookupCount(t *testing.T) {
 			_, addr := serveZone(t, spfZone(tc.records))
 			svc := newTestService()
 
-			r := svc.checkSPF(context.Background(), "t.test", addr)
+			r, _ := svc.checkSPF(context.Background(), "t.test", addr)
 			if r == nil {
 				t.Fatal("no SPF result for a domain that publishes one")
 			}
@@ -172,6 +203,15 @@ func TestSPFLookupCount(t *testing.T) {
 			if r.Limit != 10 {
 				t.Errorf("limit = %d, want the RFC 7208 value of 10", r.Limit)
 			}
+			// A shared include is not a loop; a loop permerrors however few lookups it took.
+			if r.Loop != tc.loop {
+				t.Errorf("loop = %v, want %v (chain %v)", r.Loop, tc.loop, r.Chain)
+			}
+			e := &EmailAuth{SPF: r}
+			e.judge()
+			if tc.loop && (!hasNote(e.Notes, "fail", "in a loop") || hasNote(e.Notes, "ok", "SPF")) {
+				t.Errorf("a looping SPF is not failed, or is still graded ok: %+v", e.Notes)
+			}
 		})
 	}
 }
@@ -181,8 +221,36 @@ func TestSPFAbsentRecord(t *testing.T) {
 	t.Parallel()
 	_, addr := serveZone(t, spfZone(map[string]string{"other.test": "v=spf1 -all"}))
 
-	if r := newTestService().checkSPF(context.Background(), "t.test", addr); r != nil {
+	if r, _ := newTestService().checkSPF(context.Background(), "t.test", addr); r != nil {
 		t.Errorf("checkSPF on a domain with no SPF returned %+v, want nil", r)
+	}
+}
+
+// A SERVFAIL on the SPF or DMARC TXT lookup is "couldn't find out", never "no record".
+func TestTXTLookupFailureIsNotAbsence(t *testing.T) {
+	t.Parallel()
+	_, addr := serveZoneWith(t, testZone{
+		zoneKey("t.test", "MX"):         {"t.test. 300 IN MX 10 mx1.t.test."},
+		zoneKey("mx1.t.test", "A"):      {"mx1.t.test. 300 IN A 192.0.2.25"},
+		zoneKey("t.test", "TXT"):        {`t.test. 300 IN TXT "v=spf1 -all"`},
+		zoneKey("_dmarc.t.test", "TXT"): {`_dmarc.t.test. 300 IN TXT "v=DMARC1; p=reject"`},
+	}, func(m *dns.Msg, q dns.Question) {
+		if q.Qtype == dns.TypeTXT && (q.Name == "t.test." || q.Name == "_dmarc.t.test.") {
+			m.Answer, m.Rcode = nil, dns.RcodeServerFailure
+		}
+	})
+
+	e := newTestService().emailRun(context.Background(), "t.test", addr)
+	if !e.HasMX {
+		t.Fatalf("the MX lookup should have answered: %+v", e)
+	}
+	for _, check := range []string{"SPF", "DMARC"} {
+		if hasNote(e.Notes, "fail", "No "+check+" record") {
+			t.Errorf("a failed %s lookup is reported as no record: %+v", check, e.Notes)
+		}
+		if !hasNote(e.Notes, "warn", "The "+check+" record could not be read") {
+			t.Errorf("no note says the %s lookup failed: %+v", check, e.Notes)
+		}
 	}
 }
 
@@ -199,7 +267,7 @@ func TestSPFIncludeBudgetIsEnforced(t *testing.T) {
 	records["t.test"] = rec + " -all"
 
 	_, addr := serveZone(t, spfZone(records))
-	r := newTestService().checkSPF(context.Background(), "t.test", addr)
+	r, _ := newTestService().checkSPF(context.Background(), "t.test", addr)
 	if r == nil {
 		t.Fatal("no SPF result")
 	}

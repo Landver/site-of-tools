@@ -308,6 +308,29 @@ func TestEmptyAnswerStatesRenderDistinctly(t *testing.T) {
 	}
 }
 
+// A dangling alias exists, so the page must not lead with "this name does not exist".
+func TestDanglingAliasLeadsWithTheAlias(t *testing.T) {
+	t.Parallel()
+
+	set := &dnstools.ResultSet{
+		Name: "old.example.com", QName: "old.example.com.", ResolverName: "Cloudflare (1.1.1.1)",
+		NXDomain: true, Asked: 1, Found: []dnstools.Result{}, Missing: []string{},
+		Chain: []dnstools.Record{{Type: "CNAME", Owner: "old.example.com.", Value: "gone.example.net.",
+			Target: "gone.example.net", TTL: 300, TTLHuman: "5m"}},
+		Dangling: []string{"gone.example.net"},
+	}
+	e := newApp(t, &fakeLooker{set: set}, nil)
+	body := do(t, e, "/?name=old.example.com&type=A", map[string]string{"Accept": "text/html"}).Body.String()
+	if !strings.Contains(body, "an alias to a name that does not exist") {
+		t.Error("a dangling alias should lead with the alias, not the missing name")
+	}
+	for _, bad := range []string{"This name does not exist", "Check the registry", "The answer above"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("a dangling alias with no answer renders %q", bad)
+		}
+	}
+}
+
 func TestSitemapPages(t *testing.T) {
 	t.Parallel()
 

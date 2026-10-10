@@ -8,12 +8,15 @@
     <div class="card sm:col-span-2">
       <h2 class="eyebrow">{{if .NXDomain}}not found{{else}}no answer{{end}}</h2>
       <p class="text-sm">
-        {{if .NXDomain}}<span class="block text-base font-medium text-warn-ink">This name does not exist.</span>
-        <span class="mt-1 block text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>
+        {{if .NXDomain}}{{if .Chain}}<span class="block text-base font-medium text-warn-ink">This name is an alias to a name that does not exist.</span>
+        <span class="mt-1 block text-faint">The alias itself is published, but the resolver returned NXDOMAIN for where it leads, so nothing resolves through it.</span>
+        {{else}}<span class="block text-base font-medium text-warn-ink">This name does not exist.</span>
+        <span class="mt-1 block text-faint">The resolver returned NXDOMAIN for every type asked{{if .Failed}} that it answered at all{{end}}, so no record of any type will resolve.</span>{{end}}
         {{else}}<span class="block text-base font-medium text-danger">This name doesn't resolve.</span>
         <span class="mt-1 block text-faint">{{.ResolverName}} gave no usable answer for any type{{if .Bogus}}, because the name's DNSSEC signatures don't validate{{end}}.</span>{{end}}
       </p>
-      {{if .NXDomain}}{{with $.NavName}}<p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>{{end}}
+      {{/* An alias exists, so whether its name is registered is not the question. */}}
+      {{if .NXDomain}}{{if not .Chain}}{{with $.NavName}}<p class="mt-2 text-xs"><a href="/domain?name={{.}}" class="link-brand">Is it registered? Check the registry</a></p>{{end}}{{end}}
       {{else if .Bogus}}{{with $.NavName}}<a href="/trace?name={{.}}" class="mt-2 inline-block text-xs link-brand">See where the chain breaks</a>{{end}}{{end}}
     </div>
   {{end}}
@@ -101,8 +104,8 @@
     <div class="card">
       <h2 class="eyebrow">this name is an alias</h2>
       <p class="text-sm text-muted">
-        <span class="font-mono text-strong">{{$qname}}</span> is an alias. The answer above was reached by
-        following the CNAME below, and is published on the target rather than on the name you asked for.
+        <span class="font-mono text-strong">{{$qname}}</span> is an alias.{{if .Found}} The answer above was reached by
+        following the CNAME below, and is published on the target rather than on the name you asked for.{{end}}
       </p>
       <dl class="pairs mt-3">
         {{range .Chain}}
