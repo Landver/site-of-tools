@@ -1,6 +1,7 @@
 package dnstools
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,7 +21,7 @@ func TestMXPreferenceDecidesWhichHostsAreChecked(t *testing.T) {
 		{Type: "MX", Value: "30 last.example.net."},
 	}
 
-	hosts, _ := mailHosts(rotated)
+	hosts, _, _ := mailHosts(rotated)
 	var order []string
 	for _, h := range hosts[:maxMailHosts] {
 		order = append(order, h.host)
@@ -47,7 +48,7 @@ func TestMailHostsKeepsRRsetOrderWithinAPreference(t *testing.T) {
 			want10 = append(want10, host)
 		}
 	}
-	hosts, _ := mailHosts(recs)
+	hosts, _, _ := mailHosts(recs)
 	var got []string
 	for _, h := range hosts {
 		got = append(got, h.host)
@@ -121,5 +122,38 @@ func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 	}
 	if got := level(keyed); got != "warn" {
 		t.Errorf("wildcard with a real key: level %q, want warn; notes %+v", got, keyed.Notes)
+	}
+}
+
+// Both cards take null MX from mailHosts, so one /email response can't contradict itself.
+func TestNullMXMeansNoTargetButDot(t *testing.T) {
+	t.Parallel()
+
+	mx := func(vals ...string) (recs []Record) {
+		for _, v := range vals {
+			recs = append(recs, Record{Type: "MX", Value: v})
+		}
+		return recs
+	}
+	cases := []struct {
+		name           string
+		recs           []Record
+		null, conflict bool
+	}{
+		{"single null MX", mx("0 ."), true, false},
+		{"every target is dot", mx("0 .", "10 ."), true, false},
+		{"dot beside a real host", mx("0 .", "10 mx1.example.net."), false, true},
+		{"real hosts only", mx("10 mx1.example.net."), false, false},
+		{"no records", nil, false, false},
+	}
+	for _, c := range cases {
+		if _, null, conflict := mailHosts(c.recs); null != c.null || conflict != c.conflict {
+			t.Errorf("%s: mailHosts null, conflict = %v, %v; want %v, %v", c.name, null, conflict, c.null, c.conflict)
+		}
+		if c.null {
+			if _, null := newTestService().checkMailHosts(context.Background(), c.recs, ""); !null {
+				t.Errorf("%s: email card NullMX = false, reputation card says true", c.name)
+			}
+		}
 	}
 }

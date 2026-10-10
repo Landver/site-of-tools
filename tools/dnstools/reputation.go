@@ -160,9 +160,8 @@ func (s *Service) repRun(ctx context.Context, domain, addr string, bl BlockCheck
 	}
 
 	out.MXCount = len(mx.Records)
-	hosts, nullMX := mailHosts(mx.Records)
-	out.NullMX = nullMX && len(hosts) == 0
-	out.NullMXConflict = nullMX && len(hosts) > 0
+	hosts, nullMX, conflict := mailHosts(mx.Records)
+	out.NullMX, out.NullMXConflict = nullMX, conflict
 	if len(hosts) > maxMailHosts {
 		hosts = hosts[:maxMailHosts]
 		out.HostsTruncated = true

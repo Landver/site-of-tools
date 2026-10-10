@@ -31,7 +31,7 @@ type EmailAuth struct {
 	MXRep *MXReputation `json:"mx_reputation,omitempty"`
 	// MXCount can exceed len(MailHosts): the FCrDNS fan-out stops at maxMailHosts.
 	MXCount int `json:"mx_count,omitempty"`
-	// NullMX: the only MX is "0 ." (RFC 7505), so the domain takes no mail though HasMX is true.
+	// NullMX: every MX targets "." (RFC 7505), so the domain takes no mail though HasMX is true.
 	NullMX bool `json:"null_mx,omitempty"`
 	// DKIMRevoked: selectors with an empty p=, a revoked key (RFC 6376 §3.6.1).
 	DKIMRevoked []string `json:"dkim_revoked,omitempty"`
@@ -361,13 +361,12 @@ func (s *Service) countSPFLookups(ctx context.Context, rec, addr string, w *spfW
 }
 
 func (s *Service) checkMailHosts(ctx context.Context, mx []Record, addr string) ([]MailHost, bool) {
-	hosts, nullMX := mailHosts(mx)
+	hosts, nullMX, _ := mailHosts(mx)
 	var out []MailHost
 	for _, h := range hosts[:min(len(hosts), maxMailHosts)] {
 		out = append(out, s.probeMailHost(ctx, h.host, addr))
 	}
-	// RFC 7505 §3: a null MX beside real hosts is a contradiction, not a declaration.
-	return out, nullMX && len(mx) == 1
+	return out, nullMX
 }
 
 func (s *Service) probeMailHost(ctx context.Context, host, addr string) MailHost {
@@ -423,21 +422,23 @@ type mxTarget struct {
 }
 
 // mailHosts sorts by preference before any cap, so the checked subset doesn't rotate.
-func mailHosts(recs []Record) (hosts []mxTarget, nullMX bool) {
+// nullMX: no target but "." (RFC 7505); conflict: "." beside real hosts, which §3 forbids.
+func mailHosts(recs []Record) (hosts []mxTarget, nullMX, conflict bool) {
 	byPref := slices.Clone(recs)
 	slices.SortStableFunc(byPref, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
 
+	var dot bool
 	hosts = make([]mxTarget, 0, len(byPref))
 	for _, rec := range byPref {
 		switch h := mxHost(rec.Value); h {
 		case "":
 		case ".":
-			nullMX = true
+			dot = true
 		default:
 			hosts = append(hosts, mxTarget{host: h, pref: mxPref(rec.Value)})
 		}
 	}
-	return hosts, nullMX
+	return hosts, dot && len(hosts) == 0, dot && len(hosts) > 0
 }
 
 // mxHost returns the MX target, "." for a null MX and "" when there is no target.
