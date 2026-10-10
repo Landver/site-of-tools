@@ -1,6 +1,10 @@
 package dnstools
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
 
 func answer(label string, serial uint32, values ...string) ServerAnswer {
 	return ServerAnswer{Label: label, Addr: "192.0.2.1:53", Values: values, TTL: 300, Serial: serial}
@@ -219,5 +223,54 @@ func TestRotationIsWitnessedInsideOneProvider(t *testing.T) {
 	inside.summarise()
 	if !inside.Rotation {
 		t.Error("two servers of one provider on one serial with different sets is rotation")
+	}
+}
+
+func TestUnanimousRcode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		codes []string
+		want  string
+	}{
+		{[]string{"NOERROR", "NXDOMAIN"}, ""},
+		{[]string{"", "NOERROR"}, "NOERROR"},
+		{[]string{"NOERROR", "", "NOERROR"}, "NOERROR"},
+		{[]string{"", ""}, ""},
+		{nil, ""},
+	} {
+		if got := unanimousRcode(tc.codes, func(c string) string { return c }); got != tc.want {
+			t.Errorf("unanimousRcode(%q) = %q, want %q", tc.codes, got, tc.want)
+		}
+	}
+}
+
+func TestAnswerGroupsAreLargestFirst(t *testing.T) {
+	t.Parallel()
+
+	got := answerGroups(
+		[]string{"a", "b", "c", "d", "e"},
+		[][]string{{"192.0.2.9"}, {"192.0.2.1"}, nil, {"192.0.2.1"}, {"192.0.2.1"}},
+	)
+	want := []AnswerGroup{
+		{Values: []string{"192.0.2.1"}, Servers: []string{"b", "d", "e"}},
+		{Values: []string{"192.0.2.9"}, Servers: []string{"a"}},
+		{Values: nil, Servers: []string{"c"}},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("answerGroups (-want +got):\n%s", diff)
+	}
+
+	sp := &Spread{
+		Authoritative: []ServerAnswer{answer("ns1.example.com.", 100, "192.0.2.9"), failed("ns2.example.com.", "timeout")},
+		Resolvers:     []ServerAnswer{answer("Cloudflare (1.1.1.1)", 0, "192.0.2.1"), answer("Google (8.8.8.8)", 0, "192.0.2.1")},
+	}
+	sp.summarise()
+	wantSpread := []AnswerGroup{
+		{Values: []string{"192.0.2.1"}, Servers: []string{"Cloudflare (1.1.1.1)", "Google (8.8.8.8)"}},
+		{Values: []string{"192.0.2.9"}, Servers: []string{"ns1.example.com."}},
+	}
+	if diff := cmp.Diff(wantSpread, sp.Groups); diff != "" {
+		t.Errorf("Spread.Groups (-want +got):\n%s", diff)
 	}
 }

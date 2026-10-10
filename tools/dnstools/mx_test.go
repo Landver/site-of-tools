@@ -1,6 +1,7 @@
 package dnstools
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -27,6 +28,32 @@ func TestMXPreferenceDecidesWhichHostsAreChecked(t *testing.T) {
 	want := []string{"mx1.example.net", "mx2.example.net", "mx3.example.net", "mx4.example.net", "mx5.example.net"}
 	if !slices.Equal(order, want) {
 		t.Errorf("hosts a sender tries first = %v, want %v", order, want)
+	}
+}
+
+// 13 records: past the 12 Go sorts by insertion sort, so an unstable sort would reorder ties.
+func TestMailHostsKeepsRRsetOrderWithinAPreference(t *testing.T) {
+	t.Parallel()
+
+	var recs []Record
+	var want10, want20 []string
+	for i := range 13 {
+		host := fmt.Sprintf("mx%02d.example.net", i)
+		if i%3 == 0 {
+			recs = append(recs, Record{Type: "MX", Value: "20 " + host + "."})
+			want20 = append(want20, host)
+		} else {
+			recs = append(recs, Record{Type: "MX", Value: "10 " + host + "."})
+			want10 = append(want10, host)
+		}
+	}
+	hosts, _ := mailHosts(recs)
+	var got []string
+	for _, h := range hosts {
+		got = append(got, h.host)
+	}
+	if want := append(want10, want20...); !slices.Equal(got, want) {
+		t.Errorf("hosts = %v, want %v", got, want)
 	}
 }
 
