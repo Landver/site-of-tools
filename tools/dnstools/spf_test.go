@@ -5,19 +5,11 @@ import (
 	"testing"
 )
 
-// The SPF lookup counter, over synthetic records served from loopback.
-//
-// Every number in the table is the RFC 7208 §4.6.4 cost of *evaluating* the
-// record: one per include, a, mx, ptr, exists and redirect term evaluated,
-// counted again each time a term is evaluated again. Cases that the counter
-// gets wrong today are marked with the finding they pin and are expected to
-// fail until that finding is fixed — the point of the table is that the fix
-// turns them green rather than being taken on trust.
+// Each want is the RFC 7208 §4.6.4 evaluation cost: a term evaluated twice costs twice.
 func TestSPFLookupCount(t *testing.T) {
 	t.Parallel()
 
-	// zeroCost: a record that publishes addresses only, so an include of it
-	// costs the include term and nothing more.
+	// zeroCost publishes addresses only, so including it costs just the include term.
 	const zeroCost = "v=spf1 ip4:192.0.2.0/24 -all"
 
 	cases := []struct {
@@ -25,8 +17,7 @@ func TestSPFLookupCount(t *testing.T) {
 		records map[string]string
 		want    int
 		wantAll string
-		// finding: non-empty when today's counter disagrees with the RFC, and
-		// names the review finding whose fix makes this case pass.
+		// finding names the review finding this case pins.
 		finding string
 	}{
 		{
@@ -66,7 +57,7 @@ func TestSPFLookupCount(t *testing.T) {
 			wantAll: "-all",
 		},
 		{
-			// A bare `all` carries an implicit "+", i.e. anyone may send.
+			// A bare `all` carries an implicit "+": anyone may send.
 			name:    "bare all reads as +all",
 			records: map[string]string{"t.test": "v=spf1 a all"},
 			want:    1,
@@ -91,9 +82,7 @@ func TestSPFLookupCount(t *testing.T) {
 			wantAll: "",
 		},
 		{
-			// RFC 7208 §4.6.1: mechanism and modifier names are
-			// case-insensitive, so this record costs exactly as much as its
-			// lowercase twin.
+			// RFC 7208 §4.6.1: mechanism and modifier names are case-insensitive.
 			name: "mechanism names are case-insensitive",
 			records: map[string]string{
 				"t.test":   "v=spf1 Include:inc.test MX A PTR Redirect=r.test",
@@ -104,9 +93,7 @@ func TestSPFLookupCount(t *testing.T) {
 			finding: "spf-mechanism-case-sensitive",
 		},
 		{
-			// RFC 7208 §6.1: a redirect modifier MUST be ignored when the
-			// record contains an all mechanism, so neither it nor the record
-			// it points at costs anything.
+			// RFC 7208 §6.1: redirect is ignored beside an all, so its target costs nothing.
 			name: "redirect is ignored when the record has an all mechanism",
 			records: map[string]string{
 				"t.test":   "v=spf1 include:inc.test redirect=big.test -all",
@@ -120,8 +107,7 @@ func TestSPFLookupCount(t *testing.T) {
 			finding: "spf-redirect-counted-despite-all",
 		},
 		{
-			// The limit is per evaluation, not per distinct name: the same
-			// include listed twice is evaluated twice and costs twice.
+			// The limit counts evaluations, not distinct names.
 			name: "the same include twice costs twice",
 			records: map[string]string{
 				"t.test":  "v=spf1 include:p.test include:p.test -all",
@@ -133,8 +119,6 @@ func TestSPFLookupCount(t *testing.T) {
 			finding: "spf-shared-include-undercount",
 		},
 		{
-			// Same rule reached down two branches: shared.test's sub-tree is
-			// paid for once per branch that includes it.
 			name: "an include reached from two branches costs twice",
 			records: map[string]string{
 				"t.test":      "v=spf1 include:a.test include:b.test -all",
@@ -148,8 +132,7 @@ func TestSPFLookupCount(t *testing.T) {
 			finding: "spf-shared-include-undercount",
 		},
 		{
-			// A record that includes itself must stop at the repeat rather
-			// than recursing: the top term plus the term that closes the loop.
+			// Stops at the repeat: the top term plus the one that closes the loop.
 			name: "a self-referencing include terminates",
 			records: map[string]string{
 				"t.test":    "v=spf1 include:loop.test -all",
@@ -184,7 +167,7 @@ func TestSPFLookupCount(t *testing.T) {
 			if r.Lookups != tc.want {
 				msg := "lookups = %d, RFC 7208 cost is %d (chain %v)"
 				if tc.finding != "" {
-					msg += " [expected red until " + tc.finding + " is fixed]"
+					msg += " [regresses " + tc.finding + "]"
 				}
 				t.Errorf(msg, r.Lookups, tc.want, r.Chain)
 			}
@@ -198,8 +181,7 @@ func TestSPFLookupCount(t *testing.T) {
 	}
 }
 
-// A domain with no SPF record gets no SPF result, rather than an empty one the
-// verdict layer would then grade.
+// No SPF record gives nil, not an empty result the verdict layer would grade.
 func TestSPFAbsentRecord(t *testing.T) {
 	t.Parallel()
 	_, addr := serveZone(t, spfZone(map[string]string{"other.test": "v=spf1 -all"}))
@@ -209,8 +191,6 @@ func TestSPFAbsentRecord(t *testing.T) {
 	}
 }
 
-// The include budget stops the walk and says so out loud, rather than turning
-// one page view into unbounded upstream traffic.
 func TestSPFIncludeBudgetIsEnforced(t *testing.T) {
 	t.Parallel()
 
@@ -234,8 +214,7 @@ func TestSPFIncludeBudgetIsEnforced(t *testing.T) {
 	if !r.Truncated {
 		t.Errorf("a 20-include record should report Truncated, chain length %d", len(r.Chain))
 	}
-	// The verdict does not depend on the untaken half: the record is already
-	// past the limit either way.
+	// Past the limit either way, so the untaken half cannot change the verdict.
 	if r.Lookups <= r.Limit {
 		t.Errorf("lookups = %d, a 20-include record is over the limit of %d", r.Lookups, r.Limit)
 	}

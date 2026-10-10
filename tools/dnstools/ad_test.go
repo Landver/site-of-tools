@@ -10,38 +10,61 @@ import (
 	"github.com/miekg/dns"
 )
 
-// serveADZone is serveZone that also sets AD on the given query types.
-func serveADZone(t *testing.T, z testZone, ad map[string]bool) string {
+// startLoopbackDNS serves h over UDP on loopback until the test ends and returns its address.
+func startLoopbackDNS(t *testing.T, h dns.HandlerFunc) string {
 	t.Helper()
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
-		m := new(dns.Msg).SetReply(req)
-		if len(req.Question) == 1 {
-			q := req.Question[0]
-			qtype := dns.TypeToString[q.Qtype]
-			for _, s := range z[zoneKey(q.Name, qtype)] {
-				rr, err := dns.NewRR(s)
-				if err != nil {
-					t.Errorf("canned record %q: %v", s, err)
-					continue
-				}
-				m.Answer = append(m.Answer, rr)
-			}
-			m.AuthenticatedData = ad[qtype]
-		}
-		_ = w.WriteMsg(m)
-	})}
+	srv := &dns.Server{PacketConn: pc, Handler: h}
 	started := make(chan struct{})
 	srv.NotifyStartedFunc = func() { close(started) }
 	go func() { _ = srv.ActivateAndServe() }()
 	<-started
 	t.Cleanup(func() { _ = srv.Shutdown() })
+	return pc.LocalAddr().String()
+}
 
-	addr := pc.LocalAddr().String()
+// zoneReply answers req from z the way serveZone does: records, NODATA or NXDOMAIN.
+func zoneReply(t *testing.T, z testZone, req *dns.Msg) *dns.Msg {
+	m := new(dns.Msg).SetReply(req)
+	m.Authoritative = true
+	if len(req.Question) != 1 {
+		return m
+	}
+	q := req.Question[0]
+	name := strings.ToLower(q.Name)
+	for _, s := range z[zoneKey(name, dns.TypeToString[q.Qtype])] {
+		rr, err := dns.NewRR(s)
+		if err != nil {
+			t.Errorf("canned record %q: %v", s, err)
+			continue
+		}
+		m.Answer = append(m.Answer, rr)
+	}
+	exists := false
+	for k := range z {
+		exists = exists || strings.HasPrefix(k, name+"|")
+	}
+	if len(m.Answer) == 0 && !exists {
+		m.Rcode = dns.RcodeNameError
+	}
+	return m
+}
+
+// serveADZone is serveZone that also sets AD on the given query types.
+func serveADZone(t *testing.T, z testZone, ad map[string]bool) string {
+	t.Helper()
+
+	addr := startLoopbackDNS(t, func(w dns.ResponseWriter, req *dns.Msg) {
+		m := zoneReply(t, z, req)
+		if len(req.Question) == 1 {
+			m.AuthenticatedData = ad[dns.TypeToString[req.Question[0].Qtype]]
+		}
+		_ = w.WriteMsg(m)
+	})
 	key := "test-" + addr
 	testResolvers.mu.Lock()
 	testResolvers.m[key] = addr
@@ -85,7 +108,6 @@ func TestAuthenticatedMeansEveryAnswer(t *testing.T) {
 		t.Errorf("every answer validated: Authenticated = %v, Unvalidated = %v", set.Authenticated, set.Unvalidated)
 	}
 
-	// No AD anywhere: nothing to list.
 	none := serveADZone(t, z, nil)
 	set, err = newTestService().LookupSet(context.Background(), "alias.test", none, types)
 	if err != nil {
@@ -137,7 +159,6 @@ func TestRecordTargetNamesTheHost(t *testing.T) {
 	}
 }
 
-// Identical failures fold into one group.
 func TestFailureGroupsFoldIdenticalFailures(t *testing.T) {
 	t.Parallel()
 

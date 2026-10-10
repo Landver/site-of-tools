@@ -6,14 +6,10 @@ import (
 	"testing"
 )
 
-// The MX half of /email, driven from constructed rdata: which hosts the
-// FCrDNS fan-out spends its five slots on, and what a null MX says.
-
 func TestMXPreferenceDecidesWhichHostsAreChecked(t *testing.T) {
 	t.Parallel()
 
-	// A comcast.net-shaped set: more hosts than maxMailHosts, across two
-	// priority levels, handed over in the order a rotating RRset produced.
+	// More hosts than maxMailHosts across two priorities, in a rotated RRset's order.
 	rotated := []Record{
 		{Type: "MX", Value: "20 mx3.example.net."},
 		{Type: "MX", Value: "10 mx1.example.net."},
@@ -60,9 +56,7 @@ func TestMXRdataParsing(t *testing.T) {
 	}
 }
 
-// A null MX is the zone saying it receives no mail. HasMX stays true because a
-// record is published, so the note is the only thing that stops the page
-// asserting the opposite of what the zone says.
+// HasMX stays true for a null MX, so only the note stops the page claiming the zone takes mail.
 func TestNullMXIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -83,10 +77,7 @@ func TestNullMXIsReported(t *testing.T) {
 	}
 }
 
-// "v=DKIM1; p=" under a _domainkey wildcard revokes every selector without a
-// record of its own, which is the recommended record for a domain that sends
-// no mail. It used to be reported as the opposite: "any selector a sender
-// invents will appear to be published".
+// A "v=DKIM1; p=" wildcard revokes every other selector, as recommended for a no-mail domain.
 func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 	t.Parallel()
 
@@ -96,12 +87,8 @@ func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 	keyed.judge()
 
 	level := func(e *EmailAuth) string {
-		for _, n := range e.Notes {
-			if strings.Contains(n.Text, "wildcard") {
-				return n.Level
-			}
-		}
-		return ""
+		n, _ := noteWith(e.Notes, "wildcard")
+		return n.Level
 	}
 	if got := level(revoking); got != "ok" {
 		t.Errorf("revoking wildcard: level %q, want ok; notes %+v", got, revoking.Notes)

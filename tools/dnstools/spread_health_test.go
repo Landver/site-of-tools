@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// The delegation findings, which are the sentences /consistency prints with a
-// named operator in them. All pure judgement over collected answers, so they
-// are driven here from constructed ones.
-
 func noteWith(notes []Note, substr string) (Note, bool) {
 	for _, n := range notes {
 		if strings.Contains(n.Text, substr) {
@@ -18,8 +14,7 @@ func noteWith(notes []Note, substr string) (Note, bool) {
 	return Note{}, false
 }
 
-// A TCP probe that timed out and one that was refused are different claims
-// about the operator, and only the second one earns the word "refused".
+// A timeout and a refusal are different claims; only a refusal earns the word "refused".
 func TestTCPFindingSaysWhatWasSeen(t *testing.T) {
 	t.Parallel()
 
@@ -43,8 +38,7 @@ func TestTCPFindingSaysWhatWasSeen(t *testing.T) {
 	}
 }
 
-// One vantage point can say the server recursed for us. It cannot say who else
-// it would do that for, so the finding must not claim to know.
+// One vantage point cannot see who else the server would recurse for.
 func TestOpenResolverFindingClaimsOnlyWhatOneVantagePointSaw(t *testing.T) {
 	t.Parallel()
 
@@ -63,9 +57,7 @@ func TestOpenResolverFindingClaimsOnlyWhatOneVantagePointSaw(t *testing.T) {
 	}
 }
 
-// An IPv6 nameserver address is bracketed, which the old cut at the first
-// colon turned into "[2001". The /24 finding then has nothing to say about it,
-// and must not speak for the addresses it could not read.
+// Bracketed IPv6 addresses reach the ASN lookup unbracketed, and the /24 check leaves them out.
 func TestDelegationHealthReadsIPv6Addresses(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +80,6 @@ func TestDelegationHealthReadsIPv6Addresses(t *testing.T) {
 	}
 }
 
-// Two nameservers in one /24 still earn the warning.
 func TestDelegationHealthFlagsOneSlashTwentyFour(t *testing.T) {
 	t.Parallel()
 

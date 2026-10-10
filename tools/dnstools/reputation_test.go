@@ -1,17 +1,11 @@
 package dnstools
 
-// White-box tests for the mail-server reputation card, the rule #6 exception:
-// the subject is repRun, which takes the resolver address directly, and that
-// is the only seam that lets the whole feature run over the loopback zone in
-// testserver_test.go instead of the internet. Everything reachable through the
-// exported API is tested black-box in tests/reputation_test.go.
-
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,17 +16,12 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// repFakeCorpus stands in for the shared blocklist repository. Counting calls
-// is half the point: the caps in reputation.go are only real if something
-// asserts how many reads one request can make.
+// repFakeCorpus stands in for the blocklist store and counts reads, so the caps can be asserted.
 type repFakeCorpus struct {
 	listed map[string]iptools.BlockLookup
 	err    error
 
-	// Freshness. The zero value means "every feed wrote to the corpus just
-	// now", so the cases that are not about staleness read exactly as they
-	// did before freshness existed; the cases that ARE about it set one of
-	// these three explicitly.
+	// Zero freshness fields mean every feed synced just now.
 	neverSynced bool                 // no feed has ever written: an empty corpus
 	syncedAt    map[string]time.Time // per feed, for the partly-stale case
 	syncErr     error                // the freshness read itself fails
@@ -89,18 +78,6 @@ func repNoteAt(m *MXReputation, level string) []string {
 	return out
 }
 
-// repHasNote reports whether any note at level contains substr.
-func repHasNote(m *MXReputation, level, substr string) bool {
-	for _, t := range repNoteAt(m, level) {
-		if strings.Contains(t, substr) {
-			return true
-		}
-	}
-	return false
-}
-
-// A listed mail server must be named, with its address and the feed that
-// lists it. This is the whole feature: everything else is qualification.
 func TestMXReputationNamesAListedMailServer(t *testing.T) {
 	t.Parallel()
 
@@ -124,18 +101,16 @@ func TestMXReputationNamesAListedMailServer(t *testing.T) {
 		t.Errorf("confidence count = %d, want the corpus value 7", got)
 	}
 	for _, want := range []string{"mx1.listed.test", "192.0.2.10", "ipsum"} {
-		if !repHasNote(m, "fail", want) {
+		if !hasNote(m.Notes, "fail", want) {
 			t.Errorf("no failing note mentions %q; notes: %+v", want, m.Notes)
 		}
 	}
-	// A listing is not a clean result, and must not also produce one.
 	if ok := repNoteAt(m, "ok"); len(ok) > 0 {
 		t.Errorf("a listed server produced an ok note too: %v", ok)
 	}
 }
 
-// A clean result has to READ as clean. An empty card is the failure mode the
-// docs call out: the reader cannot tell "nothing found" from "nothing looked".
+// An empty card cannot tell "nothing found" from "nothing looked", so clean is said out loud.
 func TestMXReputationCleanIsStatedNotImplied(t *testing.T) {
 	t.Parallel()
 
@@ -154,14 +129,12 @@ func TestMXReputationCleanIsStatedNotImplied(t *testing.T) {
 	if m.Listed != 0 || m.Checked != 2 {
 		t.Fatalf("listed=%d checked=%d, want 0 and 2", m.Listed, m.Checked)
 	}
-	if !repHasNote(m, "ok", "Clean") {
+	if !hasNote(m.Notes, "ok", "Clean") {
 		t.Errorf("a clean domain produced no positive finding; notes: %+v", m.Notes)
 	}
-	// The claim must be bounded by the corpus it was read from, not phrased as
-	// "not blocklisted".
-	// By the names a reader knows them; the feed slugs are ours.
-	if !repHasNote(m, "ok", "IPsum") ||
-		!repHasNote(m, "ok", "Spamhaus DROP") {
+	// Bounded by the corpus read, named as a reader knows the feeds rather than by our slugs.
+	if !hasNote(m.Notes, "ok", "IPsum") ||
+		!hasNote(m.Notes, "ok", "Spamhaus DROP") {
 		t.Errorf("the clean note doesn't name the corpus it read: %+v", repNoteAt(m, "ok"))
 	}
 	if !strings.Contains(m.Corpus, "not a live query") {
@@ -169,11 +142,7 @@ func TestMXReputationCleanIsStatedNotImplied(t *testing.T) {
 	}
 }
 
-// The named worst failure mode: a corpus that is switched on but EMPTY answers
-// "not listed" to every address with a nil error, which is indistinguishable
-// from a real miss at the call site. A first boot before the first sync, or a
-// feed that has been failing long enough for the 60-day TTL to prune the
-// collection, both land here — and neither is evidence that anything is clean.
+// An empty corpus (first boot, or feeds dead past the TTL) says "not listed" with no error.
 func TestMXReputationAnEmptyCorpusIsNotClean(t *testing.T) {
 	t.Parallel()
 
@@ -188,7 +157,7 @@ func TestMXReputationAnEmptyCorpusIsNotClean(t *testing.T) {
 	if m.Checked != 1 {
 		t.Fatalf("checked = %d, want the address still read (rows: %+v)", m.Checked, m.Hosts)
 	}
-	if repHasNote(m, "ok", "Clean") {
+	if hasNote(m.Notes, "ok", "Clean") {
 		t.Fatalf("an empty corpus produced a clean verdict: %+v", m.Notes)
 	}
 	if m.CorpusUsable() {
@@ -200,14 +169,12 @@ func TestMXReputationAnEmptyCorpusIsNotClean(t *testing.T) {
 	if !m.CorpusSynced.IsZero() {
 		t.Errorf("CorpusSynced = %v, want the zero time for a corpus never written to", m.CorpusSynced)
 	}
-	if !repHasNote(m, "warn", "not checked") {
+	if !hasNote(m.Notes, "warn", "not checked") {
 		t.Errorf("the reader is not told to read this as 'not checked': %+v", m.Notes)
 	}
 }
 
-// One feed behind and one current is not the same as a dead corpus: the clean
-// result still stands on the feed that is current, and the card says which
-// half of the claim is missing rather than dropping the verdict entirely.
+// The clean result still stands on the current feed, and the card names the stale one.
 func TestMXReputationAStaleFeedQualifiesTheCleanResult(t *testing.T) {
 	t.Parallel()
 
@@ -224,19 +191,17 @@ func TestMXReputationAStaleFeedQualifiesTheCleanResult(t *testing.T) {
 	if !m.CorpusUsable() {
 		t.Fatal("CorpusUsable() = false while one feed is still current")
 	}
-	if !repHasNote(m, "ok", "Clean") {
+	if !hasNote(m.Notes, "ok", "Clean") {
 		t.Errorf("a current feed still backs a clean result; notes: %+v", m.Notes)
 	}
-	if !repHasNote(m, "warn", iptools.BlocklistSourceSpamhausDROP) {
+	if !hasNote(m.Notes, "warn", iptools.BlocklistSourceSpamhausDROP) {
 		t.Errorf("the stale feed is not named: %+v", m.Notes)
 	}
-	if repHasNote(m, "warn", iptools.BlocklistSourceIPsum) {
+	if hasNote(m.Notes, "warn", iptools.BlocklistSourceIPsum) {
 		t.Errorf("the current feed was reported as stale: %+v", m.Notes)
 	}
 }
 
-// A freshness read that fails is not a fresh corpus. Same rule as a failed
-// Check: not knowing is never the good answer.
 func TestMXReputationUnreadableFreshnessIsNotClean(t *testing.T) {
 	t.Parallel()
 
@@ -248,17 +213,15 @@ func TestMXReputationUnreadableFreshnessIsNotClean(t *testing.T) {
 
 	m := newTestService().repRun(context.Background(), "age.test", addr, corpus)
 
-	if repHasNote(m, "ok", "Clean") {
+	if hasNote(m.Notes, "ok", "Clean") {
 		t.Errorf("an unreadable corpus age produced a clean verdict: %+v", m.Notes)
 	}
-	if !repHasNote(m, "warn", "freshness could not be read") {
+	if !hasNote(m.Notes, "warn", "freshness could not be read") {
 		t.Errorf("no note says why the corpus cannot back the result: %+v", m.Notes)
 	}
 }
 
-// Hosts are taken in MX-preference order, so the hosts that fit inside the cap
-// are the ones a sender really tries first rather than whichever the RRset
-// rotation happened to put at the front.
+// Preference order, so the cap keeps the hosts a sender tries first, not RRset rotation's pick.
 func TestMXReputationTakesHostsInPreferenceOrder(t *testing.T) {
 	t.Parallel()
 
@@ -285,8 +248,6 @@ func TestMXReputationTakesHostsInPreferenceOrder(t *testing.T) {
 	}
 }
 
-// The budget is a hard ceiling, not a suggestion: this is a public endpoint
-// and one click must not turn into an unbounded number of corpus reads.
 func TestMXReputationBoundsItsFanOut(t *testing.T) {
 	t.Parallel()
 
@@ -295,8 +256,7 @@ func TestMXReputationBoundsItsFanOut(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		host := fmt.Sprintf("mx%d.big.test", i)
 		mx = append(mx, fmt.Sprintf("big.test. 300 IN MX %d %s.", 10+i, host))
-		// Three addresses each: more than repMaxAddrsPerHost, so the per-host
-		// cap is exercised as well as the global one.
+		// Three addresses each, past repMaxAddrsPerHost, so the per-host cap bites too.
 		z[zoneKey(host, "A")] = []string{
 			fmt.Sprintf("%s. 300 IN A 198.51.100.%d", host, 10+i),
 			fmt.Sprintf("%s. 300 IN A 198.51.100.%d", host, 100+i),
@@ -325,21 +285,16 @@ func TestMXReputationBoundsItsFanOut(t *testing.T) {
 	if !m.HostsTruncated {
 		t.Error("a capped run must admit it was capped")
 	}
-	// And the admission has to reach the reader, with both numbers.
-	if !repHasNote(m, "info", "9 MX records") {
+	if !hasNote(m.Notes, "info", "9 MX records") {
 		t.Errorf("no note states how much of the delegation was skipped: %+v", m.Notes)
 	}
 }
 
-// The budget running out INSIDE a host is the silent case: the outer loop can
-// only notice when another host remains, so on the last host the skipped
-// addresses would disappear with no flag and no note.
+// The outer loop misses a budget spent inside the last host, so that drop would be silent.
 func TestMXReputationSaysWhenTheBudgetRanOutInsideAHost(t *testing.T) {
 	t.Parallel()
 
-	// 1 + 2 + 2 + 2 + 2 = 9 addresses across five hosts, one more than
-	// repMaxChecks, so the ninth is dropped inside the last host and no host
-	// is skipped whole.
+	// 1+2+2+2+2 = 9 addresses, one past repMaxChecks: the ninth drops inside the last host.
 	z := testZone{}
 	var mx []string
 	counts := []int{1, 2, 2, 2, 2}
@@ -366,18 +321,15 @@ func TestMXReputationSaysWhenTheBudgetRanOutInsideAHost(t *testing.T) {
 	if !m.AddrsTruncated {
 		t.Error("an address dropped for want of budget left no trace on the struct")
 	}
-	if !repHasNote(m, "info", "ran out") {
+	if !hasNote(m.Notes, "info", "ran out") {
 		t.Errorf("no note tells the reader some addresses were never read: %+v", m.Notes)
 	}
-	// And the clean sentence must not quietly claim the dropped one.
-	if !repHasNote(m, "ok", fmt.Sprintf("all %d mail-server addresses", repMaxChecks)) {
+	if !hasNote(m.Notes, "ok", fmt.Sprintf("all %d mail-server addresses", repMaxChecks)) {
 		t.Errorf("the clean note's denominator is not what was read: %+v", repNoteAt(m, "ok"))
 	}
 }
 
-// A corpus read that fails is not a clean address. BlockList.Check is nil-safe
-// and answers "not listed" for a disabled store, so folding an error into the
-// clean count is exactly how this card would start lying.
+// BlockList.Check answers "not listed" when disabled, so an error must never count as clean.
 func TestMXReputationCorpusFailureIsNotClean(t *testing.T) {
 	t.Parallel()
 
@@ -395,17 +347,15 @@ func TestMXReputationCorpusFailureIsNotClean(t *testing.T) {
 	if got := m.Hosts[0].Addrs[0]; got.Error == "" || got.Listed {
 		t.Errorf("address row = %+v, want an error and no verdict", got)
 	}
-	if repHasNote(m, "ok", "Clean") {
+	if hasNote(m.Notes, "ok", "Clean") {
 		t.Errorf("an unreadable corpus produced a clean verdict: %+v", m.Notes)
 	}
-	if !repHasNote(m, "warn", "not a clean result") {
+	if !hasNote(m.Notes, "warn", "not a clean result") {
 		t.Errorf("no note separates 'could not read' from 'not listed': %+v", m.Notes)
 	}
 }
 
-// RFC 7505: the zone says it receives no mail, so there is no mail server to
-// have a reputation. Reporting that as "nothing checked" would be true and
-// useless; reporting it as clean would be false.
+// RFC 7505: the zone receives no mail, so neither "nothing checked" nor "clean" is the answer.
 func TestMXReputationNullMX(t *testing.T) {
 	t.Parallel()
 
@@ -420,15 +370,12 @@ func TestMXReputationNullMX(t *testing.T) {
 	if corpus.count() != 0 {
 		t.Errorf("%d corpus reads for a domain that receives no mail", corpus.count())
 	}
-	if !repHasNote(m, "info", "null MX") {
+	if !hasNote(m.Notes, "info", "null MX") {
 		t.Errorf("no note explains the null MX: %+v", m.Notes)
 	}
 }
 
-// Two null MX records is a badly written zone, not a zone that takes mail. The
-// declaration is "every record says '.'", not "there is exactly one record":
-// reading it the narrow way answered a zone that plainly refuses mail with the
-// generic "nothing could be checked".
+// A null MX is every record targeting ".", not exactly one record.
 func TestMXReputationNullMXDoesNotHaveToStandAlone(t *testing.T) {
 	t.Parallel()
 
@@ -446,16 +393,15 @@ func TestMXReputationNullMXDoesNotHaveToStandAlone(t *testing.T) {
 	if corpus.count() != 0 {
 		t.Errorf("%d corpus reads for a domain that receives no mail", corpus.count())
 	}
-	if !repHasNote(m, "info", "null MX") {
+	if !hasNote(m.Notes, "info", "null MX") {
 		t.Errorf("no note explains the null MX: %+v", m.Notes)
 	}
-	if repHasNote(m, "warn", "No mail-server address could be checked") {
+	if hasNote(m.Notes, "warn", "No mail-server address could be checked") {
 		t.Errorf("a zone that refuses mail was reported as one we failed to check: %+v", m.Notes)
 	}
 }
 
-// A null MX next to a real mail server is a contradiction worth naming (RFC
-// 7505 §3), and the real host still gets checked.
+// A null MX beside a real host breaks RFC 7505 §3; the real host is still checked.
 func TestMXReputationNullMXAlongsideARealHost(t *testing.T) {
 	t.Parallel()
 
@@ -476,7 +422,7 @@ func TestMXReputationNullMXAlongsideARealHost(t *testing.T) {
 	if !m.NullMXConflict {
 		t.Error("a null MX alongside a real host was not reported as the RFC 7505 violation it is")
 	}
-	if !repHasNote(m, "warn", "RFC 7505") {
+	if !hasNote(m.Notes, "warn", "RFC 7505") {
 		t.Errorf("no note explains the contradiction: %+v", m.Notes)
 	}
 	if m.Checked != 1 {
@@ -484,8 +430,6 @@ func TestMXReputationNullMXAlongsideARealHost(t *testing.T) {
 	}
 }
 
-// A domain with no MX at all is a statement, not a failure, and must not read
-// as one.
 func TestMXReputationNoMXRecords(t *testing.T) {
 	t.Parallel()
 
@@ -497,18 +441,15 @@ func TestMXReputationNoMXRecords(t *testing.T) {
 	if m.MXCount != 0 || corpus.count() != 0 {
 		t.Errorf("MXCount=%d corpus reads=%d, want 0 and 0", m.MXCount, corpus.count())
 	}
-	if !repHasNote(m, "info", "no MX records") {
+	if !hasNote(m.Notes, "info", "no MX records") {
 		t.Errorf("notes = %+v, want one info note saying there is no mail server", m.Notes)
 	}
 }
 
-// A name that does not exist is not a domain that publishes no MX. Saying the
-// latter asserts the domain exists, which is the three-way NXDOMAIN / NODATA /
-// NOERROR confusion this package partitions on everywhere else.
+// "Publishes no MX" would assert that a nonexistent name exists.
 func TestMXReputationNXDomainIsNotTheSameAsNoMX(t *testing.T) {
 	t.Parallel()
 
-	// A zone serving one unrelated name: anything else answers NXDOMAIN.
 	_, a := serveZone(t, testZone{zoneKey("real.test", "A"): {"real.test. 300 IN A 192.0.2.80"}})
 	corpus := &repFakeCorpus{}
 
@@ -517,17 +458,15 @@ func TestMXReputationNXDomainIsNotTheSameAsNoMX(t *testing.T) {
 	if corpus.count() != 0 {
 		t.Errorf("%d corpus reads for a name that does not exist", corpus.count())
 	}
-	if !repHasNote(m, "info", "does not exist") {
+	if !hasNote(m.Notes, "info", "does not exist") {
 		t.Errorf("notes = %+v, want one saying the name does not exist", m.Notes)
 	}
-	if repHasNote(m, "info", "publishes no MX") {
+	if hasNote(m.Notes, "info", "publishes no MX") {
 		t.Errorf("an NXDOMAIN was reported as a domain that publishes no MX: %+v", m.Notes)
 	}
 }
 
-// An MX pointing somewhere unroutable is never in a public corpus, so checking
-// it could only produce a reassuring "clean" about a machine no sender can
-// reach. The host is reported instead.
+// No public corpus lists an unroutable address, so checking one could only yield a false "clean".
 func TestMXReputationSkipsUnroutableAddresses(t *testing.T) {
 	t.Parallel()
 
@@ -545,27 +484,26 @@ func TestMXReputationSkipsUnroutableAddresses(t *testing.T) {
 	if got := m.Hosts[0].Error; !strings.Contains(got, "routable") {
 		t.Errorf("host error = %q, want it to say the address is not routable", got)
 	}
-	if repHasNote(m, "ok", "Clean") {
+	if hasNote(m.Notes, "ok", "Clean") {
 		t.Errorf("an unprobed host produced a clean verdict: %+v", m.Notes)
 	}
 }
 
-// The three reasons a mail server contributes no address are three different
-// answers, and only one of them is a claim about what the zone publishes.
-// Reporting a SERVFAIL as "no A or AAAA record" states a fact about the zone
-// that the data does not support — the record may well exist.
+// Only NODATA says the zone publishes no address; a SERVFAIL'd record may well exist.
 func TestMXReputationSeparatesAFailedLookupFromAMissingRecord(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name     string
+		domain   string
 		zone     testZone
 		servfail []string
 		want     string
 		notWant  string
 	}{
 		{
-			name: "servfail",
+			name:   "servfail",
+			domain: "fail.test",
 			zone: testZone{
 				zoneKey("fail.test", "MX"):    {"fail.test. 300 IN MX 10 mx1.fail.test."},
 				zoneKey("mx1.fail.test", "A"): {"mx1.fail.test. 300 IN A 198.51.100.7"},
@@ -575,7 +513,8 @@ func TestMXReputationSeparatesAFailedLookupFromAMissingRecord(t *testing.T) {
 			notWant:  "publishes no A or AAAA record",
 		},
 		{
-			name: "nxdomain",
+			name:   "nxdomain",
+			domain: "ghost.test",
 			zone: testZone{
 				zoneKey("ghost.test", "MX"): {"ghost.test. 300 IN MX 10 mx1.ghost.test."},
 			},
@@ -583,7 +522,8 @@ func TestMXReputationSeparatesAFailedLookupFromAMissingRecord(t *testing.T) {
 			notWant: "publishes no A or AAAA record",
 		},
 		{
-			name: "nodata",
+			name:   "nodata",
+			domain: "bare.test",
 			zone: testZone{
 				zoneKey("bare.test", "MX"):      {"bare.test. 300 IN MX 10 mx1.bare.test."},
 				zoneKey("mx1.bare.test", "TXT"): {`mx1.bare.test. 300 IN TXT "here but addressless"`},
@@ -596,14 +536,8 @@ func TestMXReputationSeparatesAFailedLookupFromAMissingRecord(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fail := map[string]bool{}
-			for _, k := range c.servfail {
-				fail[k] = true
-			}
-			addr := serveFailingZone(t, c.zone, fail)
-			domain := strings.TrimSuffix(strings.SplitN(c.zone.anyMXOwner(), "|", 2)[0], ".")
-
-			m := newTestService().repRun(context.Background(), domain, addr, &repFakeCorpus{})
+			addr := serveFailingZone(t, c.zone, c.servfail)
+			m := newTestService().repRun(context.Background(), c.domain, addr, &repFakeCorpus{})
 
 			if len(m.Hosts) != 1 {
 				t.Fatalf("host rows = %d, want 1 (%+v)", len(m.Hosts), m.Hosts)
@@ -614,16 +548,14 @@ func TestMXReputationSeparatesAFailedLookupFromAMissingRecord(t *testing.T) {
 			if got := m.Hosts[0].Error; strings.Contains(got, c.notWant) {
 				t.Errorf("host error = %q, which asserts %q the answer does not support", got, c.notWant)
 			}
-			if !repHasNote(m, "warn", c.want) {
+			if !hasNote(m.Notes, "warn", c.want) {
 				t.Errorf("the note repeats a reason the answer does not support: %+v", m.Notes)
 			}
 		})
 	}
 }
 
-// One address published by two mail servers is one machine. Reading it twice
-// spends the budget twice and, worse, counts it twice in the denominator of
-// the clean sentence: "all 2 addresses checked" over a single address.
+// One address under two hosts is one machine: read once, counted once in the clean denominator.
 func TestMXReputationReadsASharedAddressOnce(t *testing.T) {
 	t.Parallel()
 
@@ -647,8 +579,7 @@ func TestMXReputationReadsASharedAddressOnce(t *testing.T) {
 	if m.Checked != 1 || m.Listed != 1 {
 		t.Errorf("checked=%d listed=%d, want 1 and 1: one address, counted once", m.Checked, m.Listed)
 	}
-	// It still shows on both rows — what a host resolves to is part of its row
-	// — but the second one is marked as the copy it is.
+	// Shown on both rows, the second marked as the duplicate.
 	if len(m.Hosts) != 2 || len(m.Hosts[1].Addrs) != 1 {
 		t.Fatalf("rows = %+v, want the address on both hosts", m.Hosts)
 	}
@@ -658,7 +589,6 @@ func TestMXReputationReadsASharedAddressOnce(t *testing.T) {
 	if !m.Hosts[1].Addrs[0].Duplicate {
 		t.Error("the repeated address is not marked, so the row count and the checked count look inconsistent")
 	}
-	// One finding, naming both hosts, rather than the same sentence twice.
 	fails := repNoteAt(m, "fail")
 	if len(fails) != 1 {
 		t.Fatalf("%d failing notes for one listed address: %v", len(fails), fails)
@@ -670,9 +600,7 @@ func TestMXReputationReadsASharedAddressOnce(t *testing.T) {
 	}
 }
 
-// The truncation note's denominator has to name what it counts. Rows whose
-// host never resolved are in len(Hosts) and contributed nothing to the corpus
-// reads, so calling them "checked" overstates the coverage.
+// Rows whose host never resolved were never read, so the note must not call them checked.
 func TestMXReputationTruncationNoteCountsWhatItLookedAt(t *testing.T) {
 	t.Parallel()
 
@@ -708,8 +636,6 @@ func TestMXReputationTruncationNoteCountsWhatItLookedAt(t *testing.T) {
 	}
 }
 
-// A cancelled request stops the work. The corpus reads are the expensive part
-// and none of them should outlive the caller.
 func TestMXReputationStopsWhenTheCallerGoesAway(t *testing.T) {
 	t.Parallel()
 
@@ -726,14 +652,12 @@ func TestMXReputationStopsWhenTheCallerGoesAway(t *testing.T) {
 	if corpus.count() != 0 {
 		t.Errorf("%d corpus reads after the caller went away", corpus.count())
 	}
-	if repHasNote(m, "ok", "Clean") {
+	if hasNote(m.Notes, "ok", "Clean") {
 		t.Errorf("an abandoned request produced a clean verdict: %+v", m.Notes)
 	}
 }
 
-// The JSON representation is half the contract (golden rule #2), and the half
-// a curl user sees. Slices must marshal as [] rather than null, and the
-// caveat has to be in the payload rather than only in the template.
+// Slices marshal as [], and the caveat travels in the payload, not only in the template.
 func TestMXReputationJSONShape(t *testing.T) {
 	t.Parallel()
 
@@ -757,8 +681,7 @@ func TestMXReputationJSONShape(t *testing.T) {
 		t.Errorf("a slice marshalled as null, which a JSON caller has to special-case:\n%s", body)
 	}
 
-	// And the freshness fields a caller needs to weigh a miss: absent when
-	// there is nothing to say, present the moment there is.
+	// Freshness fields are absent when there is nothing to say, present when there is.
 	stale := newTestService().repRun(context.Background(), "json.test", a, &repFakeCorpus{neverSynced: true})
 	sb, err := json.Marshal(stale)
 	if err != nil {
@@ -772,74 +695,24 @@ func TestMXReputationJSONShape(t *testing.T) {
 	}
 }
 
-// repAddrOf is serveZone's second return value, for the cases that only need
-// the address. Keeps the table-shaped tests above to one line of setup.
+// repAddrOf is serveZone for cases that only need the address.
 func repAddrOf(t *testing.T, z testZone) string {
 	t.Helper()
 	_, a := serveZone(t, z)
 	return a
 }
 
-// anyMXOwner returns the zone key of the MX RRset, so a table case can name
-// its domain once instead of twice.
-func (z testZone) anyMXOwner() string {
-	for k := range z {
-		if strings.HasSuffix(k, "|MX") {
-			return k
-		}
-	}
-	return ""
-}
-
-// serveFailingZone is serveZone with an rcode: keys in servfail answer
-// SERVFAIL instead of records. testserver_test.go's server has no failure
-// path, and the difference between "the zone says nothing" and "we could not
-// find out" cannot be tested without one.
-func serveFailingZone(t *testing.T, z testZone, servfail map[string]bool) string {
+// serveFailingZone is serveZone where the keys in servfail answer SERVFAIL.
+func serveFailingZone(t *testing.T, z testZone, servfail []string) string {
 	t.Helper()
-
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	names := map[string]bool{}
-	for k := range z {
-		names[k[:strings.LastIndex(k, "|")]] = true
-	}
-
-	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
-		m := new(dns.Msg).SetReply(req)
-		m.Authoritative = true
+	return startLoopbackDNS(t, func(w dns.ResponseWriter, req *dns.Msg) {
+		m := zoneReply(t, z, req)
 		if len(req.Question) == 1 {
 			q := req.Question[0]
-			name := strings.ToLower(q.Name)
-			key := zoneKey(name, dns.TypeToString[q.Qtype])
-			if servfail[key] {
-				m.Rcode = dns.RcodeServerFailure
-			} else {
-				for _, s := range z[key] {
-					rr, err := dns.NewRR(s)
-					if err != nil {
-						t.Errorf("canned record %q: %v", s, err)
-						continue
-					}
-					m.Answer = append(m.Answer, rr)
-				}
-				if len(m.Answer) == 0 && !names[name] {
-					m.Rcode = dns.RcodeNameError
-				}
+			if slices.Contains(servfail, zoneKey(q.Name, dns.TypeToString[q.Qtype])) {
+				m.Answer, m.Rcode = nil, dns.RcodeServerFailure
 			}
 		}
 		_ = w.WriteMsg(m)
-	})}
-	started := make(chan struct{})
-	srv.NotifyStartedFunc = func() { close(started) }
-	go func() {
-		if err := srv.ActivateAndServe(); err != nil {
-			t.Logf("test dns server stopped: %v", err)
-		}
-	}()
-	<-started
-	t.Cleanup(func() { _ = srv.Shutdown() })
-	return pc.LocalAddr().String()
+	})
 }

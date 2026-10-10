@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// summarise() and providerKey() are the verdict layer of /consistency: every
-// confident sentence that page prints comes out of them. Both are unexported
-// and neither touches the network, so they are driven here from constructed
-// server answers.
-
 func answer(label string, serial uint32, values ...string) ServerAnswer {
 	return ServerAnswer{Label: label, Addr: "192.0.2.1:53", Values: values, TTL: 300, Serial: serial}
 }
@@ -18,17 +13,14 @@ func failed(label, why string) ServerAnswer {
 	return ServerAnswer{Label: label, Error: why}
 }
 
-// providerKey exists to group one operator's own nameservers so their serials
-// get compared. The contract is grouping, not the string itself, so that is
-// what is pinned: a rewrite is free to change the key's shape.
+// The contract is grouping one operator's nameservers, not the key's shape.
 func TestProviderKeyGroupsOneOperator(t *testing.T) {
 	t.Parallel()
 
 	sameOperator := []struct {
 		name  string
 		hosts []string
-		// finding: non-empty when the bucketing is wrong today, naming the
-		// review finding whose fix makes this case pass.
+		// finding names the review finding this case pins.
 		finding string
 	}{
 		{
@@ -40,10 +32,7 @@ func TestProviderKeyGroupsOneOperator(t *testing.T) {
 			hosts: []string{"ns3.cloudflare.com.", "ns4.cloudflare.com."},
 		},
 		{
-			// Route 53 deliberately spreads one zone's nameservers across four
-			// TLDs. Four buckets means their serials are never compared, so
-			// SerialsAgree cannot fail, and every single-provider AWS zone is
-			// told it has more than one DNS provider.
+			// Route 53 spreads one zone across four TLDs; split buckets never compare serials.
 			name: "Route 53's four cross-TLD servers",
 			hosts: []string{
 				"ns-520.awsdns-01.net.", "ns-1707.awsdns-21.co.uk.",
@@ -67,7 +56,7 @@ func TestProviderKeyGroupsOneOperator(t *testing.T) {
 				if got := providerKey(h); got != first {
 					msg := "providerKey(%q) = %q but providerKey(%q) = %q: one operator split across buckets"
 					if tc.finding != "" {
-						msg += " [expected red until " + tc.finding + " is fixed]"
+						msg += " [regresses " + tc.finding + "]"
 					}
 					t.Errorf(msg, tc.hosts[0], first, h, got)
 				}
@@ -75,8 +64,7 @@ func TestProviderKeyGroupsOneOperator(t *testing.T) {
 		})
 	}
 
-	// The other half of the contract: two operators must never share a bucket,
-	// or a real disagreement is compared away.
+	// Two operators must never share a bucket, or a real disagreement is compared away.
 	distinct := []string{"dns1.p08.nsone.net.", "ns-520.awsdns-01.net.", "ns3.cloudflare.com.", "ns1.digitalocean.com."}
 	for i, a := range distinct {
 		for _, b := range distinct[i+1:] {
@@ -131,7 +119,6 @@ func TestSummariseDisagreement(t *testing.T) {
 	if len(sp.Groups) != 2 {
 		t.Errorf("built %d groups from two distinct answers", len(sp.Groups))
 	}
-	// Largest group first, and every group names who returned it.
 	for _, g := range sp.Groups {
 		if len(g.Servers) == 0 {
 			t.Errorf("group %v names no server", g.Values)
@@ -139,8 +126,7 @@ func TestSummariseDisagreement(t *testing.T) {
 	}
 }
 
-// Nothing answered means nothing to be consistent about: the verdict must not
-// read green beside a panel saying no records came back.
+// The verdict must not read green beside a panel saying nothing came back.
 func TestSummariseNothingAnswered(t *testing.T) {
 	t.Parallel()
 
@@ -164,8 +150,7 @@ func TestSummariseNothingAnswered(t *testing.T) {
 	}
 }
 
-// RFC 2182: a single nameserver is a single point of failure for the whole
-// domain, so one live server is a finding rather than a pass.
+// RFC 2182: one live nameserver is a single point of failure.
 func TestSummariseSingleLiveNameserverIsAFinding(t *testing.T) {
 	t.Parallel()
 
@@ -197,11 +182,7 @@ func TestSummariseSerialsWithinOneProvider(t *testing.T) {
 	}
 }
 
-// The same test on Route 53, whose four nameservers sit under four different
-// TLDs. Serial drift there is invisible today and every single-provider AWS
-// zone is told it has several providers.
-//
-// Pins providerkey-splits-one-operator; expected red until it is fixed.
+// Route 53's nameservers span four TLDs; pins providerkey-splits-one-operator.
 func TestSummariseSerialsAcrossRoute53Suffixes(t *testing.T) {
 	t.Parallel()
 
@@ -228,9 +209,7 @@ func hasNote(notes []Note, level, substr string) bool {
 	return false
 }
 
-// Rotation needs a witness inside one provider. Two providers that each agree
-// with themselves and differ from each other could be one of them still on the
-// old zone, and their serials can't be compared to tell.
+// Rotation needs a witness in one provider; a cross-provider split may be a stale zone.
 func TestRotationIsWitnessedInsideOneProvider(t *testing.T) {
 	t.Parallel()
 
