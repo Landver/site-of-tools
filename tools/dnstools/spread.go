@@ -20,160 +20,72 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// Spread answers "is my change live yet", honestly.
-//
-// Every popular propagation checker fans a query out to resolvers in many
-// countries and prints a map. We have one box, so claiming geography would be
-// a lie (reports/propagation-checking-methodology.md is explicit: label by
-// operator, never by flag, unless real multi-vantage probing backs it).
-//
-// What one box CAN do is the check those tools bury or skip, and the one that
-// actually answers the question:
-//
-//   - ask the zone's OWN authoritative nameservers, directly, with recursion
-//     off. If they disagree, the change has not finished rolling out. This
-//     costs third parties nothing and is the only authoritative signal.
-//   - ask the public resolvers, and report how long they have been holding
-//     what they hold (cache age), rather than a meaningless raw TTL.
-//
-// Answers are grouped by identical answer set rather than reduced to a
-// percentage, so healthy GeoDNS doesn't read as "17% propagated".
+// Spread compares the zone's own nameservers (RD=0) with public resolvers, grouped by answer
+// set rather than a "% propagated" figure, so healthy GeoDNS doesn't read as a stalled change.
 type Spread struct {
 	Name  string `json:"name"`
 	QName string `json:"qname"`
 	Type  string `json:"type"`
-	// Zone: the apex the NS set actually came from, which for any non-apex
-	// query is a name the caller never typed. Anything that asks a registry
-	// about "this domain" means this, not QName.
+	// Zone: the apex the NS set came from; registry lookups use this, not QName.
 	Zone string `json:"zone,omitempty"`
 
-	// Authoritative: the zone's own nameservers, asked directly (RD=0).
 	Authoritative []ServerAnswer `json:"authoritative"`
-	// Resolvers: the public resolvers on the allowlist, asked normally.
-	Resolvers []ServerAnswer `json:"resolvers"`
+	Resolvers     []ServerAnswer `json:"resolvers"`
 
-	// NSTotal / NSTruncated: how many nameservers the zone actually delegates,
-	// and whether maxAuthoritative dropped some of them. Without this a zone
-	// with nine nameservers can render a green verdict off a sample that never
-	// touched the one disagreeing server.
+	// NSTruncated: maxAuthoritative dropped some of the NSTotal delegated nameservers.
 	NSTotal     int  `json:"ns_total,omitempty"`
 	NSTruncated bool `json:"ns_truncated,omitempty"`
 
-	// Groups: distinct answer sets seen, largest first. One group means
-	// everybody agrees. Counts BOTH halves, so it is never the right number
-	// for a sentence about what public resolvers see — that is ResolverGroups.
-	Groups []AnswerGroup `json:"groups"`
-	// ResolverGroups: distinct answer sets among the public resolvers alone.
-	// Anycast or geo steering can only be claimed when this is above one; at
-	// exactly one, differing from the zone, the change is simply still cached.
-	ResolverGroups int `json:"resolver_groups"`
-	// ResolversStale: every resolver that answered agrees with every other
-	// resolver, and all of them disagree with a zone that is itself in step.
-	// That is a change which has left the nameservers and is waiting out a
-	// cache — not steering, and not a stalled rollout.
+	// Groups counts both halves; a sentence about public resolvers wants ResolverGroups.
+	Groups         []AnswerGroup `json:"groups"`
+	ResolverGroups int           `json:"resolver_groups"`
+	// ResolversStale: resolvers agree with each other but not with an in-step zone: still cached.
 	ResolversStale bool `json:"resolvers_stale,omitempty"`
 
-	// Consistent: every server that answered returned the same set.
 	Consistent bool `json:"consistent"`
-	// AuthConsistent: the zone's OWN nameservers agree with each other. This
-	// is the distinction that matters. If they agree but the public resolvers
-	// differ, the zone is answering by location (GeoDNS, anycast steering) and
-	// nothing is rolling out — the case a "% propagated" number reports as a
-	// failure when it is normal, healthy behaviour.
-	//
-	// Only meaningful once AuthAnswered is at least 2: one sample cannot
-	// disagree with anything, so read the count before quoting the flag.
+	// AuthConsistent: the zone's own servers agree; meaningless until AuthAnswered is 2+.
 	AuthConsistent bool `json:"auth_consistent"`
-	// AuthAnswered: how many of the zone's own nameservers returned a set that
-	// could be compared at all. The denominator behind AuthConsistent.
-	AuthAnswered int `json:"auth_answered"`
-	// Rotation: servers of one provider returned different answer sets while
-	// reporting the SAME zone version. That is one zone answering differently
-	// per query (round-robin, latency steering), not a change mid-rollout —
-	// the exact false alarm this feature exists to avoid. The serial is the
-	// only discriminator a single vantage point can honestly use.
+	AuthAnswered   int  `json:"auth_answered"`
+	// Rotation: one provider's servers differ at the same serial: round-robin, not a rollout.
 	Rotation bool `json:"rotation,omitempty"`
-	// SerialsAgree: nameservers run by the SAME provider report the same SOA
-	// serial. Compared per provider on purpose: two independent DNS providers
-	// legitimately keep independent serials, so comparing across them reports
-	// a healthy multi-provider zone as mid-rollout.
-	//
-	// Like AuthConsistent it starts true, so SerialsSeen is what says whether
-	// any serial was read at all.
-	SerialsAgree bool `json:"serials_agree"`
-	// SerialsSeen: how many nameservers reported a serial.
-	SerialsSeen int `json:"serials_seen"`
-	// MultiProvider: the zone is served by more than one DNS provider, which
-	// is why serials are only ever compared within a provider. A fact, not a
-	// fault, and it says nothing about whether the serials differ.
+	// SerialsAgree is per provider (independent providers keep independent serials) and
+	// starts true, so SerialsSeen says whether any serial was read.
+	SerialsAgree  bool `json:"serials_agree"`
+	SerialsSeen   int  `json:"serials_seen"`
 	MultiProvider bool `json:"multi_provider,omitempty"`
-	// Answered / Asked: the honest denominator. Servers that timed out are
-	// named in the lists above rather than quietly dropped.
-	Answered int `json:"answered"`
-	Asked    int `json:"asked"`
-	// Rcode: the response code every server that responded agreed on, empty
-	// when they differed or none responded. This is what separates "the name
-	// does not exist" from "it exists but publishes no record of this type"
-	// from "nobody answered", all three of which otherwise look like Answered
-	// being zero.
-	Rcode string `json:"rcode,omitempty"`
-	// Health: delegation findings across the zone's nameservers — diversity,
-	// open recursion, TCP reachability. Severity-tagged like the email checks.
+	Answered      int  `json:"answered"`
+	Asked         int  `json:"asked"`
+	// Rcode: the code every responding server agreed on; empty if they differed or none did.
+	Rcode  string `json:"rcode,omitempty"`
 	Health []Note `json:"health,omitempty"`
-	// StaleFor: the longest remaining TTL seen at a public resolver, i.e.
-	// roughly how much longer a stale answer can survive out there.
+	// StaleFor: the longest TTL at a public resolver, i.e. how long a stale answer can survive.
 	StaleFor string `json:"stale_for,omitempty"`
 	QueryMS  int64  `json:"query_ms"`
 }
 
 // ServerAnswer: what one server said, or why it didn't.
 type ServerAnswer struct {
-	// Label is what to show: a nameserver hostname, or a resolver's name.
 	Label string `json:"label"`
 	Addr  string `json:"addr"`
-	// Values: the answer set for the question type only, sorted so two servers
-	// with the same records compare equal regardless of the order they sent
-	// them in.
+	// Values: the asked type only, sorted so equal sets compare equal.
 	Values []string `json:"values"`
-	// CNAME: the alias this name pointed at, when the answer was a CNAME
-	// rather than the type asked for. Kept out of Values on purpose: an
-	// authoritative server cannot chase a CNAME out of its own zone and a
-	// resolver always does, so counting the chain would make the two halves
-	// permanently incomparable.
+	// CNAME stays out of Values: an authoritative server stops at the alias, a resolver chases it.
 	CNAME string `json:"cname,omitempty"`
 	TTL   uint32 `json:"ttl,omitempty"`
-	// Rcode: the response code this server returned, verbatim. miekg reports
-	// err == nil for every rcode, so without this a NXDOMAIN, a REFUSED and a
-	// clean answer are indistinguishable.
+	// Rcode: miekg returns err == nil for every rcode, NXDOMAIN and REFUSED included.
 	Rcode string `json:"rcode,omitempty"`
-	// AA: the authoritative-answer bit. A nameserver asked directly that
-	// answers without it is not serving the zone — a lame delegation.
-	AA bool `json:"aa,omitempty"`
-	// CacheAge: how long this resolver has been holding the answer, derived
-	// from the authoritative TTL minus the TTL it reported. Only set when both
-	// sides returned the SAME set, because otherwise the two TTLs describe
-	// different records and the subtraction means nothing. The column the
-	// corpus says nobody ships, and the one that explains a stale answer.
+	AA    bool   `json:"aa,omitempty"`
+	// CacheAge: authoritative TTL minus this TTL, set only when both returned the same set.
 	CacheAge string `json:"cache_age,omitempty"`
-	// Serial: the SOA serial this nameserver is serving (authoritative only).
-	Serial uint32 `json:"serial,omitempty"`
-	RTTMS  int64  `json:"rtt_ms"`
-	// Error: why this server produced nothing. Named, never hidden.
-	Error string `json:"error,omitempty"`
+	Serial   uint32 `json:"serial,omitempty"`
+	RTTMS    int64  `json:"rtt_ms"`
+	Error    string `json:"error,omitempty"`
 
-	// OpenResolver: this nameserver recursed on our behalf for a zone it is
-	// not authoritative for. One vantage point cannot see whose queries it
-	// accepts, only that it accepted an unauthenticated stranger's, which is
-	// enough to make it usable as a DNS amplification reflector.
+	// OpenResolver: recursed for a stranger on a zone it doesn't serve, so it's an amplifier.
 	OpenResolver bool `json:"open_resolver,omitempty"`
-	// TCPFail: a TCP/53 query did not complete, after a retry if the first
-	// attempt timed out. DNS requires TCP — any answer too big for UDP falls
-	// back to it, so blocking it breaks DNSSEC and large RRsets in ways that
-	// look intermittent and are miserable to diagnose.
+	// TCPFail: TCP/53 failed (a timeout gets one retry); large answers and DNSSEC need TCP.
 	TCPFail bool `json:"tcp_fail,omitempty"`
-	// TCPRefused: the connection was actively refused or reset. A timeout
-	// could still be our own egress or a loaded server, so only this one
-	// earns the word "refused" in a finding that names the operator.
+	// TCPRefused: refused or reset. A timeout may be our egress, so only this names the operator.
 	TCPRefused bool `json:"tcp_refused,omitempty"`
 }
 
@@ -183,15 +95,10 @@ type AnswerGroup struct {
 	Servers []string `json:"servers"`
 }
 
-// maxAuthoritative bounds the fan-out: a zone with 30 nameservers must not
-// turn one click into 60 queries.
-const maxAuthoritative = 8
-
-// maxZoneWalk bounds the climb towards the apex. The registrable-domain stop
-// below normally ends the walk long before this, but the walk is the one place
-// where a name's shape decides how many upstream queries we issue, so it gets
-// a named ceiling like every other fan-out here.
-const maxZoneWalk = 8
+const (
+	maxAuthoritative = 8 // 30 nameservers must not turn one click into 60 queries
+	maxZoneWalk      = 8 // the registrable-domain stop normally ends the walk first
+)
 
 // Spread runs the check. qtype defaults to A.
 func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, error) {
@@ -199,16 +106,11 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	if name == "" {
 		return nil, ErrEmptyName
 	}
-	if qtype = strings.ToUpper(strings.TrimSpace(qtype)); qtype == "" {
-		qtype = "A"
-	}
-	// The package allowlist, not miekg's whole RR registry: this page aims its
-	// queries at third-party nameservers of the caller's choosing, so ANY and
-	// AXFR — which /? rejects — would make it an amplification pipe.
+	qtype = walkType(qtype)
+	// Types, not miekg's registry: ANY/AXFR at caller-chosen nameservers is an amplification pipe.
 	if !slices.Contains(Types, qtype) {
 		return nil, ErrBadType
 	}
-	// A reverse lookup has no zone to canvass in a useful way.
 	if _, isIP := reverseName(name); isIP {
 		return nil, ErrNeedDomain
 	}
@@ -216,13 +118,10 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	if err := validDomain(name); err != nil {
 		return nil, err
 	}
-	// Lowercased once here for the same reason LookupSet does it: the wire is
-	// case-insensitive, so a capitalised name is the same question.
 	qname := strings.ToLower(dns.Fqdn(name))
 	out := &Spread{Name: name, QName: qname, Type: qtype}
 	start := time.Now()
 
-	// Default resolver does the groundwork: find the zone's nameservers.
 	defaultAddr, _ := resolverAddr(DefaultResolver)
 	nsNames, zone, total := s.zoneNameservers(ctx, qname, defaultAddr)
 	out.Zone, out.NSTotal = zone, total
@@ -232,28 +131,24 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	sem := make(chan struct{}, 6)
 	auth := make([]ServerAnswer, len(nsNames))
 	res := make([]ServerAnswer, len(Resolvers))
-
-	for i, ns := range nsNames {
+	probe := func(slot *ServerAnswer, ask func() ServerAnswer) {
 		wg.Add(1)
 		go safe(func() {
 			defer wg.Done()
-			// Stands until the probe returns. A blank slot has no Error, and
-			// health() would count it as a nameserver that answered.
-			auth[i] = ServerAnswer{Label: strings.TrimSuffix(ns, "."), Error: errPanic.Error()}
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			auth[i] = s.askAuthoritative(ctx, qname, qtype, ns, defaultAddr)
+			*slot = ask()
 		})
 	}
+
+	// Each slot holds errPanic until its probe returns: a blank slot would count as answering.
+	for i, ns := range nsNames {
+		auth[i] = ServerAnswer{Label: strings.TrimSuffix(ns, "."), Error: errPanic.Error()}
+		probe(&auth[i], func() ServerAnswer { return s.askAuthoritative(ctx, qname, qtype, ns, defaultAddr) })
+	}
 	for i, r := range Resolvers {
-		wg.Add(1)
-		go safe(func() {
-			defer wg.Done()
-			res[i] = ServerAnswer{Label: r.Name, Addr: r.Addr, Error: errPanic.Error()}
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			res[i] = s.askResolver(ctx, qname, qtype, r)
-		})
+		res[i] = ServerAnswer{Label: r.Name, Addr: r.Addr, Error: errPanic.Error()}
+		probe(&res[i], func() ServerAnswer { return s.askResolver(ctx, qname, qtype, r) })
 	}
 	wg.Wait()
 
@@ -263,21 +158,12 @@ func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, erro
 	return out, nil
 }
 
-// zoneNameservers finds the nameservers responsible for qname, walking up the
-// tree when the name itself has no NS records (www.example.com is served by
-// example.com's nameservers).
-//
-// The walk stops at the registrable domain. Above that sits the registry, and
-// its nameservers are emphatically not "the zone's own": for an unregistered
-// name the old unbounded walk listed Nominet's servers and printed a green
-// health report about them. Returns the total NS count as well as the capped
-// list, so the caller can say how much of the delegation it actually asked.
+// zoneNameservers walks up from qname to the first name with NS records, stopping at the
+// registrable domain: above it sit the registry's servers, not the zone's own.
 func (s *Service) zoneNameservers(ctx context.Context, qname, addr string) (names []string, zone string, total int) {
 	apex, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(qname, "."))
 	if err != nil {
-		// No registrable domain means qname IS a public suffix. Canvassing a
-		// TLD's nameservers answers nobody's question and costs a registry.
-		return nil, "", 0
+		return nil, "", 0 // qname is a public suffix
 	}
 	apex = dns.Fqdn(apex)
 
@@ -308,11 +194,7 @@ func (s *Service) zoneNameservers(ctx context.Context, qname, addr string) (name
 	return nil, "", 0
 }
 
-// ask sends one query and repeats it over TCP when the answer came back
-// truncated, exactly as exchange() does. Without the retry the authoritative
-// half sees whatever fits in 512 bytes while every resolver sees the full
-// EDNS0 answer, and google.com's TXT set renders as "your nameservers
-// disagree" — the flagship false verdict this page exists to prevent.
+// ask retries a truncated answer over TCP, or a large RRset reads as nameservers disagreeing.
 func (s *Service) ask(ctx context.Context, m *dns.Msg, addr string) (*dns.Msg, error) {
 	resp, _, err := s.udp.ExchangeContext(ctx, m, addr)
 	if err != nil {
@@ -326,13 +208,10 @@ func (s *Service) ask(ctx context.Context, m *dns.Msg, addr string) (*dns.Msg, e
 	return resp, nil
 }
 
-// askAuthoritative queries one nameserver directly with recursion disabled, so
-// the answer is the zone's own, not a cache's. Also reads its SOA serial, which
-// is what reveals a zone mid-rollout.
+// askAuthoritative asks one nameserver with RD=0, then probes recursion, TCP/53 and its serial.
 func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, viaAddr string) ServerAnswer {
 	a := ServerAnswer{Label: strings.TrimSuffix(nsName, ".")}
 
-	// Resolve the nameserver's own address first.
 	ip, found := s.nameserverAddress(ctx, nsName, viaAddr)
 	switch {
 	case !found:
@@ -345,10 +224,9 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 	a.Addr = net.JoinHostPort(ip, "53")
 
 	start := time.Now()
-	// newQuery, not a hand-built message: it carries the 1232-byte EDNS0
-	// buffer, without which this half is capped at 512 bytes.
+	// newQuery carries the 1232-byte EDNS0 buffer; a bare message caps this half at 512 bytes.
 	m := newQuery(qname, qtype)
-	m.RecursionDesired = false // the whole point: no cache in the way
+	m.RecursionDesired = false
 	resp, err := s.ask(ctx, m, a.Addr)
 	a.RTTMS = time.Since(start).Milliseconds()
 	if err != nil {
@@ -366,13 +244,8 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 		return a
 	}
 
-	// Open-recursion probe: ask this server to recurse for a name it does not
-	// serve. An authoritative-only server must refuse; one that answers is an
-	// open resolver and can be abused as an amplifier. The name is a real one
-	// on purpose — a random label returns NXDOMAIN from an open resolver too,
-	// so there would be no answer to tell the two apart — and AA is the guard
-	// that a server happening to serve the probe name is not accused of
-	// recursion it never did.
+	// A real name, since an open resolver also NXDOMAINs a random label; AA spares a server
+	// that happens to serve the probe name.
 	probe := new(dns.Msg)
 	probe.SetQuestion("a.root-servers.net.", dns.TypeA)
 	probe.RecursionDesired = true
@@ -381,15 +254,13 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 			pr.Rcode == dns.RcodeSuccess && len(pr.Answer) > 0
 	}
 
-	// TCP/53 must work: anything too big for UDP falls back to it. A timeout
-	// buys a second attempt, because one slow handshake among six concurrent
-	// probes is not evidence against an operator this finding names.
-	tcpProbe := new(dns.Msg)
-	tcpProbe.SetQuestion(qname, dns.TypeSOA)
-	tcpProbe.RecursionDesired = false
-	if _, _, err := s.tcp.ExchangeContext(ctx, tcpProbe, a.Addr); err != nil {
+	soa := new(dns.Msg)
+	soa.SetQuestion(qname, dns.TypeSOA)
+	soa.RecursionDesired = false
+	// A timeout gets one retry: one slow handshake isn't evidence against a named operator.
+	if _, _, err := s.tcp.ExchangeContext(ctx, soa, a.Addr); err != nil {
 		if isTimeout(err) {
-			_, _, err = s.tcp.ExchangeContext(ctx, tcpProbe, a.Addr)
+			_, _, err = s.tcp.ExchangeContext(ctx, soa, a.Addr)
 		}
 		if err != nil {
 			a.TCPFail = true
@@ -397,11 +268,6 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 		}
 	}
 
-	// Serial is a second, cheap question that says which version of the zone
-	// this server is serving.
-	soa := new(dns.Msg)
-	soa.SetQuestion(qname, dns.TypeSOA)
-	soa.RecursionDesired = false
 	if sr, _, err := s.udp.ExchangeContext(ctx, soa, a.Addr); err == nil {
 		for _, rr := range append(sr.Answer, sr.Ns...) {
 			if v, ok := rr.(*dns.SOA); ok {
@@ -413,18 +279,8 @@ func (s *Service) askAuthoritative(ctx context.Context, qname, qtype, nsName, vi
 	return a
 }
 
-// nameserverAddress resolves one nameserver hostname to the single address it
-// will be probed on. A and AAAA both: an IPv6-only nameserver is a working
-// nameserver, and asking only for A reported it unresolvable and let health()
-// count it as dead. A wins when both exist, because one address per server is
-// the budget and v4 is the family the /24 and ASN findings can read.
-//
-// The NS names come from a zone the caller chose, so this is the one place a
-// request decides which address we send packets to. A name pointing at
-// 127.0.0.1 or 169.254.169.254 turns the page into a port-53 probe of our own
-// host, and the timings answer back. found separates "this name has no
-// address" from "it has one we refuse to send packets to", which are different
-// things to tell the user.
+// nameserverAddress picks the first routable A, else AAAA, address. The zone is caller-chosen,
+// so this is the SSRF gate; found separates "no address" from "only unroutable ones".
 func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string) (ip string, found bool) {
 	for _, t := range [...]string{"A", "AAAA"} {
 		r, err := s.lookup(ctx, dns.Fqdn(nsName), t, viaAddr)
@@ -436,9 +292,6 @@ func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string)
 				continue
 			}
 			found = true
-			// First routable rather than first: a zone that lists a private
-			// address ahead of the real one must not be able to use the guard
-			// below to hide the server that does answer.
 			if ip == "" && s.nsRoutable(rec.Value) {
 				ip = rec.Value
 			}
@@ -450,16 +303,11 @@ func (s *Service) nameserverAddress(ctx context.Context, nsName, viaAddr string)
 	return "", found
 }
 
-// isTimeout separates "took too long" from every other transport failure. Only
-// the timeout is worth a retry, and only a non-timeout is worth reporting in
-// the operator's name.
 func isTimeout(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
-// askResolver queries a public resolver normally, so the answer reflects what
-// the wider internet is currently being told.
 func (s *Service) askResolver(ctx context.Context, qname, qtype string, r Resolver) ServerAnswer {
 	a := ServerAnswer{Label: r.Name, Addr: r.Addr}
 	start := time.Now()
@@ -477,14 +325,7 @@ func (s *Service) askResolver(ctx context.Context, qname, qtype string, r Resolv
 	return a
 }
 
-// answerValues extracts the answer set for the asked type plus the lowest TTL
-// in it. Sorting matters: two servers holding the same records must compare
-// equal even when they rotate the order.
-//
-// Only the asked type is kept. The answer section of a CNAME'd name also
-// carries the chain, and an authoritative server stops at the alias while a
-// resolver follows it to the end, so counting everything guarantees the two
-// halves never match. The alias itself comes back separately.
+// answerValues returns the sorted set of the asked type, its lowest TTL and the first CNAME.
 func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname string) {
 	want := dns.StringToType[qtype]
 	for _, rr := range m.Answer {
@@ -522,8 +363,6 @@ func (s *Service) nsRoutable(ipStr string) bool {
 	return platform.PubliclyRoutable(ip)
 }
 
-// summarise derives the verdict: who agrees with whom, whether the zone's own
-// servers are in step, and how stale the cached copies are.
 func (sp *Spread) summarise() {
 	all := append(slices.Clone(sp.Authoritative), sp.Resolvers...)
 	sp.Asked = len(all)
@@ -552,14 +391,8 @@ func (sp *Spread) summarise() {
 	sort.SliceStable(sp.Groups, func(i, j int) bool {
 		return len(sp.Groups[i].Servers) > len(sp.Groups[j].Servers)
 	})
-	// Nothing answered means nothing to be consistent ABOUT. Without this the
-	// verdict reads green while the panel beside it says no records came back.
 	sp.Consistent = sp.Answered > 0 && len(sp.Groups) <= 1
 
-	// Serial agreement, bucketed by provider. github.com is the worked example:
-	// its four nsone.net servers serve one serial and its four awsdns servers
-	// another, which is correct operation of a two-provider zone, not a
-	// rollout in progress.
 	sp.SerialsAgree = true
 	byProvider := map[string]uint32{}
 	for _, a := range sp.Authoritative {
@@ -576,7 +409,6 @@ func (sp *Spread) summarise() {
 	}
 	sp.MultiProvider = len(byProvider) > 1
 
-	// Do the zone's own servers agree among themselves?
 	authKeys := map[string]bool{}
 	perProvider := map[string]map[string]bool{}
 	var authKey string
@@ -601,21 +433,10 @@ func (sp *Spread) summarise() {
 		splitInside = splitInside || len(keys) > 1
 	}
 	sp.AuthConsistent = len(authKeys) <= 1
-	// Different records, one zone version: the servers are rotating a pool,
-	// not finishing a rollout. Stating a cause from a single sample per server
-	// is what makes github.com read as mid-rollout on every other page load,
-	// and the serials already collected are the discriminator that needs no
-	// second query. Read per provider for the same reason SerialsAgree is:
-	// independent providers keep independent serials, so a global comparison
-	// would rule out rotation on every multi-provider zone.
-	// Witnessed inside one provider: across providers serials can't be compared.
 	sp.Rotation = splitInside && sp.AuthAnswered > 1 &&
 		sp.SerialsAgree && sp.SerialsSeen > 1
 
-	// The authoritative TTL is the yardstick for cache age, and only earns
-	// that role when the zone speaks with one voice: subtracting a resolver's
-	// 20s A TTL from an authoritative 3600s CNAME TTL printed "59m cached" for
-	// a record that lives 20 seconds.
+	// Only a unanimous zone has a TTL to measure cache age against.
 	var authTTL uint32
 	if len(authKeys) == 1 {
 		for _, a := range sp.Authoritative {
@@ -625,9 +446,7 @@ func (sp *Spread) summarise() {
 		}
 	}
 
-	// StaleFor counts every resolver that answered, including one whose TTL
-	// exceeds the authoritative value — that case IS a TTL-lowering migration,
-	// which is precisely what this number exists to report.
+	// StaleFor includes TTLs above the authoritative one: that is a TTL-lowering migration.
 	var worst uint32
 	resolverKeys := map[string]bool{}
 	var resolverKey string
@@ -651,19 +470,13 @@ func (sp *Spread) summarise() {
 		sp.StaleFor = humanizeTTL(worst)
 	}
 	sp.ResolverGroups = len(resolverKeys)
-	// One answer everywhere downstream, a different one at the zone, and the
-	// zone in step: a change already made and still cached. Nothing about that
-	// is anycast steering, which needs the resolvers to disagree.
 	sp.ResolversStale = sp.ResolverGroups == 1 && sp.AuthConsistent &&
 		authKey != "" && resolverKey != authKey
 
 	sp.health()
 }
 
-// unanimousRcode returns the response code every server that responded agreed
-// on, or empty when they differed. Unanimity is the only case worth a verdict:
-// one NXDOMAIN among eight NOERRORs says something is broken, not that the
-// name is gone.
+// unanimousRcode: one NXDOMAIN among eight NOERRORs means breakage, so only unanimity counts.
 func unanimousRcode(all []ServerAnswer) string {
 	var code string
 	for _, a := range all {
@@ -681,74 +494,56 @@ func unanimousRcode(all []ServerAnswer) string {
 	return code
 }
 
-// nsCount: "zone's 4 nameservers".
-func nsCount(n int) string { return fmt.Sprintf("zone's %d nameservers", n) }
+func (sp *Spread) addHealth(level, text string) {
+	sp.Health = append(sp.Health, Note{Level: level, Text: text})
+}
 
-// health derives delegation findings from what the probes already saw. Pure
-// judgement over collected data: no extra queries.
+// health judges the delegation from what the probes already saw; no extra queries.
 func (sp *Spread) health() {
-	add := func(level, text string) { sp.Health = append(sp.Health, Note{Level: level, Text: text}) }
-
 	live := 0
 	for _, a := range sp.Authoritative {
 		if a.Error == "" {
 			live++
 		}
 		if a.OpenResolver {
-			add("fail", a.Label+" answered a recursive query from this checker for a zone it doesn't serve, so its recursion isn't restricted to its own clients. That makes it usable as a DNS amplification reflector. Restrict recursion, or refuse it.")
+			sp.addHealth("fail", a.Label+" answered a recursive query from this checker for a zone it doesn't serve, so its recursion isn't restricted to its own clients. That makes it usable as a DNS amplification reflector. Restrict recursion, or refuse it.")
 		}
 		if a.TCPFail {
 			what := " did not complete a TCP/53 query"
 			if a.TCPRefused {
 				what = " refused TCP/53"
 			}
-			add("warn", a.Label+what+". DNS falls back to TCP for any answer too large for UDP, so blocking it breaks DNSSEC and large record sets in ways that look intermittent.")
+			sp.addHealth("warn", a.Label+what+". DNS falls back to TCP for any answer too large for UDP, so blocking it breaks DNSSEC and large record sets in ways that look intermittent.")
 		}
 	}
 
 	// RFC 2182: at least two nameservers, and they should not share a fate.
+	n := len(sp.Authoritative)
 	switch {
-	case len(sp.Authoritative) == 0:
-		// Now the ordinary outcome for an unregistered name, since the walk
-		// stops at the registrable domain instead of climbing to the registry.
-		// Saying "none answered" would blame servers that were never found.
-		add("fail", "No nameservers are delegated for this name, so nothing serves it.")
-	// With the denominator: 1 live of 4 is 3 lame, not "add a second server".
+	case n == 0:
+		sp.addHealth("fail", "No nameservers are delegated for this name, so nothing serves it.")
 	case live == 0:
-		add("fail", fmt.Sprintf("None of the %s answered.", nsCount(len(sp.Authoritative))))
-	case live == 1 && len(sp.Authoritative) == 1:
-		add("fail", "Only one nameserver is delegated. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
+		sp.addHealth("fail", fmt.Sprintf("None of the zone's %d nameservers answered.", n))
+	case live == 1 && n == 1:
+		sp.addHealth("fail", "Only one nameserver is delegated. RFC 2182 asks for at least two: a single server is a single point of failure for the whole domain.")
 	case live == 1:
-		add("fail", fmt.Sprintf("Only 1 of the %s answered. The rest are lame, and the one left is a single point of failure for the whole domain.", nsCount(len(sp.Authoritative))))
+		sp.addHealth("fail", fmt.Sprintf("Only 1 of the zone's %d nameservers answered. The rest are lame, and the one left is a single point of failure for the whole domain.", n))
 	default:
-		add("ok", fmt.Sprintf("%d nameservers answered, so the zone survives losing one.", live))
+		sp.addHealth("ok", fmt.Sprintf("%d nameservers answered, so the zone survives losing one.", live))
 	}
 	sortNotes(sp.Health)
 }
 
-// AddDelegationHealth appends the findings that need data the DNS probes
-// cannot supply on their own: which networks the nameserver addresses sit in,
-// and what the registry says the delegation is.
-//
-// Both inputs are the caller's to fetch, because one is an in-process geo
-// lookup and the other an outbound RDAP request, and neither belongs in this
-// file. Both are optional: a nil asnOf or an empty registryNS adds no finding
-// rather than a wrong one. registryNS must describe sp.Zone, not sp.QName —
-// the registry has no record of a name below the apex.
-//
-// Reports whether any ASN actually reached a finding, which is what drives the
-// IP2Location credit their licence requires wherever their data is shown.
+// AddDelegationHealth adds ASN-diversity and registry findings (registryNS describes sp.Zone).
+// Reports whether an ASN reached a finding, which triggers the IP2Location licence credit.
 func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS []string) bool {
-	add := func(level, text string) { sp.Health = append(sp.Health, Note{Level: level, Text: text}) }
 	usedASN := false
 
-	// Diversity: nameservers sharing one network share one outage.
 	if asnOf != nil {
 		asns, nets := map[string]bool{}, map[string]bool{}
 		resolved, v4 := 0, 0
 		for _, a := range sp.Authoritative {
-			// SplitHostPort, not a cut at the first colon: an IPv6 address is
-			// bracketed and the naive split hands back "[2001".
+			// SplitHostPort, not a cut at the first colon: an IPv6 Addr is bracketed.
 			ip, _, err := net.SplitHostPort(a.Addr)
 			if err != nil || a.Error != "" {
 				continue
@@ -766,23 +561,20 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 			switch {
 			case len(asns) == 1:
 				for asn := range asns {
-					add("warn", "Every nameserver sits in the same network (AS"+asn+"). One provider outage takes the whole domain offline; the usual fix is a secondary DNS provider.")
+					sp.addHealth("warn", "Every nameserver sits in the same network (AS"+asn+"). One provider outage takes the whole domain offline; the usual fix is a secondary DNS provider.")
 				}
 				usedASN = true
 			case len(asns) > 1:
-				add("ok", fmt.Sprintf("Nameservers are spread across %d different networks.", len(asns)))
+				sp.addHealth("ok", fmt.Sprintf("Nameservers are spread across %d different networks.", len(asns)))
 				usedASN = true
 			}
-			// Only when every probed address is IPv4: one /24 out of a
-			// mixed v4/v6 set says nothing about where the rest sit.
+			// All-IPv4 only: one shared /24 says nothing about where v6 servers sit.
 			if len(nets) == 1 && v4 == resolved && len(asns) <= 1 {
-				add("warn", "All nameserver addresses are in the same /24, so they likely share a rack, a router and a fate.")
+				sp.addHealth("warn", "All nameserver addresses are in the same /24, so they likely share a rack, a router and a fate.")
 			}
 		}
 	}
 
-	// Registry vs zone: the parent's delegation and the zone's own NS records
-	// must agree, or resolvers and your control panel disagree about reality.
 	if len(registryNS) == 0 {
 		return usedASN
 	}
@@ -798,15 +590,12 @@ func (sp *Spread) AddDelegationHealth(asnOf func(ip string) string, registryNS [
 	}
 	switch {
 	case len(missing) > 0:
-		add("warn", "The zone serves nameservers the registry doesn't list ("+strings.Join(missing, ", ")+"). Resolvers follow the registry's delegation, so these may never be asked.")
-	case sp.NSTruncated:
-		// We only probed maxAuthoritative of the zone's nameservers, so the
-		// counts cannot be compared: doing so reported every zone with 9+
-		// nameservers as mis-delegated when the cause was our own sampling.
+		sp.addHealth("warn", "The zone serves nameservers the registry doesn't list ("+strings.Join(missing, ", ")+"). Resolvers follow the registry's delegation, so these may never be asked.")
+	case sp.NSTruncated: // only maxAuthoritative were probed, so the counts can't be compared
 	case len(atRegistry) != sp.NSTotal:
-		add("warn", fmt.Sprintf("The registry lists %d nameservers but the zone's own NS records name %d. Resolvers start from the registry's list, so check that every server on it still serves this zone.", len(atRegistry), sp.NSTotal))
+		sp.addHealth("warn", fmt.Sprintf("The registry lists %d nameservers but the zone's own NS records name %d. Resolvers start from the registry's list, so check that every server on it still serves this zone.", len(atRegistry), sp.NSTotal))
 	default:
-		add("ok", "The registry's delegation matches the nameservers the zone serves.")
+		sp.addHealth("ok", "The registry's delegation matches the nameservers the zone serves.")
 	}
 	sortNotes(sp.Health)
 	return usedASN
@@ -873,18 +662,8 @@ func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *
 	sp.AddDelegationHealth(asnOf, registryNS)
 }
 
-// providerKey reduces a nameserver hostname to the operator running it, so
-// serials are only compared between servers of the same operator.
-//
-// The providers table in decode.go is consulted first, because it already
-// knows the shapes that defeat any suffix rule: Route 53 spreads one zone's
-// nameservers across .com/.net/.org/.co.uk, and bucketing those by registrable
-// domain put a single-provider AWS zone in four buckets, where no two serials
-// were ever compared and the page announced several DNS providers.
-//
-// Anything unknown falls back to the registrable domain with the TLD dropped
-// and a trailing -<digits> stripped, so awsdns-21.co.uk and awsdns-01.net
-// would still meet even if the table lost that entry.
+// providerKey reduces a nameserver to its operator: decode.go's providers table first (Route 53
+// spans .com/.net/.org/.co.uk), else the registrable label minus a -<digits> suffix.
 func providerKey(host string) string {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	for _, p := range providers {
