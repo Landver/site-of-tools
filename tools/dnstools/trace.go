@@ -323,7 +323,7 @@ func (w *traceWalk) fetchDS(child string, servers []traceServer, keys []*dns.DNS
 	}
 	r := w.query(servers, child, "DS", false)
 	if r.msg == nil {
-		return traceDS{status: traceUnknown, unanswered: r.skipped, detail: "The parent's servers gave no usable answer when asked what DS record they publish for this zone, so the chain could not be followed past here. That is a gap on the way to them, not a finding about either zone."}
+		return traceDS{status: traceUnknown, unanswered: r.skipped, detail: w.noAnswer(r, "The parent's servers gave no usable answer when asked what DS record they publish for this zone, so the chain could not be followed past here. That is a gap on the way to them, not a finding about either zone.")}
 	}
 
 	// Some servers put the DS RRset in the authority section instead of the answer.
@@ -386,7 +386,7 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 		link.Detail = "The parent publishes no DS record for this zone, so validators treat it as unsigned. Most names are. (Proving an absence properly needs the parent's NSEC or NSEC3 records; this walk takes the parent's answer at face value.)"
 	case r.msg == nil:
 		link.Status, link.Unanswered = traceUnknown, r.skipped
-		link.Detail = "No server for this zone gave a usable answer for its DNSKEY set, so the chain could not be checked here. Lost packets, a refusal or a fragment whose TCP retry failed all look like this, and none of them is a finding about the zone."
+		link.Detail = w.noAnswer(r, "No server for this zone gave a usable answer for its DNSKEY set, so the chain could not be checked here. Lost packets, a refusal or a fragment whose TCP retry failed all look like this, and none of them is a finding about the zone.")
 	case len(keys) == 0:
 		// A whole NOERROR reply, so the zone really publishes no keys.
 		link.Status = traceBogus
@@ -400,6 +400,14 @@ func (w *traceWalk) validateZone(zone, parent string, servers []traceServer, ds 
 		}
 	}
 	return link, nil
+}
+
+// noAnswer is detail, unless the budget or clock ran out before the query reached any server.
+func (w *traceWalk) noAnswer(r traceReply, detail string) string {
+	if w.out.Truncated && len(r.skipped) == 0 {
+		return "This walk stopped before it asked for this zone's keys, so the chain is unfinished here. Nothing here says anything about the zone itself."
+	}
+	return detail
 }
 
 // traceCheckKeys is the pure crypto for one link: a child key's DS digest must match the parent's,
@@ -570,11 +578,16 @@ func (w *traceWalk) resolveServers(hop *TraceHop, resp *dns.Msg, child string, n
 			if !strings.EqualFold(rr.Header().Name, ns) {
 				continue
 			}
+			// The first routable address per family: one unroutable glue record must not hide a good one.
 			switch v := rr.(type) {
 			case *dns.A:
-				g.IP = v.A.String()
+				if g.IP == "" && w.svc.nsRoutable(v.A.String()) {
+					g.IP = v.A.String()
+				}
 			case *dns.AAAA:
-				g.IP6 = v.AAAA.String()
+				if g.IP6 == "" && w.svc.nsRoutable(v.AAAA.String()) {
+					g.IP6 = v.AAAA.String()
+				}
 			}
 		}
 		if g.addr(w.svc) != "" {
@@ -711,7 +724,7 @@ func (w *traceWalk) verdict() {
 	case w.answer == traceAnswerForeign:
 		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "The chain verified down to the zone this walk reached, but the records it returned are signed by a different zone below it, one whose keys this walk could not anchor. The signature may well be good; this walk is not in a position to say, and will not guess in either direction."}
 	case w.answer == traceAnswerUnsigned:
-		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "The chain verified down to the zone this walk reached, and the records it returned carry no signature at all. That is either an unsigned zone below this cut that sent no referral to reveal itself, or a signed zone not signing its own data. This walk cannot tell them apart, so it is not calling the name broken."}
+		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "The chain verified down to the zone this walk reached, and at least one RRset it returned carries no signature. That is either an unsigned zone below this cut that sent no referral to reveal itself, or a signed zone not signing its own data. This walk cannot tell them apart, so it is not calling the name broken."}
 	default:
 		out.DNSSEC, out.Verdict = traceUnknown, Note{Level: "warn", Text: "This walk reached an answer but did not get as far as checking a signature over it, so there is no verdict about the records themselves."}
 	}

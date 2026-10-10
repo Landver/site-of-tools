@@ -1,6 +1,5 @@
-{{/* Route-neutral error fragment. The rate limiter and the 503-when-disabled
-     path can fire on any page here, so neither may answer with one specific
-     page's result template. Same reasoning as dns/error. */}}
+{{/* Route-neutral error fragment: the rate limiter and the 503-when-disabled path
+     can fire on any page here, so neither may answer with one page's result template. */}}
 {{define "link/error"}}
 <div class="alert-error" data-announce="{{.Error}}">{{.Error}}</div>
 {{/* A POST form, not a link: the input may be a curl command with cookies in it. */}}

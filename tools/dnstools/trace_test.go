@@ -844,3 +844,84 @@ func TestVerdictNamesKeysWithoutADS(t *testing.T) {
 		t.Errorf("unsigned: %q / %q, want insecure / info", plain.out.DNSSEC, plain.out.Verdict.Level)
 	}
 }
+
+// A walk out of budget sent nothing, so its links must not read as servers that failed to answer.
+func TestALinkTheWalkNeverAskedSaysSo(t *testing.T) {
+	t.Parallel()
+	_, _, _, ds := traceTestZone(t, "example.test")
+	parentKey, _, _, _ := traceTestZone(t, "test")
+	servers := []traceServer{serveNS(t, wireAnswer())}
+	spent := func() *traceWalk {
+		return &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}, queries: traceMaxQueries}
+	}
+
+	link, _ := spent().validateZone("example.test.", "test.", servers, verifiedDS(ds))
+	parent := spent().fetchDS("example.test.", servers, []*dns.DNSKEY{parentKey})
+	for what, detail := range map[string]string{"DNSKEY": link.Detail, "DS": parent.detail} {
+		if !strings.Contains(detail, "stopped before it asked") {
+			t.Errorf("%s: detail %q, want it to say the walk stopped before asking", what, detail)
+		}
+		accusesTheZone(t, what, detail)
+	}
+	if link.Status != traceUnknown || len(link.Unanswered) != 0 {
+		t.Errorf("status %q, unanswered %v; want %q and no server named", link.Status, link.Unanswered, traceUnknown)
+	}
+}
+
+// One RRset signed and one not: the verdict may not say nothing carried a signature.
+func TestVerdictDoesNotCallAPartlySignedAnswerUnsigned(t *testing.T) {
+	t.Parallel()
+	key, signer := traceTestKey(t, "example.test")
+	_, otherSigner := traceTestKey(t, "example.test")
+	owned := func(owner string) *dns.A {
+		return &dns.A{Hdr: dns.RR_Header{Name: owner, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300}, A: net.ParseIP("1.2.3.4")}
+	}
+	a, b := owned("a.example.test."), owned("b.example.test.")
+
+	for name, sig := range map[string]*dns.RRSIG{
+		"verified": traceTestSignNow(t, key, signer, []dns.RR{b}),
+		"failed":   traceTestSignNow(t, key, otherSigner, []dns.RR{b}),
+	} {
+		resp := new(dns.Msg)
+		resp.Answer = []dns.RR{a, b, sig}
+		w := traceSecureWalk("example.test.")
+		w.finish("example.test.", "a.example.test.", "A", resp, []*dns.DNSKEY{key})
+		w.verdict()
+		if w.out.DNSSEC != traceUnknown {
+			t.Errorf("%s: DNSSEC = %q, want %q", name, w.out.DNSSEC, traceUnknown)
+		}
+		if strings.Contains(w.out.Verdict.Text, "no signature at all") {
+			t.Errorf("%s: verdict %q says nothing was signed, but one RRset was", name, w.out.Verdict.Text)
+		}
+	}
+}
+
+// The first routable glue address per family is used, whatever order the referral lists them in.
+func TestResolveServersSkipsUnroutableGlue(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		glue []string
+		want string
+	}{
+		{[]string{"A 8.8.8.8", "A 10.0.0.1"}, "8.8.8.8:53"},
+		{[]string{"A 10.0.0.1", "A 8.8.8.8"}, "8.8.8.8:53"},
+		{[]string{"AAAA 2001:4860:4860::8888", "AAAA 2001:db8::1"}, "[2001:4860:4860::8888]:53"},
+		{[]string{"AAAA 2001:db8::1", "AAAA 2001:4860:4860::8888"}, "[2001:4860:4860::8888]:53"},
+	} {
+		resp := new(dns.Msg)
+		for _, g := range tc.glue {
+			rr, err := dns.NewRR("ns1.child.test. 300 IN " + g)
+			if err != nil {
+				t.Fatalf("glue %q: %v", g, err)
+			}
+			resp.Extra = append(resp.Extra, rr)
+		}
+		// A spent budget rules out side lookups, so only the glue can supply an address.
+		w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{QName: "www.child.test."}, queries: traceMaxQueries}
+		hop := &TraceHop{}
+		got := w.resolveServers(hop, resp, "child.test.", []string{"ns1.child.test."})
+		if len(got) != 1 || got[0].addr(w.svc) != tc.want || hop.GlueMissing {
+			t.Errorf("glue %v: servers %+v (glue missing %v), want ns1 at %s", tc.glue, got, hop.GlueMissing, tc.want)
+		}
+	}
+}

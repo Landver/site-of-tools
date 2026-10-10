@@ -85,7 +85,7 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
 - `trace.go` — **domain**: `/trace`. The delegation walk from a hardcoded root
   hint downwards, plus the chain of trust: each parent's DS, each child's
   DNSKEY, digests and signatures checked in this file with `miekg`'s own
-  primitives against `traceRootAnchorRRs`. Both live root KSKs are configured
+  primitives against `traceRootAnchors`. Both live root KSKs are configured
   and either may match, deliberately — a tool pinned to one key tag reports
   the whole internet as bogus on the day IANA switches. Nothing here trusts a
   resolver, which is the entire point of the page.
@@ -208,7 +208,7 @@ Every behaviour here traces to a specific finding in the research corpus:
   answering node's NSID, and the elapsed ms. Per-type rcodes sit with the
   failed types, where they belong. Makes the result falsifiable rather than a
   bare assertion, and the printed `dig` lines carry `+nsid` when we got one, so
-  they reproduce the "Answered by" row too.
+  they reproduce the "Resolver node" row too.
 - **IP literal auto-detects to PTR**, and says so rather than silently changing
   the question.
 - **Resolver allowlist, no free-form `@server`.** Closes the SSRF hole on day
@@ -301,23 +301,23 @@ calls non-negotiable are in place:
   | Page | Caps | Worst case per request |
   |---|---|---|
   | `/` | `FanoutTypes` = 9 types (`maxTypesPerRequest` = 12 ceiling) + `maxDanglingChecks` = 5 | ~14 DNS |
-  | `/consistency` | `maxZoneWalk` = 8 NS steps + `maxAuthoritative` = 8 nameservers x 5 probes + 3 resolvers, plus the steering card: 1 query per vantage point, the 6 in its fixed table | ~57 DNS + 1 HTTPS |
+  | `/consistency` | `maxZoneWalk` = 8 NS steps + `maxAuthoritative` = 8 nameservers x 4 probes + 3 resolvers, plus the steering card: 1 query per vantage point, the 6 in its fixed table | ~49 DNS + 1 HTTPS |
   | `/trace` | `traceMaxQueries` = 48 for the whole walk, inside `traceMaxDepth` = 12 zone cuts, `traceMaxServersPerHop` = 3 and `traceMaxSideLookups` = 2 per glueless referral | <= 48 DNS, at root, TLD and authoritative servers |
   | `/domain` | RDAP + crt.sh, one request each | 2 HTTPS, 0 DNS |
-  | `/email` | 12 DKIM selectors + `maxSPFIncludes` = 15 + `maxMailHosts` = 5 x 4 FCrDNS + DMARC parent climb <= 3 + 6 fixed, plus the reputation card: 1 MX + `repMaxHosts` = 5 x `repMaxAddrsPerHost` = 2 | ~67 DNS + 1 HTTPS + <= `repMaxChecks` = 8 corpus reads |
+  | `/email` | 12 DKIM selectors + `maxSPFIncludes` = 15 + `maxMailHosts` = 5 x 4 FCrDNS + DMARC parent climb <= 3 + 6 fixed, plus the reputation card: 1 MX + the same `maxMailHosts` x `repMaxAddrsPerHost` = 2 | ~67 DNS + 1 HTTPS + <= `repMaxChecks` = 8 corpus reads |
 
-  `/consistency`'s five probes per nameserver are: resolve its address, the
-  question itself, an open-recursion probe, a TCP/53 reachability probe, and
-  its SOA serial. The one HTTPS request is the RDAP fetch behind the
-  registry-vs-zone delegation check. The steering card's queries all go to one
-  public resolver, concurrently, under a 3s `ecsQueryTimeout` that is also the
-  card's whole wall clock.
+  `/consistency`'s four probes per nameserver are: resolve its address, the
+  question itself, an open-recursion probe, and its SOA serial, read over
+  TCP/53 so it doubles as the TCP probe (UDP only when TCP fails). The one
+  HTTPS request is the RDAP fetch behind the registry-vs-zone delegation check.
+  The steering card's queries all go to one public resolver, concurrently,
+  under a 3s `ecsQueryTimeout` that is also the card's whole wall clock.
 
   `/trace` is the one page whose ceiling is a budget rather than a sum: 48
   queries covering referrals, DNSKEY and DS fetches and any side lookup a
   missing glue record forces, spent in whatever mix the delegation demands.
   A real three-label name costs roughly a dozen — measured here on this
-  build, 8 for `cloudflare.com`, 12 for `dnssec-failed.org`, 13 for
+  build, 8 for `cloudflare.com`, 12 for `dnssec-failed.org`, 12 for
   `example.org`. `traceWalkTimeout` = 20s caps the wall clock separately,
   because 48 queries that each time out is minutes of a goroutine for one
   request that nothing else bounds.
@@ -390,16 +390,15 @@ Resolved from [02-build-fit.md §5](02-build-fit.md#5-open-questions-for-the-own
   the fragment it leaves behind as the zone's whole key set had `/trace`
   calling the root zone and `org.` broken several times an hour on a healthy
   network. `query()` in `trace.go` holds that rule in one place, handing on
-  only a whole NOERROR reply, and is tested branch by branch over a real socket.
+  only a whole NOERROR reply (or NXDOMAIN to the walk's own question), and is
+  tested branch by branch over a real socket.
   Two corollaries, both of them mistakes this rule was written down to prevent
   and both of them made anyway:
   - **A refusal is not a verdict either.** SERVFAIL, REFUSED and NOTAUTH from a
     zone's own nameservers are `indeterminate`, not `bogus`. They are a lame
     delegation or a server having a bad moment; no signature was examined, and
     `bogus` prints "the signatures do not check out" over records the walk
-    never saw. One refusing server among unreachable siblings was enough to
-    reach it, because "somebody answered" is a sticky flag across every server
-    tried.
+    never saw.
   - **Unchecked is not unsigned.** Once a link comes back `indeterminate` the
     chain stops being provably secure, and the zones below it are `indeterminate`
     too, not `insecure` — and the whole-walk verdict ranks unchecked above

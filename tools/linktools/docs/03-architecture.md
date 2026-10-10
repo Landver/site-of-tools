@@ -209,7 +209,7 @@ Conventions inherited without change:
 - **Query-param only, GET-shaped**, so every result is a shareable URL. `?u=` on
   every page, so switching pages carries the URL across.
 - **A bare hit** is the empty form to a browser, an empty fragment to htmx, and
-  `400` to a JSON caller — `dnstools.needName`'s shape, here `needURL`.
+  `400` to a JSON caller — `dnstools.serve`'s shape, here `needURL`.
 - **`503` not `502`** when a dependency is switched off.
 
 ### Negotiation: a local `reply`, not `platform.Respond`
