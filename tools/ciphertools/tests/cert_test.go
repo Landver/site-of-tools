@@ -385,6 +385,13 @@ func TestCertKeyMatch(t *testing.T) {
 	if r.KeyMatch == nil || r.KeyMatch.State != "match" || !strings.Contains(r.KeyMatch.Detail, "pasted PEM") {
 		t.Errorf("combined PEM: %+v", r.KeyMatch)
 	}
+	// The note on where the key came from follows a full sentence, matched or not.
+	for _, key := range []string{pkcs8PEM(t, p.leafKey), "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"} {
+		m := certOf(t, url.Values{"cert": {pemOf(p.leaf) + key}}, nil).KeyMatch
+		if m == nil || !strings.HasSuffix(m.Detail, ". (Checked with the key found among the pasted PEM blocks.)") || strings.Contains(m.Detail, "..") {
+			t.Errorf("pasted key detail: %+v", m)
+		}
+	}
 	if m := certOf(t, url.Values{"cert": {chain}}, nil).KeyMatch; m != nil {
 		t.Errorf("no key, but KeyMatch %+v", m)
 	}

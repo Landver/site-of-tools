@@ -206,6 +206,9 @@ func InspectCerts(data []byte, key string, now time.Time) (*CertResult, error) {
 		}
 	case len(p.keyPEM) > 0:
 		r.KeyMatch = matchKey(string(p.keyPEM), p, r.Certs)
+		if !strings.HasSuffix(r.KeyMatch.Detail, ".") {
+			r.KeyMatch.Detail += "."
+		}
 		r.KeyMatch.Detail += " (Checked with the key found among the pasted PEM blocks.)"
 	}
 	return r, nil
