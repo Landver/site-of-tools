@@ -1,9 +1,4 @@
-{{/* Identify — "what is this string?" (C11). Page shell + result fragment.
-
-     One live form. The answer is a ranked list, never one verdict: 32 hex
-     digits is MD5, NTLM, MD4 or LM, and the page says so. Each reading links to
-     the page that opens it; the link carries nothing, since a pasted secret in
-     a URL would land in history and logs. */}}
+{{/* Links never put the value in the URL: a pasted secret would land in history and logs. */}}
 {{define "cipher/identify"}}
 <!DOCTYPE html>
 <html lang="en">

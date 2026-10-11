@@ -38,8 +38,7 @@ func top(t *testing.T, s string) ciphertools.Candidate {
 	return c[0]
 }
 
-// named is the candidate with exactly this name ("LM digest" is inside
-// "NTLM digest").
+// named matches the whole name: "LM digest" is inside "NTLM digest".
 func named(cs []ciphertools.Candidate, name string) (ciphertools.Candidate, int) {
 	for i, c := range cs {
 		if c.Name == name {
@@ -126,8 +125,7 @@ func TestIdentifyRecognisers(t *testing.T) {
 
 func b64u(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 
-// 32 hex digits is MD5, NTLM, MD4 or LM: all listed, MD5 first, each with the
-// hashcat mode it certainly has, and never one verdict.
+// 32 hex digits is MD5, NTLM, MD4 or LM: all listed, MD5 first, never one verdict.
 func TestIdentifyHexDigestsAreAmbiguous(t *testing.T) {
 	for _, c := range []struct {
 		len   int
@@ -188,8 +186,7 @@ func TestIdentifyRankingOrder(t *testing.T) {
 	if _, i := find(cs, "base64"); i <= 0 {
 		t.Errorf("the base64 reading is missing: %+v", cs)
 	}
-	// A JWT is read as a JWT, not as plain text: the fallback only comes when
-	// nothing is certain.
+	// The plain-text fallback only comes when nothing is certain.
 	if _, i := find(identify(t, jwtioToken), "plain text"); i >= 0 {
 		t.Error("plain text listed beside a certain JWT")
 	}
@@ -203,8 +200,6 @@ func TestIdentifyRankingOrder(t *testing.T) {
 	}
 }
 
-// Decoded bytes are looked at again: base64 of a JWT, of JSON, of a DER
-// certificate, and hex of a DER certificate.
 func TestIdentifyLooksInsideEncodings(t *testing.T) {
 	p := newPKI(t)
 	for _, c := range []struct {
@@ -222,6 +217,9 @@ func TestIdentifyLooksInsideEncodings(t *testing.T) {
 			t.Errorf("%.40q: %+v, want why %q page %s", c.in, got, c.why, c.page)
 		}
 	}
+	if got := top(t, "300102030405"); got.Name != "hex-encoded bytes" || got.Why != "6 bytes." {
+		t.Errorf("DER-shaped junk taken for DER: %+v", got)
+	}
 	// The preview shows the start of the decoded text.
 	got := top(t, base64.StdEncoding.EncodeToString([]byte(`{"user":"alice"}`)))
 	if got.Preview != `{"user":"alice"}` || got.PreviewHex {
@@ -237,8 +235,7 @@ func TestIdentifyLooksInsideEncodings(t *testing.T) {
 	}
 }
 
-// Broken versions of each shape are named as broken, not mistaken for
-// something else or dropped.
+// Broken shapes are named as broken, not mistaken for something else or dropped.
 func TestIdentifyDamagedShapes(t *testing.T) {
 	for in, want := range map[string]string{
 		"-----BEGIN CERTIFICATE-----\nMIIB\n":           "PEM block that doesn't decode (CERTIFICATE)",
@@ -257,8 +254,7 @@ func TestIdentifyDamagedShapes(t *testing.T) {
 	}
 }
 
-// Nothing panics: empty, garbage, binary, huge. Identify is called directly,
-// so a panic fails the test instead of being turned into an error by Run.
+// Identify, not Run, so a panic fails the test instead of becoming an error.
 func TestIdentifyNeverPanics(t *testing.T) {
 	for _, in := range []string{"", "   \n\t "} {
 		if _, err := ciphertools.Identify(in); err == nil || !strings.Contains(err.Error(), "nothing to identify") {
@@ -342,21 +338,21 @@ func TestIdentifyPageAndAPI(t *testing.T) {
 	}
 }
 
-// Each "Open it on the … page" button carries the value to the field that reads
-// it, so the visitor never pastes twice. A candidate with a page but no field
-// (a fingerprint, a UUID) keeps a plain link.
+// The page button carries the value to the field that reads it; a fingerprint or UUID has none.
 func TestIdentifyCarryTargets(t *testing.T) {
 	for in, want := range map[string]struct{ page, field, set string }{
 		jwtioToken: {"/", "token", ""},
 		"$2b$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW":     {"/password", "hash", ""},
 		"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==":                               {"/encode", "header", ""},
 		"otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP": {"/totp", "secret", ""},
+		strings.Repeat("AB:", 31) + "AB":                                   {"/cert", "", ""},
+		"f47ac10b-58cc-4372-a567-0e02b2c3d479":                             {"/random", "", ""},
+		"123456":                                                           {"/totp", "code", ""},
+		b64u("??>>??>> hello there, text"):                                 {"/encode", "text", "from=base64url"},
+		base64.StdEncoding.EncodeToString([]byte("hello, ordinary text!")): {"/encode", "text", "from=base64"},
+		"0x" + hex.EncodeToString([]byte("hello world")):                   {"/encode", "text", "from=hex"},
 	} {
-		r, err := ciphertools.Identify(in)
-		if err != nil {
-			t.Fatal(err)
-		}
-		c := r.Candidates[0]
+		c := top(t, in)
 		if c.Page != want.page || c.Field != want.field || c.Set != want.set {
 			t.Errorf("%.30q: top candidate %q -> page %q field %q set %q, want %+v", in, c.Name, c.Page, c.Field, c.Set, want)
 		}
