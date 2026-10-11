@@ -63,8 +63,7 @@ func TestPasswordOpsAreHeavy(t *testing.T) {
 	}
 }
 
-// Hash, then verify: every algorithm, with a non-ASCII password so UTF-8 bytes
-// are what gets hashed. A wrong password must fail.
+// Every algorithm round-trips a non-ASCII password (so UTF-8 bytes get hashed); a wrong one fails.
 func TestPasswordRoundTripEveryAlgorithm(t *testing.T) {
 	const pw = "correct horse ☃ battery"
 	formats := map[string]*regexp.Regexp{
@@ -125,7 +124,6 @@ func TestPasswordPasswordEncoding(t *testing.T) {
 
 // Published or independently computed vectors, verified through the op.
 func TestPasswordKnownVectors(t *testing.T) {
-	b64 := hexB64
 	cases := []struct{ name, hash, password, variant string }{
 		// OpenBSD / crypt_blowfish test vectors.
 		{"bcrypt U*U", "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW", "U*U", "$2a$"},
@@ -133,8 +131,8 @@ func TestPasswordKnownVectors(t *testing.T) {
 		// Apache htpasswd -B, an independent implementation, writes $2y$.
 		{"bcrypt htpasswd", "$2y$04$n.BO6Chu8O0K6tZduwSHIegZ.y6hDk990CAFSuv7nB6NJbWkEvW5y", "correct horse", "$2y$"},
 		// The P-H-C reference CLI's vectors: password "password", salt "somesalt", 24-byte tag.
-		{"argon2id reference", "$argon2id$v=19$m=64,t=2,p=1$c29tZXNhbHQ$" + b64("068d62b26455936aa6ebe60060b0a65870dbfa3ddf8d41f7"), "password", ""},
-		{"argon2i reference", "$argon2i$v=19$m=64,t=2,p=2$c29tZXNhbHQ$" + b64("2089f3e78a799720f80af806553128f29b132cafe40d059f"), "password", ""},
+		{"argon2id reference", "$argon2id$v=19$m=64,t=2,p=1$c29tZXNhbHQ$" + hexB64("068d62b26455936aa6ebe60060b0a65870dbfa3ddf8d41f7"), "password", ""},
+		{"argon2i reference", "$argon2i$v=19$m=64,t=2,p=2$c29tZXNhbHQ$" + hexB64("2089f3e78a799720f80af806553128f29b132cafe40d059f"), "password", ""},
 		// Python's hashlib (OpenSSL) for scrypt and PBKDF2.
 		{"scrypt", "$scrypt$ln=10,r=8,p=1$MDEyMzQ1Njc4OWFiY2RlZg$ZEBCzLptWM7dhpNJDU2HbQ945ovKHmVEozHkePPbSqw", "password", ""},
 		{"pbkdf2-sha256", "$pbkdf2-sha256$i=1000,l=32$MDEyMzQ1Njc4OWFiY2RlZg$hRRjgXWkW8ResfIvBP99J/T4vkgEmMRV/0tJTOjR59I", "password", ""},
@@ -142,8 +140,8 @@ func TestPasswordKnownVectors(t *testing.T) {
 		// passlib's form: bare rounds, and '.' for '+'.
 		{"pbkdf2-sha512 passlib", "$pbkdf2-sha512$1000$MDEyMzQ1Njc4OWFiY2RlZg$38DzhdBT7fPaUGBlsh42VTuuKSFAIYGZJ7l6feCDLIl.K3hdPFgxxu7xuUi4gIuH6cEIoODn18xH9Ig2ryNgUw", "password", ""},
 		// RFC 7914 §11: PBKDF2-HMAC-SHA256, two output blocks.
-		{"pbkdf2 RFC 7914 c=1", "$pbkdf2-sha256$i=1,l=64$c2FsdA$" + b64("55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783"), "passwd", ""},
-		{"pbkdf2 RFC 7914 c=80000", "$pbkdf2-sha256$i=80000,l=64$TmFDbA$" + b64("4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56a1d425a1225833549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d"), "Password", ""},
+		{"pbkdf2 RFC 7914 c=1", "$pbkdf2-sha256$i=1,l=64$c2FsdA$" + hexB64("55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783"), "passwd", ""},
+		{"pbkdf2 RFC 7914 c=80000", "$pbkdf2-sha256$i=80000,l=64$TmFDbA$" + hexB64("4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56a1d425a1225833549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d"), "Password", ""},
 		// Django's layout, same derivation as its PBKDF2PasswordHasher.
 		{"django", "pbkdf2_sha256$1000$seasalt$YIWkt6M1JFXrHg5s0jZjBSc7C2Cz6QvchSJ0h8Y+i7c=", "password", ""},
 	}
@@ -197,8 +195,7 @@ func TestPasswordBcryptRefuses72PlusBytes(t *testing.T) {
 	pwHash(t, pwFields("argon2id", strings.Repeat("a", 200)))
 }
 
-// crypt_blowfish's vector for exactly this: bytes past 72 play no part, so on
-// verify they are ignored and the page says so.
+// crypt_blowfish's vector: on verify, bytes past 72 play no part and the page says so.
 func TestPasswordBcryptVerifyTruncatesAndWarns(t *testing.T) {
 	const hash = "$2a$05$abcdefghijklmnopqrstuu5s2v8.iXieOjg/.AySBTTZIIVFJeBui"
 	const first72 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -211,8 +208,7 @@ func TestPasswordBcryptVerifyTruncatesAndWarns(t *testing.T) {
 	}
 }
 
-// Caps are checked before any work: a hash op over a limit is an error, a
-// pasted hash over a limit is read but refused.
+// Caps hold before any work: over a limit, hashing is an error and a pasted hash is read but refused.
 func TestPasswordCapsEnforced(t *testing.T) {
 	over := []struct {
 		algo, field, value string
@@ -332,10 +328,11 @@ func TestPasswordLegacyFormatsRecognised(t *testing.T) {
 	if v := pwVerify(t, "$P$BzI4LH2Ww0Xi3F2PmUMcpS7J3w9f4D1", ""); len(v.Info.Params) == 0 || v.Info.Params[0].Value != "8,192" {
 		t.Errorf("phpass rounds: %+v", v.Info.Params)
 	}
-	// Argon2d and version 16 are named, not verified.
+	// Argon2d, version 16 and keyid= are named, not verified.
 	for _, h := range []string{
 		"$argon2d$v=19$m=64,t=1,p=1$c29tZXNhbHQ$hydAX9B8MseNZPVH8kFQ0/LnA6ifmBoZ",
 		"$argon2i$m=64,t=1,p=1$c29tZXNhbHQ$hydAX9B8MseNZPVH8kFQ0/LnA6ifmBoZ",
+		"$argon2id$v=19$m=64,t=1,p=1,keyid=abc$c29tZXNhbHQ$hydAX9B8MseNZPVH8kFQ0/LnA6ifmBoZ",
 	} {
 		if v := pwVerify(t, h, "password"); v.State != ciphertools.PasswordUnsupported {
 			t.Errorf("%s: %s", h, v.State)
@@ -353,6 +350,11 @@ func TestPasswordParseErrorsNameTheOffset(t *testing.T) {
 		"$argon2id$v=19$m=64,t=1,p=1$c29t!XNhbHQ$Bo1ismRVk2qm6":           "offset 32",
 		" $scrypt$ln=10,r=8$c29tZXNhbHQ$ZEBC":                             "no p=",
 		"$pbkdf2-sha256$i=1000,l=16$c29tZXNhbHQ$hRRjgXWkW8ResfIvBP99J/T4": "l=16",
+		// The first fault in order wins: a zero before a bad value, a missing i= before an unknown name.
+		"$scrypt$ln=0,r=x,p=1$c29tZXNhbHQ$ZEBC":                        "ln=0 at offset 11; it must be at least 1",
+		"$pbkdf2-sha256$foo=1$c29tZXNhbHQ$hRRj":                        "offset 15 have no i= (iterations)",
+		"$argon2id$v=19$m=64,t=1$c29tZXNhbHQ$Bo1ismRVk2qm6":            "offset 15 have no p=",
+		"$argon2id$v=19$keyid=x,m=z,t=1,p=1$c29tZXNhbHQ$Bo1ismRVk2qm6": `m="z" at offset 25`,
 	}
 	for h, want := range cases {
 		_, err := runOp(t, "password-verify", url.Values{"hash": {h}, "password": {"x"}}, nil)
@@ -436,8 +438,7 @@ func TestPasswordAPIAndNoJSPage(t *testing.T) {
 	}
 }
 
-// The algorithm menu's starting value is chosen from literals: a crafted algo
-// must not reach the Alpine expression.
+// The algorithm menu starts from a literal: a crafted algo must not reach the Alpine expression.
 func TestPasswordPageDoesNotEchoAlgoIntoScript(t *testing.T) {
 	e := newCipherApp(t)
 	body := url.Values{"algo": {"x' + alert(1) + '"}, "password": {"pw"}}.Encode()

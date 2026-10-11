@@ -1,6 +1,7 @@
 package ciphertools
 
 import (
+	"cmp"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"hash"
 	"math"
 	"math/bits"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,14 +24,8 @@ import (
 	"golang.org/x/crypto/scrypt"
 )
 
-// C4 — password hashing. Hash with bcrypt, Argon2id, scrypt or PBKDF2 into the
-// string a database stores, and read a stored string back: which algorithm,
-// which parameters, which salt, and whether a password matches it.
-//
-// Both ops are Heavy. These functions are slow on purpose, which makes them
-// the cheapest way to burn this server's CPU, so every cost parameter is
-// capped (docs/03-correctness-traps.md, Passwords). The caps apply to verify
-// too, because there the parameters come from the pasted string.
+// Both ops are Heavy and every cost parameter is capped, on verify too, where the
+// pasted string sets them: slow on purpose, they are the cheapest way to burn the CPU.
 
 func init() {
 	register(Op{Name: "password-hash", Path: "/password/hash", Page: "password", Fragment: "cipher/password-hashed", Heavy: true, Run: runPasswordHash,
@@ -86,13 +82,11 @@ const (
 	AlgoPBKDF2SHA512 = "pbkdf2-sha512"
 )
 
-// Limits. The maxima bound CPU and memory and apply to hash and verify alike.
-// The minima apply only when hashing: checking an old, weak hash is cheap, and
-// it is exactly when someone needs to be told it is weak.
+// The maxima bound hash and verify alike; the minima only hashing, since checking an
+// old, weak hash is cheap and exactly when someone needs to be told it is weak.
 const (
 	bcryptMinCost, bcryptMaxCost, bcryptDefaultCost = 4, 14, 12
-	// bcryptMaxPassword is how many bytes of a password bcrypt reads.
-	bcryptMaxPassword = 72
+	bcryptMaxPassword                               = 72 // bytes bcrypt reads
 
 	argon2MinMemory, argon2MaxMemory, argon2DefaultMemory = 8, 64 << 10, 19456 // KiB
 	argon2MaxTime, argon2DefaultTime                      = 10, 2
@@ -100,21 +94,15 @@ const (
 
 	scryptMinLogN, scryptMaxLogN, scryptDefaultLogN = 10, 17, 15
 	scryptMaxR, scryptDefaultR                      = 16, 8
-	// p=3 at N=2^15 is one of OWASP's equivalent minimums; p=1 there is not.
-	scryptMaxP, scryptDefaultP = 4, 3
-	// scryptMaxMemory caps 128·N·r, the bytes scrypt allocates: N ≤ 2^17 and
-	// r ≤ 16 separately would still allow 256 MiB per request.
-	scryptMaxMemory = 128 << 20
+	scryptMaxP, scryptDefaultP                      = 4, 3      // p=3 at N=2^15 is an OWASP minimum; p=1 is not
+	scryptMaxMemory                                 = 128 << 20 // of 128·N·r: the N and r caps alone allow 256 MiB
 
 	pbkdf2MinIter, pbkdf2MaxIter = 1000, 2_000_000
 
-	passwordSaltBytes = 16
-	passwordKeyBytes  = 32
-	// maxStoredBytes bounds a salt or hash decoded from a pasted string.
-	maxStoredBytes = 1024
+	passwordSaltBytes, passwordKeyBytes = 16, 32
+	maxStoredBytes                      = 1024 // of a salt or hash decoded from a pasted string
 )
 
-// phcB64 is the PHC string format's base64: standard alphabet, no padding.
 var phcB64 = base64.RawStdEncoding
 
 type pbkdf2Hash struct {
@@ -129,7 +117,6 @@ var pbkdf2Hashes = map[string]pbkdf2Hash{
 	"sha512": {id: "sha512", name: "PBKDF2-HMAC-SHA512", new: sha512.New, size: sha512.Size, owasp: 210_000},
 }
 
-// PasswordHashResult is the password-hash op's answer.
 type PasswordHashResult struct {
 	Encoded        string            `json:"encoded"`
 	Info           *PasswordHashInfo `json:"parsed"`
@@ -141,189 +128,127 @@ type PasswordHashResult struct {
 	Took string `json:"-"`
 }
 
-func (r *PasswordHashResult) warn(level, text string) {
-	r.Warnings = append(r.Warnings, Warning{level, text})
-}
-
 func runPasswordHash(in Input) (any, error) {
-	raw := in.Get("password")
-	pw, how, err := decodeInput(raw, in.Get("password_enc"))
+	raw, enc := in.Get("password"), in.Get("password_enc")
+	pw, how, err := decodeInput(raw, enc)
 	if err != nil {
 		return nil, fmt.Errorf("password: %w", err)
 	}
 	algo := passwordAlgo(in)
 	salt := make([]byte, passwordSaltBytes)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, err
-	}
+	rand.Read(salt)
 	derive, _, err := passwordHasher(algo, in, pw, salt)
 	if err != nil {
 		return nil, err
 	}
-
 	start := time.Now()
-	enc, err := derive()
+	encoded, err := derive()
 	took := time.Since(start)
 	if err != nil {
 		return nil, err
 	}
-	info, err := ParsePasswordHash(enc)
-	if err != nil {
-		return nil, fmt.Errorf("internal error: the new hash does not parse: %w", err)
-	}
-
-	r := &PasswordHashResult{Encoded: enc, Info: info, PasswordBytes: len(pw), PasswordReadAs: how,
+	info, _ := ParsePasswordHash(encoded)
+	r := &PasswordHashResult{Encoded: encoded, Info: info, PasswordBytes: len(pw), PasswordReadAs: how,
 		TookMS: millis(took), Took: tookText(took)}
 	if len(pw) == 0 {
-		r.warn(LevelWarn, "The password is empty. This is its hash, but nothing should accept an empty password.")
+		r.Warnings = append(r.Warnings, Warning{LevelWarn, "The password is empty. This is its hash, but nothing should accept an empty password."})
 	}
-	if (in.Get("password_enc") == "" || in.Get("password_enc") == EncUTF8) && strings.TrimSpace(raw) != raw {
-		r.warn(LevelInfo, "The password starts or ends with whitespace, and that whitespace is part of what was hashed.")
+	if (enc == "" || enc == EncUTF8) && strings.TrimSpace(raw) != raw {
+		r.Warnings = append(r.Warnings, Warning{LevelInfo, "The password starts or ends with whitespace, and that whitespace is part of what was hashed."})
 	}
 	r.Warnings = append(r.Warnings, info.warnings...)
 	if strings.HasPrefix(algo, "pbkdf2-") {
-		r.warn(LevelInfo, "PBKDF2 is not memory-hard, so GPUs guess it cheaply. OWASP recommends it where FIPS 140 compliance requires it, and Argon2id otherwise.")
+		r.Warnings = append(r.Warnings, Warning{LevelInfo, "PBKDF2 is not memory-hard, so GPUs guess it cheaply. OWASP recommends it where FIPS 140 compliance requires it, and Argon2id otherwise."})
 	}
 	return r, nil
 }
 
 func passwordAlgo(in Input) string {
-	if algo := strings.ToLower(strings.TrimSpace(in.Get("algo"))); algo != "" {
-		return algo
-	}
-	return AlgoBcrypt
+	return cmp.Or(strings.ToLower(strings.TrimSpace(in.Get("algo"))), AlgoBcrypt)
 }
 
-// passwordHasher checks the chosen algorithm's parameters and returns the
-// derivation to time. Everything that can be refused is refused here, before
-// any expensive work starts.
-func passwordHasher(algo string, in Input, pw, salt []byte) (derive func() (string, error), mem int64, err error) {
+// passwordHasher refuses what it can before any slow work, returning the derivation and the bytes it allocates, both meaningless beside an error.
+func passwordHasher(algo string, in Input, pw, salt []byte) (func() (string, error), int64, error) {
+	phc := func(head string, sum []byte, err error) (string, error) {
+		return head + "$" + phcB64.EncodeToString(salt) + "$" + phcB64.EncodeToString(sum), err
+	}
 	switch algo {
 	case AlgoBcrypt:
 		cost, err := intField(in, bcryptCostField)
-		if err != nil {
-			return nil, 0, err
-		}
-		if len(pw) > bcryptMaxPassword {
-			return nil, 0, bcryptTooLong(pw)
+		if err == nil && len(pw) > bcryptMaxPassword {
+			chars := ""
+			if n := utf8.RuneCount(pw); utf8.Valid(pw) && n != len(pw) {
+				chars = fmt.Sprintf(" (%d characters; in UTF-8 some take more than one byte)", n)
+			}
+			err = fmt.Errorf("bcrypt: the password is %d bytes%s, and bcrypt reads at most 72. "+
+				"Go's bcrypt, which this page runs, refuses rather than hash a shortened password. "+
+				"Many other libraries silently use only the first 72 bytes, so every password that shares them gets the same hash. "+
+				"For long passwords or passphrases use Argon2id or scrypt.", len(pw), chars)
 		}
 		return func() (string, error) {
 			h, err := bcrypt.GenerateFromPassword(pw, cost)
-			if err != nil {
-				return "", fmt.Errorf("bcrypt: %w", err)
-			}
-			// Go writes $2a$. $2b$ differs only for passwords over 255
-			// bytes, which bcrypt never gets here, and it is what current
-			// libraries write.
-			s := string(h)
-			if rest, ok := strings.CutPrefix(s, "$2a$"); ok {
-				s = "$2b$" + rest
-			}
-			return s, nil
-		}, 0, nil
+			// Go writes $2a$; $2b$, what current libraries write, differs only past 255 bytes.
+			return strings.Replace(string(h), "$2a$", "$2b$", 1), err
+		}, 0, err
 
 	case AlgoArgon2id:
-		m, err := intField(in, argon2MField)
-		if err != nil {
-			return nil, 0, err
-		}
-		t, err := intField(in, argon2TField)
-		if err != nil {
-			return nil, 0, err
-		}
-		p, err := intField(in, argon2PField)
-		if err != nil {
-			return nil, 0, err
-		}
-		if m < 8*p {
-			return nil, 0, fmt.Errorf("argon2_m: Argon2 needs at least 8 KiB per lane, so p=%d needs m of at least %d", p, 8*p)
+		m, errM := intField(in, argon2MField)
+		t, errT := intField(in, argon2TField)
+		p, errP := intField(in, argon2PField)
+		err := cmp.Or(errM, errT, errP)
+		if err == nil && m < 8*p {
+			err = fmt.Errorf("argon2_m: Argon2 needs at least 8 KiB per lane, so p=%d needs m of at least %d", p, 8*p)
 		}
 		return func() (string, error) {
-			sum := argon2.IDKey(pw, salt, uint32(t), uint32(m), uint8(p), passwordKeyBytes)
-			return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, m, t, p,
-				phcB64.EncodeToString(salt), phcB64.EncodeToString(sum)), nil
-		}, int64(m) << 10, nil
+			return phc(fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d", argon2.Version, m, t, p),
+				argon2.IDKey(pw, salt, uint32(t), uint32(m), uint8(p), passwordKeyBytes), nil)
+		}, int64(m) << 10, err
 
 	case AlgoScrypt:
-		n, err := intField(in, scryptNField)
-		if err != nil {
-			return nil, 0, err
+		n, errN := intField(in, scryptNField)
+		if errN == nil && n&(n-1) != 0 {
+			errN = fmt.Errorf("scrypt_n: N must be a power of two (1024, 2048, … 131072), got %d", n)
 		}
-		if n&(n-1) != 0 {
-			return nil, 0, fmt.Errorf("scrypt_n: N must be a power of two (1024, 2048, … 131072), got %d", n)
-		}
-		r, err := intField(in, scryptRField)
-		if err != nil {
-			return nil, 0, err
-		}
-		p, err := intField(in, scryptPField)
-		if err != nil {
-			return nil, 0, err
-		}
-		if 128*n*r > scryptMaxMemory {
-			return nil, 0, fmt.Errorf("scrypt: N=%d with r=%d needs %s of memory (128 × N × r bytes); the limit is %s",
+		r, errR := intField(in, scryptRField)
+		p, errP := intField(in, scryptPField)
+		err := cmp.Or(errN, errR, errP)
+		if err == nil && 128*n*r > scryptMaxMemory {
+			err = fmt.Errorf("scrypt: N=%d with r=%d needs %s of memory (128 × N × r bytes); the limit is %s",
 				n, r, bytesText(128*n*r), bytesText(scryptMaxMemory))
 		}
 		return func() (string, error) {
 			sum, err := scrypt.Key(pw, salt, n, r, p, passwordKeyBytes)
-			if err != nil {
-				return "", fmt.Errorf("scrypt: %w", err)
-			}
-			return fmt.Sprintf("$scrypt$ln=%d,r=%d,p=%d$%s$%s", bits.TrailingZeros(uint(n)), r, p,
-				phcB64.EncodeToString(salt), phcB64.EncodeToString(sum)), nil
-		}, scryptMemory(n, r, p), nil
+			return phc(fmt.Sprintf("$scrypt$ln=%d,r=%d,p=%d", bits.TrailingZeros(uint(n)), r, p), sum, err)
+		}, scryptMemory(n, r, p), err
 
 	case AlgoPBKDF2SHA256, AlgoPBKDF2SHA512:
 		ph := pbkdf2Hashes[strings.TrimPrefix(algo, "pbkdf2-")]
 		iter, err := intField(in, pbkdf2IterField.withDefault(ph.owasp))
-		if err != nil {
-			return nil, 0, err
-		}
 		return func() (string, error) {
 			sum, err := pbkdf2.Key(ph.new, string(pw), salt, iter, ph.size)
-			if err != nil {
-				return "", fmt.Errorf("pbkdf2: %w", err)
-			}
-			return fmt.Sprintf("$pbkdf2-%s$i=%d,l=%d$%s$%s", ph.id, iter, ph.size,
-				phcB64.EncodeToString(salt), phcB64.EncodeToString(sum)), nil
-		}, 0, nil
+			return phc(fmt.Sprintf("$%s$i=%d,l=%d", algo, iter, ph.size), sum, err)
+		}, 0, err
 	}
 	return nil, 0, fmt.Errorf("algo: want bcrypt, argon2id, scrypt, pbkdf2-sha256 or pbkdf2-sha512, got %q", algo)
 }
 
-// scryptMemory is what x/crypto/scrypt allocates: V, 128·N·r bytes, once for
-// all p lanes (they run one after another), beside B (128·r·p) and XY (256·r).
+// scryptMemory is what x/crypto/scrypt allocates: V (128·N·r) once, as the p lanes run in turn, plus B (128·r·p) and XY (256·r).
 func scryptMemory(n, r, p int) int64 { return 128 * int64(r) * int64(n+p+2) }
 
-const flatMemory = 16 << 20
-
-// MemoryCost is roughly what op name allocates: Argon2's or scrypt's memory, else flatMemory.
+// MemoryCost is roughly what op name allocates: Argon2's or scrypt's memory, else 16 MiB.
 func MemoryCost(name string, in Input) int64 {
 	var mem int64
 	switch name {
 	case "password-hash":
-		_, mem, _ = passwordHasher(passwordAlgo(in), in, nil, nil)
+		if _, m, err := passwordHasher(passwordAlgo(in), in, nil, nil); err == nil {
+			mem = m
+		}
 	case "password-verify":
 		if h, err := ParsePasswordHash(in.Get("hash")); err == nil && h.Unsupported == "" && h.Refused == "" && in.Get("password") != "" {
 			mem = h.mem
 		}
 	}
-	if mem == 0 {
-		return flatMemory
-	}
-	return mem
-}
-
-// bcryptTooLong is the refusal for a password bcrypt would not read in full.
-func bcryptTooLong(pw []byte) error {
-	chars := ""
-	if n := utf8.RuneCount(pw); utf8.Valid(pw) && n != len(pw) {
-		chars = fmt.Sprintf(" (%d characters; in UTF-8 some take more than one byte)", n)
-	}
-	return fmt.Errorf("bcrypt: the password is %d bytes%s, and bcrypt reads at most 72. "+
-		"Go's bcrypt, which this page runs, refuses rather than hash a shortened password. "+
-		"Many other libraries silently use only the first 72 bytes, so every password that shares them gets the same hash. "+
-		"For long passwords or passphrases use Argon2id or scrypt.", len(pw), chars)
+	return cmp.Or(mem, 16<<20)
 }
 
 // Verify states.
@@ -335,7 +260,6 @@ const (
 	PasswordRefused     = "refused"     // parameters above this page's limits
 )
 
-// PasswordVerifyResult is the password-verify op's answer.
 type PasswordVerifyResult struct {
 	Info          *PasswordHashInfo `json:"parsed"`
 	State         string            `json:"state"`
@@ -373,10 +297,9 @@ func runPasswordVerify(in Input) (any, error) {
 			return nil, err
 		}
 		r.TookMS, r.Took = millis(took), tookText(took)
+		r.State, r.Detail = PasswordNoMatch, "The password does not produce this hash. Check for a stray space or newline, letter case, and how the password is encoded."
 		if ok {
 			r.State, r.Detail = PasswordMatch, "The password produces this hash. The comparison ran in constant time."
-		} else {
-			r.State, r.Detail = PasswordNoMatch, "The password does not produce this hash. Check for a stray space or newline, letter case, and how the password is encoded."
 		}
 		if info.Algorithm == AlgoBcrypt && len(pw) > bcryptMaxPassword {
 			r.Warnings = append(r.Warnings, Warning{LevelWarn, fmt.Sprintf(
@@ -390,17 +313,15 @@ func runPasswordVerify(in Input) (any, error) {
 // PasswordHashInfo is what a stored password hash says about itself.
 type PasswordHashInfo struct {
 	// Algorithm is an Algo* id, or a legacy crypt(3) name (md5crypt, sha512crypt, …).
-	Algorithm string `json:"algorithm"`
-	Name      string `json:"name"`
-	Format    string `json:"format"`
-	Variant   string `json:"variant,omitempty"`
-	Params    []Row  `json:"params,omitempty"`
-	SaltBytes int    `json:"salt_bytes"`
-	HashBytes int    `json:"hash_bytes"`
-	// Unsupported says why a recognised format can't be verified here.
-	Unsupported string `json:"unsupported,omitempty"`
-	// Refused says which parameter is above this page's limits.
-	Refused string `json:"refused,omitempty"`
+	Algorithm   string `json:"algorithm"`
+	Name        string `json:"name"`
+	Format      string `json:"format"`
+	Variant     string `json:"variant,omitempty"`
+	Params      []Row  `json:"params,omitempty"`
+	SaltBytes   int    `json:"salt_bytes"`
+	HashBytes   int    `json:"hash_bytes"`
+	Unsupported string `json:"unsupported,omitempty"` // why a recognised format can't be verified here
+	Refused     string `json:"refused,omitempty"`     // which parameter is above this page's limits
 
 	warnings []Warning
 	check    func(pw []byte) (bool, error)
@@ -424,16 +345,6 @@ type part struct {
 	at int
 }
 
-func splitParts(s string, base int) []part {
-	var out []part
-	at := base
-	for _, f := range strings.Split(s, "$") {
-		out = append(out, part{f, at})
-		at += len(f) + 1
-	}
-	return out
-}
-
 func partAt(p []part, i int) part {
 	if i < len(p) {
 		return p[i]
@@ -441,49 +352,39 @@ func partAt(p []part, i int) part {
 	return part{}
 }
 
-// ParsePasswordHash reads a stored password hash: bcrypt's modular crypt
-// format, PHC strings (Argon2, scrypt, PBKDF2), passlib's scrypt and PBKDF2,
-// Django's PBKDF2, and the crypt(3) formats it names but does not verify.
-// Errors give offsets counted in s.
+// ParsePasswordHash reads bcrypt, PHC strings (Argon2, scrypt, PBKDF2) and passlib's and Django's forms,
+// and names the crypt(3) formats it can't verify. Errors give offsets counted in s.
 func ParsePasswordHash(s string) (*PasswordHashInfo, error) {
 	t := strings.TrimLeft(s, " \t\r\n")
-	lead := len(s) - len(t)
-	t = strings.TrimRight(t, " \t\r\n")
-	if t == "" {
+	at := len(s) - len(t)
+	if t = strings.TrimRight(t, " \t\r\n"); t == "" {
 		return nil, errors.New("no hash given")
 	}
-	p := splitParts(t, lead)
-	if !strings.HasPrefix(t, "$") {
-		if strings.HasPrefix(t, "pbkdf2_sha256$") {
-			return parseDjangoPBKDF2(p)
-		}
-		return nil, unknownHash(t)
+	var p []part
+	for _, f := range strings.Split(t, "$") {
+		p = append(p, part{f, at})
+		at += len(f) + 1
 	}
-	id := p[1].s
-	switch {
+	switch id := partAt(p, 1).s; {
+	case strings.HasPrefix(t, "pbkdf2_sha256$"):
+		return parseDjangoPBKDF2(p)
+	case !strings.HasPrefix(t, "$"):
 	case bcryptVariants[id] != "":
 		return parseBcrypt(t, p)
 	case strings.HasPrefix(id, "argon2"):
 		return parseArgon2(p)
 	case id == "scrypt":
 		return parseScrypt(p)
-	case id == "pbkdf2-sha256" || id == "pbkdf2-sha512":
+	case id == AlgoPBKDF2SHA256 || id == AlgoPBKDF2SHA512:
 		return parsePBKDF2(p)
 	case legacyCrypt[id].name != "":
 		return parseLegacy(p), nil
 	}
-	return nil, unknownHash(t)
-}
-
-func unknownHash(t string) error {
 	hint := ""
-	if allHex(t) {
-		switch len(t) {
-		case 32, 40, 56, 64, 96, 128:
-			hint = fmt.Sprintf(" %d hex characters looks like a plain digest (MD5, SHA-1, SHA-256 …), which is not a password hash: it has no salt and no cost. The Hash page computes those.", len(t))
-		}
+	if allHex(t) && slices.Contains([]int{32, 40, 56, 64, 96, 128}, len(t)) {
+		hint = fmt.Sprintf(" %d hex characters looks like a plain digest (MD5, SHA-1, SHA-256 …), which is not a password hash: it has no salt and no cost. The Hash page computes those.", len(t))
 	}
-	return errors.New("not a password hash format this page knows. It reads bcrypt ($2a$, $2b$, $2y$), Argon2 ($argon2id$, $argon2i$), " +
+	return nil, errors.New("not a password hash format this page knows. It reads bcrypt ($2a$, $2b$, $2y$), Argon2 ($argon2id$, $argon2i$), " +
 		"scrypt ($scrypt$) and PBKDF2 ($pbkdf2-sha256$, $pbkdf2-sha512$, Django's pbkdf2_sha256$), " +
 		"and names the crypt(3) formats $1$, $apr1$, $5$, $6$, $y$, $7$ and phpass ($P$)." + hint)
 }
@@ -492,8 +393,7 @@ func unknownHash(t string) error {
 
 const bcryptAlphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-// bcryptVariants: every prefix verifies the same way; the differences are in
-// which buggy implementation, if any, made the hash.
+// bcryptVariants all verify alike; they differ in which buggy implementation, if any, made the hash.
 var bcryptVariants = map[string]string{
 	"2":  "The original prefix, rarely seen now. Verified like $2a$.",
 	"2a": "The long-standing prefix. Same output as $2b$ for any password bcrypt reads in full.",
@@ -515,10 +415,8 @@ func parseBcrypt(t string, p []part) (*PasswordHashInfo, error) {
 	if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
 		return nil, fmt.Errorf("bcrypt: cost %d at offset %d is outside bcrypt's range of 04 to 31", cost, cp.at)
 	}
-	for i := 0; i < len(body.s); i++ {
-		if strings.IndexByte(bcryptAlphabet, body.s[i]) < 0 {
-			return nil, fmt.Errorf("bcrypt: %q at offset %d is not in bcrypt's base64 alphabet (./A-Za-z0-9)", body.s[i], body.at+i)
-		}
+	if i := len(body.s) - len(strings.TrimLeft(body.s, bcryptAlphabet)); i < len(body.s) {
+		return nil, fmt.Errorf("bcrypt: %q at offset %d is not in bcrypt's base64 alphabet (./A-Za-z0-9)", body.s[i], body.at+i)
 	}
 	if len(body.s) != 53 {
 		return nil, fmt.Errorf("bcrypt: after the cost come 53 characters, 22 of salt and 31 of hash; found %d", len(body.s))
@@ -543,13 +441,10 @@ func parseBcrypt(t string, p []part) (*PasswordHashInfo, error) {
 	}
 	h.check = func(pw []byte) (bool, error) {
 		err := bcrypt.CompareHashAndPassword([]byte(t), pw)
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
 			return false, nil
 		}
-		return false, fmt.Errorf("bcrypt: %w", err)
+		return err == nil, err
 	}
 	return h, nil
 }
@@ -579,36 +474,44 @@ func phcParams(pt part, algo string) ([]param, error) {
 	return out, nil
 }
 
+// passwordInts reads params in order, each one of names with a whole number of at least least.
+func passwordInts(params []param, algo string, least int, names ...string) (map[string]int, error) {
+	vals := map[string]int{}
+	for _, x := range params {
+		if !slices.Contains(names, x.k) {
+			return nil, fmt.Errorf("%s: unknown parameter %q at offset %d", algo, x.k, x.at-len(x.k)-1)
+		}
+		n, err := x.int(algo)
+		if err != nil {
+			return nil, err
+		}
+		if n < least {
+			return nil, fmt.Errorf("%s: %s=%d at offset %d; it must be at least %d", algo, x.k, n, x.at, least)
+		}
+		vals[x.k] = n
+	}
+	return vals, nil
+}
+
 func (x param) int(algo string) (int, error) {
-	if x.v == "" || len(x.v) > 10 || !allDigits(x.v) {
+	if len(x.v) > 10 || !allDigits(x.v) {
 		return 0, fmt.Errorf("%s: %s=%q at offset %d is not a whole number", algo, x.k, x.v, x.at)
 	}
 	n, _ := strconv.Atoi(x.v)
 	return n, nil
 }
 
-func allDigits(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return s != ""
-}
+func allDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
 
-// phcDecode reads a salt or hash field: standard base64 without padding. A
-// trailing '=' is tolerated, and '.' is read as '+', which is passlib's
-// "adapted base64"; neither character means anything else here.
+// phcDecode reads a salt or hash: standard base64 without padding. A trailing '=' is
+// tolerated and '.' read as '+' (passlib's "adapted base64"); neither means anything else here.
 func phcDecode(pt part, what string) ([]byte, error) {
 	s := strings.TrimRight(pt.s, "=")
 	if s == "" {
 		return nil, fmt.Errorf("%s is empty (offset %d)", what, pt.at)
 	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/' || c == '.') {
-			return nil, fmt.Errorf("%s: %q at offset %d is not base64", what, c, pt.at+i)
-		}
+	if i := len(s) - len(strings.TrimLeft(s, bcryptAlphabet+"+")); i < len(s) {
+		return nil, fmt.Errorf("%s: %q at offset %d is not base64", what, s[i], pt.at+i)
 	}
 	b, err := phcB64.DecodeString(strings.ReplaceAll(s, ".", "+"))
 	if err != nil {
@@ -620,6 +523,12 @@ func phcDecode(pt part, what string) ([]byte, error) {
 	return b, nil
 }
 
+func passwordSaltHash(salt, sum part, algo string) ([]byte, []byte, error) {
+	s, errS := phcDecode(salt, algo+" salt")
+	h, errH := phcDecode(sum, algo+" hash")
+	return s, h, cmp.Or(errS, errH)
+}
+
 // ---- Argon2 ----
 
 // owaspArgon2 lists OWASP's equivalent Argon2id minimums as (m KiB, t).
@@ -627,13 +536,11 @@ var owaspArgon2 = [][2]int{{47104, 1}, {19456, 2}, {12288, 3}, {9216, 4}, {7168,
 
 func parseArgon2(p []part) (*PasswordHashInfo, error) {
 	id := p[1].s
-	names := map[string]string{AlgoArgon2id: "Argon2id", AlgoArgon2i: "Argon2i", AlgoArgon2d: "Argon2d"}
-	name, ok := names[id]
+	name, ok := map[string]string{AlgoArgon2id: "Argon2id", AlgoArgon2i: "Argon2i", AlgoArgon2d: "Argon2d"}[id]
 	if !ok {
 		return nil, fmt.Errorf("unknown Argon2 variant %q at offset %d: there are argon2id, argon2i and argon2d", id, p[1].at)
 	}
-	rest := p[2:]
-	version := 0x10 // what a PHC string without v= means
+	rest, version := p[2:], 0x10 // what a PHC string without v= means
 	if len(rest) > 0 && strings.HasPrefix(rest[0].s, "v=") {
 		v, err := param{"v", rest[0].s[2:], rest[0].at + 2}.int(id)
 		if err != nil {
@@ -651,36 +558,23 @@ func parseArgon2(p []part) (*PasswordHashInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	var m, t, lanes int
-	seen := map[string]bool{}
 	h := &PasswordHashInfo{Algorithm: id, Name: name, Format: "PHC string"}
+	extra := func(x param) bool { return x.k == "keyid" || x.k == "data" }
 	for _, x := range params {
-		switch x.k {
-		case "m", "t", "p":
-			n, err := x.int(id)
-			if err != nil {
-				return nil, err
-			}
-			switch x.k {
-			case "m":
-				m = n
-			case "t":
-				t = n
-			default:
-				lanes = n
-			}
-			seen[x.k] = true
-		case "keyid", "data":
+		if extra(x) {
 			h.Unsupported = fmt.Sprintf("This hash carries %s=, extra input Argon2 mixes in, which this page can't supply.", x.k)
-		default:
-			return nil, fmt.Errorf("%s: unknown parameter %q at offset %d", id, x.k, x.at-len(x.k)-1)
 		}
 	}
+	vals, err := passwordInts(slices.DeleteFunc(params, extra), id, 0, "m", "t", "p")
+	if err != nil {
+		return nil, err
+	}
 	for _, k := range []string{"m", "t", "p"} {
-		if !seen[k] {
+		if _, ok := vals[k]; !ok {
 			return nil, fmt.Errorf("%s: the parameters at offset %d have no %s=", id, rest[0].at, k)
 		}
 	}
+	m, t, lanes := vals["m"], vals["t"], vals["p"]
 	switch {
 	case t < 1:
 		return nil, fmt.Errorf("%s: t=0; Argon2 makes at least one pass", id)
@@ -689,11 +583,7 @@ func parseArgon2(p []part) (*PasswordHashInfo, error) {
 	case m < 8*lanes:
 		return nil, fmt.Errorf("%s: m=%d is below Argon2's minimum of 8 KiB per lane (%d for p=%d)", id, m, 8*lanes, lanes)
 	}
-	salt, err := phcDecode(rest[1], id+" salt")
-	if err != nil {
-		return nil, err
-	}
-	sum, err := phcDecode(rest[2], id+" hash")
+	salt, sum, err := passwordSaltHash(rest[1], rest[2], id)
 	if err != nil {
 		return nil, err
 	}
@@ -721,33 +611,21 @@ func parseArgon2(p []part) (*PasswordHashInfo, error) {
 	case lanes > argon2MaxThreads:
 		h.Refused = fmt.Sprintf("p=%d is above this page's limit of %d lanes.", lanes, argon2MaxThreads)
 	}
-	if id == AlgoArgon2id && !meetsOWASPArgon2(m, t) {
+	if id == AlgoArgon2id && !slices.ContainsFunc(owaspArgon2, func(c [2]int) bool { return m >= c[0] && t >= c[1] }) {
 		h.warn(LevelWarn, "Below OWASP's minimum for Argon2id: m=19456 (19 MiB) with t=2, or an equivalent such as m=47104 with t=1, or m=12288 with t=3.")
 	}
 	if id == AlgoArgon2i {
 		h.warn(LevelInfo, "Argon2i. RFC 9106 and OWASP recommend Argon2id for password hashing.")
 	}
 	h.saltWarning()
-
+	key := argon2.Key
+	if id == AlgoArgon2id {
+		key = argon2.IDKey
+	}
 	h.check = func(pw []byte) (bool, error) {
-		var got []byte
-		if id == AlgoArgon2id {
-			got = argon2.IDKey(pw, salt, uint32(t), uint32(m), uint8(lanes), uint32(len(sum)))
-		} else {
-			got = argon2.Key(pw, salt, uint32(t), uint32(m), uint8(lanes), uint32(len(sum)))
-		}
-		return subtle.ConstantTimeCompare(got, sum) == 1, nil
+		return subtle.ConstantTimeCompare(key(pw, salt, uint32(t), uint32(m), uint8(lanes), uint32(len(sum))), sum) == 1, nil
 	}
 	return h, nil
-}
-
-func meetsOWASPArgon2(m, t int) bool {
-	for _, c := range owaspArgon2 {
-		if m >= c[0] && t >= c[1] {
-			return true
-		}
-	}
-	return false
 }
 
 // ---- scrypt ----
@@ -763,21 +641,9 @@ func parseScrypt(p []part) (*PasswordHashInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	vals := map[string]int{}
-	for _, x := range params {
-		switch x.k {
-		case "ln", "r", "p":
-			n, err := x.int("scrypt")
-			if err != nil {
-				return nil, err
-			}
-			if n < 1 {
-				return nil, fmt.Errorf("scrypt: %s=0 at offset %d; it must be at least 1", x.k, x.at)
-			}
-			vals[x.k] = n
-		default:
-			return nil, fmt.Errorf("scrypt: unknown parameter %q at offset %d", x.k, x.at-len(x.k)-1)
-		}
+	vals, err := passwordInts(params, "scrypt", 1, "ln", "r", "p")
+	if err != nil {
+		return nil, err
 	}
 	for _, k := range []string{"ln", "r", "p"} {
 		if _, ok := vals[k]; !ok {
@@ -788,11 +654,7 @@ func parseScrypt(p []part) (*PasswordHashInfo, error) {
 	if ln > 62 {
 		return nil, fmt.Errorf("scrypt: ln=%d is not a usable cost; N = 2^ln", ln)
 	}
-	salt, err := phcDecode(p[3], "scrypt salt")
-	if err != nil {
-		return nil, err
-	}
-	sum, err := phcDecode(p[4], "scrypt hash")
+	salt, sum, err := passwordSaltHash(p[3], p[4], "scrypt")
 	if err != nil {
 		return nil, err
 	}
@@ -818,8 +680,7 @@ func parseScrypt(p []part) (*PasswordHashInfo, error) {
 	case 128*n*r > scryptMaxMemory:
 		h.Refused = fmt.Sprintf("N=2^%d with r=%d needs %s of memory; this page's limit is %s.", ln, r, bytesText(128*n*r), bytesText(scryptMaxMemory))
 	default:
-		// Within the caps only: past them 128·N·r can overflow.
-		h.mem = scryptMemory(n, r, par)
+		h.mem = scryptMemory(n, r, par) // within the caps only: past them 128·N·r can overflow
 	}
 	if !meetsOWASPScrypt(n, r, par) {
 		h.warn(LevelWarn, "Below OWASP's minimum for scrypt: N=2^17 with r=8 and p=1, or an equivalent such as N=2^16 with p=2, or N=2^15 with p=3.")
@@ -827,46 +688,33 @@ func parseScrypt(p []part) (*PasswordHashInfo, error) {
 	h.saltWarning()
 	h.check = func(pw []byte) (bool, error) {
 		got, err := scrypt.Key(pw, salt, n, r, par, len(sum))
-		if err != nil {
-			return false, fmt.Errorf("scrypt: %w", err)
-		}
-		return subtle.ConstantTimeCompare(got, sum) == 1, nil
+		return subtle.ConstantTimeCompare(got, sum) == 1, err
 	}
 	return h, nil
 }
 
-// meetsOWASPScrypt: at least one OWASP line's memory (N·r) and work (N·r·p).
+// meetsOWASPScrypt: N·r and N·r·p reach some OWASP line's; past the first line's memory any p does, and the early true keeps n·r·p from overflowing.
 func meetsOWASPScrypt(n, r, p int) bool {
-	// At or past the first line's memory (2^17 · 8) it is met with any p. The
-	// early return also keeps the products below from overflowing.
-	if n >= 1<<20 || r >= 1<<20 || n*r >= 1<<17*8 {
-		return true
-	}
-	for _, c := range owaspScrypt {
-		if n*r >= c[0]*8 && n*r*p >= c[0]*8*c[1] {
-			return true
-		}
-	}
-	return false
+	return n >= 1<<20 || r >= 1<<20 || n*r >= 1<<17*8 || slices.ContainsFunc(owaspScrypt, func(c [2]int) bool {
+		return n*r >= c[0]*8 && n*r*p >= c[0]*8*c[1]
+	})
 }
 
 // ---- PBKDF2 ----
 
 func parsePBKDF2(p []part) (*PasswordHashInfo, error) {
 	id := p[1].s
-	ph := pbkdf2Hashes[strings.TrimPrefix(id, "pbkdf2-")]
 	if len(p) != 5 {
 		return nil, fmt.Errorf("%s: want $%s$i=…,l=…$<salt>$<hash>", id, id)
 	}
-	var iter, length int
-	format := "PHC string"
+	vals, format := map[string]int{}, "PHC string"
 	if allDigits(p[2].s) {
 		// passlib writes the bare iteration count and its adapted base64.
 		n, err := param{"rounds", p[2].s, p[2].at}.int(id)
 		if err != nil {
 			return nil, err
 		}
-		iter, format = n, "passlib"
+		vals["i"], format = n, "passlib"
 	} else {
 		params, err := phcParams(p[2], id)
 		if err != nil {
@@ -875,39 +723,21 @@ func parsePBKDF2(p []part) (*PasswordHashInfo, error) {
 		if !strings.HasPrefix(p[2].s, "i=") && !strings.Contains(p[2].s, ",i=") {
 			return nil, fmt.Errorf("%s: the parameters at offset %d have no i= (iterations)", id, p[2].at)
 		}
-		for _, x := range params {
-			switch x.k {
-			case "i", "l":
-				n, err := x.int(id)
-				if err != nil {
-					return nil, err
-				}
-				if x.k == "i" {
-					iter = n
-				} else {
-					length = n
-				}
-			default:
-				return nil, fmt.Errorf("%s: unknown parameter %q at offset %d", id, x.k, x.at-len(x.k)-1)
-			}
+		if vals, err = passwordInts(params, id, 0, "i", "l"); err != nil {
+			return nil, err
 		}
 	}
-	salt, err := phcDecode(p[3], id+" salt")
+	salt, sum, err := passwordSaltHash(p[3], p[4], id)
 	if err != nil {
 		return nil, err
 	}
-	sum, err := phcDecode(p[4], id+" hash")
-	if err != nil {
-		return nil, err
+	if l := vals["l"]; l != 0 && l != len(sum) {
+		return nil, fmt.Errorf("%s: l=%d, but the hash is %d bytes", id, l, len(sum))
 	}
-	if length != 0 && length != len(sum) {
-		return nil, fmt.Errorf("%s: l=%d, but the hash is %d bytes", id, length, len(sum))
-	}
-	return pbkdf2Info(ph, format, iter, salt, sum)
+	return pbkdf2Info(pbkdf2Hashes[strings.TrimPrefix(id, "pbkdf2-")], format, vals["i"], salt, sum)
 }
 
-// parseDjangoPBKDF2 reads Django's pbkdf2_sha256$<iterations>$<salt>$<hash>,
-// where the salt is used as the text it is and the hash is padded base64.
+// parseDjangoPBKDF2 reads pbkdf2_sha256$<iterations>$<salt>$<hash>: the salt used as text, the hash padded base64.
 func parseDjangoPBKDF2(p []part) (*PasswordHashInfo, error) {
 	if len(p) != 4 {
 		return nil, errors.New("pbkdf2_sha256: want Django's pbkdf2_sha256$<iterations>$<salt>$<hash>")
@@ -950,10 +780,7 @@ func pbkdf2Info(ph pbkdf2Hash, format string, iter int, salt, sum []byte) (*Pass
 	h.saltWarning()
 	h.check = func(pw []byte) (bool, error) {
 		got, err := pbkdf2.Key(ph.new, string(pw), salt, iter, len(sum))
-		if err != nil {
-			return false, fmt.Errorf("pbkdf2: %w", err)
-		}
-		return subtle.ConstantTimeCompare(got, sum) == 1, nil
+		return subtle.ConstantTimeCompare(got, sum) == 1, err
 	}
 	return h, nil
 }
@@ -977,42 +804,36 @@ var legacyCrypt = map[string]struct{ algo, name, note string }{
 func parseLegacy(p []part) *PasswordHashInfo {
 	id := p[1].s
 	lc := legacyCrypt[id]
-	h := &PasswordHashInfo{Algorithm: lc.algo, Name: lc.name, Format: "crypt(3)", Variant: "$" + id + "$"}
+	h := &PasswordHashInfo{Algorithm: lc.algo, Name: lc.name, Format: "crypt(3)", Variant: "$" + id + "$",
+		Unsupported: lc.name + " is a legacy crypt(3) format. This page recognises it but doesn't verify it: neither Go's standard library nor x/crypto implements it."}
 	switch id {
-	case "1", "apr1":
-		salt, sum := partAt(p, 2).s, partAt(p, 3).s
-		h.SaltBytes, h.HashBytes = len(salt), len(sum)*6/8
-		h.Params = []Row{{Name: "rounds", Value: "1000", Meaning: "fixed"}, {Name: "salt", Value: salt, Meaning: "used as the characters themselves"}}
-	case "5", "6":
-		rest := p[2:]
-		rounds, meaning := "5000", "the default, as the string has no rounds="
-		if r, ok := strings.CutPrefix(partAt(rest, 0).s, "rounds="); ok {
-			rounds, meaning, rest = r, "from rounds=", rest[1:]
+	case "1", "apr1", "5", "6":
+		rest, rounds, meaning := p[2:], "1000", "fixed"
+		if id == "5" || id == "6" {
+			rounds, meaning = "5000", "the default, as the string has no rounds="
+			if r, ok := strings.CutPrefix(partAt(rest, 0).s, "rounds="); ok {
+				rounds, meaning, rest = r, "from rounds=", rest[1:]
+			}
 		}
 		salt, sum := partAt(rest, 0).s, partAt(rest, 1).s
 		h.SaltBytes, h.HashBytes = len(salt), len(sum)*6/8
 		h.Params = []Row{{Name: "rounds", Value: rounds, Meaning: meaning}, {Name: "salt", Value: salt, Meaning: "used as the characters themselves"}}
 	case "P", "H":
-		// $P$ + one character for log2(rounds) + 8 of salt + 22 of hash.
+		// $P$, one character for log2(rounds), 8 of salt, 22 of hash.
 		if body := partAt(p, 2).s; len(body) >= 9 {
 			if n := strings.IndexByte(cryptAlphabet, body[0]); n >= 7 && n <= 30 {
 				h.Params = []Row{{Name: "rounds", Value: thousands(1 << n), Meaning: fmt.Sprintf("2^%d, from the %q after the prefix", n, body[0])}}
 			}
 			h.SaltBytes, h.HashBytes = 8, len(body[9:])*6/8
 		}
-	case "y", "7":
-		h.Params = []Row{{Name: "params", Value: partAt(p, 2).s, Meaning: "encoded parameters"}}
-	}
-	switch id {
-	case "y":
-		h.Unsupported = "yescrypt is a crypt(3) format, the /etc/shadow default on many current Linux distributions. This page recognises it but can't verify it: neither Go's standard library nor x/crypto implements it."
-	case "P", "H":
 		h.Format = "phpass portable hash"
 		h.Unsupported = "phpass is the portable MD5-based hash older WordPress and phpBB installs store. This page recognises it but doesn't verify it."
+	case "y":
+		h.Params = []Row{{Name: "params", Value: partAt(p, 2).s, Meaning: "encoded parameters"}}
+		h.Unsupported = "yescrypt is a crypt(3) format, the /etc/shadow default on many current Linux distributions. This page recognises it but can't verify it: neither Go's standard library nor x/crypto implements it."
 	case "7":
+		h.Params = []Row{{Name: "params", Value: partAt(p, 2).s, Meaning: "encoded parameters"}}
 		h.Unsupported = "This is scrypt in the $7$ crypt(3) encoding. This page verifies scrypt in the $scrypt$ (passlib) form only."
-	default:
-		h.Unsupported = lc.name + " is a legacy crypt(3) format. This page recognises it but doesn't verify it: neither Go's standard library nor x/crypto implements it."
 	}
 	if lc.note != "" {
 		h.warn(LevelWarn, lc.note)
@@ -1022,9 +843,7 @@ func parseLegacy(p []part) *PasswordHashInfo {
 
 // ---- display ----
 
-func kibText(kib int) string {
-	return bytesText(kib << 10)
-}
+func kibText(kib int) string { return bytesText(kib << 10) }
 
 // bytesText: 32 MiB, 19 MiB, 64 KiB, 512 bytes.
 func bytesText(n int) string {
@@ -1040,9 +859,7 @@ func bytesText(n int) string {
 }
 
 // millis rounds to a tenth of a millisecond for the JSON answer.
-func millis(d time.Duration) float64 {
-	return math.Round(float64(d.Microseconds())/100) / 10
-}
+func millis(d time.Duration) float64 { return math.Round(float64(d.Microseconds())/100) / 10 }
 
 func tookText(d time.Duration) string {
 	switch {
