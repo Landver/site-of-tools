@@ -14,11 +14,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// fakeRSA builds an RSA private key of any size in milliseconds, from odd
-// numbers that aren't prime. Go's key validation multiplies; it doesn't test
-// primality, so it accepts such a key, and every signature with it costs the
-// full price. That is what makes an oversized key cheap to send and why the
-// size caps must hold before any work starts.
+// fakeRSA builds an RSA key of any size in milliseconds from odd non-primes: Go's validation
+// doesn't test primality, so an oversized key is cheap to send and the caps must come first.
 func fakeRSA(t *testing.T, bits int) *rsa.PrivateKey {
 	t.Helper()
 	one, e := big.NewInt(1), big.NewInt(65537)
@@ -67,10 +64,7 @@ func rsaPublicPEM(t *testing.T, k *rsa.PublicKey) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }
 
-// Go puts no cap on an RSA modulus, and verifying grows with its square,
-// signing with its cube: RSA-32768 takes seconds to sign with, a key filling
-// the request body minutes to verify. Every key read from input stops at
-// crypto/tls's 8192 bits, before any of that work.
+// Every key read from input stops at crypto/tls's 8192 bits, before the work that grows with it.
 func TestRSAKeyAboveLimitRefused(t *testing.T) {
 	k := fakeRSA(t, 10240)
 	b64 := base64.RawURLEncoding.EncodeToString
@@ -93,9 +87,7 @@ func TestRSAKeyAboveLimitRefused(t *testing.T) {
 	}
 }
 
-// Go validates an RSA private key as it parses it, and that is quadratic in
-// the key's size, so a bit cap checked afterwards would come too late: a block
-// larger than any real key is refused unparsed.
+// Go validates an RSA key while parsing it, so a block larger than any real key is refused unparsed.
 func TestOversizedPrivateKeyNotParsed(t *testing.T) {
 	huge := rsaPrivatePEM(fakeRSA(t, 32768)) // ~18 KB of DER
 	_, err := ciphertools.ParseKeys(huge)
@@ -109,8 +101,7 @@ func TestOversizedPrivateKeyNotParsed(t *testing.T) {
 	}
 }
 
-// The certificate page checks signatures with each certificate's key, so the
-// cap applies to the keys certificates carry.
+// The certificate page checks signatures with each certificate's key, so the cap applies there too.
 func TestCertWithOversizedRSAKeyRefused(t *testing.T) {
 	k := fakeRSA(t, 10240)
 	_, err := runOp(t, "cert", url.Values{"cert": {pemOf(rsaCert(t, &k.PublicKey))}}, nil)

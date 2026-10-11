@@ -2,6 +2,7 @@ package tests
 
 import (
 	"crypto"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -14,6 +15,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,8 +35,7 @@ const (
 	rfc8037Thumbprint = "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k"
 )
 
-// One key of every kind the page handles, made once: RSA generation is slow
-// under -race.
+// One key of every kind the page handles, made once: RSA generation is slow under -race.
 var testSigners = sync.OnceValue(func() map[string]crypto.Signer {
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -128,8 +129,7 @@ func assertNoPrivateMembers(t *testing.T, where, s string) {
 	}
 }
 
-// A private key in; the public JWK out, in the struct, the display JSON and
-// the API's JSON, has no d, p, q, dp, dq or qi.
+// From a private key, the public JWK (struct, display JSON, API JSON) has no private member.
 func TestPublicJWKHasNoPrivateMembers(t *testing.T) {
 	inputs := map[string]string{"RFC 8037 private OKP JWK": rfcEdKey}
 	for name, k := range testSigners() {
@@ -212,8 +212,7 @@ func TestLegacyPEMConverts(t *testing.T) {
 	}
 }
 
-// An encrypted PEM gets a clear refusal naming the fix, in both of its forms:
-// PKCS#8's own type and the legacy Proc-Type header.
+// Both encrypted PEM forms (PKCS#8's type, the legacy Proc-Type header) get a refusal naming the fix.
 func TestEncryptedPEMRefused(t *testing.T) {
 	for name, in := range map[string]string{
 		"PKCS#8":    "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n",
@@ -226,9 +225,8 @@ func TestEncryptedPEMRefused(t *testing.T) {
 	}
 }
 
-// EC members are fixed-length in a JWK (RFC 7518 §6.2.1.2), unlike RSA's
-// integers. A P-521 value's top byte is 0 or 1, so minimal big-endian bytes
-// would come out short about half the time; eight keys make a miss 1 in 2^24.
+// EC members are fixed-length (RFC 7518 §6.2.1.2). A P-521 value's top byte is 0 or 1,
+// so minimal bytes would come out short half the time; eight keys make a miss 1 in 2^24.
 func TestECJWKMembersAreFixedLength(t *testing.T) {
 	for range 8 {
 		k, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
@@ -247,8 +245,7 @@ func TestECJWKMembersAreFixedLength(t *testing.T) {
 	}
 }
 
-// The OpenSSH line parses back to the same key, both with x/crypto/ssh and
-// through the page itself, and the fingerprint is ssh-keygen's.
+// The OpenSSH line parses back to the same key, here and in x/crypto/ssh, with ssh-keygen's fingerprint.
 func TestOpenSSHLineParsesBack(t *testing.T) {
 	for name, k := range testSigners() {
 		v := inspectOne(t, pkcs8PEM(t, k))
@@ -312,9 +309,7 @@ func TestOpenSSHInput(t *testing.T) {
 	}
 }
 
-// An OpenSSH public line is key material everywhere ParseKeys is used: it
-// verifies an EdDSA JWT, and offered for an HS256 token it is refused rather
-// than used as an HMAC secret.
+// An OpenSSH line is key material wherever ParseKeys runs: it verifies EdDSA and is refused, not HMAC'd, for HS256.
 func TestOpenSSHKeyVerifiesJWT(t *testing.T) {
 	keys, _ := ciphertools.ParseKeys(rfcEdKey)
 	pk, _ := ssh.NewPublicKey(keys[0].Public)
@@ -474,23 +469,10 @@ func skLine() string {
 	return "sk-ssh-ed25519@openssh.com " + base64.StdEncoding.EncodeToString(b) + " yubikey"
 }
 
-func colonHex(b []byte) string {
-	var sb strings.Builder
-	for i, c := range b {
-		if i > 0 {
-			sb.WriteByte(':')
-		}
-		const digits = "0123456789abcdef"
-		sb.WriteByte(digits[c>>4])
-		sb.WriteByte(digits[c&15])
-	}
-	return sb.String()
-}
+func colonHex(b []byte) string { return strings.ReplaceAll(fmt.Sprintf("% x", b), " ", ":") }
 
-// The OpenSSH private key is what ssh-keygen writes to ~/.ssh/id_*: it must
-// parse back with x/crypto/ssh, carry the comment, and belong to the public
-// line shown beside it. With a passphrase it must need that passphrase, and the
-// unencrypted PKCS#8/JWK forms must be gone.
+// The OpenSSH private key must parse back, keep the comment and match its public line;
+// with a passphrase it needs that passphrase, and the unencrypted PKCS#8/JWK forms are gone.
 func TestGenerateOpenSSHPrivateKey(t *testing.T) {
 	for _, typ := range []string{"ed25519", "ec-p256", "rsa-2048"} {
 		t.Run(typ, func(t *testing.T) {
@@ -531,5 +513,53 @@ func TestGenerateOpenSSHPrivateKey(t *testing.T) {
 
 	if _, err := runOp(t, "keys-generate", url.Values{"type": {"ed25519"}, "comment": {"two\nlines"}}, nil); err == nil {
 		t.Fatal("a multi-line comment was accepted")
+	}
+}
+
+// Each refusal names what is wrong, and EC PARAMETERS ahead of a key is skipped.
+func TestKeysInspectRefusals(t *testing.T) {
+	p224, _ := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
+	x25519, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	edLine := strings.Fields(inspectOne(t, rfcEdKey).OpenSSH)
+	es := strings.TrimSuffix(rfcESKey, "}")
+	ed := `{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"`
+	params := "-----BEGIN EC PARAMETERS-----\nBggqhkjOPQMBBw==\n-----END EC PARAMETERS-----\n"
+	for in, want := range map[string]string{
+		`{"kty":"oct","k":"!!"}`:                                         `"k" is not base64url`,
+		`{"kty":"RSA","n":"!!","e":"AQAB"}`:                              `"n" is not base64url`,
+		`{"kty":"RSA","n":"AQAB","e":"AQ"}`:                              `"e" is out of range`,
+		`{"kty":"RSA","n":"","e":"AQAB"}`:                                `no "n" member`,
+		`{"kty":"RSA","n":"AQAB","e":"AQAB","d":"AQ"}`:                   `without "p" and "q"`,
+		`{"kty":"RSA","n":"AQAB","e":"AQAB","d":"!!","p":"AQ","q":"AQ"}`: `"d" is not base64url`,
+		`{"kty":"EC","crv":"P-224"}`:                                     `unsupported EC curve "P-224"`,
+		es + `,"y":"!!"}`:                                                `"y" is not base64url`,
+		strings.Replace(rfcESKey, `"x":"`, `"x":"AAAA`, 1):               "longer than 32 bytes",
+		strings.Replace(rfcESKey, "x_FEzRu9", "x_FEzRu8", 1):             "the point is not on P-256",
+		es + `,"d":"!!"}`:                                                `"d" is not base64url`,
+		es + `,"d":"AQ"}`:                                                `"d" does not belong to the public point`,
+		`{"kty":"OKP","crv":"X25519"}`:                                   "only Ed25519 can sign",
+		`{"kty":"OKP","crv":"Ed25519","x":"AQ"}`:                         `"x" is 1 bytes`,
+		ed + `,"d":"AQ"}`:                                                `"d" is 1 bytes`,
+		ed + `,"d":"` + strings.Repeat("A", 43) + `"}`:                   `"d" does not belong to the public key`,
+		`{"keys":[]}`:                                                    "JWKS has no keys",
+		`{}`:                                                             `no "kty" member`,
+		`{"kty":"foo"}`:                                                  `unsupported kty "foo"`,
+		`{"kty":`:                                                        "not valid JSON",
+		"-----BEGIN FOO-----\nAAAA\n-----END FOO-----\n":                 `unsupported PEM type "FOO"`,
+		params:                        "no usable PEM block",
+		pkcs8PEM(t, p224):             "no JWK name for curve P-224",
+		"ssh-rsa " + edLine[1] + " x": "ssh-rsa, and its key data doesn't agree",
+	} {
+		if _, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%.60q: err %v, want %q", in, err, want)
+		}
+	}
+	der, _ := x509.MarshalPKCS8PrivateKey(x25519)
+	if _, err := ciphertools.ParseKeys(string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))); err == nil || !strings.Contains(err.Error(), "*ecdh.PrivateKey") {
+		t.Errorf("X25519: %v", err)
+	}
+	sec1, _ := x509.MarshalECPrivateKey(testSigners()["p256"].(*ecdsa.PrivateKey))
+	if r := inspect(t, params+string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: sec1}))); len(r.Keys) != 1 || r.Keys[0].Name != "ECDSA P-256" {
+		t.Errorf("EC PARAMETERS + key: %+v", r.Keys)
 	}
 }
