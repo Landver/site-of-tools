@@ -2,6 +2,7 @@ package ciphertools
 
 import (
 	"bytes"
+	"cmp"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -15,16 +16,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
 )
 
-// C1 — JWT decode / verify / sign. The page the suite is named after in search
-// results, and the one where the category's signature bug lives: a token that
-// decodes is not a token that verifies (docs/00-landscape.md finding 2). Every
-// result therefore carries a Verification whose "unchecked" state is shown as
-// prominently as "invalid".
+// A token that decodes is not one that verifies, so every result carries a Verification.
+
+var jwtLeewayField = Field{Name: "leeway", Kind: KindInt, Min: ptr(0), Max: ptr(86400),
+	Description: "Clock skew in seconds allowed when checking exp and nbf."}.withDefault(int(DefaultLeeway / time.Second))
 
 func init() {
 	register(Op{Name: "jwt-decode", Path: "/jwt/decode", Page: "jwt", Fragment: "cipher/jwt-result", Run: runJWTDecode,
@@ -35,8 +35,7 @@ func init() {
 				Description: "A key to verify the signature with: the shared secret for HS256/384/512, or a public (or private) key as PEM, JWK, JWKS or an OpenSSH line for RS*, PS*, ES* and EdDSA; omit it to decode without verifying."},
 			{Name: "key_enc", Kind: KindEnum, Enum: append([]string{EncAuto}, byteEncodings...), Default: EncAuto,
 				Description: "How a shared-secret key is written: auto tries UTF-8 text, base64 and hex and reports which reading verified; ignored for PEM and JWK keys."},
-			{Name: "leeway", Kind: KindInt, Default: strconv.Itoa(int(DefaultLeeway / time.Second)), Min: ptr(0), Max: ptr(86400),
-				Description: "Clock skew in seconds allowed when checking exp and nbf."},
+			jwtLeewayField,
 			nowField,
 		}})
 	register(Op{Name: "jwt-sign", Path: "/jwt/sign", Page: "jwt", Fragment: "cipher/jwt-signed", Heavy: true, Run: runJWTSign,
@@ -61,19 +60,6 @@ func init() {
 		}})
 }
 
-// Warning levels.
-const (
-	LevelDanger = "danger"
-	LevelWarn   = "warn"
-	LevelInfo   = "info"
-)
-
-// Warning is one thing worth knowing about the input.
-type Warning struct {
-	Level string `json:"level"`
-	Text  string `json:"text"`
-}
-
 // Row is one header parameter or claim.
 type Row struct {
 	Name    string `json:"name"`
@@ -83,36 +69,29 @@ type Row struct {
 	Note    string `json:"note,omitempty"`
 }
 
-// Verification states.
 const (
 	VerifyUnchecked = "unchecked" // no key: anyone could have written this
 	VerifyValid     = "valid"
-	VerifyInvalid   = "invalid" // checked, and the signature does not match
+	VerifyInvalid   = "invalid"
 	VerifyRefused   = "refused" // not checked, on principle (alg none, alg confusion, crit)
 	VerifyError     = "error"   // the key could not be read
 )
 
-// Verification is the answer to "did the holder of this key sign it".
 type Verification struct {
 	State  string `json:"state"`
 	Detail string `json:"detail"`
 	Key    string `json:"key,omitempty"`
 }
 
-// Validity is the time-claim verdict, separate from the signature on purpose:
-// an expired token can have a perfect signature and vice versa.
+// Validity is the time-claim verdict, kept apart from the signature: either can fail alone.
 type Validity struct {
 	State  string `json:"state"` // valid | expired | not-yet-valid | no-expiry | bad-expiry
 	Detail string `json:"detail"`
 }
 
 // JWTPart is one dot-separated segment, for the colour-coded token view.
-type JWTPart struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
-}
+type JWTPart struct{ Label, Value string }
 
-// JWT is a decoded token.
 type JWT struct {
 	Kind         string          `json:"kind"` // JWS | JWE
 	Alg          string          `json:"alg"`
@@ -124,7 +103,7 @@ type JWT struct {
 	Claims       []Row           `json:"claims,omitempty"`
 	Validity     *Validity       `json:"validity,omitempty"`
 	Verification Verification    `json:"verification"`
-	Warnings     []Warning       `json:"warnings,omitempty"`
+	Warnings     Warnings        `json:"warnings,omitempty"`
 
 	// Display only.
 	Parts       []JWTPart `json:"-"`
@@ -133,16 +112,16 @@ type JWT struct {
 	SigBytes    int       `json:"-"`
 }
 
-// jwsAlg describes one JWS algorithm and the only key kind allowed to use it.
-// The table is the algorithm-confusion defence: the key's kind picks the
-// permitted algorithms, and the header's alg must merely agree.
+// jwsAlg binds an algorithm to the one key kind allowed to use it: the algorithm-confusion defence.
 type jwsAlg struct {
 	kind  string
 	hash  crypto.Hash
 	pss   bool
 	curve elliptic.Curve
-	size  int // ECDSA coordinate size in bytes
 }
+
+// size is an ES* curve's coordinate size in bytes.
+func (a jwsAlg) size() int { return (a.curve.Params().BitSize + 7) / 8 }
 
 var jwsAlgs = map[string]jwsAlg{
 	"HS256": {kind: KindSecret, hash: crypto.SHA256},
@@ -154,10 +133,10 @@ var jwsAlgs = map[string]jwsAlg{
 	"PS256": {kind: KindRSA, hash: crypto.SHA256, pss: true},
 	"PS384": {kind: KindRSA, hash: crypto.SHA384, pss: true},
 	"PS512": {kind: KindRSA, hash: crypto.SHA512, pss: true},
-	"ES256": {kind: KindEC, hash: crypto.SHA256, curve: elliptic.P256(), size: 32},
-	"ES384": {kind: KindEC, hash: crypto.SHA384, curve: elliptic.P384(), size: 48},
+	"ES256": {kind: KindEC, hash: crypto.SHA256, curve: elliptic.P256()},
+	"ES384": {kind: KindEC, hash: crypto.SHA384, curve: elliptic.P384()},
 	// P-521, not "P-512": the coordinates are 66 bytes.
-	"ES512": {kind: KindEC, hash: crypto.SHA512, curve: elliptic.P521(), size: 66},
+	"ES512": {kind: KindEC, hash: crypto.SHA512, curve: elliptic.P521()},
 	// RFC 8037's name, and RFC 9864's fully-specified one.
 	"EdDSA":   {kind: KindEd25519},
 	"Ed25519": {kind: KindEd25519},
@@ -171,7 +150,6 @@ var kindNames = map[string]string{
 	KindSecret: "a shared secret", KindRSA: "an RSA key", KindEC: "an ECDSA key", KindEd25519: "an Ed25519 key",
 }
 
-// DefaultLeeway is the clock skew allowed on exp/nbf.
 const DefaultLeeway = 60 * time.Second
 
 func runJWTDecode(in Input) (any, error) {
@@ -179,44 +157,35 @@ func runJWTDecode(in Input) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	leeway := DefaultLeeway
-	if v := strings.TrimSpace(in.Get("leeway")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 86400 {
-			return nil, errors.New("leeway: want seconds between 0 and 86400")
-		}
-		leeway = time.Duration(n) * time.Second
+	leeway, err := intField(in, jwtLeewayField)
+	if err != nil {
+		return nil, err
 	}
-	return DecodeJWT(in.Get("token"), in.Get("key"), in.Get("key_enc"), now, leeway)
+	return DecodeJWT(in.Get("token"), in.Get("key"), in.Get("key_enc"), now, time.Duration(leeway)*time.Second)
 }
 
-// cleanToken removes what a copy from a header, a log line or a terminal drags
-// along. A JWT's alphabet has no spaces, quotes or "Bearer", so dropping them
-// can't change a valid token.
-func cleanToken(s string) (string, bool) {
-	orig := s
+// cleanToken drops what a copy from a header, log or terminal drags along; a JWT's alphabet has none of it.
+func cleanToken(s string) string {
 	s = strings.TrimSpace(s)
 	for _, p := range []string{"Authorization:", "authorization:"} {
 		s = strings.TrimSpace(strings.TrimPrefix(s, p))
 	}
-	if len(s) > 7 && strings.EqualFold(s[:7], "bearer ") {
-		s = s[7:]
+	if f := strings.Fields(s); len(f) > 1 && strings.EqualFold(f[0], "bearer") {
+		s = strings.TrimSpace(s[len(f[0]):])
 	}
-	s = strings.Trim(s, "\"'`")
-	s = strings.Join(strings.Fields(s), "")
-	return s, s != orig
+	return strings.Join(strings.Fields(strings.Trim(s, "\"'`")), "")
 }
 
 // DecodeJWT decodes token and, when key is non-empty, verifies it.
 func DecodeJWT(token, key, keyEnc string, now time.Time, leeway time.Duration) (*JWT, error) {
-	tok, cleaned := cleanToken(token)
+	tok := cleanToken(token)
 	if tok == "" {
 		return nil, errors.New("no token given")
 	}
 	parts := strings.Split(tok, ".")
 	j := &JWT{}
-	if cleaned && tok != strings.TrimSpace(token) {
-		j.warn(LevelInfo, "Removed a Bearer prefix, quotes or line breaks from around the token before decoding.")
+	if tok != strings.TrimSpace(token) {
+		j.Warnings.add(LevelInfo, "Removed a Bearer prefix, quotes or line breaks from around the token before decoding.")
 	}
 	switch len(parts) {
 	case 3:
@@ -240,10 +209,8 @@ func DecodeJWT(token, key, keyEnc string, now time.Time, leeway time.Duration) (
 	if err != nil {
 		return nil, fmt.Errorf("header is not a JSON object: %w", err)
 	}
-	j.Header = hdr
-	j.HeaderJSON = pretty(hdr)
-	var crit bool
-	var kid string
+	j.Header, j.HeaderJSON = hdr, pretty(hdr)
+	crit, kid := false, ""
 	for _, m := range members {
 		j.HeaderRows = append(j.HeaderRows, Row{Name: m.Key, Value: display(m.Raw), Meaning: headerMeanings[m.Key]})
 		switch m.Key {
@@ -255,16 +222,24 @@ func DecodeJWT(token, key, keyEnc string, now time.Time, leeway time.Duration) (
 			crit = true
 		case "kid":
 			_ = json.Unmarshal(m.Raw, &kid)
+		case "jku", "x5u":
+			j.Warnings.add(LevelWarn, fmt.Sprintf("The header names a URL (%s) to fetch the signing key from. A verifier that follows it lets the token choose its own key; trust only keys you already hold.", m.Key))
+		case "jwk", "x5c":
+			j.Warnings.add(LevelWarn, fmt.Sprintf("The header embeds a key (%s). Verifying with a key the token brought along proves nothing unless that key is pinned.", m.Key))
 		}
 	}
-	j.headerWarnings(members, kid)
+	if strings.ContainsAny(kid, "/\\'\";") || strings.Contains(kid, "..") {
+		j.Warnings.add(LevelWarn, fmt.Sprintf("The kid %q contains path or quote characters, the shape of a path-traversal or SQL-injection probe against key lookup.", kid))
+	}
+	if strings.EqualFold(j.Alg, "none") {
+		j.Warnings.add(LevelDanger, `alg is "none": the token is unsigned, and anyone can write one. Never accept it.`)
+	}
 
 	if j.Kind == "JWE" {
 		j.Verification = Verification{State: VerifyUnchecked,
 			Detail: "This is an encrypted token (JWE). Only the header is readable; the payload needs the recipient's private key, and decrypting isn't supported here."}
 		return j, nil
 	}
-
 	payload, err := segment(parts[1], "payload")
 	if err != nil {
 		return nil, err
@@ -273,17 +248,15 @@ func DecodeJWT(token, key, keyEnc string, now time.Time, leeway time.Duration) (
 
 	sig, sigErr := b64url.DecodeString(parts[2])
 	j.Signature, j.SigBytes = parts[2], len(sig)
-	switch {
-	case sigErr != nil:
+	if sigErr != nil {
 		j.Verification = Verification{State: VerifyInvalid, Detail: "The signature segment is not base64url: " + sigErr.Error()}
-	default:
+	} else {
 		j.Verification = j.verify([]byte(parts[0]+"."+parts[1]), sig, key, keyEnc, kid, crit)
 	}
 	return j, nil
 }
 
-// segment decodes one base64url part. JOSE forbids padding, but tokens padded
-// by a careless encoder are common enough to accept with a note.
+// segment decodes one base64url part, accepting the padding JOSE forbids but careless encoders add.
 func segment(s, name string) ([]byte, error) {
 	if s == "" {
 		return nil, fmt.Errorf("the %s is empty", name)
@@ -306,37 +279,17 @@ func pretty(raw []byte) string {
 	return b.String()
 }
 
-func (j *JWT) warn(level, text string) { j.Warnings = append(j.Warnings, Warning{level, text}) }
-
-func (j *JWT) headerWarnings(members []member, kid string) {
-	for _, m := range members {
-		switch m.Key {
-		case "jku", "x5u":
-			j.warn(LevelWarn, fmt.Sprintf("The header names a URL (%s) to fetch the signing key from. A verifier that follows it lets the token choose its own key; trust only keys you already hold.", m.Key))
-		case "jwk", "x5c":
-			j.warn(LevelWarn, fmt.Sprintf("The header embeds a key (%s). Verifying with a key the token brought along proves nothing unless that key is pinned.", m.Key))
-		}
-	}
-	if strings.ContainsAny(kid, "/\\'\";") || strings.Contains(kid, "..") {
-		j.warn(LevelWarn, fmt.Sprintf("The kid %q contains path or quote characters, the shape of a path-traversal or SQL-injection probe against key lookup.", kid))
-	}
-	if strings.EqualFold(j.Alg, "none") {
-		j.warn(LevelDanger, `alg is "none": the token is unsigned, and anyone can write one. Never accept it.`)
-	}
-}
-
 func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration) {
 	members, err := orderedObject(payload)
 	if err != nil {
 		t := textOf(payload)
 		j.PayloadText = &t
-		j.warn(LevelInfo, "The payload isn't a JSON object, so this is a signed blob (JWS) but not a JWT claims set.")
+		j.Warnings.add(LevelInfo, "The payload isn't a JSON object, so this is a signed blob (JWS) but not a JWT claims set.")
 		return
 	}
-	j.Payload = payload
-	j.PayloadJSON = pretty(payload)
+	j.Payload, j.PayloadJSON = payload, pretty(payload)
 
-	var exp, nbf, iat *time.Time
+	times := map[string]time.Time{}
 	badExp := false
 	for _, m := range members {
 		r := Row{Name: m.Key, Value: display(m.Raw), Meaning: claimMeanings[m.Key]}
@@ -351,229 +304,167 @@ func (j *JWT) decodePayload(payload []byte, now time.Time, leeway time.Duration)
 			if t.Year() > 3000 {
 				r.Note = "far in the future: this looks like milliseconds, but NumericDate is seconds"
 			}
-			r.When = t.Format("2006-01-02 15:04:05 UTC") + " · " + relative(t, now)
-			switch m.Key {
-			case "exp":
-				exp = &t
-			case "nbf":
-				nbf = &t
-			case "iat":
-				iat = &t
-			}
+			r.When = stamp(t) + " · " + relative(t, now)
+			times[m.Key] = t
 		}
 		j.Claims = append(j.Claims, r)
 	}
+	exp, hasExp := times["exp"]
+	nbf, hasNbf := times["nbf"]
+	iat, hasIat := times["iat"]
 
-	v := &Validity{State: "valid"}
+	skew := fmt.Sprintf(" (%s of clock skew allowed.)", humanDuration(leeway))
 	switch {
-	case exp != nil && now.After(exp.Add(leeway)):
-		v.State, v.Detail = "expired", "Expired "+relative(*exp, now)+"."
-	case nbf != nil && now.Add(leeway).Before(*nbf):
-		v.State, v.Detail = "not-yet-valid", "Not valid until "+nbf.Format("2006-01-02 15:04:05 UTC")+", "+relative(*nbf, now)+"."
+	case hasExp && now.After(exp.Add(leeway)):
+		j.Validity = &Validity{"expired", "Expired " + relative(exp, now) + "." + skew}
+	case hasNbf && now.Add(leeway).Before(nbf):
+		j.Validity = &Validity{"not-yet-valid", "Not valid until " + stamp(nbf) + ", " + relative(nbf, now) + "." + skew}
 	case badExp:
-		v.State, v.Detail = "bad-expiry", "exp is present but isn't a NumericDate (seconds since 1970), so expiry can't be checked. Verifiers following RFC 7519 reject the token."
-	case exp == nil:
-		v.State, v.Detail = "no-expiry", "No exp claim: this token never expires, so it can't be revoked by waiting."
+		j.Validity = &Validity{"bad-expiry", "exp is present but isn't a NumericDate (seconds since 1970), so expiry can't be checked. Verifiers following RFC 7519 reject the token."}
+	case !hasExp:
+		j.Validity = &Validity{"no-expiry", "No exp claim: this token never expires, so it can't be revoked by waiting."}
 	default:
-		v.Detail = "Within its validity window; expires " + relative(*exp, now) + "."
+		j.Validity = &Validity{"valid", "Within its validity window; expires " + relative(exp, now) + "." + skew}
 	}
-	if v.State == "valid" || v.State == "expired" || v.State == "not-yet-valid" {
-		v.Detail += fmt.Sprintf(" (%s of clock skew allowed.)", humanDuration(leeway))
+	if hasIat && iat.After(now.Add(leeway)) {
+		j.Warnings.add(LevelWarn, "iat is in the future: either the issuer's clock is wrong or the claim was forged.")
 	}
-	j.Validity = v
-	if iat != nil && iat.After(now.Add(leeway)) {
-		j.warn(LevelWarn, "iat is in the future: either the issuer's clock is wrong or the claim was forged.")
-	}
-	if exp != nil && iat != nil && exp.Sub(*iat) > 24*time.Hour {
-		j.warn(LevelInfo, "Lifetime is "+humanDuration(exp.Sub(*iat))+". Access tokens usually live minutes, not days.")
+	if hasExp && hasIat && exp.Sub(iat) > 24*time.Hour {
+		j.Warnings.add(LevelInfo, "Lifetime is "+humanDuration(exp.Sub(iat))+". Access tokens usually live minutes, not days.")
 	}
 }
 
-// verify checks the signature, refusing on principle before trying anything
-// that would let the token choose how it is checked.
+// verify refuses on principle before trying anything that would let the token choose how it is checked.
 func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool) Verification {
-	if strings.EqualFold(j.Alg, "none") {
-		return Verification{State: VerifyRefused, Detail: `alg "none" is never accepted, with or without a key.`}
-	}
-	if strings.TrimSpace(keyInput) == "" {
+	refuse := func(detail string) Verification { return Verification{State: VerifyRefused, Detail: detail} }
+	spec, known := jwsAlgs[j.Alg]
+	switch {
+	case strings.EqualFold(j.Alg, "none"):
+		return refuse(`alg "none" is never accepted, with or without a key.`)
+	case strings.TrimSpace(keyInput) == "":
 		return Verification{State: VerifyUnchecked,
 			Detail: "Signature NOT checked: no key given. Decoding proves nothing; anyone can write a token that decodes. Paste the secret or public key to verify."}
-	}
-	if crit {
-		return Verification{State: VerifyRefused,
-			Detail: `The header has "crit": extensions a verifier must understand or reject. This tool implements none, so a conforming verifier rejects the token.`}
-	}
-	spec, ok := jwsAlgs[j.Alg]
-	if !ok {
-		return Verification{State: VerifyRefused, Detail: fmt.Sprintf("Unsupported alg %q.", j.Alg)}
+	case crit:
+		return refuse(`The header has "crit": extensions a verifier must understand or reject. This tool implements none, so a conforming verifier rejects the token.`)
+	case !known:
+		return refuse(fmt.Sprintf("Unsupported alg %q.", j.Alg))
 	}
 
-	var keys []Key
 	material := looksLikeKeyMaterial(keyInput)
-	if material {
-		ks, err := ParseKeys(keyInput)
-		if err != nil {
-			return Verification{State: VerifyError, Detail: "Couldn't read the key: " + err.Error()}
-		}
-		keys = ks
-	} else {
-		if spec.kind != KindSecret {
-			return Verification{State: VerifyRefused, Detail: fmt.Sprintf(
-				"The token says %s, which needs %s (PEM or JWK), and what you pasted reads as a shared secret. Refused rather than guessed.", j.Alg, kindNames[spec.kind])}
-		}
-		ks, err := secretReadings(keyInput, keyEnc)
-		if err != nil {
-			return Verification{State: VerifyError, Detail: "Couldn't read the secret: " + err.Error()}
-		}
-		keys = ks
+	if !material && spec.kind != KindSecret {
+		return refuse(fmt.Sprintf("The token says %s, which needs %s (PEM or JWK), and what you pasted reads as a shared secret. Refused rather than guessed.", j.Alg, kindNames[spec.kind]))
+	}
+	read, what := ParseKeys, "key"
+	if !material {
+		read, what = func(s string) ([]Key, error) { return secretReadings(s, keyEnc) }, "secret"
+	}
+	keys, err := read(keyInput)
+	if err != nil {
+		return Verification{State: VerifyError, Detail: "Couldn't read the " + what + ": " + err.Error()}
 	}
 
 	var fit []Key
-	var mismatch string
+	mismatch := ""
 	for _, k := range keys {
-		if k.Kind != spec.kind {
+		switch {
+		case !jwtKeyFits(spec, k):
 			mismatch = k.Describe()
-			continue
-		}
-		if spec.curve != nil && k.Public.(*ecdsa.PublicKey).Curve != spec.curve {
-			mismatch = k.Describe()
-			continue
-		}
-		if k.Alg != "" && k.Alg != j.Alg {
+		case k.Alg != "" && k.Alg != j.Alg:
 			mismatch = fmt.Sprintf("%s, which its JWK restricts to %s", k.Describe(), k.Alg)
-			continue
+		default:
+			fit = append(fit, k)
 		}
-		fit = append(fit, k)
 	}
 	if len(fit) == 0 {
-		detail := fmt.Sprintf("The token says %s, which needs %s; the key is %s. Refused.", j.Alg, algNeeds(j.Alg, spec), mismatch)
+		detail := fmt.Sprintf("The token says %s, which needs %s; the key is %s. Refused.", j.Alg, algNeeds(spec), mismatch)
 		if spec.kind == KindSecret && keys[0].Kind != KindSecret {
 			detail += " Using a public key as an HMAC secret is the classic algorithm-confusion attack: anyone holding the public key could forge tokens."
 		}
-		return Verification{State: VerifyRefused, Detail: detail}
+		return refuse(detail)
 	}
 	if material && kid != "" && len(fit) > 1 {
-		var byKid []Key
-		for _, k := range fit {
-			if k.KID == kid {
-				byKid = append(byKid, k)
-			}
-		}
-		if len(byKid) == 0 {
+		if fit = slices.DeleteFunc(fit, func(k Key) bool { return k.KID != kid }); len(fit) == 0 {
 			return Verification{State: VerifyInvalid, Detail: fmt.Sprintf("No key in the set has kid %q, the one the token names.", kid)}
 		}
-		fit = byKid
 	}
 
 	for _, k := range fit {
-		if verifyJWS(spec, k, input, sig) == nil {
-			v := Verification{State: VerifyValid, Detail: "Whoever holds this key signed exactly this header and payload.", Key: k.Describe()}
-			if k.Private != nil && k.Kind != KindSecret {
-				v.Detail += " (Checked with the public half of the private key you pasted; verifying only ever needs the public key.)"
-			}
-			// Only worth saying when detection found something: text matching
-			// first is the reading anyone would assume.
-			if !material && len(fit) > 1 && k.Source != fit[0].Source {
-				v.Detail += fmt.Sprintf(" It matched with the secret %s, so that is how this secret is stored.", k.Source)
-			}
-			j.keyWarnings(spec, k)
-			return v
+		if !verifyJWS(spec, k, input, sig) {
+			continue
 		}
+		v := Verification{State: VerifyValid, Detail: "Whoever holds this key signed exactly this header and payload.", Key: k.Describe()}
+		if k.Private != nil {
+			v.Detail += " (Checked with the public half of the private key you pasted; verifying only ever needs the public key.)"
+		}
+		// UTF-8 text first is the reading anyone would assume; only another one is news.
+		if !material && k.Source != fit[0].Source {
+			v.Detail += fmt.Sprintf(" It matched with the secret %s, so that is how this secret is stored.", k.Source)
+		}
+		if k.Kind == KindSecret && len(k.Secret) < spec.hash.Size() {
+			j.Warnings.add(LevelWarn, fmt.Sprintf("The secret is %d bytes; RFC 7518 §3.2 requires at least %d for %s. Short HMAC secrets can be brute-forced offline from one token.",
+				len(k.Secret), spec.hash.Size(), j.Alg))
+		}
+		if pub, ok := k.Public.(*rsa.PublicKey); ok && pub.N.BitLen() < 2048 {
+			j.Warnings.add(LevelWarn, fmt.Sprintf("RSA key is %d bits; 2048 is the minimum RFC 7518 allows.", pub.N.BitLen()))
+		}
+		return v
 	}
 	detail := "Signature does NOT match. The token was altered, or it wasn't signed with this key."
-	if !material {
-		if keyEnc == "" || keyEnc == EncAuto {
-			detail += " Tried the secret as " + readingNames(fit) + "."
-		} else if alt := otherReading(spec, input, sig, keyInput, fit[0]); alt != nil {
-			detail = fmt.Sprintf("Signature does NOT match with the secret %s, but it DOES with the secret %s. Set \"Secret is\" to match.",
-				fit[0].Source, alt.Source)
+	switch {
+	case material:
+	case keyEnc == "" || keyEnc == EncAuto:
+		var names []string
+		for _, k := range fit {
+			names = append(names, strings.TrimPrefix(k.Source, "read as "))
+		}
+		detail += " Tried the secret as " + joinAnd(names) + "."
+	default:
+		// The key may be right and only its encoding wrong.
+		all, _ := secretReadings(keyInput, EncAuto)
+		for _, k := range all {
+			if !bytes.Equal(k.Secret, fit[0].Secret) && verifyJWS(spec, k, input, sig) {
+				detail = fmt.Sprintf("Signature does NOT match with the secret %s, but it DOES with the secret %s. Set \"Secret is\" to match.", fit[0].Source, k.Source)
+				break
+			}
 		}
 	}
 	return Verification{State: VerifyInvalid, Detail: detail, Key: fit[0].Describe()}
 }
 
-func algNeeds(alg string, spec jwsAlg) string {
+// jwtKeyFits: the key is of the kind the algorithm needs and, for ES*, on its curve.
+func jwtKeyFits(spec jwsAlg, k Key) bool {
+	ec, _ := k.Public.(*ecdsa.PublicKey)
+	return k.Kind == spec.kind && (spec.curve == nil || ec != nil && ec.Curve == spec.curve)
+}
+
+func algNeeds(spec jwsAlg) string {
 	if spec.curve != nil {
 		return "an ECDSA key on " + spec.curve.Params().Name
 	}
 	return kindNames[spec.kind]
 }
 
-// EncAuto is the verifier's default for a shared secret. A token doesn't record
-// how its secret was written down, and one string can be valid in several
-// encodings at once ("hkjl…" is 26 bytes as text and 19 as base64), so the
-// verifier tries each reading and reports the one that matched. Trying three
-// keys instead of one leaves forging at 3 in 2^256: no weaker in practice.
-const EncAuto = "auto"
-
-// secretReadings is the shared secret as bytes: the one reading asked for, or
-// under EncAuto every reading it decodes as, UTF-8 first, duplicates dropped.
+// secretReadings is the secret as the one encoding asked for or, under EncAuto, every distinct reading, UTF-8 first.
+// A token doesn't record how its secret was written down; three candidate keys leave forging at 3 in 2^256.
 func secretReadings(s, enc string) ([]Key, error) {
 	if enc != "" && enc != EncAuto {
-		b, err := DecodeBytes(s, enc)
-		if err != nil {
-			return nil, err
-		}
-		return []Key{{Kind: KindSecret, Secret: b, Source: "read as " + encName(enc)}}, nil
+		b, _, err := decodeInput(s, enc)
+		return []Key{{Kind: KindSecret, Secret: b, Source: "read as " + encName(enc)}}, err
 	}
 	var out []Key
-	seen := map[string]bool{}
 	for _, e := range []string{EncUTF8, EncBase64, EncHex} {
-		b, err := DecodeBytes(s, e)
-		if err != nil || seen[string(b)] {
-			continue
+		if b, _, err := decodeInput(s, e); err == nil && !slices.ContainsFunc(out, func(k Key) bool { return bytes.Equal(k.Secret, b) }) {
+			out = append(out, Key{Kind: KindSecret, Secret: b, Source: "read as " + encName(e)})
 		}
-		seen[string(b)] = true
-		out = append(out, Key{Kind: KindSecret, Secret: b, Source: "read as " + encName(e)})
 	}
 	return out, nil
 }
 
-// otherReading finds a reading of the secret, other than the one chosen, that
-// does verify: the answer to "why is this invalid" when the key is right and
-// only its encoding is wrong.
-func otherReading(spec jwsAlg, input, sig []byte, s string, chosen Key) *Key {
-	all, _ := secretReadings(s, EncAuto)
-	for _, k := range all {
-		if string(k.Secret) != string(chosen.Secret) && verifyJWS(spec, k, input, sig) == nil {
-			return &k
-		}
-	}
-	return nil
-}
-
-// readingNames: "UTF-8 text", "UTF-8 text and base64", "UTF-8 text, base64 and hex".
-func readingNames(keys []Key) string {
-	names := make([]string, len(keys))
-	for i, k := range keys {
-		names[i] = strings.TrimPrefix(k.Source, "read as ")
-	}
-	if len(names) == 1 {
-		return names[0]
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
-}
-
 func encName(enc string) string {
-	switch enc {
-	case "", EncUTF8:
+	if enc == "" || enc == EncUTF8 {
 		return "UTF-8 text"
 	}
 	return enc
-}
-
-func (j *JWT) keyWarnings(spec jwsAlg, k Key) {
-	switch k.Kind {
-	case KindSecret:
-		if len(k.Secret) < spec.hash.Size() {
-			j.warn(LevelWarn, fmt.Sprintf("The secret is %d bytes; RFC 7518 §3.2 requires at least %d for %s. Short HMAC secrets can be brute-forced offline from one token.",
-				len(k.Secret), spec.hash.Size(), j.Alg))
-		}
-	case KindRSA:
-		if n := k.Public.(*rsa.PublicKey).N.BitLen(); n < 2048 {
-			j.warn(LevelWarn, fmt.Sprintf("RSA key is %d bits; 2048 is the minimum RFC 7518 allows.", n))
-		}
-	}
 }
 
 func digest(h crypto.Hash, data []byte) []byte {
@@ -582,41 +473,23 @@ func digest(h crypto.Hash, data []byte) []byte {
 	return w.Sum(nil)
 }
 
-var errBadSig = errors.New("signature mismatch")
-
-func verifyJWS(spec jwsAlg, k Key, input, sig []byte) error {
+func verifyJWS(spec jwsAlg, k Key, input, sig []byte) bool {
 	switch spec.kind {
 	case KindSecret:
-		mac := hmac.New(spec.hash.New, k.Secret)
-		mac.Write(input)
-		if !hmac.Equal(mac.Sum(nil), sig) {
-			return errBadSig
-		}
-		return nil
+		mac, _ := signJWS(spec, k, input)
+		return hmac.Equal(mac, sig)
 	case KindRSA:
 		pub := k.Public.(*rsa.PublicKey)
 		if spec.pss {
-			return rsa.VerifyPSS(pub, spec.hash, digest(spec.hash, input), sig, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
+			return rsa.VerifyPSS(pub, spec.hash, digest(spec.hash, input), sig, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) == nil
 		}
-		return rsa.VerifyPKCS1v15(pub, spec.hash, digest(spec.hash, input), sig)
+		return rsa.VerifyPKCS1v15(pub, spec.hash, digest(spec.hash, input), sig) == nil
 	case KindEC:
 		// Raw r‖s, not DER (RFC 7518 §3.4).
-		if len(sig) != 2*spec.size {
-			return fmt.Errorf("an ECDSA signature for this curve is %d bytes, got %d", 2*spec.size, len(sig))
-		}
-		r := new(big.Int).SetBytes(sig[:spec.size])
-		s := new(big.Int).SetBytes(sig[spec.size:])
-		if !ecdsa.Verify(k.Public.(*ecdsa.PublicKey), digest(spec.hash, input), r, s) {
-			return errBadSig
-		}
-		return nil
-	case KindEd25519:
-		if !ed25519.Verify(k.Public.(ed25519.PublicKey), input, sig) {
-			return errBadSig
-		}
-		return nil
+		return len(sig) == 2*spec.size() && ecdsa.Verify(k.Public.(*ecdsa.PublicKey), digest(spec.hash, input),
+			new(big.Int).SetBytes(sig[:spec.size()]), new(big.Int).SetBytes(sig[spec.size():]))
 	}
-	return errors.New("unsupported key kind")
+	return ed25519.Verify(k.Public.(ed25519.PublicKey), input, sig)
 }
 
 func signJWS(spec jwsAlg, k Key, input []byte) ([]byte, error) {
@@ -636,24 +509,17 @@ func signJWS(spec jwsAlg, k Key, input []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		out := make([]byte, 2*spec.size)
-		r.FillBytes(out[:spec.size])
-		s.FillBytes(out[spec.size:])
-		return out, nil
-	case KindEd25519:
-		return ed25519.Sign(k.Private.(ed25519.PrivateKey), input), nil
+		return append(r.FillBytes(make([]byte, spec.size())), s.FillBytes(make([]byte, spec.size()))...), nil
 	}
-	return nil, errors.New("unsupported key kind")
+	return ed25519.Sign(k.Private.(ed25519.PrivateKey), input), nil
 }
 
-// JWTSigned is the sign op's result: the token, and the token decoded and
-// verified back with the same key — proof the output is what was asked for.
+// JWTSigned is the token, and the token decoded and verified back with the same key.
 type JWTSigned struct {
 	Token   string `json:"token"`
 	Decoded *JWT   `json:"decoded"`
 }
 
-// expiryPresets are the sign form's quick lifetimes.
 var expiryPresets = map[string]time.Duration{
 	"5m": 5 * time.Minute, "15m": 15 * time.Minute, "1h": time.Hour, "1d": 24 * time.Hour, "7d": 7 * 24 * time.Hour,
 }
@@ -663,10 +529,7 @@ func runJWTSign(in Input) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	alg := strings.TrimSpace(in.Get("alg"))
-	if alg == "" {
-		alg = "HS256"
-	}
+	alg := cmp.Or(strings.TrimSpace(in.Get("alg")), "HS256")
 	if strings.EqualFold(alg, "none") {
 		return nil, errors.New(`won't sign with alg "none": an unsigned token is accepted by nothing that should be trusted`)
 	}
@@ -674,15 +537,12 @@ func runJWTSign(in Input) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("unsupported alg %q", alg)
 	}
-	keyInput, keyEnc := in.Get("key"), in.Get("key_enc")
-	kidField := strings.TrimSpace(in.Get("kid"))
-
-	key, err := signingKey(spec, alg, keyInput, keyEnc, kidField)
+	keyInput, keyEnc, kid := in.Get("key"), in.Get("key_enc"), strings.TrimSpace(in.Get("kid"))
+	key, err := signingKey(spec, alg, keyInput, keyEnc, kid)
 	if err != nil {
 		return nil, err
 	}
-
-	header, err := buildHeader(alg, in.Get("header"), kidField)
+	header, err := buildHeader(alg, in.Get("header"), kid)
 	if err != nil {
 		return nil, err
 	}
@@ -696,13 +556,8 @@ func runJWTSign(in Input) (any, error) {
 		return nil, fmt.Errorf("signing failed: %w", err)
 	}
 	token := input + "." + b64url.EncodeToString(sig)
-
-	// Verify with the key the visitor gave. For an asymmetric key that is the
-	// private key, and verify() uses its public half.
-	decoded, err := DecodeJWT(token, keyInput, keyEnc, now, DefaultLeeway)
-	if err != nil {
-		return nil, err
-	}
+	// A token built above always decodes; a private key verifies through its public half.
+	decoded, _ := DecodeJWT(token, keyInput, keyEnc, now, DefaultLeeway)
 	return &JWTSigned{Token: token, Decoded: decoded}, nil
 }
 
@@ -714,7 +569,7 @@ func signingKey(spec jwsAlg, alg, keyInput, keyEnc, kid string) (Key, error) {
 		if spec.kind != KindSecret {
 			return Key{}, fmt.Errorf("%s signs with %s's private half (PEM or JWK); this reads as a shared secret", alg, kindNames[spec.kind])
 		}
-		secret, err := DecodeBytes(keyInput, keyEnc)
+		secret, _, err := decodeInput(keyInput, keyEnc)
 		if err != nil {
 			return Key{}, fmt.Errorf("secret: %w", err)
 		}
@@ -725,10 +580,7 @@ func signingKey(spec jwsAlg, alg, keyInput, keyEnc, kid string) (Key, error) {
 		return Key{}, fmt.Errorf("key: %w", err)
 	}
 	for _, k := range keys {
-		if k.Kind != spec.kind || kid != "" && k.KID != "" && k.KID != kid {
-			continue
-		}
-		if spec.curve != nil && k.Public.(*ecdsa.PublicKey).Curve != spec.curve {
+		if !jwtKeyFits(spec, k) || kid != "" && k.KID != "" && k.KID != kid {
 			continue
 		}
 		if k.Kind != KindSecret && k.Private == nil {
@@ -736,88 +588,59 @@ func signingKey(spec jwsAlg, alg, keyInput, keyEnc, kid string) (Key, error) {
 		}
 		return k, nil
 	}
-	return Key{}, fmt.Errorf("%s needs %s, and none was found in the key you pasted", alg, algNeeds(alg, spec))
+	return Key{}, fmt.Errorf("%s needs %s, and none was found in the key you pasted", alg, algNeeds(spec))
 }
 
-// buildHeader writes alg first and typ second, then the visitor's extra
-// members in their own order. Built by hand rather than marshalled from a map,
-// which would sort the keys and turn "the header I typed" into something else.
+// buildHeader writes alg, typ, then the visitor's members in their order, which a marshalled map would sort.
 func buildHeader(alg, extra, kid string) ([]byte, error) {
-	var members []member
-	if strings.TrimSpace(extra) != "" {
-		m, err := orderedObject([]byte(extra))
-		if err != nil {
-			return nil, fmt.Errorf("header: %w", err)
-		}
-		members = m
+	members, err := orderedObject([]byte(cmp.Or(strings.TrimSpace(extra), "{}")))
+	if err != nil {
+		return nil, fmt.Errorf("header: %w", err)
 	}
-	var b bytes.Buffer
 	a, _ := json.Marshal(alg)
-	b.WriteString(`{"alg":` + string(a))
-	typ := json.RawMessage(`"JWT"`)
-	hasKid := false
+	out := []member{{"alg", a}, {"typ", json.RawMessage(`"JWT"`)}}
+	if kid != "" && !slices.ContainsFunc(members, func(m member) bool { return m.Key == "kid" }) {
+		k, _ := json.Marshal(kid)
+		out = append(out, member{"kid", k})
+	}
 	for _, m := range members {
 		if m.Key == "typ" {
-			typ = m.Raw
+			out[1].Raw = m.Raw
+		} else if m.Key != "alg" {
+			out = append(out, m)
 		}
-		hasKid = hasKid || m.Key == "kid"
 	}
-	b.WriteString(`,"typ":`)
-	if err := json.Compact(&b, typ); err != nil {
-		return nil, fmt.Errorf("header typ: %w", err)
-	}
-	if kid != "" && !hasKid {
-		k, _ := json.Marshal(kid)
-		b.WriteString(`,"kid":` + string(k))
-	}
-	for _, m := range members {
-		if m.Key == "alg" || m.Key == "typ" {
-			continue
-		}
+	var b bytes.Buffer
+	for _, m := range out {
 		k, _ := json.Marshal(m.Key)
 		b.WriteString("," + string(k) + ":")
-		if err := json.Compact(&b, m.Raw); err != nil {
-			return nil, fmt.Errorf("header %s: %w", m.Key, err)
-		}
+		_ = json.Compact(&b, m.Raw) // already valid JSON
 	}
-	b.WriteString("}")
-	return b.Bytes(), nil
+	return []byte("{" + b.String()[1:] + "}"), nil
 }
 
-// buildPayload compacts the visitor's claims, keeping their order, and appends
-// iat/exp when asked and not already present.
+// buildPayload compacts the claims, keeping their order, and appends iat/exp when asked and absent.
 func buildPayload(src string, now time.Time, setIat bool, expPreset string) ([]byte, error) {
-	if strings.TrimSpace(src) == "" {
-		src = "{}"
-	}
+	src = cmp.Or(strings.TrimSpace(src), "{}")
 	members, err := orderedObject([]byte(src))
 	if err != nil {
 		return nil, fmt.Errorf("payload must be a JSON object: %w", err)
 	}
 	var b bytes.Buffer
-	if err := json.Compact(&b, []byte(strings.TrimSpace(src))); err != nil {
+	if err := json.Compact(&b, []byte(src)); err != nil {
 		return nil, fmt.Errorf("payload: %w", err)
 	}
-	has := map[string]bool{}
-	for _, m := range members {
-		has[m.Key] = true
+	has := func(claim string) bool {
+		return slices.ContainsFunc(members, func(m member) bool { return m.Key == claim })
 	}
-	var add []string
-	if setIat && !has["iat"] {
-		add = append(add, fmt.Sprintf(`"iat":%d`, now.Unix()))
+	out := strings.TrimSuffix(b.String(), "}")
+	if setIat && !has("iat") {
+		out += fmt.Sprintf(`,"iat":%d`, now.Unix())
 	}
-	if d, ok := expiryPresets[expPreset]; ok && !has["exp"] {
-		add = append(add, fmt.Sprintf(`"exp":%d`, now.Add(d).Unix()))
+	if d, ok := expiryPresets[expPreset]; ok && !has("exp") {
+		out += fmt.Sprintf(`,"exp":%d`, now.Add(d).Unix())
 	} else if expPreset != "" && !ok {
 		return nil, fmt.Errorf("unknown expiry preset %q", expPreset)
 	}
-	if len(add) == 0 {
-		return b.Bytes(), nil
-	}
-	out := bytes.TrimSuffix(b.Bytes(), []byte("}"))
-	sep := ","
-	if len(members) == 0 {
-		sep = ""
-	}
-	return append(append(out, sep+strings.Join(add, ",")...), '}'), nil
+	return []byte("{" + strings.TrimPrefix(out[1:], ",") + "}"), nil
 }

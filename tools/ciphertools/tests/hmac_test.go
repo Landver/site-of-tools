@@ -10,20 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
+
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func hmacOf(t *testing.T, fields url.Values) *ciphertools.HMACResult {
-	t.Helper()
-	res, err := runOp(t, "hmac", fields, nil)
-	if err != nil {
-		t.Fatalf("hmac: %v", err)
-	}
-	return res.(*ciphertools.HMACResult)
-}
+var hmacOf = runner[ciphertools.HMACResult]("hmac")
 
-// RFC 4231 test cases 1, 2 and 6 (SHA-2) and RFC 2202 test cases 1 and 2
-// (MD5, SHA-1). HMAC-SHA3 for case 2 is cross-checked against Python's hmac.
+// RFC 4231 cases 1, 2, 6 and RFC 2202 cases 1, 2; HMAC-SHA3 for case 2 is checked against Python's hmac.
 func TestHMACPublishedVectors(t *testing.T) {
 	cases := []struct {
 		name, text, key, keyEnc string
@@ -49,8 +43,7 @@ func TestHMACPublishedVectors(t *testing.T) {
 			"sha3_256": "c7d4072e788877ae3596bbb0da73b887c9171f93095b294ae857fbe2645e1ba5",
 			"sha3_512": "5a4bfeab6166427c7a3647b747292b8384537cdb89afb3bf5665e4c5e709350b287baec921fd7ca0ee7a0c31d022a95e1fc92ba9d77df883960275beb4e62024",
 		}},
-		// A key longer than the block size is hashed first (RFC 2104); that's
-		// correct and must not be "fixed".
+		// A key longer than the block size is hashed first (RFC 2104): correct, not to be "fixed".
 		{"RFC 4231 TC6", "Test Using Larger Than Block-Size Key - Hash Key First", strings.Repeat("aa", 131), "hex", map[string]string{
 			"sha256": "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
 		}},
@@ -148,45 +141,39 @@ func TestHMACKeyWarnings(t *testing.T) {
 	if len(r.MACs) != 8 || r.MACs[3].Hex == "" {
 		t.Error("an empty key is valid HMAC and must still compute")
 	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {"Jefe"}})
-	if !noted(r.Warnings, "shorter than every hash output") {
-		t.Errorf("4-byte key: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {strings.Repeat("k", 20)}})
-	if !noted(r.Warnings, "HMAC-SHA-256 (32)") || noted(r.Warnings, "HMAC-MD5 (16)") {
-		t.Errorf("20-byte key: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {strings.Repeat("k", 64)}})
-	if noted(r.Warnings, "shorter") {
-		t.Errorf("64-byte key called short: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {strings.Repeat("k", 100)}})
-	if !noted(r.Warnings, "hashes it first") {
-		t.Errorf("long key not explained: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {"secret "}})
-	if !noted(r.Warnings, "whitespace") {
-		t.Errorf("trailing space in key: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"{\"a\":1}\n"}, "key": {strings.Repeat("k", 32)}})
-	if !noted(r.Warnings, "Ends in a newline") {
-		t.Errorf("message newline: %+v", r.Warnings)
+	for _, c := range []struct{ name, text, key, has, hasNot string }{
+		{"4-byte key", "x", "Jefe", "shorter than every hash output", ""},
+		{"20-byte key", "x", strings.Repeat("k", 20), "HMAC-SHA-256 (32)", "HMAC-MD5 (16)"},
+		{"64-byte key called short", "x", strings.Repeat("k", 64), "", "shorter"},
+		{"long key not explained", "x", strings.Repeat("k", 100), "hashes it first", ""},
+		{"trailing space in key", "x", "secret ", "whitespace", ""},
+		{"message newline", "{\"a\":1}\n", strings.Repeat("k", 32), "Ends in a newline", ""},
+	} {
+		r := hmacOf(t, url.Values{"text": {c.text}, "key": {c.key}})
+		if c.has != "" && !noted(r.Warnings, c.has) || c.hasNot != "" && noted(r.Warnings, c.hasNot) {
+			t.Errorf("%s: %+v", c.name, r.Warnings)
+		}
 	}
 }
 
-// The webhook trap, same as the JWT one: a secret handed out as base64 looks
-// like text, and read as text it is a different key. With an expected MAC to
-// compare against, "detect" tries each reading of the key and uses the one that
-// matches; an explicit reading that fails says which one would have.
+// Detect tries each reading of the key against the expected MAC; an explicit one that fails names the match.
 func TestHMACKeyEncodingDetected(t *testing.T) {
 	const pasted, body = "hkjlhlkjhjklhkljhlkjhlkhlk", `{"event":"ping"}`
 	meant, _ := base64.RawStdEncoding.DecodeString(pasted)
 	want := hmacHex(meant, body)
 
 	for _, enc := range []string{"", "auto"} {
-		r := hmacOf(t, url.Values{"text": {body}, "key": {pasted}, "key_enc": {enc}, "expected": {"sha256=" + want}})
+		fields := url.Values{"text": {body}, "key": {pasted}, "key_enc": {enc}, "expected": {"sha256=" + want}}
+		r := hmacOf(t, fields)
 		if r.Compare == nil || !r.Compare.Match || !strings.Contains(r.KeyReadAs, "base64") || r.KeyBytes != len(meant) {
 			t.Fatalf("enc %q: compare %+v, key read as %q (%d bytes)", enc, r.Compare, r.KeyReadAs, r.KeyBytes)
+		}
+		if !digestByID(t, r.MACs, "sha256").Match {
+			t.Errorf("enc %q: HMAC-SHA-256 row not marked", enc)
+		}
+		rows := findAll(parseHTML(t, render(t, "hmac", fields)), func(n *html.Node) bool { return n.Data == "tr" && hasClass(n, "bg-ok/10") })
+		if len(rows) != 1 || !strings.Contains(text(rows[0]), "HMAC-SHA-256") || !strings.Contains(text(rows[0]), "matches") {
+			t.Errorf("enc %q: %d highlighted rows, want the HMAC-SHA-256 one labelled matches", enc, len(rows))
 		}
 	}
 

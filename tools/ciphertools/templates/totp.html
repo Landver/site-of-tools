@@ -1,21 +1,5 @@
-{{/* TOTP — codes from a base32 secret or an otpauth:// URI (C8). Page shell +
-     result fragment.
-
-     One live form. The result carries a small Alpine countdown: when the step
-     ends it dispatches an input event on the form, and cipher.js re-runs any
-     data-live form on input, so the codes roll over without a click. The
-     countdown counts to a wall-clock deadline, not ticks, so a throttled
-     background tab is right again the moment it is looked at. Its starting
-     value is the result's own integer, never a form value. */}}
 {{define "cipher/totp"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">TOTP and HOTP codes</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a base32 secret or a whole <span class="font-mono">otpauth://</span> URI to see the codes an
@@ -24,12 +8,8 @@
     </p>
     {{template "cipher/engine" .}}
 
-    {{$totp := eq .Op "totp"}}{{$mode := ""}}{{$algo := ""}}
-    {{if $totp}}{{$mode = .Form.Get "mode"}}{{$algo = .Form.Get "algo"}}{{end}}
+    {{$mode := .Form.Get "mode"}}{{$algo := .Form.Get "algo"}}
     <form method="post" action="/totp" data-cipher="totp" data-live data-target="#totp-result" class="mt-6 space-y-3">
-      {{/* The secret is the only thing most people need; the defaults (SHA1, 6
-           digits, 30 s) are what Google Authenticator and nearly every other app
-           use, so the rest waits behind "Settings". */}}
       <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
         <label class="block text-sm text-muted">Secret (base32) or otpauth:// URI
           <textarea name="secret" rows="2" autofocus autocomplete="off" spellcheck="false"
@@ -42,7 +22,7 @@
                  placeholder="123456" class="field mt-1 w-full font-mono">
         </label>
       </div>
-      <details class="text-sm" {{if and $totp (or (eq $mode "hotp") (and (ne $algo "") (ne $algo "SHA1")) (.Form.Get "label") (.Form.Get "issuer"))}}open{{end}}>
+      <details class="text-sm" {{if or (eq $mode "hotp") (and (ne $algo "") (ne $algo "SHA1")) (.Form.Get "label") (.Form.Get "issuer")}}open{{end}}>
         <summary class="cursor-pointer text-muted hover:text-strong">Settings: algorithm, digits, period, HOTP, and the account for the URI</summary>
         <div class="mt-2 space-y-3">
           <div class="grid gap-3 sm:grid-cols-4">
@@ -60,15 +40,15 @@
               </select>
             </label>
             <label class="block text-sm text-muted">Digits <span class="text-faint">(6 to 8)</span>
-              <input type="number" name="digits" min="6" max="8" value="{{or (and $totp (.Form.Get "digits")) "6"}}" class="field mt-1 w-full">
+              <input type="number" name="digits" min="6" max="8" value="{{or (.Form.Get "digits") "6"}}" class="field mt-1 w-full">
             </label>
             <label class="block text-sm text-muted">Period, seconds <span class="text-faint">(15 to 300)</span>
-              <input type="number" name="period" min="15" max="300" value="{{or (and $totp (.Form.Get "period")) "30"}}" class="field mt-1 w-full">
+              <input type="number" name="period" min="15" max="300" value="{{or (.Form.Get "period") "30"}}" class="field mt-1 w-full">
             </label>
           </div>
           <div class="grid gap-3 sm:grid-cols-3">
             <label class="block text-sm text-muted">Counter <span class="text-faint">(HOTP only)</span>
-              <input type="number" name="counter" min="0" value="{{or (and $totp (.Form.Get "counter")) "0"}}" class="field mt-1 w-full">
+              <input type="number" name="counter" min="0" value="{{or (.Form.Get "counter") "0"}}" class="field mt-1 w-full">
             </label>
             <label class="block text-sm text-muted">Account <span class="text-faint">(for the URI)</span>
               <input name="label" value="{{.Form.Get "label"}}" autocomplete="off" spellcheck="false"
@@ -86,9 +66,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
   curl {{.Base}}/totp --data-urlencode 'secret=otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&amp;issuer=Example'
   curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d mode=hotp -d counter=5</pre>
         <p class="mt-1 text-xs text-muted">
@@ -103,13 +81,7 @@
     <div id="totp-result" class="mt-8" aria-live="polite">
       {{if eq .Op "totp"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/totp-result" .}}{{end}}{{end}}
     </div>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{/* dot = the render map; .Result = *ciphertools.TOTPResult */}}
@@ -130,6 +102,8 @@
     <button type="button" class="btn-copy" data-copy="{{.Code}}">Copy</button>
   </div>
   {{if eq .Type "totp"}}
+  {{/* Counts to a wall-clock deadline, so a throttled tab is right once seen; at zero the live form re-runs.
+       It starts from the result's integer, never a form value. */}}
   <p class="mt-2 text-sm text-muted"
      x-data="{ left: {{.Remaining}}, end: 0, timer: 0,
                init() {
@@ -178,10 +152,7 @@
 
 <section class="mt-6">
   <h2 class="eyebrow">otpauth:// URI</h2>
-  <div class="mt-2 flex items-start gap-3">
-    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.URI}}</pre>
-    <button type="button" class="btn-copy" data-copy="{{.URI}}">Copy</button>
-  </div>
+  {{template "cipher/engine-copy-wrap" .URI}}
   <p class="mt-1 text-xs text-muted">What a setup QR code holds. Built from the settings below, every part percent-encoded.</p>
 </section>
 

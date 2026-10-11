@@ -1,12 +1,14 @@
 package ciphertools
 
 import (
+	"cmp"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,32 +17,18 @@ import (
 	"unicode/utf8"
 )
 
-// C11 — "what is this string?". Every recogniser below looks at the input and
-// adds what it could be, each with a score; the answer is the list, ranked.
-// Never one verdict: 32 hex digits is MD5, NTLM, MD4 or LM, and saying "MD5"
-// would be a guess dressed as a fact (docs/03-correctness-traps.md, Identify).
-//
-// Each candidate names the page that opens it. Live on every keystroke, so
-// every recogniser is a shape check plus at most one parse; nothing here is
-// expensive, and nothing trusts the input to be well formed.
+// Recognisers add scored readings; the answer is the ranked list, never one verdict (docs/03-correctness-traps.md).
 
 func init() {
-	register(Op{Name: "identify", Path: "/identify", Page: "identify", Fragment: "cipher/identify-result", Run: runIdentify,
+	register(Op{Name: "identify", Path: "/identify", Page: "identify", Fragment: "cipher/identify-result",
+		Run: func(in Input) (any, error) { return Identify(in.Get("text")) },
 		Fields: []Field{
 			{Name: "text", Kind: KindString, Required: true,
 				Description: "The string to identify, up to 1 MiB: a hash, token, key, certificate, password hash, UUID, otpauth:// URI or encoded value; the answer ranks what it could be, with hashcat modes."},
 		}})
 }
 
-// Confidence levels, from the score bands in level.
-const (
-	ConfidenceHigh   = "high"
-	ConfidenceMedium = "medium"
-	ConfidenceLow    = "low"
-)
-
-// maxIdentify bounds the input. Anything real (a certificate chain, a JWKS)
-// is far smaller, and the page re-runs on every keystroke.
+// maxIdentify: anything real (a chain, a JWKS) is far smaller, and the page re-runs on every keystroke.
 const maxIdentify = 1 << 20
 
 // Candidate is one thing the input could be.
@@ -48,78 +36,29 @@ type Candidate struct {
 	Name       string `json:"name"`
 	Confidence string `json:"confidence"`
 	Why        string `json:"why"`
-	// Page is the path of the page that opens it here, when there is one.
-	Page     string `json:"page,omitempty"`
-	PageName string `json:"page_name,omitempty"`
-	// Field is the input on Page that takes this value, so the link can carry
-	// it there instead of asking for a second paste; Set holds "name=value"
-	// choices to make alongside (the encoding it was read as). Display only.
-	Field string `json:"-"`
-	Set   string `json:"-"`
-	// Hashcat is the hashcat -m mode, only where it is certain.
-	Hashcat string `json:"hashcat,omitempty"`
-	// Preview is the start of the decoded bytes, as text or as hex.
+	Page       string `json:"page,omitempty"`
+	PageName   string `json:"page_name,omitempty"`
+	// Field on Page takes the value, with Set ("name=value") chosen beside it. Display only.
+	Field      string `json:"-"`
+	Set        string `json:"-"`
+	Hashcat    string `json:"hashcat,omitempty"` // only where the mode is certain
 	Preview    string `json:"preview,omitempty"`
 	PreviewHex bool   `json:"preview_is_hex,omitempty"`
 
 	score int
 }
 
-// IdentifyResult is the identify op's answer.
 type IdentifyResult struct {
 	Bytes      int         `json:"bytes"`
 	Lines      int         `json:"lines"`
 	Candidates []Candidate `json:"candidates"`
 }
 
-var pageNames = map[string]string{
-	"/": "JWT", "/hash": "Hash", "/hmac": "HMAC", "/password": "Passwords", "/encrypt": "Encrypt",
-	"/keys": "Keys", "/cert": "Certs", "/totp": "TOTP", "/random": "Random", "/encode": "Encode",
-}
-
-func runIdentify(in Input) (any, error) { return Identify(in.Get("text")) }
-
-// carryTarget is the field on c.Page that takes the pasted value, and any
-// choice to set with it. Empty where the page has nothing to paste it into (a
-// fingerprint, a UUID).
-func carryTarget(c Candidate) (field, set string) {
-	name := strings.ToLower(c.Name)
-	switch c.Page {
-	case "/":
-		return "token", ""
-	case "/password":
-		return "hash", ""
-	case "/hash", "/hmac":
-		return "expected", ""
-	case "/cert":
-		if strings.Contains(name, "fingerprint") {
-			return "", ""
-		}
-		return "cert", ""
-	case "/keys":
-		if strings.Contains(name, "fingerprint") {
-			return "", ""
-		}
-		return "key", ""
-	case "/totp":
-		if strings.Contains(name, "one-time code") {
-			return "code", ""
-		}
-		return "secret", ""
-	case "/encode":
-		switch {
-		case strings.Contains(name, "basic auth"):
-			return "header", ""
-		case strings.Contains(name, "base64url"):
-			return "text", "from=base64url"
-		case strings.Contains(name, "base64"):
-			return "text", "from=base64"
-		case strings.Contains(name, "hex"):
-			return "text", "from=hex"
-		}
-		return "text", ""
-	}
-	return "", ""
+// identifyPages: each page's name, and the field on it that takes a pasted value.
+var identifyPages = map[string]struct{ name, field string }{
+	"/": {"JWT", "token"}, "/hash": {"Hash", "expected"}, "/hmac": {"HMAC", "expected"}, "/password": {"Passwords", "hash"},
+	"/keys": {"Keys", "key"}, "/cert": {"Certs", "cert"}, "/totp": {"TOTP", "secret"}, "/random": {"Random", ""},
+	"/encode": {"Encode", "text"},
 }
 
 // Identify ranks what s could be, most likely first.
@@ -139,208 +78,167 @@ func Identify(s string) (*IdentifyResult, error) {
 		rec(t)
 	}
 	sort.SliceStable(x.c, func(i, j int) bool { return x.c[i].score > x.c[j].score })
-	for i := range x.c {
-		x.c[i].Confidence = level(x.c[i].score)
-		x.c[i].PageName = pageNames[x.c[i].Page]
-		x.c[i].Field, x.c[i].Set = carryTarget(x.c[i])
-	}
 	return &IdentifyResult{Bytes: len(t), Lines: strings.Count(t, "\n") + 1, Candidates: x.c}, nil
-}
-
-// level: 70 and up is a parse that succeeded on an unambiguous shape; 40 to
-// 69 is a plausible reading among others; below 40 is possible, no more.
-func level(score int) string {
-	switch {
-	case score >= 70:
-		return ConfidenceHigh
-	case score >= 40:
-		return ConfidenceMedium
-	}
-	return ConfidenceLow
 }
 
 type idents struct{ c []Candidate }
 
-func (x *idents) add(score int, c Candidate) {
-	c.score = score
-	x.c = append(x.c, c)
-}
-
-func (x *idents) any(min int) bool {
-	for _, c := range x.c {
-		if c.score >= min {
-			return true
+// add files a reading. Score 70 and up is a parse that succeeded on an unambiguous
+// shape, 40 to 69 a plausible reading among others, below 40 possible, no more.
+func (x *idents) add(score int, name, page, why string) *Candidate {
+	c := Candidate{Name: name, Confidence: "low", Why: why, Page: page, score: score,
+		PageName: identifyPages[page].name, Field: identifyPages[page].field}
+	if score >= 70 {
+		c.Confidence = "high"
+	} else if score >= 40 {
+		c.Confidence = "medium"
+	}
+	switch low := strings.ToLower(name); {
+	case strings.Contains(low, "fingerprint"): // nowhere to paste it
+		c.Field = ""
+	case page == "/totp" && strings.Contains(low, "one-time code"):
+		c.Field = "code"
+	case page == "/encode" && strings.Contains(low, "basic auth"):
+		c.Field = "header"
+	case page == "/encode":
+		for _, enc := range []string{"base64url", "base64", "hex"} {
+			if strings.Contains(low, enc) {
+				c.Set = "from=" + enc
+				break
+			}
 		}
 	}
-	return false
+	x.c = append(x.c, c)
+	return &x.c[len(x.c)-1]
 }
 
-// singleToken: no spaces or line breaks inside.
 func singleToken(t string) bool { return !strings.ContainsAny(t, " \t\r\n") }
 
-// ---- PEM ----
+// identifyOnly: every character of s is in set.
+func identifyOnly(s, set string) bool { return strings.Trim(s, set) == "" }
 
-var pemKinds = map[string]struct{ name, page string }{
-	"CERTIFICATE":             {"X.509 certificate", "/cert"},
-	"TRUSTED CERTIFICATE":     {"X.509 certificate (OpenSSL trusted form)", "/cert"},
-	"CERTIFICATE REQUEST":     {"certificate signing request (CSR)", "/cert"},
-	"NEW CERTIFICATE REQUEST": {"certificate signing request (CSR)", "/cert"},
-	"X509 CRL":                {"certificate revocation list", ""},
-	"PRIVATE KEY":             {"private key (PKCS#8)", "/keys"},
-	"ENCRYPTED PRIVATE KEY":   {"passphrase-encrypted private key (PKCS#8)", "/keys"},
-	"RSA PRIVATE KEY":         {"RSA private key (PKCS#1)", "/keys"},
-	"EC PRIVATE KEY":          {"EC private key (SEC 1)", "/keys"},
-	"PUBLIC KEY":              {"public key (SPKI)", "/keys"},
-	"RSA PUBLIC KEY":          {"RSA public key (PKCS#1)", "/keys"},
-	"OPENSSH PRIVATE KEY":     {"OpenSSH private key", "/keys"},
-	"EC PARAMETERS":           {"EC parameters (names a curve; not a key)", "/keys"},
-	"DH PARAMETERS":           {"Diffie-Hellman parameters", ""},
+// pemKinds: each PEM type's name, the page that reads it and, where set, its DER parser.
+// cert.go's key-alongside check reads page and keyFromPEM reads parse, so edits reach both.
+var pemKinds = map[string]struct {
+	name, page string
+	parse      func([]byte) (any, error)
+}{
+	"CERTIFICATE":             {"X.509 certificate", "/cert", identifyDER(x509.ParseCertificate)},
+	"TRUSTED CERTIFICATE":     {"X.509 certificate (OpenSSL trusted form)", "/cert", nil},
+	"CERTIFICATE REQUEST":     {"certificate signing request (CSR)", "/cert", identifyDER(x509.ParseCertificateRequest)},
+	"NEW CERTIFICATE REQUEST": {"certificate signing request (CSR)", "/cert", identifyDER(x509.ParseCertificateRequest)},
+	"X509 CRL":                {"certificate revocation list", "", nil},
+	"PRIVATE KEY":             {"private key (PKCS#8)", "/keys", identifyDER(x509.ParsePKCS8PrivateKey)},
+	"ENCRYPTED PRIVATE KEY":   {"passphrase-encrypted private key (PKCS#8)", "/keys", nil},
+	"RSA PRIVATE KEY":         {"RSA private key (PKCS#1)", "/keys", identifyDER(x509.ParsePKCS1PrivateKey)},
+	"EC PRIVATE KEY":          {"EC private key (SEC 1)", "/keys", identifyDER(x509.ParseECPrivateKey)},
+	"PUBLIC KEY":              {"public key (SPKI)", "/keys", identifyDER(x509.ParsePKIXPublicKey)},
+	"RSA PUBLIC KEY":          {"RSA public key (PKCS#1)", "/keys", identifyDER(x509.ParsePKCS1PublicKey)},
+	"OPENSSH PRIVATE KEY":     {"OpenSSH private key", "/keys", nil},
+	"EC PARAMETERS":           {"EC parameters (names a curve; not a key)", "/keys", nil},
+	"DH PARAMETERS":           {"Diffie-Hellman parameters", "", nil},
+}
+
+func identifyDER[T any](parse func([]byte) (T, error)) func([]byte) (any, error) {
+	return func(der []byte) (any, error) { return parse(der) }
+}
+
+// identifyTitle names a certificate or CSR by its first SAN or CN.
+func identifyTitle(v any) string {
+	switch c := v.(type) {
+	case *x509.Certificate:
+		return title(sansOf(c.DNSNames, c.IPAddresses, c.EmailAddresses, c.URIs), c.Subject.CommonName, c.Subject.String())
+	case *x509.CertificateRequest:
+		return title(sansOf(c.DNSNames, c.IPAddresses, c.EmailAddresses, c.URIs), c.Subject.CommonName, c.Subject.String())
+	}
+	return ""
 }
 
 func (x *idents) pemBlocks(t string) {
-	if !strings.Contains(t, "-----BEGIN ") {
+	_, after, ok := strings.Cut(t, "-----BEGIN ")
+	if !ok {
 		return
 	}
 	type seen struct {
-		n, parsed int
-		encrypted bool
-		oversized bool // a private key too large to parse (keys.go)
-		preview   string
+		typ, preview         string
+		n, parsed            int
+		encrypted, oversized bool
 	}
-	var order []string
-	kinds := map[string]*seen{}
+	var kinds []seen
 	rest := []byte(t)
 	for range maxPEMBlocks {
 		var b *pem.Block
 		if b, rest = pem.Decode(rest); b == nil {
 			break
 		}
-		k := kinds[b.Type]
-		if k == nil {
-			k = &seen{}
-			kinds[b.Type] = k
-			order = append(order, b.Type)
+		i := slices.IndexFunc(kinds, func(k seen) bool { return k.typ == b.Type })
+		if i < 0 {
+			i, kinds = len(kinds), append(kinds, seen{typ: b.Type})
 		}
+		k := &kinds[i]
 		k.n++
-		if strings.Contains(b.Headers["Proc-Type"], "ENCRYPTED") {
-			k.encrypted = true
-		}
+		k.encrypted = k.encrypted || strings.Contains(b.Headers["Proc-Type"], "ENCRYPTED")
 		if checkPrivateDER(b) != nil {
 			k.oversized = true
-		} else if ok, preview := pemParses(b); ok {
-			k.parsed++
-			if k.preview == "" {
-				k.preview = preview
+		} else if parse := pemKinds[b.Type].parse; parse != nil {
+			if v, err := parse(b.Bytes); err == nil {
+				k.parsed++
+				k.preview = cmp.Or(k.preview, identifyTitle(v))
 			}
 		}
 	}
-	if len(order) == 0 {
-		typ := t[strings.Index(t, "-----BEGIN ")+len("-----BEGIN "):]
-		if i := strings.Index(typ, "-----"); i >= 0 && i < 64 {
-			typ = typ[:i]
-		} else {
+	if len(kinds) == 0 {
+		typ, _, ok := strings.Cut(after, "-----")
+		if !ok || len(typ) >= 64 {
 			typ = "?"
 		}
-		x.add(60, Candidate{Name: "PEM block that doesn't decode (" + typ + ")", Page: pemPage(typ),
-			Why: "There is a -----BEGIN " + typ + "----- line but no complete block: the END line, or part of the base64 between them, is missing or damaged."})
+		x.add(60, "PEM block that doesn't decode ("+typ+")", pemKinds[typ].page,
+			"There is a -----BEGIN "+typ+"----- line but no complete block: the END line, or part of the base64 between them, is missing or damaged.")
 		return
 	}
-	for _, typ := range order {
-		k := kinds[typ]
-		name := pemName(typ)
-		why := fmt.Sprintf("%d PEM block%s of type %s", k.n, plural(k.n), typ)
-		score := 95
+	for _, k := range kinds {
+		typ, kind := k.typ, pemKinds[k.typ]
+		name := cmp.Or(kind.name, "PEM block ("+typ+")")
+		if strings.HasPrefix(typ, "PGP ") {
+			name = "OpenPGP armored data (" + typ + ")"
+		}
 		switch {
 		case typ == "CERTIFICATE" && k.n > 1:
 			name = fmt.Sprintf("X.509 certificate chain (%d certificates)", k.n)
 		case k.n > 1:
 			name = fmt.Sprintf("%s (%d)", name, k.n)
 		}
+		why, score := fmt.Sprintf("%d PEM block%s of type %s", k.n, plural(k.n), typ), 95
 		switch {
 		case k.encrypted || typ == "ENCRYPTED PRIVATE KEY":
 			why += ", passphrase-encrypted: decrypt it locally first (openssl pkey -in key.pem -out plain.pem)"
 		case k.oversized:
 			why += fmt.Sprintf(", but larger than any real key (over %s of DER), so not parsed", bytesText(maxPrivateKeyDER))
 			score = 60
-		case k.parsed == 0 && pemChecked[typ]:
+		case k.parsed == 0 && kind.parse != nil:
 			why += ", but the DER inside doesn't parse as one"
 			score = 60
-		case k.parsed < k.n && pemChecked[typ]:
+		case k.parsed < k.n && kind.parse != nil:
 			why += fmt.Sprintf(", of which %d parse", k.parsed)
 		}
-		x.add(score, Candidate{Name: name, Why: why + ".", Page: pemPage(typ), Preview: k.preview})
+		x.add(score, name, kind.page, why+".").Preview = k.preview
 	}
 }
-
-func pemName(typ string) string {
-	if k, ok := pemKinds[typ]; ok {
-		return k.name
-	}
-	if strings.HasPrefix(typ, "PGP ") {
-		return "OpenPGP armored data (" + typ + ")"
-	}
-	return "PEM block (" + typ + ")"
-}
-
-func pemPage(typ string) string { return pemKinds[typ].page }
-
-// pemChecked are the types pemParses actually parses.
-var pemChecked = map[string]bool{
-	"CERTIFICATE": true, "CERTIFICATE REQUEST": true, "NEW CERTIFICATE REQUEST": true, "PUBLIC KEY": true,
-	"PRIVATE KEY": true, "RSA PRIVATE KEY": true, "EC PRIVATE KEY": true, "RSA PUBLIC KEY": true,
-}
-
-// pemParses confirms a block is what its type says, and names a certificate
-// by its first SAN or CN.
-func pemParses(b *pem.Block) (bool, string) {
-	var err error
-	switch b.Type {
-	case "CERTIFICATE":
-		c, err := x509.ParseCertificate(b.Bytes)
-		if err != nil {
-			return false, ""
-		}
-		return true, title(sansOf(c.DNSNames, c.IPAddresses, c.EmailAddresses, c.URIs), c.Subject.CommonName, c.Subject.String())
-	case "CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST":
-		c, err := x509.ParseCertificateRequest(b.Bytes)
-		if err != nil {
-			return false, ""
-		}
-		return true, title(sansOf(c.DNSNames, c.IPAddresses, c.EmailAddresses, c.URIs), c.Subject.CommonName, c.Subject.String())
-	case "PUBLIC KEY":
-		_, err = x509.ParsePKIXPublicKey(b.Bytes)
-	case "PRIVATE KEY":
-		_, err = x509.ParsePKCS8PrivateKey(b.Bytes)
-	case "RSA PRIVATE KEY":
-		_, err = x509.ParsePKCS1PrivateKey(b.Bytes)
-	case "EC PRIVATE KEY":
-		_, err = x509.ParseECPrivateKey(b.Bytes)
-	case "RSA PUBLIC KEY":
-		_, err = x509.ParsePKCS1PublicKey(b.Bytes)
-	default:
-		return false, ""
-	}
-	return err == nil, ""
-}
-
-// ---- otpauth:// ----
 
 func (x *idents) otpauth(t string) {
 	switch {
 	case hasPrefixFold(t, "otpauth-migration://"):
-		x.add(80, Candidate{Name: "Google Authenticator export (otpauth-migration://)",
-			Why: "A batch of accounts packed in a protobuf. The TOTP page reads one otpauth:// URI at a time, so export or scan the accounts one by one."})
+		x.add(80, "Google Authenticator export (otpauth-migration://)", "",
+			"A batch of accounts packed in a protobuf. The TOTP page reads one otpauth:// URI at a time, so export or scan the accounts one by one.")
 	case hasPrefixFold(t, "otpauth://"):
 		s, _, err := ParseOTPURI(t)
 		if err != nil {
-			x.add(60, Candidate{Name: "otpauth:// URI that doesn't parse", Why: err.Error() + ".", Page: "/totp"})
+			x.add(60, "otpauth:// URI that doesn't parse", "/totp", err.Error()+".")
 			return
 		}
-		why := fmt.Sprintf("%s, %d digits", s.Algorithm, s.Digits)
+		why := fmt.Sprintf("%s, %d digits, counter %d", s.Algorithm, s.Digits, s.Counter)
 		if s.Type == OTPTypeTOTP {
-			why += fmt.Sprintf(", %d-second period", s.Period)
-		} else {
-			why += fmt.Sprintf(", counter %d", s.Counter)
+			why = fmt.Sprintf("%s, %d digits, %d-second period", s.Algorithm, s.Digits, s.Period)
 		}
 		if s.Issuer != "" {
 			why += ", issuer " + strconv.Quote(s.Issuer)
@@ -348,40 +246,20 @@ func (x *idents) otpauth(t string) {
 		if s.Account != "" {
 			why += ", account " + strconv.Quote(s.Account)
 		}
-		x.add(95, Candidate{Name: "otpauth:// URI for an authenticator app (" + strings.ToUpper(s.Type) + ")", Why: why + ".", Page: "/totp"})
+		x.add(95, "otpauth:// URI for an authenticator app ("+strings.ToUpper(s.Type)+")", "/totp", why+".")
 	}
 }
 
-// ---- JWT / JWE ----
-
-// joseHeader splits a compact JWS or JWE and decodes its header, or reports
-// that it isn't one.
 func joseHeader(t string) (parts []string, hdr map[string]any, ok bool) {
-	tok, _ := cleanToken(t)
-	parts = strings.Split(tok, ".")
-	if len(parts) != 3 && len(parts) != 5 {
+	tok := cleanToken(t)
+	if parts = strings.Split(tok, "."); len(parts) != 3 && len(parts) != 5 || !identifyOnly(tok, alnum+"-_=.") {
 		return nil, nil, false
-	}
-	for _, p := range parts {
-		if !isBase64URLChars(p) {
-			return nil, nil, false
-		}
 	}
 	h, err := segment(parts[0], "header")
 	if err != nil || json.Unmarshal(h, &hdr) != nil || hdr == nil {
 		return nil, nil, false
 	}
 	return parts, hdr, true
-}
-
-func isBase64URLChars(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '=') {
-			return false
-		}
-	}
-	return true
 }
 
 func (x *idents) jose(t string) {
@@ -396,24 +274,22 @@ func (x *idents) jose(t string) {
 	enc, _ := hdr["enc"].(string)
 	switch {
 	case len(parts) == 5 && alg != "" && enc != "":
-		x.add(95, Candidate{Name: "JWE (encrypted JWT)", Page: "/",
-			Why: fmt.Sprintf("Five base64url parts, and the header decodes to JSON with alg %s and enc %s. Only the header is readable without the recipient's key.", alg, enc)})
+		x.add(95, "JWE (encrypted JWT)", "/", fmt.Sprintf(
+			"Five base64url parts, and the header decodes to JSON with alg %s and enc %s. Only the header is readable without the recipient's key.", alg, enc))
 	case len(parts) == 3 && alg != "":
-		why := fmt.Sprintf("Three base64url parts, and the header decodes to JSON with alg %s", alg)
+		why := "Three base64url parts, and the header decodes to JSON with alg " + alg
 		if typ, _ := hdr["typ"].(string); typ != "" {
 			why += " and typ " + typ
 		}
 		if strings.EqualFold(alg, "none") {
 			why += ". alg none means it is unsigned: anyone could have written it"
 		}
-		x.add(95, Candidate{Name: "JWT (signed, JWS)", Why: why + ".", Page: "/"})
+		x.add(95, "JWT (signed, JWS)", "/", why+".")
 	default:
-		x.add(55, Candidate{Name: "JOSE-shaped value", Page: "/",
-			Why: fmt.Sprintf("%d base64url parts with a JSON header, but the header lacks %s.", len(parts), map[bool]string{true: "alg or enc", false: "alg"}[len(parts) == 5])})
+		lacks := map[int]string{3: "alg", 5: "alg or enc"}[len(parts)]
+		x.add(55, "JOSE-shaped value", "/", fmt.Sprintf("%d base64url parts with a JSON header, but the header lacks %s.", len(parts), lacks))
 	}
 }
-
-// ---- Authorization headers ----
 
 func (x *idents) authHeader(t string) {
 	v := t
@@ -424,72 +300,49 @@ func (x *idents) authHeader(t string) {
 	case hasPrefixFold(v, "basic ") || hasPrefixFold(v, "basic\t"):
 		a, err := DecodeBasic(t)
 		if err != nil {
-			x.add(55, Candidate{Name: "HTTP Basic auth header that doesn't decode", Why: err.Error() + ".", Page: "/encode"})
+			x.add(55, "HTTP Basic auth header that doesn't decode", "/encode", err.Error()+".")
 			return
 		}
 		user := "the user name is " + strconv.Quote(a.User.Value)
 		if !a.User.IsText {
 			user = "the user name isn't printable text"
 		}
-		x.add(95, Candidate{Name: "HTTP Basic auth credentials", Page: "/encode",
-			Why: "Basic, then the base64 of user:password; " + user + ". It is an encoding, not encryption: the password is in there too."})
+		x.add(95, "HTTP Basic auth credentials", "/encode",
+			"Basic, then the base64 of user:password; "+user+". It is an encoding, not encryption: the password is in there too.")
 	case hasPrefixFold(v, "bearer "):
-		if _, _, ok := joseHeader(v); ok {
-			return // the JWT reading covers it
+		if _, _, ok := joseHeader(v); !ok { // a JWT is the jose reading's
+			x.add(50, "Bearer token (opaque)", "", "An Authorization: Bearer value that isn't a JWT. Its format is private to whoever issued it.")
 		}
-		x.add(50, Candidate{Name: "Bearer token (opaque)",
-			Why: "An Authorization: Bearer value that isn't a JWT. Its format is private to whoever issued it."})
 	}
 }
-
-// ---- OpenSSH ----
 
 func (x *idents) ssh(t string) {
 	switch {
 	case strings.HasPrefix(t, "SHA256:") && len(t) == 50:
-		if b, err := b64RawStd(t[7:]); err == nil && len(b) == 32 {
-			x.add(90, Candidate{Name: "OpenSSH key fingerprint (SHA-256)", Page: "/keys",
-				Why: "SHA256: and 43 characters of unpadded base64, 32 bytes: what ssh-keygen -l prints."})
+		if b, v, err := decodeBase64Any(t[7:]); err == nil && v == VariantStdRaw && len(b) == 32 {
+			x.add(90, "OpenSSH key fingerprint (SHA-256)", "/keys", "SHA256: and 43 characters of unpadded base64, 32 bytes: what ssh-keygen -l prints.")
 		}
-		return
 	case strings.HasPrefix(t, "MD5:"):
 		if n, ok := colonBytes(t[4:]); ok && n == 16 {
-			x.add(85, Candidate{Name: "OpenSSH key fingerprint (MD5, legacy)", Page: "/keys",
-				Why: "MD5: and 16 colon-separated bytes: what ssh-keygen -l -E md5 prints."})
+			x.add(85, "OpenSSH key fingerprint (MD5, legacy)", "/keys", "MD5: and 16 colon-separated bytes: what ssh-keygen -l -E md5 prints.")
 		}
-		return
-	}
-	if !looksLikeOpenSSH(t) {
-		return
-	}
-	var lines []string
-	for _, line := range strings.Split(t, "\n") {
-		if s := strings.TrimSpace(line); s != "" && !strings.HasPrefix(s, "#") {
-			lines = append(lines, s)
+	case looksLikeOpenSSH(t):
+		lines, _ := sshLines(t)
+		k, err := keyFromOpenSSH(strings.TrimSpace(lines[0]))
+		if err != nil {
+			x.add(60, "OpenSSH public key line that doesn't parse", "/keys", err.Error()+".")
+			return
 		}
+		why := "authorized_keys format: the key type, the key as base64, then a comment"
+		if len(lines) > 1 {
+			why += fmt.Sprintf("; %d lines", len(lines))
+		}
+		name := "OpenSSH public key (" + keyName(k.Public) + ")"
+		if strings.HasPrefix(k.Source, "OpenSSH certificate") {
+			name = "OpenSSH certificate (" + keyName(k.Public) + ")"
+		}
+		x.add(95, name, "/keys", why+".").Preview = k.Comment
 	}
-	k, err := keyFromOpenSSH(lines[0])
-	if err != nil {
-		x.add(60, Candidate{Name: "OpenSSH public key line that doesn't parse", Why: err.Error() + ".", Page: "/keys"})
-		return
-	}
-	why := "authorized_keys format: the key type, the key as base64, then a comment"
-	if len(lines) > 1 {
-		why += fmt.Sprintf("; %d lines", len(lines))
-	}
-	name := "OpenSSH public key (" + keyName(k.Public) + ")"
-	if strings.HasPrefix(k.Source, "OpenSSH certificate") {
-		name = "OpenSSH certificate (" + keyName(k.Public) + ")"
-	}
-	x.add(95, Candidate{Name: name, Why: why + ".", Page: "/keys", Preview: k.Comment})
-}
-
-func b64RawStd(s string) ([]byte, error) {
-	b, variant, err := decodeBase64Any(s)
-	if err != nil || variant != VariantStdRaw {
-		return nil, errors.New("not unpadded base64")
-	}
-	return b, nil
 }
 
 // colonBytes: "ab:cd:ef" is 3 bytes; anything else is not ok.
@@ -503,8 +356,6 @@ func colonBytes(s string) (int, bool) {
 	return len(parts), true
 }
 
-// ---- JSON: JWK, JWKS ----
-
 func (x *idents) jsonValue(t string) {
 	if !strings.HasPrefix(t, "{") && !strings.HasPrefix(t, "[") {
 		return
@@ -512,38 +363,32 @@ func (x *idents) jsonValue(t string) {
 	var v any
 	if err := json.Unmarshal([]byte(t), &v); err != nil {
 		why := err.Error()
-		var se *json.SyntaxError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*json.SyntaxError](err); ok {
 			why = fmt.Sprintf("%v, at offset %d", se, se.Offset)
 		}
-		// Wrapped in matching brackets, it was meant as JSON: above the
-		// plain-text reading, which is all that is left otherwise.
 		score := 25
 		if open, end := t[0], t[len(t)-1]; open == '{' && end == '}' || open == '[' && end == ']' {
-			score = 45
+			score = 45 // meant as JSON: rank it above plain text
 		}
-		x.add(score, Candidate{Name: "JSON-like, but not valid JSON", Why: why + "."})
+		x.add(score, "JSON-like, but not valid JSON", "", why+".")
 		return
 	}
 	obj, _ := v.(map[string]any)
 	if kty, ok := obj["kty"].(string); ok {
-		part := "public"
+		part, why := "public", "A JSON object with kty "+kty
 		if _, priv := obj["d"]; priv {
-			part = "private"
+			part, why = "private", why+" and the private member d"
 		}
-		x.add(90, Candidate{Name: "JWK (" + kty + " " + part + " key)", Page: "/keys",
-			Why: fmt.Sprintf("A JSON object with kty %s%s.", kty, map[bool]string{true: " and the private member d", false: ""}[part == "private"])})
+		x.add(90, "JWK ("+kty+" "+part+" key)", "/keys", why+".")
 		return
 	}
 	if keys, ok := obj["keys"].([]any); ok {
-		x.add(90, Candidate{Name: fmt.Sprintf("JWKS (%d key%s)", len(keys), plural(len(keys))), Page: "/keys",
-			Why: "A JSON object with a keys array: a JSON Web Key Set, as served at /.well-known/jwks.json."})
+		x.add(90, fmt.Sprintf("JWKS (%d key%s)", len(keys), plural(len(keys))), "/keys",
+			"A JSON object with a keys array: a JSON Web Key Set, as served at /.well-known/jwks.json.")
 		return
 	}
-	x.add(50, Candidate{Name: "JSON", Why: "Valid JSON, and not a JWK or a JWKS."})
+	x.add(50, "JSON", "", "Valid JSON, and not a JWK or a JWKS.")
 }
-
-// ---- password hashes ----
 
 // passwordHashcat are the modes that take these strings as they are.
 var passwordHashcat = map[string]string{
@@ -556,26 +401,20 @@ func (x *idents) passwordHash(t string) {
 	}
 	h, err := ParsePasswordHash(t)
 	if err == nil {
-		why := h.Format
+		why, sep := h.Format, ": "
 		if h.Variant != "" {
 			why += " " + h.Variant
 		}
-		var ps []string
 		for _, p := range h.Params {
-			switch p.Name {
-			case "salt", "variant", "params":
-			default:
-				ps = append(ps, p.Name+"="+p.Value)
+			if p.Name != "salt" && p.Name != "variant" && p.Name != "params" {
+				why, sep = why+sep+p.Name+"="+p.Value, ", "
 			}
-		}
-		if len(ps) > 0 {
-			why += ": " + strings.Join(ps, ", ")
 		}
 		mode := passwordHashcat[h.Algorithm]
 		if h.Format == "Django" {
 			mode = "10000"
 		}
-		x.add(95, Candidate{Name: h.Name + " password hash", Why: why + ".", Page: "/password", Hashcat: mode})
+		x.add(95, h.Name+" password hash", "/password", why+".").Hashcat = mode
 		return
 	}
 	id := ""
@@ -583,15 +422,12 @@ func (x *idents) passwordHash(t string) {
 		id = f[1]
 	}
 	switch {
-	case bcryptVariants[id] != "" || strings.HasPrefix(id, "argon2") || id == "scrypt" || strings.HasPrefix(id, "pbkdf2") || legacyCrypt[id].name != "" || strings.HasPrefix(t, "pbkdf2_sha256$"):
-		x.add(60, Candidate{Name: "password hash that doesn't parse", Why: err.Error() + ".", Page: "/password"})
+	case id != "" && (!errors.Is(err, errUnknownHash) || strings.HasPrefix(id, "pbkdf2")) || strings.HasPrefix(t, "pbkdf2_sha256$"):
+		x.add(60, "password hash that doesn't parse", "/password", err.Error()+".")
 	case id != "":
-		x.add(30, Candidate{Name: "$-delimited hash string", Page: "/password",
-			Why: fmt.Sprintf("Shaped like crypt(3) or a PHC string, but $%s$ is not an id this site knows.", id)})
+		x.add(30, "$-delimited hash string", "/password", fmt.Sprintf("Shaped like crypt(3) or a PHC string, but $%s$ is not an id this site knows.", id))
 	}
 }
-
-// ---- UUID ----
 
 var uuidVersions = map[byte]string{
 	'1': "time and MAC address", '2': "DCE security", '3': "name-based, MD5", '4': "random",
@@ -599,20 +435,17 @@ var uuidVersions = map[byte]string{
 }
 
 func (x *idents) uuid(t string) {
-	u := strings.ToLower(t)
-	u = strings.TrimPrefix(u, "urn:uuid:")
+	u := strings.TrimPrefix(strings.ToLower(t), "urn:uuid:")
 	if strings.HasPrefix(u, "{") && strings.HasSuffix(u, "}") {
 		u = u[1 : len(u)-1]
 	}
 	if len(u) != 36 || u[8] != '-' || u[13] != '-' || u[18] != '-' || u[23] != '-' {
 		return
 	}
-	h := strings.ReplaceAll(u, "-", "")
-	if len(h) != 32 || !allHex(h) {
-		return
+	if h := strings.ReplaceAll(u, "-", ""); len(h) == 32 && allHex(h) {
+		name, why := uuidReading(h)
+		x.add(95, name, "/random", "8-4-4-4-12 hex digits; "+why+".")
 	}
-	name, why := uuidReading(h)
-	x.add(95, Candidate{Name: name, Why: "8-4-4-4-12 hex digits; " + why + ".", Page: "/random"})
 }
 
 // uuidReading names a UUID by its version and variant (RFC 9562).
@@ -643,105 +476,73 @@ func uuidReading(h string) (name, why string) {
 	return fmt.Sprintf("UUID version %c (%s)", ver, desc), why
 }
 
-// ---- webhook signatures ----
-
 func (x *idents) webhookSignature(t string) {
-	low := strings.ToLower(t)
 	switch {
-	case strings.HasPrefix(low, "sha256=") && len(t) == 7+64 && allHex(t[7:]):
-		x.add(90, Candidate{Name: "GitHub webhook signature (X-Hub-Signature-256)", Page: "/hmac",
-			Why: "sha256= and 64 hex digits: HMAC-SHA256 of the raw request body."})
-	case strings.HasPrefix(low, "sha1=") && len(t) == 5+40 && allHex(t[5:]):
-		x.add(85, Candidate{Name: "GitHub webhook signature, legacy (X-Hub-Signature)", Page: "/hmac",
-			Why: "sha1= and 40 hex digits: HMAC-SHA1 of the raw request body."})
-	case strings.HasPrefix(low, "v0=") && len(t) == 3+64 && allHex(t[3:]):
-		x.add(85, Candidate{Name: "Slack request signature (X-Slack-Signature)", Page: "/hmac",
-			Why: "v0= and 64 hex digits: HMAC-SHA256 of v0:timestamp:body."})
+	case hasPrefixFold(t, "sha256=") && len(t) == 7+64 && allHex(t[7:]):
+		x.add(90, "GitHub webhook signature (X-Hub-Signature-256)", "/hmac", "sha256= and 64 hex digits: HMAC-SHA256 of the raw request body.")
+	case hasPrefixFold(t, "sha1=") && len(t) == 5+40 && allHex(t[5:]):
+		x.add(85, "GitHub webhook signature, legacy (X-Hub-Signature)", "/hmac", "sha1= and 40 hex digits: HMAC-SHA1 of the raw request body.")
+	case hasPrefixFold(t, "v0=") && len(t) == 3+64 && allHex(t[3:]):
+		x.add(85, "Slack request signature (X-Slack-Signature)", "/hmac", "v0= and 64 hex digits: HMAC-SHA256 of v0:timestamp:body.")
 	case strings.HasPrefix(t, "t=") && strings.Contains(t, ",v1=") && singleToken(t):
-		x.add(90, Candidate{Name: "Stripe-Signature header", Page: "/hmac",
-			Why: "t=<timestamp>,v1=<hex>: HMAC-SHA256 of timestamp.body, in v1."})
+		x.add(90, "Stripe-Signature header", "/hmac", "t=<timestamp>,v1=<hex>: HMAC-SHA256 of timestamp.body, in v1.")
 	}
 }
-
-// ---- colon-separated hex ----
 
 func (x *idents) colonHex(t string) {
-	if !strings.Contains(t, ":") {
-		return
-	}
-	n, ok := colonBytes(t)
-	if !ok {
-		return
-	}
-	switch n {
-	case 6:
-		x.add(45, Candidate{Name: "MAC address", Why: "6 colon-separated bytes."})
-	case 16:
-		x.add(50, Candidate{Name: "MD5 fingerprint", Page: "/keys",
-			Why: "16 colon-separated bytes: an MD5 fingerprint, as older ssh-keygen and some certificate viewers print."})
-	case 20:
-		x.add(60, Candidate{Name: "SHA-1 fingerprint (certificate thumbprint)", Page: "/cert",
-			Why: "20 colon-separated bytes: a certificate's SHA-1 fingerprint, as openssl x509 -fingerprint prints."})
-	case 32:
-		x.add(60, Candidate{Name: "SHA-256 fingerprint", Page: "/cert",
-			Why: "32 colon-separated bytes: a certificate's or a key's SHA-256 fingerprint, as openssl x509 -fingerprint -sha256 prints."})
+	switch n, ok := colonBytes(t); {
+	case !ok || !strings.Contains(t, ":"):
+	case n == 6:
+		x.add(45, "MAC address", "", "6 colon-separated bytes.")
+	case n == 16:
+		x.add(50, "MD5 fingerprint", "/keys", "16 colon-separated bytes: an MD5 fingerprint, as older ssh-keygen and some certificate viewers print.")
+	case n == 20:
+		x.add(60, "SHA-1 fingerprint (certificate thumbprint)", "/cert",
+			"20 colon-separated bytes: a certificate's SHA-1 fingerprint, as openssl x509 -fingerprint prints.")
+	case n == 32:
+		x.add(60, "SHA-256 fingerprint", "/cert",
+			"32 colon-separated bytes: a certificate's or a key's SHA-256 fingerprint, as openssl x509 -fingerprint -sha256 prints.")
 	default:
-		x.add(35, Candidate{Name: "colon-separated hex bytes", Page: "/encode", Why: fmt.Sprintf("%d bytes.", n)})
+		x.add(35, "colon-separated hex bytes", "/encode", fmt.Sprintf("%d bytes.", n))
 	}
 }
 
-// ---- hex digests ----
-
-type digestGuess struct {
-	name, hashcat, page string
-	score               int
-	note                string
-}
-
-// hexDigests: the digests each hex length could be, commonest first. A mode
-// is listed only where it is certain, and the note says when hashcat wants
-// more than the bare hex; a page only where that page computes the algorithm.
-var hexDigests = map[int][]digestGuess{
-	8: {{name: "CRC-32 or Adler-32 checksum", page: "/hash", score: 30}},
-	32: {
-		{name: "MD5", hashcat: "0", page: "/hash", score: 55},
-		{name: "NTLM", hashcat: "1000", score: 50, note: "Windows password hashes"},
-		{name: "MD4", hashcat: "900", score: 30},
-		// No mode: hashcat -m 3000 takes each 16-digit half on its own.
-		{name: "LM", score: 25, note: "legacy Windows password hashes, usually upper case; hashcat -m 3000 takes each 16-digit half separately"},
-	},
-	40: {
-		{name: "SHA-1", hashcat: "100", page: "/hash", score: 55, note: "also the length of a git commit id"},
-		{name: "RIPEMD-160", hashcat: "6000", score: 30},
-	},
-	56: {
-		{name: "SHA-224", hashcat: "1300", page: "/hash", score: 55},
-		{name: "SHA3-224", hashcat: "17300", score: 35},
-	},
-	64: {
-		{name: "SHA-256", hashcat: "1400", page: "/hash", score: 55},
-		{name: "SHA3-256", hashcat: "17400", page: "/hash", score: 35},
-		{name: "Keccak-256", hashcat: "17800", page: "/hash", score: 35, note: "what Ethereum calls SHA3"},
-		{name: "BLAKE2s-256", page: "/hash", score: 30},
-		{name: "BLAKE2b-256", page: "/hash", score: 28},
-		{name: "SHA-512/256", page: "/hash", score: 28},
-	},
-	96: {
-		{name: "SHA-384", hashcat: "10800", page: "/hash", score: 55},
-		{name: "SHA3-384", hashcat: "17500", score: 35},
-	},
-	128: {
-		{name: "SHA-512", hashcat: "1700", page: "/hash", score: 55},
-		{name: "SHA3-512", hashcat: "17600", page: "/hash", score: 35},
-		{name: "BLAKE2b-512", hashcat: "600", page: "/hash", score: 35, note: "hashcat -m 600 wants it prefixed $BLAKE2$"},
-	},
+// hexDigests: commonest first; a mode only where certain, a page only where it computes the algorithm.
+var hexDigests = []struct {
+	n                      int
+	name, mode, page, note string
+	score                  int
+}{
+	{n: 8, name: "CRC-32 or Adler-32 checksum", page: "/hash", score: 30},
+	{n: 32, name: "MD5", mode: "0", page: "/hash", score: 55},
+	{n: 32, name: "NTLM", mode: "1000", score: 50, note: "Windows password hashes"},
+	{n: 32, name: "MD4", mode: "900", score: 30},
+	{n: 32, name: "LM", score: 25, note: "legacy Windows password hashes, usually upper case; hashcat -m 3000 takes each 16-digit half separately"},
+	{n: 40, name: "SHA-1", mode: "100", page: "/hash", score: 55, note: "also the length of a git commit id"},
+	{n: 40, name: "RIPEMD-160", mode: "6000", score: 30},
+	{n: 56, name: "SHA-224", mode: "1300", page: "/hash", score: 55},
+	{n: 56, name: "SHA3-224", mode: "17300", score: 35},
+	{n: 64, name: "SHA-256", mode: "1400", page: "/hash", score: 55},
+	{n: 64, name: "SHA3-256", mode: "17400", page: "/hash", score: 35},
+	{n: 64, name: "Keccak-256", mode: "17800", page: "/hash", score: 35, note: "what Ethereum calls SHA3"},
+	{n: 64, name: "BLAKE2s-256", page: "/hash", score: 30},
+	{n: 64, name: "BLAKE2b-256", page: "/hash", score: 28},
+	{n: 64, name: "SHA-512/256", page: "/hash", score: 28},
+	{n: 96, name: "SHA-384", mode: "10800", page: "/hash", score: 55},
+	{n: 96, name: "SHA3-384", mode: "17500", score: 35},
+	{n: 128, name: "SHA-512", mode: "1700", page: "/hash", score: 55},
+	{n: 128, name: "SHA3-512", mode: "17600", page: "/hash", score: 35},
+	{n: 128, name: "BLAKE2b-512", mode: "600", page: "/hash", score: 35, note: "hashcat -m 600 wants it prefixed $BLAKE2$"},
 }
 
 func (x *idents) hexDigest(t string) {
 	if !allHex(t) {
 		return
 	}
-	for _, g := range hexDigests[len(t)] {
+	for _, g := range hexDigests {
+		if g.n != len(t) {
+			continue
+		}
 		why := fmt.Sprintf("%d hex digits, %d bytes: the output length of %s", len(t), len(t)/2, g.name)
 		if g.note != "" {
 			why += "; " + g.note
@@ -749,30 +550,24 @@ func (x *idents) hexDigest(t string) {
 		if g.page == "/hash" {
 			why += ". To confirm, hash the input on the Hash page and paste this as the expected value"
 		}
-		x.add(g.score, Candidate{Name: g.name + " digest", Why: why + ".", Page: g.page, Hashcat: g.hashcat})
+		x.add(g.score, g.name+" digest", g.page, why+".").Hashcat = g.mode
 	}
 	if len(t) == 32 {
 		if name, why := uuidReading(strings.ToLower(t)); strings.HasPrefix(name, "UUID version") {
-			x.add(25, Candidate{Name: name + ", without dashes", Why: why + ". One random hex string in eight has these bits by chance.", Page: "/random"})
+			x.add(25, name+", without dashes", "/random", why+". One random hex string in eight has these bits by chance.")
 		}
 	}
 }
 
-// ---- digits ----
-
 func (x *idents) digits(t string) {
-	if !allDigits(t) {
-		return
-	}
-	switch len(t) {
-	case 6:
-		x.add(45, Candidate{Name: "one-time code (TOTP or HOTP)", Page: "/totp", Why: "6 digits, the usual length of an authenticator code."})
-	case 7, 8:
-		x.add(30, Candidate{Name: "one-time code (TOTP or HOTP)", Page: "/totp", Why: fmt.Sprintf("%d digits: some authenticators make codes this long.", len(t))})
+	switch {
+	case !allDigits(t):
+	case len(t) == 6:
+		x.add(45, "one-time code (TOTP or HOTP)", "/totp", "6 digits, the usual length of an authenticator code.")
+	case len(t) == 7 || len(t) == 8:
+		x.add(30, "one-time code (TOTP or HOTP)", "/totp", fmt.Sprintf("%d digits: some authenticators make codes this long.", len(t)))
 	}
 }
-
-// ---- hex bytes ----
 
 func (x *idents) hexBytes(t string) {
 	h := strings.TrimPrefix(strings.TrimPrefix(t, "0x"), "0X")
@@ -780,118 +575,80 @@ func (x *idents) hexBytes(t string) {
 		return
 	}
 	b, _ := hex.DecodeString(h)
-	c := Candidate{Name: "hex-encoded bytes", Page: "/encode"}
-	score, why := 22, fmt.Sprintf("%d bytes", len(b))
-	if desc, page := recognise(b); desc != "" {
-		score, why, c.Page = 60, fmt.Sprintf("%d bytes, and they are %s", len(b), desc), page
+	score, page, why := 22, "/encode", fmt.Sprintf("%d bytes", len(b))
+	if desc, p := recognise(b); desc != "" {
+		score, page, why = 60, p, fmt.Sprintf("%d bytes, and they are %s", len(b), desc)
 	} else if isText(b) {
 		score, why = 50, fmt.Sprintf("%d bytes, and they are printable UTF-8 text", len(b))
-	} else if note := sizeNote(len(b)); note != "" {
-		why += ", " + note
+	} else if note := identifySizes[len(b)]; note != "" {
+		why += ", the size of " + note
 	}
-	c.Why = why + "."
-	c.Preview, c.PreviewHex = preview(b)
-	if c.PreviewHex {
-		c.Preview = "" // it would only repeat the input
+	c := x.add(score, "hex-encoded bytes", page, why+".")
+	if p, isHex := preview(b); !isHex { // a hex preview would only repeat the input
+		c.Preview = p
 	}
-	x.add(score, c)
 }
 
-// ---- base64 ----
-
 func (x *idents) base64(t string) {
-	// Wrapped base64 has line breaks, never spaces.
-	if strings.ContainsAny(t, " \t") {
+	if strings.ContainsAny(t, " \t") { // wrapped base64 has line breaks, never spaces
 		return
 	}
 	c, _ := stripSpace(t)
-	if len(c) < 8 {
+	if len(c) < 8 || !identifyOnly(c, alnum+"+/-_=") {
 		return
-	}
-	for i := 0; i < len(c); i++ {
-		ch := c[i]
-		if !(ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || strings.IndexByte("+/-_=", ch) >= 0) {
-			return
-		}
 	}
 	b, variant, err := decodeBase64Any(c)
 	if err != nil || len(b) == 0 {
 		return
 	}
-	// Hex digits and plain numbers are valid base64 too; that reading is only
-	// worth a line when it decodes to something recognisable.
+	// Hex digits and plain numbers are base64 too: worth a line only if they decode to something.
 	encodedLooking := allHex(c) || allDigits(c)
-	cand := Candidate{Name: variant, Page: "/encode"}
-	var score int
-	var why string
-	if desc, page := recognise(b); desc != "" {
-		score, why, cand.Page = 65, fmt.Sprintf("Decodes to %d bytes, and they are %s", len(b), desc), page
-	} else if isText(b) {
+	score, page, why := 20, "/encode", fmt.Sprintf("Decodes to %d bytes of binary", len(b))
+	switch desc, p := recognise(b); {
+	case desc != "":
+		score, page, why = 65, p, fmt.Sprintf("Decodes to %d bytes, and they are %s", len(b), desc)
+	case isText(b):
 		score, why = 55, fmt.Sprintf("Decodes to %d bytes of printable UTF-8 text", len(b))
 		if encodedLooking {
 			score = 40
 		}
-	} else if encodedLooking {
+	case encodedLooking:
 		return
-	} else {
-		score, why = 20, fmt.Sprintf("Decodes to %d bytes of binary", len(b))
+	default:
 		if strings.HasSuffix(c, "=") || strings.ContainsAny(c, "+/-_") {
 			score = 28 // characters only base64 uses
 		}
-		if note := sizeNote(len(b)); note != "" {
-			why += ", " + note
+		if note := identifySizes[len(b)]; note != "" {
+			why += ", the size of " + note
 		}
 	}
-	cand.Why = why + "."
+	cand := x.add(score, variant, page, why+".")
 	cand.Preview, cand.PreviewHex = preview(b)
-	x.add(score, cand)
 }
 
-// ---- base32 ----
-
 func (x *idents) base32(t string) {
-	// TOTP secrets come grouped in fours; anything else with spaces is prose.
 	groups := strings.Fields(t)
-	for i, g := range groups {
-		if len(groups) > 1 && i < len(groups)-1 && len(g) != 4 {
-			return
-		}
+	if slices.ContainsFunc(groups[:len(groups)-1], func(g string) bool { return len(g) != 4 }) {
+		return // TOTP secrets come grouped in fours; other spaces are prose
 	}
 	c := strings.TrimRight(strings.Join(groups, ""), "=")
-	if len(c) < 16 || c != strings.ToUpper(c) && c != strings.ToLower(c) {
+	if len(c) < 16 || c != strings.ToUpper(c) && c != strings.ToLower(c) ||
+		!identifyOnly(c, letters+"234567") || !strings.ContainsAny(c, "234567") {
 		return
 	}
-	digit := false
-	for i := 0; i < len(c); i++ {
-		ch := c[i] &^ 0x20 // upper-case a letter; digits are checked before this matters
-		switch {
-		case c[i] >= '2' && c[i] <= '7':
-			digit = true
-		case ch >= 'A' && ch <= 'Z':
-		default:
-			return
-		}
-	}
-	if !digit {
-		return
-	}
-	b, err := DecodeBytes(c, EncBase32)
+	b, err := decodeBase32(c)
 	if err != nil || len(b) == 0 {
 		return
 	}
 	score := 30
-	switch len(b) {
-	case 10, 16, 20, 32, 64:
+	if slices.Contains([]int{10, 16, 20, 32, 64}, len(b)) {
 		score = 45 // the usual TOTP secret sizes
 	}
-	x.add(score, Candidate{Name: "base32", Page: "/totp",
-		Why: fmt.Sprintf("Only A to Z and 2 to 7, decoding to %d bytes: base32 is how authenticator secrets are written.", len(b))})
+	x.add(score, "base32", "/totp", fmt.Sprintf("Only A to Z and 2 to 7, decoding to %d bytes: base32 is how authenticator secrets are written.", len(b)))
 }
 
-// ---- plain text ----
-
 func (x *idents) text(t string) {
-	if x.any(70) {
+	if slices.ContainsFunc(x.c, func(c Candidate) bool { return c.score >= 70 }) {
 		return
 	}
 	score := 15 // one token in an encoding's alphabet: probably not prose
@@ -900,39 +657,33 @@ func (x *idents) text(t string) {
 		score = 38
 	case strings.IndexFunc(t, func(r rune) bool { return !unicode.IsLetter(r) }) < 0:
 		score = 25 // a single word
-	case strings.IndexFunc(t, func(r rune) bool {
-		return !(r < 0x80 && (unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("+/-_=", r)))
-	}) >= 0:
+	case !identifyOnly(t, alnum+"+/-_="):
 		score = 30
 	}
 	why := "Matches none of the formats this page knows."
 	if len(x.c) > 0 {
 		why = "If none of the readings above fits, it is text: the Encode page shows its bytes, and the Hash page hashes it."
 	}
-	x.add(score, Candidate{Name: fmt.Sprintf("plain text (%d characters)", utf8.RuneCountInString(t)), Why: why, Page: "/encode"})
+	x.add(score, fmt.Sprintf("plain text (%d characters)", utf8.RuneCountInString(t)), "/encode", why)
 }
 
-// ---- decoded bytes ----
-
-// recognise says what decoded bytes are, when they are something this site
-// reads, and which page reads them.
+// recognise says what decoded bytes are when a page here reads them, and which page.
 func recognise(b []byte) (desc, page string) {
 	s := strings.TrimSpace(string(b))
 	switch {
 	case len(b) >= 2 && b[0] == 0x1f && b[1] == 0x8b:
 		return "gzip-compressed data", ""
 	case len(b) > 4 && b[0] == 0x30:
-		if _, err := x509.ParseCertificate(b); err == nil {
-			return "a DER X.509 certificate", "/cert"
-		}
-		if _, err := x509.ParseCertificateRequest(b); err == nil {
-			return "a DER certificate signing request", "/cert"
-		}
-		if _, err := x509.ParsePKIXPublicKey(b); err == nil {
-			return "a DER public key (SPKI)", "/keys"
-		}
-		if _, err := x509.ParsePKCS8PrivateKey(b); err == nil {
-			return "a DER private key (PKCS#8)", "/keys"
+		for _, d := range [][2]string{
+			{"CERTIFICATE", "a DER X.509 certificate"}, {"CERTIFICATE REQUEST", "a DER certificate signing request"},
+			{"PUBLIC KEY", "a DER public key (SPKI)"}, {"PRIVATE KEY", "a DER private key (PKCS#8)"},
+		} {
+			if d[0] == "PRIVATE KEY" && len(b) > maxPrivateKeyDER {
+				continue
+			}
+			if _, err := pemKinds[d[0]].parse(b); err == nil {
+				return d[1], pemKinds[d[0]].page
+			}
 		}
 		return "", ""
 	case !utf8.Valid(b):
@@ -962,43 +713,25 @@ func isText(b []byte) bool {
 	return utf8.Valid(b) && printable(string(b)) && strings.IndexFunc(string(b), unicode.IsLetter) >= 0
 }
 
-// sizeNote says what a binary value of n bytes often is.
-func sizeNote(n int) string {
-	switch n {
-	case 16:
-		return "the size of an AES-128 key, an MD5 digest or a UUID"
-	case 20:
-		return "the size of a SHA-1 digest"
-	case 24:
-		return "the size of an AES-192 key"
-	case 32:
-		return "the size of an AES-256 key or a SHA-256 digest"
-	case 48:
-		return "the size of a SHA-384 digest"
-	case 64:
-		return "the size of a SHA-512 digest"
-	}
-	return ""
+// identifySizes: what a binary value of each size often is.
+var identifySizes = map[int]string{
+	16: "an AES-128 key, an MD5 digest or a UUID", 20: "a SHA-1 digest", 24: "an AES-192 key",
+	32: "an AES-256 key or a SHA-256 digest", 48: "a SHA-384 digest", 64: "a SHA-512 digest",
 }
 
 // preview is the start of b: up to 80 characters of text, or 32 bytes as hex.
 func preview(b []byte) (string, bool) {
-	t := textOf(b)
-	if !t.IsText {
-		if len(b) > 32 {
-			return hex.EncodeToString(b[:32]) + "…", true
+	if t := textOf(b); t.IsText {
+		n := 0
+		for i := range t.Value {
+			if n++; n > 80 {
+				return t.Value[:i] + "…", false
+			}
 		}
-		return t.Hex, true
-	}
-	if utf8.RuneCountInString(t.Value) <= 80 {
 		return t.Value, false
 	}
-	n := 0
-	for i := range t.Value {
-		if n == 80 {
-			return t.Value[:i] + "…", false
-		}
-		n++
+	if len(b) > 32 {
+		return hex.EncodeToString(b[:32]) + "…", true
 	}
-	return t.Value, false
+	return hex.EncodeToString(b), true
 }

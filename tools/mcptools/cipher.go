@@ -105,7 +105,13 @@ func cipherSpecs(d Deps) ([]toolSpec, error) {
 			limiter:  lim.Pure,
 			narrow:   "Pass less input.",
 			whole:    true,
-			add:      handle(cipherRun(op)),
+			add: handle(func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
+				in, err := cipherInput(op, args)
+				if err != nil {
+					return nil, err
+				}
+				return ciphertools.Run(op, in)
+			}),
 		}
 		if op.Heavy {
 			s.deadline, s.limiter, s.cap = heavyDeadline, lim.Heavy, lim.HeavyCap
@@ -121,28 +127,16 @@ func cipherSpecs(d Deps) ([]toolSpec, error) {
 	return specs, nil
 }
 
-func cipherRun(op ciphertools.Op) func(context.Context, *mcp.CallToolRequest, map[string]any) (any, error) {
-	return func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
-		in, err := cipherInput(op, args)
-		if err != nil {
-			return nil, err
-		}
-		return ciphertools.Run(op, in)
-	}
-}
-
 // cipherInput is the Input a form post would have made: lists joined with commas.
 func cipherInput(op ciphertools.Op, args map[string]any) (ciphertools.Input, error) {
 	for _, f := range op.Fields {
-		list, ok := args[f.Name].([]any)
-		if f.Kind != ciphertools.KindList || !ok {
-			continue
+		if list, ok := args[f.Name].([]any); ok && f.Kind == ciphertools.KindList {
+			parts := make([]string, len(list))
+			for i, v := range list {
+				parts[i] = fmt.Sprint(v)
+			}
+			args[f.Name] = strings.Join(parts, ",")
 		}
-		parts := make([]string, len(list))
-		for i, v := range list {
-			parts[i] = fmt.Sprint(v)
-		}
-		args[f.Name] = strings.Join(parts, ",")
 	}
 	return ciphertools.InputFromJSON(args)
 }

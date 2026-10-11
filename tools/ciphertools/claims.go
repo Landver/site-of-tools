@@ -2,6 +2,7 @@ package ciphertools
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,9 +12,7 @@ import (
 	"time"
 )
 
-// claimMeanings: registered JWT claims (RFC 7519 §4.1), the common OIDC ones,
-// and the handful of vendor claims that turn up in almost every access token.
-// jwt.ms's claims tab is the prior art; this list is vendor-neutral on purpose.
+// claimMeanings: registered claims (RFC 7519 §4.1), common OIDC ones and the vendor claims most access tokens carry.
 var claimMeanings = map[string]string{
 	"iss":                "Issuer: who minted the token",
 	"sub":                "Subject: who the token is about, usually a user id",
@@ -75,9 +74,7 @@ type member struct {
 	Raw json.RawMessage
 }
 
-// orderedObject reads a JSON object keeping key order. encoding/json into a
-// map sorts keys, and a claims table in a different order from the token is
-// a table nobody can check against what they pasted.
+// orderedObject reads a JSON object keeping key order, so the claims table matches what was pasted.
 func orderedObject(data []byte) ([]member, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -104,15 +101,13 @@ func orderedObject(data []byte) ([]member, error) {
 	if _, err := dec.Token(); err != nil { // closing brace
 		return nil, jsonError(err)
 	}
-	if dec.More() {
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) { // dec.More() misses a stray '}' or ']'
 		return nil, errors.New("trailing data after the JSON object")
 	}
 	return out, nil
 }
 
-// jsonError puts encoding/json's errors in the visitor's terms: its type errors
-// name Go types ("cannot unmarshal number into Go struct field JWK.kty of type
-// string"), and a document cut short is a bare "EOF".
+// jsonError rewords encoding/json errors that name Go types or end in a bare "EOF".
 func jsonError(err error) error {
 	var te *json.UnmarshalTypeError
 	switch {
@@ -127,46 +122,32 @@ func jsonError(err error) error {
 }
 
 func jsonKind(t reflect.Type) string {
-	switch t.Kind() {
-	case reflect.String:
-		return "a string"
-	case reflect.Slice, reflect.Array:
-		return "an array"
-	case reflect.Struct, reflect.Map:
-		return "an object"
-	case reflect.Bool:
-		return "true or false"
-	}
-	return "a number"
+	return cmp.Or(map[reflect.Kind]string{reflect.String: "a string", reflect.Slice: "an array", reflect.Array: "an array",
+		reflect.Struct: "an object", reflect.Map: "an object", reflect.Bool: "true or false"}[t.Kind()], "a number")
 }
 
-// display renders a raw JSON value for a table cell: strings unquoted, the rest
-// compact JSON.
+// display is a table cell: strings unquoted, the rest compact JSON.
 func display(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return s
 	}
 	var b bytes.Buffer
-	if json.Compact(&b, raw) == nil {
-		return b.String()
-	}
-	return string(raw)
+	_ = json.Compact(&b, raw) // raw came from orderedObject, so it is valid
+	return b.String()
 }
 
-// numericDate reads a NumericDate (RFC 7519 §2): seconds since the epoch,
-// fractions allowed. ok=false for anything else, including the strings sloppy
-// issuers emit — shown, never crashed on.
+// numericDate reads seconds since the epoch, fractions allowed (RFC 7519 §2); ok=false for anything else.
 func numericDate(raw json.RawMessage) (time.Time, bool) {
 	var f float64
 	if json.Unmarshal(raw, &f) != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return time.Time{}, false
 	}
-	// Millisecond timestamps are the classic mistake; flagged by the caller,
-	// still converted literally here.
 	sec, frac := math.Modf(f)
 	return time.Unix(int64(sec), int64(frac*1e9)).UTC(), true
 }
+
+func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
 
 // relative: "in 5 minutes" / "3 hours ago".
 func relative(t, now time.Time) string {
@@ -179,21 +160,17 @@ func relative(t, now time.Time) string {
 
 func humanDuration(d time.Duration) string {
 	s := int64(d.Round(time.Second) / time.Second)
-	unit := func(n int64, w string) string {
-		if n == 1 {
-			return "1 " + w
+	n, unit := s, "second"
+	for _, u := range []struct {
+		secs int64
+		name string
+	}{{60, "minute"}, {3600, "hour"}, {86400, "day"}, {86400 * 365, "year"}} {
+		if s >= u.secs {
+			n, unit = s/u.secs, u.name
 		}
-		return fmt.Sprintf("%d %ss", n, w)
 	}
-	switch {
-	case s < 60:
-		return unit(s, "second")
-	case s < 3600:
-		return unit(s/60, "minute")
-	case s < 86400:
-		return unit(s/3600, "hour")
-	case s < 86400*365:
-		return unit(s/86400, "day")
+	if n == 1 {
+		return "1 " + unit
 	}
-	return unit(s/(86400*365), "year")
+	return fmt.Sprintf("%d %ss", n, unit)
 }

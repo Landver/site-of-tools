@@ -4,21 +4,21 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
-	"encoding/pem"
+	"encoding/json"
 	"math/big"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// fakeRSA builds an RSA private key of any size in milliseconds, from odd
-// numbers that aren't prime. Go's key validation multiplies; it doesn't test
-// primality, so it accepts such a key, and every signature with it costs the
-// full price. That is what makes an oversized key cheap to send and why the
-// size caps must hold before any work starts.
+// fakeRSA builds an RSA key of any size in milliseconds from odd non-primes: Go's validation
+// doesn't test primality, so an oversized key is cheap to send and the caps must come first.
 func fakeRSA(t *testing.T, bits int) *rsa.PrivateKey {
 	t.Helper()
 	one, e := big.NewInt(1), big.NewInt(65537)
@@ -55,27 +55,15 @@ func fakeRSA(t *testing.T, bits int) *rsa.PrivateKey {
 }
 
 func rsaPrivatePEM(k *rsa.PrivateKey) string {
-	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}))
+	return pemBlock("RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(k))
 }
 
-func rsaPublicPEM(t *testing.T, k *rsa.PublicKey) string {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(k)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
-
-// Go puts no cap on an RSA modulus, and verifying grows with its square,
-// signing with its cube: RSA-32768 takes seconds to sign with, a key filling
-// the request body minutes to verify. Every key read from input stops at
-// crypto/tls's 8192 bits, before any of that work.
+// Every key read from input stops at crypto/tls's 8192 bits, before the work that grows with it.
 func TestRSAKeyAboveLimitRefused(t *testing.T) {
 	k := fakeRSA(t, 10240)
 	b64 := base64.RawURLEncoding.EncodeToString
 	for name, in := range map[string]string{
-		"SPKI PEM":  rsaPublicPEM(t, &k.PublicKey),
+		"SPKI PEM":  spkiPEM(t, &k.PublicKey),
 		"PKCS#1":    rsaPrivatePEM(k),
 		"JWK":       `{"kty":"RSA","e":"AQAB","n":"` + b64(k.N.Bytes()) + `"}`,
 		"JWKS":      `{"keys":[{"kty":"RSA","e":"AQAB","n":"` + b64(k.N.Bytes()) + `"}]}`,
@@ -93,9 +81,7 @@ func TestRSAKeyAboveLimitRefused(t *testing.T) {
 	}
 }
 
-// Go validates an RSA private key as it parses it, and that is quadratic in
-// the key's size, so a bit cap checked afterwards would come too late: a block
-// larger than any real key is refused unparsed.
+// Go validates an RSA key while parsing it, so a block larger than any real key is refused unparsed.
 func TestOversizedPrivateKeyNotParsed(t *testing.T) {
 	huge := rsaPrivatePEM(fakeRSA(t, 32768)) // ~18 KB of DER
 	_, err := ciphertools.ParseKeys(huge)
@@ -109,14 +95,10 @@ func TestOversizedPrivateKeyNotParsed(t *testing.T) {
 	}
 }
 
-// The certificate page checks signatures with each certificate's key, so the
-// cap applies to the keys certificates carry.
+// The certificate page checks signatures with each certificate's key, so the cap applies there too.
 func TestCertWithOversizedRSAKeyRefused(t *testing.T) {
 	k := fakeRSA(t, 10240)
-	_, err := runOp(t, "cert", url.Values{"cert": {pemOf(rsaCert(t, &k.PublicKey))}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "8,192") {
-		t.Errorf("cert: err = %v, want the 8,192-bit limit named", err)
-	}
+	wantErr(t, "cert", url.Values{"cert": {pemOf(rsaCert(t, &k.PublicKey))}}, "8,192")
 }
 
 // rsaCert is a certificate for pub, signed by a throwaway EC CA.
@@ -127,4 +109,38 @@ func rsaCert(t *testing.T, pub *rsa.PublicKey) []byte {
 	_, caCert := mustCert(t, caT, caT, &ca.PublicKey, ca)
 	der, _ := mustCert(t, leafTemplate(), caCert, pub, ca)
 	return der
+}
+
+func oddBits(bits int) *big.Int {
+	n, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), uint(bits)))
+	return n.SetBit(n.SetBit(n, bits-1, 1), 0, 1)
+}
+
+// Go validates an RSA key while parsing it in super-linear time, so oversized fakes must be refused unparsed.
+func TestOversizedRSAPartsRefusedQuickly(t *testing.T) {
+	p, q := oddBits(1<<19), oddBits(1<<19)
+	pkcs1, _ := asn1.Marshal(struct {
+		V                     int
+		N                     *big.Int
+		E                     int
+		D, P, Q, Dp, Dq, Qinv *big.Int
+	}{0, new(big.Int).Mul(p, q), 65537, oddBits(1 << 20), p, q, oddBits(1 << 19), oddBits(1 << 19), oddBits(1 << 19)})
+	pkcs8, _ := asn1.Marshal(struct {
+		V    int
+		Algo pkix.AlgorithmIdentifier
+		Key  []byte
+	}{0, pkix.AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}, Parameters: asn1.RawValue{Tag: 5}}, pkcs1})
+	start := time.Now()
+	r, err := ciphertools.Identify(base64.StdEncoding.EncodeToString(pkcs8))
+	if err != nil || time.Since(start) > 2*time.Second || len(r.Candidates) > 0 && strings.Contains(r.Candidates[0].Why, "private key") {
+		t.Errorf("identify of %d bytes of fake PKCS#8: %v after %v", len(pkcs8), err, time.Since(start))
+	}
+
+	b64u := func(x *big.Int) string { return base64.RawURLEncoding.EncodeToString(x.Bytes()) }
+	jwk, _ := json.Marshal(map[string]string{"kty": "RSA", "n": b64u(oddBits(2048)), "e": "AQAB", "d": b64u(oddBits(2047)), "p": b64u(oddBits(1 << 20)), "q": b64u(oddBits(1024))})
+	start = time.Now()
+	wantErr(t, "keys-inspect", url.Values{"key": {string(jwk)}}, "a prime is longer than the modulus")
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("keys-inspect took %v", d)
+	}
 }

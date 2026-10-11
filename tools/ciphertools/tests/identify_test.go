@@ -3,11 +3,9 @@ package tests
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,8 +36,7 @@ func top(t *testing.T, s string) ciphertools.Candidate {
 	return c[0]
 }
 
-// named is the candidate with exactly this name ("LM digest" is inside
-// "NTLM digest").
+// named matches the whole name: "LM digest" is inside "NTLM digest".
 func named(cs []ciphertools.Candidate, name string) (ciphertools.Candidate, int) {
 	for i, c := range cs {
 		if c.Name == name {
@@ -63,8 +60,6 @@ func TestIdentifyRecognisers(t *testing.T) {
 	_, edPriv, _ := ed25519.GenerateKey(rand.Reader)
 	sshPub, _ := ssh.NewPublicKey(edPriv.Public())
 	sshLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " alice@laptop"
-	spki, _ := x509.MarshalPKIXPublicKey(edPriv.Public())
-	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spki}))
 	p := newPKI(t)
 	bc, _ := bcrypt.GenerateFromPassword([]byte("pw"), 4)
 	jwe := b64u(`{"alg":"RSA-OAEP","enc":"A256GCM"}`) + ".OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg.48V1_ALb6US04U3b.5eym8TW_c8SuK0ltJ3rpYIzOeDQz7TALvtu6UG9oMo4vpzs9tX_EFShS8iB7j6jiSdiwkIr3ajwQzaBtQD_A.XFBoMYUZodetZdvTiFvSkQ"
@@ -78,7 +73,7 @@ func TestIdentifyRecognisers(t *testing.T) {
 		{pemOf(p.leaf), "X.509 certificate", "high", "/cert"},
 		{pemOf(p.leaf, p.inter, p.root), "X.509 certificate chain (3 certificates)", "high", "/cert"},
 		{pkcs8PEM(t, edPriv), "private key (PKCS#8)", "high", "/keys"},
-		{pubPEM, "public key (SPKI)", "high", "/keys"},
+		{spkiPEM(t, edPriv.Public()), "public key (SPKI)", "high", "/keys"},
 		{sshLine, "OpenSSH public key (Ed25519", "high", "/keys"},
 		{ssh.FingerprintSHA256(sshPub), "OpenSSH key fingerprint (SHA-256)", "high", "/keys"},
 		{string(bc), "bcrypt password hash", "high", "/password"},
@@ -124,10 +119,7 @@ func TestIdentifyRecognisers(t *testing.T) {
 	}
 }
 
-func b64u(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
-
-// 32 hex digits is MD5, NTLM, MD4 or LM: all listed, MD5 first, each with the
-// hashcat mode it certainly has, and never one verdict.
+// 32 hex digits is MD5, NTLM, MD4 or LM: all listed, MD5 first, never one verdict.
 func TestIdentifyHexDigestsAreAmbiguous(t *testing.T) {
 	for _, c := range []struct {
 		len   int
@@ -188,8 +180,7 @@ func TestIdentifyRankingOrder(t *testing.T) {
 	if _, i := find(cs, "base64"); i <= 0 {
 		t.Errorf("the base64 reading is missing: %+v", cs)
 	}
-	// A JWT is read as a JWT, not as plain text: the fallback only comes when
-	// nothing is certain.
+	// The plain-text fallback only comes when nothing is certain.
 	if _, i := find(identify(t, jwtioToken), "plain text"); i >= 0 {
 		t.Error("plain text listed beside a certain JWT")
 	}
@@ -203,8 +194,6 @@ func TestIdentifyRankingOrder(t *testing.T) {
 	}
 }
 
-// Decoded bytes are looked at again: base64 of a JWT, of JSON, of a DER
-// certificate, and hex of a DER certificate.
 func TestIdentifyLooksInsideEncodings(t *testing.T) {
 	p := newPKI(t)
 	for _, c := range []struct {
@@ -222,6 +211,9 @@ func TestIdentifyLooksInsideEncodings(t *testing.T) {
 			t.Errorf("%.40q: %+v, want why %q page %s", c.in, got, c.why, c.page)
 		}
 	}
+	if got := top(t, "300102030405"); got.Name != "hex-encoded bytes" || got.Why != "6 bytes." {
+		t.Errorf("DER-shaped junk taken for DER: %+v", got)
+	}
 	// The preview shows the start of the decoded text.
 	got := top(t, base64.StdEncoding.EncodeToString([]byte(`{"user":"alice"}`)))
 	if got.Preview != `{"user":"alice"}` || got.PreviewHex {
@@ -235,10 +227,14 @@ func TestIdentifyLooksInsideEncodings(t *testing.T) {
 	if !bin.PreviewHex || !strings.HasSuffix(bin.Preview, "…") {
 		t.Errorf("binary preview %+v", bin)
 	}
+	// Hex input gets no hex preview of itself, so no flag saying the preview is hex.
+	hexIn, _ := named(identify(t, "deadbeefdeadbeef"), "hex-encoded bytes")
+	if j, _ := json.Marshal(hexIn); hexIn.Name == "" || strings.Contains(string(j), "preview") {
+		t.Errorf("hex input: %s", j)
+	}
 }
 
-// Broken versions of each shape are named as broken, not mistaken for
-// something else or dropped.
+// Broken shapes are named as broken, not mistaken for something else or dropped.
 func TestIdentifyDamagedShapes(t *testing.T) {
 	for in, want := range map[string]string{
 		"-----BEGIN CERTIFICATE-----\nMIIB\n":           "PEM block that doesn't decode (CERTIFICATE)",
@@ -257,8 +253,7 @@ func TestIdentifyDamagedShapes(t *testing.T) {
 	}
 }
 
-// Nothing panics: empty, garbage, binary, huge. Identify is called directly,
-// so a panic fails the test instead of being turned into an error by Run.
+// Identify, not Run, so a panic fails the test instead of becoming an error.
 func TestIdentifyNeverPanics(t *testing.T) {
 	for _, in := range []string{"", "   \n\t "} {
 		if _, err := ciphertools.Identify(in); err == nil || !strings.Contains(err.Error(), "nothing to identify") {
@@ -307,11 +302,7 @@ func TestIdentifyNeverPanics(t *testing.T) {
 
 func TestRenderIdentify(t *testing.T) {
 	html := render(t, "identify", url.Values{"text": {"5f4dcc3b5aa765d61d8327deb882cf99"}})
-	for _, want := range []string{"MD5 digest", "NTLM digest", "-m 1000", `href="/hash"`, "medium confidence"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("fragment lacks %q", want)
-		}
-	}
+	holds(t, "fragment", html, "MD5 digest", "NTLM digest", "-m 1000", `href="/hash"`, "medium confidence")
 	html = render(t, "identify", url.Values{"text": {base64.StdEncoding.EncodeToString([]byte("<script>alert(1)</script> text"))}})
 	if strings.Contains(html, "<script>alert") {
 		t.Error("decoded preview reached the fragment unescaped")
@@ -332,31 +323,28 @@ func TestIdentifyPageAndAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Candidates) < 3 || got.Candidates[0].Hashcat != "0" {
 		t.Fatalf("code %d: %s", rec.Code, rec.Body)
 	}
-	rec = do(t, e, http.MethodPost, "/identify", url.Values{"text": {jwtioToken}}.Encode(), form, asBrowser)
-	if html := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(html, "JWT (signed, JWS)") || !strings.Contains(html, "<!DOCTYPE html>") {
-		t.Fatalf("no-JS page: code %d", rec.Code)
-	}
+	noJSPage(t, e, "/identify", url.Values{"text": {jwtioToken}}.Encode(), form, "JWT (signed, JWS)")
 	page := do(t, e, http.MethodGet, "/identify", "", "", asBrowser).Body.String()
 	if !strings.Contains(page, `data-cipher="identify" data-live`) {
 		t.Error("identify form isn't live")
 	}
 }
 
-// Each "Open it on the … page" button carries the value to the field that reads
-// it, so the visitor never pastes twice. A candidate with a page but no field
-// (a fingerprint, a UUID) keeps a plain link.
+// The page button carries the value to the field that reads it; a fingerprint or UUID has none.
 func TestIdentifyCarryTargets(t *testing.T) {
 	for in, want := range map[string]struct{ page, field, set string }{
 		jwtioToken: {"/", "token", ""},
 		"$2b$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW":     {"/password", "hash", ""},
 		"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==":                               {"/encode", "header", ""},
 		"otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP": {"/totp", "secret", ""},
+		strings.Repeat("AB:", 31) + "AB":                                   {"/cert", "", ""},
+		"f47ac10b-58cc-4372-a567-0e02b2c3d479":                             {"/random", "", ""},
+		"123456":                                                           {"/totp", "code", ""},
+		b64u("??>>??>> hello there, text"):                                 {"/encode", "text", "from=base64url"},
+		base64.StdEncoding.EncodeToString([]byte("hello, ordinary text!")): {"/encode", "text", "from=base64"},
+		"0x" + hex.EncodeToString([]byte("hello world")):                   {"/encode", "text", "from=hex"},
 	} {
-		r, err := ciphertools.Identify(in)
-		if err != nil {
-			t.Fatal(err)
-		}
-		c := r.Candidates[0]
+		c := top(t, in)
 		if c.Page != want.page || c.Field != want.field || c.Set != want.set {
 			t.Errorf("%.30q: top candidate %q -> page %q field %q set %q, want %+v", in, c.Name, c.Page, c.Field, c.Set, want)
 		}

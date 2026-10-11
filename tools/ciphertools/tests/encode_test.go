@@ -9,17 +9,12 @@ import (
 	"testing/fstest"
 
 	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
 func encodeOf(t *testing.T, from, text string) *ciphertools.Encoded {
 	t.Helper()
-	res, err := runOp(t, "encode", url.Values{"text": {text}, "from": {from}}, nil)
-	if err != nil {
-		t.Fatalf("encode %s %q: %v", from, text, err)
-	}
-	return res.(*ciphertools.Encoded)
+	return opOf[ciphertools.Encoded](t, "encode", url.Values{"text": {text}, "from": {from}}, nil)
 }
 
 // RFC 4648 §10 test vectors.
@@ -58,8 +53,7 @@ func TestEncodeRoundTrips(t *testing.T) {
 		if got := encodeOf(t, "hex", e.HexColons); got.Hex != e.Hex {
 			t.Errorf("%q via colon hex: %s", in, got.Hex)
 		}
-		// base64 output is accepted as base64url input and vice versa: the
-		// alphabet decides, and the variant is reported.
+		// The alphabet decides, so base64 output reads back as base64url input.
 		if got := encodeOf(t, "base64url", e.Base64); got.Hex != e.Hex {
 			t.Errorf("%q: padded std base64 through base64url: %s", in, got.Hex)
 		}
@@ -84,8 +78,7 @@ func TestEncodeNamesBase64Variant(t *testing.T) {
 	}
 }
 
-// Binary that isn't UTF-8 is never forced into text, and the page says where
-// it stopped being UTF-8.
+// Binary that isn't UTF-8 is never forced into text, and the note says where it stopped being UTF-8.
 func TestEncodeNonUTF8(t *testing.T) {
 	e := encodeOf(t, "hex", "61ff62")
 	if e.UTF8 || e.Text != "" || !strings.Contains(e.TextNote, "offset 1") || !strings.Contains(e.TextNote, "0xff") {
@@ -106,13 +99,29 @@ func TestEncodeInvalidInputNamesOffset(t *testing.T) {
 		{"base64", "ab+c-d", "mixes"},
 		{"base32", "MZX1", "offset 3"},
 	} {
-		_, err := runOp(t, "encode", url.Values{"text": {c.text}, "from": {c.from}}, nil)
-		if err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s %q: err = %v, want %q", c.from, c.text, err, c.want)
-		}
+		wantErr(t, "encode", url.Values{"text": {c.text}, "from": {c.from}}, c.want)
 	}
-	if _, err := runOp(t, "encode", url.Values{"text": {""}}, nil); err == nil {
-		t.Error("empty input: no error")
+	wantErr(t, "encode", url.Values{"text": {""}}, "")
+}
+
+// A bad non-ASCII character is named as typed, at its byte offset in the pasted text.
+func TestEncodeInvalidNonASCIINamesCharacter(t *testing.T) {
+	for _, c := range []struct{ from, text, want string }{
+		{"hex", "abï", `input: not hex: 'ï' at offset 2`},
+		{"hex", "0xab ☃", `input: not hex: '☃' at offset 5`},
+		{"hex", "ab\xffcd", `input: not hex: '\xff' at offset 2`},
+		{"base64", "YWïj", `input: not base64 (standard, unpadded): 'ï' at offset 2`},
+		{"base64", "YW\n☃j", `input: not base64 (standard, unpadded): '☃' at offset 3`},
+		{"base64", "YW\xffj", `input: not base64 (standard, unpadded): '\xff' at offset 2`},
+		{"base32", "naïve ☃", `input: not base32: 'ï' at offset 2`},
+		{"base32", "ıA1", `input: not base32: '1' at offset 3`},
+		{"base32", "ıa ☃", `input: not base32: '☃' at offset 4`},
+		{"base32", "MZ\xffX", `input: not base32: '\xff' at offset 2`},
+	} {
+		_, err := runOp(t, "encode", url.Values{"text": {c.text}, "from": {c.from}}, nil)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%s %q: err = %v, want %s", c.from, c.text, err, c.want)
+		}
 	}
 }
 
@@ -172,20 +181,14 @@ func TestBasicAuthRefusals(t *testing.T) {
 
 // The op picks build or decode from mode, or from which fields are filled.
 func TestBasicOpModes(t *testing.T) {
-	res, err := runOp(t, "basic", url.Values{"user": {"Aladdin"}, "password": {"open sesame"}}, nil)
-	if err != nil || res.(*ciphertools.BasicAuth).Mode != "build" {
-		t.Fatalf("build: %+v %v", res, err)
+	if b := opOf[ciphertools.BasicAuth](t, "basic", url.Values{"user": {"Aladdin"}, "password": {"open sesame"}}, nil); b.Mode != "build" {
+		t.Fatalf("build: %+v", b)
 	}
-	res, err = runOp(t, "basic", url.Values{"header": {"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}}, nil)
-	if err != nil || res.(*ciphertools.BasicAuth).User.Value != "Aladdin" {
-		t.Fatalf("decode: %+v %v", res, err)
+	if b := opOf[ciphertools.BasicAuth](t, "basic", url.Values{"header": {"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}}, nil); b.User.Value != "Aladdin" {
+		t.Fatalf("decode: %+v", b)
 	}
-	if _, err := runOp(t, "basic", url.Values{"mode": {"guess"}}, nil); err == nil {
-		t.Error("unknown mode accepted")
-	}
-	if _, err := runOp(t, "basic", url.Values{"user": {"a:b"}, "mode": {"build"}}, nil); err == nil {
-		t.Error("colon in user accepted through the op")
-	}
+	wantErr(t, "basic", url.Values{"mode": {"guess"}}, "")
+	wantErr(t, "basic", url.Values{"user": {"a:b"}, "mode": {"build"}}, "")
 }
 
 func TestRenderEncodeEscapes(t *testing.T) {
@@ -197,23 +200,14 @@ func TestRenderEncodeEscapes(t *testing.T) {
 		t.Error("hex missing")
 	}
 	html = render(t, "basic", url.Values{"mode": {"decode"}, "header": {"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}})
-	for _, want := range []string{"Aladdin", "open sesame", "Rebuilt header", "not encryption"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("basic fragment lacks %q", want)
-		}
-	}
+	holds(t, "basic fragment", html, "Aladdin", "open sesame", "Rebuilt header", "not encryption")
 }
 
-// Two forms share the basic op; with JavaScript off, only the one that was
-// submitted gets its result box filled.
+// Two forms share the basic op; with JavaScript off only the submitted one's result box is filled.
 func TestBasicNoJSFillsOnlyItsBox(t *testing.T) {
 	e := newCipherApp(t)
 	body := url.Values{"mode": {"decode"}, "header": {"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}}.Encode()
-	rec := do(t, e, http.MethodPost, "/encode/basic", body, form, asBrowser)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code %d", rec.Code)
-	}
-	html := rec.Body.String()
+	html := noJSPage(t, e, "/encode/basic", body, form)
 	if n := strings.Count(html, "Rebuilt header"); n != 1 {
 		t.Fatalf("decode result rendered %d times", n)
 	}
@@ -232,13 +226,7 @@ func TestEncodePageLinksToLinkTools(t *testing.T) {
 	funcs := template.FuncMap{"navTools": func() []platform.Tool {
 		return []platform.Tool{{Name: "Link Tools", URL: "https://link.example"}}
 	}}
-	r := platform.NewRenderer(false, funcs,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
-	rec := do(t, e, http.MethodGet, "/encode", "", "", asBrowser)
+	rec := do(t, engineApp(funcs, fstest.MapFS{}, nil), http.MethodGet, "/encode", "", "", asBrowser)
 	if !strings.Contains(rec.Body.String(), `href="https://link.example/encode"`) {
 		t.Fatal("no link to Link Tools' encode page")
 	}

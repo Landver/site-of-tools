@@ -16,17 +16,9 @@ import (
 
 func b32(s string) string { return base32.StdEncoding.EncodeToString([]byte(s)) }
 
-func totpOf(t *testing.T, fields url.Values) *ciphertools.TOTPResult {
-	t.Helper()
-	res, err := runOp(t, "totp", fields, nil)
-	if err != nil {
-		t.Fatalf("totp %v: %v", fields, err)
-	}
-	return res.(*ciphertools.TOTPResult)
-}
+var totpOf = runner[ciphertools.TOTPResult]("totp")
 
-// RFC 6238 Appendix B: 8-digit codes, with the RFC's seeds (the ASCII digits
-// "1234567890" repeated to 20, 32 and 64 bytes for SHA1, SHA256 and SHA512).
+// RFC 6238 Appendix B, 8 digits; the seeds are "1234567890" repeated to 20, 32 and 64 bytes.
 func TestTOTPRFC6238Vectors(t *testing.T) {
 	seeds := map[string]string{
 		"SHA1":   "12345678901234567890",
@@ -85,8 +77,7 @@ func TestHOTPRFC4226Vectors(t *testing.T) {
 	}
 }
 
-// Base32 secrets arrive lower case, grouped by spaces or dashes, with or
-// without padding (docs/03-correctness-traps.md, TOTP).
+// Base32 secrets arrive lower case, grouped by spaces or dashes, padded or not (docs/03, TOTP).
 func TestTOTPSecretNormalised(t *testing.T) {
 	const now = "1700000000"
 	want := totpOf(t, url.Values{"secret": {"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"}, "now": {now}})
@@ -128,10 +119,38 @@ func TestTOTPInputErrors(t *testing.T) {
 		{url.Values{"secret": {"otpauth://totp/x?issuer=Example"}}, "no secret parameter"},
 		{url.Values{"secret": {"otpauth://motp/x?secret=" + sec}}, "should be totp or hotp"},
 		{url.Values{"secret": {"otpauth://totp/x?secret=0189"}}, "the URI's secret"},
+		{url.Values{"secret": {"otpauth://totp/x?secret=" + sec + "&algorithm=MD5"}}, "the URI's algorithm: want SHA1"},
+		{url.Values{"secret": {"otpauth://hotp/x?secret=" + sec + "&counter=-1"}}, "the URI's counter: want a whole number"},
+		{url.Values{"secret": {"otpauth:totp/x?secret=" + sec}}, "not an otpauth:// URI"},
+		{url.Values{"secret": {"otpauth://totp/a%zz?secret=" + sec}}, "not a valid otpauth:// URI"},
+		{url.Values{"secret": {"===="}}, "secret: decodes to zero bytes"},
+		{url.Values{"secret": {sec}, "now": {"-1"}}, "before 1970"},
 	} {
 		_, err := runOp(t, "totp", c.fields, nil)
-		if err == nil || !strings.Contains(err.Error(), c.want) {
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), sec) {
 			t.Errorf("%v: err = %v, want %q", c.fields, err, c.want)
+		}
+	}
+}
+
+// period is TOTP's alone and counter HOTP's alone, so the other mode ignores them, in range or not.
+func TestOTPOtherModesFieldIgnored(t *testing.T) {
+	const sec, now = "JBSWY3DPEHPK3PXP", "1700000000"
+	for _, f := range []url.Values{
+		{"secret": {sec}, "mode": {"hotp"}, "period": {"5"}},
+		{"secret": {"otpauth://hotp/x?secret=" + sec + "&counter=0&period=5"}},
+		{"secret": {sec}, "mode": {"totp"}, "counter": {"-1"}},
+		{"secret": {"otpauth://totp/x?secret=" + sec + "&counter=-1"}},
+	} {
+		f.Set("now", now)
+		res, err := runOp(t, "totp", f, nil)
+		if err != nil {
+			t.Errorf("%v: %v", f, err)
+			continue
+		}
+		r := res.(*ciphertools.TOTPResult)
+		if r.Type == "hotp" && (r.Period != 0 || r.Counter != 0) || r.Type == "totp" && (r.Period != 30 || r.Counter != 1700000000/30) {
+			t.Errorf("%v: period %d, counter %d", f, r.Period, r.Counter)
 		}
 	}
 }
@@ -166,10 +185,14 @@ func TestParseOTPURI(t *testing.T) {
 	if s.Issuer != "New" || !noted(notes, "differs") {
 		t.Errorf("issuer mismatch: %+v %v", s, notes)
 	}
+	// An hotp URI without a counter starts at 0, with a warning.
+	s, notes, _ = ciphertools.ParseOTPURI("otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP")
+	if s.Type != "hotp" || s.Counter != 0 || !noted(notes, "must carry a counter") {
+		t.Errorf("hotp without counter: %+v %v", s, notes)
+	}
 }
 
-// BuildOTPURI -> ParseOTPURI gives the same settings back, awkward labels
-// included, and every part is percent-encoded with %20 for a space.
+// BuildOTPURI -> ParseOTPURI round-trips awkward labels; every part is percent-encoded, %20 for a space.
 func TestOTPURIRoundTrip(t *testing.T) {
 	for _, s := range []*ciphertools.OTPSettings{
 		{Type: "totp", Account: "alice@example.com", Issuer: "Example", Algorithm: "SHA1", Digits: 6, Period: 30, Secret: []byte("12345678901234567890")},
@@ -228,8 +251,7 @@ func TestTOTPCheckWindow(t *testing.T) {
 			t.Errorf("offset %d matched: %+v", off, c)
 		}
 	}
-	// Spaces and dashes in a typed code are ignored; the wrong length and
-	// letters are named, not just "no match".
+	// Spaces and dashes in a typed code are ignored; a wrong length or letters are named, not just "no match".
 	cur := ciphertools.HOTP(secret, step, 6, "SHA1")
 	if c := check(cur[:3] + " " + cur[3:]); !c.Match {
 		t.Errorf("spaced code: %+v", c)
@@ -259,20 +281,15 @@ func TestTOTPWarnings(t *testing.T) {
 	}
 }
 
-// The countdown: seconds left in the step, and a fragment that re-runs the
-// live form when it reaches zero.
+// The countdown: seconds left in the step, and a fragment that re-runs the live form at zero.
 func TestTOTPCountdownAndRender(t *testing.T) {
 	r := totpOf(t, url.Values{"secret": {"JBSWY3DPEHPK3PXP"}, "now": {"1700000021"}})
 	if r.Remaining != 19 || r.Period != 30 || len(r.Codes) != 3 || r.Codes[1].Until == "" {
 		t.Errorf("remaining %d: %+v", r.Remaining, r)
 	}
 	html := render(t, "totp", url.Values{"secret": {"JBSWY3DPEHPK3PXP"}, "now": {"1700000021"}, "issuer": {"<b>x</b>"}})
-	for _, want := range []string{r.Code, "left: 19,", "dispatchEvent(new Event('input', { bubbles: true }))",
-		"form[data-cipher=totp]", "destroy()", "otpauth://totp/"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("fragment lacks %q", want)
-		}
-	}
+	holds(t, "fragment", html, r.Code, "left: 19,", "dispatchEvent(new Event('input', { bubbles: true }))",
+		"form[data-cipher=totp]", "destroy()", "otpauth://totp/")
 	if strings.Contains(html, "<b>x</b>") {
 		t.Error("issuer reached the fragment unescaped")
 	}
@@ -293,10 +310,7 @@ func TestTOTPPageAndAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Code != "94287082" || got.Remaining != 1 {
 		t.Fatalf("code %d: %s", rec.Code, rec.Body)
 	}
-	rec = do(t, e, http.MethodPost, "/totp", body, form, asBrowser)
-	if html := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(html, "94287082") || !strings.Contains(html, "<!DOCTYPE html>") {
-		t.Fatalf("no-JS page: code %d", rec.Code)
-	}
+	noJSPage(t, e, "/totp", body, form, "94287082")
 	page := do(t, e, http.MethodGet, "/totp", "", "", asBrowser).Body.String()
 	if !strings.Contains(page, `data-cipher="totp" data-live`) {
 		t.Error("TOTP form isn't live")

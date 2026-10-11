@@ -11,8 +11,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// fieldInputs gives, per op and field, an accepted input that reaches the branch
-// reading that field (algo=scrypt for scrypt_n, kind=uuid for version, …).
+// fieldInputs gives per op and field an accepted input reaching the branch that reads it (algo=scrypt for scrypt_n).
 func fieldInputs(t *testing.T) func(op, field string) url.Values {
 	t.Helper()
 	key := strings.Repeat("ab", 32)
@@ -71,11 +70,6 @@ func fieldInputs(t *testing.T) func(op, field string) url.Values {
 	}
 }
 
-func run(t *testing.T, op string, in url.Values) (any, error) {
-	t.Helper()
-	return runOp(t, op, in, nil)
-}
-
 // refusal is the op's error, or the key error jwt-decode reports in its result.
 func refusal(res any, err error) string {
 	if err != nil {
@@ -113,7 +107,7 @@ func TestIntFieldBounds(t *testing.T) {
 				}
 				in := input(op.Name, f.Name)
 				in.Set(f.Name, tr.v)
-				_, err := run(t, op.Name, in)
+				_, err := runOp(t, op.Name, in, nil)
 				switch {
 				case tr.ok && err != nil:
 					t.Errorf("%s %s=%s is within the spec's bounds but fails: %v", op.Name, f.Name, tr.v, err)
@@ -143,7 +137,7 @@ func TestEnumFieldsRefuseOtherValues(t *testing.T) {
 			}
 			in := input(op.Name, f.Name)
 			in.Set(f.Name, bad)
-			if why := refusal(run(t, op.Name, in)); !strings.Contains(why, bad) {
+			if why := refusal(runOp(t, op.Name, in, nil)); !strings.Contains(why, bad) {
 				t.Errorf("%s %s=%s: want it refused, got %q", op.Name, f.Name, bad, why)
 			}
 
@@ -154,7 +148,7 @@ func TestEnumFieldsRefuseOtherValues(t *testing.T) {
 			for _, v := range f.Enum {
 				in := input(op.Name, f.Name)
 				in.Set(f.Name, v)
-				why := refusal(run(t, op.Name, in))
+				why := refusal(runOp(t, op.Name, in, nil))
 				// Other values must only not be refused by name.
 				if f.Kind == ciphertools.KindInt && why != "" || strings.Contains(why, strconv.Quote(v)) {
 					t.Errorf("%s %s=%s is in the spec's Enum but refused: %s", op.Name, f.Name, v, why)
@@ -175,12 +169,12 @@ func TestRequiredFlags(t *testing.T) {
 					continue
 				}
 			}
-			if _, err := run(t, op.Name, in); err != nil {
+			if _, err := runOp(t, op.Name, in, nil); err != nil {
 				t.Errorf("%s: the test's input for %s fails on its own: %v", op.Name, f.Name, err)
 				continue
 			}
 			in.Del(f.Name)
-			_, err := run(t, op.Name, in)
+			_, err := runOp(t, op.Name, in, nil)
 			switch {
 			case f.Required && err == nil:
 				t.Errorf("%s runs without %s, which its spec says is required", op.Name, f.Name)
@@ -188,5 +182,38 @@ func TestRequiredFlags(t *testing.T) {
 				t.Errorf("%s fails without %s, which its spec says is optional: %v", op.Name, f.Name, err)
 			}
 		}
+	}
+}
+
+// now is whole unix seconds in base 10; anything else is refused, never half-read.
+func TestNowFieldWantsWholeSeconds(t *testing.T) {
+	input := fieldInputs(t)
+	var seen int
+	for _, op := range ciphertools.Ops() {
+		if !slices.ContainsFunc(op.Fields, func(f ciphertools.Field) bool { return f.Name == "now" }) {
+			continue
+		}
+		seen++
+		for _, v := range []string{"1e9", "17abc", "0x10", "1700000000.5", "1700000000abc"} {
+			in := input(op.Name, "now")
+			in.Set("now", v)
+			if _, err := runOp(t, op.Name, in, nil); err == nil || err.Error() != "now: want unix seconds, got "+strconv.Quote(v) {
+				t.Errorf("%s now=%q: err = %v", op.Name, v, err)
+			}
+		}
+		for _, v := range []string{"1700000000", " 1700000000 ", "\t1700000000\n"} {
+			in := input(op.Name, "now")
+			in.Set("now", v)
+			if _, err := runOp(t, op.Name, in, nil); err != nil {
+				t.Errorf("%s now=%q: %v", op.Name, v, err)
+			}
+		}
+	}
+	if seen < 3 {
+		t.Fatalf("only %d ops take now", seen)
+	}
+	r := opOf[ciphertools.TOTPResult](t, "totp", url.Values{"secret": {"JBSWY3DPEHPK3PXP"}, "now": {" 1700000000 "}}, nil)
+	if r.Time != 1700000000 {
+		t.Errorf("now=' 1700000000 ': time %d", r.Time)
 	}
 }

@@ -12,8 +12,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Markup checks: the page on a phone, to a screen reader, and with JavaScript
-// off. Parsed with scripting off, which is how a no-JS browser reads it.
+// Markup checks for phones, screen readers and JavaScript off, parsed with scripting off as a no-JS browser does.
 
 func parseHTML(t *testing.T, s string) *html.Node {
 	t.Helper()
@@ -73,9 +72,8 @@ func text(n *html.Node) string {
 	return strings.Join(strings.Fields(b.String()), " ")
 }
 
-// A grid item's minimum width is its content's, and a <pre> that scrolls still
-// counts its longest line: one PEM or JWK line then widens the column, and the
-// page, past a phone's screen. min-w-0 lets the item shrink so the <pre> scrolls.
+// A grid item is as wide as its content, a scrolling <pre>'s longest line included: without min-w-0
+// one PEM or JWK line widens the page past a phone's screen.
 func TestScrollingBlocksInGridsCanShrink(t *testing.T) {
 	for name, frag := range map[string]string{
 		"jwt":  render(t, "jwt-decode", url.Values{"token": {jwtioToken}}),
@@ -99,8 +97,7 @@ func TestScrollingBlocksInGridsCanShrink(t *testing.T) {
 	}
 }
 
-// iOS Safari zooms the page into any field under 16px, so a field's own size
-// utility may only shrink it from sm: up.
+// iOS Safari zooms into any field under 16px, so a field may only shrink from sm: up.
 func TestFieldsAreNotShrunkOnPhones(t *testing.T) {
 	e := newCipherApp(t)
 	pages, _ := ciphertools.SitemapPages()
@@ -122,8 +119,7 @@ func TestFieldsAreNotShrunkOnPhones(t *testing.T) {
 	}
 }
 
-// The TOTP countdown ticks every second inside the result's polite live
-// region; a screen reader would read out every tick.
+// The TOTP countdown ticks every second; inside a polite live region a screen reader would read every tick.
 func TestTOTPCountdownIsNotAnnounced(t *testing.T) {
 	e := newCipherApp(t)
 	body := url.Values{"secret": {"JBSWY3DPEHPK3PXP"}}.Encode()
@@ -148,8 +144,7 @@ func TestTOTPCountdownIsNotAnnounced(t *testing.T) {
 	}
 }
 
-// Tab buttons only work with Alpine, and without it every panel shows anyway:
-// like the page's other JS-only controls, they stay hidden until Alpine runs.
+// Tab buttons need Alpine, and without it every panel shows anyway, so they stay hidden until it runs.
 func TestTabButtonsHiddenWithoutJS(t *testing.T) {
 	e := newCipherApp(t)
 	for _, path := range []string{"/", "/random"} {
@@ -169,8 +164,34 @@ func TestTabButtonsHiddenWithoutJS(t *testing.T) {
 	}
 }
 
-// A no-JS sign posts a signing key; the page that comes back must not copy it
-// into the decode form, where the next decode would send it again.
+// The tabbed pages open on the tab of the form that was sent, picked from literals: a crafted kind must not
+// reach the Alpine expression.
+func TestStartingTabIsALiteral(t *testing.T) {
+	e := newCipherApp(t)
+	for _, c := range []struct{ method, path, body, tab string }{
+		{http.MethodGet, "/", "", "decode"},
+		{http.MethodPost, "/jwt/sign", "alg=HS256", "sign"},
+		{http.MethodGet, "/random", "", "token"},
+		{http.MethodPost, "/random", "kind=password&sets=", "password"},
+		{http.MethodPost, "/random", url.Values{"kind": {"x' + alert(1) + '"}}.Encode(), "token"},
+		{http.MethodGet, "/hash", "", ""},
+	} {
+		rec := do(t, e, c.method, c.path, c.body, form, asBrowser)
+		mains := findAll(parseHTML(t, rec.Body.String()), func(n *html.Node) bool { return n.Data == "main" })
+		if len(mains) != 1 {
+			t.Fatalf("%s %s: %d <main> elements", c.method, c.path, len(mains))
+		}
+		want := ""
+		if c.tab != "" {
+			want = "{ tab: '" + c.tab + "' }"
+		}
+		if got, _ := attr(mains[0], "x-data"); got != want {
+			t.Errorf("%s %s %s: x-data %q, want %q", c.method, c.path, c.body, got, want)
+		}
+	}
+}
+
+// A no-JS sign must not copy its key into the decode form, where the next decode would send it again.
 func TestJWTSignKeyStaysInSignForm(t *testing.T) {
 	e := newCipherApp(t)
 	const secret = "sign-only-secret-0123456789abcdef"
@@ -190,9 +211,7 @@ func TestJWTSignKeyStaysInSignForm(t *testing.T) {
 	}
 }
 
-// With JavaScript off the form, file included, goes to the server. A line
-// promising the file never leaves the tab, or that a key is made in the
-// browser, must say so in the same breath.
+// With JavaScript off the form, file included, goes to the server, so a browser-only claim must say so.
 func TestBrowserOnlyClaimsHoldWithoutJS(t *testing.T) {
 	e := newCipherApp(t)
 	for path, claim := range map[string]string{

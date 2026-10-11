@@ -1,7 +1,9 @@
 package ciphertools
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -18,23 +20,38 @@ const (
 	KindFile   Kind = "file" // multipart forms only, never JSON
 )
 
-// Field is one input an op reads, the contract tool schemas are generated from.
+// Field is one input an op reads; the MCP tool schemas are generated from it.
 type Field struct {
 	Name        string
 	Kind        Kind
 	Description string
-	// Enum: an enum's choices, a list's members, or an int field's only values.
-	Enum []string
-	// Default is form text; "" when there is none or it depends on another field.
-	Default string
-	// Min, Max bound an int field; where a bound depends on another field, the widest.
-	Min, Max *int
-	Required bool
+	Enum        []string // an enum's choices, a list's members, or an int field's only values
+	Default     string   // form text; "" when there is none or it depends on another field
+	Min, Max    *int     // where a bound depends on another field, the widest
+	Required    bool
 }
 
 func (f Field) withMax(n int) Field { f.Max = &n; return f }
 
 func (f Field) withDefault(n int) Field { f.Default = strconv.Itoa(n); return f }
+
+func ptr[T any](v T) *T { return &v }
+
+// choice reads a menu value case-insensitively; blank means def.
+func choice(v, def string) string { return cmp.Or(strings.ToLower(strings.TrimSpace(v)), def) }
+
+// checked reads a checkbox: "on" from a form, "true" from a JSON body.
+func checked(v string) bool {
+	return !slices.Contains([]string{"", "0", "false", "off", "no"}, choice(v, ""))
+}
+
+// enumField is choice for f, refusing what f.Enum doesn't list.
+func enumField(v string, f Field) (string, error) {
+	if v = choice(v, f.Default); !slices.Contains(f.Enum, v) {
+		return "", fmt.Errorf("%s: want %s or %s, got %q", f.Name, strings.Join(f.Enum[:len(f.Enum)-1], ", "), f.Enum[len(f.Enum)-1], v)
+	}
+	return v, nil
+}
 
 // intField checks the range before any work: for Heavy ops it is what bounds a request.
 func intField(in Input, f Field) (int, error) {
@@ -59,13 +76,8 @@ func intField(in Input, f Field) (int, error) {
 // thousands writes n with comma separators: 600000 as "600,000".
 func thousands(n int) string {
 	s := strconv.Itoa(n)
-	neg := strings.HasPrefix(s, "-")
-	s = strings.TrimPrefix(s, "-")
-	for i := len(s) - 3; i > 0; i -= 3 {
+	for i := len(s) - 3; i > 0 && s[i-1] != '-'; i -= 3 {
 		s = s[:i] + "," + s[i:]
-	}
-	if neg {
-		return "-" + s
 	}
 	return s
 }

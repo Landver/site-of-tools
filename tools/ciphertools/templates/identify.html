@@ -1,18 +1,6 @@
-{{/* Identify — "what is this string?" (C11). Page shell + result fragment.
-
-     One live form. The answer is a ranked list, never one verdict: 32 hex
-     digits is MD5, NTLM, MD4 or LM, and the page says so. Each reading links to
-     the page that opens it; the link carries nothing, since a pasted secret in
-     a URL would land in history and logs. */}}
+{{/* Links never put the value in the URL: a pasted secret would land in history and logs. */}}
 {{define "cipher/identify"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">What is this string?</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a token, key, certificate, hash or encoded value. The page lists what it could be, most likely first,
@@ -33,9 +21,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
   curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
         <p class="mt-1 text-xs text-muted">
           POST only, up to 1 MiB. The answer is <span class="font-mono">candidates</span>, ranked, each with
@@ -50,13 +36,7 @@
     <div id="identify-result" class="mt-8" aria-live="polite">
       {{if eq .Op "identify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/identify-result" .}}{{end}}{{end}}
     </div>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{/* dot = the render map; .Result = *ciphertools.IdentifyResult */}}

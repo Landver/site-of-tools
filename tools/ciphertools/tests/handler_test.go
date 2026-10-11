@@ -5,7 +5,9 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"html/template"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,17 +22,20 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Server-side tests: the JSON API and the no-JS page path. The browser path is
-// covered by render_test.go, which drives the same Render the wasm engine calls.
+// The JSON API and the no-JS page path; render_test.go covers the browser's.
 
 func newCipherApp(t *testing.T) *echo.Echo {
 	t.Helper()
-	r := platform.NewRenderer(false, nil,
+	return engineApp(nil, fstest.MapFS{}, nil)
+}
+
+func engineApp(funcs template.FuncMap, static fs.FS, lim *ciphertools.Limits) *echo.Echo {
+	r := platform.NewRenderer(false, funcs,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
+	e := platform.NewApp(r, static, false, nil)
+	ciphertools.Register(e, "https://cipher.example", static, lim)
 	return e
 }
 
@@ -55,6 +60,18 @@ var (
 	asBrowser = map[string]string{"Accept": "text/html,application/xhtml+xml"}
 )
 
+// noJSPage posts body the way a browser with JavaScript off does and checks the whole page holds wants.
+func noJSPage(t *testing.T, e *echo.Echo, path, body, contentType string, wants ...string) string {
+	t.Helper()
+	rec := do(t, e, http.MethodPost, path, body, contentType, asBrowser)
+	html := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(html, "<!DOCTYPE html>") {
+		t.Fatalf("no-JS POST %s: code %d", path, rec.Code)
+	}
+	holds(t, "no-JS POST "+path+": page", html, wants...)
+	return html
+}
+
 func TestPagesRender(t *testing.T) {
 	e := newCipherApp(t)
 	pages, _ := ciphertools.SitemapPages()
@@ -63,12 +80,7 @@ func TestPagesRender(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", p.Path, rec.Code)
 		}
-		body := rec.Body.String()
-		for _, want := range []string{"data-cipher-engine", "<noscript>", "js/cipher.js"} {
-			if !strings.Contains(body, want) {
-				t.Errorf("GET %s: page lacks %q", p.Path, want)
-			}
-		}
+		holds(t, "GET "+p.Path+": page", rec.Body.String(), "data-cipher-engine", "<noscript>", "js/cipher.js")
 	}
 }
 
@@ -109,9 +121,7 @@ func TestJWTSignAPIAcceptsJSONBody(t *testing.T) {
 	}
 }
 
-// A JSON body's numbers reach the op with every digit: 1700000000 used to
-// arrive as "1.7e+09", which "now" read as one second past 1970. Its booleans
-// arrive as "true"/"false", and false means off.
+// JSON numbers reach the op with every digit (1700000000, not "1.7e+09"), and false means off.
 func TestJSONBodyNumbersAndBooleans(t *testing.T) {
 	e := newCipherApp(t)
 	claims := func(body string) map[string]any {
@@ -135,13 +145,36 @@ func TestJSONBodyNumbersAndBooleans(t *testing.T) {
 	}
 }
 
-// A JSON body that isn't a flat object says so in JSON terms, not Go's
-// ("into Go value of type map[string]interface {}").
+// An integer past 2^53 keeps every digit; float64 would round 2^53+1 down to 2^53.
+func TestJSONBodyKeepsLargeIntegersExact(t *testing.T) {
+	e := newCipherApp(t)
+	for counter, want := range map[string]uint64{
+		"9007199254740993":    9007199254740993,
+		"9223372036854775806": 9223372036854775806,
+		"1e6":                 1000000,
+	} {
+		rec := do(t, e, http.MethodPost, "/totp",
+			`{"secret":"JBSWY3DPEHPK3PXP","mode":"hotp","counter":`+counter+`}`, "application/json", asAPI)
+		var got struct {
+			Counter uint64
+			Codes   []struct{ Counter uint64 }
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("counter %s: code %d: %s", counter, rec.Code, rec.Body)
+		}
+		if got.Counter != want || len(got.Codes) != 3 || got.Codes[2].Counter != want+1 {
+			t.Errorf("counter %s: got %d, codes %+v, want %d", counter, got.Counter, got.Codes, want)
+		}
+	}
+}
+
+// A JSON body that isn't a flat object is described in JSON terms, not Go's.
 func TestJSONBodyErrorsReadPlainly(t *testing.T) {
 	e := newCipherApp(t)
 	for body, want := range map[string]string{
 		`["alg","HS256"]`: "body: must be an object, found a JSON array",
 		`{"alg":"HS256"`:  "body: the JSON ends before it is closed",
+		`{"now":1e400}`:   `field "now": 1e400 is out of range`,
 	} {
 		rec := do(t, e, http.MethodPost, "/jwt/sign", body, "application/json", asAPI)
 		var got struct{ Error string }
@@ -151,8 +184,7 @@ func TestJSONBodyErrorsReadPlainly(t *testing.T) {
 	}
 }
 
-// Secrets are read from the body only. A token in the query string must be
-// ignored, never quietly used: a URL is logged, cached and sent as Referer.
+// A token in the query string is ignored, never used: a URL is logged, cached and sent as Referer.
 func TestQueryStringIsIgnored(t *testing.T) {
 	e := newCipherApp(t)
 	rec := do(t, e, http.MethodPost, "/jwt/decode?token="+jwtioToken, "", form, asAPI)
@@ -161,36 +193,18 @@ func TestQueryStringIsIgnored(t *testing.T) {
 	}
 }
 
-// A browser with JavaScript off posts the form itself and gets the whole page
-// back with the result rendered in place.
+// With JavaScript off the form posts itself and the whole page comes back, result in place.
 func TestNoJSFormPostRendersPage(t *testing.T) {
 	e := newCipherApp(t)
-	body := url.Values{"token": {jwtioToken}}.Encode()
-	rec := do(t, e, http.MethodPost, "/jwt/decode", body, form, asBrowser)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code %d", rec.Code)
-	}
-	html := rec.Body.String()
-	for _, want := range []string{"<!DOCTYPE html>", "Signature not checked", "John Doe"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("page lacks %q", want)
-		}
-	}
-	rec = do(t, e, http.MethodPost, "/jwt/decode", "token=a.b", form, asBrowser)
+	noJSPage(t, e, "/jwt/decode", url.Values{"token": {jwtioToken}}.Encode(), form, "Signature not checked", "John Doe")
+	rec := do(t, e, http.MethodPost, "/jwt/decode", "token=a.b", form, asBrowser)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "only two parts") {
 		t.Fatalf("error page: code %d", rec.Code)
 	}
 }
 
 func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	static := fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}
-	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static, nil)
-
+	e := engineApp(nil, fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}, nil)
 	rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", nil)
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
 		t.Fatalf("versioned: Cache-Control = %q", cc)
@@ -222,20 +236,11 @@ func TestNavOrder(t *testing.T) {
 	}
 }
 
-// The engine is ~12 MB. Gzipping it per request costs ~0.25 s of CPU, which
-// made the one URL every visitor fetches a cheap way to keep a core busy. It is
-// compressed once and served as is: gzipped exactly once (not again by the
-// engine's gzip middleware), raw for a client that doesn't take gzip.
+// The ~12 MB engine is gzipped once and reused (per request it costs ~0.25 s of CPU), never twice by
+// the app's gzip middleware, and sent raw to a client without gzip.
 func TestEngineServedPrecompressed(t *testing.T) {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
 	wasm := bytes.Repeat([]byte("\x00asm engine bytes "), 4096)
-	static := fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}
-	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static, nil)
-
+	e := engineApp(nil, fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}, nil)
 	var first []byte
 	for i := 0; i < 2; i++ {
 		rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", map[string]string{"Accept-Encoding": "gzip, br"})

@@ -4,60 +4,70 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
-// Byte encodings an input field can be read as. Every page that takes bytes
-// (a hash input, an HMAC key, an AES key) takes one of these beside it, because
-// "the secret is abc" means three different keys depending on which one applies,
-// and a silent guess is exactly what makes the surveyed tools produce "wrong"
-// HMACs nobody can explain (docs/00-landscape.md finding 3).
+// Every byte-taking field names its encoding: a silent guess is why other tools' HMACs come out "wrong".
 const (
 	EncUTF8      = "utf8"
 	EncHex       = "hex"
 	EncBase64    = "base64"
 	EncBase64URL = "base64url"
 	EncBase32    = "base32"
+	// EncAuto lets the op pick the reading: each reading of a shared secret, or hex vs base64 data.
+	EncAuto = "auto"
 )
 
 var byteEncodings = []string{EncUTF8, EncHex, EncBase64, EncBase64URL, EncBase32}
 
-// DecodeBytes reads s as enc. UTF-8 is taken verbatim, whitespace included,
-// because for a hash input the whitespace is the data. The other encodings
-// ignore whitespace (pasted values wrap) and report the offset of the first
-// character they couldn't use, counted in the ORIGINAL string, so the error
-// points at something the visitor can see.
-func DecodeBytes(s, enc string) ([]byte, error) {
+const (
+	letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	alnum   = letters + "0123456789"
+)
+
+func allHex(s string) bool { return s != "" && strings.Trim(s, "0123456789abcdefABCDEF") == "" }
+
+func allDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
+// bytesText: 32 MiB, 19 MiB, 64 KiB, 512 bytes.
+func bytesText(n int) string {
+	switch {
+	case n >= 1<<20 && n%(1<<20) == 0:
+		return fmt.Sprintf("%d MiB", n>>20)
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10 && n%(1<<10) == 0:
+		return fmt.Sprintf("%d KiB", n>>10)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
+// decodeInput reads s as enc (UTF-8 verbatim, the rest ignoring whitespace, offsets into s as pasted) and says how.
+func decodeInput(s, enc string) (b []byte, how string, err error) {
 	switch enc {
 	case "", EncUTF8:
-		return []byte(s), nil
+		return []byte(s), "UTF-8 text", nil
 	case EncHex:
-		return decodeHex(s)
-	case EncBase64, EncBase64URL:
-		b, _, err := decodeBase64Any(s)
-		return b, err
-	case EncBase32:
-		return decodeBase32(s)
-	}
-	return nil, fmt.Errorf("unknown encoding %q", enc)
-}
-
-// decodeInput is DecodeBytes plus how the input was read, in the visitor's
-// words: "UTF-8 text", "hex", "base32", or the exact base64 variant seen.
-func decodeInput(s, enc string) ([]byte, string, error) {
-	switch enc {
+		b, err = decodeHex(s)
 	case EncBase64, EncBase64URL:
 		return decodeBase64Any(s)
+	case EncBase32:
+		b, err = decodeBase32(s)
+	default:
+		err = fmt.Errorf("unknown encoding %q", enc)
 	}
-	b, err := DecodeBytes(s, enc)
-	return b, encName(enc), err
+	return b, enc, err
 }
 
-// firstInvalidUTF8 returns the offset of the first byte that can't start or
-// continue a UTF-8 character, or -1 when b is valid UTF-8.
+// firstInvalidUTF8 is the offset of the first byte that can't start or continue a character, or -1.
 func firstInvalidUTF8(b []byte) int {
 	for i := 0; i < len(b); {
 		r, n := utf8.DecodeRune(b[i:])
@@ -69,57 +79,46 @@ func firstInvalidUTF8(b []byte) int {
 	return -1
 }
 
-// stripSpace drops whitespace and keeps a map from each kept byte back to its
-// offset in s.
+// charAt quotes the character starting at s[i] as typed, a byte that isn't UTF-8 as '\xff'.
+func charAt(s string, i int) string {
+	if r, n := utf8.DecodeRuneInString(s[i:]); r != utf8.RuneError || n > 1 {
+		return strconv.QuoteRune(r)
+	}
+	return fmt.Sprintf(`'\x%02x'`, s[i])
+}
+
+// stripSpace drops whitespace and maps each kept byte back to its offset in s.
 func stripSpace(s string) (string, []int) {
 	var b strings.Builder
 	pos := make([]int, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case ' ', '\t', '\n', '\r':
-			continue
+	for i := range len(s) {
+		if strings.IndexByte(" \t\n\r", s[i]) < 0 {
+			b.WriteByte(s[i])
+			pos = append(pos, i)
 		}
-		b.WriteByte(s[i])
-		pos = append(pos, i)
 	}
 	return b.String(), pos
 }
 
-func origin(pos []int, i int) int {
-	if i < len(pos) {
-		return pos[i]
-	}
-	if len(pos) == 0 {
-		return 0
-	}
-	return pos[len(pos)-1] + 1
-}
-
-// decodeHex accepts "0x" prefixes and ":" or "-" separators (openssl and
-// certificate fingerprints both print colons).
+// decodeHex accepts a 0x prefix and ':' or '-' separators (openssl and fingerprints print colons).
 func decodeHex(s string) ([]byte, error) {
 	c, pos := stripSpace(s)
 	c = strings.TrimPrefix(strings.TrimPrefix(c, "0x"), "0X")
-	off := len(pos) - len(c) // bytes eaten by the prefix
-	var b strings.Builder
-	kept := make([]int, 0, len(c))
+	off := len(pos) - len(c)
+	var h strings.Builder
 	for i := 0; i < len(c); i++ {
-		if c[i] == ':' || c[i] == '-' {
-			continue
-		}
-		b.WriteByte(c[i])
-		kept = append(kept, origin(pos, i+off))
-	}
-	h := b.String()
-	for i := 0; i < len(h); i++ {
-		if !isHex(h[i]) {
-			return nil, fmt.Errorf("not hex: %q at offset %d", h[i], kept[i])
+		switch {
+		case c[i] == ':' || c[i] == '-':
+		case isHex(c[i]):
+			h.WriteByte(c[i])
+		default:
+			return nil, fmt.Errorf("not hex: %s at offset %d", charAt(c, i), pos[i+off])
 		}
 	}
-	if len(h)%2 != 0 {
-		return nil, fmt.Errorf("hex has an odd number of digits (%d); every byte is two", len(h))
+	if h.Len()%2 != 0 {
+		return nil, fmt.Errorf("hex has an odd number of digits (%d); every byte is two", h.Len())
 	}
-	return hex.DecodeString(h)
+	return hex.DecodeString(h.String())
 }
 
 func isHex(c byte) bool {
@@ -134,22 +133,16 @@ const (
 	VariantURLRaw = "base64url (unpadded)"
 )
 
-// decodeBase64Any accepts all four base64 flavours and says which one it saw.
-// The alphabet decides standard vs URL-safe; a value using neither '+/' nor
-// '-_' is valid in both and reported as standard.
+// decodeBase64Any takes all four base64 flavours and names the one seen; with neither '+/' nor '-_' it is standard.
 func decodeBase64Any(s string) ([]byte, string, error) {
 	c, pos := stripSpace(s)
 	url := strings.ContainsAny(c, "-_")
 	if url && strings.ContainsAny(c, "+/") {
-		i := strings.IndexAny(c, "+/")
-		if j := strings.IndexAny(c, "-_"); j < i {
-			i = j
-		}
-		return nil, "", fmt.Errorf("mixes the standard (+/) and URL-safe (-_) base64 alphabets, first at offset %d", origin(pos, i))
+		i := min(strings.IndexAny(c, "+/"), strings.IndexAny(c, "-_"))
+		return nil, "", fmt.Errorf("mixes the standard (+/) and URL-safe (-_) base64 alphabets, first at offset %d", pos[i])
 	}
 	padded := strings.HasSuffix(c, "=")
-	var enc *base64.Encoding
-	var variant string
+	enc, variant := base64.RawStdEncoding, VariantStdRaw
 	switch {
 	case url && padded:
 		enc, variant = base64.URLEncoding, VariantURL
@@ -157,43 +150,36 @@ func decodeBase64Any(s string) ([]byte, string, error) {
 		enc, variant = base64.RawURLEncoding, VariantURLRaw
 	case padded:
 		enc, variant = base64.StdEncoding, VariantStd
-	default:
-		enc, variant = base64.RawStdEncoding, VariantStdRaw
 	}
 	b, err := enc.DecodeString(c)
-	if err != nil {
-		var ce base64.CorruptInputError
-		if errors.As(err, &ce) {
-			at := int(ce)
-			if at < len(c) {
-				return nil, "", fmt.Errorf("not %s: %q at offset %d", variant, c[at], origin(pos, at))
-			}
-			return nil, "", fmt.Errorf("not %s: truncated (%d characters is not a whole number of base64 groups)", variant, len(c))
-		}
-		return nil, "", err
+	if err == nil {
+		return b, variant, nil
 	}
-	return b, variant, nil
+	if at, _ := err.(base64.CorruptInputError); int(at) < len(c) {
+		return nil, "", fmt.Errorf("not %s: %s at offset %d", variant, charAt(c, int(at)), pos[at])
+	}
+	return nil, "", fmt.Errorf("not %s: truncated (%d characters is not a whole number of base64 groups)", variant, len(c))
 }
 
-// decodeBase32 accepts the lowercase, unpadded, space-grouped form TOTP secrets
-// are usually printed in (docs/03-correctness-traps.md, TOTP).
+// decodeBase32 accepts the lowercase, unpadded, space-grouped form TOTP secrets are usually printed in.
 func decodeBase32(s string) ([]byte, error) {
 	c, pos := stripSpace(s)
-	c = strings.ToUpper(strings.TrimRight(c, "="))
-	for i := 0; i < len(c); i++ {
-		if !(c[i] >= 'A' && c[i] <= 'Z' || c[i] >= '2' && c[i] <= '7') {
-			return nil, fmt.Errorf("not base32: %q at offset %d", c[i], origin(pos, i))
+	c = strings.TrimRight(c, "=")
+	var u strings.Builder
+	for i, r := range c { // rune by rune, not strings.ToUpper, which can change byte lengths and so offsets
+		if r = unicode.ToUpper(r); !(r >= 'A' && r <= 'Z' || r >= '2' && r <= '7') {
+			return nil, fmt.Errorf("not base32: %s at offset %d", charAt(c, i), pos[i])
 		}
+		u.WriteRune(r)
 	}
-	b, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(c)
+	b, err := b32raw.DecodeString(u.String())
 	if err != nil {
-		return nil, fmt.Errorf("not base32: %d characters is not a whole number of bytes", len(c))
+		return nil, fmt.Errorf("not base32: %d characters is not a whole number of bytes", u.Len())
 	}
 	return b, nil
 }
 
-// Text is a byte string shown to a person: as text when it is valid, printable
-// UTF-8, otherwise as hex — never forced into mojibake.
+// Text is bytes shown to a person: as text when valid, printable UTF-8, otherwise as hex, never mojibake.
 type Text struct {
 	Value  string `json:"value"`
 	IsText bool   `json:"is_text"`
@@ -223,3 +209,5 @@ func printable(s string) bool {
 
 // b64url is the JOSE encoding: URL-safe, no padding.
 var b64url = base64.RawURLEncoding
+
+var b32raw = base32.StdEncoding.WithPadding(base32.NoPadding)

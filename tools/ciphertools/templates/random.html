@@ -1,24 +1,10 @@
-{{/* Random — tokens, passwords and UUIDs (C9). Page shell + result fragment.
-
-     Three forms on tabs, all posting to the one "random" op and saying which
-     they are with a hidden kind field; that field also routes the no-JS result
-     to the right box. None is live: every result is a fresh secret, so a new
-     one appears only when asked for.
-
-     The starting tab is picked from literals, never copied from the form
-     (a form value inside x-data would be script). */}}
+{{/* Three forms post to the one op; the hidden kind also routes the no-JS result to its box.
+     None is live: every result is a fresh secret. */}}
 {{define "cipher/random"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  {{$kind := .Form.Get "kind"}}{{$random := eq .Op "random"}}
-  {{$pw := and $random (eq $kind "password")}}{{$uuid := and $random (eq $kind "uuid")}}
-  {{$tok := and $random (not $pw) (not $uuid)}}
-  <main class="page-main" x-data="{ tab: '{{if $pw}}password{{else if $uuid}}uuid{{else}}token{{end}}' }">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
+    {{$kind := .Form.Get "kind"}}{{$random := eq .Op "random"}}
+    {{$pw := and $random (eq $kind "password")}}{{$uuid := and $random (eq $kind "uuid")}}
+    {{$tok := and $random (not $pw) (not $uuid)}}
     <h1 class="text-2xl font-semibold text-strong">Random tokens, passwords and UUIDs</h1>
     <p class="mt-2 text-sm text-muted">
       Secrets for API keys, session tokens and test accounts, from your browser's cryptographic random source.
@@ -28,9 +14,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
   curl {{.Base}}/random -d kind=password -d length=24 -d sets=lower,upper,digits -d exclude_ambiguous=on
   curl {{.Base}}/random -d kind=uuid -d version=7 -d count=10</pre>
         <p class="mt-1 text-xs text-muted">
@@ -43,15 +27,9 @@
     </details>
 
     <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
-      <button type="button" role="tab" @click="tab = 'token'" :aria-selected="tab === 'token'"
-              :class="tab === 'token' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-              class="rounded-md px-3 py-1.5">Token</button>
-      <button type="button" role="tab" @click="tab = 'password'" :aria-selected="tab === 'password'"
-              :class="tab === 'password' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-              class="rounded-md px-3 py-1.5">Password</button>
-      <button type="button" role="tab" @click="tab = 'uuid'" :aria-selected="tab === 'uuid'"
-              :class="tab === 'uuid' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-              class="rounded-md px-3 py-1.5">UUID</button>
+      {{template "cipher/engine-tab" "token"}}
+      {{template "cipher/engine-tab" "password"}}
+      {{template "cipher/engine-tab" "uuid"}}
     </div>
 
     {{$format := ""}}{{if $tok}}{{$format = .Form.Get "format"}}{{end}}
@@ -85,8 +63,7 @@
     <section x-show="tab === 'password'" class="mt-4">
       <form method="post" action="/random" data-cipher="random" data-target="#random-password-result" class="space-y-3">
         <input type="hidden" name="kind" value="password">
-        {{/* Always sent, so "every box unticked" reaches the op as an empty
-             list, which it refuses, instead of as "no preference". */}}
+        {{/* Always sent, so every box unticked arrives as an empty list (refused), not as no preference. */}}
         <input type="hidden" name="sets" value="">
         <div class="grid gap-3 sm:grid-cols-3">
           <label class="block text-sm text-muted">Length <span class="text-faint">(4 to 256)</span>
@@ -151,13 +128,7 @@
         {{if $uuid}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/random-result" .}}{{end}}{{end}}
       </div>
     </section>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{define "cipher/random-result"}}
@@ -175,8 +146,6 @@
   </li>
   {{end}}
 </ul>
-{{if gt (len .Values) 1}}
-<button type="button" class="btn-copy mt-3" data-copy="{{.All}}">Copy all</button>
-{{end}}
+{{if gt (len .Values) 1}}<button type="button" class="btn-copy mt-3" data-copy="{{.All}}">Copy all</button>{{end}}
 {{end}}
 {{end}}

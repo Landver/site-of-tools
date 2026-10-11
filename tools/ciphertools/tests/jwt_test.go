@@ -2,17 +2,13 @@ package tests
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -21,8 +17,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Published vectors, so the ECDSA raw r‖s handling and the JWK readers are
-// checked against someone else's bytes, not only against our own signer.
+// Published vectors: ECDSA r‖s and the JWK readers checked against someone else's bytes.
 const (
 	// jwt.io's default token, secret "your-256-bit-secret".
 	jwtioToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
@@ -33,8 +28,7 @@ const (
 
 	// RFC 7515 A.3 (ES256, public EC JWK).
 	rfcESKey = `{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"}`
-	// The same point with a d that belongs to a different one. Must be refused,
-	// not signed with.
+	// The same point with a d belonging to another one: refused, never signed with.
 	mismatchedECKey = `{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0","d":"jpsQnnGQmL-YBIffH1136cLnT8EgfH3cTzP9kGkoFtM"}`
 	rfcESToken      = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
 
@@ -43,8 +37,7 @@ const (
 	rfcEdToken = "eyJhbGciOiJFZERTQSJ9.RXhhbXBsZSBvZiBFZDI1NTE5IHNpZ25pbmc.hgyY0il_MGCjP0JzlnLWG1PPOt7-09PGcvMg3AIbQR6dWbhijcNR4ki4iylGjg5BhVsPt9g7sVvpAr_MuM0KAg"
 )
 
-// rfcNow sits before the RFC tokens' exp (1300819380), so "expired" can't mask
-// a signature result.
+// rfcNow is before the RFC tokens' exp (1300819380), so "expired" can't mask a signature result.
 var rfcNow = time.Unix(1300819000, 0)
 
 func decode(t *testing.T, token, key, enc string, now time.Time) *ciphertools.JWT {
@@ -126,12 +119,8 @@ func TestJWTExpiryAndLeeway(t *testing.T) {
 	}
 }
 
-// token builds header.payload.sig from raw JSON, for tokens no honest signer
-// would make.
-func token(header, payload, sig string) string {
-	enc := base64.RawURLEncoding.EncodeToString
-	return enc([]byte(header)) + "." + enc([]byte(payload)) + "." + sig
-}
+// token builds header.payload.sig from raw JSON, for tokens no honest signer would make.
+func token(header, payload, sig string) string { return b64u(header) + "." + b64u(payload) + "." + sig }
 
 func TestJWTAlgNoneIsRefusedEvenWithAKey(t *testing.T) {
 	for _, alg := range []string{"none", "None", "NONE"} {
@@ -145,14 +134,10 @@ func TestJWTAlgNoneIsRefusedEvenWithAKey(t *testing.T) {
 	}
 }
 
-// The attack: an RS256 verifier handed an HS256 token whose "secret" is the
-// server's public key. The key's kind must pick the algorithm, not the token.
+// The attack: an HS256 token whose "secret" is the server's public key. The key's kind picks the algorithm.
 func TestJWTAlgorithmConfusionRefused(t *testing.T) {
-	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
-	spki, _ := x509.MarshalPKIXPublicKey(&priv.PublicKey)
-	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spki}))
-
-	j := decode(t, jwtioToken, pubPEM, "", rfcNow)
+	priv := testSigners()["rsa"]
+	j := decode(t, jwtioToken, spkiPEM(t, priv.Public()), "", rfcNow)
 	if j.Verification.State != ciphertools.VerifyRefused || !strings.Contains(j.Verification.Detail, "algorithm-confusion") {
 		t.Fatalf("HS256 token + RSA public key: %q %q", j.Verification.State, j.Verification.Detail)
 	}
@@ -165,8 +150,7 @@ func TestJWTAlgorithmConfusionRefused(t *testing.T) {
 	}
 }
 
-// A malformed PEM must be reported as a malformed PEM, never used as an HMAC
-// secret, which would be algorithm confusion by accident.
+// A malformed PEM is reported as one, never used as an HMAC secret (algorithm confusion by accident).
 func TestJWTBrokenPEMIsNotASecret(t *testing.T) {
 	j := decode(t, jwtioToken, "-----BEGIN PUBLIC KEY-----\nnot base64\n-----END PUBLIC KEY-----", "", rfcNow)
 	if j.Verification.State != ciphertools.VerifyError {
@@ -189,6 +173,12 @@ func TestJWTCleansPastedToken(t *testing.T) {
 	if !hasLevel(j.Warnings, ciphertools.LevelInfo, "Bearer") {
 		t.Fatalf("cleaning happened silently")
 	}
+	for _, pasted := range []string{jwtioToken, "Bearer " + jwtioToken, "Bearer\t" + jwtioToken, "bearer  \n" + jwtioToken, "Authorization: BEARER\t" + jwtioToken} {
+		j, err := ciphertools.DecodeJWT(pasted, "your-256-bit-secret", "", rfcNow, 0)
+		if err != nil || j.Verification.State != ciphertools.VerifyValid {
+			t.Errorf("%.30q: err %v, %+v", pasted, err, j)
+		}
+	}
 }
 
 func TestJWTStructureErrors(t *testing.T) {
@@ -198,10 +188,42 @@ func TestJWTStructureErrors(t *testing.T) {
 		}
 	}
 	// Five parts is a JWE: recognised, not an error.
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RSA-OAEP","enc":"A256GCM"}`))
+	hdr := b64u(`{"alg":"RSA-OAEP","enc":"A256GCM"}`)
 	j, err := ciphertools.DecodeJWT(hdr+".a.b.c.d", "", "", rfcNow, 0)
 	if err != nil || j.Kind != "JWE" || j.Verification.State != ciphertools.VerifyUnchecked {
 		t.Fatalf("JWE: %+v err %v", j, err)
+	}
+}
+
+// A stray brace after the object made an invalid json.RawMessage that broke the JSON response.
+func TestJWTTrailingDataAfterObjectRefused(t *testing.T) {
+	for name, hdr := range map[string]string{"brace": `{"alg":"HS256"}}`, "bracket": `{"alg":"HS256"}]`, "value": `{"alg":"HS256"}{}`} {
+		_, err := runOp(t, "jwt-decode", url.Values{"token": {token(hdr, `{}`, "AAAA")}}, nil)
+		if err == nil || !strings.Contains(err.Error(), "header is not a JSON object: trailing data") {
+			t.Errorf("header %s: error %v", name, err)
+		}
+	}
+	res, err := runOp(t, "jwt-decode", url.Values{"token": {token(`{"alg":"HS256"} `, `{"sub":"x"}}`, "AAAA")}}, nil)
+	if err != nil {
+		t.Fatalf("trailing space in header, brace in payload: %v", err)
+	}
+	if j := res.(*ciphertools.JWT); j.Payload != nil || j.PayloadText == nil || j.Alg != "HS256" {
+		t.Errorf("payload with a stray brace: payload %s, text %+v, alg %q", j.Payload, j.PayloadText, j.Alg)
+	}
+	if _, err := json.Marshal(res); err != nil {
+		t.Errorf("result does not marshal: %v", err)
+	}
+	e := newCipherApp(t)
+	for _, tok := range []string{"eyJhbGciOiJIUzI1NiJ9fQ.e30.AAAA", token(`{"alg":"HS256"}`, `{}}`, "AAAA")} {
+		if rec := do(t, e, http.MethodPost, "/jwt/decode", url.Values{"token": {tok}}.Encode(), form, asAPI); rec.Code >= 500 {
+			t.Errorf("%s: HTTP %d %s", tok, rec.Code, rec.Body)
+		}
+	}
+	for name, f := range map[string]map[string]string{"header": {"header": `{"a":1}}`}, "payload": {"payload": `{"a":1}}`}} {
+		f["alg"], f["key"] = "HS256", "k"
+		if _, err := sign(t, f); err == nil || !strings.Contains(err.Error(), "trailing data") {
+			t.Errorf("sign with %s %s: error %v", name, f[name], err)
+		}
 	}
 }
 
@@ -212,20 +234,17 @@ func TestJWTShortHMACSecretWarned(t *testing.T) {
 	}
 }
 
-// Editing a claim keeps the old signature, which then no longer matches. The
-// RFC 7515 A.1 vector above covers the other half: its payload has CRLFs inside
-// the JSON and still verifies, because the check runs over the segments as
-// pasted, never over re-serialised claims.
+// Editing a claim keeps the old signature, which no longer matches. RFC 7515 A.1 covers the other
+// half: its payload has CRLFs and still verifies, because the check runs over the segments as pasted.
 func TestJWTEditedPayloadNoLongerVerifies(t *testing.T) {
 	parts := strings.Split(jwtioToken, ".")
-	edited := parts[0] + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"1234567890","name":"John Doe","admin":true}`)) + "." + parts[2]
+	edited := parts[0] + "." + b64u(`{"sub":"1234567890","name":"John Doe","admin":true}`) + "." + parts[2]
 	if j := decode(t, edited, "your-256-bit-secret", "utf8", rfcNow); j.Verification.State != ciphertools.VerifyInvalid {
 		t.Fatalf("edited payload: %q %s", j.Verification.State, j.Verification.Detail)
 	}
 }
 
-// exp/nbf/iat may be floats or, in sloppy tokens, strings; aud is a string or
-// an array. All of it is shown, none of it crashes.
+// exp/nbf/iat may be floats or strings, aud a string or an array: all shown, none crashes.
 func TestJWTSloppyClaimsAreShown(t *testing.T) {
 	j := decode(t, token(`{"alg":"HS256"}`, `{"aud":["api","web"],"exp":1300819380.5,"iat":"1300819000"}`, "AAAA"), "", "", rfcNow)
 	rows := map[string]ciphertools.Row{}
@@ -247,9 +266,8 @@ func TestJWTSloppyClaimsAreShown(t *testing.T) {
 	}
 }
 
-// PS* uses a salt as long as the hash (RFC 7518 §3.5). The signer's output
-// verifies under exactly that rule, and a signature with any other salt length
-// is refused, even though Go's own PSSSaltLengthAuto would take it.
+// PS* uses a salt as long as the hash (RFC 7518 §3.5). Any other salt length is refused, though Go's
+// own PSSSaltLengthAuto would take it.
 func TestJWTPSSSaltLengthEqualsHash(t *testing.T) {
 	k := testSigners()["rsa"].(*rsa.PrivateKey)
 	parts := strings.Split(signed(t, "PS256", pkcs8PEM(t, k), ""), ".")
@@ -262,27 +280,19 @@ func TestJWTPSSSaltLengthEqualsHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spki, _ := x509.MarshalPKIXPublicKey(&k.PublicKey)
-	pub := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spki}))
 	tok := parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString(long)
-	if j := decode(t, tok, pub, "", time.Now()); j.Verification.State != ciphertools.VerifyInvalid {
+	if j := decode(t, tok, spkiPEM(t, &k.PublicKey), "", time.Now()); j.Verification.State != ciphertools.VerifyInvalid {
 		t.Fatalf("64-byte salt: %q %s", j.Verification.State, j.Verification.Detail)
 	}
 }
 
-// --- signing ----------------------------------------------------------------
-
 func sign(t *testing.T, fields map[string]string) (*ciphertools.JWTSigned, error) {
 	t.Helper()
-	op, ok := ciphertools.Lookup("jwt-sign")
-	if !ok {
-		t.Fatal("jwt-sign not registered")
-	}
 	v := url.Values{}
 	for k, s := range fields {
 		v.Set(k, s)
 	}
-	res, err := ciphertools.Run(op, ciphertools.Input{Fields: v})
+	res, err := runOp(t, "jwt-sign", v, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -298,33 +308,25 @@ func signed(t *testing.T, alg, key, enc string) string {
 	return s.Token
 }
 
-// Every algorithm the sign menu offers must round-trip: sign, then verify with
-// the public key alone (not the private key the signer had).
+// Every sign-menu algorithm round-trips: sign, then verify with the public key alone.
 func TestJWTSignRoundTripEveryAlg(t *testing.T) {
-	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-	ec := map[string]*ecdsa.PrivateKey{}
-	for alg, c := range map[string]elliptic.Curve{"ES256": elliptic.P256(), "ES384": elliptic.P384(), "ES512": elliptic.P521()} {
-		ec[alg], _ = ecdsa.GenerateKey(c, rand.Reader)
-	}
-	_, edKey, _ := ed25519.GenerateKey(rand.Reader)
-	pubPEM := func(k any) string {
-		der, _ := x509.MarshalPKIXPublicKey(k)
-		return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-	}
-
+	signers := testSigners()
+	curves := map[string]string{"ES256": "p256", "ES384": "p384", "ES512": "p521"}
 	for _, alg := range ciphertools.SignAlgs {
 		t.Run(alg, func(t *testing.T) {
-			var priv, pub string
+			var k crypto.Signer
 			switch alg[:2] {
-			case "HS":
-				priv, pub = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ""
-				pub = priv
 			case "RS", "PS":
-				priv, pub = pkcs8PEM(t, rsaKey), pubPEM(&rsaKey.PublicKey)
+				k = signers["rsa"]
 			case "ES":
-				priv, pub = pkcs8PEM(t, ec[alg]), pubPEM(&ec[alg].PublicKey)
-			default:
-				priv, pub = pkcs8PEM(t, edKey), pubPEM(edKey.Public())
+				k = signers[curves[alg]]
+			case "Ed":
+				k = signers["ed25519"]
+			}
+			priv := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+			pub := priv
+			if k != nil {
+				priv, pub = pkcs8PEM(t, k), spkiPEM(t, k.Public())
 			}
 			tok := signed(t, alg, priv, "utf8")
 			if strings.ContainsAny(tok, "+/=") {
@@ -345,17 +347,14 @@ func TestJWTSignRoundTripEveryAlg(t *testing.T) {
 }
 
 func TestJWTSignRefusals(t *testing.T) {
-	p256, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-	spki, _ := x509.MarshalPKIXPublicKey(&rsaKey.PublicKey)
-	pub := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spki}))
+	signers := testSigners()
 	cases := map[string]map[string]string{
 		"alg none":        {"alg": "none", "key": "k"},
-		"public key":      {"alg": "RS256", "key": pub},
+		"public key":      {"alg": "RS256", "key": spkiPEM(t, signers["rsa"].Public())},
 		"secret for RS":   {"alg": "RS256", "key": "secret"},
 		"payload array":   {"alg": "HS256", "key": "k", "payload": "[1,2]"},
 		"no key":          {"alg": "HS256"},
-		"curve mismatch":  {"alg": "ES384", "key": pkcs8PEM(t, p256)},
+		"curve mismatch":  {"alg": "ES384", "key": pkcs8PEM(t, signers["p256"])},
 		"unknown preset":  {"alg": "HS256", "key": "k", "exp": "3w"},
 		"header not JSON": {"alg": "HS256", "key": "k", "header": "{nope"},
 	}
@@ -392,8 +391,8 @@ func TestJWTSignKeepsMemberOrder(t *testing.T) {
 
 func TestJWTJWKSPicksByKid(t *testing.T) {
 	// Two oct keys; only the second signed the token.
-	jwks := `{"keys":[{"kty":"oct","kid":"a","k":"` + base64.RawURLEncoding.EncodeToString([]byte("wrong-wrong-wrong-wrong-wrong-32")) +
-		`"},{"kty":"oct","kid":"b","k":"` + base64.RawURLEncoding.EncodeToString([]byte("right-right-right-right-right-32")) + `"}]}`
+	jwks := `{"keys":[{"kty":"oct","kid":"a","k":"` + b64u("wrong-wrong-wrong-wrong-wrong-32") + `"},{"kty":"oct","kid":"b","k":"` +
+		b64u("right-right-right-right-right-32") + `"}]}`
 	s, err := sign(t, map[string]string{"alg": "HS256", "key": "right-right-right-right-right-32", "kid": "b"})
 	if err != nil {
 		t.Fatal(err)
@@ -410,8 +409,7 @@ func TestJWTJWKSPicksByKid(t *testing.T) {
 	}
 }
 
-// An exp that is present but not a NumericDate is not "no exp claim": the
-// issuer did set an expiry, just in a form nothing can check.
+// An exp that is present but not a NumericDate is not "no exp claim": it just can't be checked.
 func TestJWTMalformedExpIsNotMissing(t *testing.T) {
 	j := decode(t, token(`{"alg":"HS256"}`, `{"sub":"x","exp":"tomorrow"}`, "AAAA"), "", "", rfcNow)
 	if j.Validity.State != "bad-expiry" {
@@ -424,11 +422,8 @@ func TestJWTMalformedExpIsNotMissing(t *testing.T) {
 	}
 }
 
-// A token never says how its HMAC secret was written down, and a secret like
-// this one is valid both as text and as base64 (26 letters: 26 bytes of text,
-// or 19 bytes of base64). Left on "detect", the verifier tries each reading and
-// says which one matched; with an explicit reading that fails, it still says
-// which reading would have matched rather than a bare "invalid".
+// This secret is valid text (26 bytes) and valid base64 (19 bytes). Detect names the reading that
+// matched; an explicit reading that fails still names the one that would have.
 func TestJWTSecretEncodingDetected(t *testing.T) {
 	const pasted = "hkjlhlkjhjklhkljhlkjhlkhlk"
 	meant, err := base64.RawStdEncoding.DecodeString(pasted)
@@ -457,5 +452,44 @@ func TestJWTSecretEncodingDetected(t *testing.T) {
 	j = decode(t, s.Token, "wrong-but-also-26-letters", "", now)
 	if j.Verification.State != ciphertools.VerifyInvalid || !strings.Contains(j.Verification.Detail, "Tried the secret as UTF-8 text") {
 		t.Fatalf("wrong secret: %s — %s", j.Verification.State, j.Verification.Detail)
+	}
+}
+
+// Warnings, notes and refusals no other test reaches, each pinned by the text it shows.
+func TestJWTEdgeCasesShown(t *testing.T) {
+	small, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := base64.RawURLEncoding.EncodeToString(testSigners()["rsa"].Public().(*rsa.PublicKey).N.Bytes())
+	rs256 := signed(t, "RS256", pkcs8PEM(t, testSigners()["rsa"]), "")
+	for _, c := range []struct{ name, token, key, want string }{
+		{"jku header", token(`{"alg":"HS256","jku":"https://x"}`, `{}`, "AAAA"), "", "names a URL (jku)"},
+		{"x5c header", token(`{"alg":"HS256","x5c":["a"]}`, `{}`, "AAAA"), "", "embeds a key (x5c)"},
+		{"kid probe", token(`{"alg":"HS256","kid":"../k"}`, `{}`, "AAAA"), "", "path-traversal"},
+		{"long lifetime", token(`{"alg":"HS256"}`, `{"iat":1300000000,"exp":1300819900}`, "AAAA"), "", "Lifetime is 9 days"},
+		{"small RSA key", signed(t, "RS256", pkcs8PEM(t, small), ""), spkiPEM(t, &small.PublicKey), "RSA key is 1024 bits"},
+		{"unsupported alg", token(`{"alg":"HS1"}`, `{}`, "AAAA"), "k", `Unsupported alg \"HS1\"`},
+		{"JWK alg restriction", rs256, `{"kty":"RSA","alg":"RS384","e":"AQAB","n":"` + n + `"}`, "restricts to RS384"},
+		{"signature not base64url", token(`{"alg":"HS256"}`, `{}`, "!!"), "k", "signature segment is not base64url"},
+		{"not yet valid", token(`{"alg":"HS256"}`, `{"nbf":1300819900}`, "AAAA"), "", "Not valid until 2011-03-22 18:51:40 UTC"},
+		{"milliseconds", token(`{"alg":"HS256"}`, `{"exp":1300819000000}`, "AAAA"), "", "looks like milliseconds"},
+	} {
+		j := decode(t, c.token, c.key, "", rfcNow)
+		if shown, _ := json.Marshal(j); !strings.Contains(string(shown), c.want) {
+			t.Errorf("%s: %q not shown in %s", c.name, c.want, shown)
+		}
+	}
+	for bad, want := range map[string]string{"e3+/.e30.x": "uses '+' or '/'", token(`{"alg":5}`, `{}`, "AAAA"): `"alg" is not a string`} {
+		if _, err := ciphertools.DecodeJWT(bad, "", "", rfcNow, 0); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: error %v, want %q", bad, err, want)
+		}
+	}
+	s, err := sign(t, map[string]string{"alg": "HS256", "key": "k", "header": `{"typ":"at+jwt","cty":"x"}`})
+	if err != nil {
+		t.Fatalf("typ from header: %v", err)
+	}
+	if string(s.Decoded.Header) != `{"alg":"HS256","typ":"at+jwt","cty":"x"}` {
+		t.Errorf("typ from header: %s", s.Decoded.Header)
 	}
 }

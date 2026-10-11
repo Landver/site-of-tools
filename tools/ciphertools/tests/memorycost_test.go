@@ -46,8 +46,7 @@ func TestMemoryCost(t *testing.T) {
 	}
 }
 
-// The charge is what hashing really allocates: Argon2's m KiB and scrypt's
-// 128·N·r whatever p is, since neither allocates per lane.
+// The charge is what hashing allocates: Argon2's m KiB, and scrypt's 128·N·r whatever p is.
 func TestMemoryCostMatchesAllocation(t *testing.T) {
 	for _, fields := range []url.Values{
 		{"algo": {"argon2id"}, "argon2_m": {"8192"}, "argon2_t": {"1"}, "argon2_p": {"2"}},

@@ -21,14 +21,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func randomOf(t *testing.T, fields url.Values) *ciphertools.RandomResult {
-	t.Helper()
-	res, err := runOp(t, "random", fields, nil)
-	if err != nil {
-		t.Fatalf("random %v: %v", fields, err)
-	}
-	return res.(*ciphertools.RandomResult)
-}
+var randomOf = runner[ciphertools.RandomResult]("random")
 
 func unique(t *testing.T, vs []string) {
 	t.Helper()
@@ -113,9 +106,7 @@ func TestRandomBoundsEnforced(t *testing.T) {
 		{"kind": {"uuid"}, "count": {"101"}},
 		{"kind": {"ulid"}},
 	} {
-		if _, err := runOp(t, "random", f, nil); err == nil {
-			t.Errorf("%v accepted", f)
-		}
+		wantErr(t, "random", f, "")
 	}
 }
 
@@ -200,9 +191,8 @@ func TestRandomPasswordEntropy(t *testing.T) {
 	}
 }
 
-// Rejection sampling, not modulo: with b % 10 over bytes, digits 0-5 would
-// come up 26/256 of the time and 6-9 25/256. Over ~5M digits that is 12
-// standard deviations; the bound here is 6.
+// Rejection sampling, not modulo: b % 10 gives digits 0-5 26/256 and 6-9 25/256, 12 standard
+// deviations over ~5M digits; the bound here is 6.
 func TestRandomPasswordIsUniform(t *testing.T) {
 	if testing.Short() {
 		t.Skip("statistical")
@@ -268,8 +258,7 @@ func TestRandomUUIDv7EmbedsNow(t *testing.T) {
 	}
 }
 
-// "Randomness is crypto/rand only": math/rand may not be imported by any file
-// that runs in production, here or in the wasm engine.
+// "Randomness is crypto/rand only": no production file here or in the wasm engine imports math/rand.
 func TestNoMathRandImports(t *testing.T) {
 	root := ".." // go test runs in tools/ciphertools/tests
 	n := 0

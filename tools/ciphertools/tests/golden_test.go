@@ -1,9 +1,6 @@
 package tests
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,8 +9,7 @@ import (
 	"github.com/Landver/site-of-tools/platform/goldentest"
 )
 
-// A JSON body exercises every value rule: strings as typed, a large number
-// in full ('f', not 1.7e+09), booleans as "true"/"false", null as absent.
+// Every JSON value rule: strings as typed, a large number in full (not 1.7e+09), booleans as text, null as absent.
 func TestJSONPostGolden(t *testing.T) {
 	e := newCipherApp(t)
 	post := func(body string) *httptest.ResponseRecorder {
@@ -29,10 +25,8 @@ func TestJSONPostGolden(t *testing.T) {
 
 func TestFormPostGolden(t *testing.T) {
 	e := newCipherApp(t)
-	msg, key := `{"action":"opened"}`, []byte("webhook secret")
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(msg))
-	body := url.Values{"text": {msg}, "key": {string(key)}, "expected": {"sha256=" + hex.EncodeToString(mac.Sum(nil))}}
+	msg, key := `{"action":"opened"}`, "webhook secret"
+	body := url.Values{"text": {msg}, "key": {key}, "expected": {"sha256=" + hmacHex([]byte(key), msg)}}
 	goldentest.JSON(t, "form-post", goldentest.Recorded(map[string]*httptest.ResponseRecorder{
 		"hmac": do(t, e, http.MethodPost, "/hmac", body.Encode(), form, asAPI),
 	}))

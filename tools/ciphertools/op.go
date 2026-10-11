@@ -1,47 +1,49 @@
-// Package ciphertools is cipher.corpberry.com: JWT, hashes, HMAC, password
-// hashing, encryption, keys, certificates, TOTP, random values and byte
-// encodings.
-//
-// The package is built twice. Natively it sits behind handler.go and answers the
-// JSON API; compiled to WebAssembly (./wasm) the same code runs inside the
-// visitor's browser, so nothing they paste has to leave the tab. Everything here
-// except handler.go must therefore stay pure Go — no Echo, no platform, no I/O —
-// or the wasm build breaks. See docs/02-build-plan.md.
+// Package ciphertools is cipher.corpberry.com. Everything but handler.go also runs as wasm in the
+// visitor's tab (./wasm), so it stays pure Go: no Echo, no platform, no I/O.
 package ciphertools
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"maps"
+	"math"
 	"net/url"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Input is one submitted form: its fields and any uploaded files, keyed by field
-// name. url.Values rather than a struct so the server (c.Request().Form) and the
-// browser (a JS FormData) hand over the same shape without translation.
+// Input is one submitted form. url.Values, so a server form and a browser FormData map 1:1.
 type Input struct {
 	Fields url.Values
 	Files  map[string][]byte
 }
 
-// Get returns a field with surrounding whitespace kept — callers decide what to
-// trim, because for a hash input the whitespace IS the data.
+// Get keeps surrounding whitespace: for a hash input it is the data.
 func (in Input) Get(key string) string { return in.Fields.Get(key) }
 
-// InputFromJSON is the Input a form would have made of a flat JSON object.
+// InputFromJSON is the Input a form would have made of a flat JSON object, numbers as float64 or json.Number.
 func InputFromJSON(obj map[string]any) (Input, error) {
 	in := Input{Fields: url.Values{}, Files: map[string][]byte{}}
 	for k, v := range obj {
 		switch t := v.(type) {
 		case string:
 			in.Fields.Set(k, t)
+		case json.Number:
+			if allDigits(strings.TrimPrefix(t.String(), "-")) { // as sent: float64 rounds past 2^53
+				in.Fields.Set(k, t.String())
+				continue
+			}
+			f, err := t.Float64()
+			if err != nil {
+				return in, fmt.Errorf("field %q: %s is out of range", k, t)
+			}
+			in.Fields.Set(k, strconv.FormatFloat(f, 'f', -1, 64))
 		case float64:
-			// Not fmt.Sprint, whose "1e+06" no integer field reads.
-			in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64))
+			in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64)) // not fmt's "1e+06", which no int field reads
 		case bool:
 			in.Fields.Set(k, strconv.FormatBool(t))
 		case nil:
@@ -52,16 +54,14 @@ func InputFromJSON(obj map[string]any) (Input, error) {
 	return in, nil
 }
 
-// now reads the optional "now" field (unix seconds) so an API caller can ask
-// "was this token valid at T", and tests are deterministic. Absent means the
-// real clock.
+// now reads the optional "now" field (unix seconds); absent means the real clock.
 func (in Input) now() (time.Time, error) {
 	v := strings.TrimSpace(in.Get("now"))
 	if v == "" {
 		return time.Now(), nil
 	}
-	var sec int64
-	if _, err := fmt.Sscan(v, &sec); err != nil {
+	sec, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
 		return time.Time{}, fmt.Errorf("now: want unix seconds, got %q", v)
 	}
 	return time.Unix(sec, 0), nil
@@ -70,27 +70,18 @@ func (in Input) now() (time.Time, error) {
 var nowField = Field{Name: "now", Kind: KindInt,
 	Description: "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock."}
 
-// Op is one computation: a form in, a result struct out. The registry below is
-// the whole feature set; the server handler and the wasm entrypoint are both a
-// few lines wrapped around it.
+// Op is one computation, a form in and a result struct out; the handler and the wasm engine wrap the same registry.
 type Op struct {
-	// Name is the op's key, also the form's data-cipher attribute.
-	Name string
-	// Path is the POST route of the JSON API.
-	Path string
-	// Page is the key of the page this op's form lives on (handler.go).
-	Page string
-	// Fragment is the template that renders a successful result.
-	Fragment string
+	Name     string // also the form's data-cipher attribute
+	Path     string // POST route of the JSON API
+	Page     string // key of the page whose form runs it
+	Fragment string // template rendering a successful result
 	Fields   []Field
-	// Heavy marks CPU-expensive ops (password hashing, RSA keygen): stricter
-	// server rate limit, and never run on a keystroke in the browser.
-	Heavy bool
-	Run   func(Input) (any, error)
+	Heavy    bool // CPU-expensive: stricter server rate limit, never run on a keystroke
+	Run      func(Input) (any, error)
 }
 
-// ops is filled by each feature file's init, so adding a page never touches a
-// central list.
+// ops is filled by each feature file's init.
 var ops = map[string]Op{}
 
 func register(op Op) {
@@ -100,25 +91,17 @@ func register(op Op) {
 	ops[op.Name] = op
 }
 
-// Ops returns every registered op, sorted by name for stable route order.
+// Ops returns every op sorted by name, for a stable route order.
 func Ops() []Op {
-	out := make([]Op, 0, len(ops))
-	for _, op := range ops {
-		out = append(out, op)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return slices.SortedFunc(maps.Values(ops), func(a, b Op) int { return strings.Compare(a.Name, b.Name) })
 }
 
-// Lookup finds an op by name.
 func Lookup(name string) (Op, bool) {
 	op, ok := ops[name]
 	return op, ok
 }
 
-// Run executes an op, turning a panic into an error. In the browser a panic
-// would kill the Go runtime and leave every later call answering "Go program has
-// already exited", so no input may be allowed to take the engine down.
+// Run turns a panic into an error: in the browser a panic kills the Go runtime for every later call.
 func Run(op Op, in Input) (res any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -128,19 +111,41 @@ func Run(op Op, in Input) (res any, err error) {
 	return op.Run(in)
 }
 
-// MaxFile is the most of a picked file the in-browser engine reads: the worker
-// hands an op at most MaxFile+1 bytes of it, one past the limit, which is all an
-// op needs to refuse it. Read whole, a disk image was copied into the Go heap,
-// and running out of memory there is a fatal error no recover catches, so the
-// engine was gone until a reload. It is the largest limit any op has (hash's);
-// raise it with that one.
+// MaxFile caps how much of a picked file the worker hands the engine: one byte past it is enough to
+// refuse, and running out of Go heap there is fatal. It is hash's limit, the largest; raise them together.
 const MaxFile = MaxHashInput
 
-// ErrorFragment renders a failed op.
 const ErrorFragment = "cipher/error"
 
-// Render runs an op and renders its result fragment — the browser's whole code
-// path, and the server's no-JS path uses the same templates. Returns HTML.
+const (
+	LevelDanger = "danger"
+	LevelWarn   = "warn"
+	LevelInfo   = "info"
+)
+
+type Warning struct {
+	Level string `json:"level"`
+	Text  string `json:"text"`
+}
+
+type Warnings []Warning
+
+func (w *Warnings) add(level, text string) { *w = append(*w, Warning{level, text}) }
+
+// millis rounds to a tenth of a millisecond for the JSON answer.
+func millis(d time.Duration) float64 { return math.Round(float64(d.Microseconds())/100) / 10 }
+
+func tookText(d time.Duration) string {
+	switch {
+	case d < time.Millisecond:
+		return "under 1 ms"
+	case d < time.Second:
+		return fmt.Sprintf("%d ms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.2f s", d.Seconds())
+}
+
+// Render runs an op and renders its fragment: the browser engine's whole code path.
 func Render(t *template.Template, name string, in Input) string {
 	op, ok := Lookup(name)
 	if !ok {
@@ -165,16 +170,11 @@ func renderError(t *template.Template, err error) string {
 	return b.String()
 }
 
-// FragmentTemplates parses this package's templates on their own, for the wasm
-// engine and for tests. The page shells in the same files call the shared
-// partials and the engine's nav funcs; html/template only resolves a
-// {{template}} call when it is executed, and fragments never reach the shells,
-// so stub funcs are enough to get through the parse.
+// FragmentTemplates parses the templates alone (wasm, tests): fragments never reach the shells, so stub funcs do.
 func FragmentTemplates() (*template.Template, error) {
-	stubs := template.FuncMap{
+	return template.New("").Funcs(template.FuncMap{
 		"asset":    func(string) string { return "" },
 		"apexURL":  func() string { return "" },
 		"navTools": func() []struct{} { return nil },
-	}
-	return template.New("").Funcs(stubs).ParseFS(Templates, "templates/*.html")
+	}).ParseFS(Templates, "templates/*.html")
 }

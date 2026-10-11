@@ -4,41 +4,27 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// C5 — symmetric encryption with an explicit key: AES-GCM, ChaCha20-Poly1305,
-// and AES-CBC for systems that still need it. The output layout is fixed and
-// stated on every result, because an encrypt tool whose output only it can
-// read is no use (docs/01-feature-inventory.md, C5):
-//
-//	AEAD: nonce ‖ ciphertext ‖ tag
-//	CBC:  iv ‖ ciphertext (PKCS#7)
-//
-// The key is bytes, given as hex or base64, and its length must already be
-// right. Text is never padded or truncated into a key, and there is no
-// passphrase mode: that means an MD5 KDF (docs/01, cut), and the honest
-// version is "derive a key on /password, encrypt here". Not live: each run
-// draws a fresh random nonce.
+// No passphrase mode: that is an MD5 KDF, and the honest version is "derive a key on /password, encrypt here".
 
 func init() {
 	register(Op{Name: "encrypt", Path: "/encrypt", Page: "encrypt", Fragment: "cipher/encrypt-result", Run: runEncrypt,
 		Fields: []Field{
 			{Name: "mode", Kind: KindEnum, Enum: []string{"encrypt", "decrypt"}, Default: "encrypt",
 				Description: "encrypt text, or decrypt data."},
-			{Name: "algo", Kind: KindEnum, Enum: []string{CipherAESGCM, CipherChaCha20, CipherAESCBC}, Default: CipherAESGCM,
-				Description: "The cipher: aes-gcm or chacha20-poly1305 (authenticated: 12-byte nonce, 16-byte tag), or aes-cbc (unauthenticated: 16-byte IV, PKCS#7 padding) for systems that require it."},
+			encryptAlgoField,
 			{Name: "key", Kind: KindString,
 				Description: "The key, read per key_enc: exactly 16, 24 or 32 bytes for AES, 32 for ChaCha20-Poly1305; required to decrypt, while encrypting without one makes a random 32-byte key and returns it as generated_key."},
-			{Name: "key_enc", Kind: KindEnum, Enum: []string{EncHex, EncBase64, EncBase64URL}, Default: EncHex,
-				Description: "How key is written; utf8 is refused, because a passphrase is not a key."},
+			encryptKeyEncField,
 			{Name: "nonce", Kind: KindString,
 				Description: "The nonce (the IV for aes-cbc) as hex, 12 bytes or 16 for aes-cbc; omit it to encrypt with a random one, or to decrypt data that starts with it."},
 			{Name: "aad", Kind: KindString,
@@ -51,57 +37,41 @@ func init() {
 				Description: "How text is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first."},
 			{Name: "data", Kind: KindString,
 				Description: "The ciphertext to decrypt (mode decrypt), as base64 or hex: an encrypt's combined output, nonce ‖ ciphertext ‖ tag, or iv ‖ ciphertext for aes-cbc."},
-			{Name: "data_enc", Kind: KindEnum, Enum: []string{EncAuto, EncBase64, EncBase64URL, EncHex}, Default: EncAuto,
-				Description: "How data is written; auto reads all-hex data as hex and anything else as base64."},
+			encryptDataEncField,
 		}})
 }
 
-// Cipher ids: the algo field's values.
-const (
-	CipherAESGCM   = "aes-gcm"
-	CipherChaCha20 = "chacha20-poly1305"
-	CipherAESCBC   = "aes-cbc"
-)
+var encryptAlgoField = Field{Name: "algo", Kind: KindEnum, Enum: []string{"aes-gcm", "chacha20-poly1305", "aes-cbc"}, Default: "aes-gcm",
+	Description: "The cipher: aes-gcm or chacha20-poly1305 (authenticated: 12-byte nonce, 16-byte tag), or aes-cbc (unauthenticated: 16-byte IV, PKCS#7 padding) for systems that require it."}
 
-const (
-	aeadNonceBytes = 12
-	aeadTagBytes   = 16
-	cbcIVBytes     = aes.BlockSize
-)
+var encryptKeyEncField = Field{Name: "key_enc", Kind: KindEnum, Enum: []string{EncHex, EncBase64, EncBase64URL}, Default: EncHex,
+	Description: "How key is written; utf8 is refused, because a passphrase is not a key."}
 
+var encryptDataEncField = Field{Name: "data_enc", Kind: KindEnum, Enum: []string{EncAuto, EncBase64, EncBase64URL, EncHex}, Default: EncAuto,
+	Description: "How data is written; auto reads all-hex data as hex and anything else as base64."}
+
+// cipherSpec is one algo. Key lengths are checked against keys first, so its constructors can't fail.
 type cipherSpec struct {
-	id    string
-	aead  bool
-	nonce int
-	// keys are the accepted key lengths; keyText says so in words.
-	keys    []int
-	keyText string
+	name      string                            // %d becomes the key size in bits
+	aead      func([]byte) (cipher.AEAD, error) // nil for CBC
+	nonce     int
+	nonceName string
+	keys      []int
+	keyText   string
 }
+
+const (
+	aeadTagBytes   = 16
+	encryptAESKeys = "AES takes exactly 16, 24 or 32 bytes (AES-128, AES-192, AES-256)"
+)
 
 var cipherSpecs = map[string]cipherSpec{
-	CipherAESGCM:   {id: CipherAESGCM, aead: true, nonce: aeadNonceBytes, keys: []int{16, 24, 32}, keyText: "AES takes exactly 16, 24 or 32 bytes (AES-128, AES-192, AES-256)"},
-	CipherChaCha20: {id: CipherChaCha20, aead: true, nonce: aeadNonceBytes, keys: []int{32}, keyText: "ChaCha20-Poly1305 takes exactly 32 bytes"},
-	CipherAESCBC:   {id: CipherAESCBC, nonce: cbcIVBytes, keys: []int{16, 24, 32}, keyText: "AES takes exactly 16, 24 or 32 bytes (AES-128, AES-192, AES-256)"},
+	"aes-gcm": {name: "AES-%d-GCM", nonce: 12, nonceName: "nonce", keys: []int{16, 24, 32}, keyText: encryptAESKeys,
+		aead: func(key []byte) (cipher.AEAD, error) { b, _ := aes.NewCipher(key); return cipher.NewGCM(b) }},
+	"chacha20-poly1305": {name: "ChaCha20-Poly1305", aead: chacha20poly1305.New, nonce: 12, nonceName: "nonce", keys: []int{32}, keyText: "ChaCha20-Poly1305 takes exactly 32 bytes"},
+	"aes-cbc":           {name: "AES-%d-CBC", nonce: aes.BlockSize, nonceName: "IV", keys: []int{16, 24, 32}, keyText: encryptAESKeys},
 }
 
-func (c cipherSpec) name(keyLen int) string {
-	switch c.id {
-	case CipherAESGCM:
-		return fmt.Sprintf("AES-%d-GCM", keyLen*8)
-	case CipherAESCBC:
-		return fmt.Sprintf("AES-%d-CBC", keyLen*8)
-	}
-	return "ChaCha20-Poly1305"
-}
-
-func (c cipherSpec) nonceName() string {
-	if c.aead {
-		return "nonce"
-	}
-	return "IV"
-}
-
-// Blob is one byte string of the output, in both encodings people paste.
 type Blob struct {
 	Hex    string `json:"hex"`
 	Base64 string `json:"base64"`
@@ -112,337 +82,207 @@ func blobOf(b []byte) Blob {
 	return Blob{Hex: hex.EncodeToString(b), Base64: base64.StdEncoding.EncodeToString(b), Bytes: len(b)}
 }
 
-// EncryptResult is the encrypt op's answer, for either direction.
 type EncryptResult struct {
-	Mode      string `json:"mode"` // encrypt | decrypt
-	Algorithm string `json:"algorithm"`
-	// Layout is the byte layout of Combined, with each part's length.
-	Layout    string `json:"layout"`
-	KeyBytes  int    `json:"key_bytes"`
-	NonceName string `json:"nonce_name"` // nonce | IV
-	// NonceFrom: random, supplied (encrypt), blob or field (decrypt).
-	NonceFrom  string `json:"nonce_from"`
-	Nonce      Blob   `json:"nonce"`
-	Ciphertext Blob   `json:"ciphertext"`
-	Tag        *Blob  `json:"tag,omitempty"`
-	// Combined is nonce ‖ ciphertext ‖ tag, or iv ‖ ciphertext.
-	Combined  Blob `json:"combined"`
-	Plaintext Text `json:"plaintext"`
-	// PlaintextReadAs: how the encrypt input was read.
-	PlaintextReadAs string `json:"plaintext_read_as,omitempty"`
-	// DataReadAs: how the decrypt input was read (base64 variant, or hex).
-	DataReadAs string `json:"data_read_as,omitempty"`
-	AADBytes   int    `json:"aad_bytes,omitempty"`
-	// GeneratedKey is set when encrypt was asked with no key and made one.
-	GeneratedKey *Blob     `json:"generated_key,omitempty"`
-	Warnings     []Warning `json:"warnings,omitempty"`
+	Mode            string   `json:"mode"`
+	Algorithm       string   `json:"algorithm"`
+	Layout          string   `json:"layout"`
+	KeyBytes        int      `json:"key_bytes"`
+	NonceName       string   `json:"nonce_name"`
+	NonceFrom       string   `json:"nonce_from"` // random, supplied (encrypt); blob, field (decrypt)
+	Nonce           Blob     `json:"nonce"`
+	Ciphertext      Blob     `json:"ciphertext"`
+	Tag             *Blob    `json:"tag,omitempty"`
+	Combined        Blob     `json:"combined"`
+	Plaintext       Text     `json:"plaintext"`
+	PlaintextReadAs string   `json:"plaintext_read_as,omitempty"`
+	DataReadAs      string   `json:"data_read_as,omitempty"`
+	AADBytes        int      `json:"aad_bytes,omitempty"`
+	GeneratedKey    *Blob    `json:"generated_key,omitempty"`
+	Warnings        Warnings `json:"warnings,omitempty"`
 }
-
-func (r *EncryptResult) warn(level, text string) {
-	r.Warnings = append(r.Warnings, Warning{level, text})
-}
-
-// errAuth is the whole of what an AEAD can say about a failed open.
-var errAuth = errors.New("decryption failed: wrong key, wrong AAD, or corrupted data. The tag checks all of them at once, so it can't say which")
 
 func runEncrypt(in Input) (any, error) {
-	algo := strings.ToLower(strings.TrimSpace(in.Get("algo")))
-	if algo == "" {
-		algo = CipherAESGCM
+	algo, err := enumField(in.Get("algo"), encryptAlgoField)
+	if err != nil {
+		return nil, err
 	}
-	spec, ok := cipherSpecs[algo]
-	if !ok {
-		return nil, fmt.Errorf("algo: want aes-gcm, chacha20-poly1305 or aes-cbc, got %q", algo)
-	}
-	mode := strings.ToLower(strings.TrimSpace(in.Get("mode")))
-	// Encrypting with no key makes one: the common case is "encrypt this" with no
-	// key yet, and sending the visitor to another page to make one first was a
-	// detour. 32 random bytes fit every algorithm here (AES-256, ChaCha20). The
-	// result shows it prominently, because without it nothing can be decrypted.
-	var key, generated []byte
-	var err error
-	if mode != "decrypt" && strings.TrimSpace(in.Get("key")) == "" {
-		generated = make([]byte, 32)
-		rand.Read(generated)
-		key = generated
+	spec := cipherSpecs[algo]
+	r := &EncryptResult{Mode: choice(in.Get("mode"), "encrypt"), NonceName: spec.nonceName}
+	var key, nonce, aad, body []byte
+	// Without the generated key nothing decrypts, so the result shows it; 32 bytes fit every algo.
+	if r.Mode != "decrypt" && strings.TrimSpace(in.Get("key")) == "" {
+		key = randomBytes(32)
+		r.GeneratedKey = ptr(blobOf(key))
 	} else if key, err = encryptKey(in, spec); err != nil {
 		return nil, err
 	}
-	var nonce []byte
+	r.Algorithm, r.KeyBytes = strings.Replace(spec.name, "%d", fmt.Sprint(8*len(key)), 1), len(key)
 	if v := strings.TrimSpace(in.Get("nonce")); v != "" {
-		if nonce, err = DecodeBytes(v, EncHex); err != nil {
-			return nil, fmt.Errorf("%s: %w", spec.nonceName(), err)
+		if nonce, err = decodeHex(v); err != nil {
+			return nil, fmt.Errorf("%s: %w", spec.nonceName, err)
 		}
 		if len(nonce) != spec.nonce {
-			return nil, fmt.Errorf("%s: %d bytes; %s takes a %d-byte %s", spec.nonceName(), len(nonce), spec.name(len(key)), spec.nonce, spec.nonceName())
+			return nil, fmt.Errorf("%s: %d bytes; %s takes a %d-byte %s", spec.nonceName, len(nonce), r.Algorithm, spec.nonce, spec.nonceName)
 		}
 	}
-	var aad []byte
 	if v := in.Get("aad"); v != "" {
-		if !spec.aead {
+		if spec.aead == nil {
 			return nil, errors.New("aad: AES-CBC has no associated data. AAD is for AES-GCM and ChaCha20-Poly1305")
 		}
-		if aad, err = DecodeBytes(v, in.Get("aad_enc")); err != nil {
+		if aad, _, err = decodeInput(v, in.Get("aad_enc")); err != nil {
 			return nil, fmt.Errorf("aad: %w", err)
 		}
 	}
-	r := &EncryptResult{Algorithm: spec.name(len(key)), KeyBytes: len(key), NonceName: spec.nonceName(), AADBytes: len(aad)}
-	if generated != nil {
-		g := blobOf(generated)
-		r.GeneratedKey = &g
-	}
-	switch mode {
-	case "", "encrypt":
-		r.Mode = "encrypt"
-		err = r.encrypt(in, spec, key, nonce, aad)
+	r.AADBytes = len(aad)
+	switch r.Mode {
+	case "encrypt":
+		nonce, body, err = r.encrypt(in, spec, key, nonce, aad)
 	case "decrypt":
-		r.Mode = "decrypt"
-		err = r.decrypt(in, spec, key, nonce, aad)
+		nonce, body, err = r.decrypt(in, spec, key, nonce, aad)
 	default:
-		return nil, fmt.Errorf("mode: want encrypt or decrypt, got %q", mode)
+		return nil, fmt.Errorf("mode: want encrypt or decrypt, got %q", r.Mode)
 	}
 	if err != nil {
 		return nil, err
 	}
-	r.layout(spec)
-	r.commonWarnings(spec, key)
+	r.Nonce, r.Ciphertext, r.Combined = blobOf(nonce), blobOf(body), blobOf(slices.Concat(nonce, body))
+	if spec.aead != nil {
+		n := len(body) - aeadTagBytes
+		r.Ciphertext, r.Tag = blobOf(body[:n]), ptr(blobOf(body[n:]))
+		r.Layout = fmt.Sprintf("nonce (%d bytes) ‖ ciphertext (%d bytes) ‖ tag (%d bytes)", len(nonce), n, aeadTagBytes)
+	} else {
+		r.Layout = fmt.Sprintf("IV (%d bytes) ‖ ciphertext (%d bytes, PKCS#7 padded)", len(nonce), len(body))
+		r.Warnings.add(LevelWarn, "AES-CBC is unauthenticated and malleable: anyone can flip bits of the ciphertext to change the plaintext in predictable places, and nothing detects it. Use it only to talk to a system that requires it, with an HMAC over iv ‖ ciphertext, or use AES-GCM.")
+	}
+	if bytes.Equal(key, make([]byte, len(key))) {
+		r.Warnings.add(LevelWarn, "The key is all zero bytes: fine for a test vector, never for real data.")
+	}
 	return r, nil
 }
 
-// encryptKey decodes the key and insists on its exact length. A UTF-8 key is
-// refused outright: a passphrase is not a key, and stretching or cutting one
-// to fit is the bug that makes two tools disagree.
+// encryptKey takes exact bytes only: padding or cutting a passphrase to fit is what makes two tools disagree.
 func encryptKey(in Input, spec cipherSpec) ([]byte, error) {
-	enc := strings.ToLower(strings.TrimSpace(in.Get("key_enc")))
-	switch enc {
-	case "":
-		enc = EncHex
-	case EncHex, EncBase64, EncBase64URL:
-	case EncUTF8:
+	enc := choice(in.Get("key_enc"), EncHex)
+	if enc == EncUTF8 {
 		return nil, errors.New("key: read as hex or base64 only. A passphrase is not a key: derive one from it with PBKDF2 or Argon2 on the Passwords page, or make a random one on the Random page")
-	default:
-		return nil, fmt.Errorf("key_enc: want hex or base64, got %q", enc)
+	}
+	if _, err := enumField(enc, encryptKeyEncField); err != nil {
+		return nil, err
 	}
 	raw := in.Get("key")
 	if strings.TrimSpace(raw) == "" {
 		return nil, errors.New("no key given: paste the key as hex or base64. " + spec.keyText + ".")
 	}
-	key, err := DecodeBytes(raw, enc)
+	key, _, err := decodeInput(raw, enc)
 	if err != nil {
 		return nil, fmt.Errorf("key: %w", err)
 	}
-	for _, n := range spec.keys {
-		if len(key) == n {
-			return key, nil
-		}
+	if slices.Contains(spec.keys, len(key)) {
+		return key, nil
 	}
 	msg := fmt.Sprintf("key: %d bytes. %s; keys are never padded or truncated here", len(key), spec.keyText)
 	// The commonest cause: 64 hex digits read as base64, or the reverse.
 	other := map[string]string{EncHex: EncBase64, EncBase64: EncHex, EncBase64URL: EncHex}[enc]
-	if alt, err := DecodeBytes(raw, other); err == nil {
-		for _, n := range spec.keys {
-			if len(alt) == n {
-				msg += fmt.Sprintf(". Read as %s it is %d bytes: is the key %s?", encName(other), n, encName(other))
-				break
-			}
-		}
+	if alt, _, err := decodeInput(raw, other); err == nil && slices.Contains(spec.keys, len(alt)) {
+		msg += fmt.Sprintf(". Read as %s it is %d bytes: is the key %s?", other, len(alt), other)
 	}
 	return nil, errors.New(msg)
 }
 
-func (r *EncryptResult) encrypt(in Input, spec cipherSpec, key, nonce, aad []byte) error {
+// encrypt returns the nonce it used and the sealed body that follows it.
+func (r *EncryptResult) encrypt(in Input, spec cipherSpec, key, nonce, aad []byte) ([]byte, []byte, error) {
 	pt, how, err := decodeInput(in.Get("text"), in.Get("enc"))
 	if err != nil {
-		return fmt.Errorf("plaintext: %w", err)
+		return nil, nil, fmt.Errorf("plaintext: %w", err)
 	}
-	r.Plaintext, r.PlaintextReadAs = textOf(pt), how
-	r.NonceFrom = "supplied"
-	if nonce == nil {
+	r.Plaintext, r.PlaintextReadAs, r.NonceFrom = textOf(pt), how, "supplied"
+	switch {
+	case nonce == nil:
 		nonce, r.NonceFrom = randomBytes(spec.nonce), "random"
+	case spec.aead != nil:
+		r.Warnings.add(LevelDanger, fmt.Sprintf("You supplied the nonce. Encrypting two messages with the same key and nonce under %s leaks the XOR of the plaintexts and lets anyone forge messages. Leave it blank for a random one unless you are reproducing a test vector.", r.Algorithm))
+	default:
+		r.Warnings.add(LevelWarn, "You supplied the IV. A CBC IV must be unpredictable: a fixed or guessable one shows when two messages start with the same block. Leave it blank for a random one unless you are reproducing a test vector.")
 	}
-	r.Nonce = blobOf(nonce)
-	if spec.aead {
-		a, err := newAEAD(spec, key)
-		if err != nil {
-			return err
-		}
-		sealed := a.Seal(nil, nonce, pt, aad)
-		ct, tag := sealed[:len(sealed)-aeadTagBytes], sealed[len(sealed)-aeadTagBytes:]
-		r.Ciphertext, r.Tag = blobOf(ct), ptr(blobOf(tag))
-		r.Combined = blobOf(concat(nonce, sealed))
-		if r.NonceFrom == "supplied" {
-			r.warn(LevelDanger, fmt.Sprintf("You supplied the nonce. Encrypting two messages with the same key and nonce under %s leaks the XOR of the plaintexts and lets anyone forge messages. Leave it blank for a random one unless you are reproducing a test vector.", r.Algorithm))
-		}
+	var body []byte
+	if spec.aead != nil {
+		a, _ := spec.aead(key)
+		body = a.Seal(nil, nonce, pt, aad)
 	} else {
-		b, err := aes.NewCipher(key)
-		if err != nil {
-			return fmt.Errorf("key: %w", err)
-		}
-		padded := pkcs7Pad(pt)
-		ct := make([]byte, len(padded))
-		cipher.NewCBCEncrypter(b, nonce).CryptBlocks(ct, padded)
-		r.Ciphertext = blobOf(ct)
-		r.Combined = blobOf(concat(nonce, ct))
-		if r.NonceFrom == "supplied" {
-			r.warn(LevelWarn, "You supplied the IV. A CBC IV must be unpredictable: a fixed or guessable one shows when two messages start with the same block. Leave it blank for a random one unless you are reproducing a test vector.")
-		}
+		// PKCS#7 always adds 1 to 16 bytes, each holding the count, so unpadding never guesses.
+		n := aes.BlockSize - len(pt)%aes.BlockSize
+		body = slices.Concat(pt, bytes.Repeat([]byte{byte(n)}, n))
+		b, _ := aes.NewCipher(key)
+		cipher.NewCBCEncrypter(b, nonce).CryptBlocks(body, body)
 	}
 	if len(pt) == 0 {
-		r.warn(LevelInfo, "The plaintext is empty: the output is only the "+spec.nonceName()+" and "+map[bool]string{true: "the tag.", false: "one block of padding."}[spec.aead])
+		r.Warnings.add(LevelInfo, "The plaintext is empty: the output is only the "+spec.nonceName+" and "+map[bool]string{true: "the tag.", false: "one block of padding."}[spec.aead != nil])
 	}
-	return nil
+	return nonce, body, nil
 }
 
-func (r *EncryptResult) decrypt(in Input, spec cipherSpec, key, nonce, aad []byte) error {
+// decrypt returns the nonce it used and the body after it.
+func (r *EncryptResult) decrypt(in Input, spec cipherSpec, key, nonce, aad []byte) ([]byte, []byte, error) {
 	raw := in.Get("data")
 	if strings.TrimSpace(raw) == "" {
-		return errors.New("no ciphertext given: paste the output of an encrypt, as base64 or hex")
+		return nil, nil, errors.New("no ciphertext given: paste the output of an encrypt, as base64 or hex")
 	}
-	enc := strings.ToLower(strings.TrimSpace(in.Get("data_enc")))
-	switch enc {
-	case "", "auto":
-		// Hex digits are valid base64 too, but base64 of 28 or more random
-		// bytes (the shortest AEAD output) is all hex digits about once in
-		// 10^18 tries, so all-hex means hex.
+	enc, err := enumField(in.Get("data_enc"), encryptDataEncField)
+	if err != nil {
+		return nil, nil, err
+	}
+	if enc == EncAuto {
+		// Hex is valid base64 too, but base64 of 28+ random bytes (the shortest AEAD output) is all hex once in 10^18.
 		enc = EncBase64
 		if c, _ := stripSpace(raw); len(c)%2 == 0 && allHex(c) {
 			enc = EncHex
 		}
-	case EncBase64, EncBase64URL, EncHex:
-	default:
-		return fmt.Errorf("data_enc: want auto, base64 or hex, got %q", enc)
 	}
-	blob, how, err := decodeInput(raw, enc)
+	body, how, err := decodeInput(raw, enc)
 	if err != nil {
-		return fmt.Errorf("ciphertext: %w", err)
+		return nil, nil, fmt.Errorf("ciphertext: %w", err)
 	}
-	r.DataReadAs = how
-	body := blob
-	r.NonceFrom = "field"
+	r.DataReadAs, r.NonceFrom = how, "blob"
+	after := fmt.Sprintf("after the %d-byte %s there are", spec.nonce, spec.nonceName)
 	switch {
+	case nonce == nil && len(body) < spec.nonce:
+		return nil, nil, fmt.Errorf("the ciphertext is %d bytes, shorter than the %d-byte %s it should start with", len(body), spec.nonce, spec.nonceName)
 	case nonce == nil:
-		// The layout this page writes: the nonce or IV comes first.
-		if len(blob) < spec.nonce {
-			return fmt.Errorf("the ciphertext is %d bytes, shorter than the %d-byte %s it should start with", len(blob), spec.nonce, spec.nonceName())
-		}
-		nonce, body, r.NonceFrom = blob[:spec.nonce], blob[spec.nonce:], "blob"
-	case bytes.HasPrefix(blob, nonce):
-		// The whole output of an encrypt run with this nonce, pasted back with
-		// the nonce still in its field. A ciphertext that merely starts with the
-		// same 12 or 16 bytes is a 2^-96 chance.
-		body, r.NonceFrom = blob[len(nonce):], "blob"
-		r.warn(LevelInfo, fmt.Sprintf("The data starts with the %s in the %s field, so it was read as %s ‖ the rest.", spec.nonceName(), spec.nonceName(), spec.nonceName()))
+		nonce, body = body[:spec.nonce], body[spec.nonce:]
+	case bytes.HasPrefix(body, nonce):
+		// A whole encrypt output pasted back with its nonce still in the field; a chance prefix is 2^-96.
+		body = body[spec.nonce:]
+		r.Warnings.add(LevelInfo, fmt.Sprintf("The data starts with the %[1]s in the %[1]s field, so it was read as %[1]s ‖ the rest.", spec.nonceName))
+	default:
+		r.NonceFrom, after = "field", "the data is"
 	}
-	r.Nonce = blobOf(nonce)
-	r.Combined = blobOf(concat(nonce, body))
 	var pt []byte
-	if spec.aead {
+	if spec.aead != nil {
 		if len(body) < aeadTagBytes {
-			return fmt.Errorf("%s %d bytes, fewer than the 16-byte tag alone. Is part of it missing?", r.afterNonce(spec), len(body))
+			return nil, nil, fmt.Errorf("%s %d bytes, fewer than the 16-byte tag alone. Is part of it missing?", after, len(body))
 		}
-		a, err := newAEAD(spec, key)
-		if err != nil {
-			return err
-		}
-		r.Ciphertext, r.Tag = blobOf(body[:len(body)-aeadTagBytes]), ptr(blobOf(body[len(body)-aeadTagBytes:]))
+		a, _ := spec.aead(key)
 		if pt, err = a.Open(nil, nonce, body, aad); err != nil {
+			nonceCause := ""
 			if r.NonceFrom == "field" {
-				return errors.New("decryption failed: wrong key, wrong nonce, wrong AAD, or corrupted data. The tag checks all of them at once, so it can't say which")
+				nonceCause = "wrong nonce, "
 			}
-			return errAuth
+			return nil, nil, fmt.Errorf("decryption failed: wrong key, %swrong AAD, or corrupted data. The tag checks all of them at once, so it can't say which", nonceCause)
 		}
 	} else {
 		if len(body) == 0 || len(body)%aes.BlockSize != 0 {
-			return fmt.Errorf("%s %d bytes, not a whole number of 16-byte blocks: the data is truncated, or it has no IV in front", r.afterNonce(spec), len(body))
+			return nil, nil, fmt.Errorf("%s %d bytes, not a whole number of 16-byte blocks: the data is truncated, or it has no IV in front", after, len(body))
 		}
-		b, err := aes.NewCipher(key)
-		if err != nil {
-			return fmt.Errorf("key: %w", err)
+		b, _ := aes.NewCipher(key)
+		pt = make([]byte, len(body))
+		cipher.NewCBCDecrypter(b, nonce).CryptBlocks(pt, body)
+		n := int(pt[len(pt)-1])
+		if n == 0 || n > aes.BlockSize || !bytes.Equal(pt[len(pt)-n:], bytes.Repeat([]byte{byte(n)}, n)) {
+			return nil, nil, errors.New("decryption failed: wrong key or corrupted data. The PKCS#7 padding at the end is invalid, which is all CBC can report, as it has no authentication")
 		}
-		r.Ciphertext = blobOf(body)
-		padded := make([]byte, len(body))
-		cipher.NewCBCDecrypter(b, nonce).CryptBlocks(padded, body)
-		if pt, err = pkcs7Unpad(padded); err != nil {
-			return err
-		}
-		r.warn(LevelInfo, "CBC can't tell a wrong key from the right one: about one wrong key in 256 still ends in valid padding and decrypts to noise. If the plaintext looks random, the key or the IV is wrong.")
+		pt = pt[:len(pt)-n]
+		r.Warnings.add(LevelInfo, "CBC can't tell a wrong key from the right one: about one wrong key in 256 still ends in valid padding and decrypts to noise. If the plaintext looks random, the key or the IV is wrong.")
 	}
 	r.Plaintext = textOf(pt)
-	return nil
+	return nonce, body, nil
 }
-
-// afterNonce starts a length error: the body follows the nonce in the data,
-// or is all of it when the nonce came from its own field.
-func (r *EncryptResult) afterNonce(spec cipherSpec) string {
-	if r.NonceFrom == "field" {
-		return "the data is"
-	}
-	return fmt.Sprintf("after the %d-byte %s there are", spec.nonce, spec.nonceName())
-}
-
-func newAEAD(spec cipherSpec, key []byte) (cipher.AEAD, error) {
-	if spec.id == CipherChaCha20 {
-		a, err := chacha20poly1305.New(key)
-		if err != nil {
-			return nil, fmt.Errorf("key: %w", err)
-		}
-		return a, nil
-	}
-	b, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("key: %w", err)
-	}
-	return cipher.NewGCM(b)
-}
-
-// pkcs7Pad always adds 1 to 16 bytes, each holding the count, so the unpadder
-// never has to guess.
-func pkcs7Pad(b []byte) []byte {
-	n := aes.BlockSize - len(b)%aes.BlockSize
-	return append(append([]byte{}, b...), bytes.Repeat([]byte{byte(n)}, n)...)
-}
-
-var errPadding = errors.New("decryption failed: wrong key or corrupted data. The PKCS#7 padding at the end is invalid, which is all CBC can report, as it has no authentication")
-
-func pkcs7Unpad(b []byte) ([]byte, error) {
-	n := int(b[len(b)-1])
-	if n == 0 || n > aes.BlockSize {
-		return nil, errPadding
-	}
-	for _, c := range b[len(b)-n:] {
-		if int(c) != n {
-			return nil, errPadding
-		}
-	}
-	return b[:len(b)-n], nil
-}
-
-func (r *EncryptResult) layout(spec cipherSpec) {
-	if spec.aead {
-		r.Layout = fmt.Sprintf("nonce (%d bytes) ‖ ciphertext (%d bytes) ‖ tag (%d bytes)", r.Nonce.Bytes, r.Ciphertext.Bytes, aeadTagBytes)
-		return
-	}
-	r.Layout = fmt.Sprintf("IV (%d bytes) ‖ ciphertext (%d bytes, PKCS#7 padded)", r.Nonce.Bytes, r.Ciphertext.Bytes)
-}
-
-func (r *EncryptResult) commonWarnings(spec cipherSpec, key []byte) {
-	if !spec.aead {
-		r.warn(LevelWarn, "AES-CBC is unauthenticated and malleable: anyone can flip bits of the ciphertext to change the plaintext in predictable places, and nothing detects it. Use it only to talk to a system that requires it, with an HMAC over iv ‖ ciphertext, or use AES-GCM.")
-	}
-	if allZero(key) {
-		r.warn(LevelWarn, "The key is all zero bytes: fine for a test vector, never for real data.")
-	}
-}
-
-func allZero(b []byte) bool {
-	for _, c := range b {
-		if c != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func concat(a, b []byte) []byte { return append(append(make([]byte, 0, len(a)+len(b)), a...), b...) }
-
-func ptr[T any](v T) *T { return &v }

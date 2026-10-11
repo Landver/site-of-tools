@@ -13,30 +13,18 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func cipherAppWith(lim *ciphertools.Limits) *echo.Echo {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, lim)
-	return e
-}
-
 const signBody = `{"alg":"HS256","key":"0123456789abcdef0123456789abcdef","payload":"{}","now":1700000000}`
 
-// Signing accepts RSA-8192 keys, so it is Heavy, on a budget every app with the
-// same Limits shares.
+// Signing accepts RSA-8192 keys, so it is Heavy, on a budget every app with the same Limits shares.
 func TestJWTSignIsHeavy(t *testing.T) {
 	if op, _ := ciphertools.Lookup("jwt-sign"); !op.Heavy {
 		t.Fatal("jwt-sign is not Heavy")
 	}
 	lim := ciphertools.NewLimits()
-	a, b := cipherAppWith(lim), cipherAppWith(lim)
+	a, b := engineApp(nil, fstest.MapFS{}, lim), engineApp(nil, fstest.MapFS{}, lim)
 	for i := range 5 {
 		if rec := do(t, a, http.MethodPost, "/jwt/sign", signBody, "application/json", asAPI); rec.Code != http.StatusOK {
 			t.Fatalf("sign %d = %d, want 200 inside the burst of 5: %s", i+1, rec.Code, rec.Body)
@@ -72,7 +60,7 @@ func TestHeavyOpsShareAMemoryBudget(t *testing.T) {
 	if !lim.HeavyCap.TryAcquire(otherClient, budget-flat) {
 		t.Fatal("a fresh budget is under 256 MiB")
 	}
-	e := cipherAppWith(lim)
+	e := engineApp(nil, fstest.MapFS{}, lim)
 
 	argon := `{"password":"pw","algo":"argon2id","argon2_m":65536,"argon2_t":1,"argon2_p":1}`
 	rec := post(t, e, "/password/hash", argon, "application/json", asAPI)

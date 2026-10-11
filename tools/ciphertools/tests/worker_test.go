@@ -13,10 +13,8 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 )
 
-// shared/static/js/cipher-worker.js is the one piece of the engine Go can't run
-// natively. These tests run it under jsc, the JavaScriptCore shell that ships
-// with macOS, with a stand-in for the Go runtime (what wasm/main.go registers);
-// without jsc they skip, as the DB tests do without their BINs. No Node.
+// cipher-worker.js runs under jsc, macOS's JavaScriptCore shell, with a stand-in for what wasm/main.go
+// registers; without jsc these tests skip. No Node.
 
 const jscMacOS = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc"
 
@@ -27,9 +25,8 @@ type workerMsg struct {
 	Error string  `json:"error"`
 }
 
-// runWorker loads the worker, inits it, sends one run whose files are fake File
-// objects of the given sizes, and returns everything the worker posted. run is
-// the stand-in cipherRun; unreadable makes every file's read fail.
+// runWorker inits the worker, sends one run with fake files of the given sizes and returns all it posted.
+// run is the stand-in cipherRun; unreadable makes every file's read fail.
 func runWorker(t *testing.T, run string, sizes []int, unreadable bool) []workerMsg {
 	t.Helper()
 	bin := jscMacOS
@@ -83,9 +80,7 @@ function file(size) {
 	return msgs
 }
 
-// result returns the one result posted for the run, failing if there isn't
-// exactly one: a run with no answer leaves the page's promise pending and its
-// submit button disabled for good.
+// result is the run's one result: without exactly one, the page waits forever with its button disabled.
 func result(t *testing.T, msgs []workerMsg) string {
 	t.Helper()
 	var got []workerMsg
@@ -103,9 +98,7 @@ func result(t *testing.T, msgs []workerMsg) string {
 	return *got[0].HTML
 }
 
-// A picked file is read only as far as the engine will take it. A disk image
-// read whole was copied into the Go heap, and running out of memory there is a
-// fatal error that takes the engine down until a reload.
+// A file is read only as far as the engine takes it: read whole, a disk image can exhaust the Go heap, fatally.
 func TestWorkerReadsAtMostMaxFilePlusOne(t *testing.T) {
 	msgs := runWorker(t, `(op, fields, files) => files.map((f) => f[0] + "=" + f[1].length).join(",")`,
 		[]int{3, 5_000_000_000}, false)
@@ -117,8 +110,7 @@ func TestWorkerReadsAtMostMaxFilePlusOne(t *testing.T) {
 	}
 }
 
-// A Go runtime that exits mid-call makes cipherRun return undefined, not throw;
-// the page used to paint the word "undefined".
+// A Go runtime that exits mid-call makes cipherRun return undefined, not throw.
 func TestWorkerReportsEngineExitMidCall(t *testing.T) {
 	if got := result(t, runWorker(t, `() => undefined`, nil, false)); !strings.Contains(got, "The engine stopped") {
 		t.Errorf("html = %q", got)
