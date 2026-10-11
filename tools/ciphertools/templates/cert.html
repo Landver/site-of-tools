@@ -1,13 +1,3 @@
-{{/* Certificates — decode X.509 certificates, chains and CSRs, and check a key
-     against them (C7).
-
-     One live form: parsing is cheap, so it reruns on every keystroke and on
-     picking a file, in the in-browser engine. A picked file is read in the tab,
-     never uploaded, and wins over the text. With JavaScript off it posts
-     (multipart, for the file) and the page comes back with the result in place.
-
-     SANs come before the subject in every certificate, because browsers match
-     host names against SANs and ignore the CN. */}}
 {{define "cipher/cert"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -129,7 +119,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
   </ul>
   {{if .SuggestedPEM}}
   <details class="mt-3 text-sm">
-    <summary class="cursor-pointer text-muted hover:text-strong">The chain in the right order ({{.SuggestedText}}), as PEM</summary>
+    <summary class="cursor-pointer text-muted hover:text-strong">The chain in the right order ({{template "cipher/cert-join" .Suggested}}), as PEM</summary>
     <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.SuggestedPEM}}</pre>
     <button type="button" class="btn-copy mt-2" data-copy="{{.SuggestedPEM}}">Copy</button>
   </details>
@@ -142,21 +132,26 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
 {{end}}
 {{end}}
 
-{{/* A certificate or request's SANs; dot = ciphertools.SANs. */}}
+{{define "cipher/cert-join"}}{{range $i, $x := .}}{{if $i}}, {{end}}{{$x}}{{end}}{{end}}
+{{define "cipher/cert-names"}}<dd class="break-all font-mono text-xs text-strong">{{template "cipher/cert-join" .}}</dd>{{end}}
+{{define "cipher/cert-usage"}}<dd>{{if .}}{{template "cipher/cert-join" .}}{{else}}<span class="text-faint">none</span>{{end}}</dd>{{end}}
+{{define "cipher/cert-urls"}}<dd class="break-all font-mono text-xs">{{range .}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
+{{define "cipher/cert-fp"}}<dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.}}</span><button type="button" class="btn-copy" data-copy="{{.}}">Copy</button></dd>{{end}}
+
 {{define "cipher/sans"}}
 {{if .Count}}
 <dl class="spec mt-2">
-  {{if .DNS}}<dt>DNS</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .DNS}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
-  {{if .IP}}<dt>IP</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .IP}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
-  {{if .Email}}<dt>Email</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .Email}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
-  {{if .URI}}<dt>URI</dt><dd class="break-all font-mono text-xs text-strong">{{range $i, $n := .URI}}{{if $i}}, {{end}}{{$n}}{{end}}</dd>{{end}}
+  {{if .DNS}}<dt>DNS</dt>{{template "cipher/cert-names" .DNS}}{{end}}
+  {{if .IP}}<dt>IP</dt>{{template "cipher/cert-names" .IP}}{{end}}
+  {{if .Email}}<dt>Email</dt>{{template "cipher/cert-names" .Email}}{{end}}
+  {{if .URI}}<dt>URI</dt>{{template "cipher/cert-names" .URI}}{{end}}
 </dl>
 {{else}}
 <p class="mt-2 text-sm text-warn-ink">None.</p>
 {{end}}
 {{end}}
 
-{{/* One certificate; dot = ciphertools.CertView. */}}
+{{/* SANs before the subject: browsers match host names against SANs and ignore the CN. */}}
 {{define "cipher/cert-view"}}
 <section class="mt-6 rounded-lg border border-line p-4">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -177,26 +172,22 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
     <dt>Serial</dt><dd><span class="break-all font-mono text-xs text-strong">{{.Serial}}</span><span class="block break-all text-xs text-muted">{{.SerialDec}}</span></dd>
     <dt>Signature</dt><dd class="font-mono text-xs text-strong">{{.SigAlg}}</dd>
     <dt>Public key</dt><dd class="text-strong">{{.Key}}</dd>
-    <dt>Key usage</dt><dd>{{if .KeyUsage}}{{range $i, $u := .KeyUsage}}{{if $i}}, {{end}}{{$u}}{{end}}{{else}}<span class="text-faint">none</span>{{end}}</dd>
-    <dt>Extended key usage</dt><dd>{{if .ExtUsage}}{{range $i, $u := .ExtUsage}}{{if $i}}, {{end}}{{$u}}{{end}}{{else}}<span class="text-faint">none</span>{{end}}</dd>
+    <dt>Key usage</dt>{{template "cipher/cert-usage" .KeyUsage}}
+    <dt>Extended key usage</dt>{{template "cipher/cert-usage" .ExtUsage}}
     <dt>Basic constraints</dt><dd>{{.Basic}}</dd>
     {{if .SKI}}<dt>Subject key ID</dt><dd class="break-all font-mono text-xs text-strong">{{.SKI}}</dd>{{end}}
     {{if .AKI}}<dt>Authority key ID</dt><dd class="break-all font-mono text-xs text-strong">{{.AKI}}</dd>{{end}}
-    {{if .OCSP}}<dt>OCSP</dt><dd class="break-all font-mono text-xs">{{range .OCSP}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
-    {{if .IssuerURL}}<dt>CA issuers</dt><dd class="break-all font-mono text-xs">{{range .IssuerURL}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
-    {{if .CRL}}<dt>CRL</dt><dd class="break-all font-mono text-xs">{{range .CRL}}<span class="block">{{.}}</span>{{end}}</dd>{{end}}
-    <dt>SHA-256</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SHA256}}">Copy</button></dd>
-    <dt>SHA-1</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SHA1}}</span><button type="button" class="btn-copy" data-copy="{{.SHA1}}">Copy</button></dd>
-    <dt>SPKI SHA-256</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKISHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SPKISHA256}}">Copy</button></dd>
+    {{if .OCSP}}<dt>OCSP</dt>{{template "cipher/cert-urls" .OCSP}}{{end}}
+    {{if .IssuerURL}}<dt>CA issuers</dt>{{template "cipher/cert-urls" .IssuerURL}}{{end}}
+    {{if .CRL}}<dt>CRL</dt>{{template "cipher/cert-urls" .CRL}}{{end}}
+    <dt>SHA-256</dt>{{template "cipher/cert-fp" .SHA256}}
+    <dt>SHA-1</dt>{{template "cipher/cert-fp" .SHA1}}
+    <dt>SPKI SHA-256</dt>{{template "cipher/cert-fp" .SPKISHA256}}
   </dl>
   <p class="mt-2 text-xs text-faint">Fingerprints are over the certificate's DER bytes, as openssl computes them, not over the PEM text.</p>
 </section>
 {{end}}
 
-{{/* One certificate signing request; dot = ciphertools.CSRView. */}}
 {{define "cipher/csr-view"}}
 <section class="mt-6 rounded-lg border border-line p-4">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -213,8 +204,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
     <dt>Subject</dt><dd class="break-all font-mono text-xs text-strong">{{.Subject}}</dd>
     <dt>Public key</dt><dd class="text-strong">{{.Key}}</dd>
     <dt>Signature</dt><dd class="font-mono text-xs text-strong">{{.SigAlg}}</dd>
-    <dt>SPKI SHA-256</dt>
-    <dd class="flex items-start gap-3"><span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.SPKISHA256}}</span><button type="button" class="btn-copy" data-copy="{{.SPKISHA256}}">Copy</button></dd>
+    <dt>SPKI SHA-256</dt>{{template "cipher/cert-fp" .SPKISHA256}}
   </dl>
 </section>
 {{end}}

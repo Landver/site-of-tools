@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -29,8 +30,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Certificates are built here with x509.CreateCertificate, so every expected
-// value is known rather than copied from a live site that will expire.
+// Certificates are made here, so expected values are known and never expire.
 
 var pkiNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 
@@ -182,6 +182,40 @@ func TestCertFields(t *testing.T) {
 	// A CA certificate with no SANs is normal; only a leaf gets the warning.
 	if len(root.Warnings) != 0 {
 		t.Errorf("root warnings %v", root.Warnings)
+	}
+}
+
+func TestCertUsageNames(t *testing.T) {
+	p := newPKI(t)
+	tmpl := leafTemplate()
+	tmpl.KeyUsage = 1<<9 - 1
+	tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageAny, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth,
+		x509.ExtKeyUsageCodeSigning, x509.ExtKeyUsageEmailProtection, x509.ExtKeyUsageIPSECEndSystem, x509.ExtKeyUsageIPSECTunnel,
+		x509.ExtKeyUsageIPSECUser, x509.ExtKeyUsageTimeStamping, x509.ExtKeyUsageOCSPSigning, x509.ExtKeyUsageMicrosoftServerGatedCrypto,
+		x509.ExtKeyUsageNetscapeServerGatedCrypto, x509.ExtKeyUsageMicrosoftCommercialCodeSigning, x509.ExtKeyUsageMicrosoftKernelCodeSigning}
+	tmpl.UnknownExtKeyUsage = []asn1.ObjectIdentifier{{1, 2, 3, 4}}
+	der, _ := mustCert(t, tmpl, p.interCert, &ecKey(t).PublicKey, p.interKey)
+	c := certOf(t, url.Values{"cert": {pemOf(der)}}, nil).Certs[0]
+	wantKU := "Digital Signature, Content Commitment (Non-Repudiation), Key Encipherment, Data Encipherment, Key Agreement, " +
+		"Certificate Sign, CRL Sign, Encipher Only, Decipher Only"
+	wantEKU := "Any, TLS Web Server Authentication, TLS Web Client Authentication, Code Signing, E-mail Protection, " +
+		"IPSec End System, IPSec Tunnel, IPSec User, Time Stamping, OCSP Signing, Microsoft Server Gated Crypto, " +
+		"Netscape Server Gated Crypto, Microsoft Commercial Code Signing, Microsoft Kernel Code Signing, 1.2.3.4"
+	if got := strings.Join(c.KeyUsage, ", "); got != wantKU {
+		t.Errorf("key usage %q", got)
+	}
+	if got := strings.Join(c.ExtUsage, ", "); got != wantEKU {
+		t.Errorf("extended key usage %q", got)
+	}
+}
+
+func TestCertZeroSerial(t *testing.T) {
+	p := newPKI(t)
+	tmpl := leafTemplate()
+	tmpl.SerialNumber = big.NewInt(0)
+	der, _ := mustCert(t, tmpl, p.interCert, &ecKey(t).PublicKey, p.interKey)
+	if c := certOf(t, url.Values{"cert": {pemOf(der)}}, nil).Certs[0]; c.Serial != "00" || c.SerialDec != "0" {
+		t.Errorf("serial %q (%q)", c.Serial, c.SerialDec)
 	}
 }
 
@@ -440,8 +474,7 @@ func TestCertWarnings(t *testing.T) {
 	}
 }
 
-// A DSA root and the P-256 leaf it signed, made with openssl (Go can't make
-// DSA certificates); `openssl verify -CAfile root leaf` accepts the pair.
+// A DSA root and the P-256 leaf it signed, made by openssl, which verifies the pair (Go can't make DSA).
 const (
 	dsaLeafPEM = `-----BEGIN CERTIFICATE-----
 MIIBGzCB2aADAgECAgECMAsGCWCGSAFlAwQDAjATMREwDwYDVQQDDAhEU0EgUm9v
@@ -471,8 +504,7 @@ R89E59Tj6wIUIMoQ/mvgOsfYIcbg5zb7i2s9aD0=
 `
 )
 
-// Go's x509 can't check a DSA signature at all. That is "can't say", not "does
-// NOT verify": the chain still orders by name, and the link names the reason.
+// Go can't check DSA: that is "can't say", not "does NOT verify", so the chain still orders by name.
 func TestCertUnsupportedSignatureIsNotInvalid(t *testing.T) {
 	now := strconv.FormatInt(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)
 	r := certOf(t, url.Values{"cert": {dsaLeafPEM + dsaRootPEM}, "now": {now}}, nil)
@@ -564,9 +596,7 @@ func TestCertPageAndAPI(t *testing.T) {
 	}
 }
 
-// A CSR signed with an algorithm Go can't check (DSA here, made by openssl) is
-// no verdict, the same rule the chain view follows. "Signature invalid" would
-// tell the visitor their request is broken when it isn't.
+// A CSR signed with DSA (made by openssl), which Go can't check, gets no verdict, as a chain link does.
 const dsaCSR = `-----BEGIN CERTIFICATE REQUEST-----
 MIICGzCCAdcCAQAwFjEUMBIGA1UEAwwLZHNhLmV4YW1wbGUwggG2MIIBKwYHKoZI
 zjgEATCCAR4CgYEAxPns90673Q19X82l1cVvZWEAmmBvcKZtsjLhkzw+PjWbJsmF
@@ -584,11 +614,7 @@ gueeXq/u6Fg1TWIyBGUp
 `
 
 func TestCSRUnsupportedSignatureIsNoVerdict(t *testing.T) {
-	res, err := runOp(t, "cert", url.Values{"cert": {dsaCSR}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := res.(*ciphertools.CertResult).CSRs[0]
+	c := certOf(t, url.Values{"cert": {dsaCSR}}, nil).CSRs[0]
 	if c.SigOK || !c.SigUnverifiable || strings.Contains(c.SigDetail, "does NOT verify") {
 		t.Fatalf("ok %v unverifiable %v: %s", c.SigOK, c.SigUnverifiable, c.SigDetail)
 	}
