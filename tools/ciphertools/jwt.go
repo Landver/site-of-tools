@@ -433,7 +433,8 @@ func (j *JWT) verify(input, sig []byte, keyInput, keyEnc, kid string, crit bool)
 
 // jwtKeyFits: the key is of the kind the algorithm needs and, for ES*, on its curve.
 func jwtKeyFits(spec jwsAlg, k Key) bool {
-	return k.Kind == spec.kind && (spec.curve == nil || k.Public.(*ecdsa.PublicKey).Curve == spec.curve)
+	ec, _ := k.Public.(*ecdsa.PublicKey)
+	return k.Kind == spec.kind && (spec.curve == nil || ec != nil && ec.Curve == spec.curve)
 }
 
 func algNeeds(spec jwsAlg) string {

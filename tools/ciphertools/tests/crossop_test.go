@@ -19,17 +19,8 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func xfileRun(t *testing.T, op string, fields url.Values) (any, error) {
-	t.Helper()
-	o, ok := ciphertools.Lookup(op)
-	if !ok {
-		t.Fatalf("no op %s", op)
-	}
-	return ciphertools.Run(o, ciphertools.Input{Fields: fields})
-}
-
 // Enum fields read trimmed and case-insensitively, and a refusal names every choice.
-func TestXfileEnumFields(t *testing.T) {
+func TestEnumFieldsReadLoosely(t *testing.T) {
 	for _, c := range []struct {
 		op, field, ok, want string
 		base                url.Values
@@ -44,7 +35,7 @@ func TestXfileEnumFields(t *testing.T) {
 			for k, vv := range c.base {
 				f[k] = vv
 			}
-			_, err := xfileRun(t, c.op, f)
+			_, err := runOp(t, c.op, f, nil)
 			if v == c.ok && err != nil || v != c.ok && (err == nil || err.Error() != c.want) {
 				t.Errorf("%s %s=%q: got %v", c.op, c.field, v, err)
 			}
@@ -53,7 +44,7 @@ func TestXfileEnumFields(t *testing.T) {
 }
 
 // A pbkdf2 id the Passwords page can't read still counts as a password hash; a bare $ string doesn't.
-func TestXfileIdentifyPasswordFamilies(t *testing.T) {
+func TestIdentifyPasswordFamilies(t *testing.T) {
 	for in, want := range map[string]string{
 		"$pbkdf2$1000$c2FsdA$aGFzaA": "password hash that doesn't parse",
 		"pbkdf2_sha256$":             "password hash that doesn't parse",
@@ -79,7 +70,7 @@ func TestXfileIdentifyPasswordFamilies(t *testing.T) {
 }
 
 // Blank and # lines are skipped but still counted in an OpenSSH paste's line numbers.
-func TestXfileOpenSSHLines(t *testing.T) {
+func TestOpenSSHLinesSkipCommentsButCount(t *testing.T) {
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -95,20 +86,20 @@ func TestXfileOpenSSHLines(t *testing.T) {
 	if c := r.Candidates[0]; !strings.HasPrefix(c.Name, "OpenSSH public key") || !strings.Contains(c.Why, "; 2 lines") || c.Preview != "a" {
 		t.Errorf("identify: %+v", c)
 	}
-	res, err := xfileRun(t, "keys-inspect", url.Values{"key": {in}})
+	res, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ks := res.(*ciphertools.KeyInspectResult).Keys; len(ks) != 2 || !strings.HasSuffix(ks[1].OpenSSH, " b") {
 		t.Errorf("keys-inspect: %+v", ks)
 	}
-	if _, err := xfileRun(t, "keys-inspect", url.Values{"key": {in + "ssh-ed25519 AAAA\n"}}); err == nil || !strings.HasPrefix(err.Error(), "line 5: ") {
+	if _, err := runOp(t, "keys-inspect", url.Values{"key": {in + "ssh-ed25519 AAAA\n"}}, nil); err == nil || !strings.HasPrefix(err.Error(), "line 5: ") {
 		t.Errorf("bad fifth line: %v", err)
 	}
 }
 
 // A key block pasted with the certificate is matched unless the key field gives one.
-func TestXfileCertKeyAlongside(t *testing.T) {
+func TestCertKeyPastedAlongside(t *testing.T) {
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +114,7 @@ func TestXfileCertKeyAlongside(t *testing.T) {
 	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
 
-	res, err := xfileRun(t, "cert", url.Values{"cert": {certPEM + keyPEM}, "now": {"1750000000"}})
+	res, err := runOp(t, "cert", url.Values{"cert": {certPEM + keyPEM}, "now": {"1750000000"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,18 +122,18 @@ func TestXfileCertKeyAlongside(t *testing.T) {
 	if m == nil || m.State != "match" || !strings.Contains(m.Detail, "certificate 1 (xfile.example)") || !strings.HasSuffix(m.Detail, "(Checked with the key found among the pasted PEM blocks.)") {
 		t.Errorf("key alongside: %+v", m)
 	}
-	res, err = xfileRun(t, "cert", url.Values{"cert": {certPEM + keyPEM}, "key": {"not a key"}, "now": {"1750000000"}})
+	res, err = runOp(t, "cert", url.Values{"cert": {certPEM + keyPEM}, "key": {"not a key"}, "now": {"1750000000"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := res.(*ciphertools.CertResult); r.KeyMatch.State != "error" || !xfileNoted(r.Warnings, "the key field was used for the match instead") {
+	if r := res.(*ciphertools.CertResult); r.KeyMatch.State != "error" || !noted(r.Warnings, "the key field was used for the match instead") {
 		t.Errorf("key field wins: %+v %+v", r.KeyMatch, r.Warnings)
 	}
 }
 
 // An HS256 secret that reads three ways is tried all three ways, and named back as read.
-func TestXfileSecretReadings(t *testing.T) {
-	res, err := xfileRun(t, "jwt-sign", url.Values{"key": {"deadbeef"}, "now": {"1700000000"}})
+func TestJWTSecretReadings(t *testing.T) {
+	res, err := runOp(t, "jwt-sign", url.Values{"key": {"deadbeef"}, "now": {"1700000000"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,13 +146,4 @@ func TestXfileSecretReadings(t *testing.T) {
 	if err != nil || !strings.Contains(j.Verification.Detail, "with the secret read as hex, but it DOES with the secret read as UTF-8 text") {
 		t.Errorf("hex: %v %+v", err, j.Verification)
 	}
-}
-
-func xfileNoted(ws []ciphertools.Warning, sub string) bool {
-	for _, w := range ws {
-		if strings.Contains(w.Text, sub) {
-			return true
-		}
-	}
-	return false
 }

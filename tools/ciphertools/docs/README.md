@@ -37,9 +37,10 @@ cut, and why, is at the end of that inventory; HKDF is first in line for a v2.
 
 1. A domain file registering its op(s) in `init()` via `register(Op{...})`: pure
    Go only, since it is also compiled to wasm.
-2. A template file: the page shell (`cipher/<page>`) and result fragment(s).
-   Fragments read `.Result` only; the page shell also reads `.Form`, `.Op`, `.Error`.
-3. A `pages` entry in `handler.go`, plus a link in `templates/nav.html`.
+2. A template file: the page shell (`cipher/<page>`, between `cipher/engine-open`
+   and `cipher/engine-close`) and result fragment(s). Fragments read `.Result`
+   only; the page shell also reads `.Form`, `.Op`, `.Error`.
+3. A `pages` entry in `handler.go`; its `Label` and `Tip` make the sub-nav link.
 4. Tests in `tests/`. `render_test.go` already checks the new op's fragment exists.
 
 `make wasm` rebuilds the engine; `make dev` does it on every Go change.

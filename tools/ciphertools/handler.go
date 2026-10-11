@@ -114,7 +114,7 @@ func Register(e *echo.Echo, base string, static fs.FS, lim *Limits) {
 	}
 }
 
-// immutableEngine lets browsers keep the ~10 MB engine: Cloudflare doesn't cache .wasm by default and embedded
+// immutableEngine lets browsers keep the ~13 MB engine: Cloudflare doesn't cache .wasm by default and embedded
 // files carry no Last-Modified. Only content-hashed URLs (?v=) qualify, so "immutable" is simply true.
 func immutableEngine(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -133,7 +133,7 @@ const enginePath = "/static/wasm/cipher.wasm"
 
 const engineFile = "wasm/cipher.wasm"
 
-// engine gzips the ~12 MB engine once, not per request (~0.25 s of CPU each, and Cloudflare doesn't cache .wasm).
+// engine gzips the ~13 MB engine once, not per request (~0.25 s of CPU each, and Cloudflare doesn't cache .wasm).
 // The cache key is size and mtime, so a dev `make wasm` is picked up without a restart.
 type engine struct {
 	static fs.FS

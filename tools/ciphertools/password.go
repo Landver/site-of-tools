@@ -23,7 +23,7 @@ import (
 )
 
 // Both ops are Heavy and every cost parameter is capped, on verify too, where the
-// pasted string sets them: slow on purpose, they are the cheapest way to burn the CPU.
+// pasted string sets them: slow on purpose, they are the cheapest way to burn the CPU (docs/03).
 
 func init() {
 	register(Op{Name: "password-hash", Path: "/password/hash", Page: "password", Fragment: "cipher/password-hashed", Heavy: true, Run: runPasswordHash,
@@ -465,7 +465,7 @@ func phcParams(pt part, algo string) ([]param, error) {
 	return out, nil
 }
 
-// passwordInts reads params in order, each one of names with a whole number of at least least.
+// passwordInts reads params in order: each must be one of names, with a whole number >= least.
 func passwordInts(params []param, algo string, least int, names ...string) (map[string]int, error) {
 	vals := map[string]int{}
 	for _, x := range params {
@@ -817,12 +817,12 @@ func parseLegacy(p []part) *PasswordHashInfo {
 		}
 		h.Format = "phpass portable hash"
 		h.Unsupported = "phpass is the portable MD5-based hash older WordPress and phpBB installs store. This page recognises it but doesn't verify it."
-	case "y":
+	case "y", "7":
 		h.Params = []Row{{Name: "params", Value: partAt(p, 2).s, Meaning: "encoded parameters"}}
 		h.Unsupported = "yescrypt is a crypt(3) format, the /etc/shadow default on many current Linux distributions. This page recognises it but can't verify it: neither Go's standard library nor x/crypto implements it."
-	case "7":
-		h.Params = []Row{{Name: "params", Value: partAt(p, 2).s, Meaning: "encoded parameters"}}
-		h.Unsupported = "This is scrypt in the $7$ crypt(3) encoding. This page verifies scrypt in the $scrypt$ (passlib) form only."
+		if id == "7" {
+			h.Unsupported = "This is scrypt in the $7$ crypt(3) encoding. This page verifies scrypt in the $scrypt$ (passlib) form only."
+		}
 	}
 	if lc.note != "" {
 		h.warnings.add(LevelWarn, lc.note)
