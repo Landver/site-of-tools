@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -232,7 +233,7 @@ func sshComment(s string) (string, error) {
 	switch s = strings.TrimSpace(s); {
 	case s == "":
 		return "cipher-tools-test-key", nil
-	case len(s) > 256:
+	case utf8.RuneCountInString(s) > 256:
 		return "", errors.New("comment: keep it under 256 characters")
 	case strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }):
 		return "", errors.New("comment: one line of printable text")

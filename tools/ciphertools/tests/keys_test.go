@@ -470,6 +470,19 @@ func TestGenerateOpenSSHPrivateKey(t *testing.T) {
 	wantErr(t, "keys-generate", url.Values{"type": {"ed25519"}, "comment": {"two\nlines"}}, "")
 }
 
+// The comment cap counts characters, and a multi-byte comment survives in both OpenSSH forms.
+func TestKeysGenerateCommentCharacters(t *testing.T) {
+	long := strings.Repeat("я", 256)
+	v := keysGenerate(t, url.Values{"type": {"ed25519"}, "comment": {long}}).Key
+	if _, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(v.OpenSSH)); err != nil || comment != long {
+		t.Errorf("public line comment %.40q: %v", comment, err)
+	}
+	if b, _ := pem.Decode([]byte(v.OpenSSHPrivate)); b == nil || !strings.Contains(string(b.Bytes), long) {
+		t.Error("the OpenSSH private key lost the comment")
+	}
+	wantErr(t, "keys-generate", url.Values{"type": {"ed25519"}, "comment": {long + "я"}}, "256 characters")
+}
+
 // Each refusal names what is wrong, and EC PARAMETERS ahead of a key is skipped.
 func TestKeysInspectRefusals(t *testing.T) {
 	p224, _ := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
