@@ -341,10 +341,21 @@ func keyFromJWK(j JWK, source string) (*Key, error) {
 		}
 		k.Kind, k.Public = KindEC, pub
 		if j.D != "" {
-			priv, err := ecdsa.ParseRawPrivateKey(c.curve, leftPad(b64("d", j.D), size))
+			db := b64("d", j.D)
+			d := new(big.Int).SetBytes(db)
+			// Checked here, as Go's errors for these talk of public key encodings and moduli.
 			switch {
 			case bad != nil:
 				return nil, bad
+			case len(db) > size:
+				return nil, fmt.Errorf(`"d" is longer than %d bytes, the size of %s`, size, j.Crv)
+			case d.Sign() == 0:
+				return nil, errors.New(`"d" is zero, so it isn't a private key`)
+			case d.Cmp(c.curve.Params().N) >= 0:
+				return nil, fmt.Errorf(`"d" is not below the order of %s, so it isn't a private key`, j.Crv)
+			}
+			priv, err := ecdsa.ParseRawPrivateKey(c.curve, leftPad(db, size))
+			switch {
 			case err != nil:
 				return nil, fmt.Errorf(`"d": %w`, err)
 			case !priv.PublicKey.Equal(pub):

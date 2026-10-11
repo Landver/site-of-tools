@@ -489,6 +489,7 @@ func TestKeysInspectRefusals(t *testing.T) {
 	x25519, _ := ecdh.X25519().GenerateKey(rand.Reader)
 	edLine := strings.Fields(inspectOne(t, rfcEdKey).OpenSSH)
 	es := strings.TrimSuffix(rfcESKey, "}")
+	esD := func(d string) string { return es + `,"d":"` + b64u(d) + `"}` }
 	ed := `{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"`
 	params := "-----BEGIN EC PARAMETERS-----\nBggqhkjOPQMBBw==\n-----END EC PARAMETERS-----\n"
 	for in, want := range map[string]string{
@@ -504,6 +505,10 @@ func TestKeysInspectRefusals(t *testing.T) {
 		strings.Replace(rfcESKey, "x_FEzRu9", "x_FEzRu8", 1):             "the point is not on P-256",
 		es + `,"d":"!!"}`:                                                `"d" is not base64url`,
 		es + `,"d":"AQ"}`:                                                `"d" does not belong to the public point`,
+		es + `,"d":"AA"}`:                                                `"d" is zero, so it isn't a private key`,
+		esD(string(elliptic.P256().Params().N.Bytes())):                  `"d" is not below the order of P-256`,
+		esD(strings.Repeat("\xff", 32)):                                  `"d" is not below the order of P-256`,
+		esD("\x01" + strings.Repeat("\x00", 32)):                         `"d" is longer than 32 bytes, the size of P-256`,
 		`{"kty":"OKP","crv":"X25519"}`:                                   "only Ed25519 can sign",
 		`{"kty":"OKP","crv":"Ed25519","x":"AQ"}`:                         `"x" is 1 bytes`,
 		ed + `,"d":"AQ"}`:                                                `"d" is 1 bytes`,
