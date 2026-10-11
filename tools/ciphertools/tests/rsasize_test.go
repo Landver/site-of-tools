@@ -4,11 +4,15 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
+	"encoding/json"
 	"math/big"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
@@ -105,4 +109,38 @@ func rsaCert(t *testing.T, pub *rsa.PublicKey) []byte {
 	_, caCert := mustCert(t, caT, caT, &ca.PublicKey, ca)
 	der, _ := mustCert(t, leafTemplate(), caCert, pub, ca)
 	return der
+}
+
+func oddBits(bits int) *big.Int {
+	n, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), uint(bits)))
+	return n.SetBit(n.SetBit(n, bits-1, 1), 0, 1)
+}
+
+// Go validates an RSA key while parsing it in super-linear time, so oversized fakes must be refused unparsed.
+func TestOversizedRSAPartsRefusedQuickly(t *testing.T) {
+	p, q := oddBits(1<<19), oddBits(1<<19)
+	pkcs1, _ := asn1.Marshal(struct {
+		V                     int
+		N                     *big.Int
+		E                     int
+		D, P, Q, Dp, Dq, Qinv *big.Int
+	}{0, new(big.Int).Mul(p, q), 65537, oddBits(1 << 20), p, q, oddBits(1 << 19), oddBits(1 << 19), oddBits(1 << 19)})
+	pkcs8, _ := asn1.Marshal(struct {
+		V    int
+		Algo pkix.AlgorithmIdentifier
+		Key  []byte
+	}{0, pkix.AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}, Parameters: asn1.RawValue{Tag: 5}}, pkcs1})
+	start := time.Now()
+	r, err := ciphertools.Identify(base64.StdEncoding.EncodeToString(pkcs8))
+	if err != nil || time.Since(start) > 2*time.Second || len(r.Candidates) > 0 && strings.Contains(r.Candidates[0].Why, "private key") {
+		t.Errorf("identify of %d bytes of fake PKCS#8: %v after %v", len(pkcs8), err, time.Since(start))
+	}
+
+	b64u := func(x *big.Int) string { return base64.RawURLEncoding.EncodeToString(x.Bytes()) }
+	jwk, _ := json.Marshal(map[string]string{"kty": "RSA", "n": b64u(oddBits(2048)), "e": "AQAB", "d": b64u(oddBits(2047)), "p": b64u(oddBits(1 << 20)), "q": b64u(oddBits(1024))})
+	start = time.Now()
+	wantErr(t, "keys-inspect", url.Values{"key": {string(jwk)}}, "a prime is longer than the modulus")
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("keys-inspect took %v", d)
+	}
 }

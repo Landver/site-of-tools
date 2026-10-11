@@ -311,6 +311,10 @@ func keyFromJWK(j JWK, source string) (*Key, error) {
 			if bad != nil {
 				return nil, bad
 			}
+			// Validate inverts q mod p before it checks p*q == n, so an oversized prime costs minutes.
+			if priv.Primes[0].BitLen() > n.BitLen() || priv.Primes[1].BitLen() > n.BitLen() {
+				return nil, errors.New("RSA private key is inconsistent: a prime is longer than the modulus")
+			}
 			if err := priv.Validate(); err != nil {
 				return nil, fmt.Errorf("RSA private key is inconsistent: %w", err)
 			}

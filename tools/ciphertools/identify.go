@@ -678,6 +678,9 @@ func recognise(b []byte) (desc, page string) {
 			{"CERTIFICATE", "a DER X.509 certificate"}, {"CERTIFICATE REQUEST", "a DER certificate signing request"},
 			{"PUBLIC KEY", "a DER public key (SPKI)"}, {"PRIVATE KEY", "a DER private key (PKCS#8)"},
 		} {
+			if d[0] == "PRIVATE KEY" && len(b) > maxPrivateKeyDER {
+				continue
+			}
 			if _, err := pemKinds[d[0]].parse(b); err == nil {
 				return d[1], pemKinds[d[0]].page
 			}
