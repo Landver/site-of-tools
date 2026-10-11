@@ -49,8 +49,8 @@ func (in Input) now() (time.Time, error) {
 	if v == "" {
 		return time.Now(), nil
 	}
-	var sec int64
-	if _, err := fmt.Sscan(v, &sec); err != nil {
+	sec, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
 		return time.Time{}, fmt.Errorf("now: want unix seconds, got %q", v)
 	}
 	return time.Unix(sec, 0), nil

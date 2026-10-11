@@ -184,3 +184,36 @@ func TestRequiredFlags(t *testing.T) {
 		}
 	}
 }
+
+// now is whole unix seconds in base 10; anything else is refused, never half-read.
+func TestNowFieldWantsWholeSeconds(t *testing.T) {
+	input := fieldInputs(t)
+	var seen int
+	for _, op := range ciphertools.Ops() {
+		if !slices.ContainsFunc(op.Fields, func(f ciphertools.Field) bool { return f.Name == "now" }) {
+			continue
+		}
+		seen++
+		for _, v := range []string{"1e9", "17abc", "0x10", "1700000000.5", "1700000000abc"} {
+			in := input(op.Name, "now")
+			in.Set("now", v)
+			if _, err := runOp(t, op.Name, in, nil); err == nil || err.Error() != "now: want unix seconds, got "+strconv.Quote(v) {
+				t.Errorf("%s now=%q: err = %v", op.Name, v, err)
+			}
+		}
+		for _, v := range []string{"1700000000", " 1700000000 ", "\t1700000000\n"} {
+			in := input(op.Name, "now")
+			in.Set("now", v)
+			if _, err := runOp(t, op.Name, in, nil); err != nil {
+				t.Errorf("%s now=%q: %v", op.Name, v, err)
+			}
+		}
+	}
+	if seen < 3 {
+		t.Fatalf("only %d ops take now", seen)
+	}
+	r := opOf[ciphertools.TOTPResult](t, "totp", url.Values{"secret": {"JBSWY3DPEHPK3PXP"}, "now": {" 1700000000 "}}, nil)
+	if r.Time != 1700000000 {
+		t.Errorf("now=' 1700000000 ': time %d", r.Time)
+	}
+}
