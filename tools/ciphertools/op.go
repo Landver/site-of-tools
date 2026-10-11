@@ -4,6 +4,7 @@ package ciphertools
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"maps"
@@ -24,13 +25,23 @@ type Input struct {
 // Get keeps surrounding whitespace: for a hash input it is the data.
 func (in Input) Get(key string) string { return in.Fields.Get(key) }
 
-// InputFromJSON is the Input a form would have made of a flat JSON object.
+// InputFromJSON is the Input a form would have made of a flat JSON object, numbers as float64 or json.Number.
 func InputFromJSON(obj map[string]any) (Input, error) {
 	in := Input{Fields: url.Values{}, Files: map[string][]byte{}}
 	for k, v := range obj {
 		switch t := v.(type) {
 		case string:
 			in.Fields.Set(k, t)
+		case json.Number:
+			if allDigits(strings.TrimPrefix(t.String(), "-")) { // as sent: float64 rounds past 2^53
+				in.Fields.Set(k, t.String())
+				continue
+			}
+			f, err := t.Float64()
+			if err != nil {
+				return in, fmt.Errorf("field %q: %s is out of range", k, t)
+			}
+			in.Fields.Set(k, strconv.FormatFloat(f, 'f', -1, 64))
 		case float64:
 			in.Fields.Set(k, strconv.FormatFloat(t, 'f', -1, 64)) // not fmt's "1e+06", which no int field reads
 		case bool:

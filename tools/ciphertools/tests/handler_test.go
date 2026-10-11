@@ -145,12 +145,36 @@ func TestJSONBodyNumbersAndBooleans(t *testing.T) {
 	}
 }
 
+// An integer past 2^53 keeps every digit; float64 would round 2^53+1 down to 2^53.
+func TestJSONBodyKeepsLargeIntegersExact(t *testing.T) {
+	e := newCipherApp(t)
+	for counter, want := range map[string]uint64{
+		"9007199254740993":    9007199254740993,
+		"9223372036854775806": 9223372036854775806,
+		"1e6":                 1000000,
+	} {
+		rec := do(t, e, http.MethodPost, "/totp",
+			`{"secret":"JBSWY3DPEHPK3PXP","mode":"hotp","counter":`+counter+`}`, "application/json", asAPI)
+		var got struct {
+			Counter uint64
+			Codes   []struct{ Counter uint64 }
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("counter %s: code %d: %s", counter, rec.Code, rec.Body)
+		}
+		if got.Counter != want || len(got.Codes) != 3 || got.Codes[2].Counter != want+1 {
+			t.Errorf("counter %s: got %d, codes %+v, want %d", counter, got.Counter, got.Codes, want)
+		}
+	}
+}
+
 // A JSON body that isn't a flat object is described in JSON terms, not Go's.
 func TestJSONBodyErrorsReadPlainly(t *testing.T) {
 	e := newCipherApp(t)
 	for body, want := range map[string]string{
 		`["alg","HS256"]`: "body: must be an object, found a JSON array",
 		`{"alg":"HS256"`:  "body: the JSON ends before it is closed",
+		`{"now":1e400}`:   `field "now": 1e400 is out of range`,
 	} {
 		rec := do(t, e, http.MethodPost, "/jwt/sign", body, "application/json", asAPI)
 		var got struct{ Error string }

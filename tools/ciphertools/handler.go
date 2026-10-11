@@ -228,7 +228,9 @@ func readInput(c *echo.Context) (Input, error) {
 	r := c.Request()
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		var obj map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&obj); err != nil {
+		dec := json.NewDecoder(r.Body)
+		dec.UseNumber()
+		if err := dec.Decode(&obj); err != nil {
 			return in, fmt.Errorf("body: %w", jsonError(err))
 		}
 		return InputFromJSON(obj)
