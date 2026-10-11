@@ -101,7 +101,7 @@ func orderedObject(data []byte) ([]member, error) {
 	if _, err := dec.Token(); err != nil { // closing brace
 		return nil, jsonError(err)
 	}
-	if dec.More() {
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) { // dec.More() misses a stray '}' or ']'
 		return nil, errors.New("trailing data after the JSON object")
 	}
 	return out, nil

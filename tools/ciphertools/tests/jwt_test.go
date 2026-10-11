@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -185,6 +186,38 @@ func TestJWTStructureErrors(t *testing.T) {
 	j, err := ciphertools.DecodeJWT(hdr+".a.b.c.d", "", "", rfcNow, 0)
 	if err != nil || j.Kind != "JWE" || j.Verification.State != ciphertools.VerifyUnchecked {
 		t.Fatalf("JWE: %+v err %v", j, err)
+	}
+}
+
+// A stray brace after the object made an invalid json.RawMessage that broke the JSON response.
+func TestJWTTrailingDataAfterObjectRefused(t *testing.T) {
+	for name, hdr := range map[string]string{"brace": `{"alg":"HS256"}}`, "bracket": `{"alg":"HS256"}]`, "value": `{"alg":"HS256"}{}`} {
+		_, err := runOp(t, "jwt-decode", url.Values{"token": {token(hdr, `{}`, "AAAA")}}, nil)
+		if err == nil || !strings.Contains(err.Error(), "header is not a JSON object: trailing data") {
+			t.Errorf("header %s: error %v", name, err)
+		}
+	}
+	res, err := runOp(t, "jwt-decode", url.Values{"token": {token(`{"alg":"HS256"} `, `{"sub":"x"}}`, "AAAA")}}, nil)
+	if err != nil {
+		t.Fatalf("trailing space in header, brace in payload: %v", err)
+	}
+	if j := res.(*ciphertools.JWT); j.Payload != nil || j.PayloadText == nil || j.Alg != "HS256" {
+		t.Errorf("payload with a stray brace: payload %s, text %+v, alg %q", j.Payload, j.PayloadText, j.Alg)
+	}
+	if _, err := json.Marshal(res); err != nil {
+		t.Errorf("result does not marshal: %v", err)
+	}
+	e := newCipherApp(t)
+	for _, tok := range []string{"eyJhbGciOiJIUzI1NiJ9fQ.e30.AAAA", token(`{"alg":"HS256"}`, `{}}`, "AAAA")} {
+		if rec := do(t, e, http.MethodPost, "/jwt/decode", url.Values{"token": {tok}}.Encode(), form, asAPI); rec.Code >= 500 {
+			t.Errorf("%s: HTTP %d %s", tok, rec.Code, rec.Body)
+		}
+	}
+	for name, f := range map[string]map[string]string{"header": {"header": `{"a":1}}`}, "payload": {"payload": `{"a":1}}`}} {
+		f["alg"], f["key"] = "HS256", "k"
+		if _, err := sign(t, f); err == nil || !strings.Contains(err.Error(), "trailing data") {
+			t.Errorf("sign with %s %s: error %v", name, f[name], err)
+		}
 	}
 }
 
