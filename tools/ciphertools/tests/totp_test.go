@@ -25,8 +25,7 @@ func totpOf(t *testing.T, fields url.Values) *ciphertools.TOTPResult {
 	return res.(*ciphertools.TOTPResult)
 }
 
-// RFC 6238 Appendix B: 8-digit codes, with the RFC's seeds (the ASCII digits
-// "1234567890" repeated to 20, 32 and 64 bytes for SHA1, SHA256 and SHA512).
+// RFC 6238 Appendix B, 8 digits; the seeds are "1234567890" repeated to 20, 32 and 64 bytes.
 func TestTOTPRFC6238Vectors(t *testing.T) {
 	seeds := map[string]string{
 		"SHA1":   "12345678901234567890",
@@ -85,8 +84,7 @@ func TestHOTPRFC4226Vectors(t *testing.T) {
 	}
 }
 
-// Base32 secrets arrive lower case, grouped by spaces or dashes, with or
-// without padding (docs/03-correctness-traps.md, TOTP).
+// Base32 secrets arrive lower case, grouped by spaces or dashes, padded or not (docs/03, TOTP).
 func TestTOTPSecretNormalised(t *testing.T) {
 	const now = "1700000000"
 	want := totpOf(t, url.Values{"secret": {"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"}, "now": {now}})
@@ -128,9 +126,15 @@ func TestTOTPInputErrors(t *testing.T) {
 		{url.Values{"secret": {"otpauth://totp/x?issuer=Example"}}, "no secret parameter"},
 		{url.Values{"secret": {"otpauth://motp/x?secret=" + sec}}, "should be totp or hotp"},
 		{url.Values{"secret": {"otpauth://totp/x?secret=0189"}}, "the URI's secret"},
+		{url.Values{"secret": {"otpauth://totp/x?secret=" + sec + "&algorithm=MD5"}}, "the URI's algorithm: want SHA1"},
+		{url.Values{"secret": {"otpauth://hotp/x?secret=" + sec + "&counter=-1"}}, "the URI's counter: want a whole number"},
+		{url.Values{"secret": {"otpauth:totp/x?secret=" + sec}}, "not an otpauth:// URI"},
+		{url.Values{"secret": {"otpauth://totp/a%zz?secret=" + sec}}, "not a valid otpauth:// URI"},
+		{url.Values{"secret": {"===="}}, "secret: decodes to zero bytes"},
+		{url.Values{"secret": {sec}, "now": {"-1"}}, "before 1970"},
 	} {
 		_, err := runOp(t, "totp", c.fields, nil)
-		if err == nil || !strings.Contains(err.Error(), c.want) {
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), sec) {
 			t.Errorf("%v: err = %v, want %q", c.fields, err, c.want)
 		}
 	}
@@ -166,10 +170,14 @@ func TestParseOTPURI(t *testing.T) {
 	if s.Issuer != "New" || !noted(notes, "differs") {
 		t.Errorf("issuer mismatch: %+v %v", s, notes)
 	}
+	// An hotp URI without a counter starts at 0, with a warning.
+	s, notes, _ = ciphertools.ParseOTPURI("otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP")
+	if s.Type != "hotp" || s.Counter != 0 || !noted(notes, "must carry a counter") {
+		t.Errorf("hotp without counter: %+v %v", s, notes)
+	}
 }
 
-// BuildOTPURI -> ParseOTPURI gives the same settings back, awkward labels
-// included, and every part is percent-encoded with %20 for a space.
+// BuildOTPURI -> ParseOTPURI round-trips awkward labels; every part is percent-encoded, %20 for a space.
 func TestOTPURIRoundTrip(t *testing.T) {
 	for _, s := range []*ciphertools.OTPSettings{
 		{Type: "totp", Account: "alice@example.com", Issuer: "Example", Algorithm: "SHA1", Digits: 6, Period: 30, Secret: []byte("12345678901234567890")},
@@ -228,8 +236,7 @@ func TestTOTPCheckWindow(t *testing.T) {
 			t.Errorf("offset %d matched: %+v", off, c)
 		}
 	}
-	// Spaces and dashes in a typed code are ignored; the wrong length and
-	// letters are named, not just "no match".
+	// Spaces and dashes in a typed code are ignored; a wrong length or letters are named, not just "no match".
 	cur := ciphertools.HOTP(secret, step, 6, "SHA1")
 	if c := check(cur[:3] + " " + cur[3:]); !c.Match {
 		t.Errorf("spaced code: %+v", c)
@@ -259,8 +266,7 @@ func TestTOTPWarnings(t *testing.T) {
 	}
 }
 
-// The countdown: seconds left in the step, and a fragment that re-runs the
-// live form when it reaches zero.
+// The countdown: seconds left in the step, and a fragment that re-runs the live form at zero.
 func TestTOTPCountdownAndRender(t *testing.T) {
 	r := totpOf(t, url.Values{"secret": {"JBSWY3DPEHPK3PXP"}, "now": {"1700000021"}})
 	if r.Remaining != 19 || r.Period != 30 || len(r.Codes) != 3 || r.Codes[1].Until == "" {
