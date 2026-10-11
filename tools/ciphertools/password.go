@@ -407,7 +407,7 @@ func parseBcrypt(t string, p []part) (*PasswordHashInfo, error) {
 		return nil, fmt.Errorf("bcrypt: cost %d at offset %d is outside bcrypt's range of 04 to 31", cost, cp.at)
 	}
 	if i := len(body.s) - len(strings.TrimLeft(body.s, bcryptAlphabet)); i < len(body.s) {
-		return nil, fmt.Errorf("bcrypt: %q at offset %d is not in bcrypt's base64 alphabet (./A-Za-z0-9)", body.s[i], body.at+i)
+		return nil, fmt.Errorf("bcrypt: %s at offset %d is not in bcrypt's base64 alphabet (./A-Za-z0-9)", charAt(body.s, i), body.at+i)
 	}
 	if len(body.s) != 53 {
 		return nil, fmt.Errorf("bcrypt: after the cost come 53 characters, 22 of salt and 31 of hash; found %d", len(body.s))
@@ -500,7 +500,7 @@ func phcDecode(pt part, what string) ([]byte, error) {
 		return nil, fmt.Errorf("%s is empty (offset %d)", what, pt.at)
 	}
 	if i := len(s) - len(strings.TrimLeft(s, bcryptAlphabet+"+")); i < len(s) {
-		return nil, fmt.Errorf("%s: %q at offset %d is not base64", what, s[i], pt.at+i)
+		return nil, fmt.Errorf("%s: %s at offset %d is not base64", what, charAt(s, i), pt.at+i)
 	}
 	b, err := phcB64.DecodeString(strings.ReplaceAll(s, ".", "+"))
 	if err != nil {

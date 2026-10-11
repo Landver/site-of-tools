@@ -330,6 +330,8 @@ func TestPasswordParseErrorsNameTheOffset(t *testing.T) {
 		"$pbkdf2-sha256$foo=1$c29tZXNhbHQ$hRRj":                        "offset 15 have no i= (iterations)",
 		"$argon2id$v=19$m=64,t=1$c29tZXNhbHQ$Bo1ismRVk2qm6":            "offset 15 have no p=",
 		"$argon2id$v=19$keyid=x,m=z,t=1,p=1$c29tZXNhbHQ$Bo1ismRVk2qm6": `m="z" at offset 25`,
+		"$2b$05$CCCCCCCCCCCCCCCCCCCCCïE5YPO9kmyuRGyh0XouQYb4YMJKvyOeW": "'ï' at offset 28",
+		"$argon2id$v=19$m=64,t=1,p=1$c29tïXNhbHQ$Bo1ismRVk2qm6":        "'ï' at offset 32",
 	}
 	for h, want := range cases {
 		wantErr(t, "password-verify", url.Values{"hash": {h}, "password": {"x"}}, want)
