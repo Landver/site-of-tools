@@ -227,6 +227,11 @@ func TestIdentifyLooksInsideEncodings(t *testing.T) {
 	if !bin.PreviewHex || !strings.HasSuffix(bin.Preview, "…") {
 		t.Errorf("binary preview %+v", bin)
 	}
+	// Hex input gets no hex preview of itself, so no flag saying the preview is hex.
+	hexIn, _ := named(identify(t, "deadbeefdeadbeef"), "hex-encoded bytes")
+	if j, _ := json.Marshal(hexIn); hexIn.Name == "" || strings.Contains(string(j), "preview") {
+		t.Errorf("hex input: %s", j)
+	}
 }
 
 // Broken shapes are named as broken, not mistaken for something else or dropped.

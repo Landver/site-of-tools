@@ -584,8 +584,8 @@ func (x *idents) hexBytes(t string) {
 		why += ", the size of " + note
 	}
 	c := x.add(score, "hex-encoded bytes", page, why+".")
-	if c.Preview, c.PreviewHex = preview(b); c.PreviewHex {
-		c.Preview = "" // it would only repeat the input
+	if p, isHex := preview(b); !isHex { // a hex preview would only repeat the input
+		c.Preview = p
 	}
 }
 
