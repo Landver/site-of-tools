@@ -173,6 +173,12 @@ func TestJWTCleansPastedToken(t *testing.T) {
 	if !hasLevel(j.Warnings, ciphertools.LevelInfo, "Bearer") {
 		t.Fatalf("cleaning happened silently")
 	}
+	for _, pasted := range []string{jwtioToken, "Bearer " + jwtioToken, "Bearer\t" + jwtioToken, "bearer  \n" + jwtioToken, "Authorization: BEARER\t" + jwtioToken} {
+		j, err := ciphertools.DecodeJWT(pasted, "your-256-bit-secret", "", rfcNow, 0)
+		if err != nil || j.Verification.State != ciphertools.VerifyValid {
+			t.Errorf("%.30q: err %v, %+v", pasted, err, j)
+		}
+	}
 }
 
 func TestJWTStructureErrors(t *testing.T) {

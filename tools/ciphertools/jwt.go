@@ -170,8 +170,8 @@ func cleanToken(s string) string {
 	for _, p := range []string{"Authorization:", "authorization:"} {
 		s = strings.TrimSpace(strings.TrimPrefix(s, p))
 	}
-	if hasPrefixFold(s, "bearer ") {
-		s = s[7:]
+	if f := strings.Fields(s); len(f) > 1 && strings.EqualFold(f[0], "bearer") {
+		s = strings.TrimSpace(s[len(f[0]):])
 	}
 	return strings.Join(strings.Fields(strings.Trim(s, "\"'`")), "")
 }
