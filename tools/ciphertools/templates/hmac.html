@@ -1,10 +1,4 @@
-{{/* HMAC — every hash at once, and verify a pasted MAC (C3).
-
-     One live form. The key's encoding is explicit beside it, because "the
-     secret is abc" is three different keys depending on how it is read, and a
-     silent guess is what makes webhook signatures "not match". The message
-     textarea starts on the line after the tag for the same reason as on the
-     Hash page: a leading newline is data. */}}
+{{/* The message textarea starts on the next line, as on Hash: a leading newline is data. */}}
 {{define "cipher/hmac"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -21,7 +15,7 @@
     </p>
     {{template "cipher/engine" .}}
 
-    {{$enc := .Form.Get "enc"}}{{$keyEnc := .Form.Get "key_enc"}}
+    {{$keyEnc := .Form.Get "key_enc"}}
     <form method="post" action="/hmac" data-cipher="hmac" data-live data-target="#hmac-result" class="mt-6 space-y-3">
       <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
         <label class="block text-sm text-muted">Message
@@ -31,11 +25,7 @@
 {{.Form.Get "text"}}</textarea>
         </label>
         <label class="block text-sm text-muted">Message is
-          <select name="enc" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
-            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex bytes</option>
-            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64 bytes</option>
-          </select>
+          {{template "cipher/hash-enc" (.Form.Get "enc")}}
         </label>
       </div>
       <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">

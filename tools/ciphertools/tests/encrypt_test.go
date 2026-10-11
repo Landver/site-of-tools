@@ -32,8 +32,7 @@ func encryptErr(t *testing.T, fields url.Values) error {
 	return err
 }
 
-// The GCM spec's test cases 1 and 2 (McGrew and Viega): AES-128, key and IV
-// all zero.
+// The GCM spec's test cases 1 and 2 (McGrew and Viega): AES-128, all-zero key and IV.
 func TestEncryptAESGCMKnownVectors(t *testing.T) {
 	zeroKey, zeroIV := strings.Repeat("00", 16), strings.Repeat("00", 12)
 	r := encryptOf(t, url.Values{"algo": {"aes-gcm"}, "key": {zeroKey}, "nonce": {zeroIV}, "text": {""}})
@@ -89,8 +88,7 @@ func TestEncryptChaCha20Poly1305RFC8439(t *testing.T) {
 	}
 }
 
-// NIST SP 800-38A F.2.1, CBC-AES128.Encrypt, first block. PKCS#7 adds a
-// whole block of padding to the 16-byte message.
+// NIST SP 800-38A F.2.1 (CBC-AES128), first block; PKCS#7 pads the 16-byte message by a whole block.
 func TestEncryptAESCBCKnownVector(t *testing.T) {
 	r := encryptOf(t, url.Values{
 		"algo": {"aes-cbc"}, "key": {"2b7e151628aed2a6abf7158809cf4f3c"}, "nonce": {"000102030405060708090a0b0c0d0e0f"},
@@ -107,8 +105,7 @@ func TestEncryptAESCBCKnownVector(t *testing.T) {
 	}
 }
 
-// Every algorithm and key size, random nonce, round-tripped through both
-// output encodings, with and without AAD, the key as hex or base64.
+// Every algorithm and key size round-trips through both output encodings, with and without AAD.
 func TestEncryptRoundTrips(t *testing.T) {
 	plaintexts := []struct{ text, enc string }{
 		{"", "utf8"}, {"hello", "utf8"}, {"naïve ☃ — 16 bytes?", "utf8"},
@@ -174,8 +171,7 @@ func TestEncryptNonceIsFreshEachRun(t *testing.T) {
 	}
 }
 
-// A tampered byte, a wrong key or wrong AAD all fail the same way, with the
-// three causes named and no Go error text.
+// A tampered byte, wrong key or wrong AAD fail alike, naming the three causes and no Go error.
 func TestEncryptAuthFailures(t *testing.T) {
 	key := strings.Repeat("42", 32)
 	for _, algo := range []string{"aes-gcm", "chacha20-poly1305"} {
@@ -210,8 +206,7 @@ func flip(b []byte, i int) string {
 	return hex.EncodeToString(c)
 }
 
-// CBC has no tag, so a bad key shows up as bad padding, reported as "wrong
-// key or corrupted data", never as a Go error.
+// Without a tag a bad CBC key shows as bad padding: "wrong key or corrupted data", not a Go error.
 func TestEncryptCBCPaddingError(t *testing.T) {
 	key, _ := hex.DecodeString(strings.Repeat("24", 16))
 	b, _ := aes.NewCipher(key)
@@ -240,8 +235,7 @@ func TestEncryptCBCPaddingError(t *testing.T) {
 	}
 }
 
-// Keys are exactly 16/24/32 bytes (32 for ChaCha20), never padded or cut, and
-// never text.
+// Keys are exactly 16/24/32 bytes (32 for ChaCha20): never text, never padded or cut.
 func TestEncryptKeyLengthRefused(t *testing.T) {
 	for _, c := range []struct {
 		algo, key, enc, want string
@@ -273,6 +267,7 @@ func TestEncryptInputErrors(t *testing.T) {
 		{url.Values{"algo": {"des"}, "key": {key}}, "want aes-gcm"},
 		{url.Values{"mode": {"sign"}, "key": {key}}, "mode: want encrypt or decrypt"},
 		{url.Values{"key": {key}, "nonce": {"0011"}}, "nonce: 2 bytes; AES-128-GCM takes a 12-byte nonce"},
+		{url.Values{"key": {key}, "nonce": {"zz"}}, "nonce: not hex: 'z' at offset 0"},
 		{url.Values{"algo": {"aes-cbc"}, "key": {key}, "nonce": {strings.Repeat("00", 12)}}, "IV: 12 bytes"},
 		{url.Values{"key": {key}, "text": {"zz"}, "enc": {"hex"}}, "plaintext: not hex"},
 		{url.Values{"mode": {"decrypt"}, "key": {key}}, "no ciphertext given"},
@@ -287,8 +282,7 @@ func TestEncryptInputErrors(t *testing.T) {
 	}
 }
 
-// A nonce in its own field: the data is then ciphertext ‖ tag. The whole
-// output pasted back with the nonce still in its field also decrypts.
+// With the nonce in its field the data is ciphertext ‖ tag; the whole output pasted back also decrypts.
 func TestEncryptDecryptWithNonceField(t *testing.T) {
 	key, nonce := strings.Repeat("07", 32), "cafebabefacedbaddecaf888"
 	e := encryptOf(t, url.Values{"key": {key}, "nonce": {nonce}, "text": {"hello"}})
@@ -362,9 +356,7 @@ func hasLevel(ws []ciphertools.Warning, level, sub string) bool {
 	return false
 }
 
-// Encrypt with no key makes a 32-byte one and hands it back, so "encrypt this"
-// needs no detour to the Random page; that key then decrypts the output.
-// Decrypt with no key can't guess one and says so.
+// A blank key on encrypt makes a 32-byte one that decrypts the output; decrypt can't guess one.
 func TestEncryptBlankKeyIsGenerated(t *testing.T) {
 	for _, algo := range []string{"aes-gcm", "chacha20-poly1305", "aes-cbc"} {
 		res, err := runOp(t, "encrypt", url.Values{"algo": {algo}, "text": {"hello"}}, nil)

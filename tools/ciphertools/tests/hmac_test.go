@@ -22,8 +22,7 @@ func hmacOf(t *testing.T, fields url.Values) *ciphertools.HMACResult {
 	return res.(*ciphertools.HMACResult)
 }
 
-// RFC 4231 test cases 1, 2 and 6 (SHA-2) and RFC 2202 test cases 1 and 2
-// (MD5, SHA-1). HMAC-SHA3 for case 2 is cross-checked against Python's hmac.
+// RFC 4231 cases 1, 2, 6 and RFC 2202 cases 1, 2; HMAC-SHA3 for case 2 is checked against Python's hmac.
 func TestHMACPublishedVectors(t *testing.T) {
 	cases := []struct {
 		name, text, key, keyEnc string
@@ -49,8 +48,7 @@ func TestHMACPublishedVectors(t *testing.T) {
 			"sha3_256": "c7d4072e788877ae3596bbb0da73b887c9171f93095b294ae857fbe2645e1ba5",
 			"sha3_512": "5a4bfeab6166427c7a3647b747292b8384537cdb89afb3bf5665e4c5e709350b287baec921fd7ca0ee7a0c31d022a95e1fc92ba9d77df883960275beb4e62024",
 		}},
-		// A key longer than the block size is hashed first (RFC 2104); that's
-		// correct and must not be "fixed".
+		// A key longer than the block size is hashed first (RFC 2104): correct, not to be "fixed".
 		{"RFC 4231 TC6", "Test Using Larger Than Block-Size Key - Hash Key First", strings.Repeat("aa", 131), "hex", map[string]string{
 			"sha256": "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
 		}},
@@ -174,10 +172,7 @@ func TestHMACKeyWarnings(t *testing.T) {
 	}
 }
 
-// The webhook trap, same as the JWT one: a secret handed out as base64 looks
-// like text, and read as text it is a different key. With an expected MAC to
-// compare against, "detect" tries each reading of the key and uses the one that
-// matches; an explicit reading that fails says which one would have.
+// Detect tries each reading of the key against the expected MAC; an explicit one that fails names the match.
 func TestHMACKeyEncodingDetected(t *testing.T) {
 	const pasted, body = "hkjlhlkjhjklhkljhlkjhlkhlk", `{"event":"ping"}`
 	meant, _ := base64.RawStdEncoding.DecodeString(pasted)

@@ -45,8 +45,7 @@ func digestByID(t *testing.T, ds []ciphertools.Digest, id string) ciphertools.Di
 	return ciphertools.Digest{}
 }
 
-// noted: some warning's text contains sub. Shared by every page's tests;
-// hasLevel (encrypt_test.go) also pins the level.
+// noted: some warning's text contains sub (hasLevel also pins the level).
 func noted(ws []ciphertools.Warning, sub string) bool {
 	for _, w := range ws {
 		if strings.Contains(w.Text, sub) {
@@ -56,8 +55,7 @@ func noted(ws []ciphertools.Warning, sub string) bool {
 	return false
 }
 
-// Published "abc" vectors: FIPS 180-4 / 202 examples, RFC 7693 (BLAKE2), and
-// the well-known values for the rest.
+// "abc" vectors: FIPS 180-4 / 202, RFC 7693 (BLAKE2), and the well-known values for the rest.
 var abcVectors = map[string]string{
 	"md5":         "900150983cd24fb0d6963f7d28e17f72",
 	"sha1":        "a9993e364706816aba3e25717850c26c9cd0d89d",
@@ -208,8 +206,7 @@ func TestHashTrailingNewline(t *testing.T) {
 	}
 }
 
-// The data is hashed as typed: no Unicode normalisation, no trimming. "é"
-// precomposed (U+00E9) and decomposed (e + U+0301) are different bytes.
+// Hashed as typed: no trimming, no Unicode normalisation (U+00E9 and e + U+0301 differ).
 func TestHashDoesNotNormalise(t *testing.T) {
 	nfc, nfd := hashOf(t, url.Values{"text": {"caf\u00e9"}}, nil), hashOf(t, url.Values{"text": {"cafe\u0301"}}, nil)
 	if nfc.Bytes != 5 || nfd.Bytes != 6 || digestByID(t, nfc.Digests, "sha256").Hex == digestByID(t, nfd.Digests, "sha256").Hex {
@@ -291,8 +288,7 @@ func TestHashCompareNoMatchNamesSameLength(t *testing.T) {
 	}
 }
 
-// A garbage expected value is reported in the compare box, with where it broke,
-// and the hashes still come back.
+// A garbage expected value says where it broke, and the hashes still come back.
 func TestHashCompareGarbage(t *testing.T) {
 	r := hashOf(t, url.Values{"text": {"abc"}, "expected": {"ba7816bf8f01cfea!14140de"}}, nil)
 	if r.Compare == nil || r.Compare.Match || !strings.Contains(r.Compare.Detail, "offset 16") {
@@ -300,6 +296,20 @@ func TestHashCompareGarbage(t *testing.T) {
 	}
 	if len(r.Digests) == 0 {
 		t.Fatal("hashes dropped because the expected value was bad")
+	}
+}
+
+// Nothing left after the prefix, no algorithm of that length, and a value that is not even hex-like.
+func TestHashCompareNoReading(t *testing.T) {
+	for expected, want := range map[string]string{
+		"t=1,v1=": "Nothing left to compare once the prefix was removed.",
+		"000000":  "No algorithm here outputs 3 bytes, the length of the expected value read as hex.",
+		"%%%":     "The expected value is neither hex nor base64: not base64 (standard, unpadded): '%' at offset 0.",
+	} {
+		c := hashOf(t, url.Values{"text": {"abc"}, "expected": {expected}}, nil).Compare
+		if c == nil || c.Match || c.Detail != want {
+			t.Errorf("%q: compare = %+v, want detail %q", expected, c, want)
+		}
 	}
 }
 
@@ -320,9 +330,7 @@ func TestHashRefusesOversizedInput(t *testing.T) {
 	}
 }
 
-// In the browser a bigger file arrives cut to MaxFile+1 bytes (cipher-worker.js),
-// so the refusal can't state the file's size; one byte over used to read as
-// "file is 64.0 MiB; this page hashes up to 64.0 MiB".
+// In the browser a bigger file arrives cut to MaxFile+1 bytes, so the refusal can't state its size.
 func TestHashOversizeMessageDoesNotStateTruncatedSize(t *testing.T) {
 	_, err := runOp(t, "hash", url.Values{}, map[string][]byte{"file": make([]byte, ciphertools.MaxFile+1)})
 	if err == nil || !strings.Contains(err.Error(), "file is larger than 64.0 MiB") {
@@ -339,8 +347,7 @@ func TestRenderHash(t *testing.T) {
 	}
 }
 
-// The JSON API takes a file as multipart, and a browser with JavaScript off
-// gets the page back with the result in place.
+// The API takes a file as multipart; a browser with JavaScript off gets the page with the result.
 func TestHashFileUploadAPI(t *testing.T) {
 	e := newCipherApp(t)
 	var body bytes.Buffer

@@ -1,13 +1,4 @@
-{{/* Hash — every algorithm at once, a file or text, and compare (C2).
-
-     One live form: cipher.js reruns it on every keystroke and on picking a
-     file, inside the in-browser engine, so the file is read in the tab and never
-     uploaded. With JavaScript off it posts (multipart, for the file) and the page
-     comes back with the result in place.
-
-     The textarea's content starts on the line after the tag: an HTML parser
-     drops one newline right after <textarea>, and for a hash the leading
-     newline of a refilled value is data. */}}
+{{/* The textarea's value starts on the next line: HTML drops one newline after <textarea>, and here it is data. */}}
 {{define "cipher/hash"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -24,7 +15,6 @@
     </p>
     {{template "cipher/engine" .}}
 
-    {{$enc := .Form.Get "enc"}}
     <form method="post" action="/hash" enctype="multipart/form-data" data-cipher="hash" data-live
           data-target="#hash-result" x-data
           class="mt-6 space-y-3 rounded-lg data-dragging:outline-2 data-dragging:outline-offset-4 data-dragging:outline-dashed data-dragging:outline-brand">
@@ -35,11 +25,7 @@
       </label>
       <div class="grid gap-3 sm:grid-cols-[12rem_1fr]">
         <label class="block text-sm text-muted">Text is
-          <select name="enc" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
-            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex bytes</option>
-            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64 bytes</option>
-          </select>
+          {{template "cipher/hash-enc" (.Form.Get "enc")}}
         </label>
         <label class="block text-sm text-muted">Expected checksum <span class="text-faint">(optional)</span>
           <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"

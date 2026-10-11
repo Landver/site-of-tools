@@ -1,13 +1,4 @@
-{{/* Encrypt — AES-GCM, ChaCha20-Poly1305 and AES-CBC with an explicit key
-     (C5). Page shell + result fragment.
-
-     One form, not live: every encrypt draws a fresh random nonce, so a result
-     appears only when asked for. A mode switch picks encrypt or decrypt; with
-     Alpine only that mode's input shows, without it both do and the op reads
-     only the one for the chosen mode. AAD is disabled for CBC, which has none.
-
-     Alpine's starting mode and algorithm come from literals, never from the
-     submitted form (a form value inside x-data would be script). */}}
+{{/* Not live: each encrypt draws a fresh nonce. x-data gets literals, never form values (that would be script). */}}
 {{define "cipher/encrypt"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -24,11 +15,7 @@
     </p>
     {{template "cipher/engine" .}}
 
-    {{$op := eq .Op "encrypt"}}{{$mode := ""}}{{$algo := ""}}{{$kenc := ""}}{{$aenc := ""}}{{$enc := ""}}{{$denc := ""}}
-    {{if $op}}{{$mode = .Form.Get "mode"}}{{$algo = .Form.Get "algo"}}{{$kenc = .Form.Get "key_enc"}}{{$aenc = .Form.Get "aad_enc"}}{{$enc = .Form.Get "enc"}}{{$denc = .Form.Get "data_enc"}}{{end}}
-    {{/* Field order follows the task: what to encrypt, then the key, then the
-         choices most people never change, then the ones almost nobody does
-         (nonce, AAD) folded away. */}}
+    {{$mode := .Form.Get "mode"}}{{$algo := .Form.Get "algo"}}{{$kenc := .Form.Get "key_enc"}}{{$aenc := .Form.Get "aad_enc"}}{{$denc := .Form.Get "data_enc"}}
     <form method="post" action="/encrypt" data-cipher="encrypt" data-target="#encrypt-result" class="mt-6 space-y-3"
           x-data="{ mode: '{{if eq $mode "decrypt"}}decrypt{{else}}encrypt{{end}}', algo: '{{if eq $algo "chacha20-poly1305"}}chacha20-poly1305{{else if eq $algo "aes-cbc"}}aes-cbc{{else}}aes-gcm{{end}}' }">
       <div class="inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="radiogroup" aria-label="Mode">
@@ -47,11 +34,7 @@
 {{.Form.Get "text"}}</textarea>
         </label>
         <label class="block text-sm text-muted">Text is
-          <select name="enc" class="field mt-1 w-full">
-            <option value="utf8">UTF-8 text</option>
-            <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex bytes</option>
-            <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64 bytes</option>
-          </select>
+          {{template "cipher/hash-enc" (.Form.Get "enc")}}
         </label>
       </div>
       <div x-show="mode === 'decrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
@@ -170,8 +153,7 @@
 {{define "cipher/encrypt-result"}}
 {{with .Result}}
 {{with .GeneratedKey}}
-{{/* x-init copies the new key into the form, so decrypting (or encrypting
-     again) uses it without a paste. */}}
+{{/* x-init copies the new key into the form, so Decrypt uses it without a paste. */}}
 <div class="mb-6 rounded-lg border-2 border-warn bg-warn/10 px-4 py-3"
      x-data x-init="const f = document.querySelector('form[data-cipher=encrypt]'); if (f) { f.querySelector('[name=key]').value = '{{.Hex}}'; f.querySelector('[name=key_enc]').value = 'hex' }">
   <p class="text-base font-semibold text-strong">A new random key was made for this</p>
@@ -256,7 +238,7 @@
 {{end}}
 {{end}}
 
-{{/* dot = ciphertools.Blob: one byte string as hex and base64, with copy buttons. */}}
+{{/* dot = ciphertools.Blob */}}
 {{define "cipher/blob"}}
 {{if .Bytes}}
 <div class="flex items-start gap-3">

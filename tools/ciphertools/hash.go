@@ -8,12 +8,11 @@ import (
 	"crypto/sha256"
 	"crypto/sha3"
 	"crypto/sha512"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"hash"
 	"hash/adler32"
 	"hash/crc32"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/blake2b"
@@ -21,11 +20,7 @@ import (
 	xsha3 "golang.org/x/crypto/sha3"
 )
 
-// C2 — hash text or a file with every common algorithm at once, and name the
-// algorithm a pasted checksum matches. The traps here are all about bytes, not
-// algorithms: a trailing newline, CRLF line endings or a byte order mark is
-// where "your MD5 is wrong" comes from (docs/03-correctness-traps.md), so the
-// result says out loud when the input carries any of them.
+// "Your MD5 is wrong" is nearly always the bytes: a trailing newline, CRLF or a BOM, so the result names them.
 
 func init() {
 	register(Op{Name: "hash", Path: "/hash", Page: "hash", Fragment: "cipher/hash-result", Run: runHash,
@@ -43,80 +38,76 @@ func init() {
 		}})
 }
 
-// MaxHashInput bounds what one hash run reads. Every algorithm passes over the
-// input, and in the browser that is Go compiled to wasm, so a big file takes
-// seconds per few MiB; past this the local sha256sum is the better tool. The
-// server's body limit (8 MiB) is lower still.
+// MaxHashInput bounds one run: wasm hashes a few MiB a second, so past this a local sha256sum is better.
 const MaxHashInput = 64 << 20
 
-// hashAlg is one row of the hash table.
 type hashAlg struct {
-	id, name string
-	new      func() hash.Hash
-	note     string
-	weak     bool
+	id, name, note string
+	new            func() hash.Hash
+	weak           bool
+	mac            bool // also offered as an HMAC
 }
-
-var castagnoli = crc32.MakeTable(crc32.Castagnoli)
 
 const checksumNote = "checksum, not a cryptographic hash: catches accidents, not tampering"
 
-// hashAlgs, in display order. The ids are the JSON API's names for them.
+// hashAlgs, in display order; the ids are the JSON API's names.
 var hashAlgs = []hashAlg{
-	{id: "md5", name: "MD5", new: md5.New, note: "not collision-resistant", weak: true},
-	{id: "sha1", name: "SHA-1", new: sha1.New, note: "not collision-resistant", weak: true},
-	{id: "sha224", name: "SHA-224", new: sha256.New224},
-	{id: "sha256", name: "SHA-256", new: sha256.New},
-	{id: "sha384", name: "SHA-384", new: sha512.New384},
-	{id: "sha512", name: "SHA-512", new: sha512.New},
+	{id: "md5", name: "MD5", new: md5.New, note: "not collision-resistant", weak: true, mac: true},
+	{id: "sha1", name: "SHA-1", new: sha1.New, note: "not collision-resistant", weak: true, mac: true},
+	{id: "sha224", name: "SHA-224", new: sha256.New224, mac: true},
+	{id: "sha256", name: "SHA-256", new: sha256.New, mac: true},
+	{id: "sha384", name: "SHA-384", new: sha512.New384, mac: true},
+	{id: "sha512", name: "SHA-512", new: sha512.New, mac: true},
 	{id: "sha512_256", name: "SHA-512/256", new: sha512.New512_256},
-	{id: "sha3_256", name: "SHA3-256", new: func() hash.Hash { return sha3.New256() }},
-	{id: "sha3_512", name: "SHA3-512", new: func() hash.Hash { return sha3.New512() }},
+	{id: "sha3_256", name: "SHA3-256", new: func() hash.Hash { return sha3.New256() }, mac: true},
+	{id: "sha3_512", name: "SHA3-512", new: func() hash.Hash { return sha3.New512() }, mac: true},
 	{id: "blake2b_256", name: "BLAKE2b-256", new: func() hash.Hash { h, _ := blake2b.New256(nil); return h }},
 	{id: "blake2b_512", name: "BLAKE2b-512", new: func() hash.Hash { h, _ := blake2b.New512(nil); return h }},
 	{id: "blake2s_256", name: "BLAKE2s-256", new: func() hash.Hash { h, _ := blake2s.New256(nil); return h }},
-	// Keccak-256 is what Ethereum calls SHA3: the sponge before NIST changed
-	// the padding, so the two give different output for every input.
+	// Ethereum's "SHA3" is Keccak-256, the sponge before NIST changed its padding.
 	{id: "keccak256", name: "Keccak-256 (Ethereum)", new: xsha3.NewLegacyKeccak256,
 		note: "the original Keccak padding, as Ethereum uses; differs from SHA3-256"},
 	{id: "crc32", name: "CRC32 (IEEE)", new: func() hash.Hash { return crc32.NewIEEE() }, note: checksumNote},
-	{id: "crc32c", name: "CRC32C (Castagnoli)", new: func() hash.Hash { return crc32.New(castagnoli) }, note: checksumNote},
+	{id: "crc32c", name: "CRC32C (Castagnoli)", new: func() hash.Hash { return crc32.New(crc32.MakeTable(crc32.Castagnoli)) }, note: checksumNote},
 	{id: "adler32", name: "Adler-32", new: func() hash.Hash { return adler32.New() }, note: checksumNote},
 }
 
-func hashAlgByID(id string) hashAlg {
-	for _, a := range hashAlgs {
-		if a.id == id {
-			return a
-		}
-	}
-	panic("ciphertools: no hash " + id)
-}
-
-// Digest is one algorithm's output. Shared by the hash and HMAC pages.
+// Digest is one algorithm's output, on the hash and HMAC pages.
 type Digest struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Hex    string `json:"hex"`
-	Base64 string `json:"base64"`
-	Bytes  int    `json:"bytes"`
-	Note   string `json:"note,omitempty"`
-	// Weak: MD5 and SHA-1, where collisions can be made on purpose.
-	Weak  bool `json:"weak,omitempty"`
-	Match bool `json:"match,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Blob
+	Note  string `json:"note,omitempty"`
+	Weak  bool   `json:"weak,omitempty"` // MD5 and SHA-1: collisions can be made on purpose
+	Match bool   `json:"match,omitempty"`
 
 	sum []byte
 }
 
-func newDigest(id, name, note string, weak bool, sum []byte) Digest {
-	return Digest{ID: id, Name: name, Hex: hex.EncodeToString(sum), Base64: base64.StdEncoding.EncodeToString(sum),
-		Bytes: len(sum), Note: note, Weak: weak, sum: sum}
+// hashDigests is data's digest under every algorithm, or with mac its HMAC under key where offered.
+func hashDigests(data, key []byte, mac bool) []Digest {
+	var out []Digest
+	for _, a := range hashAlgs {
+		h, d := a.new(), Digest{ID: a.id, Name: a.name, Note: a.note, Weak: a.weak}
+		if mac {
+			if !a.mac {
+				continue
+			}
+			h, d = hmac.New(a.new, key), Digest{ID: a.id, Name: "HMAC-" + a.name}
+			if a.weak { // collisions don't break HMAC, so this is advice, not an alarm
+				d.Note = "legacy; still sound as a MAC, but use SHA-256 for anything new"
+			}
+		}
+		h.Write(data)
+		d.sum = h.Sum(nil)
+		d.Blob = blobOf(d.sum)
+		out = append(out, d)
+	}
+	return out
 }
 
-// HashResult is the hash op's answer.
 type HashResult struct {
-	// Source says what was hashed: "file", "UTF-8 text", "hex", a base64 variant.
-	Source         string    `json:"source"`
+	Source         string    `json:"source"` // "file", "UTF-8 text", "hex", a base64 variant
 	Bytes          int       `json:"bytes"`
 	TrimmedNewline bool      `json:"trimmed_newline"`
 	Digests        []Digest  `json:"digests"`
@@ -125,55 +116,39 @@ type HashResult struct {
 }
 
 func runHash(in Input) (any, error) {
-	var data []byte
-	var source string
-	var warnings []Warning
-	if f := in.Files["file"]; len(f) > 0 {
-		data, source = f, "file"
-		if in.Get("text") != "" {
-			warnings = append(warnings, Warning{LevelInfo, "Hashed the file; the text box was ignored. Clear the file to hash the text."})
-		}
-	} else {
-		b, how, err := decodeInput(in.Get("text"), in.Get("enc"))
-		if err != nil {
+	r := &HashResult{Source: "file"}
+	data := in.Files["file"]
+	switch {
+	case len(data) == 0:
+		var err error
+		if data, r.Source, err = decodeInput(in.Get("text"), in.Get("enc")); err != nil {
 			return nil, fmt.Errorf("text: %w", err)
 		}
-		data, source = b, how
+	case in.Get("text") != "":
+		r.Warnings = append(r.Warnings, Warning{LevelInfo, "Hashed the file; the text box was ignored. Clear the file to hash the text."})
 	}
 	if len(data) > MaxHashInput {
-		// No size in the message: in the browser a bigger file arrives cut to
-		// MaxFile+1 bytes (op.go), so len(data) is not the file's size.
-		return nil, fmt.Errorf("%s is larger than %s, the most this page hashes. For bigger files, sha256sum (Linux), shasum -a 256 (macOS) or certutil -hashfile (Windows) do it locally",
-			source, mib(MaxHashInput))
+		// No size: in the browser a bigger file arrives cut to MaxFile+1 bytes (op.go).
+		return nil, fmt.Errorf("%s is larger than %.1f MiB, the most this page hashes. For bigger files, sha256sum (Linux), shasum -a 256 (macOS) or certutil -hashfile (Windows) do it locally",
+			r.Source, float64(MaxHashInput)/(1<<20))
 	}
-
-	r := &HashResult{Source: source}
+	hint := ` Tick "Strip one trailing newline" to hash without it.`
 	if checked(in.Get("trim_newline")) {
 		var cut string
 		data, cut = trimOneNewline(data)
-		switch {
-		case cut != "":
-			r.TrimmedNewline = true
-			warnings = append(warnings, Warning{LevelInfo, fmt.Sprintf("Stripped one trailing %s before hashing.", cut)})
-		default:
-			warnings = append(warnings, Warning{LevelInfo, "There was no trailing newline to strip."})
+		r.TrimmedNewline = cut != ""
+		msg := "There was no trailing newline to strip."
+		if r.TrimmedNewline {
+			msg, hint = fmt.Sprintf("Stripped one trailing %s before hashing.", cut), ""
 		}
+		r.Warnings = append(r.Warnings, Warning{LevelInfo, msg})
 	}
 	r.Bytes = len(data)
 	if len(data) == 0 {
-		warnings = append(warnings, Warning{LevelInfo, "Empty input: these are the hashes of zero bytes."})
+		r.Warnings = append(r.Warnings, Warning{LevelInfo, "Empty input: these are the hashes of zero bytes."})
 	}
-	hint := ""
-	if !r.TrimmedNewline {
-		hint = ` Tick "Strip one trailing newline" to hash without it.`
-	}
-	r.Warnings = append(warnings, byteNotes(data, hint)...)
-
-	for _, a := range hashAlgs {
-		h := a.new()
-		h.Write(data)
-		r.Digests = append(r.Digests, newDigest(a.id, a.name, a.note, a.weak, h.Sum(nil)))
-	}
+	r.Warnings = append(r.Warnings, byteNotes(data, hint)...)
+	r.Digests = hashDigests(data, nil, false)
 	if e := in.Get("expected"); strings.TrimSpace(e) != "" {
 		r.Compare = compareDigests(e, r.Digests,
 			"The usual cause is the input, not the algorithm: a trailing newline, CRLF line endings, or text where the checksum was of a file.")
@@ -183,14 +158,9 @@ func runHash(in Input) (any, error) {
 
 // checked reads a checkbox: "on" from a form, "true" from a JSON body.
 func checked(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "", "0", "false", "off", "no":
-		return false
-	}
-	return true
+	return !slices.Contains([]string{"", "0", "false", "off", "no"}, strings.ToLower(strings.TrimSpace(v)))
 }
 
-// trimOneNewline drops exactly one trailing \r\n or \n, and says which.
 func trimOneNewline(b []byte) ([]byte, string) {
 	switch {
 	case bytes.HasSuffix(b, []byte("\r\n")):
@@ -201,10 +171,7 @@ func trimOneNewline(b []byte) ([]byte, string) {
 	return b, ""
 }
 
-var utf8BOM = []byte{0xef, 0xbb, 0xbf}
-
-// byteNotes flags the invisible bytes that make two "identical" inputs hash
-// differently. hint is appended to the trailing-newline note.
+// byteNotes flags the invisible bytes that make two "identical" inputs hash differently; hint follows the newline note.
 func byteNotes(b []byte, hint string) []Warning {
 	var w []Warning
 	body, end := trimOneNewline(b)
@@ -214,37 +181,25 @@ func byteNotes(b []byte, hint string) []Warning {
 	if bytes.Contains(body, []byte("\r\n")) {
 		w = append(w, Warning{LevelInfo, `Contains CRLF (\r\n) line endings. The same text with Unix (\n) endings gives different hashes.`})
 	}
-	if bytes.HasPrefix(b, utf8BOM) {
+	if bytes.HasPrefix(b, []byte("\xef\xbb\xbf")) {
 		w = append(w, Warning{LevelInfo, "Starts with a UTF-8 byte order mark (EF BB BF). Some Windows editors add it; it is part of the data and changes every hash."})
 	}
 	return w
 }
 
-func mib(n int) string {
-	if n >= 1<<20 {
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
-	}
-	return fmt.Sprintf("%d bytes", n)
-}
-
 // Compare is the answer to "which of these is the checksum I was given".
 type Compare struct {
-	// Given is the value compared, after cleaning (whitespace, prefixes).
-	Given  string `json:"given"`
-	ReadAs string `json:"read_as,omitempty"`
-	Bytes  int    `json:"bytes,omitempty"`
-	Match  bool   `json:"match"`
-	// Matches names the algorithm(s) whose output equals Given.
-	Matches []string `json:"matches,omitempty"`
-	// SameSize, on no match: the algorithms whose output is as long as Given.
-	SameSize []string `json:"same_size,omitempty"`
+	Given    string   `json:"given"` // after cleaning: whitespace, prefixes
+	ReadAs   string   `json:"read_as,omitempty"`
+	Bytes    int      `json:"bytes,omitempty"`
+	Match    bool     `json:"match"`
+	Matches  []string `json:"matches,omitempty"`
+	SameSize []string `json:"same_size,omitempty"` // on no match: the algorithms whose output is as long as Given
 	Detail   string   `json:"detail"`
 	Note     string   `json:"note,omitempty"`
 }
 
-// compareDigests decodes expected as hex or base64 and checks it against every
-// digest, in constant time. Hex is tried first: "deadbeef" is valid base64 as
-// well, but nobody means it that way. hint follows a "no match".
+// compareDigests marks the digests equal to expected, in constant time; hex goes first, as "deadbeef" is base64 too.
 func compareDigests(expected string, ds []Digest, hint string) *Compare {
 	clean, note := cleanExpected(expected)
 	c := &Compare{Given: clean, Note: note}
@@ -253,18 +208,13 @@ func compareDigests(expected string, ds []Digest, hint string) *Compare {
 		return c
 	}
 	type reading struct {
-		as string
-		b  []byte
+		as  string
+		b   []byte
+		err error
 	}
-	var readings []reading
 	hexB, hexErr := decodeHex(clean)
-	if hexErr == nil {
-		readings = append(readings, reading{"hex", hexB})
-	}
 	b64, variant, b64Err := decodeBase64Any(clean)
-	if b64Err == nil {
-		readings = append(readings, reading{variant, b64})
-	}
+	readings := slices.DeleteFunc([]reading{{"hex", hexB, hexErr}, {variant, b64, b64Err}}, func(r reading) bool { return r.err != nil })
 	if len(readings) == 0 {
 		err := hexErr
 		if strings.ContainsAny(clean, "+/=_") || !looksHexish(clean) {
@@ -293,12 +243,10 @@ func compareDigests(expected string, ds []Digest, hint string) *Compare {
 			c.SameSize = append(c.SameSize, d.Name)
 		}
 	}
+	c.Detail = fmt.Sprintf("Read as %s it is %d bytes, the output length of %s. %s", r.as, len(r.b), strings.Join(c.SameSize, ", "), hint)
 	if len(c.SameSize) == 0 {
 		c.Detail = fmt.Sprintf("No algorithm here outputs %d bytes, the length of the expected value read as %s.", len(r.b), r.as)
-		return c
 	}
-	c.Detail = fmt.Sprintf("Read as %s it is %d bytes, the output length of %s. %s",
-		r.as, len(r.b), strings.Join(c.SameSize, ", "), hint)
 	return c
 }
 
@@ -313,11 +261,8 @@ func looksHexish(s string) bool {
 	return n*10 >= len(s)*9
 }
 
-// cleanExpected turns what people paste as "the checksum" into the value
-// itself: a sha256sum line ("<hex>  file"), a BSD one ("SHA256 (file) = <hex>"),
-// a labelled value ("sha256=<hex>" from GitHub, "SHA256:<hex>", SRI's
-// "sha384-<base64>"), a Stripe-Signature header, or hex wrapped over lines.
-// Case and ':' separators are left to decodeHex. note says what was removed.
+// cleanExpected cuts the value from a sha256sum or BSD ("SHA256 (file) = <hex>") line, a label (sha256=,
+// SRI's sha384-), a Stripe-Signature header or wrapped hex; note says what was removed.
 func cleanExpected(s string) (string, string) {
 	t := strings.TrimSpace(s)
 	var notes []string
@@ -346,10 +291,8 @@ func cleanExpected(s string) (string, string) {
 	return t, strings.Join(notes, " ")
 }
 
-// cutLabel removes an algorithm label from the front of a digest. "=" always
-// separates a label (base64 only pads at the end); ":" only when the label
-// can't be a hex byte ("ab:cd" is a colon-separated digest); "-" only for SRI's
-// three names, because "-" is also base64url.
+// cutLabel: "=" always ends a label (base64 pads only at the end), ":" only after a non-hex label ("ab:cd"
+// is a digest), and "-" only after SRI's three names, because "-" is base64url too.
 func cutLabel(t string) (label, rest string, ok bool) {
 	if i := strings.IndexAny(t, "=:"); i > 0 && i <= 16 {
 		label, rest = t[:i], t[i+1:]
@@ -357,32 +300,19 @@ func cutLabel(t string) (label, rest string, ok bool) {
 			return label, rest, true
 		}
 	}
-	for _, p := range []string{"sha256-", "sha384-", "sha512-"} {
-		if len(t) > len(p) && strings.EqualFold(t[:len(p)], p) {
-			return t[:len(p)-1], t[len(p):], true
-		}
+	if len(t) > 7 && slices.Contains([]string{"sha256-", "sha384-", "sha512-"}, strings.ToLower(t[:7])) {
+		return t[:6], t[7:], true
 	}
 	return "", t, false
 }
 
+const hashLetters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+// isLabel: an ASCII letter, then letters, digits, '-', '_' or '/'.
 func isLabel(s string) bool {
-	if s == "" || !(s[0] >= 'a' && s[0] <= 'z' || s[0] >= 'A' && s[0] <= 'Z') {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '/') {
-			return false
-		}
-	}
-	return true
+	return s != "" && strings.IndexByte(hashLetters, s[0]) >= 0 && strings.Trim(s, hashLetters+"0123456789-_/") == ""
 }
 
 func allHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if !isHex(s[i]) {
-			return false
-		}
-	}
-	return s != ""
+	return s != "" && strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
