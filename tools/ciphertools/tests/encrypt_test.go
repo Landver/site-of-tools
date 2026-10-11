@@ -224,7 +224,7 @@ func TestEncryptKeyLengthRefused(t *testing.T) {
 		{"chacha20-poly1305", strings.Repeat("00", 16), "hex", "ChaCha20-Poly1305 takes exactly 32 bytes"},
 		{"aes-gcm", "correct horse battery staple", "utf8", "A passphrase is not a key"},
 		{"aes-gcm", "00112g", "hex", "at offset 5"},
-		{"aes-gcm", strings.Repeat("00", 16), "base32", "key_enc: want hex or base64"},
+		{"aes-gcm", strings.Repeat("00", 16), "base32", `key_enc: want hex, base64 or base64url, got "base32"`},
 		// 64 hex digits read as base64 are 48 bytes; the error says hex fits.
 		{"aes-gcm", strings.Repeat("ab", 32), "base64", "Read as hex it is 32 bytes"},
 	} {
@@ -248,7 +248,8 @@ func TestEncryptInputErrors(t *testing.T) {
 		{url.Values{"mode": {"decrypt"}, "key": {key}}, "no ciphertext given"},
 		{url.Values{"mode": {"decrypt"}, "key": {key}, "data": {"00112233"}}, "shorter than the 12-byte nonce"},
 		{url.Values{"mode": {"decrypt"}, "key": {key}, "data": {"AAAA*AAA"}}, "at offset 4"},
-		{url.Values{"mode": {"decrypt"}, "key": {key}, "data": {"00"}, "data_enc": {"utf8"}}, "data_enc: want auto, base64 or hex"},
+		{url.Values{"mode": {"decrypt"}, "key": {key}, "data": {"00"}, "data_enc": {"utf8"}}, `data_enc: want auto, base64, base64url or hex, got "utf8"`},
+		{url.Values{"mode": {"decrypt"}, "key": {key}, "data_enc": {"bogus"}}, "no ciphertext given"},
 	} {
 		wantErr(t, "encrypt", c.fields, c.want)
 	}

@@ -24,8 +24,7 @@ func init() {
 			encryptAlgoField,
 			{Name: "key", Kind: KindString,
 				Description: "The key, read per key_enc: exactly 16, 24 or 32 bytes for AES, 32 for ChaCha20-Poly1305; required to decrypt, while encrypting without one makes a random 32-byte key and returns it as generated_key."},
-			{Name: "key_enc", Kind: KindEnum, Enum: []string{EncHex, EncBase64, EncBase64URL}, Default: EncHex,
-				Description: "How key is written; utf8 is refused, because a passphrase is not a key."},
+			encryptKeyEncField,
 			{Name: "nonce", Kind: KindString,
 				Description: "The nonce (the IV for aes-cbc) as hex, 12 bytes or 16 for aes-cbc; omit it to encrypt with a random one, or to decrypt data that starts with it."},
 			{Name: "aad", Kind: KindString,
@@ -38,13 +37,18 @@ func init() {
 				Description: "How text is written: utf8 takes it as typed; hex, base64, base64url or base32 decode it first."},
 			{Name: "data", Kind: KindString,
 				Description: "The ciphertext to decrypt (mode decrypt), as base64 or hex: an encrypt's combined output, nonce ‖ ciphertext ‖ tag, or iv ‖ ciphertext for aes-cbc."},
-			{Name: "data_enc", Kind: KindEnum, Enum: []string{EncAuto, EncBase64, EncBase64URL, EncHex}, Default: EncAuto,
-				Description: "How data is written; auto reads all-hex data as hex and anything else as base64."},
+			encryptDataEncField,
 		}})
 }
 
 var encryptAlgoField = Field{Name: "algo", Kind: KindEnum, Enum: []string{"aes-gcm", "chacha20-poly1305", "aes-cbc"}, Default: "aes-gcm",
 	Description: "The cipher: aes-gcm or chacha20-poly1305 (authenticated: 12-byte nonce, 16-byte tag), or aes-cbc (unauthenticated: 16-byte IV, PKCS#7 padding) for systems that require it."}
+
+var encryptKeyEncField = Field{Name: "key_enc", Kind: KindEnum, Enum: []string{EncHex, EncBase64, EncBase64URL}, Default: EncHex,
+	Description: "How key is written; utf8 is refused, because a passphrase is not a key."}
+
+var encryptDataEncField = Field{Name: "data_enc", Kind: KindEnum, Enum: []string{EncAuto, EncBase64, EncBase64URL, EncHex}, Default: EncAuto,
+	Description: "How data is written; auto reads all-hex data as hex and anything else as base64."}
 
 // cipherSpec is one algo. Key lengths are checked against keys first, so its constructors can't fail.
 type cipherSpec struct {
@@ -159,12 +163,11 @@ func runEncrypt(in Input) (any, error) {
 // encryptKey takes exact bytes only: padding or cutting a passphrase to fit is what makes two tools disagree.
 func encryptKey(in Input, spec cipherSpec) ([]byte, error) {
 	enc := choice(in.Get("key_enc"), EncHex)
-	switch enc {
-	case EncHex, EncBase64, EncBase64URL:
-	case EncUTF8:
+	if enc == EncUTF8 {
 		return nil, errors.New("key: read as hex or base64 only. A passphrase is not a key: derive one from it with PBKDF2 or Argon2 on the Passwords page, or make a random one on the Random page")
-	default:
-		return nil, fmt.Errorf("key_enc: want hex or base64, got %q", enc)
+	}
+	if _, err := enumField(enc, encryptKeyEncField); err != nil {
+		return nil, err
 	}
 	raw := in.Get("key")
 	if strings.TrimSpace(raw) == "" {
@@ -224,17 +227,16 @@ func (r *EncryptResult) decrypt(in Input, spec cipherSpec, key, nonce, aad []byt
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil, errors.New("no ciphertext given: paste the output of an encrypt, as base64 or hex")
 	}
-	enc := choice(in.Get("data_enc"), EncAuto)
-	switch enc {
-	case EncAuto:
+	enc, err := enumField(in.Get("data_enc"), encryptDataEncField)
+	if err != nil {
+		return nil, nil, err
+	}
+	if enc == EncAuto {
 		// Hex is valid base64 too, but base64 of 28+ random bytes (the shortest AEAD output) is all hex once in 10^18.
 		enc = EncBase64
 		if c, _ := stripSpace(raw); len(c)%2 == 0 && allHex(c) {
 			enc = EncHex
 		}
-	case EncBase64, EncBase64URL, EncHex:
-	default:
-		return nil, nil, fmt.Errorf("data_enc: want auto, base64 or hex, got %q", enc)
 	}
 	body, how, err := decodeInput(raw, enc)
 	if err != nil {
