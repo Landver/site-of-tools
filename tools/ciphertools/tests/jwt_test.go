@@ -5,11 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"net/url"
 	"strings"
 	"testing"
@@ -48,15 +46,6 @@ func decode(t *testing.T, token, key, enc string, now time.Time) *ciphertools.JW
 		t.Fatalf("DecodeJWT: %v", err)
 	}
 	return j
-}
-
-func jwtPubPEM(t *testing.T, pub crypto.PublicKey) string {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }
 
 func TestJWTVerifyPublishedVectors(t *testing.T) {
@@ -130,10 +119,7 @@ func TestJWTExpiryAndLeeway(t *testing.T) {
 }
 
 // token builds header.payload.sig from raw JSON, for tokens no honest signer would make.
-func token(header, payload, sig string) string {
-	enc := base64.RawURLEncoding.EncodeToString
-	return enc([]byte(header)) + "." + enc([]byte(payload)) + "." + sig
-}
+func token(header, payload, sig string) string { return b64u(header) + "." + b64u(payload) + "." + sig }
 
 func TestJWTAlgNoneIsRefusedEvenWithAKey(t *testing.T) {
 	for _, alg := range []string{"none", "None", "NONE"} {
@@ -150,7 +136,7 @@ func TestJWTAlgNoneIsRefusedEvenWithAKey(t *testing.T) {
 // The attack: an HS256 token whose "secret" is the server's public key. The key's kind picks the algorithm.
 func TestJWTAlgorithmConfusionRefused(t *testing.T) {
 	priv := testSigners()["rsa"]
-	j := decode(t, jwtioToken, jwtPubPEM(t, priv.Public()), "", rfcNow)
+	j := decode(t, jwtioToken, spkiPEM(t, priv.Public()), "", rfcNow)
 	if j.Verification.State != ciphertools.VerifyRefused || !strings.Contains(j.Verification.Detail, "algorithm-confusion") {
 		t.Fatalf("HS256 token + RSA public key: %q %q", j.Verification.State, j.Verification.Detail)
 	}
@@ -195,7 +181,7 @@ func TestJWTStructureErrors(t *testing.T) {
 		}
 	}
 	// Five parts is a JWE: recognised, not an error.
-	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RSA-OAEP","enc":"A256GCM"}`))
+	hdr := b64u(`{"alg":"RSA-OAEP","enc":"A256GCM"}`)
 	j, err := ciphertools.DecodeJWT(hdr+".a.b.c.d", "", "", rfcNow, 0)
 	if err != nil || j.Kind != "JWE" || j.Verification.State != ciphertools.VerifyUnchecked {
 		t.Fatalf("JWE: %+v err %v", j, err)
@@ -213,7 +199,7 @@ func TestJWTShortHMACSecretWarned(t *testing.T) {
 // half: its payload has CRLFs and still verifies, because the check runs over the segments as pasted.
 func TestJWTEditedPayloadNoLongerVerifies(t *testing.T) {
 	parts := strings.Split(jwtioToken, ".")
-	edited := parts[0] + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"1234567890","name":"John Doe","admin":true}`)) + "." + parts[2]
+	edited := parts[0] + "." + b64u(`{"sub":"1234567890","name":"John Doe","admin":true}`) + "." + parts[2]
 	if j := decode(t, edited, "your-256-bit-secret", "utf8", rfcNow); j.Verification.State != ciphertools.VerifyInvalid {
 		t.Fatalf("edited payload: %q %s", j.Verification.State, j.Verification.Detail)
 	}
@@ -256,22 +242,18 @@ func TestJWTPSSSaltLengthEqualsHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok := parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString(long)
-	if j := decode(t, tok, jwtPubPEM(t, &k.PublicKey), "", time.Now()); j.Verification.State != ciphertools.VerifyInvalid {
+	if j := decode(t, tok, spkiPEM(t, &k.PublicKey), "", time.Now()); j.Verification.State != ciphertools.VerifyInvalid {
 		t.Fatalf("64-byte salt: %q %s", j.Verification.State, j.Verification.Detail)
 	}
 }
 
 func sign(t *testing.T, fields map[string]string) (*ciphertools.JWTSigned, error) {
 	t.Helper()
-	op, ok := ciphertools.Lookup("jwt-sign")
-	if !ok {
-		t.Fatal("jwt-sign not registered")
-	}
 	v := url.Values{}
 	for k, s := range fields {
 		v.Set(k, s)
 	}
-	res, err := ciphertools.Run(op, ciphertools.Input{Fields: v})
+	res, err := runOp(t, "jwt-sign", v, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +287,7 @@ func TestJWTSignRoundTripEveryAlg(t *testing.T) {
 			priv := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 			pub := priv
 			if k != nil {
-				priv, pub = pkcs8PEM(t, k), jwtPubPEM(t, k.Public())
+				priv, pub = pkcs8PEM(t, k), spkiPEM(t, k.Public())
 			}
 			tok := signed(t, alg, priv, "utf8")
 			if strings.ContainsAny(tok, "+/=") {
@@ -329,7 +311,7 @@ func TestJWTSignRefusals(t *testing.T) {
 	signers := testSigners()
 	cases := map[string]map[string]string{
 		"alg none":        {"alg": "none", "key": "k"},
-		"public key":      {"alg": "RS256", "key": jwtPubPEM(t, signers["rsa"].Public())},
+		"public key":      {"alg": "RS256", "key": spkiPEM(t, signers["rsa"].Public())},
 		"secret for RS":   {"alg": "RS256", "key": "secret"},
 		"payload array":   {"alg": "HS256", "key": "k", "payload": "[1,2]"},
 		"no key":          {"alg": "HS256"},
@@ -370,8 +352,8 @@ func TestJWTSignKeepsMemberOrder(t *testing.T) {
 
 func TestJWTJWKSPicksByKid(t *testing.T) {
 	// Two oct keys; only the second signed the token.
-	jwks := `{"keys":[{"kty":"oct","kid":"a","k":"` + base64.RawURLEncoding.EncodeToString([]byte("wrong-wrong-wrong-wrong-wrong-32")) +
-		`"},{"kty":"oct","kid":"b","k":"` + base64.RawURLEncoding.EncodeToString([]byte("right-right-right-right-right-32")) + `"}]}`
+	jwks := `{"keys":[{"kty":"oct","kid":"a","k":"` + b64u("wrong-wrong-wrong-wrong-wrong-32") + `"},{"kty":"oct","kid":"b","k":"` +
+		b64u("right-right-right-right-right-32") + `"}]}`
 	s, err := sign(t, map[string]string{"alg": "HS256", "key": "right-right-right-right-right-32", "kid": "b"})
 	if err != nil {
 		t.Fatal(err)
@@ -447,7 +429,7 @@ func TestJWTEdgeCasesShown(t *testing.T) {
 		{"x5c header", token(`{"alg":"HS256","x5c":["a"]}`, `{}`, "AAAA"), "", "embeds a key (x5c)"},
 		{"kid probe", token(`{"alg":"HS256","kid":"../k"}`, `{}`, "AAAA"), "", "path-traversal"},
 		{"long lifetime", token(`{"alg":"HS256"}`, `{"iat":1300000000,"exp":1300819900}`, "AAAA"), "", "Lifetime is 9 days"},
-		{"small RSA key", signed(t, "RS256", pkcs8PEM(t, small), ""), jwtPubPEM(t, &small.PublicKey), "RSA key is 1024 bits"},
+		{"small RSA key", signed(t, "RS256", pkcs8PEM(t, small), ""), spkiPEM(t, &small.PublicKey), "RSA key is 1024 bits"},
 		{"unsupported alg", token(`{"alg":"HS1"}`, `{}`, "AAAA"), "k", `Unsupported alg \"HS1\"`},
 		{"JWK alg restriction", rs256, `{"kty":"RSA","alg":"RS384","e":"AQAB","n":"` + n + `"}`, "restricts to RS384"},
 		{"signature not base64url", token(`{"alg":"HS256"}`, `{}`, "!!"), "k", "signature segment is not base64url"},

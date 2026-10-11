@@ -49,11 +49,8 @@ var testCert = sync.OnceValues(func() (string, string) {
 		panic(err)
 	}
 	sum := sha256.Sum256(der)
-	pairs := make([]string, len(sum))
-	for i, b := range sum {
-		pairs[i] = fmt.Sprintf("%02X", b)
-	}
-	return "-----BEGIN CERTIFICATE-----\n" + base64.StdEncoding.EncodeToString(der) + "\n-----END CERTIFICATE-----\n", strings.Join(pairs, ":")
+	return "-----BEGIN CERTIFICATE-----\n" + base64.StdEncoding.EncodeToString(der) + "\n-----END CERTIFICATE-----\n",
+		strings.ReplaceAll(fmt.Sprintf("% X", sum[:]), " ", ":")
 })
 
 type cipherCase struct {

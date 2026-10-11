@@ -15,24 +15,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// runOp drives an op the way both the handler and the wasm engine do.
-func runOp(t *testing.T, name string, fields url.Values, files map[string][]byte) (any, error) {
-	t.Helper()
-	op, ok := ciphertools.Lookup(name)
-	if !ok {
-		t.Fatalf("no op %q", name)
-	}
-	return ciphertools.Run(op, ciphertools.Input{Fields: fields, Files: files})
-}
-
-func hashOf(t *testing.T, fields url.Values, files map[string][]byte) *ciphertools.HashResult {
-	t.Helper()
-	res, err := runOp(t, "hash", fields, files)
-	if err != nil {
-		t.Fatalf("hash: %v", err)
-	}
-	return res.(*ciphertools.HashResult)
-}
+var hashOf = runner[ciphertools.HashResult]("hash")
 
 func digestByID(t *testing.T, ds []ciphertools.Digest, id string) ciphertools.Digest {
 	t.Helper()
@@ -43,16 +26,6 @@ func digestByID(t *testing.T, ds []ciphertools.Digest, id string) ciphertools.Di
 	}
 	t.Fatalf("no digest %q", id)
 	return ciphertools.Digest{}
-}
-
-// noted: some warning's text contains sub (hasLevel also pins the level).
-func noted(ws []ciphertools.Warning, sub string) bool {
-	for _, w := range ws {
-		if strings.Contains(w.Text, sub) {
-			return true
-		}
-	}
-	return false
 }
 
 // "abc" vectors: FIPS 180-4 / 202, RFC 7693 (BLAKE2), and the well-known values for the rest.
@@ -76,7 +49,7 @@ var abcVectors = map[string]string{
 }
 
 func TestHashKnownVectors(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {"abc"}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc"}})
 	if r.Bytes != 3 {
 		t.Fatalf("bytes = %d", r.Bytes)
 	}
@@ -96,7 +69,7 @@ func TestHashKnownVectors(t *testing.T) {
 }
 
 func TestHashEmptyInput(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {""}}, nil)
+	r := hashOf(t, url.Values{"text": {""}})
 	for id, want := range map[string]string{
 		"sha256":    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		"keccak256": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
@@ -113,7 +86,7 @@ func TestHashEmptyInput(t *testing.T) {
 
 // Keccak-256 is not SHA3-256: labelled distinctly, and different output.
 func TestHashKeccakIsLabelledApartFromSHA3(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {"abc"}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc"}})
 	k, s := digestByID(t, r.Digests, "keccak256"), digestByID(t, r.Digests, "sha3_256")
 	if k.Hex == s.Hex {
 		t.Fatal("Keccak-256 and SHA3-256 agree; one of them is wired to the other")
@@ -124,7 +97,7 @@ func TestHashKeccakIsLabelledApartFromSHA3(t *testing.T) {
 }
 
 func TestHashWeakAlgorithmsMarked(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {"abc"}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc"}})
 	for _, d := range r.Digests {
 		weak := d.ID == "md5" || d.ID == "sha1"
 		if d.Weak != weak {
@@ -138,14 +111,14 @@ func TestHashWeakAlgorithmsMarked(t *testing.T) {
 
 // Text vs bytes: "abc", 616263 and YWJj are the same three bytes.
 func TestHashTextHexBase64HashIdentically(t *testing.T) {
-	want := hashOf(t, url.Values{"text": {"abc"}}, nil).Digests
+	want := hashOf(t, url.Values{"text": {"abc"}}).Digests
 	for _, f := range []url.Values{
 		{"text": {"616263"}, "enc": {"hex"}},
 		{"text": {"61 62 63"}, "enc": {"hex"}},
 		{"text": {"0x616263"}, "enc": {"hex"}},
 		{"text": {"YWJj"}, "enc": {"base64"}},
 	} {
-		got := hashOf(t, f, nil)
+		got := hashOf(t, f)
 		if got.Bytes != 3 {
 			t.Errorf("%v: %d bytes", f, got.Bytes)
 		}
@@ -155,14 +128,14 @@ func TestHashTextHexBase64HashIdentically(t *testing.T) {
 			}
 		}
 	}
-	file := hashOf(t, url.Values{}, map[string][]byte{"file": []byte("abc")})
+	file := opOf[ciphertools.HashResult](t, "hash", url.Values{}, map[string][]byte{"file": []byte("abc")})
 	if file.Source != "file" || digestByID(t, file.Digests, "sha256").Hex != abcVectors["sha256"] {
 		t.Errorf("file: %+v", file)
 	}
 }
 
 func TestHashFileWinsOverText(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {"something else"}}, map[string][]byte{"file": []byte("abc")})
+	r := opOf[ciphertools.HashResult](t, "hash", url.Values{"text": {"something else"}}, map[string][]byte{"file": []byte("abc")})
 	if digestByID(t, r.Digests, "md5").Hex != abcVectors["md5"] {
 		t.Fatal("the text was hashed instead of the file")
 	}
@@ -173,7 +146,7 @@ func TestHashFileWinsOverText(t *testing.T) {
 
 func TestHashTrailingNewline(t *testing.T) {
 	// Not trimmed: the newline is data, and the result says so.
-	r := hashOf(t, url.Values{"text": {"abc\n"}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc\n"}})
 	if r.Bytes != 4 || r.TrimmedNewline || digestByID(t, r.Digests, "sha256").Hex == abcVectors["sha256"] {
 		t.Fatalf("untrimmed: %d bytes, trimmed=%v", r.Bytes, r.TrimmedNewline)
 	}
@@ -182,7 +155,7 @@ func TestHashTrailingNewline(t *testing.T) {
 	}
 
 	for _, in := range []string{"abc\n", "abc\r\n"} {
-		r := hashOf(t, url.Values{"text": {in}, "trim_newline": {"on"}}, nil)
+		r := hashOf(t, url.Values{"text": {in}, "trim_newline": {"on"}})
 		if r.Bytes != 3 || !r.TrimmedNewline || digestByID(t, r.Digests, "sha256").Hex != abcVectors["sha256"] {
 			t.Errorf("%q trimmed: %d bytes, trimmed=%v", in, r.Bytes, r.TrimmedNewline)
 		}
@@ -191,16 +164,16 @@ func TestHashTrailingNewline(t *testing.T) {
 		}
 	}
 	// Exactly one: a blank last line survives.
-	r = hashOf(t, url.Values{"text": {"abc\n\n"}, "trim_newline": {"true"}}, nil)
+	r = hashOf(t, url.Values{"text": {"abc\n\n"}, "trim_newline": {"true"}})
 	if r.Bytes != 4 {
 		t.Errorf("abc\\n\\n trimmed to %d bytes, want 4", r.Bytes)
 	}
-	r = hashOf(t, url.Values{"text": {"abc"}, "trim_newline": {"on"}}, nil)
+	r = hashOf(t, url.Values{"text": {"abc"}, "trim_newline": {"on"}})
 	if r.TrimmedNewline || !noted(r.Warnings, "no trailing newline") {
 		t.Errorf("nothing to trim: %+v", r)
 	}
 	// The API's JSON false is not "on".
-	r = hashOf(t, url.Values{"text": {"abc\n"}, "trim_newline": {"false"}}, nil)
+	r = hashOf(t, url.Values{"text": {"abc\n"}, "trim_newline": {"false"}})
 	if r.Bytes != 4 {
 		t.Error(`trim_newline "false" trimmed`)
 	}
@@ -208,25 +181,25 @@ func TestHashTrailingNewline(t *testing.T) {
 
 // Hashed as typed: no trimming, no Unicode normalisation (U+00E9 and e + U+0301 differ).
 func TestHashDoesNotNormalise(t *testing.T) {
-	nfc, nfd := hashOf(t, url.Values{"text": {"caf\u00e9"}}, nil), hashOf(t, url.Values{"text": {"cafe\u0301"}}, nil)
+	nfc, nfd := hashOf(t, url.Values{"text": {"caf\u00e9"}}), hashOf(t, url.Values{"text": {"cafe\u0301"}})
 	if nfc.Bytes != 5 || nfd.Bytes != 6 || digestByID(t, nfc.Digests, "sha256").Hex == digestByID(t, nfd.Digests, "sha256").Hex {
 		t.Errorf("NFC %d bytes, NFD %d bytes, same digest: the text was normalised", nfc.Bytes, nfd.Bytes)
 	}
-	if r := hashOf(t, url.Values{"text": {" abc\t"}}, nil); r.Bytes != 5 || digestByID(t, r.Digests, "sha256").Hex == abcVectors["sha256"] {
+	if r := hashOf(t, url.Values{"text": {" abc\t"}}); r.Bytes != 5 || digestByID(t, r.Digests, "sha256").Hex == abcVectors["sha256"] {
 		t.Errorf("surrounding whitespace trimmed: %d bytes", r.Bytes)
 	}
 }
 
 func TestHashCRLFAndBOMNotes(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {"a\r\nb"}}, nil)
+	r := hashOf(t, url.Values{"text": {"a\r\nb"}})
 	if !noted(r.Warnings, "CRLF") {
 		t.Errorf("CRLF not noted: %+v", r.Warnings)
 	}
-	r = hashOf(t, url.Values{"text": {"\xef\xbb\xbfabc"}}, nil)
+	r = hashOf(t, url.Values{"text": {"\xef\xbb\xbfabc"}})
 	if r.Bytes != 6 || !noted(r.Warnings, "byte order mark") {
 		t.Errorf("BOM not noted: %d bytes %+v", r.Bytes, r.Warnings)
 	}
-	r = hashOf(t, url.Values{"text": {"abc"}}, nil)
+	r = hashOf(t, url.Values{"text": {"abc"}})
 	if len(r.Warnings) != 0 {
 		t.Errorf("clean input got notes: %+v", r.Warnings)
 	}
@@ -236,14 +209,10 @@ func TestHashCompareFindsTheAlgorithm(t *testing.T) {
 	sha := abcVectors["sha256"]
 	raw, _ := hex.DecodeString(sha)
 	b64 := base64.StdEncoding.EncodeToString(raw)
-	var colons []string
-	for i := 0; i < len(sha); i += 2 {
-		colons = append(colons, strings.ToUpper(sha[i:i+2]))
-	}
 	for name, expected := range map[string]string{
 		"hex":             sha,
 		"uppercase":       strings.ToUpper(sha),
-		"colons":          strings.Join(colons, ":"),
+		"colons":          fp(raw),
 		"spaces and wrap": sha[:32] + "\n " + sha[32:] + "  ",
 		"base64":          b64,
 		"base64url":       base64.RawURLEncoding.EncodeToString(raw),
@@ -253,13 +222,13 @@ func TestHashCompareFindsTheAlgorithm(t *testing.T) {
 		"SRI":             "sha256-" + b64,
 	} {
 		t.Run(name, func(t *testing.T) {
-			c := hashOf(t, url.Values{"text": {"abc"}, "expected": {expected}}, nil).Compare
+			c := hashOf(t, url.Values{"text": {"abc"}, "expected": {expected}}).Compare
 			if c == nil || !c.Match || !slices.Equal(c.Matches, []string{"SHA-256"}) {
 				t.Fatalf("compare = %+v", c)
 			}
 		})
 	}
-	r := hashOf(t, url.Values{"text": {"abc"}, "expected": {abcVectors["md5"]}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc"}, "expected": {abcVectors["md5"]}})
 	if !slices.Equal(r.Compare.Matches, []string{"MD5"}) || !digestByID(t, r.Digests, "md5").Match {
 		t.Errorf("md5 compare = %+v", r.Compare)
 	}
@@ -267,8 +236,7 @@ func TestHashCompareFindsTheAlgorithm(t *testing.T) {
 
 func TestHashCompareNoMatchNamesSameLength(t *testing.T) {
 	// SHA-256 of "abc\n": the checksum of a file whose text is "abc".
-	r := hashOf(t, url.Values{"text": {"abc"},
-		"expected": {"edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc"}, "expected": {"edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"}})
 	c := r.Compare
 	if c == nil || c.Match || c.Bytes != 32 {
 		t.Fatalf("compare = %+v", c)
@@ -282,7 +250,7 @@ func TestHashCompareNoMatchNamesSameLength(t *testing.T) {
 		t.Error("SHA-512 listed as 32 bytes")
 	}
 	// The checksum it came from does match once the newline is part of the input.
-	r = hashOf(t, url.Values{"text": {"abc\n"}, "expected": {c.Given}}, nil)
+	r = hashOf(t, url.Values{"text": {"abc\n"}, "expected": {c.Given}})
 	if !r.Compare.Match {
 		t.Error("abc\\n doesn't match its own SHA-256")
 	}
@@ -290,7 +258,7 @@ func TestHashCompareNoMatchNamesSameLength(t *testing.T) {
 
 // A garbage expected value says where it broke, and the hashes still come back.
 func TestHashCompareGarbage(t *testing.T) {
-	r := hashOf(t, url.Values{"text": {"abc"}, "expected": {"ba7816bf8f01cfea!14140de"}}, nil)
+	r := hashOf(t, url.Values{"text": {"abc"}, "expected": {"ba7816bf8f01cfea!14140de"}})
 	if r.Compare == nil || r.Compare.Match || !strings.Contains(r.Compare.Detail, "offset 16") {
 		t.Fatalf("compare = %+v", r.Compare)
 	}
@@ -306,7 +274,7 @@ func TestHashCompareNoReading(t *testing.T) {
 		"000000":  "No algorithm here outputs 3 bytes, the length of the expected value read as hex.",
 		"%%%":     "The expected value is neither hex nor base64: not base64 (standard, unpadded): '%' at offset 0.",
 	} {
-		c := hashOf(t, url.Values{"text": {"abc"}, "expected": {expected}}, nil).Compare
+		c := hashOf(t, url.Values{"text": {"abc"}, "expected": {expected}}).Compare
 		if c == nil || c.Match || c.Detail != want {
 			t.Errorf("%q: compare = %+v, want detail %q", expected, c, want)
 		}
@@ -315,10 +283,7 @@ func TestHashCompareNoReading(t *testing.T) {
 
 func TestHashInvalidInputNamesOffset(t *testing.T) {
 	for enc, text := range map[string]string{"hex": "61zz", "base64": "YW!j"} {
-		_, err := runOp(t, "hash", url.Values{"text": {text}, "enc": {enc}}, nil)
-		if err == nil || !strings.Contains(err.Error(), "offset 2") {
-			t.Errorf("%s %q: err = %v", enc, text, err)
-		}
+		wantErr(t, "hash", url.Values{"text": {text}, "enc": {enc}}, "offset 2")
 	}
 }
 
@@ -340,11 +305,7 @@ func TestHashOversizeMessageDoesNotStateTruncatedSize(t *testing.T) {
 
 func TestRenderHash(t *testing.T) {
 	html := render(t, "hash", url.Values{"text": {"abc"}, "expected": {abcVectors["sha1"]}})
-	for _, want := range []string{abcVectors["sha256"], "Keccak-256 (Ethereum)", "not collision-resistant", "Match", "3</span> bytes hashed", `data-copy="` + abcVectors["md5"] + `"`} {
-		if !strings.Contains(html, want) {
-			t.Errorf("fragment lacks %q", want)
-		}
-	}
+	holds(t, "fragment", html, abcVectors["sha256"], "Keccak-256 (Ethereum)", "not collision-resistant", "Match", "3</span> bytes hashed", `data-copy="`+abcVectors["md5"]+`"`)
 }
 
 // The API takes a file as multipart; a browser with JavaScript off gets the page with the result.
@@ -375,8 +336,5 @@ func TestHashFileUploadAPI(t *testing.T) {
 	mw.CreateFormFile("file", "")
 	mw.WriteField("text", "abc")
 	mw.Close()
-	rec = do(t, e, http.MethodPost, "/hash", body.String(), mw.FormDataContentType(), asBrowser)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), abcVectors["sha256"]) || !strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
-		t.Fatalf("no-JS page: code %d", rec.Code)
-	}
+	noJSPage(t, e, "/hash", body.String(), mw.FormDataContentType(), abcVectors["sha256"])
 }

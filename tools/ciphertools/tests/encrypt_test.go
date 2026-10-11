@@ -14,23 +14,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func encryptOf(t *testing.T, fields url.Values) *ciphertools.EncryptResult {
-	t.Helper()
-	res, err := runOp(t, "encrypt", fields, nil)
-	if err != nil {
-		t.Fatalf("encrypt %v: %v", fields, err)
-	}
-	return res.(*ciphertools.EncryptResult)
-}
-
-func encryptErr(t *testing.T, fields url.Values) error {
-	t.Helper()
-	_, err := runOp(t, "encrypt", fields, nil)
-	if err == nil {
-		t.Fatalf("encrypt %v: no error", fields)
-	}
-	return err
-}
+var encryptOf = runner[ciphertools.EncryptResult]("encrypt")
 
 // The GCM spec's test cases 1 and 2 (McGrew and Viega): AES-128, all-zero key and IV.
 func TestEncryptAESGCMKnownVectors(t *testing.T) {
@@ -187,16 +171,14 @@ func TestEncryptAuthFailures(t *testing.T) {
 		} {
 			f.Set("mode", "decrypt")
 			f.Set("algo", algo)
-			err := encryptErr(t, f)
-			if !strings.Contains(err.Error(), "wrong key, wrong AAD, or corrupted data") || strings.Contains(err.Error(), "cipher:") ||
+			_, err := runOp(t, "encrypt", f, nil)
+			if err == nil || !strings.Contains(err.Error(), "wrong key, wrong AAD, or corrupted data") || strings.Contains(err.Error(), "cipher:") ||
 				strings.Contains(err.Error(), "chacha20poly1305:") {
 				t.Errorf("%s %s: %v", algo, name, err)
 			}
 		}
 		// Truncated below the tag: said as such.
-		if err := encryptErr(t, url.Values{"mode": {"decrypt"}, "algo": {algo}, "key": {key}, "data": {hex.EncodeToString(blob[:20])}}); !strings.Contains(err.Error(), "fewer than the 16-byte tag") {
-			t.Errorf("%s truncated: %v", algo, err)
-		}
+		wantErr(t, "encrypt", url.Values{"mode": {"decrypt"}, "algo": {algo}, "key": {key}, "data": {hex.EncodeToString(blob[:20])}}, "fewer than the 16-byte tag")
 	}
 }
 
@@ -208,31 +190,27 @@ func flip(b []byte, i int) string {
 
 // Without a tag a bad CBC key shows as bad padding: "wrong key or corrupted data", not a Go error.
 func TestEncryptCBCPaddingError(t *testing.T) {
-	key, _ := hex.DecodeString(strings.Repeat("24", 16))
-	b, _ := aes.NewCipher(key)
+	key := strings.Repeat("24", 16)
+	raw, _ := hex.DecodeString(key)
+	b, _ := aes.NewCipher(raw)
+	decrypt := func(data string) url.Values {
+		return url.Values{"mode": {"decrypt"}, "algo": {"aes-cbc"}, "key": {key}, "data": {data}}
+	}
 	// One block that decrypts (IV zero) to 16 zero bytes: a pad byte of 0 is invalid.
 	ct := make([]byte, 16)
 	b.Encrypt(ct, make([]byte, 16))
-	data := strings.Repeat("00", 16) + hex.EncodeToString(ct)
-	err := encryptErr(t, url.Values{"mode": {"decrypt"}, "algo": {"aes-cbc"}, "key": {hex.EncodeToString(key)}, "data": {data}})
-	if !strings.Contains(err.Error(), "wrong key or corrupted data") || !strings.Contains(err.Error(), "padding") {
+	_, err := runOp(t, "encrypt", decrypt(strings.Repeat("00", 16)+hex.EncodeToString(ct)), nil)
+	if err == nil || !strings.Contains(err.Error(), "wrong key or corrupted data") || !strings.Contains(err.Error(), "padding") {
 		t.Errorf("padding: %v", err)
 	}
 	// Last byte 0x05 but the four before it aren't 0x05: also invalid.
 	pt := make([]byte, 16)
 	pt[15] = 5
 	b.Encrypt(ct, pt)
-	err = encryptErr(t, url.Values{"mode": {"decrypt"}, "algo": {"aes-cbc"}, "key": {hex.EncodeToString(key)}, "data": {strings.Repeat("00", 16) + hex.EncodeToString(ct)}})
-	if !strings.Contains(err.Error(), "wrong key or corrupted data") {
-		t.Errorf("inconsistent padding: %v", err)
-	}
+	wantErr(t, "encrypt", decrypt(strings.Repeat("00", 16)+hex.EncodeToString(ct)), "wrong key or corrupted data")
 	// Not a whole number of blocks, and AAD offered to CBC.
-	if err := encryptErr(t, url.Values{"mode": {"decrypt"}, "algo": {"aes-cbc"}, "key": {hex.EncodeToString(key)}, "data": {strings.Repeat("00", 16+17)}}); !strings.Contains(err.Error(), "not a whole number of 16-byte blocks") {
-		t.Errorf("partial block: %v", err)
-	}
-	if err := encryptErr(t, url.Values{"algo": {"aes-cbc"}, "key": {hex.EncodeToString(key)}, "text": {"x"}, "aad": {"y"}}); !strings.Contains(err.Error(), "no associated data") {
-		t.Errorf("CBC AAD: %v", err)
-	}
+	wantErr(t, "encrypt", decrypt(strings.Repeat("00", 16+17)), "not a whole number of 16-byte blocks")
+	wantErr(t, "encrypt", url.Values{"algo": {"aes-cbc"}, "key": {key}, "text": {"x"}, "aad": {"y"}}, "no associated data")
 }
 
 // Keys are exactly 16/24/32 bytes (32 for ChaCha20): never text, never padded or cut.
@@ -250,10 +228,7 @@ func TestEncryptKeyLengthRefused(t *testing.T) {
 		// 64 hex digits read as base64 are 48 bytes; the error says hex fits.
 		{"aes-gcm", strings.Repeat("ab", 32), "base64", "Read as hex it is 32 bytes"},
 	} {
-		err := encryptErr(t, url.Values{"algo": {c.algo}, "key": {c.key}, "key_enc": {c.enc}, "text": {"x"}})
-		if !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s key %q (%s): %v, want %q", c.algo, c.key, c.enc, err, c.want)
-		}
+		wantErr(t, "encrypt", url.Values{"algo": {c.algo}, "key": {c.key}, "key_enc": {c.enc}, "text": {"x"}}, c.want)
 	}
 }
 
@@ -275,10 +250,7 @@ func TestEncryptInputErrors(t *testing.T) {
 		{url.Values{"mode": {"decrypt"}, "key": {key}, "data": {"AAAA*AAA"}}, "at offset 4"},
 		{url.Values{"mode": {"decrypt"}, "key": {key}, "data": {"00"}, "data_enc": {"utf8"}}, "data_enc: want auto, base64 or hex"},
 	} {
-		_, err := runOp(t, "encrypt", c.fields, nil)
-		if err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%v: err = %v, want %q", c.fields, err, c.want)
-		}
+		wantErr(t, "encrypt", c.fields, c.want)
 	}
 }
 
@@ -296,24 +268,15 @@ func TestEncryptDecryptWithNonceField(t *testing.T) {
 		t.Errorf("combined with nonce field: %+v", d)
 	}
 	// With the nonce in its field and the wrong one, the error adds it to the causes.
-	err := encryptErr(t, url.Values{"mode": {"decrypt"}, "key": {key}, "nonce": {strings.Repeat("00", 12)}, "data": {body}})
-	if !strings.Contains(err.Error(), "wrong nonce") {
-		t.Errorf("wrong nonce: %v", err)
-	}
+	wantErr(t, "encrypt", url.Values{"mode": {"decrypt"}, "key": {key}, "nonce": {strings.Repeat("00", 12)}, "data": {body}}, "wrong nonce")
 	// Explicit data_enc overrides detection.
-	if err := encryptErr(t, url.Values{"mode": {"decrypt"}, "key": {key}, "data": {e.Combined.Hex}, "data_enc": {"base64"}}); !strings.Contains(err.Error(), "corrupted data") {
-		t.Errorf("hex read as base64: %v", err)
-	}
+	wantErr(t, "encrypt", url.Values{"mode": {"decrypt"}, "key": {key}, "data": {e.Combined.Hex}, "data_enc": {"base64"}}, "corrupted data")
 }
 
 func TestRenderEncrypt(t *testing.T) {
 	key := strings.Repeat("00", 16)
 	html := render(t, "encrypt", url.Values{"key": {key}, "text": {"<script>alert(1)</script>"}})
-	for _, want := range []string{"Encrypted, combined", "nonce (12 bytes) ‖ ciphertext (25 bytes) ‖ tag (16 bytes)", "Copy base64", "Parts"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("encrypt fragment lacks %q", want)
-		}
-	}
+	holds(t, "encrypt fragment", html, "Encrypted, combined", "nonce (12 bytes) ‖ ciphertext (25 bytes) ‖ tag (16 bytes)", "Copy base64", "Parts")
 	e := encryptOf(t, url.Values{"key": {key}, "text": {"<script>alert(1)</script>"}})
 	html = render(t, "encrypt", url.Values{"mode": {"decrypt"}, "key": {key}, "data": {e.Combined.Base64}})
 	if strings.Contains(html, "<script>alert") || !strings.Contains(html, "&lt;script&gt;alert(1)&lt;/script&gt;") {
@@ -324,11 +287,7 @@ func TestRenderEncrypt(t *testing.T) {
 func TestEncryptPageAndAPI(t *testing.T) {
 	e := newCipherApp(t)
 	page := do(t, e, http.MethodGet, "/encrypt", "", "", asBrowser).Body.String()
-	for _, want := range []string{`data-cipher="encrypt"`, `href="/password"`, `href="/random"`, "nonce ‖ ciphertext ‖ tag", "iv ‖ ciphertext"} {
-		if !strings.Contains(page, want) {
-			t.Errorf("page lacks %q", want)
-		}
-	}
+	holds(t, "page", page, `data-cipher="encrypt"`, `href="/password"`, `href="/random"`, "nonce ‖ ciphertext ‖ tag", "iv ‖ ciphertext")
 	if strings.Contains(page, `data-cipher="encrypt" data-live`) || strings.Contains(page, "ECB") {
 		t.Error("encrypt form is live, or offers ECB")
 	}
@@ -341,40 +300,20 @@ func TestEncryptPageAndAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Combined.Hex != strings.Repeat("00", 12)+"58e2fccefa7e3061367f1d57a4e7455a" {
 		t.Fatalf("code %d: %s", rec.Code, rec.Body)
 	}
-	rec = do(t, e, http.MethodPost, "/encrypt", body, form, asBrowser)
-	if html := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(html, "58e2fccefa7e3061367f1d57a4e7455a") || !strings.Contains(html, "<!DOCTYPE html>") {
-		t.Fatalf("no-JS page: code %d", rec.Code)
-	}
-}
-
-func hasLevel(ws []ciphertools.Warning, level, sub string) bool {
-	for _, w := range ws {
-		if w.Level == level && strings.Contains(w.Text, sub) {
-			return true
-		}
-	}
-	return false
+	noJSPage(t, e, "/encrypt", body, form, "58e2fccefa7e3061367f1d57a4e7455a")
 }
 
 // A blank key on encrypt makes a 32-byte one that decrypts the output; decrypt can't guess one.
 func TestEncryptBlankKeyIsGenerated(t *testing.T) {
 	for _, algo := range []string{"aes-gcm", "chacha20-poly1305", "aes-cbc"} {
-		res, err := runOp(t, "encrypt", url.Values{"algo": {algo}, "text": {"hello"}}, nil)
-		if err != nil {
-			t.Fatalf("%s: %v", algo, err)
-		}
-		r := res.(*ciphertools.EncryptResult)
+		r := encryptOf(t, url.Values{"algo": {algo}, "text": {"hello"}})
 		if r.GeneratedKey == nil || r.GeneratedKey.Bytes != 32 || r.KeyBytes != 32 {
 			t.Fatalf("%s: generated key %+v", algo, r.GeneratedKey)
 		}
-		back, err := runOp(t, "encrypt", url.Values{"mode": {"decrypt"}, "algo": {algo}, "key": {r.GeneratedKey.Hex},
-			"key_enc": {"hex"}, "data": {r.Combined.Base64}}, nil)
-		if err != nil || back.(*ciphertools.EncryptResult).Plaintext.Value != "hello" {
-			t.Fatalf("%s: decrypt with the generated key: %v", algo, err)
+		back := encryptOf(t, url.Values{"mode": {"decrypt"}, "algo": {algo}, "key": {r.GeneratedKey.Hex}, "key_enc": {"hex"}, "data": {r.Combined.Base64}})
+		if back.Plaintext.Value != "hello" {
+			t.Fatalf("%s: decrypt with the generated key: %+v", algo, back.Plaintext)
 		}
 	}
-	err := encryptErr(t, url.Values{"mode": {"decrypt"}, "data": {"AAAA"}})
-	if !strings.Contains(err.Error(), "no key given") {
-		t.Fatalf("decrypt without a key: %v", err)
-	}
+	wantErr(t, "encrypt", url.Values{"mode": {"decrypt"}, "data": {"AAAA"}}, "no key given")
 }

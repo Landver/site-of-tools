@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"math/big"
 	"net/url"
 	"strings"
@@ -52,16 +51,7 @@ func fakeRSA(t *testing.T, bits int) *rsa.PrivateKey {
 }
 
 func rsaPrivatePEM(k *rsa.PrivateKey) string {
-	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}))
-}
-
-func rsaPublicPEM(t *testing.T, k *rsa.PublicKey) string {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(k)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	return pemBlock("RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(k))
 }
 
 // Every key read from input stops at crypto/tls's 8192 bits, before the work that grows with it.
@@ -69,7 +59,7 @@ func TestRSAKeyAboveLimitRefused(t *testing.T) {
 	k := fakeRSA(t, 10240)
 	b64 := base64.RawURLEncoding.EncodeToString
 	for name, in := range map[string]string{
-		"SPKI PEM":  rsaPublicPEM(t, &k.PublicKey),
+		"SPKI PEM":  spkiPEM(t, &k.PublicKey),
 		"PKCS#1":    rsaPrivatePEM(k),
 		"JWK":       `{"kty":"RSA","e":"AQAB","n":"` + b64(k.N.Bytes()) + `"}`,
 		"JWKS":      `{"keys":[{"kty":"RSA","e":"AQAB","n":"` + b64(k.N.Bytes()) + `"}]}`,
@@ -104,10 +94,7 @@ func TestOversizedPrivateKeyNotParsed(t *testing.T) {
 // The certificate page checks signatures with each certificate's key, so the cap applies there too.
 func TestCertWithOversizedRSAKeyRefused(t *testing.T) {
 	k := fakeRSA(t, 10240)
-	_, err := runOp(t, "cert", url.Values{"cert": {pemOf(rsaCert(t, &k.PublicKey))}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "8,192") {
-		t.Errorf("cert: err = %v, want the 8,192-bit limit named", err)
-	}
+	wantErr(t, "cert", url.Values{"cert": {pemOf(rsaCert(t, &k.PublicKey))}}, "8,192")
 }
 
 // rsaCert is a certificate for pub, signed by a throwaway EC CA.

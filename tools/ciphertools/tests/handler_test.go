@@ -60,6 +60,18 @@ var (
 	asBrowser = map[string]string{"Accept": "text/html,application/xhtml+xml"}
 )
 
+// noJSPage posts body the way a browser with JavaScript off does and checks the whole page holds wants.
+func noJSPage(t *testing.T, e *echo.Echo, path, body, contentType string, wants ...string) string {
+	t.Helper()
+	rec := do(t, e, http.MethodPost, path, body, contentType, asBrowser)
+	html := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(html, "<!DOCTYPE html>") {
+		t.Fatalf("no-JS POST %s: code %d", path, rec.Code)
+	}
+	holds(t, "no-JS POST "+path+": page", html, wants...)
+	return html
+}
+
 func TestPagesRender(t *testing.T) {
 	e := newCipherApp(t)
 	pages, _ := ciphertools.SitemapPages()
@@ -68,12 +80,7 @@ func TestPagesRender(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", p.Path, rec.Code)
 		}
-		body := rec.Body.String()
-		for _, want := range []string{"data-cipher-engine", "<noscript>", "js/cipher.js"} {
-			if !strings.Contains(body, want) {
-				t.Errorf("GET %s: page lacks %q", p.Path, want)
-			}
-		}
+		holds(t, "GET "+p.Path+": page", rec.Body.String(), "data-cipher-engine", "<noscript>", "js/cipher.js")
 	}
 }
 
@@ -165,18 +172,8 @@ func TestQueryStringIsIgnored(t *testing.T) {
 // With JavaScript off the form posts itself and the whole page comes back, result in place.
 func TestNoJSFormPostRendersPage(t *testing.T) {
 	e := newCipherApp(t)
-	body := url.Values{"token": {jwtioToken}}.Encode()
-	rec := do(t, e, http.MethodPost, "/jwt/decode", body, form, asBrowser)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code %d", rec.Code)
-	}
-	html := rec.Body.String()
-	for _, want := range []string{"<!DOCTYPE html>", "Signature not checked", "John Doe"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("page lacks %q", want)
-		}
-	}
-	rec = do(t, e, http.MethodPost, "/jwt/decode", "token=a.b", form, asBrowser)
+	noJSPage(t, e, "/jwt/decode", url.Values{"token": {jwtioToken}}.Encode(), form, "Signature not checked", "John Doe")
+	rec := do(t, e, http.MethodPost, "/jwt/decode", "token=a.b", form, asBrowser)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "only two parts") {
 		t.Fatalf("error page: code %d", rec.Code)
 	}

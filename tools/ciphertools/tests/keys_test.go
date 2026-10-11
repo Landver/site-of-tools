@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -57,22 +56,11 @@ var testSigners = sync.OnceValue(func() map[string]crypto.Signer {
 	return out
 })
 
-func pkcs8PEM(t *testing.T, k crypto.Signer) string {
-	t.Helper()
-	der, err := x509.MarshalPKCS8PrivateKey(k)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
-}
+var keysGenerate = runner[ciphertools.KeyGenResult]("keys-generate")
 
 func inspect(t *testing.T, key string) *ciphertools.KeyInspectResult {
 	t.Helper()
-	res, err := runOp(t, "keys-inspect", url.Values{"key": {key}}, nil)
-	if err != nil {
-		t.Fatalf("keys-inspect: %v", err)
-	}
-	return res.(*ciphertools.KeyInspectResult)
+	return opOf[ciphertools.KeyInspectResult](t, "keys-inspect", url.Values{"key": {key}}, nil)
 }
 
 func inspectOne(t *testing.T, key string) ciphertools.KeyView {
@@ -178,7 +166,7 @@ func TestPEMJWKRoundTrip(t *testing.T) {
 				t.Fatalf("SPKI → JWK differs:\n%s\n%s", first.PublicJWKJSON, back.PublicJWKJSON)
 			}
 			der, _ := x509.MarshalPKIXPublicKey(k.Public())
-			if sum := sha256.Sum256(der); first.SPKISHA256 != strings.ToUpper(colonHex(sum[:])) {
+			if sum := sha256.Sum256(der); first.SPKISHA256 != fp(sum[:]) {
 				t.Fatalf("SPKI SHA-256 %s", first.SPKISHA256)
 			}
 		})
@@ -195,8 +183,8 @@ func TestLegacyPEMConverts(t *testing.T) {
 		pem  string
 		want crypto.Signer
 	}{
-		"PKCS#1": {string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)})), rsaKey},
-		"SEC 1":  {string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: sec1})), ecKey},
+		"PKCS#1": {rsaPrivatePEM(rsaKey), rsaKey},
+		"SEC 1":  {pemBlock("EC PRIVATE KEY", sec1), ecKey},
 	} {
 		v := inspectOne(t, c.pem)
 		if v.PrivatePEM != pkcs8PEM(t, c.want) {
@@ -206,7 +194,7 @@ func TestLegacyPEMConverts(t *testing.T) {
 			t.Errorf("%s: source %q warnings %v", name, v.Source, v.Warnings)
 		}
 	}
-	pkcs1pub := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PUBLIC KEY", Bytes: x509.MarshalPKCS1PublicKey(&rsaKey.PublicKey)}))
+	pkcs1pub := pemBlock("RSA PUBLIC KEY", x509.MarshalPKCS1PublicKey(&rsaKey.PublicKey))
 	if v := inspectOne(t, pkcs1pub); v.Private || v.PrivatePEM != "" || !strings.Contains(v.PublicPEM, "BEGIN PUBLIC KEY") {
 		t.Errorf("PKCS#1 public: %+v", v)
 	}
@@ -288,10 +276,7 @@ func TestOpenSSHInput(t *testing.T) {
 		"# only\nssh-rsa AAAA":                "line 2",
 		skLine():                              "security-key",
 	} {
-		_, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: err %v, want %q", in, err, want)
-		}
+		wantErr(t, "keys-inspect", url.Values{"key": {in}}, want)
 	}
 
 	// OpenSSH's own private key format, unencrypted.
@@ -304,9 +289,7 @@ func TestOpenSSHInput(t *testing.T) {
 		t.Fatalf("OPENSSH PRIVATE KEY: %+v", v)
 	}
 	enc, _ := ssh.MarshalPrivateKeyWithPassphrase(ed, "", []byte("pw"))
-	if _, err := runOp(t, "keys-inspect", url.Values{"key": {string(pem.EncodeToMemory(enc))}}, nil); err == nil || !strings.Contains(err.Error(), "passphrase") {
-		t.Fatalf("encrypted OpenSSH key: %v", err)
-	}
+	wantErr(t, "keys-inspect", url.Values{"key": {string(pem.EncodeToMemory(enc))}}, "passphrase")
 }
 
 // An OpenSSH line is key material wherever ParseKeys runs: it verifies EdDSA and is refused, not HMAC'd, for HS256.
@@ -336,11 +319,7 @@ func TestKeysGenerateEveryType(t *testing.T) {
 	}
 	for typ, w := range want {
 		t.Run(typ, func(t *testing.T) {
-			res, err := runOp(t, "keys-generate", url.Values{"type": {typ}}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			g := res.(*ciphertools.KeyGenResult)
+			g := keysGenerate(t, url.Values{"type": {typ}})
 			v := g.Key
 			if g.Where != "server" || v.Name != w.name || v.Alg != w.alg || !v.Private || !v.Generated {
 				t.Fatalf("%+v", g)
@@ -369,9 +348,7 @@ func TestKeysGenerateEveryType(t *testing.T) {
 		})
 	}
 	for _, bad := range []string{"rsa-1024", "rsa-8192", "ec-p224", "x25519"} {
-		if _, err := runOp(t, "keys-generate", url.Values{"type": {bad}}, nil); err == nil || !strings.Contains(err.Error(), "rsa-4096") {
-			t.Errorf("type %s: %v", bad, err)
-		}
+		wantErr(t, "keys-generate", url.Values{"type": {bad}}, "rsa-4096")
 	}
 	op, _ := ciphertools.Lookup("keys-generate")
 	if !op.Heavy {
@@ -399,32 +376,24 @@ func TestKeysWarnings(t *testing.T) {
 	}
 	// The key count is capped, in every input form.
 	pub := inspectOne(t, rfcESKey)
-	for name, in := range map[string]string{
+	for _, in := range map[string]string{
 		"PEM":     strings.Repeat(pub.PublicPEM, 65),
 		"JWKS":    `{"keys":[` + strings.TrimSuffix(strings.Repeat(rfcESKey+",", 65), ",") + `]}`,
 		"OpenSSH": strings.Repeat(pub.OpenSSH+"\n", 65),
 	} {
-		if _, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil); err == nil || !strings.Contains(err.Error(), "more than 64") {
-			t.Errorf("65 keys as %s: %v", name, err)
-		}
+		wantErr(t, "keys-inspect", url.Values{"key": {in}}, "more than 64")
 	}
 	if r := inspect(t, strings.Repeat(pub.PublicPEM, 64)); len(r.Keys) != 64 {
 		t.Errorf("64 keys: got %d", len(r.Keys))
 	}
 	for _, in := range []string{"", "hello", "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----"} {
-		if _, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil); err == nil {
-			t.Errorf("%q: no error", in)
-		}
+		wantErr(t, "keys-inspect", url.Values{"key": {in}}, "")
 	}
 }
 
 func TestRenderKeys(t *testing.T) {
 	html := render(t, "keys-generate", url.Values{"type": {"ed25519"}})
-	for _, want := range []string{"for testing", "KMS", "BEGIN PRIVATE KEY", "ssh-ed25519", "<details", " open"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("generate fragment lacks %q", want)
-		}
-	}
+	holds(t, "generate fragment", html, "for testing", "KMS", "BEGIN PRIVATE KEY", "ssh-ed25519", "<details", " open")
 	html = render(t, "keys-inspect", url.Values{"key": {rfcEdKey}})
 	if !strings.Contains(html, "<details") || strings.Contains(html, " open>") || !strings.Contains(html, rfc8037Thumbprint) {
 		t.Errorf("inspect fragment: private forms must start folded")
@@ -450,10 +419,7 @@ func TestKeysAPI(t *testing.T) {
 	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
 		t.Fatalf("Cache-Control %q", cc)
 	}
-	rec = do(t, e, http.MethodPost, "/keys/inspect", url.Values{"key": {rfcEdKey}}.Encode(), form, asBrowser)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), rfc8037Thumbprint) || !strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
-		t.Fatalf("no-JS inspect: %d", rec.Code)
-	}
+	noJSPage(t, e, "/keys/inspect", url.Values{"key": {rfcEdKey}}.Encode(), form, rfc8037Thumbprint)
 }
 
 // skLine is a FIDO sk-ssh-ed25519 public key line: type, key, application.
@@ -469,18 +435,12 @@ func skLine() string {
 	return "sk-ssh-ed25519@openssh.com " + base64.StdEncoding.EncodeToString(b) + " yubikey"
 }
 
-func colonHex(b []byte) string { return strings.ReplaceAll(fmt.Sprintf("% x", b), " ", ":") }
-
 // The OpenSSH private key must parse back, keep the comment and match its public line;
 // with a passphrase it needs that passphrase, and the unencrypted PKCS#8/JWK forms are gone.
 func TestGenerateOpenSSHPrivateKey(t *testing.T) {
 	for _, typ := range []string{"ed25519", "ec-p256", "rsa-2048"} {
 		t.Run(typ, func(t *testing.T) {
-			res, err := runOp(t, "keys-generate", url.Values{"type": {typ}, "comment": {"me@laptop"}}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			v := res.(*ciphertools.KeyGenResult).Key
+			v := keysGenerate(t, url.Values{"type": {typ}, "comment": {"me@laptop"}}).Key
 			if !strings.HasPrefix(v.OpenSSHPrivate, "-----BEGIN OPENSSH PRIVATE KEY-----") || v.OpenSSHEncrypted {
 				t.Fatalf("openssh private = %.60q, encrypted %v", v.OpenSSHPrivate, v.OpenSSHEncrypted)
 			}
@@ -495,11 +455,7 @@ func TestGenerateOpenSSHPrivateKey(t *testing.T) {
 		})
 	}
 
-	res, err := runOp(t, "keys-generate", url.Values{"type": {"ed25519"}, "passphrase": {"correct horse"}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v := res.(*ciphertools.KeyGenResult).Key
+	v := keysGenerate(t, url.Values{"type": {"ed25519"}, "passphrase": {"correct horse"}}).Key
 	if !v.OpenSSHEncrypted || v.PrivatePEM != "" || v.PrivateJWK != nil {
 		t.Fatalf("encrypted %v, PKCS#8 %d bytes, JWK %v", v.OpenSSHEncrypted, len(v.PrivatePEM), v.PrivateJWK)
 	}
@@ -511,9 +467,7 @@ func TestGenerateOpenSSHPrivateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := runOp(t, "keys-generate", url.Values{"type": {"ed25519"}, "comment": {"two\nlines"}}, nil); err == nil {
-		t.Fatal("a multi-line comment was accepted")
-	}
+	wantErr(t, "keys-generate", url.Values{"type": {"ed25519"}, "comment": {"two\nlines"}}, "")
 }
 
 // Each refusal names what is wrong, and EC PARAMETERS ahead of a key is skipped.
@@ -550,16 +504,14 @@ func TestKeysInspectRefusals(t *testing.T) {
 		pkcs8PEM(t, p224):             "no JWK name for curve P-224",
 		"ssh-rsa " + edLine[1] + " x": "ssh-rsa, and its key data doesn't agree",
 	} {
-		if _, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%.60q: err %v, want %q", in, err, want)
-		}
+		wantErr(t, "keys-inspect", url.Values{"key": {in}}, want)
 	}
 	der, _ := x509.MarshalPKCS8PrivateKey(x25519)
-	if _, err := ciphertools.ParseKeys(string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))); err == nil || !strings.Contains(err.Error(), "*ecdh.PrivateKey") {
+	if _, err := ciphertools.ParseKeys(pemBlock("PRIVATE KEY", der)); err == nil || !strings.Contains(err.Error(), "*ecdh.PrivateKey") {
 		t.Errorf("X25519: %v", err)
 	}
 	sec1, _ := x509.MarshalECPrivateKey(testSigners()["p256"].(*ecdsa.PrivateKey))
-	if r := inspect(t, params+string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: sec1}))); len(r.Keys) != 1 || r.Keys[0].Name != "ECDSA P-256" {
+	if r := inspect(t, params+pemBlock("EC PRIVATE KEY", sec1)); len(r.Keys) != 1 || r.Keys[0].Name != "ECDSA P-256" {
 		t.Errorf("EC PARAMETERS + key: %+v", r.Keys)
 	}
 }

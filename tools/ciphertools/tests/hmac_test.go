@@ -13,14 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func hmacOf(t *testing.T, fields url.Values) *ciphertools.HMACResult {
-	t.Helper()
-	res, err := runOp(t, "hmac", fields, nil)
-	if err != nil {
-		t.Fatalf("hmac: %v", err)
-	}
-	return res.(*ciphertools.HMACResult)
-}
+var hmacOf = runner[ciphertools.HMACResult]("hmac")
 
 // RFC 4231 cases 1, 2, 6 and RFC 2202 cases 1, 2; HMAC-SHA3 for case 2 is checked against Python's hmac.
 func TestHMACPublishedVectors(t *testing.T) {
@@ -146,29 +139,18 @@ func TestHMACKeyWarnings(t *testing.T) {
 	if len(r.MACs) != 8 || r.MACs[3].Hex == "" {
 		t.Error("an empty key is valid HMAC and must still compute")
 	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {"Jefe"}})
-	if !noted(r.Warnings, "shorter than every hash output") {
-		t.Errorf("4-byte key: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {strings.Repeat("k", 20)}})
-	if !noted(r.Warnings, "HMAC-SHA-256 (32)") || noted(r.Warnings, "HMAC-MD5 (16)") {
-		t.Errorf("20-byte key: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {strings.Repeat("k", 64)}})
-	if noted(r.Warnings, "shorter") {
-		t.Errorf("64-byte key called short: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {strings.Repeat("k", 100)}})
-	if !noted(r.Warnings, "hashes it first") {
-		t.Errorf("long key not explained: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"x"}, "key": {"secret "}})
-	if !noted(r.Warnings, "whitespace") {
-		t.Errorf("trailing space in key: %+v", r.Warnings)
-	}
-	r = hmacOf(t, url.Values{"text": {"{\"a\":1}\n"}, "key": {strings.Repeat("k", 32)}})
-	if !noted(r.Warnings, "Ends in a newline") {
-		t.Errorf("message newline: %+v", r.Warnings)
+	for _, c := range []struct{ name, text, key, has, hasNot string }{
+		{"4-byte key", "x", "Jefe", "shorter than every hash output", ""},
+		{"20-byte key", "x", strings.Repeat("k", 20), "HMAC-SHA-256 (32)", "HMAC-MD5 (16)"},
+		{"64-byte key called short", "x", strings.Repeat("k", 64), "", "shorter"},
+		{"long key not explained", "x", strings.Repeat("k", 100), "hashes it first", ""},
+		{"trailing space in key", "x", "secret ", "whitespace", ""},
+		{"message newline", "{\"a\":1}\n", strings.Repeat("k", 32), "Ends in a newline", ""},
+	} {
+		r := hmacOf(t, url.Values{"text": {c.text}, "key": {c.key}})
+		if c.has != "" && !noted(r.Warnings, c.has) || c.hasNot != "" && noted(r.Warnings, c.hasNot) {
+			t.Errorf("%s: %+v", c.name, r.Warnings)
+		}
 	}
 }
 

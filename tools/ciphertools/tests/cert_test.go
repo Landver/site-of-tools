@@ -14,7 +14,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"math/big"
 	"net"
 	"net/http"
@@ -55,11 +54,7 @@ func mustCert(t *testing.T, tmpl, parent *x509.Certificate, pub crypto.PublicKey
 	if err != nil {
 		t.Fatalf("CreateCertificate: %v", err)
 	}
-	c, err := x509.ParseCertificate(der)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return der, c
+	return der, mustParse(t, der)
 }
 
 func caTemplate(serial int64, cn string, pathLen int) *x509.Certificate {
@@ -98,7 +93,7 @@ func newPKI(t *testing.T) *testPKI {
 func pemOf(ders ...[]byte) string {
 	var b strings.Builder
 	for _, d := range ders {
-		b.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: d}))
+		b.WriteString(pemBlock("CERTIFICATE", d))
 	}
 	return b.String()
 }
@@ -108,23 +103,8 @@ func certOf(t *testing.T, fields url.Values, files map[string][]byte) *ciphertoo
 	if fields.Get("now") == "" {
 		fields.Set("now", strconv.FormatInt(pkiNow.Unix(), 10))
 	}
-	res, err := runOp(t, "cert", fields, files)
-	if err != nil {
-		t.Fatalf("cert: %v", err)
-	}
-	return res.(*ciphertools.CertResult)
+	return opOf[ciphertools.CertResult](t, "cert", fields, files)
 }
-
-func certErr(t *testing.T, cert string) error {
-	t.Helper()
-	_, err := runOp(t, "cert", url.Values{"cert": {cert}}, nil)
-	if err == nil {
-		t.Fatalf("%q: no error", cert)
-	}
-	return err
-}
-
-func fp(sum []byte) string { return strings.ToUpper(colonHex(sum)) }
 
 func TestCertFields(t *testing.T) {
 	p := newPKI(t)
@@ -336,7 +316,7 @@ func TestCertCSR(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, typ := range []string{"CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST"} {
-		r := certOf(t, url.Values{"cert": {string(pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: csrDER}))}}, nil)
+		r := certOf(t, url.Values{"cert": {pemBlock(typ, csrDER)}}, nil)
 		if len(r.CSRs) != 1 || len(r.Certs) != 0 {
 			t.Fatalf("%s: %+v", typ, r)
 		}
@@ -361,9 +341,7 @@ func TestCertCSR(t *testing.T) {
 		t.Errorf("CN-only CSR: %v", c.Warnings)
 	}
 	// The key matches its own request.
-	pub, _ := x509.MarshalPKIXPublicKey(&k.PublicKey)
-	m := certOf(t, url.Values{"cert": {base64.StdEncoding.EncodeToString(csrDER)},
-		"key": {string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pub}))}}, nil).KeyMatch
+	m := certOf(t, url.Values{"cert": {base64.StdEncoding.EncodeToString(csrDER)}, "key": {spkiPEM(t, &k.PublicKey)}}, nil).KeyMatch
 	if m.State != "match" || m.Request != 1 {
 		t.Errorf("CSR key match: %+v", m)
 	}
@@ -372,15 +350,13 @@ func TestCertCSR(t *testing.T) {
 func TestCertKeyMatch(t *testing.T) {
 	p := newPKI(t)
 	chain := pemOf(p.leaf, p.inter)
-	pubDER, _ := x509.MarshalPKIXPublicKey(&p.leafKey.PublicKey)
-	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
 	jwk, _ := ciphertools.PublicJWK(&p.leafKey.PublicKey)
 	jwkJSON, _ := json.Marshal(jwk)
 	sshPub, _ := ssh.NewPublicKey(&p.leafKey.PublicKey)
 
 	for name, c := range map[string]struct{ key, state string }{
 		"private PKCS#8":  {pkcs8PEM(t, p.leafKey), "match"},
-		"public SPKI":     {pubPEM, "match"},
+		"public SPKI":     {spkiPEM(t, &p.leafKey.PublicKey), "match"},
 		"public JWK":      {string(jwkJSON), "match"},
 		"OpenSSH line":    {string(ssh.MarshalAuthorizedKey(sshPub)), "match"},
 		"another key":     {pkcs8PEM(t, ecKey(t)), "no-match"},
@@ -536,17 +512,10 @@ func TestCertInputErrors(t *testing.T) {
 		"MII!":                                               "offset 3",
 		"30820":                                              "odd number of digits",
 	} {
-		if err := certErr(t, in); !strings.Contains(err.Error(), want) {
-			t.Errorf("%.40q: %v, want %q", in, err, want)
-		}
+		wantErr(t, "cert", url.Values{"cert": {in}}, want)
 	}
-	many := strings.Repeat(good, 21)
-	if err := certErr(t, many); !strings.Contains(err.Error(), "up to 20") {
-		t.Errorf("21 certificates: %v", err)
-	}
-	if err := certErr(t, good+strings.Repeat("-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n", 100)); !strings.Contains(err.Error(), "more than 100 PEM blocks") {
-		t.Errorf("101 blocks: %v", err)
-	}
+	wantErr(t, "cert", url.Values{"cert": {strings.Repeat(good, 21)}}, "up to 20")
+	wantErr(t, "cert", url.Values{"cert": {good + strings.Repeat("-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n", 100)}}, "more than 100 PEM blocks")
 	// A block that isn't a certificate is skipped with a note, not an error.
 	r := certOf(t, url.Values{"cert": {good + "-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n"}}, nil)
 	if len(r.Certs) != 1 || !noted(r.Warnings, "X509 CRL") {
@@ -557,11 +526,7 @@ func TestCertInputErrors(t *testing.T) {
 func TestRenderCert(t *testing.T) {
 	p := newPKI(t)
 	html := render(t, "cert", url.Values{"cert": {pemOf(p.root, p.inter, p.leaf)}, "now": {strconv.FormatInt(pkiNow.Unix(), 10)}})
-	for _, want := range []string{"Wrong order", "3, 2, 1", "www.example.com", "01:02:FF", "Copy"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("fragment lacks %q", want)
-		}
-	}
+	holds(t, "fragment", html, "Wrong order", "3, 2, 1", "www.example.com", "01:02:FF", "Copy")
 	// SANs before the subject, in every certificate.
 	leaf := html[strings.LastIndex(html, "Certificate 3"):]
 	if i, j := strings.Index(leaf, "Subject alternative names"), strings.Index(leaf, "<dt>Subject</dt>"); i < 0 || j < 0 || i > j {
@@ -573,11 +538,7 @@ func TestCertPageAndAPI(t *testing.T) {
 	p := newPKI(t)
 	e := newCipherApp(t)
 	page := do(t, e, http.MethodGet, "/cert", "", "", asBrowser).Body.String()
-	for _, want := range []string{"openssl x509 -in cert.pem -noout -text", "openssl req -in csr.pem -noout -text", `enctype="multipart/form-data"`} {
-		if !strings.Contains(page, want) {
-			t.Errorf("page lacks %q", want)
-		}
-	}
+	holds(t, "page", page, "openssl x509 -in cert.pem -noout -text", "openssl req -in csr.pem -noout -text", `enctype="multipart/form-data"`)
 	body := url.Values{"cert": {pemOf(p.leaf)}, "now": {strconv.FormatInt(pkiNow.Unix(), 10)}}.Encode()
 	rec := do(t, e, http.MethodPost, "/cert", body, form, asAPI)
 	var got struct {
@@ -590,10 +551,7 @@ func TestCertPageAndAPI(t *testing.T) {
 		len(got.Certificates[0].SANs.DNS) != 2 {
 		t.Fatalf("API: %d %s", rec.Code, rec.Body)
 	}
-	rec = do(t, e, http.MethodPost, "/cert", body, form, asBrowser)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<!DOCTYPE html>") || !strings.Contains(rec.Body.String(), "www.example.com") {
-		t.Fatalf("no-JS: %d", rec.Code)
-	}
+	noJSPage(t, e, "/cert", body, form, "www.example.com")
 }
 
 // A CSR signed with DSA (made by openssl), which Go can't check, gets no verdict, as a chain link does.

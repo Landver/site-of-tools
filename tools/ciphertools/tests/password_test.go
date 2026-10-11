@@ -37,22 +37,11 @@ func pwFields(algo, password string) url.Values {
 	return f
 }
 
-func pwHash(t *testing.T, fields url.Values) *ciphertools.PasswordHashResult {
-	t.Helper()
-	res, err := runOp(t, "password-hash", fields, nil)
-	if err != nil {
-		t.Fatalf("password-hash %v: %v", fields.Get("algo"), err)
-	}
-	return res.(*ciphertools.PasswordHashResult)
-}
+var pwHash = runner[ciphertools.PasswordHashResult]("password-hash")
 
 func pwVerify(t *testing.T, hash, password string) *ciphertools.PasswordVerifyResult {
 	t.Helper()
-	res, err := runOp(t, "password-verify", url.Values{"hash": {hash}, "password": {password}}, nil)
-	if err != nil {
-		t.Fatalf("password-verify %q: %v", hash, err)
-	}
-	return res.(*ciphertools.PasswordVerifyResult)
+	return opOf[ciphertools.PasswordVerifyResult](t, "password-verify", url.Values{"hash": {hash}, "password": {password}}, nil)
 }
 
 func TestPasswordOpsAreHeavy(t *testing.T) {
@@ -177,20 +166,14 @@ func TestPasswordBcryptVariantsVerifyAlike(t *testing.T) {
 }
 
 func TestPasswordBcryptRefuses72PlusBytes(t *testing.T) {
-	ok := pwFields("bcrypt", strings.Repeat("a", 72))
-	if _, err := runOp(t, "password-hash", ok, nil); err != nil {
-		t.Fatalf("72 bytes refused: %v", err)
-	}
+	pwHash(t, pwFields("bcrypt", strings.Repeat("a", 72)))
 	_, err := runOp(t, "password-hash", pwFields("bcrypt", strings.Repeat("a", 73)), nil)
 	if err == nil || !strings.Contains(err.Error(), "73 bytes") || !strings.Contains(err.Error(), "at most 72") ||
 		!strings.Contains(err.Error(), "silently") {
 		t.Fatalf("73 bytes: %v", err)
 	}
 	// Bytes, not characters: 25 snowmen are 75 bytes.
-	_, err = runOp(t, "password-hash", pwFields("bcrypt", strings.Repeat("☃", 25)), nil)
-	if err == nil || !strings.Contains(err.Error(), "75 bytes (25 characters") {
-		t.Fatalf("multi-byte: %v", err)
-	}
+	wantErr(t, "password-hash", pwFields("bcrypt", strings.Repeat("☃", 25)), "75 bytes (25 characters")
 	// Other algorithms have no such limit.
 	pwHash(t, pwFields("argon2id", strings.Repeat("a", 200)))
 }
@@ -232,26 +215,18 @@ func TestPasswordCapsEnforced(t *testing.T) {
 	for _, c := range over {
 		f := pwFields(c.algo, "pw")
 		f.Set(c.field, c.value)
-		if _, err := runOp(t, "password-hash", f, nil); err == nil || !strings.Contains(err.Error(), c.field) {
-			t.Errorf("%s=%s: err %v", c.field, c.value, err)
-		}
+		wantErr(t, "password-hash", f, c.field)
 	}
 	// Within each cap alone but over the memory cap together: 128 × 2^17 × 16 = 256 MiB.
 	f := pwFields("scrypt", "pw")
 	f.Set("scrypt_n", "131072")
 	f.Set("scrypt_r", "16")
-	if _, err := runOp(t, "password-hash", f, nil); err == nil || !strings.Contains(err.Error(), "256 MiB") {
-		t.Errorf("scrypt memory cap: %v", err)
-	}
+	wantErr(t, "password-hash", f, "256 MiB")
 	// Argon2 needs 8 KiB per lane.
 	f = pwFields("argon2id", "pw")
 	f.Set("argon2_p", "2")
-	if _, err := runOp(t, "password-hash", f, nil); err == nil || !strings.Contains(err.Error(), "per lane") {
-		t.Errorf("argon2 m < 8p: %v", err)
-	}
-	if _, err := runOp(t, "password-hash", url.Values{"algo": {"md5"}, "password": {"x"}}, nil); err == nil {
-		t.Error("unknown algo accepted")
-	}
+	wantErr(t, "password-hash", f, "per lane")
+	wantErr(t, "password-hash", url.Values{"algo": {"md5"}, "password": {"x"}}, "")
 
 	refused := map[string]string{
 		"bcrypt cost 15":       "$2b$15$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
@@ -357,21 +332,13 @@ func TestPasswordParseErrorsNameTheOffset(t *testing.T) {
 		"$argon2id$v=19$keyid=x,m=z,t=1,p=1$c29tZXNhbHQ$Bo1ismRVk2qm6": `m="z" at offset 25`,
 	}
 	for h, want := range cases {
-		_, err := runOp(t, "password-verify", url.Values{"hash": {h}, "password": {"x"}}, nil)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: %v, want %q", h, err, want)
-		}
+		wantErr(t, "password-verify", url.Values{"hash": {h}, "password": {"x"}}, want)
 	}
 }
 
 func TestPasswordUnknownFormat(t *testing.T) {
-	_, err := runOp(t, "password-verify", url.Values{"hash": {"5f4dcc3b5aa765d61d8327deb882cf99"}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "plain digest") {
-		t.Fatalf("hex digest: %v", err)
-	}
-	if _, err := runOp(t, "password-verify", url.Values{"hash": {"  "}}, nil); err == nil {
-		t.Fatal("empty hash accepted")
-	}
+	wantErr(t, "password-verify", url.Values{"hash": {"5f4dcc3b5aa765d61d8327deb882cf99"}}, "plain digest")
+	wantErr(t, "password-verify", url.Values{"hash": {"  "}}, "")
 }
 
 func TestPasswordWeakParametersWarn(t *testing.T) {
@@ -392,17 +359,9 @@ func TestPasswordWeakParametersWarn(t *testing.T) {
 
 func TestRenderPasswordFragments(t *testing.T) {
 	html := render(t, "password-verify", url.Values{"hash": {"$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"}, "password": {"U*U"}})
-	for _, want := range []string{"Match", "bcrypt", "$2a$", "Salt"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("verify fragment lacks %q", want)
-		}
-	}
+	holds(t, "verify fragment", html, "Match", "bcrypt", "$2a$", "Salt")
 	html = render(t, "password-hash", pwFields("argon2id", "pw"))
-	for _, want := range []string{"Argon2id hash", "$argon2id$v=19$m=8,t=1,p=1$", "data-copy"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("hash fragment lacks %q", want)
-		}
-	}
+	holds(t, "hash fragment", html, "Argon2id hash", "$argon2id$v=19$m=8,t=1,p=1$", "data-copy")
 	if strings.Contains(html, "<!DOCTYPE") {
 		t.Error("fragment rendered a whole page")
 	}
@@ -424,12 +383,7 @@ func TestPasswordAPIAndNoJSPage(t *testing.T) {
 	}
 
 	body := url.Values{"hash": {got.Encoded}, "password": {"pw"}}.Encode()
-	html := do(t, e, http.MethodPost, "/password/verify", body, form, asBrowser).Body.String()
-	for _, want := range []string{"<!DOCTYPE html>", "Match", `id="password-verify-result"`} {
-		if !strings.Contains(html, want) {
-			t.Errorf("no-JS page lacks %q", want)
-		}
-	}
+	html := noJSPage(t, e, "/password/verify", body, form, "Match", `id="password-verify-result"`)
 	// The verify result must land in the verify box, not the hash box.
 	hashBox := html[strings.Index(html, `id="password-hash-result"`):]
 	hashBox = hashBox[:strings.Index(hashBox, "</div>")]

@@ -21,14 +21,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-func randomOf(t *testing.T, fields url.Values) *ciphertools.RandomResult {
-	t.Helper()
-	res, err := runOp(t, "random", fields, nil)
-	if err != nil {
-		t.Fatalf("random %v: %v", fields, err)
-	}
-	return res.(*ciphertools.RandomResult)
-}
+var randomOf = runner[ciphertools.RandomResult]("random")
 
 func unique(t *testing.T, vs []string) {
 	t.Helper()
@@ -113,9 +106,7 @@ func TestRandomBoundsEnforced(t *testing.T) {
 		{"kind": {"uuid"}, "count": {"101"}},
 		{"kind": {"ulid"}},
 	} {
-		if _, err := runOp(t, "random", f, nil); err == nil {
-			t.Errorf("%v accepted", f)
-		}
+		wantErr(t, "random", f, "")
 	}
 }
 

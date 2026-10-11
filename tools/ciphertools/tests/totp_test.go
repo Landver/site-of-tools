@@ -16,14 +16,7 @@ import (
 
 func b32(s string) string { return base32.StdEncoding.EncodeToString([]byte(s)) }
 
-func totpOf(t *testing.T, fields url.Values) *ciphertools.TOTPResult {
-	t.Helper()
-	res, err := runOp(t, "totp", fields, nil)
-	if err != nil {
-		t.Fatalf("totp %v: %v", fields, err)
-	}
-	return res.(*ciphertools.TOTPResult)
-}
+var totpOf = runner[ciphertools.TOTPResult]("totp")
 
 // RFC 6238 Appendix B, 8 digits; the seeds are "1234567890" repeated to 20, 32 and 64 bytes.
 func TestTOTPRFC6238Vectors(t *testing.T) {
@@ -273,12 +266,8 @@ func TestTOTPCountdownAndRender(t *testing.T) {
 		t.Errorf("remaining %d: %+v", r.Remaining, r)
 	}
 	html := render(t, "totp", url.Values{"secret": {"JBSWY3DPEHPK3PXP"}, "now": {"1700000021"}, "issuer": {"<b>x</b>"}})
-	for _, want := range []string{r.Code, "left: 19,", "dispatchEvent(new Event('input', { bubbles: true }))",
-		"form[data-cipher=totp]", "destroy()", "otpauth://totp/"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("fragment lacks %q", want)
-		}
-	}
+	holds(t, "fragment", html, r.Code, "left: 19,", "dispatchEvent(new Event('input', { bubbles: true }))",
+		"form[data-cipher=totp]", "destroy()", "otpauth://totp/")
 	if strings.Contains(html, "<b>x</b>") {
 		t.Error("issuer reached the fragment unescaped")
 	}
@@ -299,10 +288,7 @@ func TestTOTPPageAndAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Code != "94287082" || got.Remaining != 1 {
 		t.Fatalf("code %d: %s", rec.Code, rec.Body)
 	}
-	rec = do(t, e, http.MethodPost, "/totp", body, form, asBrowser)
-	if html := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(html, "94287082") || !strings.Contains(html, "<!DOCTYPE html>") {
-		t.Fatalf("no-JS page: code %d", rec.Code)
-	}
+	noJSPage(t, e, "/totp", body, form, "94287082")
 	page := do(t, e, http.MethodGet, "/totp", "", "", asBrowser).Body.String()
 	if !strings.Contains(page, `data-cipher="totp" data-live`) {
 		t.Error("TOTP form isn't live")

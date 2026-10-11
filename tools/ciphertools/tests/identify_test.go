@@ -3,11 +3,9 @@ package tests
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"net/http"
 	"net/url"
 	"strings"
@@ -62,8 +60,6 @@ func TestIdentifyRecognisers(t *testing.T) {
 	_, edPriv, _ := ed25519.GenerateKey(rand.Reader)
 	sshPub, _ := ssh.NewPublicKey(edPriv.Public())
 	sshLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " alice@laptop"
-	spki, _ := x509.MarshalPKIXPublicKey(edPriv.Public())
-	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spki}))
 	p := newPKI(t)
 	bc, _ := bcrypt.GenerateFromPassword([]byte("pw"), 4)
 	jwe := b64u(`{"alg":"RSA-OAEP","enc":"A256GCM"}`) + ".OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg.48V1_ALb6US04U3b.5eym8TW_c8SuK0ltJ3rpYIzOeDQz7TALvtu6UG9oMo4vpzs9tX_EFShS8iB7j6jiSdiwkIr3ajwQzaBtQD_A.XFBoMYUZodetZdvTiFvSkQ"
@@ -77,7 +73,7 @@ func TestIdentifyRecognisers(t *testing.T) {
 		{pemOf(p.leaf), "X.509 certificate", "high", "/cert"},
 		{pemOf(p.leaf, p.inter, p.root), "X.509 certificate chain (3 certificates)", "high", "/cert"},
 		{pkcs8PEM(t, edPriv), "private key (PKCS#8)", "high", "/keys"},
-		{pubPEM, "public key (SPKI)", "high", "/keys"},
+		{spkiPEM(t, edPriv.Public()), "public key (SPKI)", "high", "/keys"},
 		{sshLine, "OpenSSH public key (Ed25519", "high", "/keys"},
 		{ssh.FingerprintSHA256(sshPub), "OpenSSH key fingerprint (SHA-256)", "high", "/keys"},
 		{string(bc), "bcrypt password hash", "high", "/password"},
@@ -122,8 +118,6 @@ func TestIdentifyRecognisers(t *testing.T) {
 		}
 	}
 }
-
-func b64u(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 
 // 32 hex digits is MD5, NTLM, MD4 or LM: all listed, MD5 first, never one verdict.
 func TestIdentifyHexDigestsAreAmbiguous(t *testing.T) {
@@ -303,11 +297,7 @@ func TestIdentifyNeverPanics(t *testing.T) {
 
 func TestRenderIdentify(t *testing.T) {
 	html := render(t, "identify", url.Values{"text": {"5f4dcc3b5aa765d61d8327deb882cf99"}})
-	for _, want := range []string{"MD5 digest", "NTLM digest", "-m 1000", `href="/hash"`, "medium confidence"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("fragment lacks %q", want)
-		}
-	}
+	holds(t, "fragment", html, "MD5 digest", "NTLM digest", "-m 1000", `href="/hash"`, "medium confidence")
 	html = render(t, "identify", url.Values{"text": {base64.StdEncoding.EncodeToString([]byte("<script>alert(1)</script> text"))}})
 	if strings.Contains(html, "<script>alert") {
 		t.Error("decoded preview reached the fragment unescaped")
@@ -328,10 +318,7 @@ func TestIdentifyPageAndAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Candidates) < 3 || got.Candidates[0].Hashcat != "0" {
 		t.Fatalf("code %d: %s", rec.Code, rec.Body)
 	}
-	rec = do(t, e, http.MethodPost, "/identify", url.Values{"text": {jwtioToken}}.Encode(), form, asBrowser)
-	if html := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(html, "JWT (signed, JWS)") || !strings.Contains(html, "<!DOCTYPE html>") {
-		t.Fatalf("no-JS page: code %d", rec.Code)
-	}
+	noJSPage(t, e, "/identify", url.Values{"text": {jwtioToken}}.Encode(), form, "JWT (signed, JWS)")
 	page := do(t, e, http.MethodGet, "/identify", "", "", asBrowser).Body.String()
 	if !strings.Contains(page, `data-cipher="identify" data-live`) {
 		t.Error("identify form isn't live")
