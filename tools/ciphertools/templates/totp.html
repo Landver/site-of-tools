@@ -1,12 +1,5 @@
 {{define "cipher/totp"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">TOTP and HOTP codes</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a base32 secret or a whole <span class="font-mono">otpauth://</span> URI to see the codes an
@@ -73,9 +66,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d code=123456
   curl {{.Base}}/totp --data-urlencode 'secret=otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP&amp;issuer=Example'
   curl {{.Base}}/totp -d secret=JBSWY3DPEHPK3PXP -d mode=hotp -d counter=5</pre>
         <p class="mt-1 text-xs text-muted">
@@ -90,13 +81,7 @@
     <div id="totp-result" class="mt-8" aria-live="polite">
       {{if eq .Op "totp"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/totp-result" .}}{{end}}{{end}}
     </div>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{/* dot = the render map; .Result = *ciphertools.TOTPResult */}}
@@ -167,10 +152,7 @@
 
 <section class="mt-6">
   <h2 class="eyebrow">otpauth:// URI</h2>
-  <div class="mt-2 flex items-start gap-3">
-    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.URI}}</pre>
-    <button type="button" class="btn-copy" data-copy="{{.URI}}">Copy</button>
-  </div>
+  {{template "cipher/engine-copy-wrap" .URI}}
   <p class="mt-1 text-xs text-muted">What a setup QR code holds. Built from the settings below, every part percent-encoded.</p>
 </section>
 

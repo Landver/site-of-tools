@@ -1,3 +1,27 @@
+{{/* dot = the page's view model. Tabs start from literals: a form value inside x-data would be script. */}}
+{{define "cipher/engine-open"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  {{$kind := ""}}{{if eq .Op "random"}}{{$kind = .Form.Get "kind"}}{{end}}
+  <main class="page-main"
+    {{- if eq .Active "jwt"}} x-data="{ tab: '{{if eq .Op "jwt-sign"}}sign{{else}}decode{{end}}' }"
+    {{- else if eq .Active "random"}} x-data="{ tab: '{{if eq $kind "password"}}password{{else if eq $kind "uuid"}}uuid{{else}}token{{end}}' }"{{end}}>
+    {{template "cipher/nav" .}}
+{{end}}
+
+{{define "cipher/engine-close"}}
+  </main>
+
+  {{template "partials/copy" .}}
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
 {{/* The status box starts hidden so a no-JS page never claims "loading"; cipher.js shows it and
      toggles [hidden] on the state spans, since Tailwind only sees literal class strings. */}}
 {{define "cipher/engine"}}
@@ -19,6 +43,41 @@
   </div>
 </noscript>
 <script src="{{asset "js/cipher.js"}}" defer></script>
+{{end}}
+
+{{/* Leaves the <pre> open for the page's curl lines. Each page keeps its own summary and MCP line, which
+     mcptools' TestEveryTerminalBlockPointsAtItsToolset reads from the source. */}}
+{{define "cipher/engine-terminal"}}<p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
+  this server, unlike on the page, which runs everything in your browser.</p>
+<pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{end}}
+
+{{/* dot = a tab's key, the value of the page's Alpine tab. */}}
+{{define "cipher/engine-tab"}}
+<button type="button" role="tab" @click="tab = '{{.}}'" :aria-selected="tab === '{{.}}'"
+        :class="tab === '{{.}}' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
+        class="rounded-md px-3 py-1.5">{{if eq . "decode"}}Decode &amp; verify{{else if eq . "sign"}}Sign a new token{{else if eq . "uuid"}}UUID{{else if eq . "password"}}Password{{else}}Token{{end}}</button>
+{{end}}
+
+{{/* dot = the submitted encoding. */}}
+{{define "cipher/engine-enc-options"}}
+<option value="utf8">UTF-8 text</option>
+<option value="hex" {{if eq . "hex"}}selected{{end}}>hex bytes</option>
+<option value="base64" {{if eq . "base64"}}selected{{end}}>base64 bytes</option>
+{{end}}
+
+{{define "cipher/engine-copy"}}<div class="flex items-start gap-3">
+  <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.}}</span>
+  <button type="button" class="btn-copy" data-copy="{{.}}">Copy</button>
+</div>{{end}}
+
+{{define "cipher/engine-copy-wrap"}}<div class="mt-2 flex items-start gap-3">
+  <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.}}</pre>
+  <button type="button" class="btn-copy" data-copy="{{.}}">Copy</button>
+</div>{{end}}
+
+{{define "cipher/engine-copy-scroll"}}
+<pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.}}</pre>
+<button type="button" class="btn-copy mt-2" data-copy="{{.}}">Copy</button>
 {{end}}
 
 {{define "cipher/warnings"}}

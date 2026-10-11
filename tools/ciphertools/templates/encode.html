@@ -1,13 +1,6 @@
 {{/* Both Basic auth forms post the "basic" op; their hidden mode field also picks the no-JS result box. */}}
 {{define "cipher/encode"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">Base64, hex and base32 converter</h1>
     <p class="mt-2 text-sm text-muted">
       Paste bytes in one encoding and get them in all the others. Base64 input can be any of the four variants,
@@ -23,9 +16,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/encode -d from=hex -d text=48656c6c6f
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/encode -d from=hex -d text=48656c6c6f
   curl {{.Base}}/encode/basic -d mode=build -d user=Aladdin --data-urlencode 'password=open sesame'
   curl {{.Base}}/encode/basic -d mode=decode --data-urlencode 'header=Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=='</pre>
         <p class="mt-1 text-xs text-muted">
@@ -105,13 +96,7 @@
         </div>
       </div>
     </section>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{define "cipher/encode-result"}}
@@ -141,23 +126,23 @@
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">hex</td>
-        <td class="py-2">{{template "cipher/encode-value" .Hex}}</td>
+        <td class="py-2">{{template "cipher/engine-copy" .Hex}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">hex, <span class="font-mono">:</span> separated</td>
-        <td class="py-2">{{template "cipher/encode-value" .HexColons}}</td>
+        <td class="py-2">{{template "cipher/engine-copy" .HexColons}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">base64 <span class="block text-xs text-faint">standard, padded</span></td>
-        <td class="py-2">{{template "cipher/encode-value" .Base64}}</td>
+        <td class="py-2">{{template "cipher/engine-copy" .Base64}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">base64url <span class="block text-xs text-faint">URL-safe, unpadded (JWT, JWK)</span></td>
-        <td class="py-2">{{template "cipher/encode-value" .Base64URL}}</td>
+        <td class="py-2">{{template "cipher/engine-copy" .Base64URL}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">base32 <span class="block text-xs text-faint">RFC 4648, padded</span></td>
-        <td class="py-2">{{template "cipher/encode-value" .Base32}}</td>
+        <td class="py-2">{{template "cipher/engine-copy" .Base32}}</td>
       </tr>
     </tbody>
   </table>
@@ -189,11 +174,6 @@
 {{template "cipher/warnings" .Warnings}}
 {{end}}
 {{end}}
-
-{{define "cipher/encode-value"}}<div class="flex items-start gap-3">
-  <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.}}</span>
-  <button type="button" class="btn-copy" data-copy="{{.}}">Copy</button>
-</div>{{end}}
 
 {{define "cipher/encode-cred"}}{{if .Value}}<div class="flex items-start gap-3">
   <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>

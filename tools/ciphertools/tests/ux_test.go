@@ -164,6 +164,33 @@ func TestTabButtonsHiddenWithoutJS(t *testing.T) {
 	}
 }
 
+// The tabbed pages open on the tab of the form that was sent, picked from literals: a crafted kind must not
+// reach the Alpine expression.
+func TestStartingTabIsALiteral(t *testing.T) {
+	e := newCipherApp(t)
+	for _, c := range []struct{ method, path, body, tab string }{
+		{http.MethodGet, "/", "", "decode"},
+		{http.MethodPost, "/jwt/sign", "alg=HS256", "sign"},
+		{http.MethodGet, "/random", "", "token"},
+		{http.MethodPost, "/random", "kind=password&sets=", "password"},
+		{http.MethodPost, "/random", url.Values{"kind": {"x' + alert(1) + '"}}.Encode(), "token"},
+		{http.MethodGet, "/hash", "", ""},
+	} {
+		rec := do(t, e, c.method, c.path, c.body, form, asBrowser)
+		mains := findAll(parseHTML(t, rec.Body.String()), func(n *html.Node) bool { return n.Data == "main" })
+		if len(mains) != 1 {
+			t.Fatalf("%s %s: %d <main> elements", c.method, c.path, len(mains))
+		}
+		want := ""
+		if c.tab != "" {
+			want = "{ tab: '" + c.tab + "' }"
+		}
+		if got, _ := attr(mains[0], "x-data"); got != want {
+			t.Errorf("%s %s %s: x-data %q, want %q", c.method, c.path, c.body, got, want)
+		}
+	}
+}
+
 // A no-JS sign must not copy its key into the decode form, where the next decode would send it again.
 func TestJWTSignKeyStaysInSignForm(t *testing.T) {
 	e := newCipherApp(t)

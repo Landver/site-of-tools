@@ -1,13 +1,6 @@
 {{/* The verification banner is as loud for "not checked" as for "invalid" (docs/00-landscape.md). */}}
 {{define "cipher/jwt"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main" x-data="{ tab: '{{if eq .Op "jwt-sign"}}sign{{else}}decode{{end}}' }">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">JWT decoder, verifier and signer</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a token to read it. Add the secret, a PEM public key or a JWKS to check its signature. The
@@ -18,9 +11,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/jwt/decode -d token=eyJ… -d key=secret
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/jwt/decode -d token=eyJ… -d key=secret
   curl {{.Base}}/jwt/sign -d alg=HS256 -d key=secret -d exp=1h --data-urlencode 'payload={"sub":"42"}'</pre>
         <p class="mt-1 text-xs text-muted">
           POST only, and the query string is ignored. The API runs on this server, so the token travels; this page
@@ -34,12 +25,8 @@
     </details>
 
     <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
-      <button type="button" role="tab" @click="tab = 'decode'" :aria-selected="tab === 'decode'"
-              :class="tab === 'decode' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-              class="rounded-md px-3 py-1.5">Decode &amp; verify</button>
-      <button type="button" role="tab" @click="tab = 'sign'" :aria-selected="tab === 'sign'"
-              :class="tab === 'sign' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-              class="rounded-md px-3 py-1.5">Sign a new token</button>
+      {{template "cipher/engine-tab" "decode"}}
+      {{template "cipher/engine-tab" "sign"}}
     </div>
 
     {{$enc := .Form.Get "key_enc"}}
@@ -132,13 +119,7 @@
         {{if eq .Op "jwt-sign"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/jwt-signed" .}}{{end}}{{end}}
       </div>
     </section>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{define "cipher/jwt-key-enc"}}<option value="base64" {{if eq . "base64"}}selected{{end}}>base64</option>

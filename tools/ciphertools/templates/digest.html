@@ -47,12 +47,3 @@
   </div>
 </div>
 {{end}}
-
-{{/* dot = the submitted enc: the "Text is" select of the Hash, HMAC and Encrypt forms */}}
-{{define "cipher/hash-enc"}}
-<select name="enc" class="field mt-1 w-full">
-  <option value="utf8">UTF-8 text</option>
-  <option value="hex" {{if eq . "hex"}}selected{{end}}>hex bytes</option>
-  <option value="base64" {{if eq . "base64"}}selected{{end}}>base64 bytes</option>
-</select>
-{{end}}

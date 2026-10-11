@@ -1,18 +1,10 @@
 {{/* Three forms post to the one op; the hidden kind also routes the no-JS result to its box.
      None is live: every result is a fresh secret. */}}
 {{define "cipher/random"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  {{$kind := .Form.Get "kind"}}{{$random := eq .Op "random"}}
-  {{$pw := and $random (eq $kind "password")}}{{$uuid := and $random (eq $kind "uuid")}}
-  {{$tok := and $random (not $pw) (not $uuid)}}
-  {{/* The starting tab comes from literals: a form value inside x-data would be script. */}}
-  <main class="page-main" x-data="{ tab: '{{if $pw}}password{{else if $uuid}}uuid{{else}}token{{end}}' }">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
+    {{$kind := .Form.Get "kind"}}{{$random := eq .Op "random"}}
+    {{$pw := and $random (eq $kind "password")}}{{$uuid := and $random (eq $kind "uuid")}}
+    {{$tok := and $random (not $pw) (not $uuid)}}
     <h1 class="text-2xl font-semibold text-strong">Random tokens, passwords and UUIDs</h1>
     <p class="mt-2 text-sm text-muted">
       Secrets for API keys, session tokens and test accounts, from your browser's cryptographic random source.
@@ -22,9 +14,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/random -d kind=token -d bytes=32 -d format=base64url
   curl {{.Base}}/random -d kind=password -d length=24 -d sets=lower,upper,digits -d exclude_ambiguous=on
   curl {{.Base}}/random -d kind=uuid -d version=7 -d count=10</pre>
         <p class="mt-1 text-xs text-muted">
@@ -37,9 +27,9 @@
     </details>
 
     <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
-      {{template "cipher/random-tab" "token"}}
-      {{template "cipher/random-tab" "password"}}
-      {{template "cipher/random-tab" "uuid"}}
+      {{template "cipher/engine-tab" "token"}}
+      {{template "cipher/engine-tab" "password"}}
+      {{template "cipher/engine-tab" "uuid"}}
     </div>
 
     {{$format := ""}}{{if $tok}}{{$format = .Form.Get "format"}}{{end}}
@@ -138,19 +128,7 @@
         {{if $uuid}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/random-result" .}}{{end}}{{end}}
       </div>
     </section>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
-{{end}}
-
-{{define "cipher/random-tab"}}
-<button type="button" role="tab" @click="tab = '{{.}}'" :aria-selected="tab === '{{.}}'"
-        :class="tab === '{{.}}' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-        class="rounded-md px-3 py-1.5">{{if eq . "uuid"}}UUID{{else if eq . "password"}}Password{{else}}Token{{end}}</button>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{define "cipher/random-result"}}

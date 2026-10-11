@@ -1,13 +1,6 @@
 {{/* Not live: each encrypt draws a fresh nonce. x-data gets literals, never form values (that would be script). */}}
 {{define "cipher/encrypt"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">Encrypt and decrypt: AES-GCM, ChaCha20-Poly1305, AES-CBC</h1>
     <p class="mt-2 text-sm text-muted">
       Encrypt text with AES-GCM or ChaCha20-Poly1305, or decrypt what it produced. Leave the key blank and a random
@@ -34,7 +27,7 @@
 {{.Form.Get "text"}}</textarea>
         </label>
         <label class="block text-sm text-muted">Text is
-          {{template "cipher/hash-enc" (.Form.Get "enc")}}
+          <select name="enc" class="field mt-1 w-full">{{template "cipher/engine-enc-options" (.Form.Get "enc")}}</select>
         </label>
       </div>
       <div x-show="mode === 'decrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
@@ -105,9 +98,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/encrypt -d algo=aes-gcm -d key=000102030405060708090a0b0c0d0e0f -d text=hello
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/encrypt -d algo=aes-gcm -d key=000102030405060708090a0b0c0d0e0f -d text=hello
   curl {{.Base}}/encrypt -d mode=decrypt -d algo=aes-gcm -d key=000102030405060708090a0b0c0d0e0f --data-urlencode data=…</pre>
         <p class="mt-1 text-xs text-muted">
           POST only. <span class="font-mono">algo</span> is aes-gcm, chacha20-poly1305 or aes-cbc;
@@ -140,13 +131,7 @@
         <p>For test data and interop checks. A key that protects real data belongs in your secret store, not in any web page, this one included.</p>
       </div>
     </details>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{/* dot = the render map; .Result = *ciphertools.EncryptResult */}}
@@ -196,10 +181,7 @@
   <h2 class="eyebrow">Plaintext</h2>
   {{with .Plaintext}}
   {{if .Bytes}}
-  <div class="mt-2 flex items-start gap-3">
-    <pre class="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.Value}}</pre>
-    <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button>
-  </div>
+  {{template "cipher/engine-copy-wrap" .Value}}
   <p class="mt-1 text-xs text-muted">{{.Bytes}} bytes{{if not .IsText}}, not printable UTF-8, so shown as hex{{end}}</p>
   {{else}}
   <p class="mt-2 text-sm italic text-muted">empty: the message was zero bytes</p>
@@ -241,10 +223,7 @@
 {{/* dot = ciphertools.Blob */}}
 {{define "cipher/blob"}}
 {{if .Bytes}}
-<div class="flex items-start gap-3">
-  <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Hex}}</span>
-  <button type="button" class="btn-copy" data-copy="{{.Hex}}">Copy</button>
-</div>
+{{template "cipher/engine-copy" .Hex}}
 <div class="mt-1 flex items-start gap-3">
   <span class="min-w-0 flex-1 break-all font-mono text-xs text-muted">{{.Base64}}</span>
   <button type="button" class="btn-copy" data-copy="{{.Base64}}">Copy</button>

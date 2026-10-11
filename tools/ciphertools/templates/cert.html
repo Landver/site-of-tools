@@ -1,12 +1,5 @@
 {{define "cipher/cert"}}
-<!DOCTYPE html>
-<html lang="en">
-{{template "partials/head" .}}
-<body>
-  {{template "partials/header" .}}
-
-  <main class="page-main">
-    {{template "cipher/nav" .}}
+{{template "cipher/engine-open" .}}
     <h1 class="text-2xl font-semibold text-strong">Certificate decoder and chain checker</h1>
     <p class="mt-2 text-sm text-muted">
       Paste a certificate, a chain or a CSR as PEM, or the DER as base64 or hex. Several certificates are checked
@@ -45,9 +38,7 @@
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 text-muted">
-        <p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
-          this server, unlike on the page, which runs everything in your browser.</p>
-        <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">curl {{.Base}}/cert --data-urlencode cert@fullchain.pem
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/cert --data-urlencode cert@fullchain.pem
   curl {{.Base}}/cert --data-urlencode cert@cert.pem --data-urlencode key@public.pem</pre>
         <p class="mt-1 text-xs text-muted">
           POST only. Fields: <span class="font-mono">cert</span> (or a <span class="font-mono">cert_file</span>
@@ -72,13 +63,7 @@ openssl verify -CAfile root.pem -untrusted intermediate.pem cert.pem   # check a
 openssl x509 -in cert.pem -noout -pubkey | openssl sha256   # key match: these two
 openssl pkey -in key.pem -pubout | openssl sha256           # lines print the same</pre>
     </section>
-
-  </main>
-
-  {{template "partials/copy" .}}
-  {{template "partials/footer" .}}
-</body>
-</html>
+{{template "cipher/engine-close" .}}
 {{end}}
 
 {{define "cipher/cert-result"}}
@@ -120,8 +105,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
   {{if .SuggestedPEM}}
   <details class="mt-3 text-sm">
     <summary class="cursor-pointer text-muted hover:text-strong">The chain in the right order ({{template "cipher/cert-join" .Suggested}}), as PEM</summary>
-    <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.SuggestedPEM}}</pre>
-    <button type="button" class="btn-copy mt-2" data-copy="{{.SuggestedPEM}}">Copy</button>
+    {{template "cipher/engine-copy-scroll" .SuggestedPEM}}
   </details>
   {{end}}
 </section>
