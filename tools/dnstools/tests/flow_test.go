@@ -2,7 +2,6 @@ package tests
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -14,12 +13,7 @@ func TestBarePagesAreNotRateLimited(t *testing.T) {
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 
 	for i := range 40 {
-		req := httptest.NewRequest(http.MethodGet, "/email", nil)
-		req.Header.Set("Accept", "text/html")
-		req.RemoteAddr = "203.0.113.20:1234"
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec := from(e, "/email", "203.0.113.20:1234", map[string]string{"Accept": "text/html"}); rec.Code != http.StatusOK {
 			t.Fatalf("bare page load %d: status %d, want 200", i+1, rec.Code)
 		}
 	}
@@ -30,21 +24,11 @@ func TestRateLimitedPageOffersTheSameRequest(t *testing.T) {
 	t.Parallel()
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 
-	var body string
-	for range 40 {
-		req := httptest.NewRequest(http.MethodGet, "/trace?name=example.com", nil)
-		req.Header.Set("Accept", "text/html")
-		req.RemoteAddr = "203.0.113.21:1234"
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code == http.StatusTooManyRequests {
-			body = rec.Body.String()
-			break
-		}
-	}
-	if body == "" {
+	rec := first429(e, "/trace?name=example.com", "203.0.113.21:1234", map[string]string{"Accept": "text/html"})
+	if rec == nil {
 		t.Fatal("never hit the limit")
 	}
+	body := rec.Body.String()
 	for _, want := range []string{`id="dns-nav"`, `href="/trace?name=example.com"`, "Try again"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("429 page is missing %q", want)

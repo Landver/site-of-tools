@@ -8,9 +8,6 @@ import (
 	"time"
 )
 
-// The cache takes its clock as an argument, so every policy question below is
-// answered without sleeping and without a network.
-
 func TestCacheLifetimeClamps(t *testing.T) {
 	t.Parallel()
 
@@ -28,8 +25,6 @@ func TestCacheLifetimeClamps(t *testing.T) {
 		want  time.Duration
 	}{
 		{
-			// A one-second TTL would make the cache pointless, so it is held
-			// for the floor instead.
 			name:  "a TTL under the floor is lifted to it",
 			entry: cacheEntry{result: Result{Records: rec(1)}},
 			want:  cacheMinTTL,
@@ -40,8 +35,6 @@ func TestCacheLifetimeClamps(t *testing.T) {
 			want:  120 * time.Second,
 		},
 		{
-			// A day-long NS TTL must not pin a stale answer on a tool people
-			// use to watch a change land.
 			name:  "a day-long TTL is capped",
 			entry: cacheEntry{result: Result{Records: rec(86400)}},
 			want:  cacheMaxTTL,
@@ -52,8 +45,11 @@ func TestCacheLifetimeClamps(t *testing.T) {
 			want:  60 * time.Second,
 		},
 		{
-			// NODATA / NXDOMAIN: the usual reason someone re-queries is that
-			// they just fixed the record.
+			name:  "a zero TTL is not cached at all",
+			entry: cacheEntry{result: Result{Records: rec(300, 0)}},
+			want:  0,
+		},
+		{
 			name:  "an answer with no records is negative-cached",
 			entry: cacheEntry{result: Result{Records: nil}},
 			want:  cacheNegTTL,
@@ -88,7 +84,6 @@ func TestCacheExpiry(t *testing.T) {
 	if _, ok := c.get("k", now.Add(119*time.Second)); !ok {
 		t.Fatal("entry expired before its TTL")
 	}
-	// The boundary itself is still live: expiry is after, not at.
 	if _, ok := c.get("k", now.Add(120*time.Second)); !ok {
 		t.Error("entry expired at its expiry instant rather than after it")
 	}
@@ -104,20 +99,14 @@ func TestCacheIsBounded(t *testing.T) {
 	live := cacheEntry{result: Result{Records: []Record{{Type: "A", Value: "192.0.2.1", TTL: 300}}}}
 	c := newCache()
 
-	// A public endpoint sees unbounded distinct names, so the map needs a
-	// ceiling or it is a memory leak with extra steps.
 	for i := range cacheMaxEntries + 1 {
 		c.put(fmt.Sprintf("k%d", i), live, now)
 	}
-	c.mu.Lock()
-	held := len(c.m)
-	c.mu.Unlock()
-	if held > cacheMaxEntries {
+	if held := cacheLen(c); held > cacheMaxEntries {
 		t.Errorf("cache holds %d entries, ceiling is %d", held, cacheMaxEntries)
 	}
 
-	// Expired entries are the first thing dropped, so a cache full of dead
-	// keys still has room for a live one.
+	// Expired entries go first, so a cache full of dead keys still takes a live one.
 	c = newCache()
 	for i := range cacheMaxEntries {
 		c.put(fmt.Sprintf("old%d", i), live, now.Add(-time.Hour))
@@ -126,17 +115,12 @@ func TestCacheIsBounded(t *testing.T) {
 	if _, ok := c.get("fresh", now); !ok {
 		t.Error("a fresh entry was not stored once the map hit its ceiling")
 	}
-	c.mu.Lock()
-	held = len(c.m)
-	c.mu.Unlock()
-	if held > cacheMaxEntries {
+	if held := cacheLen(c); held > cacheMaxEntries {
 		t.Errorf("cache holds %d entries after the prune, ceiling is %d", held, cacheMaxEntries)
 	}
 }
 
-// A cached answer handed to one caller must not be writable by another: the
-// handler enriches records in place (ASN, country), and those writes must not
-// reach the cache or another request's answer.
+// The handler enriches records in place (ASN, country), so each caller needs its own copy.
 func TestCachedAnswerCannotBeMutatedByACaller(t *testing.T) {
 	t.Parallel()
 
@@ -158,7 +142,7 @@ func TestCachedAnswerCannotBeMutatedByACaller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second lookup: %v", err)
 	}
-	if !second.meta.cached {
+	if !second.Cached {
 		t.Error("the second identical question did not come from the cache")
 	}
 	if second.Records[0].ASN != "" {
@@ -166,8 +150,21 @@ func TestCachedAnswerCannotBeMutatedByACaller(t *testing.T) {
 	}
 }
 
-// A question that failed to reach the resolver is not cached: it says nothing
-// about the zone, and the next click should be free to try again.
+// A replayed TTL must not outlive the record, nor the countdown write into the cached copy.
+func TestCachedTTLsCountDown(t *testing.T) {
+	t.Parallel()
+
+	stored := Result{Records: []Record{{TTL: 300}, {TTL: 30}}}
+	got := cloneResult(stored, true, 90*time.Second)
+	if got.Records[0].TTL != 210 || got.Records[0].TTLHuman != "3m" || got.Records[1].TTL != 0 {
+		t.Errorf("aged records = %+v, want TTL 210 (3m) and a floor of 0", got.Records)
+	}
+	if stored.Records[0].TTL != 300 {
+		t.Error("the countdown wrote into the cached records")
+	}
+}
+
+// A transport failure says nothing about the zone, so the next click must be free to retry.
 func TestTransportFailuresAreNotCached(t *testing.T) {
 	t.Parallel()
 
@@ -176,10 +173,7 @@ func TestTransportFailuresAreNotCached(t *testing.T) {
 	if _, err := svc.lookup(context.Background(), "t.test.", "A", "127.0.0.1:1"); err == nil {
 		t.Fatal("a query to a dead address should fail")
 	}
-	svc.cache.mu.Lock()
-	held := len(svc.cache.m)
-	svc.cache.mu.Unlock()
-	if held != 0 {
+	if held := cacheLen(svc.cache); held != 0 {
 		t.Errorf("cache holds %d entries after a transport failure, want 0", held)
 	}
 	if !isTransportErr(errors.New("read udp: connection refused")) {
@@ -188,4 +182,10 @@ func TestTransportFailuresAreNotCached(t *testing.T) {
 	if isTransportErr(errNoData) || isTransportErr(errNXDomain) {
 		t.Error("an rcode we partition on was classed as a transport error")
 	}
+}
+
+func cacheLen(c *cache) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.m)
 }

@@ -1,19 +1,17 @@
 package dnstools
 
 import (
+	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 )
 
-// The MX half of /email, driven from constructed rdata: which hosts the
-// FCrDNS fan-out spends its five slots on, and what a null MX says.
-
 func TestMXPreferenceDecidesWhichHostsAreChecked(t *testing.T) {
 	t.Parallel()
 
-	// A comcast.net-shaped set: more hosts than maxMailHosts, across two
-	// priority levels, handed over in the order a rotating RRset produced.
+	// More hosts than maxMailHosts across two priorities, in a rotated RRset's order.
 	rotated := []Record{
 		{Type: "MX", Value: "20 mx3.example.net."},
 		{Type: "MX", Value: "10 mx1.example.net."},
@@ -23,15 +21,40 @@ func TestMXPreferenceDecidesWhichHostsAreChecked(t *testing.T) {
 		{Type: "MX", Value: "30 last.example.net."},
 	}
 
-	sorted := slices.Clone(rotated)
-	slices.SortStableFunc(sorted, func(a, b Record) int { return mxPref(a.Value) - mxPref(b.Value) })
+	hosts, _, _ := mailHosts(rotated)
 	var order []string
-	for _, rec := range sorted[:maxMailHosts] {
-		order = append(order, mxHost(rec.Value))
+	for _, h := range hosts[:maxMailHosts] {
+		order = append(order, h.host)
 	}
 	want := []string{"mx1.example.net", "mx2.example.net", "mx3.example.net", "mx4.example.net", "mx5.example.net"}
 	if !slices.Equal(order, want) {
 		t.Errorf("hosts a sender tries first = %v, want %v", order, want)
+	}
+}
+
+// 13 records: past the 12 Go sorts by insertion sort, so an unstable sort would reorder ties.
+func TestMailHostsKeepsRRsetOrderWithinAPreference(t *testing.T) {
+	t.Parallel()
+
+	var recs []Record
+	var want10, want20 []string
+	for i := range 13 {
+		host := fmt.Sprintf("mx%02d.example.net", i)
+		if i%3 == 0 {
+			recs = append(recs, Record{Type: "MX", Value: "20 " + host + "."})
+			want20 = append(want20, host)
+		} else {
+			recs = append(recs, Record{Type: "MX", Value: "10 " + host + "."})
+			want10 = append(want10, host)
+		}
+	}
+	hosts, _, _ := mailHosts(recs)
+	var got []string
+	for _, h := range hosts {
+		got = append(got, h.host)
+	}
+	if want := append(want10, want20...); !slices.Equal(got, want) {
+		t.Errorf("hosts = %v, want %v", got, want)
 	}
 }
 
@@ -60,9 +83,7 @@ func TestMXRdataParsing(t *testing.T) {
 	}
 }
 
-// A null MX is the zone saying it receives no mail. HasMX stays true because a
-// record is published, so the note is the only thing that stops the page
-// asserting the opposite of what the zone says.
+// HasMX stays true for a null MX, so only the note stops the page claiming the zone takes mail.
 func TestNullMXIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -83,10 +104,7 @@ func TestNullMXIsReported(t *testing.T) {
 	}
 }
 
-// "v=DKIM1; p=" under a _domainkey wildcard revokes every selector without a
-// record of its own, which is the recommended record for a domain that sends
-// no mail. It used to be reported as the opposite: "any selector a sender
-// invents will appear to be published".
+// A "v=DKIM1; p=" wildcard revokes every other selector, as recommended for a no-mail domain.
 func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 	t.Parallel()
 
@@ -96,17 +114,101 @@ func TestRevokingDKIMWildcardIsNotAProblem(t *testing.T) {
 	keyed.judge()
 
 	level := func(e *EmailAuth) string {
-		for _, n := range e.Notes {
-			if strings.Contains(n.Text, "wildcard") {
-				return n.Level
-			}
-		}
-		return ""
+		n, _ := noteWith(e.Notes, "wildcard")
+		return n.Level
 	}
 	if got := level(revoking); got != "ok" {
 		t.Errorf("revoking wildcard: level %q, want ok; notes %+v", got, revoking.Notes)
 	}
 	if got := level(keyed); got != "warn" {
 		t.Errorf("wildcard with a real key: level %q, want warn; notes %+v", got, keyed.Notes)
+	}
+}
+
+func TestJudgeGradesEachFinding(t *testing.T) {
+	t.Parallel()
+	spf := func(lookups int, voids ...string) *SPFResult {
+		return &SPFResult{Record: "v=spf1", Lookups: lookups, Limit: 10, Voids: voids, VoidLimit: 2}
+	}
+	strong := &DMARCResult{Name: "_dmarc.example.com", Policy: "reject", Aggregate: "mailto:r@example.com"}
+	host := []MailHost{{Host: "mx1.example.com", IP: "192.0.2.25", FCrDNS: true}}
+	sts := func(mode string) *MTASTSResult {
+		return &MTASTSResult{Fetched: true, PolicyFound: true, Mode: mode, MX: []string{"*.other.example"}}
+	}
+	cases := []struct {
+		name, level, substr string
+		e                   EmailAuth
+	}{
+		{"over the lookup limit", "fail", "needs 11 DNS lookups", EmailAuth{SPF: spf(11)}},
+		{"near the lookup limit", "warn", "uses 9 of the 10", EmailAuth{SPF: spf(9)}},
+		{"voids within the limit", "warn", "resolve to nothing", EmailAuth{SPF: spf(1, "gone.test")}},
+		{"voids past the limit", "fail", "resolve to nothing", EmailAuth{SPF: spf(3, "a.test", "b.test", "c.test")}},
+		{"partial pct", "warn", "pct=50", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "50"}}},
+		{"unparsable pct", "warn", "not a percentage (0-100)", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "abc"}}},
+		{"pct over 100", "warn", "not a percentage (0-100)", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "150"}}},
+		{"decimal pct", "warn", "not a percentage (0-100)", EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "100.0"}}},
+		{"null MX that also declares it sends nothing", "ok", "neither sends nor receives mail",
+			EmailAuth{HasMX: true, NullMX: true, SPF: &SPFResult{All: "-all", Limit: 10}, DMARC: strong}},
+		{"inherited sp=none is the policy", "warn", "policy is none", EmailAuth{DMARC: &DMARCResult{Policy: "reject", SubPolicy: "none", Inherited: true}}},
+		{"BIMI behind a strong policy", "ok", "BIMI", EmailAuth{BIMI: "v=BIMI1", DMARC: strong}},
+		{"BIMI with no DMARC", "fail", "BIMI", EmailAuth{BIMI: "v=BIMI1"}},
+		{"BIMI with sp=none", "fail", "BIMI", EmailAuth{BIMI: "v=BIMI1", DMARC: &DMARCResult{Policy: "reject", SubPolicy: "none"}}},
+		{"unusable MTA-STS policy", "fail", "can't be used (policy file unreachable)", EmailAuth{MTASTS: &MTASTSResult{PolicyError: "policy file unreachable"}}},
+		{"MX outside an enforced policy", "fail", "not listed", EmailAuth{MailHosts: host, MTASTS: sts("enforce")}},
+		{"MX outside a testing policy", "warn", "not listed", EmailAuth{MailHosts: host, MTASTS: sts("testing")}},
+		{"unresolved mail host", "fail", "don't resolve", EmailAuth{MailHosts: []MailHost{{Host: "gone.example.com"}}}},
+		{"no FCrDNS", "warn", "doesn't round-trip", EmailAuth{MailHosts: []MailHost{{Host: "mx1.example.com", IP: "192.0.2.25"}}}},
+		{"partial FCrDNS scope is stated", "ok", "the 1 of 3 mail hosts", EmailAuth{MailHosts: host, MXCount: 3}},
+	}
+	for _, c := range cases {
+		c.e.judge()
+		if !hasNote(c.e.Notes, c.level, c.substr) {
+			t.Errorf("%s: no %s note containing %q; got %+v", c.name, c.level, c.substr, c.e.Notes)
+		}
+	}
+
+	// A domain already declaring no mail must not be told to add the declarations it has.
+	done := EmailAuth{HasMX: true, NullMX: true, SPF: &SPFResult{All: "-all", Limit: 10}, DMARC: strong}
+	done.judge()
+	if hasNote(done.Notes, "info", "matching declarations") {
+		t.Errorf("null MX with -all and p=reject still advises adding them: %+v", done.Notes)
+	}
+	partial := EmailAuth{DMARC: &DMARCResult{Policy: "reject", Percent: "50"}}
+	partial.judge()
+	if hasNote(partial.Notes, "warn", "not a percentage") {
+		t.Errorf("a valid pct=50 is called not a percentage: %+v", partial.Notes)
+	}
+}
+
+// Both cards take null MX from mailHosts, so one /email response can't contradict itself.
+func TestNullMXMeansNoTargetButDot(t *testing.T) {
+	t.Parallel()
+
+	mx := func(vals ...string) (recs []Record) {
+		for _, v := range vals {
+			recs = append(recs, Record{Type: "MX", Value: v})
+		}
+		return recs
+	}
+	cases := []struct {
+		name           string
+		recs           []Record
+		null, conflict bool
+	}{
+		{"single null MX", mx("0 ."), true, false},
+		{"every target is dot", mx("0 .", "10 ."), true, false},
+		{"dot beside a real host", mx("0 .", "10 mx1.example.net."), false, true},
+		{"real hosts only", mx("10 mx1.example.net."), false, false},
+		{"no records", nil, false, false},
+	}
+	for _, c := range cases {
+		if _, null, conflict := mailHosts(c.recs); null != c.null || conflict != c.conflict {
+			t.Errorf("%s: mailHosts null, conflict = %v, %v; want %v, %v", c.name, null, conflict, c.null, c.conflict)
+		}
+		if c.null {
+			if _, null := newTestService().checkMailHosts(context.Background(), c.recs, ""); !null {
+				t.Errorf("%s: email card NullMX = false, reputation card says true", c.name)
+			}
+		}
 	}
 }

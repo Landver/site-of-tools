@@ -4,19 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/labstack/echo/v5"
-
-	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/platform/goldentest"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
@@ -187,26 +180,11 @@ const goldenCT = `[
   {"name_value": "api.example.com", "not_before": "2026-02-01T00:00:00", "not_after": "2027-02-01T00:00:00", "serial_number": "03"}
 ]`
 
-// goldenUpstream serves RDAP and CT with the given status codes and returns
-// the host:port their error messages embed, for scrubbing.
+// goldenUpstream also returns the host:port the upstream's error messages embed, for scrubbing.
 func goldenUpstream(t *testing.T, rdapCode, ctCode int) (*dnstools.DomainClient, string) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasPrefix(r.URL.Path, "/domain/") {
-			w.WriteHeader(rdapCode)
-			fmt.Fprint(w, goldenRDAP)
-			return
-		}
-		w.WriteHeader(ctCode)
-		fmt.Fprint(w, goldenCT)
-	}))
-	t.Cleanup(srv.Close)
-	u, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second), u.Host
+	dc, up := canned(t, goldenRDAP, rdapCode, goldenCT, ctCode)
+	return dc, up.host
 }
 
 type dnsCase struct {
@@ -223,13 +201,7 @@ func runDNSGolden(t *testing.T, file string, cases []dnsCase) {
 	t.Helper()
 	got := map[string]goldentest.Response{}
 	for _, tc := range cases {
-		e := echo.New()
-		e.Renderer = platform.NewRenderer(false, nil,
-			platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-			platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
-		)
-		dnstools.Register(e, tc.svc, tc.geo, tc.dom, tc.bl, nil)
-		rec := do(t, e, tc.target, nil)
+		rec := do(t, registerApp(tc.svc, tc.geo, tc.dom, tc.bl, nil), tc.target, nil)
 		body := rec.Body.String()
 		if tc.scrub != "" {
 			body = strings.ReplaceAll(body, tc.scrub, "upstream.test")

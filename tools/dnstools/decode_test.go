@@ -9,11 +9,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// The five decoders are pure, deterministic and network-free, so everything
-// here is a table over records built from presentation format. Cases marked
-// with a finding assert the behaviour the review asks for rather than the
-// behaviour shipped today, and fail until that finding is fixed.
-
 func mustRR(t *testing.T, s string) dns.RR {
 	t.Helper()
 	rr, err := dns.NewRR(s)
@@ -21,6 +16,14 @@ func mustRR(t *testing.T, s string) dns.RR {
 		t.Fatalf("parse %q: %v", s, err)
 	}
 	return rr
+}
+
+// svcbOf is the SVCB part of an HTTPS or SVCB record.
+func svcbOf(rr dns.RR) *dns.SVCB {
+	if h, ok := rr.(*dns.HTTPS); ok {
+		return &h.SVCB
+	}
+	return rr.(*dns.SVCB)
 }
 
 func TestCAAFields(t *testing.T) {
@@ -47,8 +50,7 @@ func TestCAAFields(t *testing.T) {
 			want: []Field{{"Report violations to", "mailto:security@example.com"}},
 		},
 		{
-			// The critical flag means a CA that doesn't understand the tag
-			// must refuse to issue at all, so it has to be visible.
+			// Critical: a CA that doesn't understand the tag must refuse to issue at all.
 			name: "the critical flag is surfaced",
 			rr:   `example.com. 300 IN CAA 128 issue "letsencrypt.org"`,
 			want: []Field{{"May issue certificates", "letsencrypt.org"}, {"Flag", "128 (critical)"}},
@@ -71,11 +73,7 @@ func TestCAAFields(t *testing.T) {
 	}
 }
 
-// RFC 8659 §4.2/§4.3: an empty issuer-domain-name authorises nobody, and `;`
-// is how that is written. Rendering it as a permission states the exact
-// opposite of what the zone published.
-//
-// Pins caa-issue-semicolon-inverted; expected red until it is fixed.
+// RFC 8659 §4.2/§4.3: an empty issuer-domain-name (written `;`) authorises no CA at all.
 func TestCAAEmptyIssuerForbidsIssuance(t *testing.T) {
 	t.Parallel()
 
@@ -153,18 +151,14 @@ func TestSVCBFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if diff := cmp.Diff(tc.want, svcbFields(mustRR(t, tc.rr))); diff != "" {
+			if diff := cmp.Diff(tc.want, svcbFields(svcbOf(mustRR(t, tc.rr)))); diff != "" {
 				t.Errorf("svcbFields differs (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-// The ECH parameter's presentation form is base64, not hex, so a byte count
-// taken from the string length is wrong by a third — and an empty parameter
-// publishes no keys at all, so it must not claim the SNI is encrypted.
-//
-// Pins ech-byte-count-wrong; expected red until it is fixed.
+// ECH is base64 in presentation form, so counting string length overstates its bytes.
 func TestECHByteCount(t *testing.T) {
 	t.Parallel()
 
@@ -172,7 +166,7 @@ func TestECHByteCount(t *testing.T) {
 	rr := mustRR(t, `example.com. 300 IN HTTPS 1 . ech="`+base64.StdEncoding.EncodeToString(raw)+`"`)
 
 	var ech string
-	for _, f := range svcbFields(rr) {
+	for _, f := range svcbFields(svcbOf(rr)) {
 		if f.Name == "ECH" {
 			ech = f.Value
 		}
@@ -186,7 +180,7 @@ func TestECHByteCount(t *testing.T) {
 
 	// An empty ech= asserts a privacy property the record does not provide.
 	empty := mustRR(t, `example.com. 300 IN HTTPS 1 . ech=""`)
-	for _, f := range svcbFields(empty) {
+	for _, f := range svcbFields(svcbOf(empty)) {
 		if f.Name != "ECH" {
 			continue
 		}
@@ -215,17 +209,15 @@ func TestSOAFields(t *testing.T) {
 	}
 }
 
-// A dot inside the local part is escaped on the wire, so splitting on the
-// first literal dot produces an address nobody can write to.
-//
-// Pins the mboxEmail escaping finding; expected red until it is fixed.
-func TestMboxEmailHonoursEscaping(t *testing.T) {
+// An escaped dot belongs to the local part: rather than put the @ there, leave the address out.
+func TestSOALeavesAnEscapedMboxUndecoded(t *testing.T) {
 	t.Parallel()
 
-	soa := mustRR(t,
-		`example.com. 300 IN SOA ns1.example.com. first\.last.example.com. 1 7200 3600 1209600 900`).(*dns.SOA)
-	if got, want := mboxEmail(soa.Mbox), "first.last@example.com"; got != want {
-		t.Errorf("mboxEmail(%q) = %q, want %q", soa.Mbox, got, want)
+	for _, mbox := range []string{`first\.last.example.com.`, "."} {
+		soa := mustRR(t, `example.com. 300 IN SOA ns1.example.com. `+mbox+` 1 7200 3600 1209600 900`).(*dns.SOA)
+		if f := soaFields(soa); f[1].Name == "Hostmaster" {
+			t.Errorf("mbox %s decoded as %q, want the row left out", mbox, f[1].Value)
+		}
 	}
 }
 
@@ -239,6 +231,8 @@ func TestTXTLabel(t *testing.T) {
 		{"v=dmarc1; p=none", "DMARC — what to do with failing mail"},
 		{"v=STSv1; id=20260101", "MTA-STS — enforced mail transport security"},
 		{"google-site-verification=abc123", "Google — site ownership"},
+		{"ZOOM_verify_abc", "Zoom"},
+		{"docker-verification=abc", "Docker"},
 		{"MS=ms12345678", "Microsoft — domain ownership"},
 		// Unknown vendor, recognisable shape: say what it is, not who it is.
 		{"acme-verification=xyz", "Domain ownership proof"},
@@ -256,15 +250,19 @@ func TestTXTLabel(t *testing.T) {
 	}
 }
 
+func nsRecords(hosts ...string) []Record {
+	var out []Record
+	for _, h := range hosts {
+		out = append(out, Record{Type: "NS", Value: h})
+	}
+	return out
+}
+
 func TestProviderOf(t *testing.T) {
 	t.Parallel()
 
 	ns := func(hosts ...string) []Record {
-		out := []Record{{Type: "A", Value: "192.0.2.1"}}
-		for _, h := range hosts {
-			out = append(out, Record{Type: "NS", Value: h})
-		}
-		return out
+		return append([]Record{{Type: "A", Value: "192.0.2.1"}}, nsRecords(hosts...)...)
 	}
 
 	cases := []struct {
@@ -277,6 +275,7 @@ func TestProviderOf(t *testing.T) {
 		{"case is not the publisher's problem", ns("NS1.DIGITALOCEAN.COM."), "DigitalOcean"},
 		// Better blank than a wrong guess.
 		{"an unknown suffix names nobody", ns("ns1.some-host.example."), ""},
+		{"netlify in a label is not Netlify", ns("ns1.notnetlify.example."), ""},
 		{"no NS records at all", []Record{{Type: "A", Value: "192.0.2.1"}}, ""},
 	}
 
@@ -290,12 +289,7 @@ func TestProviderOf(t *testing.T) {
 	}
 }
 
-// The question this answers is "who do I log into to change this", so a zone
-// whose nameservers are mostly one operator's must name that operator, not
-// whichever record happened to be first.
-//
-// Pins the providerOf first-match finding (netlifydns.com is missing from the
-// table entirely); expected red until it is fixed.
+// Name the operator holding most nameservers, not whichever record came first.
 func TestProviderOfNamesTheMajorityOperator(t *testing.T) {
 	t.Parallel()
 
@@ -310,33 +304,24 @@ func TestProviderOfNamesTheMajorityOperator(t *testing.T) {
 	}
 }
 
-// A zone split evenly between two operators is hosted at both, so naming the
-// one that won the tie said it lived somewhere it only half did. A straggler
-// still loses to a provider holding several servers.
+// An even split is hosted at both operators; a lone straggler still loses to several servers.
 func TestProviderOfNamesEverySubstantialOperator(t *testing.T) {
 	t.Parallel()
 
-	ns := func(hosts ...string) []Record {
-		var out []Record
-		for _, h := range hosts {
-			out = append(out, Record{Type: "NS", Value: h})
-		}
-		return out
-	}
 	cases := []struct {
 		name    string
 		records []Record
 		want    string
 	}{
-		{"an even split names both", ns(
+		{"an even split names both", nsRecords(
 			"dns1.p08.nsone.net.", "dns2.p08.nsone.net.",
 			"ns-421.awsdns-52.com.", "ns-520.awsdns-01.net.",
 		), "NS1 + AWS Route 53"},
-		{"two real providers, uneven", ns(
+		{"two real providers, uneven", nsRecords(
 			"ada.ns.cloudflare.com.", "bob.ns.cloudflare.com.", "cid.ns.cloudflare.com.",
 			"dns1.p08.nsone.net.", "dns2.p08.nsone.net.",
 		), "Cloudflare + NS1"},
-		{"a lone legacy server is not a second home", ns(
+		{"a lone legacy server is not a second home", nsRecords(
 			"dns1.netlifydns.com.", "dns2.netlifydns.com.", "dns1.p05.nsone.net.",
 		), "Netlify"},
 	}

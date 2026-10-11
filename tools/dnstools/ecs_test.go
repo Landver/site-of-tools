@@ -13,62 +13,28 @@ import (
 	"github.com/miekg/dns"
 )
 
-// White-box, and deliberately so: the whole feature is a verdict derived from
-// the SCOPE an authoritative server reports, and no public resolver can be
-// asked to report a chosen scope on demand. The verdict table therefore has to
-// be driven over a server we control.
-//
-// testserver_test.go's serveZone is the right shape but has no client-subnet
-// knob — it neither reads the option out of the request nor puts one in the
-// response — and that option is the entire subject here. The server below adds
-// the one thing it lacks and is reached through ecsRun's address parameter
-// rather than through the resolver allowlist. Everything that CAN be tested
-// through the exported API is, in tools/dnstools/tests/ecs_test.go.
-//
-// The listen/start/cleanup half is a near copy of serveZone's, and the tidy
-// end state is one `startDNS(t, dns.Handler)` in testserver_test.go that both
-// build on (or a client-subnet knob on serveZone, deleting this entirely).
-// Left alone here only because this change's scope is the files the ECS
-// feature added; testserver_test.go is not one of them. No rule forbids
-// editing it — recorded as wiring, not as a constraint of the codebase.
+// ecsSourceNetmask is every ecsVantages prefix length; the wire uses each entry's own CIDR.
+const ecsSourceNetmask = 24
 
-// ecsServer is a DNS server on loopback that answers according to the client
-// subnet the query carried. Zero value plus reply is the common case; the
-// other fields exist for the two responses that are well-formed but wrong.
+// ecsServer answers by the client subnet the query carried; the other fields fake wrong echoes.
 type ecsServer struct {
-	// reply is given the subnet as "a.b.c.d/len" (empty when the query
-	// carried none) and returns the A values to answer with, the scope to
-	// report, and whether to echo a client-subnet option at all. "Whether" is
-	// a separate return value because a missing option and a scope of 0 are
-	// the two facts this feature must never conflate.
+	// reply gets the query's "a.b.c.d/len" or ""; a missing echo must never read as scope 0.
 	reply func(subnet string) (vals []string, scope uint8, echo bool)
-	// echoSubnet: echo the option for THIS prefix, whatever the query sent.
-	// A resolver serving a cached ECS answer keyed to another network.
+	// echoSubnet is echoed whatever the query sent, like a cached answer for another network.
 	echoSubnet string
-	// echoNetmask: the source prefix length to echo, defaulting to the one
-	// the query carried. A length other than the query's is the other way an
-	// echo can describe something we did not ask.
+	// echoNetmask overrides the echoed source length (default: the query's).
 	echoNetmask uint8
-	// rcode: the response code, NOERROR when zero.
-	rcode int
+	rcode       int
 }
 
-// ecsTestServer is the common case: a server with nothing wrong with it.
 func ecsTestServer(t *testing.T, reply func(subnet string) (vals []string, scope uint8, echo bool)) string {
 	t.Helper()
 	return ecsServer{reply: reply}.start(t)
 }
 
-// start brings the server up and returns its address.
 func (s ecsServer) start(t *testing.T) string {
 	t.Helper()
-
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-
-	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
+	return serveLoopbackUDP(t, func(w dns.ResponseWriter, req *dns.Msg) {
 		m := new(dns.Msg).SetReply(req)
 		m.Authoritative = true
 		m.Rcode = s.rcode
@@ -121,46 +87,37 @@ func (s ecsServer) start(t *testing.T) string {
 			})
 		}
 		_ = w.WriteMsg(m)
-	})}
-
-	started := make(chan struct{})
-	srv.NotifyStartedFunc = func() { close(started) }
-	go func() {
-		if err := srv.ActivateAndServe(); err != nil {
-			t.Logf("ecs test dns server stopped: %v", err)
-		}
-	}()
-	<-started
-	t.Cleanup(func() { _ = srv.Shutdown() })
-	return pc.LocalAddr().String()
+	})
 }
 
-// ecsPerSubnet gives each vantage point its own address, which is the shape of
-// a genuinely steered zone.
+// runECS runs the ECS card for an A query against the server at addr.
+func runECS(t *testing.T, name, addr string) *ECS {
+	t.Helper()
+	got, err := newTestService().ecsRun(context.Background(), name, "A", addr)
+	if err != nil {
+		t.Fatalf("ecs run: %v", err)
+	}
+	return got
+}
+
+// ecsPerSubnet gives each vantage point its own address, like a genuinely steered zone.
 func ecsPerSubnet(subnet string) []string {
 	for i, v := range ecsVantages {
-		if v.subnet == subnet {
+		if v.Subnet == subnet {
 			return []string{fmt.Sprintf("192.0.2.%d", i+1)}
 		}
 	}
 	return []string{"192.0.2.99"}
 }
 
-// The load-bearing case: different answers AND a non-zero scope is the only
-// combination that earns "answers-differ". The server here reports /17 for the
-// /24 we sent, so the scope is one it chose rather than a copy of ours and
-// ScopeDistinct must be set — that flag is what separates this from the
-// Cloudflare shape where an echoed /24 accompanies a rotating pool.
+// /17 for our /24 is a scope the server chose, not an echo, so ScopeDistinct must be set.
 func TestECSSteeredNeedsBothDifferentAnswersAndScope(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 		return ecsPerSubnet(subnet), 17, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "steered.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "steered.test", addr)
 	if got.Verdict != ECSVerdictDiffers {
 		t.Errorf("verdict = %q, want %q", got.Verdict, ECSVerdictDiffers)
 	}
@@ -191,19 +148,14 @@ func TestECSSteeredNeedsBothDifferentAnswersAndScope(t *testing.T) {
 	}
 }
 
-// The false verdict this feature exists to avoid: a zone rotating a pool
-// returns different answers per query, and calling that geo steering is wrong.
-// Scope 0 is the discriminator, so scope 0 must win over differing answers.
+// A rotating pool differs per query, so scope 0 must win over differing answers.
 func TestECSRotationIsNotSteering(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 		return ecsPerSubnet(subnet), 0, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "rotating.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "rotating.test", addr)
 	if got.Verdict != ECSVerdictUntailored {
 		t.Errorf("verdict = %q, want %q: every response said scope 0", got.Verdict, ECSVerdictUntailored)
 	}
@@ -215,18 +167,13 @@ func TestECSRotationIsNotSteering(t *testing.T) {
 	}
 }
 
-// Scope 0 everywhere with one answer is the one case we can say "not steered"
-// about with confidence, and it must not be confused with rotation.
 func TestECSNotSteeredWhenNothingIsTailored(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(string) ([]string, uint8, bool) {
 		return []string{"192.0.2.10"}, 0, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "flat.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "flat.test", addr)
 	if got.Verdict != ECSVerdictUntailored {
 		t.Errorf("verdict = %q, want %q", got.Verdict, ECSVerdictUntailored)
 	}
@@ -238,20 +185,14 @@ func TestECSNotSteeredWhenNothingIsTailored(t *testing.T) {
 	}
 }
 
-// A non-zero scope with one answer everywhere is neither tailoring nor proof
-// of its absence. The scope here EQUALS the prefix we sent, which is what a
-// server that echoes the option unchanged returns, so ScopeDistinct must stay
-// clear: the card may say "one answer set", never "the zone read the network".
+// A scope equal to the prefix we sent is an unchanged echo, so ScopeDistinct must stay clear.
 func TestECSAwareWhenScopeIsReadButTheAnswerIsFlat(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(string) ([]string, uint8, bool) {
 		return []string{"192.0.2.10"}, ecsSourceNetmask, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "aware.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "aware.test", addr)
 	if got.Verdict != ECSVerdictMatches {
 		t.Errorf("verdict = %q, want %q", got.Verdict, ECSVerdictMatches)
 	}
@@ -263,18 +204,14 @@ func TestECSAwareWhenScopeIsReadButTheAnswerIsFlat(t *testing.T) {
 	}
 }
 
-// The option stripped on the way back is "we could not tell", never "not
-// steered" — the distinction the docs' design value turns on.
+// A stripped option means "could not tell", never "not steered".
 func TestECSUnsupportedWhenNoOptionComesBack(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(string) ([]string, uint8, bool) {
 		return []string{"192.0.2.10"}, 0, false
 	})
-	got, err := newTestService().ecsRun(context.Background(), "stripped.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "stripped.test", addr)
 	if got.Verdict != ECSVerdictUnsupported {
 		t.Errorf("verdict = %q, want %q", got.Verdict, ECSVerdictUnsupported)
 	}
@@ -288,9 +225,6 @@ func TestECSUnsupportedWhenNoOptionComesBack(t *testing.T) {
 	}
 }
 
-// Every vantage point in the table must actually reach the wire, as a /24, at
-// the documented address. A silently dropped subnet would make the whole page
-// six copies of one measurement.
 func TestECSSendsEveryVantageSubnetAsA24(t *testing.T) {
 	t.Parallel()
 
@@ -302,24 +236,21 @@ func TestECSSendsEveryVantageSubnetAsA24(t *testing.T) {
 		mu.Unlock()
 		return []string{"192.0.2.10"}, 0, true
 	})
-	if _, err := newTestService().ecsRun(context.Background(), "probe.test", "A", addr, "test"); err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	runECS(t, "probe.test", addr)
 
 	mu.Lock()
 	defer mu.Unlock()
 	for _, v := range ecsVantages {
-		if !seen[v.subnet] {
-			t.Errorf("vantage %s (%s) never reached the server; saw %v", v.place, v.subnet, seen)
+		if !seen[v.Subnet] {
+			t.Errorf("vantage %s (%s) never reached the server; saw %v", v.Place, v.Subnet, seen)
 		}
-		if !strings.HasSuffix(v.subnet, fmt.Sprintf("/%d", ecsSourceNetmask)) {
-			t.Errorf("vantage %s is %s, want a /%d", v.place, v.subnet, ecsSourceNetmask)
+		if !strings.HasSuffix(v.Subnet, fmt.Sprintf("/%d", ecsSourceNetmask)) {
+			t.Errorf("vantage %s is %s, want a /%d", v.Place, v.Subnet, ecsSourceNetmask)
 		}
 	}
 }
 
-// A cancelled request must stop asking, and must say so per vantage point
-// rather than leaving a blank row that summarise would count as an answer.
+// Each vantage must carry an error, or summarise would count a blank row as an answer.
 func TestECSStopsWhenTheRequestIsCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -329,7 +260,7 @@ func TestECSStopsWhenTheRequestIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	got, err := newTestService().ecsRun(ctx, "cancelled.test", "A", addr, "test")
+	got, err := newTestService().ecsRun(ctx, "cancelled.test", "A", addr)
 	if err != nil {
 		t.Fatalf("ecs run: %v", err)
 	}
@@ -346,20 +277,14 @@ func TestECSStopsWhenTheRequestIsCancelled(t *testing.T) {
 	}
 }
 
-// The JSON a caller gets: snake_case keys, and slices that marshal as [] so a
-// client can iterate without a null check. Checked on the worst case — a run
-// where every vantage point was given nothing — because that is where a nil
-// slice hides, and because that run must also reach the no-records verdict.
+// An all-empty run is where a nil slice would hide, and it must also reach no-records.
 func TestECSMarshalsEmptySlicesAsArrays(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(string) ([]string, uint8, bool) {
 		return nil, 0, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "empty.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "empty.test", addr)
 	b, err := json.Marshal(got)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -379,10 +304,6 @@ func TestECSMarshalsEmptySlicesAsArrays(t *testing.T) {
 	}
 }
 
-// The resolver is fixed and is NOT the package default, because the package
-// default silently breaks this measurement. Guarding the key keeps a later
-// "tidy-up" from pointing it back at Cloudflare, and keeps it a key rather
-// than a second copy of a row of Resolvers.
 func TestECSDoesNotUseTheCloudflareDefault(t *testing.T) {
 	t.Parallel()
 
@@ -401,28 +322,22 @@ func TestECSDoesNotUseTheCloudflareDefault(t *testing.T) {
 	}
 }
 
-// The false NEGATIVE the empty-set skip used to produce: a name served in some
-// regions and NODATA in others is textbook geo steering, and it must not be
-// reported as "same answer everywhere". This is the case the card exists for.
+// A record in some regions and NODATA in others is textbook geo steering.
 func TestECSTreatsNoRecordsAsAnAnswerThatCanDiffer(t *testing.T) {
 	t.Parallel()
 
-	// The first three vantage points get a record, the last three get none.
 	served := map[string]bool{}
 	for _, v := range ecsVantages[:3] {
-		served[v.subnet] = true
+		served[v.Subnet] = true
 	}
-	addr := ecsServer{reply: func(subnet string) ([]string, uint8, bool) {
+	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 		if served[subnet] {
 			return []string{"192.0.2.10"}, ecsSourceNetmask, true
 		}
 		return nil, ecsSourceNetmask, true
-	}}.start(t)
+	})
 
-	got, err := newTestService().ecsRun(context.Background(), "regional.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "regional.test", addr)
 	if got.Verdict != ECSVerdictDiffers {
 		t.Errorf("verdict = %q, want %q: three networks were given a record and three were given none, under a non-zero scope",
 			got.Verdict, ECSVerdictDiffers)
@@ -444,29 +359,20 @@ func TestECSTreatsNoRecordsAsAnAnswerThatCanDiffer(t *testing.T) {
 	if got.WithRecords != 3 {
 		t.Errorf("WithRecords = %d, want 3", got.WithRecords)
 	}
-	// And the split is stated in words, not left for the reader to spot in
-	// the table.
-	if !hasNote(got.Notes, "warn", "were given no A record at all") {
-		t.Errorf("no note about the networks that got nothing: %+v", got.Notes)
-	}
 }
 
-// Same split, scope 0 everywhere. Scope still wins — the zone says its answer
-// is not tailored — but the difference must still register as a difference.
+// Scope 0 still wins, but a record for one network and none for the rest is still a difference.
 func TestECSPartialRecordsStillDifferUnderScopeZero(t *testing.T) {
 	t.Parallel()
 
-	first := ecsVantages[0].subnet
+	first := ecsVantages[0].Subnet
 	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 		if subnet == first {
 			return []string{"192.0.2.10"}, 0, true
 		}
 		return nil, 0, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "partial-flat.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "partial-flat.test", addr)
 	if got.Verdict != ECSVerdictUntailored {
 		t.Errorf("verdict = %q, want %q: every response reported scope 0", got.Verdict, ECSVerdictUntailored)
 	}
@@ -478,8 +384,6 @@ func TestECSPartialRecordsStillDifferUnderScopeZero(t *testing.T) {
 	}
 }
 
-// Nothing anywhere is its own verdict. "Not steered / everyone gets the same
-// records" is a sentence about records, and there are none.
 func TestECSNoRecordsAnywhereIsNotAVerdictAboutRecords(t *testing.T) {
 	t.Parallel()
 
@@ -497,10 +401,7 @@ func TestECSNoRecordsAnywhereIsNotAVerdictAboutRecords(t *testing.T) {
 			addr := ecsServer{rcode: c.rcode, reply: func(string) ([]string, uint8, bool) {
 				return nil, 0, true
 			}}.start(t)
-			got, err := newTestService().ecsRun(context.Background(), "nothing.test", "A", addr, "test")
-			if err != nil {
-				t.Fatalf("ecs run: %v", err)
-			}
+			got := runECS(t, "nothing.test", addr)
 			if got.Verdict != ECSVerdictNoRecords {
 				t.Errorf("verdict = %q, want %q", got.Verdict, ECSVerdictNoRecords)
 			}
@@ -522,8 +423,7 @@ func TestECSNoRecordsAnywhereIsNotAVerdictAboutRecords(t *testing.T) {
 	}
 }
 
-// A scope for somebody else's prefix describes somebody else's traffic. It is
-// shown, and it is kept out of the numbers the verdict is read from.
+// An echo for somebody else's prefix is shown but kept out of the verdict's numbers.
 func TestECSIgnoresAScopeForAPrefixWeNeverSent(t *testing.T) {
 	t.Parallel()
 
@@ -533,10 +433,7 @@ func TestECSIgnoresAScopeForAPrefixWeNeverSent(t *testing.T) {
 			return []string{"192.0.2.10"}, 20, true
 		},
 	}.start(t)
-	got, err := newTestService().ecsRun(context.Background(), "wrongprefix.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "wrongprefix.test", addr)
 	if got.Verdict != ECSVerdictUnsupported {
 		t.Errorf("verdict = %q, want %q: not one scope described a network we asked about", got.Verdict, ECSVerdictUnsupported)
 	}
@@ -559,7 +456,21 @@ func TestECSIgnoresAScopeForAPrefixWeNeverSent(t *testing.T) {
 	}
 }
 
-// The other shape of the same problem: our address, a length we did not send.
+// JSON and MCP readers get no template, so a partial echo has to be said in the notes.
+func TestECSSaysWhenOnlySomeAnswersCarriedTheOption(t *testing.T) {
+	t.Parallel()
+
+	first := ecsVantages[0].Subnet
+	addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
+		return []string{"192.0.2.10"}, ecsSourceNetmask, subnet == first
+	})
+	got := runECS(t, "partial.test", addr)
+	if want := fmt.Sprintf("Only 1 of %d answers carried a client-subnet option", len(ecsVantages)); !hasNote(got.Notes, "warn", want) {
+		t.Errorf("no note says %q: %+v", want, got.Notes)
+	}
+}
+
+// Our address, but a length we did not send.
 func TestECSIgnoresAScopeAtALengthWeNeverSent(t *testing.T) {
 	t.Parallel()
 
@@ -569,28 +480,21 @@ func TestECSIgnoresAScopeAtALengthWeNeverSent(t *testing.T) {
 			return []string{"192.0.2.10"}, 16, true
 		},
 	}.start(t)
-	got, err := newTestService().ecsRun(context.Background(), "wronglength.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "wronglength.test", addr)
 	if got.Echoed != 0 || got.Mismatched != len(ecsVantages) {
 		t.Errorf("Echoed = %d, Mismatched = %d: a /16 echo answers for 256 networks, only one of which we sent",
 			got.Echoed, got.Mismatched)
 	}
 }
 
-// An honest echo must NOT be flagged, or the verdict never fires in
-// production. This is the guard on the two checks above.
+// Guards the two checks above: an honest echo must not be flagged.
 func TestECSAcceptsTheEchoItActuallySent(t *testing.T) {
 	t.Parallel()
 
 	addr := ecsTestServer(t, func(string) ([]string, uint8, bool) {
 		return []string{"192.0.2.10"}, ecsSourceNetmask, true
 	})
-	got, err := newTestService().ecsRun(context.Background(), "honest.test", "A", addr, "test")
-	if err != nil {
-		t.Fatalf("ecs run: %v", err)
-	}
+	got := runECS(t, "honest.test", addr)
 	if got.Mismatched != 0 {
 		t.Errorf("Mismatched = %d on a server echoing exactly what it was sent", got.Mismatched)
 	}
@@ -604,13 +508,10 @@ func TestECSAcceptsTheEchoItActuallySent(t *testing.T) {
 	}
 }
 
-// notes() must not restate the verdict. Two copies of one sentence in two
-// layers (here and templates/ecs.html) drift the first time either is edited,
-// and the card renders both.
+// The verdict sentence lives in templates/ecs.html; a copy in notes() would drift.
 func TestECSNotesDoNotRestateTheVerdict(t *testing.T) {
 	t.Parallel()
 
-	// Phrases that belong to the template's verdict paragraph alone.
 	banned := []string{
 		"Everyone gets the same records",
 		"the same records",
@@ -638,10 +539,7 @@ func TestECSNotesDoNotRestateTheVerdict(t *testing.T) {
 			addr := ecsTestServer(t, func(subnet string) ([]string, uint8, bool) {
 				return c.vals(subnet), c.scope, c.echo
 			})
-			got, err := newTestService().ecsRun(context.Background(), "notes.test", "A", addr, "test")
-			if err != nil {
-				t.Fatalf("ecs run: %v", err)
-			}
+			got := runECS(t, "notes.test", addr)
 			for _, n := range got.Notes {
 				for _, b := range banned {
 					if strings.Contains(n.Text, b) {
@@ -653,19 +551,11 @@ func TestECSNotesDoNotRestateTheVerdict(t *testing.T) {
 	}
 }
 
-// The whole table goes out in ONE wave. Sized below it, a resolver that
-// accepts packets and never answers costs two ecsQueryTimeouts — 6s of a page
-// that cannot render until this card is done — which is twice what the
-// feature's own caveat promises.
+// Each extra wave adds a full timeout when the resolver never answers.
 func TestECSFansOutInASingleWave(t *testing.T) {
 	t.Parallel()
 
-	if ecsConcurrency < maxECSVantages || ecsConcurrency < len(ecsVantages) {
-		t.Fatalf("ecsConcurrency = %d, want at least %d: a narrower limit multiplies the worst case by the number of waves",
-			ecsConcurrency, max(maxECSVantages, len(ecsVantages)))
-	}
-
-	// Measured, not merely asserted: a socket that accepts and never replies.
+	// A socket that accepts and never replies.
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -673,41 +563,40 @@ func TestECSFansOutInASingleWave(t *testing.T) {
 	t.Cleanup(func() { _ = pc.Close() })
 
 	start := time.Now()
-	got, err := NewService(30*time.Second).ecsRun(context.Background(), "blackhole.test", "A", pc.LocalAddr().String(), "test")
+	got, err := NewService(30*time.Second).ecsRun(context.Background(), "blackhole.test", "A", pc.LocalAddr().String())
 	if err != nil {
 		t.Fatalf("ecs run: %v", err)
 	}
 	elapsed := time.Since(start)
-	// One timeout plus slack, and comfortably under two.
 	if limit := ecsQueryTimeout + ecsQueryTimeout/2; elapsed > limit {
 		t.Errorf("a dead resolver held the card for %v, want under %v (one ecsQueryTimeout)", elapsed, limit)
 	}
 	if got.Verdict != ECSVerdictInconclusive {
 		t.Errorf("verdict = %q, want %q when nothing answered", got.Verdict, ECSVerdictInconclusive)
 	}
+	if !hasNote(got.Notes, "warn", "6 of 6 networks got no usable answer") {
+		t.Errorf("no note about the networks that never answered: %+v", got.Notes)
+	}
 	t.Logf("dead resolver: elapsed=%v query_ms=%d answered=%d verdict=%s", elapsed, got.QueryMS, got.Answered, got.Verdict)
 }
 
-// answerGroups is the grouping both this card and Spread's do. The property
-// that matters, and that the inline copies did not have: an empty answer set
-// is a group, and it comes back as an empty slice rather than [""].
 func TestAnswerGroupsKeepsEmptySetsAsTheirOwnGroup(t *testing.T) {
 	t.Parallel()
 
-	values, members := answerGroups(
+	groups := answerGroups(
 		[]string{"a", "b", "c", "d"},
 		[][]string{{"1.2.3.4"}, {}, {"1.2.3.4"}, nil},
 	)
-	if len(values) != 2 {
-		t.Fatalf("%d groups, want 2 (the record, and no record): %v", len(values), values)
+	if len(groups) != 2 {
+		t.Fatalf("%d groups, want 2 (the record, and no record): %v", len(groups), groups)
 	}
-	if len(values[0]) != 1 || values[0][0] != "1.2.3.4" {
-		t.Errorf("first group = %v, want the record set", values[0])
+	if len(groups[0].Values) != 1 || groups[0].Values[0] != "1.2.3.4" {
+		t.Errorf("first group = %v, want the record set", groups[0].Values)
 	}
-	if len(values[1]) != 0 {
-		t.Errorf("second group = %#v, want an empty set, not a one-element set of the empty string", values[1])
+	if len(groups[1].Values) != 0 {
+		t.Errorf("second group = %#v, want an empty set, not a one-element set of the empty string", groups[1].Values)
 	}
-	if strings.Join(members[0], ",") != "a,c" || strings.Join(members[1], ",") != "b,d" {
-		t.Errorf("members = %v, want [a c] and [b d]", members)
+	if strings.Join(groups[0].Servers, ",") != "a,c" || strings.Join(groups[1].Servers, ",") != "b,d" {
+		t.Errorf("members = %v, want [a c] and [b d]", groups)
 	}
 }

@@ -2,54 +2,20 @@ package dnstools
 
 import (
 	"context"
-	"net"
+	"encoding/hex"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/miekg/dns"
 )
 
 // serveADZone is serveZone that also sets AD on the given query types.
 func serveADZone(t *testing.T, z testZone, ad map[string]bool) string {
 	t.Helper()
-
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
-		m := new(dns.Msg).SetReply(req)
-		if len(req.Question) == 1 {
-			q := req.Question[0]
-			qtype := dns.TypeToString[q.Qtype]
-			for _, s := range z[zoneKey(q.Name, qtype)] {
-				rr, err := dns.NewRR(s)
-				if err != nil {
-					t.Errorf("canned record %q: %v", s, err)
-					continue
-				}
-				m.Answer = append(m.Answer, rr)
-			}
-			m.AuthenticatedData = ad[qtype]
-		}
-		_ = w.WriteMsg(m)
-	})}
-	started := make(chan struct{})
-	srv.NotifyStartedFunc = func() { close(started) }
-	go func() { _ = srv.ActivateAndServe() }()
-	<-started
-	t.Cleanup(func() { _ = srv.Shutdown() })
-
-	addr := pc.LocalAddr().String()
-	key := "test-" + addr
-	testResolvers.mu.Lock()
-	testResolvers.m[key] = addr
-	testResolvers.mu.Unlock()
-	t.Cleanup(func() {
-		testResolvers.mu.Lock()
-		delete(testResolvers.m, key)
-		testResolvers.mu.Unlock()
+	key, _ := serveZoneWith(t, z, func(m *dns.Msg, q dns.Question) {
+		m.AuthenticatedData = ad[dns.TypeToString[q.Qtype]]
 	})
 	return key
 }
@@ -85,7 +51,6 @@ func TestAuthenticatedMeansEveryAnswer(t *testing.T) {
 		t.Errorf("every answer validated: Authenticated = %v, Unvalidated = %v", set.Authenticated, set.Unvalidated)
 	}
 
-	// No AD anywhere: nothing to list.
 	none := serveADZone(t, z, nil)
 	set, err = newTestService().LookupSet(context.Background(), "alias.test", none, types)
 	if err != nil {
@@ -127,17 +92,12 @@ func TestRecordTargetNamesTheHost(t *testing.T) {
 		{"example.com. 300 IN MX 0 .", ""},
 		{"example.com. 300 IN A 192.0.2.1", ""},
 	} {
-		rr, err := dns.NewRR(tc.rr)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.rr, err)
-		}
-		if got := toRecord(rr).Target; got != tc.want {
+		if got := toRecord(mustRR(t, tc.rr)).Target; got != tc.want {
 			t.Errorf("%s: Target = %q, want %q", tc.rr, got, tc.want)
 		}
 	}
 }
 
-// Identical failures fold into one group.
 func TestFailureGroupsFoldIdenticalFailures(t *testing.T) {
 	t.Parallel()
 
@@ -172,5 +132,70 @@ func TestTXTRankPutsSPFFirst(t *testing.T) {
 	slices.SortStableFunc(recs, func(a, b Record) int { return txtRank(a) - txtRank(b) })
 	if recs[0].Value != `"v=spf1 -all"` || recs[2].Value != `"opaque-token"` {
 		t.Errorf("order = %v", recs)
+	}
+}
+
+// The loopback server is UDP only, so the TC=1 reply's TCP retry is refused.
+func TestTruncatedReplyWithFailedTCPRetryIsAFailure(t *testing.T) {
+	t.Parallel()
+
+	addr := serveLoopbackUDP(t, func(w dns.ResponseWriter, req *dns.Msg) {
+		m := new(dns.Msg).SetReply(req)
+		m.Truncated = true
+		m.Answer = append(m.Answer, mustRR(t, "tc.test. 300 IN A 192.0.2.1"))
+		_ = w.WriteMsg(m)
+	})
+	res, err := newTestService().exchange(context.Background(), "tc.test.", "A", addr)
+	if err == nil || !strings.Contains(err.Error(), "TCP retry failed") {
+		t.Errorf("err = %v, want the failed TCP retry named", err)
+	}
+	if len(res.Records) != 0 {
+		t.Errorf("records = %v, want none: a fragment must not pass for the whole RRset", res.Records)
+	}
+	if !isTransportErr(err) {
+		t.Errorf("%v is cacheable, but a failed retry says nothing about the zone", err)
+	}
+}
+
+func TestEDNSOptionsAreRead(t *testing.T) {
+	t.Parallel()
+
+	msg := func(opts ...dns.EDNS0) *dns.Msg {
+		m := new(dns.Msg)
+		m.SetEdns0(1232, false)
+		m.IsEdns0().Option = opts
+		return m
+	}
+	nsid := func(hexed string) dns.EDNS0 { return &dns.EDNS0_NSID{Code: dns.EDNS0NSID, Nsid: hexed} }
+
+	for _, tc := range []struct {
+		name string
+		m    *dns.Msg
+		want *EDE
+	}{
+		{"registered code", msg(&dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeBlocked, ExtraText: "by policy"}),
+			&EDE{Code: dns.ExtendedErrorCodeBlocked, Text: "Blocked", Extra: "by policy"}},
+		{"unregistered code", msg(&dns.EDNS0_EDE{InfoCode: 999}), &EDE{Code: 999, Text: "Unknown"}},
+		{"no EDE option", msg(nsid("00")), nil},
+	} {
+		if diff := cmp.Diff(tc.want, edeOf(tc.m)); diff != "" {
+			t.Errorf("%s: edeOf (-want +got):\n%s", tc.name, diff)
+		}
+	}
+
+	for _, tc := range []struct {
+		name string
+		m    *dns.Msg
+		want string
+	}{
+		{"printable", msg(nsid(hex.EncodeToString([]byte("ams01")))), "ams01"},
+		{"binary stays hex", msg(nsid("00ff")), "00ff"},
+		{"empty", msg(nsid("")), ""},
+		{"no option", msg(), ""},
+		{"no OPT record", new(dns.Msg), ""},
+	} {
+		if got := nsidOf(tc.m); got != tc.want {
+			t.Errorf("%s: nsidOf = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

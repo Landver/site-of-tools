@@ -1,0 +1,200 @@
+{{/* Every page of the tool: .Active picks the intro, the form's fields and the result cards. */}}
+{{define "dns/page"}}
+{{$a := .Active}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-20 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-strong">Skip to the tool</a>
+  {{template "partials/header" .}}
+
+  <main id="main" class="page-main">
+    {{template "dns/nav" .}}
+    {{if .Retry}}
+    <h1 class="text-2xl font-semibold text-strong">Slow down a moment</h1>
+    <p class="mt-3 text-sm text-muted">{{.Error}}</p>
+    <p class="mt-4 text-sm"><a href="{{.Retry}}" class="link-brand">Try again</a></p>
+    {{else}}
+    <h1 class="text-2xl font-semibold text-strong">{{.Title}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      {{if eq $a "lookup"}}
+      Nine record types at once, asked in parallel: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA and HTTPS.
+      Enter an IP to get its reverse (PTR) record instead.
+      {{else if eq $a "consistency"}}
+      Is your change live yet? This asks the zone's own nameservers directly (up to eight of them), with
+      recursion off, and compares them against the public resolvers. No world map: one server can't honestly
+      measure geography.
+      {{else if eq $a "trace"}}
+      Follows the delegation from a root server down to the zone that owns the name, asking each server
+      directly with recursion off, and checks the DNSSEC chain itself against the IANA root keys rather
+      than trusting a resolver's AD bit. Every hop is shown, with its server, glue and timing.
+      {{else if eq $a "domain"}}
+      Two things DNS can't tell you: which registrar holds this name and when it expires (RDAP), and which
+      subdomains have had public certificates (Certificate Transparency). Both are public, and neither sends
+      a packet at the domain.
+      {{else}}
+      SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI for a domain, plus whether its inbound mail servers are on
+      a blocklist. SPF is checked against its 10-lookup limit: over it, SPF fails for every message, silently.
+      {{end}}
+    </p>
+
+    <form hx-get="/{{if ne $a "lookup"}}{{$a}}{{end}}" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace"
+          data-busy="{{if eq $a "lookup"}}Querying every record type…{{else if eq $a "consistency"}}Asking the zone's nameservers directly…{{else if eq $a "trace"}}Walking down from the root…{{else if eq $a "domain"}}Reading the registry record…{{else}}Checking SPF, DMARC, DKIM, MTA-STS…{{end}}"
+          class="mt-6 flex flex-wrap gap-2">
+      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
+             aria-label="{{if eq $a "lookup"}}Domain name or IP address to look up{{else if eq $a "consistency"}}Domain name to check{{else if eq $a "trace"}}Domain name to trace{{else if eq $a "domain"}}Domain name{{else}}Domain name, or an email address{{end}}"
+             placeholder="{{if eq $a "lookup"}}example.com or an IP{{else if eq $a "email"}}example.com or you@example.com{{else}}example.com{{end}}" class="field basis-full sm:basis-0">
+      {{with .Types}}
+      <select name="type" aria-label="Record type"
+              class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
+        {{if eq $a "lookup"}}<option value="all"{{if not $.QType}} selected{{end}}>All types</option>{{end}}
+        {{range .}}<option value="{{.}}"{{if eq . $.QType}} selected{{end}}>{{.}}</option>{{end}}
+      </select>
+      {{end}}
+      {{with .Resolvers}}
+      <select name="resolver" aria-label="Resolver to query"
+              class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
+        {{range .}}<option value="{{.Key}}"{{if eq .Key $.Resolver}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      {{end}}
+      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
+        {{/* One grid cell for both labels: the button keeps its width in flight. */}}
+        <span class="inline-grid">
+          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">{{if eq $a "trace"}}Trace{{else if or (eq $a "consistency") (eq $a "email")}}Check{{else}}Look up{{end}}</span>
+          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">{{if eq $a "trace"}}Tracing…{{else if or (eq $a "consistency") (eq $a "email")}}Checking…{{else}}Looking up…{{end}}</span>
+        </span>
+      </button>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 space-y-3 text-muted">
+        <p>Same URL, content-negotiated: browsers get the page, everything else gets JSON.</p>
+        <div class="space-y-2 font-mono text-xs wrap-anywhere">
+          {{if eq $a "lookup"}}
+          <p><span class="text-faint"># every type at once (JSON)</span><br>
+             <span class="text-strong">curl 'https://dns.corpberry.com/?name=example.com'</span></p>
+          <p><span class="text-faint"># narrow to one type, from Quad9</span><br>
+             <span class="text-strong">curl 'https://dns.corpberry.com/?name=example.com&type=MX&resolver=quad9'</span></p>
+          <p><span class="text-faint"># reverse lookup — just pass the IP</span><br>
+             <span class="text-strong">curl 'https://dns.corpberry.com/?name=1.1.1.1'</span></p>
+          {{else}}
+          <p class="text-strong">curl 'https://dns.corpberry.com/{{$a}}?name=example.com'</p>
+          {{if .Types}}<p class="text-strong">curl 'https://dns.corpberry.com/{{$a}}?name=example.com&type=MX'</p>{{end}}
+          {{end}}
+        </div>
+        {{if eq $a "trace"}}
+        <p class="text-xs">
+          The nearest equivalent is <span class="font-mono text-strong">dig +trace +dnssec example.com</span>,
+          which prints the same walk but leaves you to check the digests and signatures yourself.
+        </p>
+        {{end}}
+        {{template "partials/mcp-hint" "dns"}}
+      </div>
+    </details>
+
+    {{/* The live region dns/frag writes into; #result is display:contents, so cards are grid items. */}}
+    <p id="dns-status" role="status" class="sr-only"></p>
+    <div class="mt-6 grid gap-4 items-start sm:grid-cols-2 transition-opacity in-[main:has(form.htmx-request)]:opacity-50">
+      <div id="result" class="contents">
+        {{template "dns/frag" .}}
+      </div>
+    </div>
+    {{end}}
+  </main>
+
+  {{template "partials/footer" .}}
+  {{template "partials/htmx-errors" .}}
+  {{template "partials/htmx-history" .}}
+  {{if eq $a "lookup"}}
+  {{template "partials/copy" .}}
+  {{/* Copy needs script. */}}
+  <noscript><style>[data-copy]{display:none}</style></noscript>
+  {{end}}
+{{/* Status line in flight, aria-invalid after an error, the phone keyboard folded on a result. */}}
+<script>
+  (function () {
+    var on = function (event, f) { document.body.addEventListener(event, f) }
+    var status = function (text) {
+      var el = document.getElementById('dns-status')
+      if (el) el.textContent = text
+    }
+    on('htmx:beforeRequest', function (e) {
+      var form = e.detail.elt.closest && e.detail.elt.closest('form[data-busy]')
+      if (form) status(form.dataset.busy)
+    })
+    on('htmx:afterSwap', function (e) {
+      if (e.detail.target.id !== 'result') return
+      var input = document.querySelector('main form input[name=name]')
+      if (input && document.getElementById('dns-error')) {
+        input.setAttribute('aria-invalid', 'true')
+        input.setAttribute('aria-describedby', 'dns-error')
+      } else if (input) {
+        input.removeAttribute('aria-invalid')
+        input.removeAttribute('aria-describedby')
+      }
+      // Fold the phone keyboard over the result; keyboard users keep the caret.
+      var el = document.activeElement
+      if (matchMedia('(pointer: coarse)').matches && el && el.matches('main form input')) el.blur()
+    })
+    on('htmx:historyRestore', function () { status(document.title) })
+    // Don't stack rate-limit notices.
+    on('htmx:beforeSwap', function (e) {
+      if (e.detail.xhr.status === 429) document.querySelectorAll('#result > [data-transient]').forEach(function (el) { el.remove() })
+    })
+    // The offline box announces itself (role=alert).
+    on('htmx:sendError', function () { status('') })
+  })()
+</script>
+</body>
+</html>
+{{end}}
+
+{{/* #result's content and the htmx answer: nav, title and status out of band, then the route's cards. */}}
+{{define "dns/frag"}}
+{{if .OOB}}
+<title>{{with .TitleName}}{{.}} · {{end}}{{.Title}}</title>
+{{template "dns/nav" .}}
+<p id="dns-status" hx-swap-oob="innerHTML">{{if .Error}}{{.Error}}{{else if .TitleName}}Results for {{.TitleName}} are below.{{end}}</p>
+{{end}}
+{{if .Error}}
+{{/* id: the input's aria-describedby points here. */}}
+<div id="dns-error" class="alert-error sm:col-span-2">
+  {{.Error}}
+  {{if .ErrIP}}
+  <span class="mt-1 block text-strong">For an address, try its <a href="/?name={{.Query}}" class="link-brand">reverse lookup</a>
+    or <a href="{{toolURL "ip"}}/?ip={{.Query}}" class="link-brand">IP Tools</a>.</span>
+  {{end}}
+</div>
+{{else if .Query}}
+{{/* Shown when the input was read as something else (a URL's host, punycode). */}}
+{{if or .Unicode .Typed}}
+<p class="-mb-2 text-xs text-faint wrap-anywhere sm:col-span-2">
+  {{if .Unicode}}<span class="font-mono text-muted">{{.Unicode}}</span>, which DNS spells <span class="font-mono text-muted">{{.Query}}</span>.
+  {{else}}Looked up <span class="font-mono text-muted">{{.Query}}</span>, taken from what you entered.{{end}}
+</p>
+{{end}}
+{{if eq .Active "lookup"}}{{template "dns/result" .}}
+{{else if eq .Active "consistency"}}{{template "dns/spread" .}}
+{{else if eq .Active "trace"}}{{template "dns/tracewalk" .}}
+{{else if eq .Active "domain"}}{{template "dns/domaininfo" .}}
+{{else}}{{template "dns/emailauth" .}}{{end}}
+{{end}}
+{{end}}
+
+{{/* Links carry ?name= (.NavName); after an htmx swap the nav returns out of band (dns/frag). */}}
+{{define "dns/nav"}}
+<nav id="dns-nav" aria-label="DNS Tools sections" {{if .OOB}}hx-swap-oob="true"{{end}}
+     class="mb-8 inline-flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+  {{range .Nav}}
+  <a href="{{.Path}}{{with $.NavName}}?name={{.}}{{end}}" title="{{.Hint}}" {{if eq .Key $.Active}}aria-current="page"{{end}}
+     class="rounded-md px-3 py-1.5 transition {{if eq .Key $.Active}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">{{.Label}}</a>
+  {{end}}
+</nav>
+{{end}}
+
+{{/* The rate limiter's htmx answer; data-transient keeps it out of history. */}}
+{{define "dns/slowdown"}}
+{{if .OOB}}<p id="dns-status" hx-swap-oob="innerHTML">{{.Error}}</p>{{end}}
+<div data-transient class="sm:col-span-2 rounded-md border border-warn/40 bg-warn/5 px-4 py-3 text-sm text-warn-ink">{{.Error}}</div>
+{{end}}

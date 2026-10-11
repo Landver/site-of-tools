@@ -1,7 +1,3 @@
-// Black-box tests for the dnstools domain layer. Network-touching cases are
-// isolated in one test that skips when UDP/53 egress is unavailable — the same
-// "skip when the dependency is absent" convention the IP tool uses for missing
-// BIN databases.
 package tests
 
 import (
@@ -33,8 +29,7 @@ func TestLookupRejectsUnknownTypeAndEmptyName(t *testing.T) {
 	t.Parallel()
 	svc := dnstools.NewService(2 * time.Second)
 
-	// Rejected up front, before any query goes out: a typo is the caller's
-	// mistake, not a per-type failure buried in an otherwise-fine result.
+	// A typo is the caller's mistake: refused before any query, not a per-type failure.
 	if _, err := svc.LookupSet(context.Background(), "example.com", "cloudflare", []string{"NOTATYPE"}); err != dnstools.ErrBadType {
 		t.Fatalf("unknown type should be refused, got %v", err)
 	}
@@ -79,9 +74,6 @@ func TestResolversAllowlistIsAddressable(t *testing.T) {
 	}
 }
 
-// Live query against a public resolver. Skipped when UDP/53 egress is blocked,
-// which is exactly the open question tools/dnstools/docs/02-build-fit.md §5
-// flags for the production host.
 func TestLookupLive(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(4 * time.Second)
@@ -103,12 +95,10 @@ func TestLookupLive(t *testing.T) {
 		if net.ParseIP(rec.Value) == nil {
 			t.Errorf("A record value %q does not parse as an IP", rec.Value)
 		}
-		// The whole point of humanising: raw seconds survive alongside it.
 		if rec.TTLHuman == "" {
 			t.Errorf("record %q has no humanised TTL", rec.Value)
 		}
 	}
-	// Response-level facts live on the set, not repeated per type.
 	if !strings.Contains(set.Flags, "rd") {
 		t.Errorf("flags = %q, want the rd bit we set", set.Flags)
 	}
@@ -116,6 +106,7 @@ func TestLookupLive(t *testing.T) {
 		t.Errorf("qname = %q, want the fully-qualified name", set.QName)
 	}
 }
+
 func TestTypesAreQueryable(t *testing.T) {
 	t.Parallel()
 
@@ -125,8 +116,7 @@ func TestTypesAreQueryable(t *testing.T) {
 	}
 }
 
-// The default lookup asks for every type at once and sorts the answers into
-// found / empty / failed, so the UI never makes anyone click through types.
+// The default lookup asks every type at once and sorts answers into found / empty / failed.
 func TestLookupSetFansOutOverAllTypes(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)
@@ -146,11 +136,7 @@ func TestLookupSetFansOutOverAllTypes(t *testing.T) {
 			t.Errorf("%s landed in Found with no records", r.Type)
 		}
 	}
-	// A type that timed out lands in Failed, and under real packet loss that
-	// can be any of them, A included. Then there is nothing here about the
-	// fan-out left to check, and the push gate runs this: a lost packet must
-	// not read as a blocked deploy. Everything above this line — the partition
-	// itself — still holds and is still asserted.
+	// Packet loss can fail any type, A included; the push gate must not block on it.
 	if len(set.Failed) > 0 && (len(set.Found) < 3 || !seen["A"]) {
 		t.Skipf("%d of %d types did not answer (%v) — flaky network, not a code failure",
 			len(set.Failed), set.Asked, set.Failed)
@@ -158,17 +144,13 @@ func TestLookupSetFansOutOverAllTypes(t *testing.T) {
 	if len(set.Found) < 3 {
 		t.Errorf("google.com should publish several types, got %d", len(set.Found))
 	}
-	// Only A is asserted by name. Any individual type can legitimately time
-	// out under load and land in Failed instead — surviving that is the point
-	// of the fan-out, so the test asserts the partition, not a fixed roster.
 	if !seen["A"] {
 		t.Errorf("expected A among found types, got %v (failed: %v)", seen, set.Failed)
 	}
 	if set.NXDomain {
 		t.Error("google.com should not be NXDOMAIN")
 	}
-	// A type lands in exactly one bucket: "isn't published" and "couldn't find
-	// out" are different claims and must not blur.
+	// "Isn't published" and "couldn't find out" are different claims: one bucket each.
 	for _, m := range set.Missing {
 		if seen[m] {
 			t.Errorf("%s is both found and missing", m)
@@ -181,14 +163,8 @@ func TestLookupSetFansOutOverAllTypes(t *testing.T) {
 	}
 }
 
-// One type failing must never cost the others their answers.
-//
-// Every query must fail here, and a 1ms timeout alone didn't guarantee it: on a
-// CI runner near an anycast node, 1.1.1.1 answered 2 of 9 types inside 1ms and
-// the test failed on a fast network. The resolver is pointed at 192.0.2.1
-// (RFC 5737 TEST-NET-1, never routed) for the duration, so nothing can answer.
-// Not t.Parallel: Go runs serial tests before any parallel one resumes, which
-// is what makes borrowing the package-level Resolvers race-free.
+// TEST-NET-1 (RFC 5737) makes every query fail; a 1ms timeout alone lost to a nearby anycast node.
+// Not t.Parallel: serial tests finish before parallel ones resume, so borrowing Resolvers is safe.
 func TestLookupSetSurvivesAPartialFailure(t *testing.T) {
 	i := slices.IndexFunc(dnstools.Resolvers, func(r dnstools.Resolver) bool { return r.Key == "cloudflare" })
 	orig := dnstools.Resolvers[i].Addr
@@ -211,8 +187,7 @@ func TestLookupSetSurvivesAPartialFailure(t *testing.T) {
 	}
 }
 
-// A name that doesn't exist says so once, rather than reporting every type as
-// missing.
+// A name that doesn't exist says so once, not as every type missing.
 func TestLookupSetNXDomainCollapses(t *testing.T) {
 	requireEgress(t)
 	svc := dnstools.NewService(5 * time.Second)

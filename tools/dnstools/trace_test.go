@@ -1,14 +1,3 @@
-// White-box tests for the +trace walk. The rule #6 exception: the subjects
-// here are unexported, and two of them — the DNSSEC verifier and the address
-// guard — are the kind of code that passes every happy-path test while being
-// wrong, so they are driven directly rather than through a live walk.
-//
-// traceCheckKeys in particular is tested against keys generated and
-// signatures made in this file. A validator that always answered "secure"
-// would sail through a test that only ever walks correctly-signed zones; it
-// cannot sail through one that hands it a deliberately mismatched digest.
-//
-// Nothing in this file touches the network.
 package dnstools
 
 import (
@@ -24,8 +13,6 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// traceTestKey makes a key-signing key for zone and hands back the private
-// half, so a test can sign whatever window it needs.
 func traceTestKey(t *testing.T, zone string) (*dns.DNSKEY, crypto.Signer) {
 	t.Helper()
 	key := &dns.DNSKEY{
@@ -45,11 +32,7 @@ func traceTestKey(t *testing.T, zone string) (*dns.DNSKEY, crypto.Signer) {
 	return key, signer
 }
 
-// traceTestSign signs an RRset for real, over the window given. The window is
-// a parameter because the expired-signature case cannot be faked by editing
-// the timestamps afterwards: RFC 4035 folds them into the signed data, so a
-// doctored RRSIG fails the cryptographic check and never reaches the validity
-// test that is actually under examination.
+// traceTestSign signs for real: RRSIG timestamps are signed, so an expired one can't be faked.
 func traceTestSign(t *testing.T, key *dns.DNSKEY, signer crypto.Signer, rrset []dns.RR, inception, expiration time.Time) *dns.RRSIG {
 	t.Helper()
 	h := rrset[0].Header()
@@ -70,20 +53,29 @@ func traceTestSign(t *testing.T, key *dns.DNSKEY, signer crypto.Signer, rrset []
 	return sig
 }
 
-// traceTestZone builds a signed zone: a key-signing key, the DNSKEY RRset it
-// owns, a currently-valid RRSIG over that RRset, and the DS a parent would
-// publish. Everything a chain link needs, with nothing faked.
+func traceTestSignNow(t *testing.T, key *dns.DNSKEY, signer crypto.Signer, rrset []dns.RR) *dns.RRSIG {
+	t.Helper()
+	now := time.Now()
+	return traceTestSign(t, key, signer, rrset, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+}
+
+// traceTestZone returns a KSK, its DNSKEY RRset, a valid RRSIG over it and the parent's DS.
 func traceTestZone(t *testing.T, zone string) (key *dns.DNSKEY, rrset []dns.RR, sig *dns.RRSIG, ds *dns.DS) {
 	t.Helper()
 	key, signer := traceTestKey(t, zone)
 	rrset = []dns.RR{key}
-	now := time.Now()
-	sig = traceTestSign(t, key, signer, rrset, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	sig = traceTestSignNow(t, key, signer, rrset)
 	return key, rrset, sig, key.ToDS(dns.SHA256)
 }
 
-// The happy path, end to end through the verifier: the parent's DS digest
-// reproduces the child's key, and that key signed the child's key set.
+// traceSecureWalk stands on zone with a secure chain from the root down to it.
+func traceSecureWalk(zone string) *traceWalk {
+	return &traceWalk{ctx: context.Background(), out: &Trace{
+		Answer: []string{}, Notes: []Note{}, AnswerZone: zone,
+		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: zone, Status: traceSecure}},
+	}}
+}
+
 func TestTraceCheckKeysAcceptsARealChain(t *testing.T) {
 	t.Parallel()
 	key, rrset, sig, ds := traceTestZone(t, "example.test")
@@ -100,10 +92,7 @@ func TestTraceCheckKeysAcceptsARealChain(t *testing.T) {
 	}
 }
 
-// The root KSK is mid-rollover in this era, so the anchor list holds two DS
-// records and only one of them can match. Accepting ANY configured anchor is
-// the whole reason the list is a list: a validator that insisted on the first
-// entry would call the entire internet bogus on rollover day.
+// Mid-rollover the root has two anchors and only one matches; any of them must do.
 func TestTraceCheckKeysAcceptsAnyConfiguredAnchor(t *testing.T) {
 	t.Parallel()
 	key, rrset, sig, ds := traceTestZone(t, "example.test")
@@ -121,16 +110,12 @@ func TestTraceCheckKeysAcceptsAnyConfiguredAnchor(t *testing.T) {
 	}
 }
 
-// A DS whose digest does not reproduce the key is the classic broken
-// delegation — the dnssec-failed.org shape. It must be bogus, and the wording
-// must name the digest rather than blaming the signature.
+// The dnssec-failed.org shape: bogus, and the wording blames the digest, not the signature.
 func TestTraceCheckKeysRejectsAMismatchedDigest(t *testing.T) {
 	t.Parallel()
 	key, rrset, sig, ds := traceTestZone(t, "example.test")
 
-	// Same key tag and algorithm, different digest: this is precisely the case
-	// the cheap key-tag pre-filter would wave through, so it is the one worth
-	// testing.
+	// Same key tag and algorithm, so the cheap key-tag pre-filter alone would wave it through.
 	broken := *ds
 	broken.Digest = strings.Repeat("ab", len(ds.Digest)/2)
 	if strings.EqualFold(broken.Digest, ds.Digest) {
@@ -146,8 +131,6 @@ func TestTraceCheckKeysRejectsAMismatchedDigest(t *testing.T) {
 	}
 }
 
-// The digest matches but the signature over the key set was made by somebody
-// else. A validator that stopped at the digest would call this secure.
 func TestTraceCheckKeysRejectsAnUnsignedKeySet(t *testing.T) {
 	t.Parallel()
 	key, rrset, _, ds := traceTestZone(t, "example.test")
@@ -159,18 +142,13 @@ func TestTraceCheckKeysRejectsAnUnsignedKeySet(t *testing.T) {
 	}
 }
 
-// An expired signature breaks validation for everyone, and is one of the most
-// common real DNSSEC outages. Cryptographically the signature is perfect, so
-// only the validity-period check catches it.
 func TestTraceCheckKeysRejectsAnExpiredSignature(t *testing.T) {
 	t.Parallel()
 	key, signer := traceTestKey(t, "example.test")
 	rrset := []dns.RR{key}
 	ds := key.ToDS(dns.SHA256)
 
-	// Signed for real, over a window that closed a week ago. Cryptographically
-	// this signature is perfect, so nothing but the validity check can catch
-	// it — which is the point.
+	// Cryptographically perfect, so only the validity-period check can catch it.
 	past := time.Now().Add(-30 * 24 * time.Hour)
 	expired := traceTestSign(t, key, signer, rrset, past, past.Add(14*24*time.Hour))
 	if err := expired.Verify(key, rrset); err != nil {
@@ -189,8 +167,6 @@ func TestTraceCheckKeysRejectsAnExpiredSignature(t *testing.T) {
 	}
 }
 
-// The shipped anchors have to parse, and both live root KSKs have to be in
-// there. A single-anchor list is the bug this test exists to prevent.
 func TestTraceRootAnchorsCarryBothLiveRootKSKs(t *testing.T) {
 	t.Parallel()
 	if len(traceRootAnchors) < 2 {
@@ -215,9 +191,7 @@ func TestTraceRootAnchorsCarryBothLiveRootKSKs(t *testing.T) {
 	}
 }
 
-// The address guard is the one place a walk's target is chosen by somebody
-// else's zone file, so a nameserver name pointing at loopback or a private
-// range must never be sent a packet.
+// Glue is chosen by someone else's zone, so it must never reach loopback or private ranges.
 func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 	t.Parallel()
 	guarded := newTestService().WithEgressGuard(platform.NewEgressGuard([]string{"443"}, nil))
@@ -231,9 +205,7 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"link-local metadata", traceServer{Name: "ns.evil.test.", IP: "169.254.169.254"}, ""},
 		{"unspecified", traceServer{Name: "ns.evil.test.", IP: "0.0.0.0"}, ""},
 		{"ipv6 loopback only", traceServer{Name: "ns.evil.test.", IP6: "::1"}, ""},
-		// Neither loopback nor private, but no nameserver lives at them: glue
-		// of 224.0.0.1 would otherwise make this host query the all-hosts
-		// multicast group.
+		// Not private, but glue of 224.0.0.1 would query the all-hosts multicast group.
 		{"multicast", traceServer{Name: "ns.evil.test.", IP: "224.0.0.1"}, ""},
 		{"ssdp multicast", traceServer{Name: "ns.evil.test.", IP: "239.255.255.250"}, ""},
 		{"broadcast", traceServer{Name: "ns.evil.test.", IP: "255.255.255.255"}, ""},
@@ -244,9 +216,7 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		{"ipv6 multicast", traceServer{Name: "ns.evil.test.", IP6: "ff02::1"}, ""},
 		{"ipv6 documentation", traceServer{Name: "ns.evil.test.", IP6: "2001:db8::1"}, ""},
 
-		// Real, globally routable addresses: the root servers' own, so the
-		// happy path is not asserted against documentation space that the
-		// guard above is right to refuse.
+		// Root server addresses, since documentation space is rightly refused above.
 		{"public v4", traceServer{Name: "ns.ok.test.", IP: "198.41.0.4"}, "198.41.0.4:53"},
 		{"v4 preferred over v6", traceServer{Name: "ns.ok.test.", IP: "198.41.0.4", IP6: "2001:500:2::c"}, "198.41.0.4:53"},
 		{"v6 when that is all there is", traceServer{Name: "ns.ok.test.", IP6: "2001:500:2::c"}, "[2001:500:2::c]:53"},
@@ -260,20 +230,16 @@ func TestTraceServerRefusesUnroutableAddresses(t *testing.T) {
 		}
 	}
 
-	// Every root hint this walk starts from has to pass its own guard, or the
-	// walk would refuse to leave the ground.
 	for _, h := range traceRootHints {
-		if !guarded.nsRoutable(h.IP) {
-			t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, h.IP)
-		}
-		if !guarded.nsRoutable(h.IP6) {
-			t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, h.IP6)
+		for _, ip := range []string{h.IP, h.IP6} {
+			if !guarded.nsRoutable(ip) {
+				t.Errorf("root hint %s (%s) is refused by nsRoutable", h.Name, ip)
+			}
 		}
 	}
 }
 
-// A referral must descend. Following an NS set whose owner is the zone we
-// just asked, or one outside it, is how a walk loops forever.
+// A referral must descend: following a self-referral or an out-of-zone NS set loops forever.
 func TestTraceReferralOnlyDescends(t *testing.T) {
 	t.Parallel()
 
@@ -296,37 +262,27 @@ func TestTraceReferralOnlyDescends(t *testing.T) {
 		t.Errorf("nameservers = %v, want them sorted and de-duplicated", names)
 	}
 
-	// The zone answering with its own NS set is not a delegation downwards.
 	if child, _ := traceReferral(msg("com.", "a.gtld-servers.net."), "com.", qname); child != "" {
 		t.Errorf("a self-referral returned %q, want none — following it loops", child)
 	}
-	// An NS set for a name outside the zone we asked is not ours to follow.
 	if child, _ := traceReferral(msg("evil.test.", "ns.evil.test."), "com.", qname); child != "" {
 		t.Errorf("an out-of-tree referral returned %q, want none", child)
 	}
-	// Below the zone we asked, and nowhere near the name we are looking for.
-	// Following it aims the rest of the walk — its hops, its chain links and
-	// its packets — at a zone nobody asked about, while the page presents the
-	// result as the delegation for what the visitor typed.
+	// A cut below the zone but off the path would aim the walk at a zone nobody asked about.
 	if child, names := traceReferral(msg("other.example.com.", "ns1.attacker.test."), "com.", qname); child != "" {
 		t.Errorf("a referral to %q (%v) was followed while heading for %s; only a cut on the path may be", child, names, qname)
 	}
-	// The same cut IS on the path for a name inside it.
 	if child, _ := traceReferral(msg("other.example.com.", "ns1.example.com."), "com.", "a.other.example.com."); child != "other.example.com." {
 		t.Errorf("a referral on the path returned %q, want other.example.com.", child)
 	}
-	// The apex of the delegated zone is itself on the path.
 	if child, _ := traceReferral(msg("example.com.", "ns1.example.com."), "com.", "example.com."); child != "example.com." {
 		t.Errorf("the delegation of the name itself returned %q, want example.com.", child)
 	}
-	// No NS records at all is the end of the walk, not a crash.
 	if child, _ := traceReferral(new(dns.Msg), "com.", qname); child != "" {
 		t.Errorf("an empty response returned %q, want none", child)
 	}
 }
 
-// The starting root is picked from the name, so a walk is repeatable (the page
-// prints which root it used) while different names spread over all thirteen.
 func TestTraceRotateIsDeterministicAndComplete(t *testing.T) {
 	t.Parallel()
 
@@ -349,7 +305,6 @@ func TestTraceRotateIsDeterministicAndComplete(t *testing.T) {
 		t.Errorf("rotation lost or duplicated hints: %d distinct of %d", len(seen), len(traceRootHints))
 	}
 
-	// Different names must not all pile onto one root.
 	starts := map[string]bool{}
 	for _, n := range []string{"a.test.", "b.test.", "c.test.", "d.test.", "e.test.", "f.test.", "g.test."} {
 		starts[traceRotate(traceRootHints, n)[0].Name] = true
@@ -358,14 +313,12 @@ func TestTraceRotateIsDeterministicAndComplete(t *testing.T) {
 		t.Errorf("seven names all started at the same root (%v); the rotation is not spreading load", starts)
 	}
 
-	// An empty list is not a division by zero.
 	if got := traceRotate(nil, "example.com."); len(got) != 0 {
 		t.Errorf("rotating nothing returned %v", got)
 	}
 }
 
-// The budget is the only thing between a public endpoint and an unbounded
-// walk, so it has to hold on both axes: the query ceiling and a dead context.
+// The budget bounds a public endpoint's walk on both axes: query count and a dead context.
 func TestTraceBudgetStopsTheWalk(t *testing.T) {
 	t.Parallel()
 
@@ -393,9 +346,7 @@ func TestTraceBudgetStopsTheWalk(t *testing.T) {
 	}
 }
 
-// The section filters feed RRSIG.Verify, which rejects a mixed RRset outright.
-// Handing it a whole answer section would fail every signature for the wrong
-// reason, so the owner and type filtering is load-bearing.
+// RRSIG.Verify rejects a mixed RRset, so the owner and type filtering is load-bearing.
 func TestTraceRRsetFiltersByOwnerAndType(t *testing.T) {
 	t.Parallel()
 
@@ -410,24 +361,19 @@ func TestTraceRRsetFiltersByOwnerAndType(t *testing.T) {
 	if got := traceRRset(all, "www.example.test.", dns.TypeA); len(got) != 1 || got[0] != dns.RR(a) {
 		t.Errorf("traceRRset picked %v, want only the one A record for that owner", got)
 	}
-	// Owners are compared case-insensitively: a server may echo the name back
-	// in whatever case it was asked in.
+	// A server may echo the owner back in whatever case it was asked in.
 	if got := traceSigs(all, "www.EXAMPLE.test.", dns.TypeA); len(got) != 1 || got[0] != sigA {
 		t.Errorf("traceSigs picked %v, want the A signature regardless of case", got)
 	}
-	if got := traceKeys(all, "example.test."); len(got) != 1 || got[0] != key {
-		t.Errorf("traceKeys picked %v, want the one DNSKEY", got)
+	if got := traceRRset(all, "example.test.", dns.TypeDNSKEY); len(got) != 1 || got[0] != dns.RR(key) {
+		t.Errorf("traceRRset picked keys %v, want the one DNSKEY", got)
 	}
-	if got := traceKeys(all, "www.example.test."); len(got) != 0 {
-		t.Errorf("traceKeys picked %v for a name that owns no key", got)
+	if got := traceRRset(all, "www.example.test.", dns.TypeDNSKEY); len(got) != 0 {
+		t.Errorf("traceRRset picked keys %v for a name that owns no key", got)
 	}
 }
 
-// A DNSKEY RRset that arrives with no RRSIG at all is a transport problem, not
-// a broken zone. A middlebox that strips EDNS so the server never sees the DO
-// bit produces exactly this, and the difference between "the signature failed"
-// and "the signature never reached us" is the difference between a lost packet
-// and telling a domain owner their zone is down for every validating resolver.
+// No RRSIG at all is a transport problem (e.g. a middlebox stripping EDNS DO), not a broken zone.
 func TestTraceCheckKeysSeparatesAMissingSignatureFromAFailedOne(t *testing.T) {
 	t.Parallel()
 	key, rrset, _, ds := traceTestZone(t, "example.test")
@@ -440,30 +386,20 @@ func TestTraceCheckKeysSeparatesAMissingSignatureFromAFailedOne(t *testing.T) {
 		t.Errorf("detail %q should say the signature did not arrive, not that it failed", detail)
 	}
 
-	// And the genuinely broken case still is broken: a signature that is
-	// present and does not verify.
 	_, _, foreignSig, _ := traceTestZone(t, "example.test")
 	if _, st, _ := traceCheckKeys([]*dns.DS{ds}, []*dns.DNSKEY{key}, rrset, []*dns.RRSIG{foreignSig}); st != traceBogus {
 		t.Errorf("a present-but-invalid signature gave %q, want %q", st, traceBogus)
 	}
 }
 
-// A link nobody answered for must not be reported as a broken chain. Three
-// lost UDP packets, or a blocked TCP fallback on a large DNSKEY set, is a
-// failure on the way to the servers and says nothing about the zone.
-//
-// Driven with a server list whose only entry has an address the walk refuses
-// to send to: query() then returns no message and answered == false, which is
-// the same shape a total transport failure produces, without a packet leaving
-// this process.
+// 10.0.0.1 is refused, so query() gets no answer: a total transport failure, offline.
 func TestValidateZoneDoesNotCallAnUnansweredLinkBroken(t *testing.T) {
 	t.Parallel()
 	_, _, _, ds := traceTestZone(t, "example.test")
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
 	link, keys := w.validateZone("example.test.", "test.",
-		[]traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}},
-		traceDS{set: []*dns.DS{ds}, status: traceDSVerified}, true)
+		[]traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}}, verifiedDS(ds))
 
 	if link.Status != traceUnknown {
 		t.Fatalf("status = %q (%s), want %q — nobody answered, so nothing is proved either way", link.Status, link.Detail, traceUnknown)
@@ -474,23 +410,19 @@ func TestValidateZoneDoesNotCallAnUnansweredLinkBroken(t *testing.T) {
 	if len(link.Unanswered) == 0 {
 		t.Error("an unanswered link must name the servers that would not answer")
 	}
-	for _, bad := range []string{"broken", "bogus", "does not verify"} {
-		if strings.Contains(strings.ToLower(link.Detail), bad) {
-			t.Errorf("detail %q accuses the zone of %q on the strength of a transport failure", link.Detail, bad)
-		}
-	}
+	accusesTheZone(t, "unanswered", link.Detail)
 }
 
-// A DS that arrives without a signature is reported as unchecked, with its own
-// sentence, rather than as a parent whose word failed.
 func TestValidateZoneSeparatesAnUnsignedDSFromABogusOne(t *testing.T) {
 	t.Parallel()
 	_, _, _, ds := traceTestZone(t, "example.test")
+	parentKey, _, _, _ := traceTestZone(t, "test")
+	_, otherSigner := traceTestKey(t, "test")
+	badSig := traceTestSignNow(t, parentKey, otherSigner, []dns.RR{ds})
 	servers := []traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}}
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
-	unsigned, _ := w.validateZone("example.test.", "test.", servers,
-		traceDS{set: []*dns.DS{ds}, status: traceDSUnsigned}, true)
+	unsigned, _ := w.validateZone("example.test.", "test.", servers, traceWireDS(t, parentKey, wireAnswer(ds)))
 	if unsigned.Status != traceUnknown {
 		t.Errorf("a DS with no RRSIG gave %q (%s), want %q", unsigned.Status, unsigned.Detail, traceUnknown)
 	}
@@ -498,14 +430,13 @@ func TestValidateZoneSeparatesAnUnsignedDSFromABogusOne(t *testing.T) {
 		t.Errorf("detail %q should name the missing signature, not a failed one", unsigned.Detail)
 	}
 
-	bogus, _ := w.validateZone("example.test.", "test.", servers,
-		traceDS{set: []*dns.DS{ds}, status: traceDSBogus}, true)
+	bogus, _ := w.validateZone("example.test.", "test.", servers, traceWireDS(t, parentKey, wireAnswer(ds, badSig)))
 	if bogus.Status != traceBogus {
 		t.Errorf("a DS whose signature failed gave %q, want %q", bogus.Status, traceBogus)
 	}
 
 	noAnswer, _ := w.validateZone("example.test.", "test.", servers,
-		traceDS{status: traceDSNoAnswer, unanswered: []string{"ns.example.test.: no response"}}, true)
+		w.fetchDS("example.test.", servers, []*dns.DNSKEY{parentKey}))
 	if noAnswer.Status != traceUnknown {
 		t.Errorf("an unanswered DS query gave %q, want %q", noAnswer.Status, traceUnknown)
 	}
@@ -513,7 +444,7 @@ func TestValidateZoneSeparatesAnUnsignedDSFromABogusOne(t *testing.T) {
 		t.Error("an unanswered DS link must name the servers")
 	}
 
-	absent, _ := w.validateZone("example.test.", "test.", servers, traceDS{status: traceDSAbsent}, true)
+	absent, _ := w.validateZone("example.test.", "test.", servers, traceDS{})
 	if absent.Status != traceInsecure {
 		t.Errorf("no DS at all gave %q, want %q — an unsigned zone is ordinary", absent.Status, traceInsecure)
 	}
@@ -522,10 +453,7 @@ func TestValidateZoneSeparatesAnUnsignedDSFromABogusOne(t *testing.T) {
 	}
 }
 
-// AA=1 is not "this rung's zone owns the name". A parent and its child very
-// often share nameservers, and then the parent's server answers the child's
-// name directly. Missing that cut meant validating the child's records under
-// the parent's keys, which cannot work, and calling the result bogus.
+// Parent and child often share servers, so AA=1 from the parent's server can be the child's zone.
 func TestTraceAnswerZoneFindsACutNoReferralAnnounced(t *testing.T) {
 	t.Parallel()
 
@@ -539,8 +467,7 @@ func TestTraceAnswerZoneFindsACutNoReferralAnnounced(t *testing.T) {
 		return &dns.SOA{Hdr: dns.RR_Header{Name: owner, Rrtype: dns.TypeSOA, Class: dns.ClassINET}}
 	}
 
-	// The live case: cz.'s servers answer www.nic.cz with AA=1, and the RRSIG
-	// says nic.cz signed it.
+	// cz.'s servers answer www.nic.cz with AA=1; the RRSIG says nic.cz signed it.
 	signed := new(dns.Msg)
 	signed.Answer = []dns.RR{sigOver("www.nic.cz.", "nic.cz.", dns.TypeA)}
 	if got := traceAnswerZone(signed, "www.nic.cz.", "cz."); got != "nic.cz." {
@@ -554,31 +481,25 @@ func TestTraceAnswerZoneFindsACutNoReferralAnnounced(t *testing.T) {
 		t.Errorf("SOA witness gave %q, want nic.cz.", got)
 	}
 
-	// The ordinary case: the zone we are standing on is the zone that signed.
 	same := new(dns.Msg)
 	same.Answer = []dns.RR{sigOver("www.example.com.", "example.com.", dns.TypeA)}
 	if got := traceAnswerZone(same, "www.example.com.", "example.com."); got != "" {
 		t.Errorf("a zone signing its own name reported a cut at %q; there is none", got)
 	}
 
-	// A signer that is not on the path to the name asked for must not steer
-	// the walk: the DS and DNSKEY queries it would cost are packets aimed at a
-	// zone nobody asked about.
 	stray := new(dns.Msg)
 	stray.Answer = []dns.RR{sigOver("www.example.com.", "other.example.com.", dns.TypeA)}
 	if got := traceAnswerZone(stray, "www.example.com.", "example.com."); got != "" {
 		t.Errorf("an off-path signer steered the walk to %q", got)
 	}
 
-	// A signer ABOVE the zone being walked is not a cut below it either.
 	above := new(dns.Msg)
 	above.Answer = []dns.RR{sigOver("www.example.com.", "com.", dns.TypeA)}
 	if got := traceAnswerZone(above, "www.example.com.", "example.com."); got != "" {
 		t.Errorf("a signer above the current zone reported a cut at %q", got)
 	}
 
-	// Two witnesses at different depths: the first cut below where we stand
-	// is the one to cross.
+	// Two witnesses: cross the shallowest cut below where we stand.
 	deep := new(dns.Msg)
 	deep.Answer = []dns.RR{
 		sigOver("a.b.example.com.", "b.example.com.", dns.TypeA),
@@ -589,23 +510,16 @@ func TestTraceAnswerZoneFindsACutNoReferralAnnounced(t *testing.T) {
 	}
 }
 
-// finish() must prove the records the page SHOWS. A CNAME whose target lives
-// in the same zone puts the target's records in the same message, and those
-// are what the page prints; verifying the alias and then claiming "the records
-// themselves verify" over the target's addresses is a green tick over data
-// nothing looked at.
+// The page prints a same-zone CNAME target's records, so they, not just the alias, must verify.
 func TestFinishVerifiesTheRecordsItDisplaysNotTheAlias(t *testing.T) {
 	t.Parallel()
 
-	// One zone, one key, signing only the CNAME. The target's A record is left
-	// entirely unsigned, which is what the old code waved through.
 	zoneKey, zoneSigner := traceTestKey(t, "example.test")
-	now := time.Now()
 	cname := &dns.CNAME{
 		Hdr:    dns.RR_Header{Name: "www.example.test.", Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 300},
 		Target: "target.example.test.",
 	}
-	cnameSig := traceTestSign(t, zoneKey, zoneSigner, []dns.RR{cname}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	cnameSig := traceTestSignNow(t, zoneKey, zoneSigner, []dns.RR{cname})
 	a := &dns.A{
 		Hdr: dns.RR_Header{Name: "target.example.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
 		A:   net.ParseIP("1.2.3.4"),
@@ -614,7 +528,7 @@ func TestFinishVerifiesTheRecordsItDisplaysNotTheAlias(t *testing.T) {
 	resp.Answer = []dns.RR{cname, cnameSig, a}
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{Answer: []string{}, Notes: []Note{}}}
-	w.finish("example.test.", "www.example.test.", "A", resp, []*dns.DNSKEY{zoneKey}, true)
+	w.finish("example.test.", "www.example.test.", "A", resp, []*dns.DNSKEY{zoneKey})
 
 	if len(w.out.Answer) != 1 || w.out.Answer[0] != "1.2.3.4" {
 		t.Fatalf("Answer = %v, want the target address the page prints", w.out.Answer)
@@ -629,31 +543,26 @@ func TestFinishVerifiesTheRecordsItDisplaysNotTheAlias(t *testing.T) {
 		t.Errorf("answer state = %q, want %q", w.answer, traceAnswerUnsigned)
 	}
 
-	// Sign the target too, and the claim becomes true.
-	aSig := traceTestSign(t, zoneKey, zoneSigner, []dns.RR{a}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	aSig := traceTestSignNow(t, zoneKey, zoneSigner, []dns.RR{a})
 	resp2 := new(dns.Msg)
 	resp2.Answer = []dns.RR{cname, cnameSig, a, aSig}
 	w2 := &traceWalk{ctx: context.Background(), out: &Trace{Answer: []string{}, Notes: []Note{}}}
-	w2.finish("example.test.", "www.example.test.", "A", resp2, []*dns.DNSKEY{zoneKey}, true)
+	w2.finish("example.test.", "www.example.test.", "A", resp2, []*dns.DNSKEY{zoneKey})
 	if !w2.out.AnswerVerified || !w2.out.AnswerSigned {
 		t.Errorf("a signed target gave signed=%v verified=%v, want both true", w2.out.AnswerSigned, w2.out.AnswerVerified)
 	}
 
-	// And an alias with no target records at all is judged on the alias, which
-	// is the only thing the page then shows.
 	resp3 := new(dns.Msg)
 	resp3.Answer = []dns.RR{cname, cnameSig}
 	w3 := &traceWalk{ctx: context.Background(), out: &Trace{Answer: []string{}, Notes: []Note{}}}
-	w3.finish("example.test.", "www.example.test.", "A", resp3, []*dns.DNSKEY{zoneKey}, true)
+	w3.finish("example.test.", "www.example.test.", "A", resp3, []*dns.DNSKEY{zoneKey})
 	if !w3.out.AnswerVerified || w3.out.CNAME != "target.example.test." {
 		t.Errorf("an alias-only answer gave cname=%q verified=%v, want the alias verified",
 			w3.out.CNAME, w3.out.AnswerVerified)
 	}
 }
 
-// A signature made by a zone whose keys this walk never anchored is not this
-// walk's to judge. "We cannot tell" is a different sentence from "this is
-// broken", and printing the second was the www.nic.cz false verdict.
+// A signature by a zone whose keys the walk never anchored is unknown, not bogus (www.nic.cz).
 func TestFinishWillNotCallAForeignSignatureBogus(t *testing.T) {
 	t.Parallel()
 	parentKey, _ := traceTestKey(t, "cz")
@@ -663,17 +572,12 @@ func TestFinishWillNotCallAForeignSignatureBogus(t *testing.T) {
 		Hdr: dns.RR_Header{Name: "www.nic.cz.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
 		A:   net.ParseIP("217.31.205.50"),
 	}
-	now := time.Now()
-	sig := traceTestSign(t, childKey, childSigner, []dns.RR{a}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	sig := traceTestSignNow(t, childKey, childSigner, []dns.RR{a})
 	resp := new(dns.Msg)
 	resp.Answer = []dns.RR{a, sig}
 
-	// Standing at cz. with cz.'s keys, looking at a signature made by nic.cz.
-	w := &traceWalk{ctx: context.Background(), out: &Trace{
-		Answer: []string{}, Notes: []Note{}, AnswerZone: "cz.",
-		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "cz.", Status: traceSecure}},
-	}}
-	w.finish("cz.", "www.nic.cz.", "A", resp, []*dns.DNSKEY{parentKey}, true)
+	w := traceSecureWalk("cz.")
+	w.finish("cz.", "www.nic.cz.", "A", resp, []*dns.DNSKEY{parentKey})
 	w.verdict()
 
 	if w.answer != traceAnswerForeign {
@@ -689,30 +593,20 @@ func TestFinishWillNotCallAForeignSignatureBogus(t *testing.T) {
 		t.Errorf("verdict %q threatens SERVFAIL over a signature it could not check", w.out.Verdict.Text)
 	}
 
-	// The same signature, checked against the keys that actually made it, is
-	// the good case — so the guard above is not just refusing to ever verify.
-	w2 := &traceWalk{ctx: context.Background(), out: &Trace{
-		Answer: []string{}, Notes: []Note{}, AnswerZone: "nic.cz.",
-		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "nic.cz.", Status: traceSecure}},
-	}}
-	w2.finish("nic.cz.", "www.nic.cz.", "A", resp, []*dns.DNSKEY{childKey}, true)
+	w2 := traceSecureWalk("nic.cz.")
+	w2.finish("nic.cz.", "www.nic.cz.", "A", resp, []*dns.DNSKEY{childKey})
 	w2.verdict()
 	if !w2.out.AnswerVerified || w2.out.DNSSEC != traceSecure {
 		t.Errorf("the right keys gave verified=%v dnssec=%q, want true/secure", w2.out.AnswerVerified, w2.out.DNSSEC)
 	}
 
-	// A signature made by THIS zone that does not verify is still bogus: the
-	// guard above must not have turned the verifier into a no-op.
 	broken, brokenSigner := traceTestKey(t, "nic.cz")
-	badSig := traceTestSign(t, broken, brokenSigner, []dns.RR{a}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	badSig := traceTestSignNow(t, broken, brokenSigner, []dns.RR{a})
 	badSig.KeyTag = childKey.KeyTag() // claims to be the anchored key, is not
 	resp3 := new(dns.Msg)
 	resp3.Answer = []dns.RR{a, badSig}
-	w3 := &traceWalk{ctx: context.Background(), out: &Trace{
-		Answer: []string{}, Notes: []Note{}, AnswerZone: "nic.cz.",
-		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "nic.cz.", Status: traceSecure}},
-	}}
-	w3.finish("nic.cz.", "www.nic.cz.", "A", resp3, []*dns.DNSKEY{childKey}, true)
+	w3 := traceSecureWalk("nic.cz.")
+	w3.finish("nic.cz.", "www.nic.cz.", "A", resp3, []*dns.DNSKEY{childKey})
 	w3.verdict()
 	if w3.answer != traceAnswerFailed || w3.out.DNSSEC != traceBogus {
 		t.Errorf("a failing signature by this very zone gave state=%q dnssec=%q, want %q/%q",
@@ -720,19 +614,14 @@ func TestFinishWillNotCallAForeignSignatureBogus(t *testing.T) {
 	}
 }
 
-// An empty answer is not a proved absence. Reporting NXDOMAIN or NODATA as
-// "secure" with a green tick is a cryptographic claim on zero cryptographic
-// evidence: the proof of an absence is an NSEC or NSEC3 record, and this walk
-// does not read one.
+// Absence is proved by NSEC/NSEC3, which this walk does not read, so it is never "secure".
 func TestVerdictWillNotCallAnUncheckedAbsenceSecure(t *testing.T) {
 	t.Parallel()
 
 	for _, rcode := range []string{"NXDOMAIN", "NOERROR"} {
-		w := &traceWalk{ctx: context.Background(), out: &Trace{
-			Answer: []string{}, Notes: []Note{}, AnswerZone: "example.test.", AnswerRcode: rcode,
-			Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "example.test.", Status: traceSecure}},
-		}}
-		w.worsen(traceAnswerNone)
+		w := traceSecureWalk("example.test.")
+		w.out.AnswerRcode = rcode
+		w.answer = traceAnswerNone
 		w.verdict()
 
 		if w.out.DNSSEC == traceSecure {
@@ -741,8 +630,6 @@ func TestVerdictWillNotCallAnUncheckedAbsenceSecure(t *testing.T) {
 		if w.out.DNSSEC != traceUnknown {
 			t.Errorf("%s: DNSSEC = %q, want %q", rcode, w.out.DNSSEC, traceUnknown)
 		}
-		// The caveat has to be in the verdict itself, not delegated to a card
-		// further down the page that a reader may never reach.
 		if !strings.Contains(w.out.Verdict.Text, "NSEC") {
 			t.Errorf("%s: the verdict %q does not carry the NSEC caveat", rcode, w.out.Verdict.Text)
 		}
@@ -752,17 +639,12 @@ func TestVerdictWillNotCallAnUncheckedAbsenceSecure(t *testing.T) {
 	}
 }
 
-// The verdict paragraph lives in exactly one place. It used to be written
-// twice — once as a Note and again, differently worded, in the template — so
-// an edit to one drifted silently from the other.
 func TestVerdictIsNotAlsoAppendedToNotes(t *testing.T) {
 	t.Parallel()
 
-	w := &traceWalk{ctx: context.Background(), out: &Trace{
-		Answer: []string{"1.2.3.4"}, Notes: []Note{}, AnswerZone: "example.test.",
-		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "example.test.", Status: traceSecure}},
-	}}
-	w.worsen(traceAnswerVerified)
+	w := traceSecureWalk("example.test.")
+	w.out.Answer = []string{"1.2.3.4"}
+	w.answer = traceAnswerVerified
 	w.verdict()
 
 	if w.out.Verdict.Text == "" || w.out.DNSSEC != traceSecure {
@@ -775,140 +657,94 @@ func TestVerdictIsNotAlsoAppendedToNotes(t *testing.T) {
 	}
 }
 
-// A response that arrived is not the same thing as an answer. This is the
-// predicate the DNSKEY, DS and answer sites all consult, and getting it wrong
-// is what printed "this name's chain of trust is broken" about the root zone,
-// live, several times an hour, on a healthy network.
+// query() hands on only a whole NOERROR reply, or NXDOMAIN when it is the walk's own answer.
 func TestTraceUnreadableSeparatesAFragmentFromAnAnswer(t *testing.T) {
 	t.Parallel()
-
-	whole := new(dns.Msg)
-	if why := traceUnreadable(whole, false); why != "" {
-		t.Errorf("a whole NOERROR message was called unreadable: %q", why)
+	read := func(h dns.HandlerFunc, final bool) *dns.Msg {
+		w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}}
+		return w.query([]traceServer{serveNS(t, h)}, "example.test.", "DNSKEY", final).msg
 	}
 
-	// TC=1 survives only when ask()'s TCP retry did not complete, and what is
-	// left is a PREFIX of the RRset: the DNSKEY the parent's DS points at may
-	// be in the part that never arrived.
-	frag := new(dns.Msg)
-	frag.Truncated = true
-	if traceUnreadable(frag, false) == "" {
+	if read(wireAnswer(), false) == nil {
+		t.Error("a whole NOERROR message was called unreadable")
+	}
+	// TC=1 survives only a failed TCP retry and holds a prefix that may lack the DS's key.
+	if read(wireTruncated, false) != nil {
 		t.Error("a truncated reply was accepted as the zone's whole answer")
 	}
-	if traceUnreadable(frag, true) == "" {
+	if read(wireTruncated, true) != nil {
 		t.Error("a truncated reply was accepted as a final answer even at the end of the walk")
 	}
-
-	// An rcode instead of records tells us nothing about what the zone
-	// publishes, so it cannot be evidence either way.
 	for _, rcode := range []int{dns.RcodeServerFailure, dns.RcodeRefused, dns.RcodeFormatError, dns.RcodeNotImplemented} {
-		m := new(dns.Msg)
-		m.Rcode = rcode
-		if traceUnreadable(m, false) == "" {
+		if read(wireRcode(rcode), false) != nil {
 			t.Errorf("%s was read as an answer about the zone's records", dns.RcodeToString[rcode])
 		}
 	}
-
-	// NXDOMAIN is the one that depends on where we are standing. At the end of
-	// the walk it is the zone's real and final word; while fetching that same
-	// zone's keys it is a server contradicting the delegation that sent us to
-	// it, which is a fact about the server.
-	nx := new(dns.Msg)
-	nx.Rcode = dns.RcodeNameError
-	if why := traceUnreadable(nx, true); why != "" {
-		t.Errorf("NXDOMAIN as the walk's answer was called unreadable: %q", why)
+	// NXDOMAIN is final as the answer, but for a zone's own DNSKEY it contradicts the delegation.
+	if read(wireRcode(dns.RcodeNameError), true) == nil {
+		t.Error("NXDOMAIN as the walk's answer was called unreadable")
 	}
-	if traceUnreadable(nx, false) == "" {
+	if read(wireRcode(dns.RcodeNameError), false) != nil {
 		t.Error("NXDOMAIN for a zone's own DNSKEY set was taken as evidence about its keys")
 	}
 }
 
-// The bug this whole guard exists for. A DNSKEY fetch that came back empty has
-// several possible causes and exactly one of them is the zone's fault; the
-// code used to reach traceBogus for all of them, and the user-facing sentence
-// that produced told domain owners their name was broken for every validating
-// resolver on the strength of one lost UDP packet.
+// Of the ways a DNSKEY fetch comes back empty, only a whole NOERROR is the zone's fault.
 func TestTraceKeySetVerdictWillNotCallALostPacketBroken(t *testing.T) {
 	t.Parallel()
-
-	accuses := func(t *testing.T, detail string) {
-		t.Helper()
-		for _, word := range []string{"broken", "bogus", "does not verify", "do not back it up"} {
-			if strings.Contains(strings.ToLower(detail), word) {
-				t.Errorf("detail %q accuses the zone of %q on the strength of a transport failure", detail, word)
-			}
-		}
+	_, rrset, sig, ds := traceTestZone(t, "example.test")
+	validate := func(ctx context.Context, servers ...traceServer) (TraceLink, []*dns.DNSKEY) {
+		w := &traceWalk{svc: newTestService(), ctx: ctx, out: &Trace{}}
+		return w.validateZone("example.test.", "test.", servers, verifiedDS(ds))
 	}
+	bg := context.Background()
 
-	// A truncated reply whose TCP retry did not complete. The root's DNSKEY
-	// set is well over 512 bytes, so this is the common case, not an exotic
-	// one.
-	frag := new(dns.Msg)
-	frag.Truncated = true
-	status, detail, usable := traceKeySetVerdict(traceReply{msg: frag, answered: true}, false)
-	if usable {
+	link, keys := validate(bg, serveNS(t, wireTruncated))
+	if keys != nil {
 		t.Fatal("a truncated DNSKEY reply was handed on as a key set to read")
 	}
-	if status != traceUnknown {
-		t.Errorf("a truncated DNSKEY reply gave %q, want %q", status, traceUnknown)
+	if link.Status != traceUnknown {
+		t.Errorf("a truncated DNSKEY reply gave %q, want %q", link.Status, traceUnknown)
 	}
-	accuses(t, detail)
+	accusesTheZone(t, "truncated", link.Detail)
 
-	// Every server that replied sent a fragment, so query() moved past them
-	// all and there is no message at the end of it.
-	status, detail, usable = traceKeySetVerdict(traceReply{answered: true, unreadable: "truncated"}, false)
-	if usable || status != traceUnknown {
-		t.Errorf("fragments from every server gave %q (usable=%v), want %q", status, usable, traceUnknown)
+	// Every server sent a fragment, so query() ends with no message.
+	if link, keys = validate(bg, serveNS(t, wireTruncated), serveNS(t, wireTruncated)); keys != nil || link.Status != traceUnknown {
+		t.Errorf("fragments from every server gave %q (keys=%v), want %q", link.Status, keys, traceUnknown)
 	}
-	accuses(t, detail)
+	accusesTheZone(t, "all fragments", link.Detail)
 
-	// An rcode in place of a key set.
-	bad := new(dns.Msg)
-	bad.Rcode = dns.RcodeFormatError
-	if status, detail, usable = traceKeySetVerdict(traceReply{msg: bad, answered: true}, false); usable || status != traceUnknown {
-		t.Errorf("a FORMERR DNSKEY reply gave %q (usable=%v), want %q", status, usable, traceUnknown)
+	if link, keys = validate(bg, serveNS(t, wireRcode(dns.RcodeFormatError))); keys != nil || link.Status != traceUnknown {
+		t.Errorf("a FORMERR DNSKEY reply gave %q (keys=%v), want %q", link.Status, keys, traceUnknown)
 	}
-	accuses(t, detail)
+	accusesTheZone(t, "FORMERR", link.Detail)
 
-	// Nobody answered at all, and the walk running out of budget: both already
-	// behaved, and both stay that way.
-	if status, _, _ = traceKeySetVerdict(traceReply{}, false); status != traceUnknown {
-		t.Errorf("an unanswered DNSKEY query gave %q, want %q", status, traceUnknown)
+	if link, _ = validate(bg, traceServer{Name: "ns.example.test.", IP: "10.0.0.1"}); link.Status != traceUnknown {
+		t.Errorf("an unanswered DNSKEY query gave %q, want %q", link.Status, traceUnknown)
 	}
-	if status, _, _ = traceKeySetVerdict(traceReply{}, true); status != traceInsecure {
-		t.Errorf("a walk that stopped gave %q, want %q", status, traceInsecure)
+	// A walk that stopped before asking has not checked the link, so it must not read as unsigned.
+	stopped, stop := context.WithCancel(bg)
+	stop()
+	if link, _ = validate(stopped, serveNS(t, wireAnswer(append(rrset, sig)...))); link.Status != traceUnknown {
+		t.Errorf("a walk that stopped gave %q, want %q", link.Status, traceUnknown)
 	}
 
-	// Every server answered with an rcode instead of records — SERVFAIL,
-	// REFUSED or NOTAUTH, which is what query() records as `answered` with no
-	// message. That is the same condition traceUnreadable refuses to reason
-	// from when it arrives inside a message, and it has to be refused here
-	// too: a refusal is a fact about a server, and `bogus` prints "the
-	// signatures do not check out" over records this walk never saw.
-	if status, detail, _ = traceKeySetVerdict(traceReply{answered: true}, false); status != traceUnknown {
-		t.Errorf("servers answering the DNSKEY query with an error gave %q, want %q", status, traceUnknown)
+	if link, _ = validate(bg, serveNS(t, wireRcode(dns.RcodeServerFailure))); link.Status != traceUnknown {
+		t.Errorf("servers answering the DNSKEY query with an error gave %q, want %q", link.Status, traceUnknown)
 	}
-	accuses(t, detail)
-	// The verifier must not have become a no-op, though: a whole NOERROR
-	// message is still read, so a zone that genuinely serves no keys under a
-	// DS is still caught.
-	if _, _, usable = traceKeySetVerdict(traceReply{msg: new(dns.Msg), answered: true}, false); !usable {
+	accusesTheZone(t, "rcode only", link.Detail)
+	if _, keys = validate(bg, serveNS(t, wireAnswer(append(rrset, sig)...))); keys == nil {
 		t.Error("a whole NOERROR reply was not read as a key set")
 	}
 }
 
-// The DS side of the same mistake, and the quieter one. Reading an unreadable
-// DS reply as "this parent publishes no DS" marks a signed zone unsigned and
-// drags everything below it down with it, without ever printing a word that
-// looks like an error.
 func TestValidateZoneWillNotCallAnUnreadableDSAbsentOrBroken(t *testing.T) {
 	t.Parallel()
+	parentKey, _, _, _ := traceTestZone(t, "test")
 	servers := []traceServer{{Name: "ns.example.test.", IP: "10.0.0.1"}}
 
 	w := &traceWalk{ctx: context.Background(), out: &Trace{}}
-	link, keys := w.validateZone("example.test.", "test.", servers,
-		traceDS{status: traceDSUnreadable, unanswered: []string{"ns.test.: answer truncated"},
-			why: "the answer came back truncated"}, true)
+	link, keys := w.validateZone("example.test.", "test.", servers, traceWireDS(t, parentKey, wireTruncated))
 
 	if link.Status != traceUnknown {
 		t.Fatalf("status = %q (%s), want %q", link.Status, link.Detail, traceUnknown)
@@ -922,52 +758,49 @@ func TestValidateZoneWillNotCallAnUnreadableDSAbsentOrBroken(t *testing.T) {
 	if len(link.Unanswered) == 0 {
 		t.Error("a link that could not be checked must name the servers it could not read")
 	}
-	if !strings.Contains(link.Detail, "truncated") {
-		t.Errorf("detail %q does not say what actually arrived", link.Detail)
+	if !strings.Contains(strings.Join(link.Unanswered, "; "), "truncated") {
+		t.Errorf("unanswered %q does not say what actually arrived", link.Unanswered)
 	}
-	for _, word := range []string{"unsigned", "broken", "bogus"} {
-		if strings.Contains(strings.ToLower(link.Detail), word) {
-			t.Errorf("detail %q calls the zone %q on the strength of a transport failure", link.Detail, word)
-		}
-	}
+	accusesTheZone(t, "unreadable DS", link.Detail)
 }
 
-// A signature cannot verify over a fragment of the RRset it covers, and
-// traceAnswerFailed is the one answer state verdict() turns into the word
-// "broken". So a truncated answer must never reach the verifier at all.
+// A fragment can't verify, and verdict() calls traceAnswerFailed "broken": never check one.
 func TestFinishWillNotJudgeASignatureOverAFragment(t *testing.T) {
 	t.Parallel()
 	key, signer := traceTestKey(t, "example.test")
-	now := time.Now()
 
 	a := &dns.A{
 		Hdr: dns.RR_Header{Name: "www.example.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
 		A:   net.ParseIP("1.2.3.4"),
 	}
-	// A signature over a record set that is not the one being shown: exactly
-	// what a dropped A record out of a larger RRset leaves behind.
+	// Signed over two A records, but the truncated reply carries only one.
 	other := &dns.A{
 		Hdr: dns.RR_Header{Name: "www.example.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
 		A:   net.ParseIP("5.6.7.8"),
 	}
-	sig := traceTestSign(t, key, signer, []dns.RR{a, other}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	sig := traceTestSignNow(t, key, signer, []dns.RR{a, other})
+	// serveNS is UDP only, so the TCP retry of this TC=1 reply fails and the fragment is all that arrives.
+	fragment := func(rw dns.ResponseWriter, req *dns.Msg) {
+		m := new(dns.Msg).SetReply(req)
+		m.Authoritative, m.Truncated = true, true
+		m.Answer = []dns.RR{a, sig}
+		_ = rw.WriteMsg(m)
+	}
 
-	resp := new(dns.Msg)
-	resp.Truncated = true
-	resp.Answer = []dns.RR{a, sig}
-
-	w := &traceWalk{ctx: context.Background(), out: &Trace{
-		Answer: []string{}, Notes: []Note{}, AnswerZone: "example.test.",
-		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "example.test.", Status: traceSecure}},
-	}}
-	w.finish("example.test.", "www.example.test.", "A", resp, []*dns.DNSKEY{key}, true)
+	w := traceSecureWalk("example.test.")
+	w.svc, w.out.AnswerZone = newTestService(), ""
+	hop, resp := w.askZone("example.test.", []traceServer{serveNS(t, fragment)}, "www.example.test.", "A")
+	w.out.Hops = append(w.out.Hops, hop)
+	if resp != nil {
+		w.finish("example.test.", "www.example.test.", "A", resp, []*dns.DNSKEY{key})
+	}
 	w.verdict()
 
 	if w.answer == traceAnswerFailed {
 		t.Fatal("a signature checked over a fragment of its own RRset was reported as a failed signature")
 	}
-	if w.answer != traceAnswerUnchecked {
-		t.Errorf("answer state = %q, want %q", w.answer, traceAnswerUnchecked)
+	if resp != nil || w.out.DNSSEC != traceUnknown {
+		t.Errorf("the fragment was read as the answer (dnssec %q), want it skipped and %q", w.out.DNSSEC, traceUnknown)
 	}
 	if w.out.DNSSEC == traceBogus {
 		t.Errorf("verdict = bogus on a truncated answer: %q", w.out.Verdict.Text)
@@ -979,25 +812,17 @@ func TestFinishWillNotJudgeASignatureOverAFragment(t *testing.T) {
 		t.Errorf("verdict %q threatens SERVFAIL over an answer it never read in full", w.out.Verdict.Text)
 	}
 
-	// The same records, whole, still verify — so the guard is a guard and not
-	// a way of never checking anything.
-	good := traceTestSign(t, key, signer, []dns.RR{a}, now.Add(-time.Hour), now.Add(14*24*time.Hour))
+	good := traceTestSignNow(t, key, signer, []dns.RR{a})
 	whole := new(dns.Msg)
 	whole.Answer = []dns.RR{a, good}
-	w2 := &traceWalk{ctx: context.Background(), out: &Trace{
-		Answer: []string{}, Notes: []Note{}, AnswerZone: "example.test.",
-		Chain: []TraceLink{{Zone: ".", Status: traceSecure}, {Zone: "example.test.", Status: traceSecure}},
-	}}
-	w2.finish("example.test.", "www.example.test.", "A", whole, []*dns.DNSKEY{key}, true)
+	w2 := traceSecureWalk("example.test.")
+	w2.finish("example.test.", "www.example.test.", "A", whole, []*dns.DNSKEY{key})
 	w2.verdict()
 	if !w2.out.AnswerVerified || w2.out.DNSSEC != traceSecure {
 		t.Errorf("a whole signed answer gave verified=%v dnssec=%q, want true/secure", w2.out.AnswerVerified, w2.out.DNSSEC)
 	}
 }
 
-// Keys without a DS is still insecure, which is what every validator makes of
-// it, but the verdict says what the owner most likely meant and the one step
-// missing, at warn rather than the calm "unsigned is ordinary".
 func TestVerdictNamesKeysWithoutADS(t *testing.T) {
 	t.Parallel()
 
@@ -1017,5 +842,86 @@ func TestVerdictNamesKeysWithoutADS(t *testing.T) {
 	plain.verdict()
 	if plain.out.DNSSEC != traceInsecure || plain.out.Verdict.Level != "info" {
 		t.Errorf("unsigned: %q / %q, want insecure / info", plain.out.DNSSEC, plain.out.Verdict.Level)
+	}
+}
+
+// A walk out of budget sent nothing, so its links must not read as servers that failed to answer.
+func TestALinkTheWalkNeverAskedSaysSo(t *testing.T) {
+	t.Parallel()
+	_, _, _, ds := traceTestZone(t, "example.test")
+	parentKey, _, _, _ := traceTestZone(t, "test")
+	servers := []traceServer{serveNS(t, wireAnswer())}
+	spent := func() *traceWalk {
+		return &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{}, queries: traceMaxQueries}
+	}
+
+	link, _ := spent().validateZone("example.test.", "test.", servers, verifiedDS(ds))
+	parent := spent().fetchDS("example.test.", servers, []*dns.DNSKEY{parentKey})
+	for what, detail := range map[string]string{"DNSKEY": link.Detail, "DS": parent.detail} {
+		if !strings.Contains(detail, "stopped before it asked") {
+			t.Errorf("%s: detail %q, want it to say the walk stopped before asking", what, detail)
+		}
+		accusesTheZone(t, what, detail)
+	}
+	if link.Status != traceUnknown || len(link.Unanswered) != 0 {
+		t.Errorf("status %q, unanswered %v; want %q and no server named", link.Status, link.Unanswered, traceUnknown)
+	}
+}
+
+// One RRset signed and one not: the verdict may not say nothing carried a signature.
+func TestVerdictDoesNotCallAPartlySignedAnswerUnsigned(t *testing.T) {
+	t.Parallel()
+	key, signer := traceTestKey(t, "example.test")
+	_, otherSigner := traceTestKey(t, "example.test")
+	owned := func(owner string) *dns.A {
+		return &dns.A{Hdr: dns.RR_Header{Name: owner, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300}, A: net.ParseIP("1.2.3.4")}
+	}
+	a, b := owned("a.example.test."), owned("b.example.test.")
+
+	for name, sig := range map[string]*dns.RRSIG{
+		"verified": traceTestSignNow(t, key, signer, []dns.RR{b}),
+		"failed":   traceTestSignNow(t, key, otherSigner, []dns.RR{b}),
+	} {
+		resp := new(dns.Msg)
+		resp.Answer = []dns.RR{a, b, sig}
+		w := traceSecureWalk("example.test.")
+		w.finish("example.test.", "a.example.test.", "A", resp, []*dns.DNSKEY{key})
+		w.verdict()
+		if w.out.DNSSEC != traceUnknown {
+			t.Errorf("%s: DNSSEC = %q, want %q", name, w.out.DNSSEC, traceUnknown)
+		}
+		if strings.Contains(w.out.Verdict.Text, "no signature at all") {
+			t.Errorf("%s: verdict %q says nothing was signed, but one RRset was", name, w.out.Verdict.Text)
+		}
+	}
+}
+
+// The first routable glue address per family is used, whatever order the referral lists them in.
+func TestResolveServersSkipsUnroutableGlue(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		glue []string
+		want string
+	}{
+		{[]string{"A 8.8.8.8", "A 10.0.0.1"}, "8.8.8.8:53"},
+		{[]string{"A 10.0.0.1", "A 8.8.8.8"}, "8.8.8.8:53"},
+		{[]string{"AAAA 2001:4860:4860::8888", "AAAA 2001:db8::1"}, "[2001:4860:4860::8888]:53"},
+		{[]string{"AAAA 2001:db8::1", "AAAA 2001:4860:4860::8888"}, "[2001:4860:4860::8888]:53"},
+	} {
+		resp := new(dns.Msg)
+		for _, g := range tc.glue {
+			rr, err := dns.NewRR("ns1.child.test. 300 IN " + g)
+			if err != nil {
+				t.Fatalf("glue %q: %v", g, err)
+			}
+			resp.Extra = append(resp.Extra, rr)
+		}
+		// A spent budget rules out side lookups, so only the glue can supply an address.
+		w := &traceWalk{svc: newTestService(), ctx: context.Background(), out: &Trace{QName: "www.child.test."}, queries: traceMaxQueries}
+		hop := &TraceHop{}
+		got := w.resolveServers(hop, resp, "child.test.", []string{"ns1.child.test."})
+		if len(got) != 1 || got[0].addr(w.svc) != tc.want || hop.GlueMissing {
+			t.Errorf("glue %v: servers %+v (glue missing %v), want ns1 at %s", tc.glue, got, hop.GlueMissing, tc.want)
+		}
 	}
 }

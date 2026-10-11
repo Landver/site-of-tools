@@ -1,6 +1,7 @@
 package dnstools
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,137 +9,63 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Decoding turns record values that are packed tuples or opaque conventions
-// into something readable, without hiding the raw value.
-//
-// Everything here is pure static data, no API:
-//   - SOA timers decoded and humanised (a bare "10000 2400 604800 1800" is
-//     unreadable, and its last field is why a fixed record still says NXDOMAIN)
-//   - CAA read as the issuance policy it is, including the empty issuer that
-//     forbids rather than permits
-//   - SVCB/HTTPS SvcParams unpacked, ECH included
-//   - TXT strings labelled by their well-known prefix, so a wall of
-//     verification tokens reads as the integrations it actually is
-//   - the DNS provider named from the nameserver suffix
-
-// caaForbids: what an empty issuer-domain-name means, per issuer property.
-// Only these three properties carry one; iodef and the contact tags do not.
-var caaForbids = map[string]string{
-	"issue":     "no CA may issue certificates for this name",
-	"issuewild": "no CA may issue wildcard certificates for this name",
-	"issuemail": "no CA may issue S/MIME certificates for this name",
+// caaTags: the CAA properties we name, and what an empty issuer means for those that take one.
+var caaTags = map[string]struct{ label, forbids string }{
+	"issue":     {"May issue certificates", "no CA may issue certificates for this name"},
+	"issuewild": {"May issue wildcards", "no CA may issue wildcard certificates for this name"},
+	"iodef":     {"Report violations to", ""},
 }
 
-// caaFields decodes a CAA record: which certificate authorities may issue for
-// this name, and where to report violations. Raw it is `0 issue "x"`, which
-// reads as noise.
+// caaFields decodes a CAA record: who may issue for this name, and where to report violations.
 func caaFields(c *dns.CAA) []Field {
-	tag := strings.ToLower(c.Tag)
-	label := map[string]string{
-		"issue":                "May issue certificates",
-		"issuewild":            "May issue wildcards",
-		"issuemail":            "May issue S/MIME certificates",
-		"iodef":                "Report violations to",
-		"contactemail":         "Contact",
-		"contactphone":         "Contact",
-		"cansignhttpexchanges": "May sign HTTP exchanges",
-	}[tag]
-	if label == "" {
-		label = c.Tag
+	tag := caaTags[strings.ToLower(c.Tag)]
+	f := []Field{{cmp.Or(tag.label, c.Tag), c.Value}}
+	// An empty issuer (`;`) authorises nobody (RFC 8659 §4.2/§4.3); "May issue" would invert it.
+	if issuer, _, _ := strings.Cut(c.Value, ";"); tag.forbids != "" && strings.TrimSpace(issuer) == "" {
+		f = []Field{{"Certificates", tag.forbids}}
 	}
-	f := []Field{{label, c.Value}}
-	// An issuer property whose issuer-domain-name is empty authorises nobody
-	// (RFC 8659 §4.2/§4.3), and `;` is how zones write that. Printing it under
-	// "May issue" states the exact opposite of what was published.
-	if forbids, ok := caaForbids[tag]; ok {
-		if issuer, _, _ := strings.Cut(c.Value, ";"); strings.TrimSpace(issuer) == "" {
-			f = []Field{{"Certificates", forbids}}
-		}
-	}
-	// Only bit 0 of the flags octet is Issuer Critical (RFC 8659 §4.1), the
-	// one that makes a CA which doesn't understand this tag refuse to issue at
-	// all. Every other bit is undefined, so it gets reported without a verdict
-	// attached to it.
-	switch {
-	case c.Flag&0x80 != 0:
+	// Bit 0 (0x80) is Issuer Critical (RFC 8659 §4.1); only then is a Flag row shown, raw value included.
+	if c.Flag&0x80 != 0 {
 		f = append(f, Field{"Flag", fmt.Sprintf("%d (critical)", c.Flag)})
-	case c.Flag != 0:
-		f = append(f, Field{"Flag", fmt.Sprint(c.Flag)})
 	}
 	return f
 }
 
-// svcbFields decodes the SvcParams of an HTTPS/SVCB record (RFC 9460): which
-// protocols the host speaks, the addresses to skip an A lookup with, and
-// whether Encrypted Client Hello is published.
-//
-// The corpus rates a full SvcParam decode as something nothing on the shelf
-// does, and the ECH parameter in particular as decoded by literally nobody.
-func svcbFields(rr dns.RR) []Field {
-	var (
-		priority uint16
-		target   string
-		params   []dns.SVCBKeyValue
-	)
-	switch v := rr.(type) {
-	case *dns.HTTPS:
-		priority, target, params = v.Priority, v.Target, v.Value
-	case *dns.SVCB:
-		priority, target, params = v.Priority, v.Target, v.Value
-	default:
-		return nil
+// svcbFields decodes an HTTPS/SVCB record's SvcParams (RFC 9460), ECH included.
+func svcbFields(s *dns.SVCB) []Field {
+	target := strings.TrimSuffix(s.Target, ".")
+	// Priority 0 is AliasMode; a root target there means "not available here" (RFC 9460 §2.4.2).
+	if s.Priority == 0 {
+		return []Field{{"Mode", "alias, pointing at " + cmp.Or(target, "the root: this service is explicitly not available here")}}
+	}
+	f := []Field{{"Priority", fmt.Sprint(s.Priority)}}
+	// A root target is the owner name itself (RFC 9460 §2.5), so there is nothing to add.
+	if target != "" {
+		f = append(f, Field{"Endpoint", target})
 	}
 
-	var f []Field
-	// Priority 0 is AliasMode: this record just points at another name, the
-	// modern way to do a CNAME at the apex.
-	if priority == 0 {
-		// A root target in AliasMode is how a zone publishes "this service is
-		// not here" (RFC 9460 §2.4.2). Stripping its dot leaves the sentence
-		// pointing at nothing.
-		if strings.TrimSuffix(target, ".") == "" {
-			return []Field{{"Mode", "alias with a root target: this service is explicitly not available here"}}
-		}
-		return []Field{{"Mode", "alias, pointing at " + strings.TrimSuffix(target, ".")}}
-	}
-	f = append(f, Field{"Priority", fmt.Sprint(priority)})
-	// The target is what a ServiceMode record exists to name; without it the
-	// params describe a host the reader never gets told. A root target is the
-	// owner name itself (RFC 9460 §2.5), so there is nothing to add.
-	if t := strings.TrimSuffix(target, "."); t != "" {
-		f = append(f, Field{"Endpoint", t})
-	}
-
-	for _, p := range params {
-		val := p.String()
+	for _, p := range s.Value {
+		name, val := p.Key().String(), p.String()
 		switch p.Key() {
 		case dns.SVCB_ALPN:
-			f = append(f, Field{"Protocols", humanALPN(val)})
+			name, val = "Protocols", humanALPN(val)
 		case dns.SVCB_PORT:
-			f = append(f, Field{"Port", val})
+			name = "Port"
 		// A space after each comma lets a long hint list wrap between addresses.
 		case dns.SVCB_IPV4HINT:
-			f = append(f, Field{"IPv4 hint", strings.ReplaceAll(val, ",", ", ")})
+			name, val = "IPv4 hint", strings.ReplaceAll(val, ",", ", ")
 		case dns.SVCB_IPV6HINT:
-			f = append(f, Field{"IPv6 hint", strings.ReplaceAll(val, ",", ", ")})
+			name, val = "IPv6 hint", strings.ReplaceAll(val, ",", ", ")
 		case dns.SVCB_ECHCONFIG:
-			// The presentation form is base64, so its length is not a byte
-			// count; the parsed value carries the real config. An empty one
-			// publishes no keys, so it must not claim the SNI is encrypted.
-			var n int
-			if e, ok := p.(*dns.SVCBECHConfig); ok {
-				n = len(e.ECH)
+			// The base64 length isn't a byte count; an empty config publishes no keys.
+			name, val = "ECH", "parameter present but empty, so no ECH keys are published"
+			if e, ok := p.(*dns.SVCBECHConfig); ok && len(e.ECH) > 0 {
+				val = fmt.Sprintf("published (%d bytes): browsers that support ECH can hide which site they're visiting from the network", len(e.ECH))
 			}
-			if n == 0 {
-				f = append(f, Field{"ECH", "parameter present but empty, so no ECH keys are published"})
-				break
-			}
-			f = append(f, Field{"ECH", fmt.Sprintf("published (%d bytes): browsers that support ECH can hide which site they're visiting from the network", n)})
 		case dns.SVCB_NO_DEFAULT_ALPN:
-			f = append(f, Field{"Default ALPN", "disabled"})
-		default:
-			f = append(f, Field{p.Key().String(), val})
+			name, val = "Default ALPN", "disabled"
 		}
+		f = append(f, Field{name, val})
 	}
 	return f
 }
@@ -149,79 +76,32 @@ func humanALPN(v string) string {
 		"h3": "HTTP/3", "h2": "HTTP/2", "http/1.1": "HTTP/1.1",
 		"h3-29": "HTTP/3 (draft 29)", "dot": "DNS-over-TLS",
 	}
-	var out []string
-	for _, a := range strings.Split(v, ",") {
-		a = strings.TrimSpace(a)
+	out := strings.Split(v, ",")
+	for i, a := range out {
 		if n, ok := names[a]; ok {
-			out = append(out, n)
-		} else if a != "" {
-			out = append(out, a)
+			out[i] = n
 		}
 	}
 	return strings.Join(out, ", ")
 }
 
-// soaFields decodes a SOA into its named parts. The numbers are the reason
-// "why is my change not live yet" has an answer, so each gets a human duration.
+// soaFields decodes a SOA into named parts, each timer as a human duration.
 func soaFields(s *dns.SOA) []Field {
 	f := []Field{{"Primary NS", s.Ns}}
-	// RNAME is an email with the first dot standing in for "@". A root RNAME
-	// encodes no address at all, and an empty row reads as a value we failed
-	// to render rather than one the zone never published.
-	if m := mboxEmail(s.Mbox); m != "" {
-		f = append(f, Field{"Hostmaster", m})
+	// The RNAME's first dot is the @. A root RNAME, or an escaped dot (first\.last), is left undecoded.
+	if local, domain, ok := strings.Cut(strings.TrimSuffix(s.Mbox, "."), "."); ok && local != "" && !strings.Contains(local, `\`) {
+		f = append(f, Field{"Hostmaster", local + "@" + domain})
 	}
-	f = append(f, []Field{
-		{"Serial", fmt.Sprint(s.Serial)},
-		{"Refresh", humanizeTTL(s.Refresh)},
-		{"Retry", humanizeTTL(s.Retry)},
-		{"Expire", humanizeTTL(s.Expire)},
-		// The one people actually need: how long a "doesn't exist" is cached.
-		{"Negative TTL", humanizeTTL(s.Minttl)},
-	}...)
-	return f
+	return append(f,
+		Field{"Serial", fmt.Sprint(s.Serial)},
+		Field{"Refresh", humanizeTTL(s.Refresh)},
+		Field{"Retry", humanizeTTL(s.Retry)},
+		Field{"Expire", humanizeTTL(s.Expire)},
+		Field{"Negative TTL", humanizeTTL(s.Minttl)}, // how long a "doesn't exist" is cached
+	)
 }
 
-// mboxEmail turns a SOA RNAME (dns.cloudflare.com.) into the address it
-// encodes (dns@cloudflare.com), which is what the field is for.
-//
-// A dot belonging to the local part travels escaped (first\.last.example.com.),
-// so the "@" is the first dot that is not itself escaped — splitting on the
-// first literal dot produces an address nobody can write to.
-func mboxEmail(mbox string) string {
-	m := strings.TrimSuffix(mbox, ".")
-	for i := 0; i < len(m); i++ {
-		switch m[i] {
-		case '\\':
-			i++
-		case '.':
-			if i == 0 {
-				return m
-			}
-			return unescapeDots(m[:i]) + "@" + m[i+1:]
-		}
-	}
-	return unescapeDots(m)
-}
-
-// unescapeDots strips the backslashes that kept a dot inside one label.
-func unescapeDots(s string) string {
-	if !strings.Contains(s, `\`) {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
-			i++
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
-// txtLabels maps a TXT prefix to what that record is actually for. Pure data:
-// no lookup, no API, and it turns an unreadable apex into a list of the
-// services a domain is wired into.
+// txtLabels maps a TXT prefix to what the record is for.
 var txtLabels = []struct{ prefix, label string }{
 	{"v=spf1", "SPF — which servers may send mail"},
 	{"v=DMARC1", "DMARC — what to do with failing mail"},
@@ -261,12 +141,11 @@ var txtLabels = []struct{ prefix, label string }{
 	{"docker-verification=", "Docker"},
 }
 
-// txtLabel names a TXT record's purpose from its prefix. Case-insensitive on
-// the marker, because publishers are inconsistent about it.
+// txtLabel names a TXT record's purpose from its prefix, case-insensitively: publishers vary.
 func txtLabel(v string) string {
-	t := strings.TrimSpace(strings.Trim(v, `"`))
+	t := strings.ToLower(strings.TrimSpace(strings.Trim(v, `"`)))
 	for _, l := range txtLabels {
-		if len(t) >= len(l.prefix) && strings.EqualFold(t[:len(l.prefix)], l.prefix) {
+		if strings.HasPrefix(t, strings.ToLower(l.prefix)) {
 			return l.label
 		}
 	}
@@ -277,8 +156,6 @@ func txtLabel(v string) string {
 }
 
 // providers maps a nameserver suffix to the DNS provider running the zone.
-// Answers "who do I log into to change this", which is the first thing anyone
-// needs and which no amount of raw records tells them.
 var providers = []struct{ suffix, name string }{
 	{"cloudflare.com", "Cloudflare"},
 	{"awsdns", "AWS Route 53"},
@@ -312,40 +189,33 @@ var providers = []struct{ suffix, name string }{
 	{"shopifydns.com", "Shopify"},
 }
 
-// providerOf names the DNS provider from a zone's nameservers. Empty when the
-// suffix isn't one we know, which is honest: better blank than a wrong guess.
-//
-// The answer is the operator most of the nameservers belong to, not whichever
-// record came back first: a zone delegated to three Netlify servers and one
-// legacy NS1 one is logged into at Netlify. A zone split between providers
-// names each ("NS1 + AWS Route 53").
+// knownProvider names the DNS provider a bare nameserver name belongs to, or "".
+func knownProvider(ns string) string {
+	for _, p := range providers {
+		if strings.Contains(ns, p.suffix) {
+			return p.name
+		}
+	}
+	return ""
+}
+
+// providerOf names the provider most nameservers belong to, dropping a lone legacy straggler;
+// a zone split between providers names each ("NS1 + AWS Route 53"). Unknown suffixes give "".
 func providerOf(records []Record) string {
 	seen := map[string]int{}
 	var order []string
 	for _, r := range records {
-		if r.Type != "NS" {
-			continue
-		}
-		ns := strings.ToLower(strings.TrimSuffix(r.Value, "."))
-		for _, p := range providers {
-			if !strings.Contains(ns, p.suffix) {
-				continue
+		if name := knownProvider(bareName(r.Value)); r.Type == "NS" && name != "" {
+			if seen[name] == 0 {
+				order = append(order, name)
 			}
-			if seen[p.name] == 0 {
-				order = append(order, p.name)
-			}
-			seen[p.name]++
-			break
+			seen[name]++
 		}
 	}
-	if len(order) == 0 {
-		return ""
-	}
-	// A lone straggler beside a provider with several is the legacy case above.
 	slices.SortStableFunc(order, func(a, b string) int { return seen[b] - seen[a] })
-	names := order[:1]
-	for _, n := range order[1:] {
-		if seen[n] >= 2 || seen[n] == seen[order[0]] {
+	var names []string
+	for i, n := range order {
+		if i == 0 || seen[n] >= 2 || seen[n] == seen[order[0]] {
 			names = append(names, n)
 		}
 	}

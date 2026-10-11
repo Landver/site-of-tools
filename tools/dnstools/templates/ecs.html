@@ -1,85 +1,42 @@
-{{/* ECS client-subnet card, on the consistency page. Call it with the ROOT
-     dot: {{template "dns/ecs" $}} — inside {{with .Spread}} the dot is the
-     Spread, which has no .ECS.
-
-     Compact by construction. The card used to state the same fact four times
-     — an intro paragraph teaching what scope is, a verdict paragraph
-     re-teaching it, the phrase "the length we sent" repeated once per row,
-     and a findings note saying it again — then printed the same three
-     addresses six times over. Each claim is made once now:
-
-       headline    the verdict, in one coloured sentence
-       one line    the single number that verdict turns on
-       answers     one row per DISTINCT answer set, not per vantage point
-       details     the reasoning, the scope primer, and the per-network rows
-
-     The reasoning is not deleted, it is folded. A reader who wants to know
-     why an echoed scope proves nothing opens the toggle; a reader who wants
-     to know whether this name varies reads two lines and stops.
-
-     Renders nothing at all when the check did not run (an unsupported record
-     type, or the dependency switched off), rather than a card explaining its
-     own absence on a page that is already dense. */}}
+{{/* Call with anything holding .ECS (the consistency envelope); nil means no card. */}}
 {{define "dns/ecs"}}
 {{with .ECS}}
 {{/* Hidden for a name that doesn't exist: the page already says so. */}}
 {{if not (and (eq .Verdict "no-records") (eq .Rcode "NXDOMAIN"))}}
+{{$over := "every response"}}{{if ne .Echoed .Answered}}{{$over = printf "the %d of %d responses that carried one" .Echoed .Answered}}{{end}}
 <div class="card">
   <h2 class="eyebrow">answers by client network</h2>
 
-  {{/* The verdict headline and the one number behind it. Every branch
-       quantifies over the subset it was derived from, never over "every
-       response", because responses that carried no scope measured nothing.
-       Anything longer than a line belongs in the toggle below. */}}
-  <p class="text-sm font-medium">
-    {{if eq .Verdict "answers-differ"}}
-      {{if .ScopeDistinct}}
-        <span class="text-ok">This answer depends on the network that asks.</span>
-      {{else}}
-        <span class="text-warn-ink">These networks were given different answers.</span>
-      {{end}}
+  <p class="text-sm">
+    {{if and (eq .Verdict "answers-differ") .ScopeDistinct}}
+      <span class="block font-medium text-ok">This answer depends on the network that asks.</span>
+      <span class="mt-1 block text-xs text-faint">{{len .Groups}} answer sets, and the zone reported a scope it chose itself (up to /{{.MaxScope}}), stating which block its answer covers.</span>
+    {{else if eq .Verdict "answers-differ"}}
+      <span class="block font-medium text-warn-ink">These networks were given different answers.</span>
+      <span class="mt-1 block text-xs text-faint">{{len .Groups}} answer sets, with scope /{{.MaxScope}} on {{$over}}: the length we sent, which is also what a plain echo looks like. Re-run this: a pool that rotates per query re-forms the groups.</span>
     {{else if eq .Verdict "answers-match"}}
-      <span class="text-ok">Every network was given the same answer.</span>
+      <span class="block font-medium text-ok">Every network was given the same answer.</span>
+      <span class="mt-1 block text-xs text-faint">{{if .ScopeDistinct}}The zone read the network and answered the same regardless: scope up to /{{.MaxScope}} on {{$over}}.
+      {{else}}Scope /{{.MaxScope}} on {{$over}} is the length we sent, which an echoing server returns without reading anything, so this says nothing either way about whether the network was read.{{end}}</span>
     {{else if eq .Verdict "untailored"}}
-      {{if .Rotation}}<span class="text-warn-ink">Different answers, and no client-subnet tailoring behind them.</span>
-      {{else}}<span class="text-ok">No client-subnet tailoring on this path.</span>{{end}}
+      {{if .Rotation}}<span class="block font-medium text-warn-ink">Different answers, and no client-subnet tailoring behind them.</span>
+      {{else}}<span class="block font-medium text-ok">No client-subnet tailoring on this path.</span>{{end}}
+      <span class="mt-1 block text-xs text-faint">Scope 0 on {{$over}}: the answering side saying it did not tailor to who asked.
+      {{if .Rotation}}Whatever varied, it was not the subnet we declared.
+      {{else}}Narrower than "the same everywhere": a zone that steers on the resolver's own location, and a resolver that never forwarded the subnet, both look like this.{{end}}</span>
     {{else if eq .Verdict "no-records"}}
-      <span class="text-warn-ink">No {{.Type}} record for any of the {{.Asked}} networks.</span>
+      <span class="block font-medium text-warn-ink">No {{.Type}} record for any of the {{.Asked}} networks.</span>
+      <span class="mt-1 block text-xs text-faint">None of the {{.Answered}} networks that answered was given one{{if .Rcode}} ({{.Rcode}}){{end}}, so there is nothing to compare.</span>
     {{else if eq .Verdict "unsupported"}}
-      <span class="text-warn-ink">Could not tell.</span>
+      <span class="block font-medium text-warn-ink">Could not tell.</span>
+      <span class="mt-1 block text-xs text-faint">No response carried a client-subnet option back for the network we asked about: it was dropped or rewritten on the way, so nothing was measured.</span>
     {{else}}
-      <span class="text-warn-ink">Not enough answers to judge.</span>
+      <span class="block font-medium text-warn-ink">Not enough answers to judge.</span>
+      <span class="mt-1 block text-xs text-faint">{{.Answered}} of {{.Asked}} client subnets answered, and a single sample cannot differ from anything.</span>
     {{end}}
   </p>
 
-  <p class="mt-1 text-xs text-faint">
-    {{if eq .Verdict "answers-differ"}}
-      {{len .Groups}} answer sets{{if .ScopeDistinct}}, and the zone reported a scope it chose itself (up to /{{.MaxScope}}){{else}}, and {{if eq .Echoed .Answered}}every scope was{{else}}the {{.Echoed}} of {{.Answered}} scopes returned were{{end}} the /{{.MaxScope}} we sent — which is also what a plain echo looks like{{end}}.
-    {{else if eq .Verdict "answers-match"}}
-      {{if .ScopeDistinct}}The zone read the network and answered the same regardless — scope up to /{{.MaxScope}} {{if eq .Echoed .Answered}}on every response{{else}}on the {{.Echoed}} of {{.Answered}} responses that carried one{{end}}.
-      {{else}}Scope /{{.MaxScope}} {{if eq .Echoed .Answered}}on every response{{else}}on the {{.Echoed}} of {{.Answered}} responses that carried one{{end}} is the length we sent, so this says nothing either way about whether the network was read.{{end}}
-    {{else if eq .Verdict "untailored"}}
-      Scope 0 on {{if eq .Echoed .Answered}}every response{{else}}the {{.Echoed}} of {{.Answered}} responses that carried one{{end}}: the answering side saying it did not tailor to who asked.
-    {{else if eq .Verdict "no-records"}}
-      {{if eq .Rcode "NXDOMAIN"}}Every client subnet was told this name does not exist.
-      {{else}}None of the {{.Answered}} networks that answered was given one{{if .Rcode}} ({{.Rcode}}){{end}}.{{end}}
-    {{else if eq .Verdict "unsupported"}}
-      No response carried a client-subnet option back for the network we asked about, so nothing was measured.
-    {{else}}
-      {{.Answered}} of {{.Asked}} client subnets answered, and a single sample cannot differ from anything.
-    {{end}}
-  </p>
-
-  {{/* One row per DISTINCT answer set. Six identical answers printed six
-       times was the bulk of this card, and it said nothing the grouping does
-       not. A group with no Values is a real group, not a gap: a name that
-       answers in one region and NODATA in another is textbook tailoring. */}}
-  {{/* Values above, who got them below — the shape the "answers in
-       circulation" card next door already uses, and for the reason that card
-       found first: a label/value grid gives the network list an auto column,
-       the list is long, and the answer gets squeezed until break-all shatters
-       an address one character per line. */}}
-  {{if .Groups}}
+  {{/* Values above, networks below: a label/value grid breaks long addresses per character. */}}
   {{range .Groups}}
   <div class="mt-3 border-t border-line pt-3 first:border-0">
     <div class="font-mono text-sm break-all text-strong">
@@ -87,55 +44,24 @@
       {{else}}<span class="font-sans text-muted">no record</span>{{end}}
     </div>
     <div class="mt-1 text-xs text-faint">
-      {{/* Dot, not comma: every place name already contains one ("New York,
-           US"), so a comma-joined list reads as twelve places, not six. */}}
+      {{/* Dot, not comma: place names already contain one ("New York, US"). */}}
       {{len .Vantages}} network{{if ne (len .Vantages) 1}}s{{end}}: {{range $i, $v := .Vantages}}{{if $i}} · {{end}}{{$v}}{{end}}
     </div>
   </div>
   {{end}}
-  {{end}}
 
-  {{/* The reasoning, folded. Nothing here was cut from the card, it was
-       moved out of the way of the answer. */}}
   <details class="mt-3 border-t border-line pt-2">
     <summary class="cursor-pointer text-xs text-muted hover:text-strong">
       What scope means, and what each network was told
     </summary>
 
     <p class="mt-2 text-xs text-faint">
-      The same {{.Type}} query went to {{.Resolver}} {{.Asked}} times, each carrying a different network as
-      its EDNS client subnet. Scope is what the answering side said about its own answer: 0 means it was
-      not tailored to the network that asked. A scope equal to the prefix length we sent is also what a
-      server that merely echoes the option returns, so only a length the zone shortens to its own block
-      shows the network was read. The places are our labels for fixed prefixes, not measurements: these
-      {{.Asked}} prefixes can show that answers differed, never that the split follows geography.
+      The same {{.Type}} query went to {{.Resolver}} {{.Asked}} times, each carrying a different network as its EDNS client
+      subnet. Scope is the answering side's word on its answer: 0 means not tailored to who asked, and the length we sent is
+      also what a mere echo returns, so only a length the zone shortens to its own block shows the network was read. The
+      places label fixed prefixes, not measurements: they can show that answers differed, never that the split follows geography.
     </p>
 
-    {{/* The full-length verdict reasoning, one branch per verdict, kept
-         because the headline above is deliberately too short to carry it. */}}
-    <p class="mt-2 text-xs text-faint">
-      {{if eq .Verdict "answers-differ"}}
-        {{if .ScopeDistinct}}
-          At least one response came back with a scope prefix the zone picked itself rather than the length we sent, which is the authoritative side stating which block its answer covers.
-        {{else}}
-          One query per network cannot separate an answer chosen for the network from a pool that rotates per query: re-run this and the groups above may re-form differently.
-        {{end}}
-      {{else if eq .Verdict "answers-match"}}
-        {{if .ScopeDistinct}}Reported on {{if eq .Echoed .Answered}}every response{{else}}{{.Echoed}} of {{.Answered}} responses{{end}}.
-        {{else}}An echoing server returns the source length without reading anything, so one answer set here is not evidence that the network went unread.{{end}}
-      {{else if eq .Verdict "untailored"}}
-        {{if .Rotation}}The networks were given different {{.Type}} records while every scope read 0, so whatever varied, it was not the subnet we declared.
-        {{else}}Narrower than "the same everywhere": a zone that steers on the resolver's own location, and a resolver that never forwarded the subnet, both look like this.{{end}}
-      {{else if eq .Verdict "no-records"}}
-        There is nothing here to be tailored, and nothing to compare.
-      {{else if eq .Verdict "unsupported"}}
-        The option was dropped or rewritten between here and the zone. "Nothing varies" is not reported in its place.
-      {{else}}
-        The rows below are the whole of what was measured.
-      {{end}}
-    </p>
-
-    {{/* Per-network rows: the same shape the public resolvers card uses. */}}
     <dl class="pairs mt-3">
       {{range .Vantages}}
       <div>
@@ -144,9 +70,6 @@
         <span class="block font-mono text-faint">{{.Subnet}}</span>
         {{if .Error}}
         {{else if .Mismatch}}
-          {{/* A well-formed scope about a network we never probed. Printing it
-               as if it described this row is how someone else's cached answer
-               ends up carrying our verdict, so the prefix is named. */}}
           <span class="block text-warn-ink">scope /{{.Scope}} for {{.EchoedSubnet}}, not the network we sent</span>
         {{else if .Echoed}}
           {{if not .Scope}}<span class="block text-faint">scope 0, not tailored</span>
@@ -157,8 +80,6 @@
       <dd>
         {{if .Error}}<span class="text-danger">{{.Error}}</span>
         {{else}}<span class="font-mono text-xs wrap-anywhere text-strong">{{range $i, $v := .Values}}{{if $i}}<br>{{end}}{{$v}}{{end}}</span>
-          {{/* An empty answer set is a real outcome (NODATA), and printing
-               nothing beside a row reads as "this vantage said nothing". */}}
           {{if not .Values}}<span class="text-xs text-muted">no {{$.ECS.Type}} record{{if .Rcode}} ({{.Rcode}}){{end}}</span>{{end}}
           {{if .CNAME}}<span class="block font-mono text-xs text-muted">alias → {{.CNAME}}</span>{{end}}
           <span class="block text-xs text-faint tabular-nums">{{.RTTMS}}&nbsp;ms</span>{{end}}

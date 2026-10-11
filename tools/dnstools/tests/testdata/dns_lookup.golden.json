@@ -82,7 +82,7 @@
   "no_name": {
     "status": 400,
     "body": {
-      "error": "no name; pass ?name=, e.g. /?name=example.com\u0026type=A"
+      "error": "no name; pass ?name=, e.g. /?name=example.com"
     }
   },
   "reverse": {

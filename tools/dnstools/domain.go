@@ -1,17 +1,18 @@
 package dnstools
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
-	"mime"
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,62 +22,39 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// ErrDisabled: this half of the client has no URL configured, so there is
-// nothing to ask. Named rather than free-form so the transport layer can say
-// "not available right now" instead of printing the word "disabled" at a
-// visitor who never configured anything.
+// ErrDisabled: no URL is configured, so transports can say "not available" instead.
 var ErrDisabled = errors.New("this lookup is switched off")
 
-// errUpstreamNotFound: the upstream answered 404. Kept apart from a transport
-// failure because for RDAP a 404 is an answer, not a breakdown.
+// errUpstreamNotFound is a 404, which for RDAP is an answer, not a breakdown.
 var errUpstreamNotFound = errors.New("upstream has no record")
 
 var errUpstreamBusy = errors.New("busy, try again shortly")
 
-// errNoRDAPRecord: the registry answered, and what it said is that it holds no
-// object for this name (RFC 7480 §5.3). Surfacing that as a failed lookup
-// tells the reader the opposite of what the registry said, on the question
-// this page is asked most.
+// errNoRDAPRecord: the registry answered that it holds no object for the name (RFC 7480 §5.3).
 var errNoRDAPRecord = errors.New("the registry has no record for this name: it is unregistered, or its TLD publishes no RDAP service")
 
-// Registration and subdomain discovery: the two questions about a domain that
-// DNS itself cannot answer.
-//
-// Both ride the same pattern as tools/iptools/shodan.go — dedicated client with
-// an explicit timeout, a self-identifying User-Agent so an upstream can contact
-// us rather than silently block us, nil receiver means disabled, and a failure
-// is best-effort: it never breaks the page it decorates.
-
+// domainUserAgent identifies us, so an upstream can contact us rather than block us.
 const domainUserAgent = "corpberry-dnstools/1.0 (+https://dns.corpberry.com; contact via github.com/Landver/site-of-tools)"
 
-// Registration: what the registry knows, via RDAP — the sanctioned WHOIS
-// replacement, keyless JSON over HTTPS (reports/whois-rdap-tools.md).
 type Registration struct {
 	Domain     string `json:"domain"`
 	Registrar  string `json:"registrar,omitempty"`
 	Registered string `json:"registered,omitempty"`
 	Expires    string `json:"expires,omitempty"`
 	Updated    string `json:"updated,omitempty"`
-	// DaysLeft: nil when the registry published no expiry, or one we could not
-	// parse. Zero means "expires within the day" and a negative value means
-	// already expired, which a plain int cannot tell apart from "unknown".
+	// DaysLeft: nil when no readable expiry; 0 is the last day, negative is expired.
 	DaysLeft    *int     `json:"days_left,omitempty"`
 	Statuses    []Status `json:"statuses,omitempty"`
 	Nameservers []string `json:"nameservers,omitempty"`
-	// SignedDelegation: the registry says a DS record is published, i.e. DNSSEC
-	// is delegated. A free DNSSEC fact with zero DNS queries.
+	// SignedDelegation: the registry reports a DS record, so DNSSEC is delegated.
 	SignedDelegation bool `json:"signed_delegation"`
 }
 
-// Status: an EPP status code plus what it means in plain language. The codes
-// are the reason "why can't I transfer this domain" has an answer, and raw
-// they are unreadable.
 type Status struct {
 	Code    string `json:"code"`
 	Meaning string `json:"meaning"`
 }
 
-// eppMeanings decodes the EPP status codes a registry reports. Static data.
 var eppMeanings = map[string]string{
 	"client transfer prohibited": "Locked against transfers by the registrar: the usual anti-hijacking default. To move the domain, its owner asks the registrar to lift the lock and send the transfer (auth) code.",
 	"server transfer prohibited": "Locked against transfers by the registry.",
@@ -104,46 +82,26 @@ var eppMeanings = map[string]string{
 	"inactive":                   "No nameservers delegated, so nothing under this domain resolves.",
 }
 
-// Subdomain: one name seen in Certificate Transparency, rolled up across every
-// certificate that mentioned it. CT publishes per-certificate rows; the view
-// people actually want is per-name, which nothing in the corpus renders.
 type Subdomain struct {
 	Name string `json:"name"`
-	// FirstSeen/LastSeen are the validity window of the certificates covering
-	// this name, not sightings: the query asks crt.sh to exclude expired rows,
-	// so FirstSeen cannot reach back past the newest renewal and LastSeen is a
-	// date in the future. The wire names say that; the Go names are what the
-	// template and tests bind to.
+	// FirstSeen/LastSeen span the validity of unexpired certificates, not sightings;
+	// the wire names say so, the Go names are what templates and tests bind to.
 	FirstSeen string `json:"valid_since,omitempty"`
 	LastSeen  string `json:"covered_until,omitempty"`
 	Certs     int    `json:"certs"`
 }
 
-// CertNames: what Certificate Transparency knows about a domain. This is the
-// working replacement for a zone transfer: public, complete for anything TLS,
-// and it sends zero packets at the target.
 type CertNames struct {
-	Names []Subdomain `json:"names"`
-	Total int         `json:"total"`
-	// Truncated: more names existed than we show. Said out loud rather than
-	// silently capped.
-	Truncated bool `json:"truncated,omitempty"`
-	// Wildcard: a wildcard certificate covers this domain, which is CT's blind
-	// spot — names issued under it never appear here. Stating the limit is the
-	// difference between a list and a claim.
+	Names     []Subdomain `json:"names"`
+	Total     int         `json:"total"`
+	Truncated bool        `json:"truncated,omitempty"`
+	// Wildcard: a wildcard certificate covers the domain, so names under it never show here.
 	Wildcard bool `json:"wildcard,omitempty"`
 }
 
-// maxSubdomains bounds what we render. CT can return thousands of rows.
-const maxSubdomains = 200
-
-// maxResponseBytes bounds what we read from either upstream.
-const maxResponseBytes = 8 << 20
-
-// rdap.org and crt.sh throttle a busy address, and all our requests come from one.
 const (
-	upstreamPerSecond = 1
-	upstreamBurst     = 5
+	maxSubdomains    = 200
+	maxResponseBytes = 8 << 20
 )
 
 // DomainClient talks to RDAP and Certificate Transparency. nil disables both.
@@ -161,11 +119,12 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient
 	if rdapURL == "" && ctURL == "" {
 		return nil
 	}
+	// rdap.org and crt.sh throttle a busy address, and all our requests come from one.
 	d := &DomainClient{
 		rdapURL:   strings.TrimSuffix(rdapURL, "/"),
 		ctURL:     strings.TrimSuffix(ctURL, "/"),
-		rdapLimit: rate.NewLimiter(upstreamPerSecond, upstreamBurst),
-		ctLimit:   rate.NewLimiter(upstreamPerSecond, upstreamBurst),
+		rdapLimit: rate.NewLimiter(1, 5),
+		ctLimit:   rate.NewLimiter(1, 5),
 	}
 	d.client = d.httpClient(timeout, platform.NewEgressGuard([]string{"80", "443"}, nil))
 	return d
@@ -208,10 +167,7 @@ func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard
 				return nil
 			}
 			// By name too: our own vhosts resolve to public addresses.
-			if err := g.AllowHost(req.URL.Hostname()); err != nil {
-				return fmt.Errorf("%w: %w", errRedirectRefused, err)
-			}
-			return nil
+			return g.AllowHost(req.URL.Hostname())
 		},
 		Transport: tr,
 	}
@@ -229,9 +185,6 @@ func hostPort(u *url.URL) string {
 }
 
 func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error {
-	if d == nil {
-		return ErrDisabled
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return err
@@ -241,11 +194,10 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	resp, err := d.client.Do(req)
 	if err != nil {
 		// Plain words: the raw error embeds the whole request URL.
-		var nerr net.Error
 		switch {
 		case errors.Is(err, errRedirectRefused), errors.Is(err, platform.ErrBlockedAddress), errors.Is(err, platform.ErrBlockedPort):
 			return fmt.Errorf("%s redirected somewhere this tool won't follow", req.URL.Host)
-		case errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded):
+		case isTimeout(err) || errors.Is(err, context.DeadlineExceeded):
 			return fmt.Errorf("%s timed out", req.URL.Host)
 		}
 		return fmt.Errorf("couldn't reach %s", req.URL.Host)
@@ -257,35 +209,20 @@ func (d *DomainClient) get(ctx context.Context, endpoint string, into any) error
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s answered with an error (%d)", req.URL.Host, resp.StatusCode)
 	}
-	// A captive portal, a WAF or an upstream's own error page answers 200 with
-	// HTML; decoding that raises a JSON syntax error the page shows verbatim,
-	// which reads as our bug rather than as what happened. Only an explicitly
-	// non-JSON type is rejected, because some RDAP servers send no type at all.
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		mt, _, err := mime.ParseMediaType(ct)
-		if err != nil || (mt != "application/json" && mt != "text/json" && !strings.HasSuffix(mt, "+json")) {
-			return fmt.Errorf("upstream returned %s, not JSON", ct)
-		}
-	}
-	// Bounded: a CT response for a large domain can be many megabytes, and an
-	// unbounded decode is a memory risk on a public endpoint. Reading one byte
-	// past the cap is what tells our own truncation from a stream the upstream
-	// cut short, so the page blames the right party.
+	// One byte past the cap tells our truncation from a stream the upstream cut short.
 	lr := &io.LimitedReader{R: resp.Body, N: maxResponseBytes + 1}
 	if err := json.NewDecoder(lr).Decode(into); err != nil {
 		if lr.N == 0 {
 			return fmt.Errorf("upstream response exceeded %d MB", maxResponseBytes>>20)
 		}
-		return err
+		// Plain words: an HTML error page served as 200 would otherwise read as a JSON syntax error.
+		return fmt.Errorf("%s sent a reply that couldn't be read as JSON", req.URL.Host)
 	}
 	return nil
 }
 
-// rdapResponse: only the fields we render. RDAP returns a great deal more.
 type rdapResponse struct {
-	// ObjectClassName and LDHName are the only thing in the body that says
-	// what it is about. Without them any 200 JSON reached through RDAP's
-	// bootstrap redirect renders as the asked-for domain's registry record.
+	// ObjectClassName/LDHName say what the body is about: a bootstrap redirect can land elsewhere.
 	ObjectClassName string   `json:"objectClassName"`
 	LDHName         string   `json:"ldhName"`
 	Status          []string `json:"status"`
@@ -294,10 +231,9 @@ type rdapResponse struct {
 		Date   string `json:"eventDate"`
 	} `json:"events"`
 	Entities []struct {
-		Roles      []string          `json:"roles"`
-		VCardArray []json.RawMessage `json:"vcardArray"`
-		// Handle and PublicIDs: what is left to name the registrar by when it
-		// publishes no jCard, which several registries do.
+		Roles      []string `json:"roles"`
+		VCardArray []any    `json:"vcardArray"`
+		// Handle and PublicIDs name a registrar that publishes no jCard.
 		Handle    string `json:"handle"`
 		PublicIDs []struct {
 			Type       string `json:"type"`
@@ -312,8 +248,7 @@ type rdapResponse struct {
 	} `json:"secureDNS"`
 }
 
-// Registration fetches the registry record. rdap.org bootstraps to whichever
-// registry serves the TLD, so one URL covers everything.
+// Registration fetches the registry record; rdap.org bootstraps to the TLD's registry.
 func (d *DomainClient) Registration(ctx context.Context, domain string) (*Registration, error) {
 	if d == nil || d.rdapURL == "" {
 		return nil, ErrDisabled
@@ -321,7 +256,7 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 	if !d.rdapLimit.Allow() {
 		return nil, errUpstreamBusy
 	}
-	asked := strings.ToLower(strings.TrimSuffix(domain, "."))
+	asked := bareName(domain)
 	var r rdapResponse
 	if err := d.get(ctx, d.rdapURL+"/domain/"+url.PathEscape(asked), &r); err != nil {
 		if errors.Is(err, errUpstreamNotFound) {
@@ -330,24 +265,13 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 		return nil, err
 	}
 
-	// Bootstrapping means the body is served by whichever registry the
-	// redirect landed on, so it is worth confirming it answers the question we
-	// asked before rendering it as this domain's registry record.
-	if r.ObjectClassName != "" && !strings.EqualFold(r.ObjectClassName, "domain") {
-		return nil, fmt.Errorf("the registry answered with a %s object, not a domain", r.ObjectClassName)
-	}
-	gotName := strings.ToLower(strings.TrimSuffix(r.LDHName, "."))
-	// An internationalised name is asked for as typed but comes back as its
-	// A-label, and mapping between the two is not this file's job, so the
-	// comparison is limited to names where both forms are the same.
-	if gotName != "" && isASCII(asked) && gotName != asked {
-		return nil, fmt.Errorf("the registry answered about %s, not %s", gotName, asked)
+	gotName := bareName(r.LDHName)
+	// An IDN comes back as its A-label, so only names whose two forms match are compared.
+	if (r.ObjectClassName != "" && !strings.EqualFold(r.ObjectClassName, "domain")) || (gotName != "" && isASCII(asked) && gotName != asked) {
+		return nil, fmt.Errorf("the registry answered about something other than the domain %s", asked)
 	}
 
-	out := &Registration{Domain: domain, SignedDelegation: r.SecureDNS.DelegationSigned}
-	if gotName != "" {
-		out.Domain = gotName
-	}
+	out := &Registration{Domain: cmp.Or(gotName, domain), SignedDelegation: r.SecureDNS.DelegationSigned}
 	for _, e := range r.Events {
 		switch strings.ToLower(e.Action) {
 		case "registration":
@@ -355,10 +279,7 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 		case "expiration":
 			out.Expires = date(e.Date)
 			if t, err := time.Parse(time.RFC3339, e.Date); err == nil {
-				// Floor, not truncate: truncating toward zero calls a domain
-				// with twenty hours left "0 days" and one that expired this
-				// morning the same, which is how a live domain gets rendered
-				// in red as expired.
+				// Floor, not truncate: an expiry this morning is -1, not the same 0 as 20 hours left.
 				d := int(math.Floor(time.Until(t).Hours() / 24))
 				out.DaysLeft = &d
 			}
@@ -370,42 +291,24 @@ func (d *DomainClient) Registration(ctx context.Context, domain string) (*Regist
 		out.Statuses = append(out.Statuses, Status{Code: st, Meaning: eppMeanings[strings.ToLower(st)]})
 	}
 	for _, ns := range r.Nameservers {
-		// Root dot off: some registries publish it and some don't, so the same
-		// host would otherwise read differently per TLD and never compare equal
-		// to the NS records the zone itself serves.
-		out.Nameservers = append(out.Nameservers, strings.ToLower(strings.TrimSuffix(ns.LDHName, ".")))
+		// Trailing dot off, so names compare equal to the zone's own NS records.
+		out.Nameservers = append(out.Nameservers, bareName(ns.LDHName))
 	}
+	// The first registrar-role entity is sometimes an empty stub wrapping the named one.
 	for _, e := range r.Entities {
-		if !slicesContainsFold(e.Roles, "registrar") {
-			continue
-		}
-		out.Registrar = vcardName(e.VCardArray)
-		// Not every registry publishes a jCard for the registrar. Its handle,
-		// or failing that the IANA id, still names something a reader can look
-		// up; a blank row names nothing.
-		if out.Registrar == "" {
-			out.Registrar = strings.TrimSpace(e.Handle)
-		}
-		for i := 0; out.Registrar == "" && i < len(e.PublicIDs); i++ {
-			out.Registrar = strings.TrimSpace(e.PublicIDs[i].Type + " " + e.PublicIDs[i].Identifier)
-		}
-		// Only stop once something has actually been named: a registry can
-		// carry more than one registrar-role entity, and the first is
-		// occasionally an empty stub wrapping the one with the name.
-		if out.Registrar != "" {
-			break
+		if out.Registrar == "" && slices.ContainsFunc(e.Roles, func(r string) bool { return strings.EqualFold(r, "registrar") }) {
+			out.Registrar = cmp.Or(vcardName(e.VCardArray), strings.TrimSpace(e.Handle))
+			for i := 0; out.Registrar == "" && i < len(e.PublicIDs); i++ {
+				out.Registrar = strings.TrimSpace(e.PublicIDs[i].Type + " " + e.PublicIDs[i].Identifier)
+			}
 		}
 	}
 	return out, nil
 }
 
-// DaysKnown reports whether the registry published an expiry we could read.
-// Templates cannot compare through a pointer, and cannot tell a nil DaysLeft
-// from one pointing at zero, so the countdown reaches them as these two.
+// DaysKnown and Days exist because templates can't tell a nil DaysLeft from a zero one.
 func (r *Registration) DaysKnown() bool { return r != nil && r.DaysLeft != nil }
 
-// Days is the countdown as a plain number: negative once the domain has
-// expired, zero on its last day. Meaningless unless DaysKnown.
 func (r *Registration) Days() int {
 	if r == nil || r.DaysLeft == nil {
 		return 0
@@ -413,18 +316,15 @@ func (r *Registration) Days() int {
 	return *r.DaysLeft
 }
 
-// ctRow: crt.sh's per-certificate shape.
 type ctRow struct {
 	NameValue string `json:"name_value"`
 	NotBefore string `json:"not_before"`
 	NotAfter  string `json:"not_after"`
-	// SerialNumber: a precertificate and the certificate it precedes are two
-	// logged rows carrying one serial, so rows are not certificates.
+	// SerialNumber: a precertificate and its certificate are two rows with one serial.
 	SerialNumber string `json:"serial_number"`
 }
 
-// CertNames pulls every name Certificate Transparency has seen under a domain
-// and rolls the per-certificate rows up per name.
+// CertNames rolls Certificate Transparency's per-certificate rows up per name.
 func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames, error) {
 	if d == nil || d.ctURL == "" {
 		return nil, ErrDisabled
@@ -433,29 +333,22 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 		return nil, errUpstreamBusy
 	}
 	var rows []ctRow
-	q := url.Values{
-		"q":       {"%." + strings.TrimSuffix(domain, ".")},
-		"output":  {"json"},
-		"exclude": {"expired"},
-	}
+	q := url.Values{"q": {"%." + strings.TrimSuffix(domain, ".")}, "output": {"json"}, "exclude": {"expired"}}
 	if err := d.get(ctx, d.ctURL+"/?"+q.Encode(), &rows); err != nil {
 		return nil, err
 	}
 
-	base := strings.ToLower(strings.TrimSuffix(domain, "."))
-	agg := map[string]*Subdomain{}
-	// counted: name + serial pairs already tallied, so the precertificate and
-	// the final certificate count once between them.
-	counted := map[string]bool{}
+	base := bareName(domain)
+	agg := map[string]Subdomain{}
+	counted := map[string]bool{} // name+serial: a precertificate and its certificate count once
 	wildcard := false
 	for _, row := range rows {
 		// One certificate can carry many names, newline separated.
 		for _, n := range strings.Fields(row.NameValue) {
-			n = strings.ToLower(strings.TrimSuffix(n, "."))
+			n = bareName(n)
 			wild := strings.HasPrefix(n, "*.")
 			n = strings.TrimPrefix(n, "*.")
-			// A multi-SAN certificate carries other people's names. They are
-			// not subdomains of this domain, and listing them says they are.
+			// A multi-SAN certificate carries other domains' names; they are not subdomains.
 			if n == "" || (n != base && !strings.HasSuffix(n, "."+base)) {
 				continue
 			}
@@ -463,11 +356,8 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 				wildcard = true
 				continue
 			}
-			s, ok := agg[n]
-			if !ok {
-				s = &Subdomain{Name: n}
-				agg[n] = s
-			}
+			s := agg[n]
+			s.Name = n
 			if key := n + "\x00" + row.SerialNumber; row.SerialNumber == "" || !counted[key] {
 				counted[key] = true
 				s.Certs++
@@ -475,19 +365,15 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 			if b := date(row.NotBefore); b != "" && (s.FirstSeen == "" || b < s.FirstSeen) {
 				s.FirstSeen = b
 			}
-			// Validity END, not another copy of NotBefore: "last seen" means
-			// how long this name stays covered, which is what NotAfter says.
 			if a := date(row.NotAfter); a != "" && a > s.LastSeen {
 				s.LastSeen = a
 			}
+			agg[n] = s
 		}
 	}
 
-	out := &CertNames{Total: len(agg), Wildcard: wildcard}
-	for _, s := range agg {
-		out.Names = append(out.Names, *s)
-	}
-	sort.Slice(out.Names, func(i, j int) bool { return out.Names[i].Name < out.Names[j].Name })
+	out := &CertNames{Total: len(agg), Wildcard: wildcard,
+		Names: slices.SortedFunc(maps.Values(agg), func(a, b Subdomain) int { return strings.Compare(a.Name, b.Name) })}
 	if len(out.Names) > maxSubdomains {
 		out.Names = out.Names[:maxSubdomains]
 		out.Truncated = true
@@ -521,18 +407,12 @@ func DomainInfo(ctx context.Context, svc Looker, dom *DomainClient, name string)
 		out.RegistrableDomain = regName
 	}
 
+	// errPanic stays only if a half panics before it answers.
+	out.RegErr, out.CertErr = errPanic, errPanic
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go safe(func() {
-		defer wg.Done()
-		out.RegErr = errPanic
-		out.Registration, out.RegErr = dom.Registration(ctx, regName)
-	})
-	go safe(func() {
-		defer wg.Done()
-		out.CertErr = errPanic
-		out.CertNames, out.CertErr = dom.CertNames(ctx, name)
-	})
+	go safe(func() { defer wg.Done(); out.Registration, out.RegErr = dom.Registration(ctx, regName) })
+	go safe(func() { defer wg.Done(); out.CertNames, out.CertErr = dom.CertNames(ctx, name) })
 	wg.Wait()
 
 	if out.RegErr != nil {
@@ -562,8 +442,6 @@ func (r *DomainReport) Err() error {
 	return nil
 }
 
-// date trims an RFC3339-ish timestamp to the day, which is all these fields
-// are meaningfully accurate to.
 func date(s string) string {
 	if len(s) >= 10 {
 		return s[:10]
@@ -571,50 +449,16 @@ func date(s string) string {
 	return s
 }
 
-// isASCII: whether a name is already in its A-label form, i.e. whether the
-// registry's LDH name is comparable to it without an IDN mapping.
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
-}
-
-func slicesContainsFold(hay []string, needle string) bool {
-	for _, h := range hay {
-		if strings.EqualFold(h, needle) {
-			return true
-		}
-	}
-	return false
-}
-
-// vcardName digs the display name out of RDAP's jCard array, which is a
-// famously awkward nested-array format: ["vcard", [["fn", {}, "text", NAME]]].
-func vcardName(raw []json.RawMessage) string {
-	if len(raw) < 2 {
+// vcardName digs fn out of a jCard: ["vcard", [["fn", {}, "text", NAME]]].
+func vcardName(card []any) string {
+	if len(card) < 2 {
 		return ""
 	}
-	var props [][]json.RawMessage
-	if err := json.Unmarshal(raw[1], &props); err != nil {
-		return ""
-	}
+	props, _ := card[1].([]any)
 	for _, p := range props {
-		if len(p) < 4 {
-			continue
-		}
-		var key string
-		if json.Unmarshal(p[0], &key) != nil || key != "fn" {
-			continue
-		}
-		var name string
-		// An entity can publish an empty fn; the caller's fallback names the
-		// registrar better than a blank row does.
-		if json.Unmarshal(p[3], &name) == nil {
-			if name = strings.TrimSpace(name); name != "" {
-				return name
+		if prop, _ := p.([]any); len(prop) >= 4 && prop[0] == "fn" {
+			if name, _ := prop[3].(string); strings.TrimSpace(name) != "" {
+				return strings.TrimSpace(name)
 			}
 		}
 	}
