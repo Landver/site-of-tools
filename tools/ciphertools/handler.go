@@ -1,8 +1,6 @@
 //go:build !js
 
-// The one file in this package that is server-only. The build tag keeps Echo,
-// platform and everything they pull in (the Mongo driver among them) out of the
-// wasm binary, which only ever needs the ops and the templates.
+// The package's one server-only file: the tag keeps Echo, platform and the Mongo driver out of the wasm binary.
 
 package ciphertools
 
@@ -14,8 +12,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -25,62 +25,56 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// page is one sub-nav entry: a GET route serving the page shell. Its forms post
-// to ops (op.go), which is where the work happens.
+// page is one sub-nav entry, in nav order, and the GET route serving its shell "cipher/<Key>".
 type page struct {
-	Key, Path, Template, Title, Desc string
+	Key, Path, Label, Tip, Title, Desc string
 }
 
 var pages = []page{
-	{Key: "jwt", Path: "/", Template: "cipher/jwt",
+	{Key: "jwt", Path: "/", Label: "JWT", Tip: "Decode, verify and sign JSON Web Tokens",
 		Title: "JWT decoder, verifier and signer — Cipher Tools",
 		Desc:  "Decode a JWT, verify its signature with a secret, PEM or JWKS, and sign new ones: HS, RS, PS, ES and EdDSA. Runs in your browser, so the token never leaves the page. Loud about unverified tokens, alg none and algorithm confusion."},
-	{Key: "hash", Path: "/hash", Template: "cipher/hash",
+	{Key: "hash", Path: "/hash", Label: "Hash", Tip: "Hash text or a file, check a checksum",
 		Title: "Hash calculator and checksum checker: MD5, SHA-256, SHA-3, BLAKE2 — Cipher Tools",
 		Desc:  "Hash text or a file with MD5, SHA-1, SHA-2, SHA-3, BLAKE2, Keccak-256, CRC32 and Adler-32 at once, as hex and base64. Paste a checksum to see which algorithm it matches. Flags trailing newlines, CRLF and BOMs. Runs in your browser."},
-	{Key: "hmac", Path: "/hmac", Template: "cipher/hmac",
+	{Key: "hmac", Path: "/hmac", Label: "HMAC", Tip: "Compute an HMAC, check a webhook signature",
 		Title: "HMAC generator and webhook signature checker — Cipher Tools",
 		Desc:  "Compute HMAC-SHA256, SHA-512, SHA-1, MD5 and SHA-3 at once with a key as text, hex or base64, and verify a webhook signature (GitHub, Stripe, Slack) in constant time. Runs in your browser, so the key never leaves the page."},
-	{Key: "password", Path: "/password", Template: "cipher/password",
+	{Key: "password", Path: "/password", Label: "Passwords", Tip: "Hash and check passwords: bcrypt, Argon2id, scrypt, PBKDF2",
 		Title: "bcrypt, Argon2, scrypt and PBKDF2 password hash generator and checker — Cipher Tools",
 		Desc:  "Hash a password with bcrypt, Argon2id, scrypt or PBKDF2, or paste a stored hash to read its algorithm, cost and salt and check a password against it. Warns about bcrypt's 72-byte limit and weak parameters. Runs in your browser."},
-	{Key: "encrypt", Path: "/encrypt", Template: "cipher/encrypt",
+	{Key: "encrypt", Path: "/encrypt", Label: "Encrypt", Tip: "Encrypt and decrypt with AES-GCM, ChaCha20-Poly1305 or AES-CBC",
 		Title: "AES-GCM, ChaCha20-Poly1305 and AES-CBC encryption and decryption — Cipher Tools",
 		Desc:  "Encrypt or decrypt with AES-GCM, ChaCha20-Poly1305 or AES-CBC using a hex or base64 key, a random nonce and optional AAD. The output layout (nonce, ciphertext, tag) is stated so other code can read it. Runs in your browser, so the key never leaves the page."},
-	{Key: "keys", Path: "/keys", Template: "cipher/keys",
+	{Key: "keys", Path: "/keys", Label: "Keys", Tip: "Generate and convert keys: PEM, JWK, OpenSSH",
 		Title: "RSA, ECDSA and Ed25519 key generator, PEM to JWK and OpenSSH converter — Cipher Tools",
 		Desc:  "Generate a test RSA, ECDSA or Ed25519 key pair, or paste a key to convert it between PEM (PKCS#8, PKCS#1, SPKI), JWK and OpenSSH. Shows the SPKI and OpenSSH SHA256 fingerprints and the RFC 7638 JWK thumbprint. Runs in your browser."},
-	{Key: "cert", Path: "/cert", Template: "cipher/cert",
+	{Key: "cert", Path: "/cert", Label: "Certs", Tip: "Decode certificates, chains and CSRs",
 		Title: "X.509 certificate decoder, chain order checker and CSR reader — Cipher Tools",
 		Desc:  "Decode a certificate, chain or CSR from PEM or DER: SANs, validity, issuer, key, usages and SHA-256 fingerprints. Checks chain order and each signature, flags expiry, SHA-1 and CN-only certificates, and tests whether a key matches. Runs in your browser."},
-	{Key: "totp", Path: "/totp", Template: "cipher/totp",
+	{Key: "totp", Path: "/totp", Label: "TOTP", Tip: "TOTP and HOTP codes, otpauth:// URIs",
 		Title: "TOTP and HOTP code generator, otpauth:// URI reader and builder — Cipher Tools",
 		Desc:  "Get the previous, current and next TOTP or HOTP code from a base32 secret or an otpauth:// URI, with a countdown. Check a code within one step either side, and build an otpauth:// URI. SHA1, SHA256 and SHA512. Runs in your browser."},
-	{Key: "random", Path: "/random", Template: "cipher/random",
+	{Key: "random", Path: "/random", Label: "Random", Tip: "Random tokens, passwords and UUIDs",
 		Title: "Random token, password and UUID v4 / v7 generator — Cipher Tools",
 		Desc:  "Generate random tokens as hex, base64url or letters and digits, passwords with the character sets you pick and their exact entropy, and UUID v4 or v7 in bulk. Cryptographic randomness with no modulo bias, made in your browser."},
-	{Key: "encode", Path: "/encode", Template: "cipher/encode",
+	{Key: "encode", Path: "/encode", Label: "Encode", Tip: "Bytes as text, hex, base64 and base32; Basic auth",
 		Title: "Base64, hex and base32 converter, Basic auth header — Cipher Tools",
 		Desc:  "Convert bytes between UTF-8 text, hex, base64, base64url and base32, with the base64 variant named and bad characters pointed at by offset. Build and decode HTTP Basic auth headers. Runs in your browser."},
-	{Key: "identify", Path: "/identify", Template: "cipher/identify",
+	{Key: "identify", Path: "/identify", Label: "Identify", Tip: "What is this string? Hashes, tokens, keys, encodings",
 		Title: "Hash, token, key and encoding identifier with hashcat modes — Cipher Tools",
 		Desc:  "Paste a string to see what it could be: hash types with hashcat modes, JWT, JWE, PEM keys and certificates, SSH keys, bcrypt and Argon2 hashes, UUIDs, otpauth:// URIs, base64, hex or base32. Ranked candidates, each linked to the page that reads it."},
 }
 
 const (
 	heavyBudget = 256 << 20
-
-	// maxBody bounds every POST, uploads included. The browser engine has no
-	// such limit: a file hashed there never travels.
-	maxBody = 8 << 20
+	maxBody     = 8 << 20 // every POST, uploads included; a file hashed in the browser never travels
 )
 
 type Limits struct {
 	Pure, Heavy platform.Limiter
-	// Engine bounds pulls of the multi-MB wasm engine, which a browser keeps.
-	Engine platform.Limiter
-	// HeavyCap is a byte budget; each Heavy op holds HeavyWeight of it.
-	HeavyCap *platform.Cap
+	Engine      platform.Limiter // pulls of the multi-MB wasm engine, which a browser keeps
+	HeavyCap    *platform.Cap    // a byte budget; each Heavy op holds HeavyWeight of it
 }
 
 func NewLimits() *Limits {
@@ -102,48 +96,26 @@ type handler struct {
 	lim  *Limits
 }
 
-// Register wires cipher.corpberry.com.
-//
-//	GET  <page.Path>   page shells, one per sub-nav entry
-//	POST <op.Path>     every op: JSON for an API caller, the whole page for a
-//	                   browser with JavaScript off
-//
-// Ops read the POST body only, never the query string. A secret in a URL lands
-// in history, in Referer headers and in the request log; refusing to read one
-// there is what keeps anybody from building that habit.
-//
-// static is the shared static FS the app serves /static from; the engine is read
-// from it once and served pre-compressed (engine below).
-// lim nil means fresh limits.
+// Register serves a GET shell per page and a POST per op, answering JSON or, with JavaScript off, the page.
+// Ops read the body only: a secret in a URL lands in history, Referer and logs. lim nil means fresh limits.
 func Register(e *echo.Echo, base string, static fs.FS, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
 	h := &handler{base: base, lim: lim}
 	e.Use(immutableEngine)
-	en := &engine{static: static}
-	e.GET(enginePath, en.serve, platform.RateLimit(lim.Engine, nil, limited))
-	pure := platform.RateLimit(lim.Pure, nil, limited)
-	heavy := platform.RateLimit(lim.Heavy, nil, limited)
-	limit := middleware.BodyLimit(maxBody)
-
+	e.GET(enginePath, (&engine{static: static}).serve, platform.RateLimit(lim.Engine, nil, limited))
 	for _, p := range pages {
-		e.GET(p.Path, h.page(p))
+		e.GET(p.Path, func(c *echo.Context) error { return c.Render(http.StatusOK, "cipher/"+p.Key, h.vm(p)) })
 	}
+	rate := map[bool]echo.MiddlewareFunc{false: platform.RateLimit(lim.Pure, nil, limited), true: platform.RateLimit(lim.Heavy, nil, limited)}
 	for _, op := range Ops() {
-		rl := pure
-		if op.Heavy {
-			rl = heavy
-		}
-		e.POST(op.Path, h.op(op), limit, rl)
+		e.POST(op.Path, h.op(op), middleware.BodyLimit(maxBody), rate[op.Heavy])
 	}
 }
 
-// immutableEngine lets browsers keep the engine. It is ~10 MB (~2.5 MB
-// gzipped), Cloudflare does not cache .wasm by default, and embedded files carry
-// no Last-Modified, so without this every page view downloaded it again. Only
-// content-hashed URLs (?v=, from platform.AssetVersioner) qualify: their bytes
-// can never change under the same URL, so "immutable" is simply true.
+// immutableEngine lets browsers keep the ~10 MB engine: Cloudflare doesn't cache .wasm by default and embedded
+// files carry no Last-Modified. Only content-hashed URLs (?v=) qualify, so "immutable" is simply true.
 func immutableEngine(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
@@ -155,20 +127,14 @@ func immutableEngine(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-// enginePath is the one static file this package serves itself. Echo's router
-// prefers this exact route to the /static* wildcard NewApp registers, and
-// platform's gzip middleware skips it (platform/app.go), so the bytes written
-// here are the bytes sent.
+// enginePath is served here, not by /static: Echo prefers the exact route to NewApp's wildcard, and
+// platform's gzip middleware skips it (platform/app.go), so the bytes written are the bytes sent.
 const enginePath = "/static/wasm/cipher.wasm"
 
-// engine serves the wasm engine gzipped once, not per request. The file is
-// ~12 MB; the shared gzip middleware compressed it on every fetch, ~0.25 s of
-// CPU each time, and Cloudflare doesn't cache .wasm without a rule, so the one
-// URL every visitor downloads was also the cheapest way to keep a core busy.
-//
-// The cache is keyed on size and modification time: embedded files never
-// change, and in dev (disk FS) a `make wasm` rebuild is picked up on the next
-// request instead of serving the old engine until restart.
+const engineFile = "wasm/cipher.wasm"
+
+// engine gzips the ~12 MB engine once, not per request (~0.25 s of CPU each, and Cloudflare doesn't cache .wasm).
+// The cache key is size and mtime, so a dev `make wasm` is picked up without a restart.
 type engine struct {
 	static fs.FS
 	mu     sync.Mutex
@@ -176,30 +142,27 @@ type engine struct {
 	gz     []byte
 }
 
-const engineFile = "wasm/cipher.wasm"
-
 func (en *engine) serve(c *echo.Context) error {
 	info, err := fs.Stat(en.static, engineFile)
 	if err != nil {
 		return echo.ErrNotFound
 	}
 	c.Response().Header().Add(echo.HeaderVary, echo.HeaderAcceptEncoding)
-	if !strings.Contains(c.Request().Header.Get(echo.HeaderAcceptEncoding), "gzip") {
-		raw, err := fs.ReadFile(en.static, engineFile)
-		if err != nil {
-			return err
-		}
-		return c.Blob(http.StatusOK, "application/wasm", raw)
-	}
-	gz, err := en.compressed(info)
+	gz := strings.Contains(c.Request().Header.Get(echo.HeaderAcceptEncoding), "gzip")
+	body, err := en.read(info, gz)
 	if err != nil {
 		return err
 	}
-	c.Response().Header().Set(echo.HeaderContentEncoding, "gzip")
-	return c.Blob(http.StatusOK, "application/wasm", gz)
+	if gz {
+		c.Response().Header().Set(echo.HeaderContentEncoding, "gzip")
+	}
+	return c.Blob(http.StatusOK, "application/wasm", body)
 }
 
-func (en *engine) compressed(info fs.FileInfo) ([]byte, error) {
+func (en *engine) read(info fs.FileInfo, gz bool) ([]byte, error) {
+	if !gz {
+		return fs.ReadFile(en.static, engineFile)
+	}
 	key := fmt.Sprint(info.Size(), info.ModTime().UnixNano())
 	en.mu.Lock()
 	defer en.mu.Unlock()
@@ -213,89 +176,53 @@ func (en *engine) compressed(info fs.FileInfo) ([]byte, error) {
 	var b bytes.Buffer
 	zw, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
 	zw.Write(raw)
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
+	zw.Close() // writes to a bytes.Buffer can't fail
 	en.key, en.gz = key, b.Bytes()
 	return en.gz, nil
 }
 
-func findPage(key string) page {
-	for _, p := range pages {
-		if p.Key == key {
-			return p
-		}
-	}
-	panic("ciphertools: op names unknown page " + key)
-}
-
 func (h *handler) vm(p page) map[string]any {
-	return map[string]any{
-		"Active": p.Key, "Title": p.Title, "Desc": p.Desc, "Heading": p.Title,
-		// Op is always set, even to "": templates compare it with eq, and eq
-		// on a missing map key is an execution error, not false.
-		"Base": h.base, "Form": url.Values{}, "Op": "", "Algs": SignAlgs,
-	}
-}
-
-func (h *handler) page(p page) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		return c.Render(http.StatusOK, p.Template, h.vm(p))
-	}
+	// Op is always set: templates compare it with eq, and eq on a missing key is an error, not false.
+	return map[string]any{"Active": p.Key, "Title": p.Title, "Desc": p.Desc, "Heading": p.Title, "Pages": pages,
+		"Base": h.base, "Form": url.Values{}, "Op": "", "Algs": SignAlgs}
 }
 
 func (h *handler) op(op Op) echo.HandlerFunc {
-	p := findPage(op.Page)
+	p := pages[slices.IndexFunc(pages, func(p page) bool { return p.Key == op.Page })]
 	return func(c *echo.Context) error {
-		// Results can be secrets (a generated key, a signed token); no cache
-		// between here and the visitor may keep one.
-		c.Response().Header().Set("Cache-Control", "no-store")
-
+		c.Response().Header().Set("Cache-Control", "no-store") // results can be secrets: a generated key, a signed token
 		in, err := readInput(c)
 		var res any
 		if err == nil {
 			res, err = h.run(c.RealIP(), op, in)
 		}
-		code := http.StatusOK
-		switch {
-		case errors.Is(err, platform.ErrBusy):
-			code = http.StatusServiceUnavailable
-		case err != nil:
-			code = http.StatusBadRequest
-		}
-		if platform.WantsJSON(c) {
-			if err != nil {
-				return c.JSON(code, map[string]string{"error": err.Error()})
-			}
-			return c.JSON(http.StatusOK, res)
-		}
-		// A browser posting the form itself: JavaScript is off, so the page
-		// renders server-side with the result in place.
 		vm := h.vm(p)
 		vm["Form"], vm["Op"] = in.Fields, op.Name
-		if err != nil {
-			vm["Error"] = err.Error()
-		} else {
+		if err == nil {
 			vm["Result"] = res
+			return platform.Reply(c, http.StatusOK, res, vm, "cipher/"+p.Key, "cipher/"+p.Key)
 		}
-		return c.Render(code, p.Template, vm)
+		vm["Error"] = err.Error()
+		code := http.StatusBadRequest
+		if errors.Is(err, platform.ErrBusy) {
+			code = http.StatusServiceUnavailable
+		}
+		return platform.Reply(c, code, map[string]string{"error": err.Error()}, vm, "cipher/"+p.Key, "cipher/"+p.Key)
 	}
 }
 
 func (h *handler) run(client string, op Op, in Input) (any, error) {
-	if !op.Heavy {
-		return Run(op, in)
+	if op.Heavy {
+		w := HeavyWeight(op.Name, in)
+		if !h.lim.HeavyCap.TryAcquire(client, w) {
+			return nil, platform.ErrBusy
+		}
+		defer h.lim.HeavyCap.Release(client, w)
 	}
-	w := HeavyWeight(op.Name, in)
-	if !h.lim.HeavyCap.TryAcquire(client, w) {
-		return nil, platform.ErrBusy
-	}
-	defer h.lim.HeavyCap.Release(client, w)
 	return Run(op, in)
 }
 
-// readInput accepts a form (urlencoded or multipart) or a flat JSON object of
-// strings, so both `curl -d key=value` and `curl --json '{...}'` work.
+// readInput takes a form (urlencoded or multipart) or a flat JSON object, so both curl -d and curl --json work.
 func readInput(c *echo.Context) (Input, error) {
 	in := Input{Fields: url.Values{}, Files: map[string][]byte{}}
 	r := c.Request()
@@ -309,25 +236,19 @@ func readInput(c *echo.Context) (Input, error) {
 	if err := r.ParseMultipartForm(maxBody); err != nil && !errors.Is(err, http.ErrNotMultipart) {
 		return in, fmt.Errorf("body: %w", err)
 	}
-	// PostForm, not Form: Form merges in the query string.
-	for k, v := range r.PostForm {
-		in.Fields[k] = v
+	maps.Copy(in.Fields, r.PostForm) // not Form, which merges in the query string
+	if r.MultipartForm == nil {
+		return in, nil
 	}
-	if r.MultipartForm != nil {
-		for k, fhs := range r.MultipartForm.File {
-			if len(fhs) == 0 {
-				continue
-			}
-			f, err := fhs[0].Open()
-			if err != nil {
-				return in, err
-			}
-			b, err := io.ReadAll(io.LimitReader(f, maxBody))
-			f.Close()
-			if err != nil {
-				return in, err
-			}
-			in.Files[k] = b
+	for k, fhs := range r.MultipartForm.File {
+		f, err := fhs[0].Open()
+		if err != nil {
+			return in, err
+		}
+		in.Files[k], err = io.ReadAll(io.LimitReader(f, maxBody))
+		f.Close()
+		if err != nil {
+			return in, err
 		}
 	}
 	return in, nil
@@ -339,11 +260,11 @@ func limited(c *echo.Context) error {
 	})
 }
 
-// SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
+// SitemapPages lists this tool's indexable URLs, for platform.RegisterSEO.
 func SitemapPages() ([]platform.Page, error) {
-	out := make([]platform.Page, 0, len(pages))
-	for _, p := range pages {
-		out = append(out, platform.Page{Path: p.Path})
+	out := make([]platform.Page, len(pages))
+	for i, p := range pages {
+		out[i] = platform.Page{Path: p.Path}
 	}
 	return out, nil
 }

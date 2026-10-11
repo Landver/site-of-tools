@@ -18,18 +18,15 @@ const (
 	KindFile   Kind = "file" // multipart forms only, never JSON
 )
 
-// Field is one input an op reads, the contract tool schemas are generated from.
+// Field is one input an op reads; the MCP tool schemas are generated from it.
 type Field struct {
 	Name        string
 	Kind        Kind
 	Description string
-	// Enum: an enum's choices, a list's members, or an int field's only values.
-	Enum []string
-	// Default is form text; "" when there is none or it depends on another field.
-	Default string
-	// Min, Max bound an int field; where a bound depends on another field, the widest.
-	Min, Max *int
-	Required bool
+	Enum        []string // an enum's choices, a list's members, or an int field's only values
+	Default     string   // form text; "" when there is none or it depends on another field
+	Min, Max    *int     // where a bound depends on another field, the widest
+	Required    bool
 }
 
 func (f Field) withMax(n int) Field { f.Max = &n; return f }
@@ -59,13 +56,8 @@ func intField(in Input, f Field) (int, error) {
 // thousands writes n with comma separators: 600000 as "600,000".
 func thousands(n int) string {
 	s := strconv.Itoa(n)
-	neg := strings.HasPrefix(s, "-")
-	s = strings.TrimPrefix(s, "-")
-	for i := len(s) - 3; i > 0; i -= 3 {
+	for i := len(s) - 3; i > 0 && s[i-1] != '-'; i -= 3 {
 		s = s[:i] + "," + s[i:]
-	}
-	if neg {
-		return "-" + s
 	}
 	return s
 }

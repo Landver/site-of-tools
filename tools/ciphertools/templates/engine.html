@@ -1,12 +1,5 @@
-{{/* The in-browser engine: status line, no-JS notice, and the loader.
-
-     The status box starts hidden and cipher.js reveals it, so with JavaScript
-     off it never claims to be "loading" forever; the <noscript> line says the
-     true thing instead — that submitting sends the form to the server.
-
-     States are switched by toggling [hidden] on the three spans, never by
-     adding classes from JS: Tailwind only sees literal class strings in
-     templates (CLAUDE.md gotchas). */}}
+{{/* The status box starts hidden so a no-JS page never claims "loading"; cipher.js shows it and
+     toggles [hidden] on the state spans, since Tailwind only sees literal class strings. */}}
 {{define "cipher/engine"}}
 <div data-cipher-engine hidden
      data-worker="{{asset "js/cipher-worker.js"}}"
@@ -28,7 +21,6 @@
 <script src="{{asset "js/cipher.js"}}" defer></script>
 {{end}}
 
-{{/* Shared "Warnings" list: .Warnings on any result. */}}
 {{define "cipher/warnings"}}
 {{if .}}
 <ul class="mt-4 space-y-2 text-sm">

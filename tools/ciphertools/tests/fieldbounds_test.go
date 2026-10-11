@@ -11,8 +11,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// fieldInputs gives, per op and field, an accepted input that reaches the branch
-// reading that field (algo=scrypt for scrypt_n, kind=uuid for version, …).
+// fieldInputs gives per op and field an accepted input reaching the branch that reads it (algo=scrypt for scrypt_n).
 func fieldInputs(t *testing.T) func(op, field string) url.Values {
 	t.Helper()
 	key := strings.Repeat("ab", 32)

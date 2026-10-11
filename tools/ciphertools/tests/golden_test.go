@@ -12,8 +12,7 @@ import (
 	"github.com/Landver/site-of-tools/platform/goldentest"
 )
 
-// A JSON body exercises every value rule: strings as typed, a large number
-// in full ('f', not 1.7e+09), booleans as "true"/"false", null as absent.
+// Every JSON value rule: strings as typed, a large number in full (not 1.7e+09), booleans as text, null as absent.
 func TestJSONPostGolden(t *testing.T) {
 	e := newCipherApp(t)
 	post := func(body string) *httptest.ResponseRecorder {

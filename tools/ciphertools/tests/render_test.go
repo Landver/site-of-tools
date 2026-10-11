@@ -8,9 +8,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// The browser's code path, natively: FragmentTemplates + Render are exactly what
-// tools/ciphertools/wasm/main.go calls, so a template that fails here fails in
-// every visitor's tab.
+// FragmentTemplates + Render are exactly what wasm/main.go calls: a template failing here fails in every tab.
 
 func TestFragmentTemplatesParseAndCoverEveryOp(t *testing.T) {
 	tpl, err := ciphertools.FragmentTemplates()
@@ -68,10 +66,7 @@ func TestRenderErrorsAreFragments(t *testing.T) {
 	}
 }
 
-// An error is shown to whoever pasted the input, so it reads in their terms.
-// encoding/asn1 prints Go struct tags ("tags don't match (16 vs {class:0 …})
-// {optional:false …} publicKeyInfo @2"), encoding/json names Go types ("into Go
-// struct field JWK.kty of type string"), and JSON cut short is a bare "EOF".
+// Errors read in the visitor's terms: no asn1 struct tags, no Go type names, no bare "EOF".
 func TestErrorsDontLeakGoInternals(t *testing.T) {
 	leaks := []string{"asn1:", "{class:", "Go struct", "Go value", "ciphertools.", "EOF"}
 	check := func(name, msg string) {

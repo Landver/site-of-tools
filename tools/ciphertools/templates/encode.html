@@ -1,10 +1,4 @@
-{{/* Encode — the same bytes as text, hex, base64, base64url and base32, and
-     the HTTP Basic auth header (C10).
-
-     Three live forms: the converter, and Basic auth build / decode, which share
-     the "basic" op and say which half they are with a hidden mode field. That
-     field is also what tells the no-JS page which result box to fill.
-     Percent-encoding and HTML entities are Link Tools' job; the page links there. */}}
+{{/* Both Basic auth forms post the "basic" op; their hidden mode field also picks the no-JS result box. */}}
 {{define "cipher/encode"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -147,38 +141,23 @@
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">hex</td>
-        <td class="py-2"><div class="flex items-start gap-3">
-          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Hex}}</span>
-          <button type="button" class="btn-copy" data-copy="{{.Hex}}">Copy</button>
-        </div></td>
+        <td class="py-2">{{template "cipher/encode-value" .Hex}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">hex, <span class="font-mono">:</span> separated</td>
-        <td class="py-2"><div class="flex items-start gap-3">
-          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.HexColons}}</span>
-          <button type="button" class="btn-copy" data-copy="{{.HexColons}}">Copy</button>
-        </div></td>
+        <td class="py-2">{{template "cipher/encode-value" .HexColons}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">base64 <span class="block text-xs text-faint">standard, padded</span></td>
-        <td class="py-2"><div class="flex items-start gap-3">
-          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base64}}</span>
-          <button type="button" class="btn-copy" data-copy="{{.Base64}}">Copy</button>
-        </div></td>
+        <td class="py-2">{{template "cipher/encode-value" .Base64}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">base64url <span class="block text-xs text-faint">URL-safe, unpadded (JWT, JWK)</span></td>
-        <td class="py-2"><div class="flex items-start gap-3">
-          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base64URL}}</span>
-          <button type="button" class="btn-copy" data-copy="{{.Base64URL}}">Copy</button>
-        </div></td>
+        <td class="py-2">{{template "cipher/encode-value" .Base64URL}}</td>
       </tr>
       <tr class="border-t border-line align-top">
         <td class="py-2 pr-4 text-strong">base32 <span class="block text-xs text-faint">RFC 4648, padded</span></td>
-        <td class="py-2"><div class="flex items-start gap-3">
-          <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.Base32}}</span>
-          <button type="button" class="btn-copy" data-copy="{{.Base32}}">Copy</button>
-        </div></td>
+        <td class="py-2">{{template "cipher/encode-value" .Base32}}</td>
       </tr>
     </tbody>
   </table>
@@ -186,19 +165,14 @@
 {{end}}
 {{end}}
 
-{{/* dot = the render map; .Result = *ciphertools.BasicAuth */}}
 {{define "cipher/basic-result"}}
 {{with .Result}}
 {{if eq .Mode "decode"}}
 <dl class="spec">
   <dt>User</dt>
-  <dd>{{with .User}}{{if .Value}}<div class="flex items-start gap-3">
-    <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
-    <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button></div>{{if not .IsText}}<span class="text-xs text-muted">hex, not text</span>{{end}}{{else}}<span class="text-xs italic text-muted">empty</span>{{end}}{{end}}</dd>
+  <dd>{{template "cipher/encode-cred" .User}}</dd>
   <dt>Password</dt>
-  <dd>{{with .Password}}{{if .Value}}<div class="flex items-start gap-3">
-    <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
-    <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button></div>{{if not .IsText}}<span class="text-xs text-muted">hex, not text</span>{{end}}{{else}}<span class="text-xs italic text-muted">empty</span>{{end}}{{end}}</dd>
+  <dd>{{template "cipher/encode-cred" .Password}}</dd>
   <dt>Read as</dt>
   <dd class="text-strong">{{.ReadAs}}</dd>
 </dl>
@@ -215,3 +189,12 @@
 {{template "cipher/warnings" .Warnings}}
 {{end}}
 {{end}}
+
+{{define "cipher/encode-value"}}<div class="flex items-start gap-3">
+  <span class="min-w-0 flex-1 break-all font-mono text-xs text-strong">{{.}}</span>
+  <button type="button" class="btn-copy" data-copy="{{.}}">Copy</button>
+</div>{{end}}
+
+{{define "cipher/encode-cred"}}{{if .Value}}<div class="flex items-start gap-3">
+  <span class="min-w-0 flex-1 break-all font-mono text-strong">{{.Value}}</span>
+  <button type="button" class="btn-copy" data-copy="{{.Value}}">Copy</button></div>{{if not .IsText}}<span class="text-xs text-muted">hex, not text</span>{{end}}{{else}}<span class="text-xs italic text-muted">empty</span>{{end}}{{end}}

@@ -13,9 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// TestFieldSpecsMatchTheCode: every field an op file's code reads is declared
-// by an op it registers, and every declared field is read. MCP generates the
-// tool schemas from Fields, so drift either way is an argument the tool lies about.
+// Every field an op file reads is declared by an op it registers and vice versa: MCP schemas come from Fields.
 func TestFieldSpecsMatchTheCode(t *testing.T) {
 	registers := regexp.MustCompile(`register\(Op\{Name: "([^"]+)"`)
 	fieldVar := regexp.MustCompile(`(\w+) += Field\{Name: "([^"]+)"`)

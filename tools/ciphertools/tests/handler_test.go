@@ -5,7 +5,9 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"html/template"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,17 +22,20 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Server-side tests: the JSON API and the no-JS page path. The browser path is
-// covered by render_test.go, which drives the same Render the wasm engine calls.
+// The JSON API and the no-JS page path; render_test.go covers the browser's.
 
 func newCipherApp(t *testing.T) *echo.Echo {
 	t.Helper()
-	r := platform.NewRenderer(false, nil,
+	return engineApp(nil, fstest.MapFS{}, nil)
+}
+
+func engineApp(funcs template.FuncMap, static fs.FS, lim *ciphertools.Limits) *echo.Echo {
+	r := platform.NewRenderer(false, funcs,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
 	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
+	e := platform.NewApp(r, static, false, nil)
+	ciphertools.Register(e, "https://cipher.example", static, lim)
 	return e
 }
 
@@ -109,9 +114,7 @@ func TestJWTSignAPIAcceptsJSONBody(t *testing.T) {
 	}
 }
 
-// A JSON body's numbers reach the op with every digit: 1700000000 used to
-// arrive as "1.7e+09", which "now" read as one second past 1970. Its booleans
-// arrive as "true"/"false", and false means off.
+// JSON numbers reach the op with every digit (1700000000, not "1.7e+09"), and false means off.
 func TestJSONBodyNumbersAndBooleans(t *testing.T) {
 	e := newCipherApp(t)
 	claims := func(body string) map[string]any {
@@ -135,8 +138,7 @@ func TestJSONBodyNumbersAndBooleans(t *testing.T) {
 	}
 }
 
-// A JSON body that isn't a flat object says so in JSON terms, not Go's
-// ("into Go value of type map[string]interface {}").
+// A JSON body that isn't a flat object is described in JSON terms, not Go's.
 func TestJSONBodyErrorsReadPlainly(t *testing.T) {
 	e := newCipherApp(t)
 	for body, want := range map[string]string{
@@ -151,8 +153,7 @@ func TestJSONBodyErrorsReadPlainly(t *testing.T) {
 	}
 }
 
-// Secrets are read from the body only. A token in the query string must be
-// ignored, never quietly used: a URL is logged, cached and sent as Referer.
+// A token in the query string is ignored, never used: a URL is logged, cached and sent as Referer.
 func TestQueryStringIsIgnored(t *testing.T) {
 	e := newCipherApp(t)
 	rec := do(t, e, http.MethodPost, "/jwt/decode?token="+jwtioToken, "", form, asAPI)
@@ -161,8 +162,7 @@ func TestQueryStringIsIgnored(t *testing.T) {
 	}
 }
 
-// A browser with JavaScript off posts the form itself and gets the whole page
-// back with the result rendered in place.
+// With JavaScript off the form posts itself and the whole page comes back, result in place.
 func TestNoJSFormPostRendersPage(t *testing.T) {
 	e := newCipherApp(t)
 	body := url.Values{"token": {jwtioToken}}.Encode()
@@ -183,14 +183,7 @@ func TestNoJSFormPostRendersPage(t *testing.T) {
 }
 
 func TestEngineAssetsAreImmutableWhenVersioned(t *testing.T) {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	static := fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}
-	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static, nil)
-
+	e := engineApp(nil, fstest.MapFS{"wasm/cipher.wasm": {Data: []byte("\x00asm")}}, nil)
 	rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", nil)
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
 		t.Fatalf("versioned: Cache-Control = %q", cc)
@@ -222,20 +215,11 @@ func TestNavOrder(t *testing.T) {
 	}
 }
 
-// The engine is ~12 MB. Gzipping it per request costs ~0.25 s of CPU, which
-// made the one URL every visitor fetches a cheap way to keep a core busy. It is
-// compressed once and served as is: gzipped exactly once (not again by the
-// engine's gzip middleware), raw for a client that doesn't take gzip.
+// The ~12 MB engine is gzipped once and reused (per request it costs ~0.25 s of CPU), never twice by
+// the app's gzip middleware, and sent raw to a client without gzip.
 func TestEngineServedPrecompressed(t *testing.T) {
-	r := platform.NewRenderer(false, nil,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
 	wasm := bytes.Repeat([]byte("\x00asm engine bytes "), 4096)
-	static := fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}
-	e := platform.NewApp(r, static, false, nil)
-	ciphertools.Register(e, "https://cipher.example", static, nil)
-
+	e := engineApp(nil, fstest.MapFS{"wasm/cipher.wasm": {Data: wasm}}, nil)
 	var first []byte
 	for i := 0; i < 2; i++ {
 		rec := do(t, e, http.MethodGet, "/static/wasm/cipher.wasm?v=abcd", "", "", map[string]string{"Accept-Encoding": "gzip, br"})

@@ -9,7 +9,6 @@ import (
 	"testing/fstest"
 
 	"github.com/Landver/site-of-tools/platform"
-	"github.com/Landver/site-of-tools/shared"
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
@@ -58,8 +57,7 @@ func TestEncodeRoundTrips(t *testing.T) {
 		if got := encodeOf(t, "hex", e.HexColons); got.Hex != e.Hex {
 			t.Errorf("%q via colon hex: %s", in, got.Hex)
 		}
-		// base64 output is accepted as base64url input and vice versa: the
-		// alphabet decides, and the variant is reported.
+		// The alphabet decides, so base64 output reads back as base64url input.
 		if got := encodeOf(t, "base64url", e.Base64); got.Hex != e.Hex {
 			t.Errorf("%q: padded std base64 through base64url: %s", in, got.Hex)
 		}
@@ -84,8 +82,7 @@ func TestEncodeNamesBase64Variant(t *testing.T) {
 	}
 }
 
-// Binary that isn't UTF-8 is never forced into text, and the page says where
-// it stopped being UTF-8.
+// Binary that isn't UTF-8 is never forced into text, and the note says where it stopped being UTF-8.
 func TestEncodeNonUTF8(t *testing.T) {
 	e := encodeOf(t, "hex", "61ff62")
 	if e.UTF8 || e.Text != "" || !strings.Contains(e.TextNote, "offset 1") || !strings.Contains(e.TextNote, "0xff") {
@@ -204,8 +201,7 @@ func TestRenderEncodeEscapes(t *testing.T) {
 	}
 }
 
-// Two forms share the basic op; with JavaScript off, only the one that was
-// submitted gets its result box filled.
+// Two forms share the basic op; with JavaScript off only the submitted one's result box is filled.
 func TestBasicNoJSFillsOnlyItsBox(t *testing.T) {
 	e := newCipherApp(t)
 	body := url.Values{"mode": {"decode"}, "header": {"Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}}.Encode()
@@ -232,13 +228,7 @@ func TestEncodePageLinksToLinkTools(t *testing.T) {
 	funcs := template.FuncMap{"navTools": func() []platform.Tool {
 		return []platform.Tool{{Name: "Link Tools", URL: "https://link.example"}}
 	}}
-	r := platform.NewRenderer(false, funcs,
-		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
-		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
-	)
-	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	ciphertools.Register(e, "https://cipher.example", fstest.MapFS{}, nil)
-	rec := do(t, e, http.MethodGet, "/encode", "", "", asBrowser)
+	rec := do(t, engineApp(funcs, fstest.MapFS{}, nil), http.MethodGet, "/encode", "", "", asBrowser)
 	if !strings.Contains(rec.Body.String(), `href="https://link.example/encode"`) {
 		t.Fatal("no link to Link Tools' encode page")
 	}
