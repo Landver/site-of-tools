@@ -24,16 +24,14 @@ func init() {
 }
 
 type HMACResult struct {
-	MessageBytes  int       `json:"message_bytes"`
-	MessageReadAs string    `json:"message_read_as"`
-	KeyBytes      int       `json:"key_bytes"`
-	KeyReadAs     string    `json:"key_read_as"`
-	MACs          []Digest  `json:"macs"`
-	Compare       *Compare  `json:"compare,omitempty"`
-	Warnings      []Warning `json:"warnings,omitempty"`
+	MessageBytes  int      `json:"message_bytes"`
+	MessageReadAs string   `json:"message_read_as"`
+	KeyBytes      int      `json:"key_bytes"`
+	KeyReadAs     string   `json:"key_read_as"`
+	MACs          []Digest `json:"macs"`
+	Compare       *Compare `json:"compare,omitempty"`
+	Warnings      Warnings `json:"warnings,omitempty"`
 }
-
-func (r *HMACResult) warn(level, text string) { r.Warnings = append(r.Warnings, Warning{level, text}) }
 
 func runHMAC(in Input) (any, error) {
 	msg, msgHow, err := decodeInput(in.Get("text"), in.Get("enc"))
@@ -83,22 +81,22 @@ func runHMAC(in Input) (any, error) {
 	}
 	switch {
 	case len(key) == 0:
-		r.warn(LevelWarn, "The key is empty. That is valid HMAC, but anyone can compute the same MAC, so it proves nothing.")
+		r.Warnings.add(LevelWarn, "The key is empty. That is valid HMAC, but anyone can compute the same MAC, so it proves nothing.")
 	case len(short) == len(r.MACs):
-		r.warn(LevelWarn, fmt.Sprintf("The key is %d bytes, shorter than every hash output here. RFC 2104 recommends a key at least as long as the output: 32 random bytes for HMAC-SHA-256.", len(key)))
+		r.Warnings.add(LevelWarn, fmt.Sprintf("The key is %d bytes, shorter than every hash output here. RFC 2104 recommends a key at least as long as the output: 32 random bytes for HMAC-SHA-256.", len(key)))
 	case len(short) > 0:
-		r.warn(LevelWarn, fmt.Sprintf("The key is %d bytes, shorter than the output of %s. RFC 2104 recommends a key at least as long as the output.", len(key), strings.Join(short, ", ")))
+		r.Warnings.add(LevelWarn, fmt.Sprintf("The key is %d bytes, shorter than the output of %s. RFC 2104 recommends a key at least as long as the output.", len(key), strings.Join(short, ", ")))
 	}
 	// 64 bytes is the smallest block size here (MD5 through SHA-256).
 	if len(key) > 64 {
-		r.warn(LevelInfo, fmt.Sprintf("The key is %d bytes, longer than some of these hashes' block size (64 bytes for SHA-256, 128 for SHA-512), so HMAC hashes it first. That is RFC 2104, not a bug.", len(key)))
+		r.Warnings.add(LevelInfo, fmt.Sprintf("The key is %d bytes, longer than some of these hashes' block size (64 bytes for SHA-256, 128 for SHA-512), so HMAC hashes it first. That is RFC 2104, not a bug.", len(key)))
 	}
 	if strings.HasPrefix(r.KeyReadAs, "UTF-8") && strings.TrimSpace(keyInput) != keyInput {
-		r.warn(LevelWarn, "The key starts or ends with whitespace, and as UTF-8 text that whitespace is part of the key.")
+		r.Warnings.add(LevelWarn, "The key starts or ends with whitespace, and as UTF-8 text that whitespace is part of the key.")
 	}
 	if len(msg) == 0 {
-		r.warn(LevelInfo, "The message is empty: these are the MACs of zero bytes.")
+		r.Warnings.add(LevelInfo, "The message is empty: these are the MACs of zero bytes.")
 	}
-	r.Warnings = append(r.Warnings, byteNotes(msg, " Webhook bodies usually don't end in one; a copy from a terminal or an editor often does.")...)
+	byteNotes(&r.Warnings, msg, " Webhook bodies usually don't end in one; a copy from a terminal or an editor often does.")
 	return r, nil
 }

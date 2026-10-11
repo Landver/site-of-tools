@@ -114,15 +114,10 @@ func (x *idents) add(score int, name, page, why string) *Candidate {
 
 func singleToken(t string) bool { return !strings.ContainsAny(t, " \t\r\n") }
 
-const (
-	identifyLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	identifyAlnum   = identifyLetters + "0123456789"
-)
-
 // identifyOnly: every character of s is in set.
 func identifyOnly(s, set string) bool { return strings.Trim(s, set) == "" }
 
-// pemKinds: parse, where set, checks the DER is what the type says.
+// pemKinds: each PEM type's name, the page that reads it and, where set, its DER parser.
 var pemKinds = map[string]struct {
 	name, page string
 	parse      func([]byte) (any, error)
@@ -255,8 +250,8 @@ func (x *idents) otpauth(t string) {
 }
 
 func joseHeader(t string) (parts []string, hdr map[string]any, ok bool) {
-	tok, _ := cleanToken(t)
-	if parts = strings.Split(tok, "."); len(parts) != 3 && len(parts) != 5 || !identifyOnly(tok, identifyAlnum+"-_=.") {
+	tok := cleanToken(t)
+	if parts = strings.Split(tok, "."); len(parts) != 3 && len(parts) != 5 || !identifyOnly(tok, alnum+"-_=.") {
 		return nil, nil, false
 	}
 	h, err := segment(parts[0], "header")
@@ -331,13 +326,8 @@ func (x *idents) ssh(t string) {
 			x.add(85, "OpenSSH key fingerprint (MD5, legacy)", "/keys", "MD5: and 16 colon-separated bytes: what ssh-keygen -l -E md5 prints.")
 		}
 	case looksLikeOpenSSH(t):
-		var lines []string
-		for _, line := range strings.Split(t, "\n") {
-			if s := strings.TrimSpace(line); s != "" && !strings.HasPrefix(s, "#") {
-				lines = append(lines, s)
-			}
-		}
-		k, err := keyFromOpenSSH(lines[0])
+		lines, _ := sshLines(t)
+		k, err := keyFromOpenSSH(strings.TrimSpace(lines[0]))
 		if err != nil {
 			x.add(60, "OpenSSH public key line that doesn't parse", "/keys", err.Error()+".")
 			return
@@ -431,7 +421,7 @@ func (x *idents) passwordHash(t string) {
 		id = f[1]
 	}
 	switch {
-	case bcryptVariants[id] != "" || strings.HasPrefix(id, "argon2") || id == "scrypt" || strings.HasPrefix(id, "pbkdf2") || legacyCrypt[id].name != "" || strings.HasPrefix(t, "pbkdf2_sha256$"):
+	case id != "" && (!errors.Is(err, errUnknownHash) || strings.HasPrefix(id, "pbkdf2")) || strings.HasPrefix(t, "pbkdf2_sha256$"):
 		x.add(60, "password hash that doesn't parse", "/password", err.Error()+".")
 	case id != "":
 		x.add(30, "$-delimited hash string", "/password", fmt.Sprintf("Shaped like crypt(3) or a PHC string, but $%s$ is not an id this site knows.", id))
@@ -603,7 +593,7 @@ func (x *idents) base64(t string) {
 		return
 	}
 	c, _ := stripSpace(t)
-	if len(c) < 8 || !identifyOnly(c, identifyAlnum+"+/-_=") {
+	if len(c) < 8 || !identifyOnly(c, alnum+"+/-_=") {
 		return
 	}
 	b, variant, err := decodeBase64Any(c)
@@ -642,10 +632,10 @@ func (x *idents) base32(t string) {
 	}
 	c := strings.TrimRight(strings.Join(groups, ""), "=")
 	if len(c) < 16 || c != strings.ToUpper(c) && c != strings.ToLower(c) ||
-		!identifyOnly(c, identifyLetters+"234567") || !strings.ContainsAny(c, "234567") {
+		!identifyOnly(c, letters+"234567") || !strings.ContainsAny(c, "234567") {
 		return
 	}
-	b, err := DecodeBytes(c, EncBase32)
+	b, err := decodeBase32(c)
 	if err != nil || len(b) == 0 {
 		return
 	}
@@ -666,7 +656,7 @@ func (x *idents) text(t string) {
 		score = 38
 	case strings.IndexFunc(t, func(r rune) bool { return !unicode.IsLetter(r) }) < 0:
 		score = 25 // a single word
-	case !identifyOnly(t, identifyAlnum+"+/-_="):
+	case !identifyOnly(t, alnum+"+/-_="):
 		score = 30
 	}
 	why := "Matches none of the formats this page knows."

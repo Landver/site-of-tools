@@ -88,7 +88,7 @@ type CertView struct {
 	SPKISHA256 string   `json:"spki_sha256"`
 	SelfSigned bool     `json:"self_signed"`
 
-	Warnings []Warning `json:"warnings,omitempty"`
+	Warnings Warnings `json:"warnings,omitempty"`
 
 	Title string `json:"-"`
 }
@@ -104,7 +104,7 @@ type CSRView struct {
 	SigUnverifiable bool   `json:"signature_unverifiable,omitempty"` // MD5, DSA, Ed448: no verdict either way
 	SPKISHA256      string `json:"spki_sha256"`
 
-	Warnings []Warning `json:"warnings,omitempty"`
+	Warnings Warnings `json:"warnings,omitempty"`
 
 	Title string `json:"-"`
 }
@@ -154,7 +154,7 @@ type CertResult struct {
 	CSRs     []CSRView  `json:"requests,omitempty"`
 	Chain    *Chain     `json:"chain,omitempty"`
 	KeyMatch *KeyMatch  `json:"key_match,omitempty"`
-	Warnings []Warning  `json:"warnings,omitempty"`
+	Warnings Warnings   `json:"warnings,omitempty"`
 }
 
 func runCert(in Input) (any, error) {
@@ -200,12 +200,12 @@ func InspectCerts(data []byte, key string, now time.Time) (*CertResult, error) {
 	}
 	switch {
 	case strings.TrimSpace(key) != "":
-		r.KeyMatch = matchKey(key, p.certs, p.csrs)
+		r.KeyMatch = matchKey(key, p, r.Certs)
 		if len(p.keyPEM) > 0 {
-			r.Warnings = append(r.Warnings, Warning{LevelInfo, "The pasted PEM holds a key as well; the key field was used for the match instead."})
+			r.Warnings.add(LevelInfo, "The pasted PEM holds a key as well; the key field was used for the match instead.")
 		}
 	case len(p.keyPEM) > 0:
-		r.KeyMatch = matchKey(string(p.keyPEM), p.certs, p.csrs)
+		r.KeyMatch = matchKey(string(p.keyPEM), p, r.Certs)
 		r.KeyMatch.Detail += " (Checked with the key found among the pasted PEM blocks.)"
 	}
 	return r, nil
@@ -216,7 +216,7 @@ type certInput struct {
 	csrs   []*x509.CertificateRequest
 	keyPEM []byte // key blocks pasted alongside, as in a combined cert+key file
 	readAs string
-	notes  []Warning
+	notes  Warnings
 }
 
 func (p *certInput) full() error {
@@ -224,11 +224,6 @@ func (p *certInput) full() error {
 		return fmt.Errorf("more than %d certificates and requests; this page reads up to %d at once", maxCerts, maxCerts)
 	}
 	return nil
-}
-
-var keyPEMTypes = map[string]bool{
-	"PRIVATE KEY": true, "RSA PRIVATE KEY": true, "EC PRIVATE KEY": true, "ENCRYPTED PRIVATE KEY": true,
-	"OPENSSH PRIVATE KEY": true, "PUBLIC KEY": true, "RSA PUBLIC KEY": true, "EC PARAMETERS": true,
 }
 
 func (p *certInput) readPEM(data []byte) error {
@@ -279,23 +274,23 @@ func (p *certInput) addPEM(n int, b *pem.Block) error {
 	case "CERTIFICATE":
 		var c *x509.Certificate
 		if c, err = x509.ParseCertificate(b.Bytes); err == nil {
-			p.certs, err = append(p.certs, c), certKeySize(c.PublicKey)
+			p.certs, err = append(p.certs, c), checkRSASize(c.PublicKey)
 		}
 	case "CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST":
 		var c *x509.CertificateRequest
 		if c, err = x509.ParseCertificateRequest(b.Bytes); err == nil {
-			p.csrs, err = append(p.csrs, c), certKeySize(c.PublicKey)
+			p.csrs, err = append(p.csrs, c), checkRSASize(c.PublicKey)
 		}
 	case "TRUSTED CERTIFICATE":
 		return fmt.Errorf("PEM block %d is openssl's TRUSTED CERTIFICATE, which carries trust settings after the certificate; write a plain copy first: openssl x509 -in cert.pem -out plain.pem", n)
 	case "PKCS7":
 		return fmt.Errorf("PEM block %d is a PKCS#7 bundle; list its certificates first: openssl pkcs7 -print_certs -in bundle.p7b", n)
 	default:
-		if keyPEMTypes[b.Type] {
+		if pemKinds[b.Type].page == "/keys" {
 			p.keyPEM = append(p.keyPEM, pem.EncodeToMemory(b)...)
 			return nil
 		}
-		p.notes = append(p.notes, Warning{LevelInfo, fmt.Sprintf("PEM block %d (%s) isn't a certificate or a request; skipped.", n, b.Type)})
+		p.notes.add(LevelInfo, fmt.Sprintf("PEM block %d (%s) isn't a certificate or a request; skipped.", n, b.Type))
 	}
 	if err != nil {
 		return fmt.Errorf("PEM block %d (%s): %w", n, b.Type, derError(err))
@@ -323,7 +318,7 @@ func (p *certInput) readDER(data []byte) error {
 	certs, err := x509.ParseCertificates(der)
 	if err == nil {
 		for i, c := range certs {
-			if err := certKeySize(c.PublicKey); err != nil {
+			if err := checkRSASize(c.PublicKey); err != nil {
 				return fmt.Errorf("certificate %d: %w", i+1, err)
 			}
 		}
@@ -335,15 +330,7 @@ func (p *certInput) readDER(data []byte) error {
 		return fmt.Errorf("not a DER certificate or request: %w", derError(err))
 	}
 	p.csrs = append(p.csrs, csr)
-	return certKeySize(csr.PublicKey)
-}
-
-// certKeySize applies the RSA cap (keys.go): signatures by and on the certificate are checked with its key.
-func certKeySize(pub any) error {
-	if k, ok := pub.(*rsa.PublicKey); ok {
-		return checkRSASize(k)
-	}
-	return nil
+	return checkRSASize(csr.PublicKey)
 }
 
 func plural(n int) string {
@@ -352,8 +339,6 @@ func plural(n int) string {
 	}
 	return "s"
 }
-
-func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
 
 func dn(s string) string { return cmp.Or(s, "(empty)") }
 
@@ -484,37 +469,34 @@ func viewCert(n int, c *x509.Certificate, now time.Time) CertView {
 	switch {
 	case now.Before(c.NotBefore):
 		v.Validity = Validity{State: "not-yet-valid", Detail: "Not valid yet: starts " + relative(c.NotBefore, now)}
-		v.warn(LevelWarn, "Not valid until "+stamp(c.NotBefore)+". Clients reject it until then.")
+		v.Warnings.add(LevelWarn, "Not valid until "+stamp(c.NotBefore)+". Clients reject it until then.")
 	case now.After(c.NotAfter):
 		v.Validity = Validity{State: "expired", Detail: "Expired " + relative(c.NotAfter, now)}
-		v.warn(LevelDanger, "Expired on "+stamp(c.NotAfter)+".")
+		v.Warnings.add(LevelDanger, "Expired on "+stamp(c.NotAfter)+".")
 	default:
 		v.Validity = Validity{State: "valid", Detail: "Valid, expires " + relative(c.NotAfter, now)}
 		if left := c.NotAfter.Sub(now); left < renewWithin {
-			v.warn(LevelWarn, fmt.Sprintf("Expires in %s, on %s. Renew it.", humanDuration(left), stamp(c.NotAfter)))
+			v.Warnings.add(LevelWarn, fmt.Sprintf("Expires in %s, on %s. Renew it.", humanDuration(left), stamp(c.NotAfter)))
 		}
 	}
 	if h := weakSigHash[c.SignatureAlgorithm]; h != "" {
 		if v.SelfSigned {
-			v.warn(LevelInfo, fmt.Sprintf("Self-signed with %s. Harmless on a root, since nobody checks a root's own signature.", h))
+			v.Warnings.add(LevelInfo, fmt.Sprintf("Self-signed with %s. Harmless on a root, since nobody checks a root's own signature.", h))
 		} else {
-			v.warn(LevelDanger, fmt.Sprintf("Signed with %s, which browsers and Go no longer accept: signatures over %s can be forged.", h, h))
+			v.Warnings.add(LevelDanger, fmt.Sprintf("Signed with %s, which browsers and Go no longer accept: signatures over %s can be forged.", h, h))
 		}
 	}
-	v.Warnings = append(v.Warnings, rsaSizeWarning(c.PublicKey)...)
+	rsaSizeWarning(&v.Warnings, c.PublicKey)
 	if !c.IsCA && v.SANs.Count() == 0 {
-		v.warn(LevelWarn, "No subject alternative names. Browsers match host names against SANs only and ignore the CN (Chrome since version 58), so this certificate fails in them.")
+		v.Warnings.add(LevelWarn, "No subject alternative names. Browsers match host names against SANs only and ignore the CN (Chrome since version 58), so this certificate fails in them.")
 	}
 	return v
 }
 
-func (v *CertView) warn(level, text string) { v.Warnings = append(v.Warnings, Warning{level, text}) }
-
-func rsaSizeWarning(pub any) []Warning {
+func rsaSizeWarning(w *Warnings, pub any) {
 	if k, ok := pub.(*rsa.PublicKey); ok && k.N.BitLen() < 2048 {
-		return []Warning{{LevelWarn, fmt.Sprintf("RSA %d-bit key: below 2048 bits, the minimum certificate authorities and browsers accept.", k.N.BitLen())}}
+		w.add(LevelWarn, fmt.Sprintf("RSA %d-bit key: below 2048 bits, the minimum certificate authorities and browsers accept.", k.N.BitLen()))
 	}
-	return nil
 }
 
 func viewCSR(n int, c *x509.CertificateRequest) CSRView {
@@ -531,20 +513,20 @@ func viewCSR(n int, c *x509.CertificateRequest) CSRView {
 	case certUncheckable(err):
 		v.SigUnverifiable = true
 		v.SigDetail = "Signed with " + v.SigAlg + ", which this tool can't check, so there is no verdict on the signature. Many CAs refuse such requests."
-		v.Warnings = append(v.Warnings, Warning{LevelWarn, v.SigDetail})
+		v.Warnings.add(LevelWarn, v.SigDetail)
 	case err != nil:
 		v.SigDetail = "The request's signature does NOT verify with the key it carries (" + err.Error() + "). A CA will refuse it."
-		v.Warnings = append(v.Warnings, Warning{LevelDanger, v.SigDetail})
+		v.Warnings.add(LevelDanger, v.SigDetail)
 	default:
 		v.SigOK = true
 		v.SigDetail = "Signed by the key it carries, which proves whoever made it holds the private key."
 	}
 	if h := weakSigHash[c.SignatureAlgorithm]; h != "" {
-		v.Warnings = append(v.Warnings, Warning{LevelWarn, fmt.Sprintf("Signed with %s; many CAs refuse such requests.", h)})
+		v.Warnings.add(LevelWarn, fmt.Sprintf("Signed with %s; many CAs refuse such requests.", h))
 	}
-	v.Warnings = append(v.Warnings, rsaSizeWarning(c.PublicKey)...)
+	rsaSizeWarning(&v.Warnings, c.PublicKey)
 	if v.SANs.Count() == 0 {
-		v.Warnings = append(v.Warnings, Warning{LevelWarn, "No subject alternative names requested. Browsers match host names against SANs only, so check that your CA adds them."})
+		v.Warnings.add(LevelWarn, "No subject alternative names requested. Browsers match host names against SANs only, so check that your CA adds them.")
 	}
 	return v
 }
@@ -664,7 +646,7 @@ func certPositions(idx []int) string {
 }
 
 // matchKey: does any pasted key, either half, hold the public key of a certificate or request?
-func matchKey(input string, certs []*x509.Certificate, csrs []*x509.CertificateRequest) *KeyMatch {
+func matchKey(input string, p *certInput, views []CertView) *KeyMatch {
 	if !looksLikeKeyMaterial(input) {
 		return &KeyMatch{State: "error", Detail: "The key field reads as neither PEM, a JWK nor an OpenSSH public key."}
 	}
@@ -677,20 +659,16 @@ func matchKey(input string, certs []*x509.Certificate, csrs []*x509.CertificateR
 		return &KeyMatch{State: "error", Detail: "That is a shared secret, which has no public key. A certificate holds a public key, so only a private or public key can match it."}
 	}
 	for _, k := range keys {
-		half := "public key"
-		if k.Private != nil {
-			half = "private key"
-		}
-		for i, c := range certs {
+		for i, c := range p.certs {
 			if samePublicKey(k.Public, c.PublicKey) {
 				return &KeyMatch{State: "match", Key: k.Describe(), Cert: i + 1, Detail: fmt.Sprintf(
-					"The %s belongs to certificate %d (%s): they hold the same public key.", half, i+1, title(sansOf(c.DNSNames, c.IPAddresses, c.EmailAddresses, c.URIs), c.Subject.CommonName, c.Subject.String()))}
+					"The %s belongs to certificate %d (%s): they hold the same public key.", k.half(), i+1, views[i].Title)}
 			}
 		}
-		for i, c := range csrs {
+		for i, c := range p.csrs {
 			if samePublicKey(k.Public, c.PublicKey) {
 				return &KeyMatch{State: "match", Key: k.Describe(), Request: i + 1, Detail: fmt.Sprintf(
-					"The %s belongs to request %d: they hold the same public key.", half, i+1)}
+					"The %s belongs to request %d: they hold the same public key.", k.half(), i+1)}
 			}
 		}
 	}
@@ -698,10 +676,10 @@ func matchKey(input string, certs []*x509.Certificate, csrs []*x509.CertificateR
 	if len(keys) > 1 {
 		m.Detail = fmt.Sprintf("No match. None of the %d keys belongs to any certificate or request here.", len(keys))
 	}
-	if sum, err := spkiSHA256(keys[0].Public); err == nil {
-		m.Detail += " Its SPKI SHA-256 is " + fingerprintHex(sum)
-		if len(certs) > 0 {
-			m.Detail += "; certificate 1's is " + certSPKI(certs[0].RawSubjectPublicKeyInfo)
+	if der, err := x509.MarshalPKIXPublicKey(keys[0].Public); err == nil {
+		m.Detail += " Its SPKI SHA-256 is " + certSPKI(der)
+		if len(views) > 0 {
+			m.Detail += "; certificate 1's is " + views[0].SPKISHA256
 		}
 		m.Detail += "."
 	}

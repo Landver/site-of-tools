@@ -147,6 +147,8 @@ func numericDate(raw json.RawMessage) (time.Time, bool) {
 	return time.Unix(int64(sec), int64(frac*1e9)).UTC(), true
 }
 
+func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
+
 // relative: "in 5 minutes" / "3 hours ago".
 func relative(t, now time.Time) string {
 	d := t.Sub(now)

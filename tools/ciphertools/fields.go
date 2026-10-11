@@ -1,7 +1,9 @@
 package ciphertools
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -32,6 +34,24 @@ type Field struct {
 func (f Field) withMax(n int) Field { f.Max = &n; return f }
 
 func (f Field) withDefault(n int) Field { f.Default = strconv.Itoa(n); return f }
+
+func ptr[T any](v T) *T { return &v }
+
+// choice reads a menu value case-insensitively; blank means def.
+func choice(v, def string) string { return cmp.Or(strings.ToLower(strings.TrimSpace(v)), def) }
+
+// checked reads a checkbox: "on" from a form, "true" from a JSON body.
+func checked(v string) bool {
+	return !slices.Contains([]string{"", "0", "false", "off", "no"}, choice(v, ""))
+}
+
+// enumField is choice for f, refusing what f.Enum doesn't list.
+func enumField(v string, f Field) (string, error) {
+	if v = choice(v, f.Default); !slices.Contains(f.Enum, v) {
+		return "", fmt.Errorf("%s: want %s or %s, got %q", f.Name, strings.Join(f.Enum[:len(f.Enum)-1], ", "), f.Enum[len(f.Enum)-1], v)
+	}
+	return v, nil
+}
 
 // intField checks the range before any work: for Heavy ops it is what bounds a request.
 func intField(in Input, f Field) (int, error) {

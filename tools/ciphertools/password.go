@@ -3,7 +3,6 @@ package ciphertools
 import (
 	"cmp"
 	"crypto/pbkdf2"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/subtle"
@@ -11,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"math"
 	"math/bits"
 	"slices"
 	"strconv"
@@ -123,7 +121,7 @@ type PasswordHashResult struct {
 	PasswordBytes  int               `json:"password_bytes"`
 	PasswordReadAs string            `json:"password_read_as"`
 	TookMS         float64           `json:"took_ms"`
-	Warnings       []Warning         `json:"warnings,omitempty"`
+	Warnings       Warnings          `json:"warnings,omitempty"`
 
 	Took string `json:"-"`
 }
@@ -134,9 +132,8 @@ func runPasswordHash(in Input) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("password: %w", err)
 	}
-	algo := passwordAlgo(in)
-	salt := make([]byte, passwordSaltBytes)
-	rand.Read(salt)
+	algo := choice(in.Get("algo"), AlgoBcrypt)
+	salt := randomBytes(passwordSaltBytes)
 	derive, _, err := passwordHasher(algo, in, pw, salt)
 	if err != nil {
 		return nil, err
@@ -151,20 +148,16 @@ func runPasswordHash(in Input) (any, error) {
 	r := &PasswordHashResult{Encoded: encoded, Info: info, PasswordBytes: len(pw), PasswordReadAs: how,
 		TookMS: millis(took), Took: tookText(took)}
 	if len(pw) == 0 {
-		r.Warnings = append(r.Warnings, Warning{LevelWarn, "The password is empty. This is its hash, but nothing should accept an empty password."})
+		r.Warnings.add(LevelWarn, "The password is empty. This is its hash, but nothing should accept an empty password.")
 	}
 	if (enc == "" || enc == EncUTF8) && strings.TrimSpace(raw) != raw {
-		r.Warnings = append(r.Warnings, Warning{LevelInfo, "The password starts or ends with whitespace, and that whitespace is part of what was hashed."})
+		r.Warnings.add(LevelInfo, "The password starts or ends with whitespace, and that whitespace is part of what was hashed.")
 	}
 	r.Warnings = append(r.Warnings, info.warnings...)
 	if strings.HasPrefix(algo, "pbkdf2-") {
-		r.Warnings = append(r.Warnings, Warning{LevelInfo, "PBKDF2 is not memory-hard, so GPUs guess it cheaply. OWASP recommends it where FIPS 140 compliance requires it, and Argon2id otherwise."})
+		r.Warnings.add(LevelInfo, "PBKDF2 is not memory-hard, so GPUs guess it cheaply. OWASP recommends it where FIPS 140 compliance requires it, and Argon2id otherwise.")
 	}
 	return r, nil
-}
-
-func passwordAlgo(in Input) string {
-	return cmp.Or(strings.ToLower(strings.TrimSpace(in.Get("algo"))), AlgoBcrypt)
 }
 
 // passwordHasher refuses what it can before any slow work, returning the derivation and the bytes it allocates, both meaningless beside an error.
@@ -240,7 +233,7 @@ func MemoryCost(name string, in Input) int64 {
 	var mem int64
 	switch name {
 	case "password-hash":
-		if _, m, err := passwordHasher(passwordAlgo(in), in, nil, nil); err == nil {
+		if _, m, err := passwordHasher(choice(in.Get("algo"), AlgoBcrypt), in, nil, nil); err == nil {
 			mem = m
 		}
 	case "password-verify":
@@ -266,7 +259,7 @@ type PasswordVerifyResult struct {
 	Detail        string            `json:"detail"`
 	PasswordBytes int               `json:"password_bytes"`
 	TookMS        float64           `json:"took_ms,omitempty"`
-	Warnings      []Warning         `json:"warnings,omitempty"`
+	Warnings      Warnings          `json:"warnings,omitempty"`
 
 	Took string `json:"-"`
 }
@@ -302,8 +295,8 @@ func runPasswordVerify(in Input) (any, error) {
 			r.State, r.Detail = PasswordMatch, "The password produces this hash. The comparison ran in constant time."
 		}
 		if info.Algorithm == AlgoBcrypt && len(pw) > bcryptMaxPassword {
-			r.Warnings = append(r.Warnings, Warning{LevelWarn, fmt.Sprintf(
-				"The password is %d bytes and bcrypt reads only the first 72, so the rest played no part: any password with the same first 72 bytes gets the same answer.", len(pw))})
+			r.Warnings.add(LevelWarn, fmt.Sprintf(
+				"The password is %d bytes and bcrypt reads only the first 72, so the rest played no part: any password with the same first 72 bytes gets the same answer.", len(pw)))
 		}
 	}
 	r.Warnings = append(r.Warnings, info.warnings...)
@@ -323,19 +316,15 @@ type PasswordHashInfo struct {
 	Unsupported string `json:"unsupported,omitempty"` // why a recognised format can't be verified here
 	Refused     string `json:"refused,omitempty"`     // which parameter is above this page's limits
 
-	warnings []Warning
+	warnings Warnings
 	check    func(pw []byte) (bool, error)
 	mem      int64 // bytes check allocates (Argon2 and scrypt)
-}
-
-func (h *PasswordHashInfo) warn(level, text string) {
-	h.warnings = append(h.warnings, Warning{level, text})
 }
 
 // saltWarning: 16 bytes is the floor RFC 9106 and NIST SP 800-132 both set.
 func (h *PasswordHashInfo) saltWarning() {
 	if h.SaltBytes < 16 {
-		h.warn(LevelWarn, fmt.Sprintf("The salt is %d bytes; 16 is the usual minimum.", h.SaltBytes))
+		h.warnings.add(LevelWarn, fmt.Sprintf("The salt is %d bytes; 16 is the usual minimum.", h.SaltBytes))
 	}
 }
 
@@ -384,14 +373,16 @@ func ParsePasswordHash(s string) (*PasswordHashInfo, error) {
 	if allHex(t) && slices.Contains([]int{32, 40, 56, 64, 96, 128}, len(t)) {
 		hint = fmt.Sprintf(" %d hex characters looks like a plain digest (MD5, SHA-1, SHA-256 …), which is not a password hash: it has no salt and no cost. The Hash page computes those.", len(t))
 	}
-	return nil, errors.New("not a password hash format this page knows. It reads bcrypt ($2a$, $2b$, $2y$), Argon2 ($argon2id$, $argon2i$), " +
-		"scrypt ($scrypt$) and PBKDF2 ($pbkdf2-sha256$, $pbkdf2-sha512$, Django's pbkdf2_sha256$), " +
-		"and names the crypt(3) formats $1$, $apr1$, $5$, $6$, $y$, $7$ and phpass ($P$)." + hint)
+	return nil, fmt.Errorf("%w%s", errUnknownHash, hint)
 }
+
+var errUnknownHash = errors.New("not a password hash format this page knows. It reads bcrypt ($2a$, $2b$, $2y$), Argon2 ($argon2id$, $argon2i$), " +
+	"scrypt ($scrypt$) and PBKDF2 ($pbkdf2-sha256$, $pbkdf2-sha512$, Django's pbkdf2_sha256$), " +
+	"and names the crypt(3) formats $1$, $apr1$, $5$, $6$, $y$, $7$ and phpass ($P$).")
 
 // ---- bcrypt ----
 
-const bcryptAlphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+const bcryptAlphabet = "./" + alnum
 
 // bcryptVariants all verify alike; they differ in which buggy implementation, if any, made the hash.
 var bcryptVariants = map[string]string{
@@ -434,10 +425,10 @@ func parseBcrypt(t string, p []part) (*PasswordHashInfo, error) {
 		h.Refused = fmt.Sprintf("Cost %d is above this page's limit of %d. Each step doubles the work, and the limit keeps one request from tying up the server.", cost, bcryptMaxCost)
 	}
 	if cost < 10 {
-		h.warn(LevelWarn, fmt.Sprintf("Cost %d is below OWASP's minimum of 10.", cost))
+		h.warnings.add(LevelWarn, fmt.Sprintf("Cost %d is below OWASP's minimum of 10.", cost))
 	}
 	if id == "2x" {
-		h.warn(LevelWarn, "A $2x$ hash came from crypt_blowfish's pre-2011 bug. This page computes correct bcrypt, which matches it only when the password is plain ASCII.")
+		h.warnings.add(LevelWarn, "A $2x$ hash came from crypt_blowfish's pre-2011 bug. This page computes correct bcrypt, which matches it only when the password is plain ASCII.")
 	}
 	h.check = func(pw []byte) (bool, error) {
 		err := bcrypt.CompareHashAndPassword([]byte(t), pw)
@@ -500,8 +491,6 @@ func (x param) int(algo string) (int, error) {
 	n, _ := strconv.Atoi(x.v)
 	return n, nil
 }
-
-func allDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
 
 // phcDecode reads a salt or hash: standard base64 without padding. A trailing '=' is
 // tolerated and '.' read as '+' (passlib's "adapted base64"); neither means anything else here.
@@ -612,10 +601,10 @@ func parseArgon2(p []part) (*PasswordHashInfo, error) {
 		h.Refused = fmt.Sprintf("p=%d is above this page's limit of %d lanes.", lanes, argon2MaxThreads)
 	}
 	if id == AlgoArgon2id && !slices.ContainsFunc(owaspArgon2, func(c [2]int) bool { return m >= c[0] && t >= c[1] }) {
-		h.warn(LevelWarn, "Below OWASP's minimum for Argon2id: m=19456 (19 MiB) with t=2, or an equivalent such as m=47104 with t=1, or m=12288 with t=3.")
+		h.warnings.add(LevelWarn, "Below OWASP's minimum for Argon2id: m=19456 (19 MiB) with t=2, or an equivalent such as m=47104 with t=1, or m=12288 with t=3.")
 	}
 	if id == AlgoArgon2i {
-		h.warn(LevelInfo, "Argon2i. RFC 9106 and OWASP recommend Argon2id for password hashing.")
+		h.warnings.add(LevelInfo, "Argon2i. RFC 9106 and OWASP recommend Argon2id for password hashing.")
 	}
 	h.saltWarning()
 	key := argon2.Key
@@ -683,7 +672,7 @@ func parseScrypt(p []part) (*PasswordHashInfo, error) {
 		h.mem = scryptMemory(n, r, par) // within the caps only: past them 128·N·r can overflow
 	}
 	if !meetsOWASPScrypt(n, r, par) {
-		h.warn(LevelWarn, "Below OWASP's minimum for scrypt: N=2^17 with r=8 and p=1, or an equivalent such as N=2^16 with p=2, or N=2^15 with p=3.")
+		h.warnings.add(LevelWarn, "Below OWASP's minimum for scrypt: N=2^17 with r=8 and p=1, or an equivalent such as N=2^16 with p=2, or N=2^15 with p=3.")
 	}
 	h.saltWarning()
 	h.check = func(pw []byte) (bool, error) {
@@ -775,7 +764,7 @@ func pbkdf2Info(ph pbkdf2Hash, format string, iter int, salt, sum []byte) (*Pass
 		h.Refused = fmt.Sprintf("%s iterations%s is above this page's limit of %s.", thousands(iter), more, thousands(pbkdf2MaxIter))
 	}
 	if iter < ph.owasp {
-		h.warn(LevelWarn, fmt.Sprintf("%s iterations is below OWASP's minimum of %s for %s.", thousands(iter), thousands(ph.owasp), ph.name))
+		h.warnings.add(LevelWarn, fmt.Sprintf("%s iterations is below OWASP's minimum of %s for %s.", thousands(iter), thousands(ph.owasp), ph.name))
 	}
 	h.saltWarning()
 	h.check = func(pw []byte) (bool, error) {
@@ -788,7 +777,7 @@ func pbkdf2Info(ph pbkdf2Hash, format string, iter int, salt, sum []byte) (*Pass
 // ---- crypt(3) formats named but not verified ----
 
 // cryptAlphabet is crypt(3)'s base64 order, which phpass also counts rounds in.
-const cryptAlphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const cryptAlphabet = "./0123456789" + letters
 
 var legacyCrypt = map[string]struct{ algo, name, note string }{
 	"1":    {"md5crypt", "md5crypt", "MD5 with a fixed 1,000 rounds: fast to guess on a GPU. Rehash these with Argon2id or bcrypt."},
@@ -836,37 +825,9 @@ func parseLegacy(p []part) *PasswordHashInfo {
 		h.Unsupported = "This is scrypt in the $7$ crypt(3) encoding. This page verifies scrypt in the $scrypt$ (passlib) form only."
 	}
 	if lc.note != "" {
-		h.warn(LevelWarn, lc.note)
+		h.warnings.add(LevelWarn, lc.note)
 	}
 	return h
 }
 
-// ---- display ----
-
 func kibText(kib int) string { return bytesText(kib << 10) }
-
-// bytesText: 32 MiB, 19 MiB, 64 KiB, 512 bytes.
-func bytesText(n int) string {
-	switch {
-	case n >= 1<<20 && n%(1<<20) == 0:
-		return fmt.Sprintf("%d MiB", n>>20)
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
-	case n >= 1<<10 && n%(1<<10) == 0:
-		return fmt.Sprintf("%d KiB", n>>10)
-	}
-	return fmt.Sprintf("%d bytes", n)
-}
-
-// millis rounds to a tenth of a millisecond for the JSON answer.
-func millis(d time.Duration) float64 { return math.Round(float64(d.Microseconds())/100) / 10 }
-
-func tookText(d time.Duration) string {
-	switch {
-	case d < time.Millisecond:
-		return "under 1 ms"
-	case d < time.Second:
-		return fmt.Sprintf("%d ms", d.Milliseconds())
-	}
-	return fmt.Sprintf("%.2f s", d.Seconds())
-}

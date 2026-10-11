@@ -68,14 +68,12 @@ type KeyView struct {
 	SPKIPin        string `json:"spki_sha256_base64,omitempty"` // HPKP, curl --pinnedpubkey
 	SSHFingerprint string `json:"ssh_fingerprint,omitempty"`
 
-	Warnings []Warning `json:"warnings,omitempty"`
+	Warnings Warnings `json:"warnings,omitempty"`
 
 	PublicJWKJSON  string `json:"-"`
 	PrivateJWKJSON string `json:"-"`
 	Generated      bool   `json:"-"`
 }
-
-func (v *KeyView) warn(level, text string) { v.Warnings = append(v.Warnings, Warning{level, text}) }
 
 // keysPane is one format tab of the key view; the page skips those with no Public.
 type keysPane struct{ ID, Label, Public, Private string }
@@ -107,7 +105,7 @@ type JWKS struct {
 }
 
 func runKeysGenerate(in Input) (any, error) {
-	typ := cmp.Or(strings.ToLower(strings.TrimSpace(in.Get("type"))), keyTypeIDs[0])
+	typ := choice(in.Get("type"), keyTypeIDs[0])
 	start := time.Now()
 	priv, err := generateKey(typ)
 	if err != nil {
@@ -129,7 +127,7 @@ func runKeysGenerate(in Input) (any, error) {
 		}
 		v.OpenSSHPrivate, v.OpenSSHEncrypted = string(pem.EncodeToMemory(blk)), true
 		v.PrivatePEM, v.PrivateJWK, v.PrivateJWKJSON = "", nil, ""
-		v.warn(LevelInfo, "The private key is shown only in OpenSSH format, encrypted with your passphrase. The PKCS#8 and JWK forms are left out because they would be unencrypted.")
+		v.Warnings.add(LevelInfo, "The private key is shown only in OpenSSH format, encrypted with your passphrase. The PKCS#8 and JWK forms are left out because they would be unencrypted.")
 	}
 	where := "browser"
 	if runtime.GOOS != "js" {
@@ -144,7 +142,7 @@ func generateKey(typ string) (crypto.Signer, error) {
 		_, priv, err := ed25519.GenerateKey(rand.Reader)
 		return priv, err
 	case "ec-p256", "ec-p384", "ec-p521":
-		return ecdsa.GenerateKey(ecCurves["P-"+typ[4:]].curve, rand.Reader)
+		return ecdsa.GenerateKey(jwsAlgs[ecCurves["P-"+typ[4:]]].curve, rand.Reader)
 	case "rsa-2048", "rsa-3072", "rsa-4096":
 		bits, _ := strconv.Atoi(typ[4:])
 		return rsa.GenerateKey(rand.Reader, bits)
@@ -181,7 +179,7 @@ func viewKey(k Key, generated bool) (KeyView, error) {
 	if k.Kind == KindSecret {
 		v.Name, v.Bits = fmt.Sprintf("%d-byte shared secret", len(k.Secret)), 8*len(k.Secret)
 		v.Thumbprint, _ = JWKThumbprint(JWK{Kty: "oct", K: b64url.EncodeToString(k.Secret)})
-		v.warn(LevelInfo, "A shared secret (kty oct) has no public half, so there is no PEM, public JWK or OpenSSH form of it.")
+		v.Warnings.add(LevelInfo, "A shared secret (kty oct) has no public half, so there is no PEM, public JWK or OpenSSH form of it.")
 		return v, nil
 	}
 	f := keysFactsOf(k.Public)
@@ -222,7 +220,7 @@ func viewKey(k Key, generated bool) (KeyView, error) {
 			priv.Kid, priv.Alg, priv.Use = pub.Kid, pub.Alg, pub.Use
 			v.PrivateJWK, v.PrivateJWKJSON = &priv, indentJSON(priv)
 		} else {
-			v.warn(LevelInfo, "No private JWK: "+err.Error()+".")
+			v.Warnings.add(LevelInfo, "No private JWK: "+err.Error()+".")
 		}
 	}
 	v.keyWarnings(k, generated)
@@ -244,22 +242,22 @@ func sshComment(s string) (string, error) {
 
 func (v *KeyView) keyWarnings(k Key, generated bool) {
 	if k.Private != nil && !generated {
-		v.warn(LevelWarn, "This is a private key. Share only the public forms; the private ones are folded away below.")
+		v.Warnings.add(LevelWarn, "This is a private key. Share only the public forms; the private ones are folded away below.")
 	}
 	if p, ok := k.Public.(*rsa.PublicKey); ok {
 		if p.N.BitLen() < 2048 {
-			v.warn(LevelWarn, fmt.Sprintf("RSA %d-bit: below 2048 bits, the minimum NIST, RFC 7518 and certificate authorities accept.", p.N.BitLen()))
+			v.Warnings.add(LevelWarn, fmt.Sprintf("RSA %d-bit: below 2048 bits, the minimum NIST, RFC 7518 and certificate authorities accept.", p.N.BitLen()))
 		}
 		if p.E != 65537 {
-			v.warn(LevelInfo, fmt.Sprintf("The public exponent is %d. Almost every RSA key uses 65537.", p.E))
+			v.Warnings.add(LevelInfo, fmt.Sprintf("The public exponent is %d. Almost every RSA key uses 65537.", p.E))
 		}
 	}
 	if strings.HasPrefix(k.Source, "PKCS#1") || strings.HasPrefix(k.Source, "SEC 1") {
-		v.warn(LevelInfo, "Read as "+k.Source+", the older format. The PEM below is PKCS#8 / SPKI, which most libraries expect now.")
+		v.Warnings.add(LevelInfo, "Read as "+k.Source+", the older format. The PEM below is PKCS#8 / SPKI, which most libraries expect now.")
 	}
-	if spec, ok := jwsAlgs[k.Alg]; ok && (spec.kind != k.Kind || spec.curve != nil && k.Public.(*ecdsa.PublicKey).Curve != spec.curve) {
+	if spec, ok := jwsAlgs[k.Alg]; ok && !jwtKeyFits(spec, k) {
 		// Every name keyName gives an asymmetric key (RSA, ECDSA, Ed25519) takes "an".
-		v.warn(LevelWarn, fmt.Sprintf("The JWK says alg %s, but an %s key signs %s. A library that trusts the alg member will refuse it.",
+		v.Warnings.add(LevelWarn, fmt.Sprintf("The JWK says alg %s, but an %s key signs %s. A library that trusts the alg member will refuse it.",
 			k.Alg, v.Name, keysFactsOf(k.Public).alg))
 	}
 }

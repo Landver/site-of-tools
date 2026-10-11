@@ -1,7 +1,6 @@
 package ciphertools
 
 import (
-	"cmp"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -57,24 +56,22 @@ const (
 )
 
 type RandomResult struct {
-	Kind        string    `json:"kind"`
-	Values      []string  `json:"values"`
-	EntropyBits float64   `json:"entropy_bits"` // per value
-	Detail      string    `json:"detail"`
-	Alphabet    string    `json:"alphabet,omitempty"` // a password's characters
-	Created     string    `json:"created,omitempty"`  // in a v7 UUID batch
-	Warnings    []Warning `json:"warnings,omitempty"`
+	Kind        string   `json:"kind"`
+	Values      []string `json:"values"`
+	EntropyBits float64  `json:"entropy_bits"` // per value
+	Detail      string   `json:"detail"`
+	Alphabet    string   `json:"alphabet,omitempty"` // a password's characters
+	Created     string   `json:"created,omitempty"`  // in a v7 UUID batch
+	Warnings    Warnings `json:"warnings,omitempty"`
 
 	Entropy string `json:"-"`
 	All     string `json:"-"`
 }
 
-func (r *RandomResult) warn(l, t string) { r.Warnings = append(r.Warnings, Warning{l, t}) }
-
 var randomKinds = map[string]func(Input) (*RandomResult, error){RandomToken: randomTokens, RandomPassword: randomPasswords, RandomUUID: randomUUIDs}
 
 func runRandom(in Input) (any, error) {
-	kind, err := randomEnum(in.Get("kind"), randomKindField)
+	kind, err := enumField(in.Get("kind"), randomKindField)
 	if err != nil {
 		return nil, err
 	}
@@ -86,15 +83,6 @@ func runRandom(in Input) (any, error) {
 	r.Entropy = strings.TrimSuffix(fmt.Sprintf("%.1f", r.EntropyBits), ".0") + " bits"
 	r.All = strings.Join(r.Values, "\n")
 	return r, nil
-}
-
-// randomEnum reads f's value v case-insensitively; blank means f.Default.
-func randomEnum(v string, f Field) (string, error) {
-	v = cmp.Or(strings.ToLower(strings.TrimSpace(v)), f.Default)
-	if last := len(f.Enum) - 1; !slices.Contains(f.Enum, v) {
-		return "", fmt.Errorf("%s: want %s or %s, got %q", f.Name, strings.Join(f.Enum[:last], ", "), f.Enum[last], v)
-	}
-	return v, nil
 }
 
 // randomPick uses rejection sampling: b % n alone would favour the first 256 % n characters.
@@ -117,8 +105,6 @@ func randomBytes(n int) []byte {
 	return b
 }
 
-const alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-
 var randomTokenEncodings = map[string]struct {
 	encode func([]byte) string
 	name   string
@@ -137,13 +123,13 @@ func randomTokens(in Input) (*RandomResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	format, err := randomEnum(in.Get("format"), randomFormatField)
+	format, err := enumField(in.Get("format"), randomFormatField)
 	if err != nil {
 		return nil, err
 	}
 	r := &RandomResult{Kind: RandomToken, EntropyBits: float64(8 * n)}
 	if n < 16 {
-		r.warn(LevelWarn, "Fewer than 16 bytes (128 bits). Session tokens, API keys and signing secrets should have at least 16; 32 is the usual choice.")
+		r.Warnings.add(LevelWarn, "Fewer than 16 bytes (128 bits). Session tokens, API keys and signing secrets should have at least 16; 32 is the usual choice.")
 	}
 	enc, ok := randomTokenEncodings[format]
 	if !ok { // alnum: as many characters as carry at least the entropy of n bytes
@@ -240,10 +226,10 @@ func randomPasswords(in Input) (*RandomResult, error) {
 	}
 	r.Detail = fmt.Sprintf("%d characters each from %d possible (%s)%s.%s", length, len(abc), joinAnd(names), each, left)
 	if r.EntropyBits < 64 {
-		r.warn(LevelWarn, fmt.Sprintf("About %.0f bits. Enough behind a login that limits attempts, too few for anything that can be guessed offline, like a leaked hash or an encryption passphrase.", r.EntropyBits))
+		r.Warnings.add(LevelWarn, fmt.Sprintf("About %.0f bits. Enough behind a login that limits attempts, too few for anything that can be guessed offline, like a leaked hash or an encryption passphrase.", r.EntropyBits))
 	}
 	if slices.Contains(names, "symbols") {
-		r.warn(LevelInfo, "Symbols are the ASCII punctuation characters, quotes and backslash included, which shells and some config files need escaped.")
+		r.Warnings.add(LevelInfo, "Symbols are the ASCII punctuation characters, quotes and backslash included, which shells and some config files need escaped.")
 	}
 	return r, nil
 }
@@ -293,7 +279,7 @@ func randomUUIDs(in Input) (*RandomResult, error) {
 		r.EntropyBits = 74
 		r.Created = now.UTC().Format("2006-01-02T15:04:05.000Z")
 		r.Detail = "Version 7: a 48-bit millisecond timestamp, then 74 random bits each."
-		r.warn(LevelWarn, "Version 7 starts with its creation time, to the millisecond, readable by anyone who sees the ID: these say "+r.Created+
+		r.Warnings.add(LevelWarn, "Version 7 starts with its creation time, to the millisecond, readable by anyone who sees the ID: these say "+r.Created+
 			". Use version 4 where that would leak something, such as when an account was made.")
 	}
 	return r, nil

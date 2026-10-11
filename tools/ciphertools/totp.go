@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/subtle"
-	"encoding/base32"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -60,8 +59,6 @@ const (
 
 var otpAlgs = map[string]func() hash.Hash{"SHA1": sha1.New, "SHA256": sha256.New, "SHA512": sha512.New}
 
-var otpBase32 = base32.StdEncoding.WithPadding(base32.NoPadding)
-
 // OTPSettings is one account, from the form fields or an otpauth:// URI.
 type OTPSettings struct {
 	Type, Account, Issuer, Algorithm string
@@ -87,7 +84,7 @@ type TOTPResult struct {
 	Codes       []OTPCode `json:"codes"`
 	URI         string    `json:"uri"`
 	Check       *OTPCheck `json:"check,omitempty"`
-	Warnings    []Warning `json:"warnings,omitempty"`
+	Warnings    Warnings  `json:"warnings,omitempty"`
 }
 
 type OTPCode struct {
@@ -106,8 +103,6 @@ type OTPCheck struct {
 	Counter uint64 `json:"counter,omitempty"`
 	Detail  string `json:"detail"`
 }
-
-func (r *TOTPResult) warn(level, text string) { r.Warnings = append(r.Warnings, Warning{level, text}) }
 
 func runTOTP(in Input) (any, error) {
 	now, err := in.now()
@@ -131,7 +126,7 @@ func runTOTP(in Input) (any, error) {
 		if s.Secret, err = otpSecret(raw); err != nil {
 			return nil, fmt.Errorf("secret: %w", err)
 		}
-		if s.Type, err = randomEnum(in.Get("mode"), otpModeField); err == nil {
+		if s.Type, err = enumField(in.Get("mode"), otpModeField); err == nil {
 			err = s.otpParams(in, "algo", in.Get("algo"), true)
 		}
 	}
@@ -139,7 +134,7 @@ func runTOTP(in Input) (any, error) {
 		return nil, err
 	}
 	r := &TOTPResult{Type: s.Type, Algorithm: s.Algorithm, Digits: s.Digits, Account: s.Account, Issuer: s.Issuer,
-		Secret: otpBase32.EncodeToString(s.Secret), SecretBytes: len(s.Secret), FromURI: fromURI, Counter: s.Counter,
+		Secret: b32raw.EncodeToString(s.Secret), SecretBytes: len(s.Secret), FromURI: fromURI, Counter: s.Counter,
 		URI: BuildOTPURI(s), Warnings: notes}
 	if s.Type == OTPTypeTOTP {
 		unix, p := now.Unix(), int64(s.Period)
@@ -170,16 +165,16 @@ func runTOTP(in Input) (any, error) {
 		odd = append(odd, fmt.Sprintf("a %d-second period", s.Period))
 	}
 	if len(odd) > 0 {
-		r.warn(LevelWarn, fmt.Sprintf("Google Authenticator ignores the algorithm, digits and period, and shows SHA1, 6-digit, 30-second codes whatever the URI says. With %s, check that the app supports it, or its codes won't match these.", joinAnd(odd)))
+		r.Warnings.add(LevelWarn, fmt.Sprintf("Google Authenticator ignores the algorithm, digits and period, and shows SHA1, 6-digit, 30-second codes whatever the URI says. With %s, check that the app supports it, or its codes won't match these.", joinAnd(odd)))
 	}
 	if len(s.Secret) < 16 {
-		r.warn(LevelWarn, fmt.Sprintf("The secret is %d bytes. RFC 4226 requires at least 16 (128 bits) and recommends 20 (160 bits).", len(s.Secret)))
+		r.Warnings.add(LevelWarn, fmt.Sprintf("The secret is %d bytes. RFC 4226 requires at least 16 (128 bits) and recommends 20 (160 bits).", len(s.Secret)))
 	}
 	if s.Type == OTPTypeHOTP {
-		r.warn(LevelInfo, "HOTP codes don't expire. The server moves its counter on after each accepted code, so the next login needs the next counter.")
+		r.Warnings.add(LevelInfo, "HOTP codes don't expire. The server moves its counter on after each accepted code, so the next login needs the next counter.")
 	}
 	if s.Account == "" && s.Issuer == "" {
-		r.warn(LevelInfo, "The URI has no label. Authenticator apps show the label (issuer and account) to tell entries apart, so add one before sharing it.")
+		r.Warnings.add(LevelInfo, "The URI has no label. Authenticator apps show the label (issuer and account) to tell entries apart, so add one before sharing it.")
 	}
 	if code := in.Get("code"); strings.TrimSpace(code) != "" {
 		r.Check = r.check(code)
@@ -210,7 +205,7 @@ func (s *OTPSettings) otpParams(in Input, algoName, algo string, counter bool) (
 
 // otpSecret blanks dashes rather than cutting them, so an error's offset points into what was pasted.
 func otpSecret(s string) ([]byte, error) {
-	b, err := DecodeBytes(strings.ReplaceAll(s, "-", " "), EncBase32)
+	b, err := decodeBase32(strings.ReplaceAll(s, "-", " "))
 	if err != nil {
 		return nil, fmt.Errorf("%w (base32 uses the letters A to Z and the digits 2 to 7)", err)
 	}
@@ -249,14 +244,14 @@ func ParseOTPURI(raw string) (*OTPSettings, []Warning, error) {
 	if !hasPrefix { // the whole label is the account
 		prefix, s.Account = "", prefix
 	}
-	var notes []Warning
+	var notes Warnings
 	s.Issuer = q.Get("issuer")
 	switch {
 	case s.Issuer == "" && prefix != "":
 		s.Issuer = prefix
-		notes = append(notes, Warning{LevelInfo, "The URI has no issuer parameter, so the issuer was taken from the label. The Key Uri Format recommends both."})
+		notes.add(LevelInfo, "The URI has no issuer parameter, so the issuer was taken from the label. The Key Uri Format recommends both.")
 	case s.Issuer != "" && hasPrefix && prefix != s.Issuer:
-		notes = append(notes, Warning{LevelWarn, fmt.Sprintf("The label's issuer %q differs from the issuer parameter %q. Apps disagree on which one to show; the parameter is used here.", prefix, s.Issuer)})
+		notes.add(LevelWarn, fmt.Sprintf("The label's issuer %q differs from the issuer parameter %q. Apps disagree on which one to show; the parameter is used here.", prefix, s.Issuer))
 	}
 
 	if strings.TrimSpace(q.Get("secret")) == "" {
@@ -269,7 +264,7 @@ func ParseOTPURI(raw string) (*OTPSettings, []Warning, error) {
 		return nil, nil, fmt.Errorf("the URI's %w", err)
 	}
 	if s.Type == OTPTypeHOTP && q.Get("counter") == "" {
-		notes = append(notes, Warning{LevelWarn, "An hotp URI must carry a counter parameter; this one has none, so the counter starts at 0."})
+		notes.add(LevelWarn, "An hotp URI must carry a counter parameter; this one has none, so the counter starts at 0.")
 	}
 	return s, notes, nil
 }
@@ -278,7 +273,7 @@ func ParseOTPURI(raw string) (*OTPSettings, []Warning, error) {
 // and spaces as %20: the Key Uri Format asks for it, and some apps show '+'.
 func BuildOTPURI(s *OTPSettings) string {
 	label := strings.Trim(otpEscape(s.Issuer)+":"+otpEscape(s.Account), ":") // the escaped parts hold no ':'
-	uri := "otpauth://" + s.Type + "/" + label + "?secret=" + otpBase32.EncodeToString(s.Secret)
+	uri := "otpauth://" + s.Type + "/" + label + "?secret=" + b32raw.EncodeToString(s.Secret)
 	if s.Issuer != "" {
 		uri += "&issuer=" + otpEscape(s.Issuer)
 	}

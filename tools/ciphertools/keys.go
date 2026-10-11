@@ -5,7 +5,6 @@ import (
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -43,16 +42,16 @@ type Key struct {
 func (k Key) Describe() string {
 	s := fmt.Sprintf("%d-byte shared secret (%s)", len(k.Secret), k.Source)
 	if k.Kind != KindSecret {
-		part := "public key"
-		if k.Private != nil {
-			part = "private key"
-		}
-		s = fmt.Sprintf("%s %s, from %s", keyName(k.Public), part, k.Source)
+		s = fmt.Sprintf("%s %s, from %s", keyName(k.Public), k.half(), k.Source)
 	}
 	if k.KID != "" {
 		s += fmt.Sprintf(", kid %q", k.KID)
 	}
 	return s
+}
+
+func (k Key) half() string {
+	return map[bool]string{false: "public key", true: "private key"}[k.Private != nil]
 }
 
 // looksLikeKeyMaterial goes by shape, so a broken PEM is never used as an HMAC key (alg confusion).
@@ -74,9 +73,9 @@ const maxRSABits = 8192
 // while parsing it, in quadratic time. RSA-16384 is ~9.3 KB of PKCS#1.
 const maxPrivateKeyDER = 16 << 10
 
-func checkRSASize(pub *rsa.PublicKey) error {
-	if n := pub.N.BitLen(); n > maxRSABits {
-		return fmt.Errorf("RSA %d-bit key: above the limit of %s bits, which is also what TLS and SSH accept", n, thousands(maxRSABits))
+func checkRSASize(pub any) error {
+	if k, ok := pub.(*rsa.PublicKey); ok && k.N.BitLen() > maxRSABits {
+		return fmt.Errorf("RSA %d-bit key: above the limit of %s bits, which is also what TLS and SSH accept", k.N.BitLen(), thousands(maxRSABits))
 	}
 	return nil
 }
@@ -159,21 +158,13 @@ func keyFromPEM(b *pem.Block) (*Key, error) {
 		return nil, nil
 	case "ENCRYPTED PRIVATE KEY":
 		return nil, errors.New(encrypted)
-	case "PUBLIC KEY":
-		key, err = x509.ParsePKIXPublicKey(b.Bytes)
-	case "RSA PUBLIC KEY":
-		key, err = x509.ParsePKCS1PublicKey(b.Bytes)
+	case "PUBLIC KEY", "RSA PUBLIC KEY", "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY":
+		key, err = pemKinds[b.Type].parse(b.Bytes)
 	case "CERTIFICATE":
 		var c *x509.Certificate
 		if c, err = x509.ParseCertificate(b.Bytes); err == nil {
 			key, source = c.PublicKey, "X.509 certificate "+certName(c)
 		}
-	case "PRIVATE KEY":
-		key, err = x509.ParsePKCS8PrivateKey(b.Bytes)
-	case "RSA PRIVATE KEY":
-		key, err = x509.ParsePKCS1PrivateKey(b.Bytes)
-	case "EC PRIVATE KEY":
-		key, err = x509.ParseECPrivateKey(b.Bytes)
 	case "OPENSSH PRIVATE KEY":
 		key, err = ssh.ParseRawPrivateKey(pem.EncodeToMemory(b))
 		if _, ok := errors.AsType[*ssh.PassphraseMissingError](err); ok {
@@ -209,10 +200,8 @@ func keyFromPublic(pub any, source string) (*Key, error) {
 	if f.kind == "" {
 		return nil, fmt.Errorf("unsupported public key type %T (X25519 and DSA keys can't sign)", pub)
 	}
-	if p, ok := pub.(*rsa.PublicKey); ok {
-		if err := checkRSASize(p); err != nil {
-			return nil, err
-		}
+	if err := checkRSASize(pub); err != nil {
+		return nil, err
 	}
 	return &Key{Kind: f.kind, Public: pub, Source: source}, nil
 }
@@ -284,15 +273,8 @@ func parseJWKInput(data []byte) ([]Key, error) {
 	return keys, nil
 }
 
-// ecCurves maps JWK crv names to curves and the ES* alg that signs on each.
-var ecCurves = map[string]struct {
-	curve elliptic.Curve
-	alg   string
-}{
-	"P-256": {elliptic.P256(), "ES256"},
-	"P-384": {elliptic.P384(), "ES384"},
-	"P-521": {elliptic.P521(), "ES512"},
-}
+// ecCurves maps JWK crv names to the ES* alg that signs on each, whose jwsAlgs row holds the curve.
+var ecCurves = map[string]string{"P-256": "ES256", "P-384": "ES384", "P-521": "ES512"}
 
 func keyFromJWK(j JWK, source string) (*Key, error) {
 	var bad error // the first member that isn't base64url
@@ -336,11 +318,11 @@ func keyFromJWK(j JWK, source string) (*Key, error) {
 			k.Private = priv
 		}
 	case "EC":
-		c, ok := ecCurves[j.Crv]
+		c, ok := jwsAlgs[ecCurves[j.Crv]]
 		if !ok {
 			return nil, fmt.Errorf("unsupported EC curve %q (want P-256, P-384 or P-521)", j.Crv)
 		}
-		size := (c.curve.Params().BitSize + 7) / 8
+		size := c.size()
 		x, y := b64("x", j.X), b64("y", j.Y)
 		switch {
 		case bad != nil:
@@ -421,7 +403,7 @@ func keysFactsOf(pub crypto.PublicKey) keysFacts {
 		return keysFacts{KindRSA, fmt.Sprintf("RSA %d-bit", n), "", "RS256", n}
 	case *ecdsa.PublicKey:
 		c := p.Curve.Params()
-		return keysFacts{KindEC, "ECDSA " + c.Name, c.Name, ecCurves[c.Name].alg, c.BitSize}
+		return keysFacts{KindEC, "ECDSA " + c.Name, c.Name, ecCurves[c.Name], c.BitSize}
 	case ed25519.PublicKey:
 		return keysFacts{KindEd25519, "Ed25519", "Ed25519", "EdDSA", 0}
 	case *ecdh.PublicKey:
@@ -445,7 +427,7 @@ func PublicJWK(pub crypto.PublicKey) (JWK, error) {
 		return JWK{Kty: "RSA", N: keysB64Int(p.N), E: keysB64Int(big.NewInt(int64(p.E)))}, nil
 	case *ecdsa.PublicKey:
 		crv := p.Curve.Params().Name
-		if ecCurves[crv].curve != p.Curve {
+		if jwsAlgs[ecCurves[crv]].curve != p.Curve {
 			return JWK{}, fmt.Errorf("no JWK name for curve %s", crv)
 		}
 		point, err := p.Bytes() // 0x04 ‖ X ‖ Y
@@ -515,16 +497,6 @@ func JWKThumbprint(j JWK) (string, error) {
 	return b64url.EncodeToString(sum[:]), nil
 }
 
-// spkiSHA256 is the fingerprint certificates, pins and key matching agree on.
-func spkiSHA256(pub crypto.PublicKey) ([]byte, error) {
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(der)
-	return sum[:], nil
-}
-
 // fingerprintHex is openssl's form: uppercase hex pairs joined by colons.
 func fingerprintHex(b []byte) string { return strings.ToUpper(hexColons(b)) }
 
@@ -548,30 +520,33 @@ func isSSHKeyType(f string) bool {
 	return sshKeyTypes[t]
 }
 
-// looksLikeOpenSSH: the first line that isn't blank or a # comment names a key type.
-func looksLikeOpenSSH(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
-		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
-			return slices.ContainsFunc(strings.Fields(line), isSSHKeyType)
+// sshLines are s's lines that aren't blank or # comments, "\r" cut, and their 1-based numbers.
+func sshLines(s string) (lines []string, nums []int) {
+	for n, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "#") {
+			lines, nums = append(lines, strings.TrimRight(line, "\r")), append(nums, n+1)
 		}
 	}
-	return false
+	return lines, nums
+}
+
+// looksLikeOpenSSH: the first line that isn't blank or a # comment names a key type.
+func looksLikeOpenSSH(s string) bool {
+	lines, _ := sshLines(s)
+	return len(lines) > 0 && slices.ContainsFunc(strings.Fields(lines[0]), isSSHKeyType)
 }
 
 // parseOpenSSH runs after looksLikeOpenSSH, so there is always a line to read.
 func parseOpenSSH(s string) ([]Key, error) {
+	lines, nums := sshLines(s)
 	var keys []Key
-	for n, line := range strings.Split(s, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if t := strings.TrimSpace(line); t == "" || strings.HasPrefix(t, "#") {
-			continue
-		}
-		if len(keys) == maxKeys {
+	for i, line := range lines {
+		if i == maxKeys {
 			return nil, errTooManyKeys
 		}
 		k, err := keyFromOpenSSH(line)
 		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", n+1, err)
+			return nil, fmt.Errorf("line %d: %w", nums[i], err)
 		}
 		keys = append(keys, *k)
 	}

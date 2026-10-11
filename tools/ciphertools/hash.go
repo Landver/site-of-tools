@@ -107,12 +107,12 @@ func hashDigests(data, key []byte, mac bool) []Digest {
 }
 
 type HashResult struct {
-	Source         string    `json:"source"` // "file", "UTF-8 text", "hex", a base64 variant
-	Bytes          int       `json:"bytes"`
-	TrimmedNewline bool      `json:"trimmed_newline"`
-	Digests        []Digest  `json:"digests"`
-	Compare        *Compare  `json:"compare,omitempty"`
-	Warnings       []Warning `json:"warnings,omitempty"`
+	Source         string   `json:"source"` // "file", "UTF-8 text", "hex", a base64 variant
+	Bytes          int      `json:"bytes"`
+	TrimmedNewline bool     `json:"trimmed_newline"`
+	Digests        []Digest `json:"digests"`
+	Compare        *Compare `json:"compare,omitempty"`
+	Warnings       Warnings `json:"warnings,omitempty"`
 }
 
 func runHash(in Input) (any, error) {
@@ -125,7 +125,7 @@ func runHash(in Input) (any, error) {
 			return nil, fmt.Errorf("text: %w", err)
 		}
 	case in.Get("text") != "":
-		r.Warnings = append(r.Warnings, Warning{LevelInfo, "Hashed the file; the text box was ignored. Clear the file to hash the text."})
+		r.Warnings.add(LevelInfo, "Hashed the file; the text box was ignored. Clear the file to hash the text.")
 	}
 	if len(data) > MaxHashInput {
 		// No size: in the browser a bigger file arrives cut to MaxFile+1 bytes (op.go).
@@ -141,24 +141,19 @@ func runHash(in Input) (any, error) {
 		if r.TrimmedNewline {
 			msg, hint = fmt.Sprintf("Stripped one trailing %s before hashing.", cut), ""
 		}
-		r.Warnings = append(r.Warnings, Warning{LevelInfo, msg})
+		r.Warnings.add(LevelInfo, msg)
 	}
 	r.Bytes = len(data)
 	if len(data) == 0 {
-		r.Warnings = append(r.Warnings, Warning{LevelInfo, "Empty input: these are the hashes of zero bytes."})
+		r.Warnings.add(LevelInfo, "Empty input: these are the hashes of zero bytes.")
 	}
-	r.Warnings = append(r.Warnings, byteNotes(data, hint)...)
+	byteNotes(&r.Warnings, data, hint)
 	r.Digests = hashDigests(data, nil, false)
 	if e := in.Get("expected"); strings.TrimSpace(e) != "" {
 		r.Compare = compareDigests(e, r.Digests,
 			"The usual cause is the input, not the algorithm: a trailing newline, CRLF line endings, or text where the checksum was of a file.")
 	}
 	return r, nil
-}
-
-// checked reads a checkbox: "on" from a form, "true" from a JSON body.
-func checked(v string) bool {
-	return !slices.Contains([]string{"", "0", "false", "off", "no"}, strings.ToLower(strings.TrimSpace(v)))
 }
 
 func trimOneNewline(b []byte) ([]byte, string) {
@@ -172,19 +167,17 @@ func trimOneNewline(b []byte) ([]byte, string) {
 }
 
 // byteNotes flags the invisible bytes that make two "identical" inputs hash differently; hint follows the newline note.
-func byteNotes(b []byte, hint string) []Warning {
-	var w []Warning
+func byteNotes(w *Warnings, b []byte, hint string) {
 	body, end := trimOneNewline(b)
 	if end != "" {
-		w = append(w, Warning{LevelInfo, fmt.Sprintf("Ends in a newline (%s), and it is part of the data: echo foo gives 4 bytes, not 3.%s", end, hint)})
+		w.add(LevelInfo, fmt.Sprintf("Ends in a newline (%s), and it is part of the data: echo foo gives 4 bytes, not 3.%s", end, hint))
 	}
 	if bytes.Contains(body, []byte("\r\n")) {
-		w = append(w, Warning{LevelInfo, `Contains CRLF (\r\n) line endings. The same text with Unix (\n) endings gives different hashes.`})
+		w.add(LevelInfo, `Contains CRLF (\r\n) line endings. The same text with Unix (\n) endings gives different hashes.`)
 	}
 	if bytes.HasPrefix(b, []byte("\xef\xbb\xbf")) {
-		w = append(w, Warning{LevelInfo, "Starts with a UTF-8 byte order mark (EF BB BF). Some Windows editors add it; it is part of the data and changes every hash."})
+		w.add(LevelInfo, "Starts with a UTF-8 byte order mark (EF BB BF). Some Windows editors add it; it is part of the data and changes every hash.")
 	}
-	return w
 }
 
 // Compare is the answer to "which of these is the checksum I was given".
@@ -296,7 +289,8 @@ func cleanExpected(s string) (string, string) {
 func cutLabel(t string) (label, rest string, ok bool) {
 	if i := strings.IndexAny(t, "=:"); i > 0 && i <= 16 {
 		label, rest = t[:i], t[i+1:]
-		if strings.Trim(rest, "=") != "" && isLabel(label) && (t[i] == '=' || !allHex(label)) {
+		isLabel := strings.IndexByte(letters, t[0]) >= 0 && strings.Trim(label, alnum+"-_/") == ""
+		if strings.Trim(rest, "=") != "" && isLabel && (t[i] == '=' || !allHex(label)) {
 			return label, rest, true
 		}
 	}
@@ -304,15 +298,4 @@ func cutLabel(t string) (label, rest string, ok bool) {
 		return t[:6], t[7:], true
 	}
 	return "", t, false
-}
-
-const hashLetters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-// isLabel: an ASCII letter, then letters, digits, '-', '_' or '/'.
-func isLabel(s string) bool {
-	return s != "" && strings.IndexByte(hashLetters, s[0]) >= 0 && strings.Trim(s, hashLetters+"0123456789-_/") == ""
-}
-
-func allHex(s string) bool {
-	return s != "" && strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }

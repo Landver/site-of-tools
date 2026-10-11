@@ -16,17 +16,40 @@ const (
 	EncBase64    = "base64"
 	EncBase64URL = "base64url"
 	EncBase32    = "base32"
+	// EncAuto tries each reading of a shared secret, since a token doesn't record how it was written
+	// down. Three candidate keys leave forging at 3 in 2^256.
+	EncAuto = "auto"
 )
 
 var byteEncodings = []string{EncUTF8, EncHex, EncBase64, EncBase64URL, EncBase32}
 
-// DecodeBytes reads s as enc: UTF-8 verbatim, the others ignoring whitespace, with offsets into s as pasted.
-func DecodeBytes(s, enc string) ([]byte, error) {
-	b, _, err := decodeInput(s, enc)
-	return b, err
+const (
+	letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	alnum   = letters + "0123456789"
+)
+
+func allHex(s string) bool { return s != "" && strings.Trim(s, "0123456789abcdefABCDEF") == "" }
+
+func allDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
-// decodeInput is DecodeBytes plus how the input was read, in the visitor's words.
+// bytesText: 32 MiB, 19 MiB, 64 KiB, 512 bytes.
+func bytesText(n int) string {
+	switch {
+	case n >= 1<<20 && n%(1<<20) == 0:
+		return fmt.Sprintf("%d MiB", n>>20)
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10 && n%(1<<10) == 0:
+		return fmt.Sprintf("%d KiB", n>>10)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
+// decodeInput reads s as enc (UTF-8 verbatim, the rest ignoring whitespace, offsets into s as pasted) and says how.
 func decodeInput(s, enc string) (b []byte, how string, err error) {
 	switch enc {
 	case "", EncUTF8:
@@ -136,7 +159,7 @@ func decodeBase32(s string) ([]byte, error) {
 	if i := strings.IndexFunc(c, func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r >= '2' && r <= '7') }); i >= 0 {
 		return nil, fmt.Errorf("not base32: %q at offset %d", c[i], pos[i])
 	}
-	b, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(c)
+	b, err := b32raw.DecodeString(c)
 	if err != nil {
 		return nil, fmt.Errorf("not base32: %d characters is not a whole number of bytes", len(c))
 	}
@@ -173,3 +196,5 @@ func printable(s string) bool {
 
 // b64url is the JOSE encoding: URL-safe, no padding.
 var b64url = base64.RawURLEncoding
+
+var b32raw = base32.StdEncoding.WithPadding(base32.NoPadding)

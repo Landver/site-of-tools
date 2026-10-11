@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"maps"
+	"math"
 	"net/url"
 	"slices"
 	"strconv"
@@ -104,6 +105,34 @@ func Run(op Op, in Input) (res any, err error) {
 const MaxFile = MaxHashInput
 
 const ErrorFragment = "cipher/error"
+
+const (
+	LevelDanger = "danger"
+	LevelWarn   = "warn"
+	LevelInfo   = "info"
+)
+
+type Warning struct {
+	Level string `json:"level"`
+	Text  string `json:"text"`
+}
+
+type Warnings []Warning
+
+func (w *Warnings) add(level, text string) { *w = append(*w, Warning{level, text}) }
+
+// millis rounds to a tenth of a millisecond for the JSON answer.
+func millis(d time.Duration) float64 { return math.Round(float64(d.Microseconds())/100) / 10 }
+
+func tookText(d time.Duration) string {
+	switch {
+	case d < time.Millisecond:
+		return "under 1 ms"
+	case d < time.Second:
+		return fmt.Sprintf("%d ms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.2f s", d.Seconds())
+}
 
 // Render runs an op and renders its fragment: the browser engine's whole code path.
 func Render(t *template.Template, name string, in Input) string {
