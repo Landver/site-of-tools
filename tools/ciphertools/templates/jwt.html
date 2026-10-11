@@ -1,13 +1,4 @@
-{{/* JWT — decode / verify / sign (C1). Page shell + result fragments.
-
-     Two forms, each posting to its own op. With JavaScript on, cipher.js
-     intercepts both and runs them in the in-browser engine; decode also runs on
-     every keystroke (data-live). With it off, they post to the server and the
-     page comes back with .Op / .Result / .Error filled in.
-
-     The verification banner comes first and is as loud for "not checked" as
-     for "invalid": a token that decodes is not a token that verifies, and that
-     confusion is this category's signature bug (docs/00-landscape.md). */}}
+{{/* The verification banner is as loud for "not checked" as for "invalid" (docs/00-landscape.md). */}}
 {{define "cipher/jwt"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -66,17 +57,11 @@
                       class="field mt-1 w-full font-mono text-base sm:text-xs">{{if ne .Op "jwt-sign"}}{{.Form.Get "key"}}{{end}}</textarea>
           </label>
           <label class="block text-sm text-muted">Secret is
-            {{/* Detect is the default: a token doesn't say how its secret was
-                 written down, and one string can be valid text AND valid base64.
-                 Only this form reads the choice back from a decode, never from a
-                 no-JS sign post, which shares the field name. */}}
+            {{/* Read back from a decode only: a no-JS sign post shares the field name. */}}
             {{$denc := ""}}{{if eq .Op "jwt-decode"}}{{$denc = $enc}}{{end}}
             <select name="key_enc" class="field mt-1 w-full">
               <option value="auto">Detect: try each</option>
-              <option value="utf8" {{if eq $denc "utf8"}}selected{{end}}>UTF-8 text</option>
-              <option value="base64" {{if eq $denc "base64"}}selected{{end}}>base64</option>
-              <option value="base64url" {{if eq $denc "base64url"}}selected{{end}}>base64url</option>
-              <option value="hex" {{if eq $denc "hex"}}selected{{end}}>hex</option>
+              <option value="utf8" {{if eq $denc "utf8"}}selected{{end}}>UTF-8 text</option>{{template "cipher/jwt-key-enc" $denc}}
             </select>
             <span class="mt-1 block text-xs text-faint">For a shared secret: Detect tries text, base64 and hex.</span>
           </label>
@@ -133,10 +118,7 @@
           </label>
           <label class="block text-sm text-muted">Secret is
             <select name="key_enc" class="field mt-1 w-full">
-              <option value="utf8">UTF-8 text</option>
-              <option value="base64" {{if eq $enc "base64"}}selected{{end}}>base64</option>
-              <option value="base64url" {{if eq $enc "base64url"}}selected{{end}}>base64url</option>
-              <option value="hex" {{if eq $enc "hex"}}selected{{end}}>hex</option>
+              <option value="utf8">UTF-8 text</option>{{template "cipher/jwt-key-enc" $enc}}
             </select>
           </label>
         </div>
@@ -158,6 +140,10 @@
 </body>
 </html>
 {{end}}
+
+{{define "cipher/jwt-key-enc"}}<option value="base64" {{if eq . "base64"}}selected{{end}}>base64</option>
+<option value="base64url" {{if eq . "base64url"}}selected{{end}}>base64url</option>
+<option value="hex" {{if eq . "hex"}}selected{{end}}>hex</option>{{end}}
 
 {{define "cipher/jwt-result"}}{{with .Result}}{{template "cipher/jwt-view" .}}{{end}}{{end}}
 
