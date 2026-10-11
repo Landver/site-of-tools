@@ -16,8 +16,7 @@ const (
 	EncBase64    = "base64"
 	EncBase64URL = "base64url"
 	EncBase32    = "base32"
-	// EncAuto tries each reading of a shared secret, since a token doesn't record how it was written
-	// down. Three candidate keys leave forging at 3 in 2^256.
+	// EncAuto lets the op pick the reading: each reading of a shared secret, or hex vs base64 data.
 	EncAuto = "auto"
 )
 

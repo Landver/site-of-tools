@@ -118,6 +118,7 @@ func singleToken(t string) bool { return !strings.ContainsAny(t, " \t\r\n") }
 func identifyOnly(s, set string) bool { return strings.Trim(s, set) == "" }
 
 // pemKinds: each PEM type's name, the page that reads it and, where set, its DER parser.
+// cert.go's key-alongside check reads page and keyFromPEM reads parse, so edits reach both.
 var pemKinds = map[string]struct {
 	name, page string
 	parse      func([]byte) (any, error)

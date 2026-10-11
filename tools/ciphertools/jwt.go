@@ -445,6 +445,7 @@ func algNeeds(spec jwsAlg) string {
 }
 
 // secretReadings is the secret as the one encoding asked for or, under EncAuto, every distinct reading, UTF-8 first.
+// A token doesn't record how its secret was written down; three candidate keys leave forging at 3 in 2^256.
 func secretReadings(s, enc string) ([]Key, error) {
 	if enc != "" && enc != EncAuto {
 		b, _, err := decodeInput(s, enc)
@@ -459,7 +460,12 @@ func secretReadings(s, enc string) ([]Key, error) {
 	return out, nil
 }
 
-func encName(enc string) string { return cmp.Or(map[string]string{EncUTF8: "UTF-8 text"}[enc], enc) }
+func encName(enc string) string {
+	if enc == "" || enc == EncUTF8 {
+		return "UTF-8 text"
+	}
+	return enc
+}
 
 func digest(h crypto.Hash, data []byte) []byte {
 	w := h.New()

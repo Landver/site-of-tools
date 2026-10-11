@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
 	"math/big"
 	"net/url"
 	"strings"
@@ -83,14 +82,13 @@ func TestOpenSSHLinesSkipCommentsButCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(r.Candidates) == 0 {
+		t.Fatal("identify: no candidates")
+	}
 	if c := r.Candidates[0]; !strings.HasPrefix(c.Name, "OpenSSH public key") || !strings.Contains(c.Why, "; 2 lines") || c.Preview != "a" {
 		t.Errorf("identify: %+v", c)
 	}
-	res, err := runOp(t, "keys-inspect", url.Values{"key": {in}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ks := res.(*ciphertools.KeyInspectResult).Keys; len(ks) != 2 || !strings.HasSuffix(ks[1].OpenSSH, " b") {
+	if ks := opOf[ciphertools.KeyInspectResult](t, "keys-inspect", url.Values{"key": {in}}, nil).Keys; len(ks) != 2 || !strings.HasSuffix(ks[1].OpenSSH, " b") {
 		t.Errorf("keys-inspect: %+v", ks)
 	}
 	if _, err := runOp(t, "keys-inspect", url.Values{"key": {in + "ssh-ed25519 AAAA\n"}}, nil); err == nil || !strings.HasPrefix(err.Error(), "line 5: ") {
@@ -104,46 +102,38 @@ func TestCertKeyPastedAlongside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "xfile.example"},
-		DNSNames: []string{"xfile.example"}, NotBefore: time.Unix(1700000000, 0), NotAfter: time.Unix(1800000000, 0)}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "cert.example"},
+		DNSNames: []string{"cert.example"}, NotBefore: time.Unix(1700000000, 0), NotAfter: time.Unix(1800000000, 0)}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &k.PublicKey, k)
 	if err != nil {
 		t.Fatal(err)
 	}
 	keyDER, _ := x509.MarshalPKCS8PrivateKey(k)
-	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
-	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+	certPEM, keyPEM := pemBlock("CERTIFICATE", der), pemBlock("PRIVATE KEY", keyDER)
 
-	res, err := runOp(t, "cert", url.Values{"cert": {certPEM + keyPEM}, "now": {"1750000000"}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := res.(*ciphertools.CertResult).KeyMatch
-	if m == nil || m.State != "match" || !strings.Contains(m.Detail, "certificate 1 (xfile.example)") || !strings.HasSuffix(m.Detail, "(Checked with the key found among the pasted PEM blocks.)") {
+	m := opOf[ciphertools.CertResult](t, "cert", url.Values{"cert": {certPEM + keyPEM}, "now": {"1750000000"}}, nil).KeyMatch
+	if m == nil || m.State != "match" || !strings.Contains(m.Detail, "certificate 1 (cert.example)") || !strings.HasSuffix(m.Detail, "(Checked with the key found among the pasted PEM blocks.)") {
 		t.Errorf("key alongside: %+v", m)
 	}
-	res, err = runOp(t, "cert", url.Values{"cert": {certPEM + keyPEM}, "key": {"not a key"}, "now": {"1750000000"}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r := res.(*ciphertools.CertResult); r.KeyMatch.State != "error" || !noted(r.Warnings, "the key field was used for the match instead") {
+	if r := opOf[ciphertools.CertResult](t, "cert", url.Values{"cert": {certPEM + keyPEM}, "key": {"not a key"}, "now": {"1750000000"}}, nil); r.KeyMatch == nil || r.KeyMatch.State != "error" || !noted(r.Warnings, "the key field was used for the match instead") {
 		t.Errorf("key field wins: %+v %+v", r.KeyMatch, r.Warnings)
 	}
 }
 
 // An HS256 secret that reads three ways is tried all three ways, and named back as read.
 func TestJWTSecretReadings(t *testing.T) {
-	res, err := runOp(t, "jwt-sign", url.Values{"key": {"deadbeef"}, "now": {"1700000000"}}, nil)
-	if err != nil {
-		t.Fatal(err)
+	tok := opOf[ciphertools.JWTSigned](t, "jwt-sign", url.Values{"key": {"deadbeef"}, "now": {"1700000000"}}, nil).Token
+	detail := func(tok, enc string) string {
+		j, err := ciphertools.DecodeJWT(tok, "deadbeef", enc, time.Unix(1700000000, 0), time.Minute)
+		if err != nil {
+			t.Fatalf("enc %q: %v", enc, err)
+		}
+		return j.Verification.Detail
 	}
-	tok, now := res.(*ciphertools.JWTSigned).Token, time.Unix(1700000000, 0)
-	j, err := ciphertools.DecodeJWT(tok[:len(tok)-2]+"AA", "deadbeef", "", now, time.Minute)
-	if err != nil || !strings.HasSuffix(j.Verification.Detail, " Tried the secret as UTF-8 text, base64 and hex.") {
-		t.Errorf("auto: %v %+v", err, j.Verification)
+	if d := detail(tok[:len(tok)-2]+"AA", ""); !strings.HasSuffix(d, " Tried the secret as UTF-8 text, base64 and hex.") {
+		t.Errorf("auto: %s", d)
 	}
-	j, err = ciphertools.DecodeJWT(tok, "deadbeef", "hex", now, time.Minute)
-	if err != nil || !strings.Contains(j.Verification.Detail, "with the secret read as hex, but it DOES with the secret read as UTF-8 text") {
-		t.Errorf("hex: %v %+v", err, j.Verification)
+	if d := detail(tok, "hex"); !strings.Contains(d, "with the secret read as hex, but it DOES with the secret read as UTF-8 text") {
+		t.Errorf("hex: %s", d)
 	}
 }

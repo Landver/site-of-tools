@@ -447,7 +447,10 @@ func TestJWTEdgeCasesShown(t *testing.T) {
 		}
 	}
 	s, err := sign(t, map[string]string{"alg": "HS256", "key": "k", "header": `{"typ":"at+jwt","cty":"x"}`})
-	if err != nil || string(s.Decoded.Header) != `{"alg":"HS256","typ":"at+jwt","cty":"x"}` {
-		t.Errorf("typ from header: %v %s", err, s.Decoded.Header)
+	if err != nil {
+		t.Fatalf("typ from header: %v", err)
+	}
+	if string(s.Decoded.Header) != `{"alg":"HS256","typ":"at+jwt","cty":"x"}` {
+		t.Errorf("typ from header: %s", s.Decoded.Header)
 	}
 }
