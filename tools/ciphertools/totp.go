@@ -127,7 +127,7 @@ func runTOTP(in Input) (any, error) {
 			return nil, fmt.Errorf("secret: %w", err)
 		}
 		if s.Type, err = enumField(in.Get("mode"), otpModeField); err == nil {
-			err = s.otpParams(in, "algo", in.Get("algo"), true)
+			err = s.otpParams(in, "algo", in.Get("algo"))
 		}
 	}
 	if err != nil {
@@ -183,7 +183,8 @@ func runTOTP(in Input) (any, error) {
 }
 
 // otpParams reads what a form and a URI share; the algorithm is algo in one, algorithm in the other.
-func (s *OTPSettings) otpParams(in Input, algoName, algo string, counter bool) (err error) {
+// The Key Uri Format makes period TOTP's alone and counter HOTP's, so s.Type picks which is read.
+func (s *OTPSettings) otpParams(in Input, algoName, algo string) (err error) {
 	a := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(algo), "-", ""))
 	if s.Algorithm = cmp.Or(a, "SHA1"); otpAlgs[s.Algorithm] == nil {
 		return fmt.Errorf("%s: want SHA1, SHA256 or SHA512, got %q", algoName, algo)
@@ -191,11 +192,12 @@ func (s *OTPSettings) otpParams(in Input, algoName, algo string, counter bool) (
 	if s.Digits, err = intField(in, otpDigitsField); err != nil {
 		return err
 	}
-	if s.Period, err = intField(in, otpPeriodField); err != nil {
+	if s.Type == OTPTypeTOTP {
+		s.Period, err = intField(in, otpPeriodField)
 		return err
 	}
 	// Up to 2^63-1, so counter+1 can never wrap.
-	if v := strings.TrimSpace(in.Get("counter")); counter && v != "" {
+	if v := strings.TrimSpace(in.Get("counter")); v != "" {
 		if s.Counter, err = strconv.ParseUint(v, 10, 63); err != nil {
 			return fmt.Errorf("counter: want a whole number from 0 to %d, got %q", int64(math.MaxInt64), v)
 		}
@@ -260,7 +262,7 @@ func ParseOTPURI(raw string) (*OTPSettings, []Warning, error) {
 	if s.Secret, err = otpSecret(q.Get("secret")); err != nil {
 		return nil, nil, fmt.Errorf("the URI's secret: %w", err)
 	}
-	if err = s.otpParams(Input{Fields: q}, "algorithm", q.Get("algorithm"), s.Type == OTPTypeHOTP); err != nil {
+	if err = s.otpParams(Input{Fields: q}, "algorithm", q.Get("algorithm")); err != nil {
 		return nil, nil, fmt.Errorf("the URI's %w", err)
 	}
 	if s.Type == OTPTypeHOTP && q.Get("counter") == "" {

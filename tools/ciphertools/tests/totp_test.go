@@ -133,6 +133,28 @@ func TestTOTPInputErrors(t *testing.T) {
 	}
 }
 
+// period is TOTP's alone and counter HOTP's alone, so the other mode ignores them, in range or not.
+func TestOTPOtherModesFieldIgnored(t *testing.T) {
+	const sec, now = "JBSWY3DPEHPK3PXP", "1700000000"
+	for _, f := range []url.Values{
+		{"secret": {sec}, "mode": {"hotp"}, "period": {"5"}},
+		{"secret": {"otpauth://hotp/x?secret=" + sec + "&counter=0&period=5"}},
+		{"secret": {sec}, "mode": {"totp"}, "counter": {"-1"}},
+		{"secret": {"otpauth://totp/x?secret=" + sec + "&counter=-1"}},
+	} {
+		f.Set("now", now)
+		res, err := runOp(t, "totp", f, nil)
+		if err != nil {
+			t.Errorf("%v: %v", f, err)
+			continue
+		}
+		r := res.(*ciphertools.TOTPResult)
+		if r.Type == "hotp" && (r.Period != 0 || r.Counter != 0) || r.Type == "totp" && (r.Period != 30 || r.Counter != 1700000000/30) {
+			t.Errorf("%v: period %d, counter %d", f, r.Period, r.Counter)
+		}
+	}
+}
+
 // The Key Uri Format example, and every parameter read back.
 func TestParseOTPURI(t *testing.T) {
 	s, notes, err := ciphertools.ParseOTPURI("otpauth://totp/Example:alice@google.com?secret=JBSWY3DPEHPK3PXP&issuer=Example")
