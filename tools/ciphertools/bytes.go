@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -77,6 +79,14 @@ func firstInvalidUTF8(b []byte) int {
 	return -1
 }
 
+// charAt quotes the character starting at s[i] as typed, a byte that isn't UTF-8 as '\xff'.
+func charAt(s string, i int) string {
+	if r, n := utf8.DecodeRuneInString(s[i:]); r != utf8.RuneError || n > 1 {
+		return strconv.QuoteRune(r)
+	}
+	return fmt.Sprintf(`'\x%02x'`, s[i])
+}
+
 // stripSpace drops whitespace and maps each kept byte back to its offset in s.
 func stripSpace(s string) (string, []int) {
 	var b strings.Builder
@@ -102,7 +112,7 @@ func decodeHex(s string) ([]byte, error) {
 		case isHex(c[i]):
 			h.WriteByte(c[i])
 		default:
-			return nil, fmt.Errorf("not hex: %q at offset %d", c[i], pos[i+off])
+			return nil, fmt.Errorf("not hex: %s at offset %d", charAt(c, i), pos[i+off])
 		}
 	}
 	if h.Len()%2 != 0 {
@@ -146,7 +156,7 @@ func decodeBase64Any(s string) ([]byte, string, error) {
 		return b, variant, nil
 	}
 	if at, _ := err.(base64.CorruptInputError); int(at) < len(c) {
-		return nil, "", fmt.Errorf("not %s: %q at offset %d", variant, c[at], pos[at])
+		return nil, "", fmt.Errorf("not %s: %s at offset %d", variant, charAt(c, int(at)), pos[at])
 	}
 	return nil, "", fmt.Errorf("not %s: truncated (%d characters is not a whole number of base64 groups)", variant, len(c))
 }
@@ -154,13 +164,17 @@ func decodeBase64Any(s string) ([]byte, string, error) {
 // decodeBase32 accepts the lowercase, unpadded, space-grouped form TOTP secrets are usually printed in.
 func decodeBase32(s string) ([]byte, error) {
 	c, pos := stripSpace(s)
-	c = strings.ToUpper(strings.TrimRight(c, "="))
-	if i := strings.IndexFunc(c, func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r >= '2' && r <= '7') }); i >= 0 {
-		return nil, fmt.Errorf("not base32: %q at offset %d", c[i], pos[i])
+	c = strings.TrimRight(c, "=")
+	var u strings.Builder
+	for i, r := range c { // rune by rune, not strings.ToUpper, which can change byte lengths and so offsets
+		if r = unicode.ToUpper(r); !(r >= 'A' && r <= 'Z' || r >= '2' && r <= '7') {
+			return nil, fmt.Errorf("not base32: %s at offset %d", charAt(c, i), pos[i])
+		}
+		u.WriteRune(r)
 	}
-	b, err := b32raw.DecodeString(c)
+	b, err := b32raw.DecodeString(u.String())
 	if err != nil {
-		return nil, fmt.Errorf("not base32: %d characters is not a whole number of bytes", len(c))
+		return nil, fmt.Errorf("not base32: %d characters is not a whole number of bytes", u.Len())
 	}
 	return b, nil
 }

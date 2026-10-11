@@ -104,6 +104,27 @@ func TestEncodeInvalidInputNamesOffset(t *testing.T) {
 	wantErr(t, "encode", url.Values{"text": {""}}, "")
 }
 
+// A bad non-ASCII character is named as typed, at its byte offset in the pasted text.
+func TestEncodeInvalidNonASCIINamesCharacter(t *testing.T) {
+	for _, c := range []struct{ from, text, want string }{
+		{"hex", "abï", `input: not hex: 'ï' at offset 2`},
+		{"hex", "0xab ☃", `input: not hex: '☃' at offset 5`},
+		{"hex", "ab\xffcd", `input: not hex: '\xff' at offset 2`},
+		{"base64", "YWïj", `input: not base64 (standard, unpadded): 'ï' at offset 2`},
+		{"base64", "YW\n☃j", `input: not base64 (standard, unpadded): '☃' at offset 3`},
+		{"base64", "YW\xffj", `input: not base64 (standard, unpadded): '\xff' at offset 2`},
+		{"base32", "naïve ☃", `input: not base32: 'ï' at offset 2`},
+		{"base32", "ıA1", `input: not base32: '1' at offset 3`},
+		{"base32", "ıa ☃", `input: not base32: '☃' at offset 4`},
+		{"base32", "MZ\xffX", `input: not base32: '\xff' at offset 2`},
+	} {
+		_, err := runOp(t, "encode", url.Values{"text": {c.text}, "from": {c.from}}, nil)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%s %q: err = %v, want %s", c.from, c.text, err, c.want)
+		}
+	}
+}
+
 func TestEncodeNotesTrailingNewline(t *testing.T) {
 	e := encodeOf(t, "utf8", "abc\n")
 	if e.Bytes != 4 || !noted(e.Warnings, "Ends in a newline") {
