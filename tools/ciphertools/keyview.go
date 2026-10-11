@@ -234,7 +234,7 @@ func sshComment(s string) (string, error) {
 	case s == "":
 		return "cipher-tools-test-key", nil
 	case utf8.RuneCountInString(s) > 256:
-		return "", errors.New("comment: keep it under 256 characters")
+		return "", errors.New("comment: keep it to 256 characters")
 	case strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }):
 		return "", errors.New("comment: one line of printable text")
 	}
