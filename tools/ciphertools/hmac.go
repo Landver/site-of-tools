@@ -58,12 +58,13 @@ func runHMAC(in Input) (any, error) {
 			if r.Compare.Match || err != nil || string(k) == string(key) {
 				continue
 			}
-			c := compareDigests(e, hashDigests(msg, k, true), "")
+			macs := hashDigests(msg, k, true)
+			c := compareDigests(e, macs, "")
 			if !c.Match {
 				continue
 			}
 			if auto {
-				key, r.KeyBytes, r.KeyReadAs, r.MACs, r.Compare = k, len(k), how+" (detected: the reading that matches)", hashDigests(msg, k, true), c
+				key, r.KeyBytes, r.KeyReadAs, r.MACs, r.Compare = k, len(k), how+" (detected: the reading that matches)", macs, c
 				r.Compare.Detail += " Matched with the key read as " + how + "."
 			} else {
 				r.Compare.Detail = fmt.Sprintf("No match with the key read as %s, but it DOES match %s with the key read as %s. Set \"Key is\" to match.",

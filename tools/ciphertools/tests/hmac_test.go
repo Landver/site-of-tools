@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
+
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
@@ -161,9 +163,17 @@ func TestHMACKeyEncodingDetected(t *testing.T) {
 	want := hmacHex(meant, body)
 
 	for _, enc := range []string{"", "auto"} {
-		r := hmacOf(t, url.Values{"text": {body}, "key": {pasted}, "key_enc": {enc}, "expected": {"sha256=" + want}})
+		fields := url.Values{"text": {body}, "key": {pasted}, "key_enc": {enc}, "expected": {"sha256=" + want}}
+		r := hmacOf(t, fields)
 		if r.Compare == nil || !r.Compare.Match || !strings.Contains(r.KeyReadAs, "base64") || r.KeyBytes != len(meant) {
 			t.Fatalf("enc %q: compare %+v, key read as %q (%d bytes)", enc, r.Compare, r.KeyReadAs, r.KeyBytes)
+		}
+		if !digestByID(t, r.MACs, "sha256").Match {
+			t.Errorf("enc %q: HMAC-SHA-256 row not marked", enc)
+		}
+		rows := findAll(parseHTML(t, render(t, "hmac", fields)), func(n *html.Node) bool { return n.Data == "tr" && hasClass(n, "bg-ok/10") })
+		if len(rows) != 1 || !strings.Contains(text(rows[0]), "HMAC-SHA-256") || !strings.Contains(text(rows[0]), "matches") {
+			t.Errorf("enc %q: %d highlighted rows, want the HMAC-SHA-256 one labelled matches", enc, len(rows))
 		}
 	}
 
