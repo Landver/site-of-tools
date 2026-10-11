@@ -390,6 +390,23 @@ func TestCertKeyMatch(t *testing.T) {
 	}
 }
 
+// openssl ecparam's EC PARAMETERS block names a curve: no key to match on its own.
+func TestCertECParametersAreNotAKey(t *testing.T) {
+	p := newPKI(t)
+	params := "-----BEGIN EC PARAMETERS-----\nBggqhkjOPQMBBw==\n-----END EC PARAMETERS-----\n"
+	if m := certOf(t, url.Values{"cert": {pemOf(p.leaf) + params}}, nil).KeyMatch; m != nil {
+		t.Errorf("certificate + EC PARAMETERS: KeyMatch %+v", m)
+	}
+	r := certOf(t, url.Values{"cert": {pemOf(p.leaf) + params}, "key": {pkcs8PEM(t, p.leafKey)}}, nil)
+	if r.KeyMatch == nil || r.KeyMatch.State != "match" || noted(r.Warnings, "holds a key") {
+		t.Errorf("certificate + EC PARAMETERS, key field: %+v %+v", r.KeyMatch, r.Warnings)
+	}
+	sec1, _ := x509.MarshalECPrivateKey(p.leafKey)
+	if m := certOf(t, url.Values{"cert": {pemOf(p.leaf) + params + pemBlock("EC PRIVATE KEY", sec1)}}, nil).KeyMatch; m == nil || m.State != "match" {
+		t.Errorf("certificate + EC PARAMETERS + key: %+v", m)
+	}
+}
+
 func TestCertExpiryStates(t *testing.T) {
 	p := newPKI(t)
 	leaf := pemOf(p.leaf) // valid pkiNow-1d .. pkiNow+90d

@@ -285,6 +285,8 @@ func (p *certInput) addPEM(n int, b *pem.Block) error {
 		return fmt.Errorf("PEM block %d is openssl's TRUSTED CERTIFICATE, which carries trust settings after the certificate; write a plain copy first: openssl x509 -in cert.pem -out plain.pem", n)
 	case "PKCS7":
 		return fmt.Errorf("PEM block %d is a PKCS#7 bundle; list its certificates first: openssl pkcs7 -print_certs -in bundle.p7b", n)
+	case "EC PARAMETERS": // pemKinds sends it to /keys, but it only names a curve
+		return nil
 	default:
 		if pemKinds[b.Type].page == "/keys" {
 			p.keyPEM = append(p.keyPEM, pem.EncodeToMemory(b)...)
