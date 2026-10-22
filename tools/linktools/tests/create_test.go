@@ -15,8 +15,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// Every refusal but the last is decided before the store is touched; the last
-// reaches the offline store's insert.
+// Every refusal but the last is decided before the store; the last reaches the offline store's insert.
 func TestCreateFromAnswersWithPublicErrors(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)

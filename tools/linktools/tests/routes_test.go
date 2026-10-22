@@ -13,15 +13,9 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// The six routes added after the first handler tests were written — /diff,
-// /curl, /extract, /utm, /encode and /clean/rules — had no coverage at all, and
-// handler.go was the largest single block of untested code in the tool. These
-// go through the real router and the real templates, reusing newLinkApp and
-// request from handler_test.go.
+// Through the real router and templates, reusing newLinkApp and request from handler_test.go.
 
-// fragmentIsNotADocument is the assertion that caught this bug three times in
-// this tool (link/short, GET /short, /clean/rules): a page served as an htmx
-// response nests a whole <html> inside the div it is swapped into.
+// A page served as an htmx response nests a whole <html> inside the div it is swapped into.
 func fragmentIsNotADocument(t *testing.T, e *echo.Echo, target string) {
 	t.Helper()
 	rec := request(t, e, http.MethodGet, target, asHTMX)
@@ -38,8 +32,7 @@ func fragmentIsNotADocument(t *testing.T, e *echo.Echo, target string) {
 	}
 }
 
-// TestEveryContentRouteHonoursNegotiation sweeps the routes added late, so a
-// new page cannot quietly skip golden rule #2.
+// Sweeps the late-added routes so a new page cannot quietly skip golden rule #2.
 func TestEveryContentRouteHonoursNegotiation(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -71,11 +64,7 @@ func TestEveryContentRouteHonoursNegotiation(t *testing.T) {
 	}
 }
 
-// TestDiffSeesOpaqueURLs is a regression guard. DiffInspections compared only
-// scheme/host/port/path/fragment/user, so two entirely different non-hierarchical
-// URLs — where the whole payload lives in Opaque — came back "identical", with an
-// affirmative note saying so. From the one tool whose only job is saying what
-// differs.
+// Opaque URLs keep their whole payload in Opaque, so a diff skipping it calls different URLs identical.
 func TestDiffSeesOpaqueURLs(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -101,8 +90,7 @@ func TestDiffSeesOpaqueURLs(t *testing.T) {
 		}
 	}
 
-	// And genuinely equal URLs still say so, or the fix above would be a
-	// different bug wearing the same clothes.
+	// And genuinely equal URLs still say so, or the opaque fix just inverts the bug.
 	rec := request(t, e, http.MethodGet, "/diff?a=https%3A%2F%2Fa.com%2F&b=https%3A%2F%2Fa.com%2F", asJSON)
 	var same struct {
 		Identical bool `json:"identical"`
@@ -113,9 +101,7 @@ func TestDiffSeesOpaqueURLs(t *testing.T) {
 	}
 }
 
-// TestCurlParsesAPastedCommand. Generating a curl line is the easy half; taking
-// one apart is the half people actually want, because DevTools' "Copy as cURL"
-// is where most of these come from.
+// Taking a command apart is the half people want: DevTools' "Copy as cURL" is where most come from.
 func TestCurlParsesAPastedCommand(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -140,9 +126,7 @@ func TestCurlParsesAPastedCommand(t *testing.T) {
 	}
 }
 
-// TestToCurlQuotesAHostileURL. The output is something a human pastes into a
-// shell, so a URL carrying quotes or a command substitution must not be able to
-// break out of its quoting.
+// The output is pasted into a shell: quotes or a command substitution must not escape the quoting.
 func TestToCurlQuotesAHostileURL(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -156,8 +140,7 @@ func TestToCurlQuotesAHostileURL(t *testing.T) {
 		Curl string `json:"curl"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	// Every single quote in the URL must be escaped as the '\'' idiom; a bare
-	// one would close the quoting and hand the rest to the shell.
+	// Every single quote must be the '\'' idiom; a bare one would close the quoting.
 	unescaped := strings.ReplaceAll(out.Curl, `'\''`, "")
 	if strings.Count(unescaped, "'")%2 != 0 {
 		t.Errorf("unbalanced quoting, so the URL can escape its quotes: %s", out.Curl)
@@ -167,8 +150,7 @@ func TestToCurlQuotesAHostileURL(t *testing.T) {
 	}
 }
 
-// TestExtractAcceptsPOST, because the whole point is pasting more text than a
-// query string will carry.
+// POST, because the point is pasting more text than a query string will carry.
 func TestExtractAcceptsPOST(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -202,8 +184,7 @@ func TestExtractAcceptsPOST(t *testing.T) {
 	}
 }
 
-// TestUTMReplacesRatherThanAppends. Two utm_source parameters is a real bug, and
-// a builder that creates one deliberately would be an odd tool.
+// Two utm_source parameters is a real bug, so a builder replaces rather than appends.
 func TestUTMReplacesRatherThanAppends(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -228,9 +209,7 @@ func TestUTMReplacesRatherThanAppends(t *testing.T) {
 	}
 }
 
-// TestEncodeShowsQueryAndPathApart is the page's whole reason to exist: "a b" is
-// "a+b" after a ? and "a%20b" inside a path, and no surveyed tool makes that
-// visible even though it is the most common URL bug there is.
+// The page's reason to exist: "a b" is "a+b" after a ? and "a%20b" inside a path.
 func TestEncodeShowsQueryAndPathApart(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -265,9 +244,7 @@ func TestEncodeShowsQueryAndPathApart(t *testing.T) {
 	}
 }
 
-// TestRulesCatalogIsCacheableAndComplete. The extension refreshes this daily and
-// caches on the version, so a missing ETag turns every refresh into a full
-// re-download of the whole table.
+// The extension refreshes daily and caches on the version, so without an ETag each refresh refetches all.
 func TestRulesCatalogIsCacheableAndComplete(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -293,9 +270,7 @@ func TestRulesCatalogIsCacheableAndComplete(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &cat); err != nil {
 		t.Fatalf("not JSON: %v", err)
 	}
-	// The field name matters more than it looks: the extension read
-	// rules.params for a table the server sends as "tracking", so every server
-	// rule was dead and only its hardcoded fallback ever ran.
+	// The extension reads "tracking" by name; a renamed field leaves it on its hardcoded fallback.
 	if len(cat.Tracking) < 50 {
 		t.Errorf(`"tracking" has %d entries; the extension keys off this exact field name`, len(cat.Tracking))
 	}
@@ -314,8 +289,7 @@ func TestRulesCatalogIsCacheableAndComplete(t *testing.T) {
 		t.Errorf("conditional GET = %d, want 304 (ETag %s)", again.Code, etag)
 	}
 
-	// The page is NOT validated by the catalog version: a deploy can change the
-	// page and leave the rules alone.
+	// The page is not validated by the catalog version: a deploy can change the page alone.
 	page := request(t, e, http.MethodGet, "/clean/rules", map[string]string{
 		"Accept": "text/html", "If-None-Match": etag,
 	})
@@ -363,9 +337,7 @@ func urlEscape(s string) string {
 	return b.String()
 }
 
-// TestStaticPagesRender covers the two routes that deliberately bypass content
-// negotiation. They are static documents with no result to negotiate, but they
-// still have to render — a missing {{define}} would serve 200 and nothing.
+// These two bypass negotiation but must still render: a missing {{define}} would serve 200 and nothing.
 func TestStaticPagesRender(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -389,14 +361,10 @@ func TestStaticPagesRender(t *testing.T) {
 	}
 }
 
-// TestSitemapListsOnlyIndexablePages. A redirect, a write endpoint and a legal
-// document have no business in a sitemap — and /s/:code additionally carries
-// X-Robots-Tag: noindex, so advertising it would be a contradiction.
+// Redirects, write endpoints and legal pages stay out; /s/:code is noindex, so listing it would contradict.
 func TestSitemapListsOnlyIndexablePages(t *testing.T) {
 	t.Parallel()
-	// RegisterSEO is wired in main.go, not in Register, so the test has to do
-	// what main does — which also means this covers that wiring, not just the
-	// page list.
+	// RegisterSEO is wired in main.go, not Register, so this repeats main's wiring and covers it too.
 	e := newLinkApp(t, nil, nil)
 	platform.RegisterSEO(e, "https://link.example", linktools.SitemapPages)
 
@@ -417,10 +385,8 @@ func TestSitemapListsOnlyIndexablePages(t *testing.T) {
 	}
 }
 
-// TestStorageFailureIsNotEchoedToTheCaller. A driver error can carry a
-// connection string and internal topology, so the caller gets a fixed sentence
-// and the detail goes to the log. The offline shortener points at a dead port,
-// so every database call fails the way a real outage would.
+// A driver error can carry a connection string and topology, so callers get a fixed sentence.
+// The offline shortener points at a dead port, so every database call fails like a real outage.
 func TestStorageFailureIsNotEchoedToTheCaller(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -443,7 +409,7 @@ func TestStorageFailureIsNotEchoedToTheCaller(t *testing.T) {
 	}
 }
 
-// TestRevokeNeedsTheKey. The kill switch is a write, gated like every other.
+// The kill switch is a write, gated like every other.
 func TestRevokeNeedsTheKey(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -457,8 +423,7 @@ func TestRevokeNeedsTheKey(t *testing.T) {
 			t.Errorf("DELETE with key %q = %d, want 401", h["X-Api-Key"], rec.Code)
 		}
 	}
-	// And with no shortener at all it is 503, not 401: the feature being off
-	// outranks the caller's credentials.
+	// With no shortener at all it is 503, not 401: the feature being off outranks the credentials.
 	off := newLinkApp(t, nil, nil)
 	if rec := request(t, off, http.MethodDelete, "/short/abcdefg", asJSON); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("DELETE with no shortener = %d, want 503", rec.Code)

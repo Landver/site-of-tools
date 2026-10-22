@@ -1,13 +1,5 @@
-{{/* Trace result fragment.
-
-     Two rendering rules govern this file and neither is cosmetic:
-       1. A hop URL is NEVER an anchor. wheregoes.com pipe-separates the
-          characters for the same reason; we render as text. The whole point of
-          the page is inspecting links you do not want to click.
-       2. When .Final is empty the chain demonstrably continues somewhere we did
-          not follow, and the template must NOT substitute the last hop's URL.
-          A pre-redirect URL presented as the destination is the wrong answer in
-          the security-relevant direction. */}}
+{{/* Trace result fragment. Hop URLs are text, never anchors: these are links you don't want to click.
+     An empty .Final means the chain went on unfollowed: never show the last hop as the destination. */}}
 {{define "link/chain"}}
 {{with .Result}}
 
@@ -70,7 +62,7 @@
         {{if .Server}}<span class="text-xs text-faint">server <span class="text-muted">{{.Server}}</span></span>{{end}}
         {{if .ContentType}}<span class="text-xs text-faint">type <span class="text-muted">{{.ContentType}}</span></span>{{end}}
       </div>
-      {{/* Text, never an anchor. See the file comment. */}}
+      {{/* Text, never an anchor. */}}
       <p class="mt-1 wrap-anywhere font-mono text-sm text-strong">{{.URL}}</p>
       {{if .Location}}<p class="mt-1 wrap-anywhere font-mono text-xs text-muted"><span aria-hidden="true">&rarr;</span><span class="sr-only">redirects to</span> {{.Location}}</p>{{end}}
       {{/* Not again what Findings shows; the JSON keeps both. */}}

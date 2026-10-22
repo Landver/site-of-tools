@@ -16,27 +16,9 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// Short links are the one stateful, abusable feature in this suite
-// (docs/04-short-links.md §1), so these tests are weighted towards the refusals
-// rather than the happy path: a public shortener is found by scanners within
-// days, and a phishing link served from this domain gets the portfolio, the blog
-// and all four tools blocklisted together, not the offending path.
-//
-// Two harnesses. Validation happens entirely on strings before anything reaches
-// a Mongo filter (§3), so those tests run everywhere against offlineStore below.
-// The round-trip, collision and expiry tests need a real server and are gated on
-// MONGODB_TEST_URI, skipping when it is absent so CI and fresh clones stay green
-// (docs/07-testing.md §5, same gate as iptools' history tests).
+// Validation runs everywhere on offlineStore; round trips need MONGODB_TEST_URI and skip without it.
 
-// --- harnesses -------------------------------------------------------------
-
-// offlineStore is a non-nil *LinkStore pointed at a port nothing listens on.
-//
-// NewShortener refuses to build without a store, so a store is needed even to
-// reach the validators — and every refusal this file asserts happens before a
-// single byte goes to the database. Built once: the constructor spends its
-// server-selection budget discovering that the unique index cannot be created,
-// and paying that per test would be the slowest thing in the package.
+// offlineStore points at a dead port; built once, as its constructor burns the server-selection budget.
 var offlineStore = sync.OnceValue(func() *linktools.LinkStore {
 	client, err := mongo.Connect(options.Client().
 		ApplyURI("mongodb://127.0.0.1:1/"). // port 1: reserved, never listening
@@ -50,9 +32,7 @@ var offlineStore = sync.OnceValue(func() *linktools.LinkStore {
 
 const testAPIKey = "test-api-key"
 
-// offlineShortener: creation is wired but storage is unreachable. Anything that
-// gets as far as an insert fails, which is exactly what makes it a clean probe
-// for "did validation refuse this, or did it let it through?".
+// Storage unreachable: anything reaching the insert fails, so it shows whether validation refused.
 func offlineShortener(t *testing.T) *linktools.Shortener {
 	t.Helper()
 	store := offlineStore()
@@ -66,8 +46,7 @@ func offlineShortener(t *testing.T) *linktools.Shortener {
 	return s
 }
 
-// keylessShortener is what main.go builds when MONGODB_URI is set and
-// LINK_API_KEY is not.
+// keylessShortener is what main.go builds when MONGODB_URI is set and LINK_API_KEY is not.
 func keylessShortener(t *testing.T, store *linktools.LinkStore) *linktools.Shortener {
 	t.Helper()
 	if store == nil {
@@ -80,14 +59,7 @@ func keylessShortener(t *testing.T, store *linktools.LinkStore) *linktools.Short
 	return s
 }
 
-// liveMongo holds one connection for the whole live run.
-//
-// One client, not one per test: platform.OpenMongo dials and pings, and against
-// a remote server a handful of open/close cycles inside a few seconds is enough
-// connection churn to make the ping itself time out. The driver's client is safe
-// for concurrent use and pools internally, which is why the app opens it once in
-// main.go too. It is never closed — the test binary exiting drains it, and a
-// Cleanup that closed it would have to guess which test was last.
+// One client for the live run: open/close churn against a remote server makes the ping time out.
 var liveMongo = sync.OnceValue(func() struct {
 	m   *platform.Mongo
 	err error
@@ -106,14 +78,7 @@ var liveMongo = sync.OnceValue(func() struct {
 	}{m, err}
 })
 
-// liveShortener hands back a shortener over the dedicated test database, having
-// dropped the collection so reruns are deterministic. Skips when
-// MONGODB_TEST_URI is unset.
-//
-// The store comes back too, because the two most important tests here have to
-// write a row the domain service deliberately cannot produce — an already-expired
-// one — and to revoke, which lives on the repository below the service per
-// CLAUDE.md rule #5.
+// Skips without MONGODB_TEST_URI; returns the store too, to write expired rows and Revoke.
 func liveShortener(t *testing.T, ctx context.Context) (*linktools.Shortener, *linktools.LinkStore) {
 	t.Helper()
 	if os.Getenv("MONGODB_TEST_URI") == "" {
@@ -130,9 +95,7 @@ func liveShortener(t *testing.T, ctx context.Context) (*linktools.Shortener, *li
 	t.Cleanup(func() { _ = db.Collection("links").Drop(ctx) })
 	store := linktools.NewLinkStore(ctx, db)
 	if err := store.IndexError(); err != nil {
-		// Not swallowed, per docs/04-short-links.md §4: without the unique index
-		// the insert-and-retry collision strategy is not correct, so a test
-		// suite that ran anyway would be asserting nothing.
+		// Without the unique index, insert-and-retry is unsafe and these tests would assert nothing.
 		t.Fatalf("unique index on links.code was not created: %v", err)
 	}
 	s := linktools.NewShortener(store, testAPIKey, "https://link.example")
@@ -142,12 +105,7 @@ func liveShortener(t *testing.T, ctx context.Context) (*linktools.Shortener, *li
 	return s, store
 }
 
-// insertExpired writes a row whose expires_at is already in the past.
-//
-// It goes through the repository rather than Create on purpose: CreateOptions.TTL
-// treats <= 0 as "permanent", so the domain service cannot mint an expired link
-// and there is nothing to sleep for. This is exactly the row Mongo's TTL monitor
-// has not swept yet.
+// Through the store: the service treats TTL <= 0 as permanent, so it cannot mint an expired link.
 func insertExpired(t *testing.T, ctx context.Context, store *linktools.LinkStore, code, target string) *linktools.Link {
 	t.Helper()
 	past := time.Now().Add(-time.Hour)
@@ -163,11 +121,7 @@ func insertExpired(t *testing.T, ctx context.Context, store *linktools.LinkStore
 	return l
 }
 
-// --- fail-closed wiring ----------------------------------------------------
-
-// TestNewShortenerFailsClosed: with no store there is nothing to create or
-// resolve, so there is no shortener at all. The keyless case builds one; see
-// TestKeylessShortenerAuthorizesNobody.
+// No store, no shortener; the keyless case builds one (see TestKeylessShortenerAuthorizesNobody).
 func TestNewShortenerFailsClosed(t *testing.T) {
 	t.Parallel()
 	if s := linktools.NewShortener(nil, "k", "https://link.example"); s != nil {
@@ -178,10 +132,8 @@ func TestNewShortenerFailsClosed(t *testing.T) {
 	}
 }
 
-// TestKeylessShortenerAuthorizesNobody is the property that keeps corpberry.com
-// off a blocklist: an unset LINK_API_KEY means nobody can create, never that
-// anybody can (docs/04-short-links.md §5). The empty presented key is the one
-// that matters: "" against an unset key is what a careless compare lets through.
+// An unset LINK_API_KEY means nobody can create, never anybody. The empty presented key matters most:
+// "" against an unset key is what a careless compare lets through.
 func TestKeylessShortenerAuthorizesNobody(t *testing.T) {
 	t.Parallel()
 	s := keylessShortener(t, offlineStore())
@@ -194,9 +146,7 @@ func TestKeylessShortenerAuthorizesNobody(t *testing.T) {
 			t.Errorf("Authorized(%q) = true with no key configured; that is a public shortener", key)
 		}
 	}
-	// The domain refuses by itself too, so a caller that skips Authorized still
-	// cannot write. Anything that reached the offline store would fail with a
-	// connection error instead of ErrDisabled.
+	// The domain refuses by itself too, so a caller that skips Authorized still cannot write.
 	ctx := context.Background()
 	if _, err := s.Create(ctx, "https://example.com/", linktools.CreateOptions{}); !errors.Is(err, linktools.ErrDisabled) {
 		t.Errorf("Create with no key configured = %v, want ErrDisabled", err)
@@ -209,9 +159,7 @@ func TestKeylessShortenerAuthorizesNobody(t *testing.T) {
 	}
 }
 
-// TestNilShortenerIsSafeAndDisabled: nil means the feature is off, and every
-// method says so rather than panicking, so the handler answers 503 (short.go's
-// type comment).
+// nil means off: every method says so rather than panicking, so the handler answers 503.
 func TestNilShortenerIsSafeAndDisabled(t *testing.T) {
 	t.Parallel()
 	var s *linktools.Shortener
@@ -226,8 +174,7 @@ func TestNilShortenerIsSafeAndDisabled(t *testing.T) {
 	if _, err := s.Recent(ctx, 10); !errors.Is(err, linktools.ErrDisabled) {
 		t.Errorf("Recent on a nil *Shortener = %v, want ErrDisabled", err)
 	}
-	// The two that report no error still have to be safe to call: the handler
-	// reaches them on the same paths.
+	// The two that report no error must still be safe: the handler reaches them on the same paths.
 	if got := s.ShortURL("abc1234"); got != "" {
 		t.Errorf("ShortURL on a nil *Shortener = %q, want the empty string", got)
 	}
@@ -240,15 +187,8 @@ func TestNilShortenerIsSafeAndDisabled(t *testing.T) {
 	s.RecordHit("abc1234") // must not panic
 }
 
-// --- the key ---------------------------------------------------------------
-
-// TestAuthorizedOnlyForTheConfiguredKey.
-//
-// Both sides are SHA-256'd before the constant-time compare precisely so a
-// wrong-LENGTH key takes the same path as a wrong one: subtle.ConstantTimeCompare
-// returns 0 immediately on a length mismatch, so comparing raw strings would leak
-// the key's length (docs/04-short-links.md §5). The short and long cases below
-// are what that guard exists for.
+// Both sides are SHA-256'd before the constant-time compare, which returns at once on a length
+// mismatch: raw strings would leak the key's length. The short and long cases test exactly that.
 func TestAuthorizedOnlyForTheConfiguredKey(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
@@ -271,20 +211,14 @@ func TestAuthorizedOnlyForTheConfiguredKey(t *testing.T) {
 	}
 }
 
-// --- target validation -----------------------------------------------------
-
-// createErr runs a create and returns only the error. Against the offline store
-// a target that PASSES validation fails later, at the insert, so these tests
-// check for ErrInvalidTarget specifically rather than for "an error".
+// A valid target fails later at the offline insert, so check for ErrInvalidTarget, not any error.
 func createErr(t *testing.T, s *linktools.Shortener, target string, opt linktools.CreateOptions) error {
 	t.Helper()
 	_, err := s.Create(context.Background(), target, opt)
 	return err
 }
 
-// TestTargetSchemeAllowlist. The redirect handler sends a stranger's browser to
-// whatever is stored, so only the two schemes that are fetched over the wire are
-// ever acceptable; the rest are executed or resolved locally by the browser.
+// Redirects send a stranger's browser to the target, so only schemes fetched over the wire are allowed.
 func TestTargetSchemeAllowlist(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
@@ -301,14 +235,8 @@ func TestTargetSchemeAllowlist(t *testing.T) {
 	}
 }
 
-// TestTargetMustBePubliclyRoutable.
-//
-// Without the literal check, /s/aB3xY9k → http://192.168.1.1/setup.cgi is a
-// router-CSRF launcher: the victim's own browser, on their own LAN, with their
-// cookies, and a scheme-only allowlist waves it through (validateTarget's note).
-// 169.254.169.254 is the cloud metadata address, and localhost is refused by
-// NAME as well as by address because a hostile resolver need not agree about
-// where it points.
+// Without this check, /s/x → http://192.168.1.1/setup.cgi is a router-CSRF launcher on the victim's LAN.
+// localhost is refused by NAME too: a hostile resolver need not agree where it points.
 func TestTargetMustBePubliclyRoutable(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
@@ -333,9 +261,7 @@ func TestTargetMustBePubliclyRoutable(t *testing.T) {
 	}
 }
 
-// TestTargetPortAndSizeBounds, plus the credentials case: userinfo before the
-// host is how a destination is disguised, and the Inspect page flags it for the
-// same reason the shortener refuses to store it.
+// Plus credentials: userinfo before the host disguises a destination, so it is never stored.
 func TestTargetPortAndSizeBounds(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
@@ -359,10 +285,7 @@ func TestTargetPortAndSizeBounds(t *testing.T) {
 	}
 }
 
-// TestOrdinaryTargetsPassValidation. The refusals above are only meaningful if
-// the ordinary case gets through: a validator that rejects everything is not a
-// validator. Against the offline store the create still fails at the insert, so
-// the assertion is specifically that it was not refused as a bad TARGET.
+// A validator that rejects everything is not one: the offline create fails, but not as a bad TARGET.
 func TestOrdinaryTargetsPassValidation(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
@@ -379,15 +302,8 @@ func TestOrdinaryTargetsPassValidation(t *testing.T) {
 	}
 }
 
-// --- slug validation -------------------------------------------------------
-
-// TestSlugValidation covers docs/04-short-links.md §3 verbatim.
-//
-// Lowercase only, so /s/Foo and /s/foo can never be different links. Reserved
-// page names are refused because a slug that shadows a page name is a link that
-// breaks retroactively the day the page ships. And a slug shaped like a
-// generated code is refused so a custom slug can never collide with the space
-// newCode draws from.
+// Lowercase only, so /s/Foo and /s/foo never differ. Reserved page names are refused, or a slug breaks
+// the day that page ships; code-shaped slugs are refused so they never collide with generated codes.
 func TestSlugValidation(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
@@ -445,10 +361,7 @@ func TestNoteIsBounded(t *testing.T) {
 	}
 }
 
-// TestCleanRequestedWithoutACleanerFailsClosed. §9 fixes the order
-// parse → validate → clean → re-parse and re-validate → store. With no cleaner
-// wired, the only alternative to refusing is storing an UNCLEANED target while
-// reporting a cleaned one, which is a lie about what the link points at.
+// With no cleaner, refuse: storing the raw target while reporting a cleaned one lies about the link.
 func TestCleanRequestedWithoutACleanerFailsClosed(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t) // CleanTarget deliberately left nil
@@ -458,9 +371,6 @@ func TestCleanRequestedWithoutACleanerFailsClosed(t *testing.T) {
 	}
 }
 
-// --- live Mongo ------------------------------------------------------------
-
-// TestCreateResolveRoundTrip: the happy path, end to end.
 func TestCreateResolveRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s, _ := liveShortener(t, ctx)
@@ -487,8 +397,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCustomSlugTakenIsAConflictNotASuffix. A caller who asked for /s/q4-report
-// and got /s/q4-report-2 will paste the one they asked for (docs/04-short-links.md §3).
+// A caller who asked for /s/q4-report and got /s/q4-report-2 will paste the one they asked for.
 func TestCustomSlugTakenIsAConflictNotASuffix(t *testing.T) {
 	ctx := context.Background()
 	s, _ := liveShortener(t, ctx)
@@ -514,23 +423,15 @@ func TestCustomSlugTakenIsAConflictNotASuffix(t *testing.T) {
 	}
 }
 
-// TestExpiryIsEnforcedInCodeNotByTheReaper is the important one.
-//
-// Mongo's TTL monitor sweeps roughly every 60 seconds and lags under load, so a
-// resolver that treated document-absence as expiry would keep serving a revoked
-// link for a minute or more, silently (docs/04-short-links.md §4). This test
-// therefore asserts the document is STILL PRESENT and still refuses to resolve:
-// the index is garbage collection, never the enforcement point. Waiting on the
-// reaper instead would be both wrong and a flake generator.
+// Mongo's TTL monitor sweeps about every 60s and lags under load, so expiry is enforced in code:
+// the document is still present here, and still refuses to resolve.
 func TestExpiryIsEnforcedInCodeNotByTheReaper(t *testing.T) {
 	ctx := context.Background()
 	s, store := liveShortener(t, ctx)
 
 	link := insertExpired(t, ctx, store, "already-expired", "https://example.com/expired")
 
-	// The document is still THERE — that is the whole premise, so assert it
-	// rather than assume it. If the reaper had already swept the row, the check
-	// below would pass for the wrong reason and the test would be worthless.
+	// Assert the row is still there, or a swept row would pass the check below for the wrong reason.
 	recent, err := s.Recent(ctx, 50)
 	if err != nil {
 		t.Fatalf("Recent: %v", err)
@@ -551,8 +452,7 @@ func TestExpiryIsEnforcedInCodeNotByTheReaper(t *testing.T) {
 		t.Errorf("expired link = %v, want ErrLinkNotFound", err)
 	}
 
-	// The other half of the same rule: a TTL in the future must still resolve,
-	// or "enforced in code" would just mean "broken".
+	// A future TTL must still resolve, or "enforced in code" would just mean "broken".
 	live, err := s.Create(ctx, "https://example.com/live", linktools.CreateOptions{TTL: time.Hour})
 	if err != nil {
 		t.Fatalf("Create with a future TTL: %v", err)
@@ -565,9 +465,7 @@ func TestExpiryIsEnforcedInCodeNotByTheReaper(t *testing.T) {
 	}
 }
 
-// TestRevokedLinkDoesNotResolve, and the document survives: a hard delete frees
-// the slug, and a freed slug re-registered to a new target is alias takeover —
-// every copy of the old link in somebody's notes silently changes destination.
+// The document survives: a hard delete frees the slug, and re-registering it is alias takeover.
 func TestRevokedLinkDoesNotResolve(t *testing.T) {
 	ctx := context.Background()
 	s, store := liveShortener(t, ctx)
@@ -591,15 +489,8 @@ func TestRevokedLinkDoesNotResolve(t *testing.T) {
 	}
 }
 
-// TestNoExistenceOracle: expired, revoked and never-existed all answer with the
-// same sentinel.
-//
-// Telling them apart would be an existence oracle over the guessable custom-slug
-// namespace (docs/04-short-links.md §7) — "this slug is expired" confirms the
-// slug was used, which is exactly the fact the entropy argument does not cover
-// for dictionary-shaped slugs. Resolve appends a one-word reason for the server
-// operator; handler.redirect discards it and answers a constant 404 for all
-// three, so the classification a caller can observe is identical.
+// Telling them apart is an existence oracle over the guessable custom-slug namespace. Resolve's
+// one-word reason is for the operator; handler.redirect answers a constant 404 for all three.
 func TestNoExistenceOracle(t *testing.T) {
 	ctx := context.Background()
 	s, store := liveShortener(t, ctx)
@@ -626,25 +517,11 @@ func TestNoExistenceOracle(t *testing.T) {
 	}
 }
 
-// base58Alphabet mirrors docs/04-short-links.md §3: digits and letters MINUS 0,
-// O, I and l. Spelled out here rather than imported, so the test fails if the
-// implementation's table is edited rather than following it.
+// Spelled out, not imported, so editing the implementation's table fails the test (no 0, O, I or l).
 const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
-// TestGeneratedCodes: the shape and the entropy claim of docs/04-short-links.md §3.
-//
-// Distinctness across a thousand draws is not a test of the birthday bound — at
-// 58^7 a collision would be a once-in-a-universe event — it is a test that the
-// generator draws from crypto/rand rather than from a seeded or sequential
-// source, which is what "not math/rand, not a hash of the target" means in
-// practice. A sequential or low-entropy generator fails here immediately.
-//
-// A code is only observable through a successful insert, so the thousand draws
-// are a thousand round trips; they run through a small pool because against a
-// remote database serially they are the slowest thing in the repo by an order of
-// magnitude. The concurrency is a bonus rather than the point: it also puts the
-// insert-and-retry collision path under real contention, which is the one thing
-// the unique index exists to arbitrate.
+// A thousand distinct draws prove crypto/rand over a seeded or sequential source; a real collision
+// at 58^7 is negligible. The pool keeps remote round trips fast and contends insert-and-retry.
 func TestGeneratedCodes(t *testing.T) {
 	ctx := context.Background()
 	s, _ := liveShortener(t, ctx)
@@ -700,9 +577,7 @@ func TestGeneratedCodes(t *testing.T) {
 	}
 }
 
-// TestRecentListsNewestFirst, the list the console is key-gated to protect: it
-// defeats §3's entropy argument outright and turns hits/last_hit_at into a
-// read-receipt oracle, which is why it is never public.
+// The list the console key-gates: public, it would defeat code entropy and make hits a read receipt.
 func TestRecentListsNewestFirst(t *testing.T) {
 	ctx := context.Background()
 	s, _ := liveShortener(t, ctx)
@@ -724,9 +599,7 @@ func TestRecentListsNewestFirst(t *testing.T) {
 		t.Errorf("Recent[0] = %q, want the newest (third-one)", got[0].Code)
 	}
 	if got[0].CreatedIP != "" {
-		// The json tag hides this from the API, but a template sees the struct
-		// field regardless (docs/04-short-links.md §4), so nothing should be
-		// putting an address here in the first place unless a create supplied one.
+		// Templates see the field despite its json tag, so only a create that supplied one may set it.
 		t.Logf("CreatedIP is populated (%q); the console's view model must omit it explicitly", got[0].CreatedIP)
 	}
 }

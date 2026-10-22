@@ -1,22 +1,5 @@
-{{/* Extract — page shell + result fragment (A18).
-
-     POST, not GET, and it is the only form in this suite that is. The input is
-     a whole newsletter or email body; putting that in a query string means the
-     browser's address bar, the referrer and every proxy in between carry the
-     pasted text. The route accepts both verbs, so a shared ?text= link still
-     works for something small, but the form posts. hx-push-url is kept anyway:
-     on a POST htmx pushes the request path without the body, which is exactly
-     the right outcome here — a shareable page, not a shareable paste.
-
-     Safety rule, carried from inspect.html: an ExtractedURL has no Linkable
-     flag, and these URLs came out of pasted, hostile-by-assumption markup. Not
-     one of them is ever written into an href. Each row's actions are same-origin
-     tool links, where html/template percent-escapes the value into the query and
-     the destination is this site. The whole point of auditing the links in a
-     newsletter is not clicking them.
-
-     Anchor text is shown beside the URL because the mismatch between the two is
-     the finding people are usually looking for. */}}
+{{/* Extract page + result fragment. These URLs come from hostile pasted markup: text, never an href.
+     Anchor text sits beside each URL because a mismatch between the two is usually the finding. */}}
 {{define "link/extract"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -34,8 +17,7 @@
       out, not for testing that they work.
     </p>
 
-    {{/* POST, with or without JavaScript: a pasted email does not belong in a
-         URL. GET /extract?text= stays the shareable form. */}}
+    {{/* POST even without JavaScript: a pasted email does not belong in a URL. GET ?text= still works. */}}
     <form method="post" action="/extract" hx-post="/extract" hx-target="#result" hx-swap="innerHTML"
           hx-trigger="submit, input delay:500ms" hx-sync="this:replace"
           class="mt-6">
@@ -134,7 +116,7 @@
       <tbody class="divide-y divide-line">
         {{range .URLs}}
         <tr class="align-top">
-          {{/* Text, never an anchor. See the file comment. */}}
+          {{/* Text, never an anchor. */}}
           <td class="px-3 py-2">
             <span class="wrap-anywhere font-mono text-xs text-strong">{{.URL}}</span>
             {{if .Flags}}

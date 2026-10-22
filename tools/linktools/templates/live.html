@@ -1,15 +1,4 @@
-{{/* Behaviour every Link Tools form page shares, delegated from document so
-     it survives htmx swaps. Include once per page. A result area is any
-     element with data-result.
-
-     - Result areas are not live regions: a live form would re-read the whole
-       result on every pause. Each fragment's data-announce line goes to
-       #result-status instead.
-     - Wrong-tool input is caught before the GET is sent, because the request
-       line itself is the leak. The button carries the input on by POST.
-     - The history snapshot takes control values from its own URL: by then the
-       form has been edited for the next request.
-     - A 429 on a live form retries once after Retry-After. */}}
+{{/* Shared form behaviour. Results aren't live regions: a live form would re-read them on every pause. */}}
 {{define "link/live"}}
 <script>
   (function () {

@@ -17,23 +17,12 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// Handler tests go through the real router with the real templates, per
-// docs/07-testing.md §6: one URL, three representations, and the two
-// "feature is off" branches that only work because Tracer and Shortener are
-// concrete pointers rather than interfaces (docs/03-architecture.md §2).
-//
-// Each test builds its own app. That is not tidiness: Register installs a
-// per-instance rate limiter keyed on the client address, and a shared app would
-// let one test's requests spend another's budget.
+// Each test builds its own app: Register's rate limiter is per instance, and a shared one shares budgets.
 
-// newLinkApp wires link.corpberry.com the way main.go does, minus the parts a
-// test has no business dialling. A nil tracer or a nil shortener is the real
-// production value for "that feature is not configured here", which is what the
-// 503 tests below depend on.
+// A nil tracer or shortener is production's "not configured" value, which the 503 tests rely on.
 func newLinkApp(t *testing.T, tracer *linktools.Tracer, short *linktools.Shortener) *echo.Echo {
 	t.Helper()
-	// Embedded FS for both sources, so the tests do not depend on the working
-	// directory — the same choice dnstools and iptools make.
+	// Embedded FS for both sources, so the tests do not depend on the working directory.
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
@@ -63,9 +52,7 @@ var (
 
 const inspectTarget = "/?u=" + "https%3A%2F%2Fexample.com%2F%3Fa%3D1%26a%3D2%26debug"
 
-// TestOneURLThreeRepresentations is golden rule #2, asserted end to end: the
-// browser, the htmx swap and the API all read the same route, and none of them
-// needs a separate endpoint.
+// Golden rule #2 end to end: the browser, the htmx swap and the API all read the same route.
 func TestOneURLThreeRepresentations(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -99,8 +86,7 @@ func TestOneURLThreeRepresentations(t *testing.T) {
 		t.Error("the rendered page does not contain the host it just parsed")
 	}
 
-	// htmx gets the fragment. A full document swapped into a div nests <html>
-	// inside <body>, which is the bug this assertion exists to catch.
+	// htmx gets the fragment: a full document swapped into a div nests <html> inside <body>.
 	rec = request(t, e, http.MethodGet, inspectTarget, asHTMX)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("htmx status = %d, want 200", rec.Code)
@@ -119,12 +105,7 @@ func TestOneURLThreeRepresentations(t *testing.T) {
 	}
 }
 
-// TestBareHitIsAFormForABrowserAndAnErrorForAnAPI.
-//
-// The asymmetry is deliberate (needURL's comment): arriving at a page with
-// nothing typed yet is the normal first step for a person, and asking for
-// nothing is a mistake for a program. Answering 200-with-no-result to a script
-// makes the script's own bug invisible.
+// Nothing typed is a person's normal first step, but a program asking for nothing has a bug to see.
 func TestBareHitIsAFormForABrowserAndAnErrorForAnAPI(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -153,16 +134,8 @@ func TestBareHitIsAFormForABrowserAndAnErrorForAnAPI(t *testing.T) {
 	}
 }
 
-// TestNilTracerIsUnavailableNotABadGateway.
-//
-// 503, never 502: nothing failed, the feature is not running (the note on
-// handler.disabled). A 502 says the upstream broke, which sends whoever reads
-// the log looking for an outage that does not exist.
-//
-// This test is valid only because Tracer is a concrete pointer. Held as an
-// interface, a nil *Tracer inside it would not be == nil, the branch would be
-// dead code, and this test would pass while production panicked
-// (docs/03-architecture.md §2).
+// 503, never 502: nothing failed, the feature is off. Valid only because Tracer is a concrete pointer:
+// a nil *Tracer inside an interface is not == nil, so the branch would be dead and production panic.
 func TestNilTracerIsUnavailableNotABadGateway(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -174,16 +147,13 @@ func TestNilTracerIsUnavailableNotABadGateway(t *testing.T) {
 				headers["Accept"], rec.Code)
 		}
 	}
-	// And with no ?u= either: still 503, because the feature being off outranks
-	// the input being missing.
+	// Still 503 with no ?u=: the feature being off outranks the missing input.
 	if rec := request(t, e, http.MethodGet, "/trace", asJSON); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("bare /trace with no tracer = %d, want 503", rec.Code)
 	}
 }
 
-// TestNilShortenerIsUnavailable: with no storage (MONGODB_URI unset) the write
-// path, the console and the redirect all report the same thing. A missing key
-// alone is narrower; see TestKeylessServerRefusesEveryKeyGatedRoute.
+// No storage (MONGODB_URI unset): the write path, the console and the redirect all report the same.
 func TestNilShortenerIsUnavailable(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -204,9 +174,7 @@ func TestNilShortenerIsUnavailable(t *testing.T) {
 	}
 }
 
-// TestKeylessServerRefusesEveryKeyGatedRoute: storage wired, LINK_API_KEY
-// unset. Create, list and revoke answer 503 whatever key is sent. The store is
-// offline, so a request that got past the gate would come back 500 instead.
+// Storage wired, LINK_API_KEY unset: 503 whatever the key; a request past the gate would get 500.
 func TestKeylessServerRefusesEveryKeyGatedRoute(t *testing.T) {
 	t.Parallel()
 	short := keylessShortener(t, offlineStore())
@@ -249,16 +217,13 @@ func TestKeylessServerRefusesEveryKeyGatedRoute(t *testing.T) {
 		}
 	}
 
-	// The redirect is not key-gated. The offline lookup fails and is answered as
-	// a miss; what it must never say is that short links are off.
+	// The redirect is not key-gated: the offline lookup is a miss, never "short links are off".
 	if rec := request(t, e, http.MethodGet, "/s/abc1234", asHTML); rec.Code == http.StatusServiceUnavailable {
 		t.Errorf("GET /s/abc1234 with no key configured = 503 (%s); resolving never needs the key", rec.Body)
 	}
 }
 
-// TestKeylessServerStillRedirects: links made while a key was set keep
-// redirecting once LINK_API_KEY is unset, and the key that made them no longer
-// creates, lists or revokes anything.
+// Links made under a key keep redirecting once LINK_API_KEY is unset; that key no longer writes or lists.
 func TestKeylessServerStillRedirects(t *testing.T) {
 	ctx := context.Background()
 	keyed, store := liveShortener(t, ctx)
@@ -309,11 +274,7 @@ func TestKeylessServerStillRedirects(t *testing.T) {
 	}
 }
 
-// TestShortCreateNeedsTheKeyAndSaysNothingElse.
-//
-// Same status and same body for a missing key and a wrong one: saying which is a
-// free hint to anyone probing, and the population that can create links is the
-// only thing standing between this domain and a phishing relay.
+// Same answer for a missing and a wrong key: telling them apart is a free hint to anyone probing.
 func TestShortCreateNeedsTheKeyAndSaysNothingElse(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -341,12 +302,7 @@ func TestShortCreateNeedsTheKeyAndSaysNothingElse(t *testing.T) {
 	}
 }
 
-// TestShortConsoleShowsNoListWithoutTheKey.
-//
-// A public list hands over the whole corpus with no guessing, which defeats the
-// code entropy argument outright and turns hits/last_hit_at into a read-receipt
-// oracle (docs/04-short-links.md §8). The page itself stays public; only the list
-// is gated.
+// A public list hands over the corpus and makes hits a read-receipt oracle; only the list is gated.
 func TestShortConsoleShowsNoListWithoutTheKey(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -379,14 +335,8 @@ func TestShortConsoleShowsNoListWithoutTheKey(t *testing.T) {
 	}
 }
 
-// TestJSONNeverCarriesViewModelKeys is why this package has a local reply helper
-// instead of calling platform.Respond.
-//
-// Every page template pulls .Title and .Desc through partials/head, so handing
-// Respond a bare domain struct fails the render — and handing it the view-model
-// map puts Title, Desc and Active into the API's response body. reply picks one
-// per representation, and this test is what keeps anyone from "simplifying" it
-// back into the shared helper.
+// Why linktools has its own reply helper: the view-model map would put Title/Desc/Active in the API body,
+// and a bare struct fails partials/head. Don't "simplify" it back into platform.Respond.
 func TestJSONNeverCarriesViewModelKeys(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, offlineShortener(t))
@@ -415,8 +365,7 @@ func TestJSONNeverCarriesViewModelKeys(t *testing.T) {
 	}
 }
 
-// truncate keeps a failure message readable when a whole rendered page would
-// otherwise land in the test log.
+// truncate keeps a failure readable when a whole rendered page would land in the test log.
 func truncate(s string) string {
 	const max = 600
 	if len(s) <= max {

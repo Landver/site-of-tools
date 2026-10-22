@@ -14,19 +14,9 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// This file covers the pure half of the suite: Rebuild, Extract, ToCurl /
-// FromCurl, DiffInspections and EncodeAll. Nothing here opens a connection or
-// needs Mongo, which is the property docs/07-testing.md opens with — "most
-// features are pure functions from a string to a struct: no BINs, no upstream,
-// no network, no skips" — and TestExtractOpensNoConnection below asserts it
-// rather than merely asserting it in a comment.
+// The pure half of the suite: nothing here opens a connection, and TestExtractOpensNoConnection asserts it.
 
-// --- Rebuild ---------------------------------------------------------------
-
-// roundTripCorpus is the corpus of docs/07-testing.md §2 plus the shapes that
-// only the write half can get wrong: a default port that must NOT be tidied
-// away, a bare "?", an IPv6 literal whose brackets Parse strips, an opaque
-// scheme, and an "a+b" that means different things in a path and in a query.
+// docs/07-testing.md §2's corpus plus the shapes only the write half can get wrong.
 var roundTripCorpus = []string{
 	probe, // the headline case url_test.go drives the read half with
 	"https://example.com/?b=1&a=2&c=3",
@@ -62,12 +52,7 @@ var roundTripCorpus = []string{
 	"https://example.com/?utm_source=x&gclid=y",
 }
 
-// TestRebuildRoundTripsByteForByte is the property docs/07-testing.md §2 says
-// catches most encoding mistakes without a case per encoding rule.
-//
-// Byte-identical, not merely equivalent. "Equivalent" is the weaker claim every
-// surveyed tool can already make, and it is the one that lets a copy button hand
-// back a URL that is subtly not the one pasted in.
+// Byte-identical, not merely equivalent: equivalence lets a copy button hand back a subtly different URL.
 func TestRebuildRoundTripsByteForByte(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -84,13 +69,7 @@ func TestRebuildRoundTripsByteForByte(t *testing.T) {
 	}
 }
 
-// TestRebuildNormalisesOnlyTheScheme documents the ONE legitimate departure, so
-// that anything else which starts normalising fails the test above.
-//
-// url.Parse lowercases the scheme before Inspection ever sees it, so the
-// uppercase spelling is gone by parse time and no amount of care in Rebuild can
-// bring it back. Every other component survives untouched, which is what the
-// second half asserts.
+// The ONE legitimate departure: url.Parse lowercases the scheme before Inspection sees it.
 func TestRebuildNormalisesOnlyTheScheme(t *testing.T) {
 	t.Parallel()
 	const raw = "HTTPS://Example.COM/A?B=1"
@@ -101,20 +80,13 @@ func TestRebuildNormalisesOnlyTheScheme(t *testing.T) {
 	if got != "https://Example.COM/A?B=1" {
 		t.Fatalf("rebuilt %q; want only the scheme lowercased (url.Parse does that before Rebuild is reached)", got)
 	}
-	// The host's case is the load-bearing half: lowercasing it here would be a
-	// rewrite Rebuild is not allowed to make.
+	// The host's case is the load-bearing half: lowercasing it is a rewrite Rebuild may not make.
 	if !strings.Contains(got, "Example.COM/A?B=1") {
 		t.Error("host, path or key case was folded; only url.Parse's scheme lowercasing is permitted")
 	}
 }
 
-// TestRebuildKeepsAMalformedEscapeMalformed is the calcbe bug, named.
-//
-// calcbe's table flags "%zz" honestly and its copy button hands back "%25zz" —
-// a different URL from the one pasted in (docs/reports/calcbe-query-string-parser.md,
-// "One inconsistency worth recording"). A tool that warns in one pane and mutates
-// in the other is worse than one that does neither, and this round-trip feature
-// exists precisely to avoid that.
+// calcbe flags "%zz" and then copies "%25zz": warning in one pane while mutating in the other.
 func TestRebuildKeepsAMalformedEscapeMalformed(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -137,8 +109,7 @@ func TestRebuildKeepsAMalformedEscapeMalformed(t *testing.T) {
 	}
 }
 
-// TestRebuildPreservesOrderRepeatsAndValuelessness. Three separate things every
-// map-based rebuilder loses, asserted on one URL because they are lost together.
+// Three things every map-based rebuilder loses, asserted on one URL because they are lost together.
 func TestRebuildPreservesOrderRepeatsAndValuelessness(t *testing.T) {
 	t.Parallel()
 	const raw = "https://example.com/?z=1&a=2&id=1&id=2&debug&empty="
@@ -149,8 +120,7 @@ func TestRebuildPreservesOrderRepeatsAndValuelessness(t *testing.T) {
 	if got != raw {
 		t.Fatalf("rebuilt %q, want %q", got, raw)
 	}
-	// Re-parse rather than trusting the string: the round trip has to survive
-	// being read back, which is the contract Rebuild's doc comment states.
+	// Re-parse rather than trust the string: Rebuild's contract is surviving a read back.
 	back := parse(t, got)
 	var keys []string
 	for _, p := range back.Params {
@@ -167,9 +137,7 @@ func TestRebuildPreservesOrderRepeatsAndValuelessness(t *testing.T) {
 	}
 }
 
-// TestRebuildRefusesRatherThanGuessing. A password is never stored (types.go
-// keeps only HasPass), so there is nothing to write back — and writing the URL
-// without it would hand over a different URL that still looks like it works.
+// Only HasPass is kept, and a URL written without the password is a different URL that looks fine.
 func TestRebuildRefusesAPasswordItNeverStored(t *testing.T) {
 	t.Parallel()
 	got, err := linktools.NewService().Rebuild(parse(t, "https://user:hunter2@example.com/"))
@@ -180,8 +148,6 @@ func TestRebuildRefusesAPasswordItNeverStored(t *testing.T) {
 		t.Error("the refusal echoes the password it exists not to store")
 	}
 }
-
-// --- Extract ---------------------------------------------------------------
 
 func extractOf(t *testing.T, text string) *linktools.Extraction {
 	t.Helper()
@@ -203,9 +169,7 @@ func findURL(t *testing.T, ex *linktools.Extraction, u string) linktools.Extract
 	return linktools.ExtractedURL{}
 }
 
-// TestExtractReadsHTML: href, src and the anchor text beside it. Anchor text is
-// the reason this is a tokeniser walk and not a regex: "click here" pointing at
-// a domain nobody recognises is the thing the page is for.
+// Anchor text is why this walks tokens, not a regex: "click here" to an unknown domain is the point.
 func TestExtractReadsHTML(t *testing.T) {
 	t.Parallel()
 	ex := extractOf(t, `<div><a href="https://a.example/1">First</a>`+
@@ -226,8 +190,7 @@ func TestExtractReadsHTML(t *testing.T) {
 	}
 }
 
-// TestExtractReadsMarkdownAndPlainText, including the bare-URL case where the
-// sentence's punctuation has to be told apart from the URL's own.
+// Includes bare URLs, where the sentence's punctuation must be told apart from the URL's own.
 func TestExtractReadsMarkdownAndPlainText(t *testing.T) {
 	t.Parallel()
 	md := extractOf(t, "See [docs](https://md.example/docs) and [same](https://md.example/docs).")
@@ -248,8 +211,7 @@ func TestExtractReadsMarkdownAndPlainText(t *testing.T) {
 	}
 }
 
-// TestExtractDeduplicatesWithCounts: Total counts occurrences, Unique counts
-// rows, and the two are different numbers on purpose.
+// Total counts occurrences and Unique counts rows: different numbers on purpose.
 func TestExtractDeduplicatesWithCounts(t *testing.T) {
 	t.Parallel()
 	ex := extractOf(t, "https://d.example/a https://d.example/a https://d.example/b")
@@ -264,9 +226,7 @@ func TestExtractDeduplicatesWithCounts(t *testing.T) {
 	}
 }
 
-// TestExtractCapsAreAnnounced. Truncating silently would report "12 links in
-// this newsletter" when there were 3000, which is worse than refusing: the
-// caller acts on the number.
+// Truncating silently would report 12 links when there were 3000, and the caller acts on the number.
 func TestExtractCapsAreAnnounced(t *testing.T) {
 	t.Parallel()
 
@@ -292,8 +252,7 @@ func TestExtractCapsAreAnnounced(t *testing.T) {
 	}
 }
 
-// TestExtractSaysSoWhenItFoundNothing: an empty table and no explanation reads
-// as a bug in the page.
+// An empty table with no explanation reads as a bug in the page.
 func TestExtractSaysSoWhenItFoundNothing(t *testing.T) {
 	t.Parallel()
 	ex := extractOf(t, "example.com is a hostname in a sentence, not a link")
@@ -305,10 +264,7 @@ func TestExtractSaysSoWhenItFoundNothing(t *testing.T) {
 	}
 }
 
-// TestExtractOpensNoConnection is the promise the whole feature is sold on: the
-// surveyed tools that do this fetch every URL they find, which is a different
-// and riskier claim (docs/reports/). Asserted with a real listener rather than a
-// comment, because a comment cannot fail.
+// The promise Extract is sold on, asserted with a real listener because a comment cannot fail.
 func TestExtractOpensNoConnection(t *testing.T) {
 	t.Parallel()
 	var hits atomic.Int64
@@ -327,21 +283,11 @@ func TestExtractOpensNoConnection(t *testing.T) {
 	}
 }
 
-// --- ToCurl ----------------------------------------------------------------
-
-// shellMeta are the bytes that stop being text and start being syntax the moment
-// they sit outside a quoted run.
+// shellMeta are the bytes that become syntax outside a quoted run.
 const shellMeta = "&;|<>$`()*?[]{}!~\n\r\t\\\"# "
 
-// assertSingleQuoted walks a generated command the way /bin/sh would and reports
-// any metacharacter that ended up outside a single-quoted run, plus an unbalanced
-// quote. This is the check that matters: the output is text a human pastes into
-// their shell.
-//
-// Three states, which is all POSIX sh needs for this grammar: inside '…' nothing
-// is special; outside it a backslash makes exactly the next byte literal (that
-// is the "escape" half of the '\” idiom, and it must not be read as opening a
-// quoted run); everything else outside a quote has to be an ordinary byte.
+// assertSingleQuoted walks the command as /bin/sh would, reporting unbalanced quotes and any
+// metacharacter outside '…'. Outside a quote, a backslash makes only the next byte literal.
 func assertSingleQuoted(t *testing.T, line string) {
 	t.Helper()
 	inQuote := false
@@ -366,10 +312,7 @@ func assertSingleQuoted(t *testing.T, line string) {
 	}
 }
 
-// TestToCurlCannotBreakOutOfItsQuoting. A URL is attacker-influenced text and
-// the output is something a human pastes into a shell, so an unquoted "&", ";",
-// "|" or "$(…)" would stop being part of the URL and start being a command on
-// their machine (the note on ToCurl).
+// An unquoted "&", ";", "|" or "$(…)" in a URL would become a command on the pasting user's machine.
 func TestToCurlIsShellSafe(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -388,9 +331,7 @@ func TestToCurlIsShellSafe(t *testing.T) {
 			continue
 		}
 		assertSingleQuoted(t, line)
-		// The strongest available proof that the escaping is correct rather
-		// than merely present: tokenise the emitted line back with the
-		// package's own shell-shaped reader and demand the original URL.
+		// Proof the escaping is correct, not just present: FromCurl must read back the original URL.
 		back, _, err := svc.FromCurl(line)
 		if err != nil {
 			t.Errorf("the generated command does not tokenise back: %v\n%s", err, line)
@@ -402,9 +343,7 @@ func TestToCurlIsShellSafe(t *testing.T) {
 	}
 }
 
-// TestToCurlEscapesTheQuoteTheOnlyWayPossible. Single quotes are the only form in
-// which nothing is special, and the one character they cannot hold is written
-// '\” — close, escape, reopen.
+// Single quotes hold everything but a single quote, which is written as close, escape, reopen.
 func TestToCurlEscapesTheQuoteTheOnlyWayPossible(t *testing.T) {
 	t.Parallel()
 	line, err := linktools.NewService().ToCurl("https://example.com/?q=it's", linktools.CurlOptions{})
@@ -419,9 +358,7 @@ func TestToCurlEscapesTheQuoteTheOnlyWayPossible(t *testing.T) {
 	}
 }
 
-// TestToCurlRefusesAControlCharacter. A newline in the URL would put a second
-// line on the clipboard, and the second line is whatever the attacker wrote.
-// Refusing is the right answer; emitting something subtly different is not.
+// A newline would put a second, attacker-written line on the clipboard, so it is refused outright.
 func TestToCurlRefusesAControlCharacter(t *testing.T) {
 	t.Parallel()
 	line, err := linktools.NewService().ToCurl("https://example.com/?q=a\nid\n", linktools.CurlOptions{})
@@ -433,8 +370,7 @@ func TestToCurlRefusesAControlCharacter(t *testing.T) {
 	}
 }
 
-// TestToCurlQuotesTheOptionsItIsGiven too, not just the URL: the persona's user
-// agent and an edited method are also caller-supplied text.
+// The persona's user agent and an edited method are caller-supplied text too.
 func TestToCurlQuotesItsOptions(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -453,14 +389,11 @@ func TestToCurlQuotesItsOptions(t *testing.T) {
 	if strings.Contains(line, "-k") {
 		t.Error("-k was emitted without being asked for; it turns off certificate verification")
 	}
-	// A typo must not quietly send the wrong agent: the whole reason the option
-	// exists is that the curl line and the traced request claim to be the same.
+	// A typo must not send the wrong agent: the curl line and the traced request claim to be the same.
 	if _, err := svc.ToCurl("https://example.com/", linktools.CurlOptions{Persona: "gooooglebot"}); err == nil {
 		t.Error("an unknown persona was silently ignored rather than refused")
 	}
 }
-
-// --- FromCurl --------------------------------------------------------------
 
 func headerValue(hs []linktools.Header, name string) (string, bool) {
 	for _, h := range hs {
@@ -471,9 +404,7 @@ func headerValue(hs []linktools.Header, name string) (string, bool) {
 	return "", false
 }
 
-// TestFromCurlReadsChromesCopyAsCurl — the shape people actually paste:
-// multi-line, backslash continuations, a pile of -H, and bash's $'…' quoting as
-// soon as a value carries a quote or a non-ASCII byte.
+// The shape people paste: multi-line, backslash continuations, many -H, and bash's $'…' quoting.
 func TestFromCurlReadsChromesCopyAsCurl(t *testing.T) {
 	t.Parallel()
 	const cmd = "curl 'https://example.com/api?a=1&b=2' \\\n" +
@@ -503,9 +434,7 @@ func TestFromCurlReadsChromesCopyAsCurl(t *testing.T) {
 	}
 }
 
-// TestFromCurlReadsShortFlagClusters. "-XPOST" is a flag with its value stuck to
-// it and "-sSLXPOST" is three booleans followed by one; getting this wrong makes
-// a POST body or an output filename into the URL.
+// "-XPOST" carries its value; "-sSLXPOST" is three booleans then -X. Misread, a body becomes the URL.
 func TestFromCurlReadsShortFlagClusters(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -529,8 +458,7 @@ func TestFromCurlReadsShortFlagClusters(t *testing.T) {
 	}
 }
 
-// TestFromCurlLiftsTheFlagsThatAreReallyHeaders. -A, -e and -b set headers, and a
-// reader that only understands -H reports a request that is not the one pasted.
+// -A, -e and -b set headers; a reader that only knows -H reports a different request.
 func TestFromCurlLiftsTheFlagsThatAreReallyHeaders(t *testing.T) {
 	t.Parallel()
 	_, hs, err := linktools.NewService().FromCurl(
@@ -554,9 +482,7 @@ func TestFromCurlLiftsTheFlagsThatAreReallyHeaders(t *testing.T) {
 	}
 }
 
-// TestFromCurlEvaluatesNothing. The input is untrusted text and the only safe
-// way to read it is not to evaluate it: no expansion, no substitution, no
-// execution — the substitution is returned as the literal bytes it is.
+// Untrusted input: no expansion, substitution or execution; a substitution comes back as literal bytes.
 func TestFromCurlEvaluatesNothing(t *testing.T) {
 	t.Parallel()
 	u, hs, err := linktools.NewService().FromCurl("curl 'https://example.com/?q=$(id)&h=`whoami`&home=$HOME'")
@@ -570,8 +496,6 @@ func TestFromCurlEvaluatesNothing(t *testing.T) {
 		t.Errorf("headers invented from a command that had none: %+v", hs)
 	}
 }
-
-// --- DiffInspections -------------------------------------------------------
 
 func diffOf(t *testing.T, a, b string) *linktools.Diff {
 	t.Helper()
@@ -589,8 +513,7 @@ func changeFor(t *testing.T, d *linktools.Diff, key string) linktools.ParamChang
 	return linktools.ParamChange{}
 }
 
-// TestDiffNamesEveryKindOfChange. "Why does staging behave differently from
-// production" is answered by one of these five words, so all five have to work.
+// "Why does staging differ from production" is answered by one of these five words.
 func TestDiffNamesEveryKindOfChange(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -612,10 +535,7 @@ func TestDiffNamesEveryKindOfChange(t *testing.T) {
 	}
 }
 
-// TestDiffReportsAReorderAsMoved, with the warning that makes it actionable.
-// Harmless to most servers and fatal to any URL whose signature covers the
-// literal query string, which is exactly why "nothing changed" is the wrong
-// answer here. Only the parameter that moved is called moved.
+// A reorder breaks any URL whose signature covers the literal query, so it is never "nothing changed".
 func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/?a=1&b=2&c=3", "https://example.com/?c=3&a=1&b=2")
@@ -636,8 +556,7 @@ func TestDiffReportsAReorderAsMoved(t *testing.T) {
 	}
 }
 
-// TestDiffDoesNotCallARemovalAReorder: dropping the first parameter shifts the
-// rest without moving them, as every cleaned URL's diff does.
+// Dropping the first parameter shifts the rest without moving them, as every cleaned URL's diff does.
 func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/p?utm_source=x&id=42&page=2&lang=en", "https://example.com/p?id=42&page=2&lang=en")
@@ -655,8 +574,7 @@ func TestDiffDoesNotCallARemovalAReorder(t *testing.T) {
 	}
 }
 
-// TestDiffCallsSpellingCosmetic: host case, a default port and a dot segment
-// are listed but not counted as differences.
+// Host case, a default port and a dot segment are listed but not counted as differences.
 func TestDiffCallsSpellingCosmetic(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "HTTPS://Example.com:443/a/./b?x=%7e", "https://example.com/a/b?x=~")
@@ -694,8 +612,7 @@ func TestDiffOnIdenticalURLs(t *testing.T) {
 		t.Errorf("component differences against itself: %+v", d.Fields)
 	}
 
-	// Same request, different text: still identical, and the note says why so
-	// the reader does not think the tool missed something.
+	// Same request, different text: identical, and the note says why so it doesn't look like a miss.
 	eq := diffOf(t, "https://example.com/?a=a+b", "https://example.com/?a=a%20b")
 	if !eq.Identical {
 		t.Errorf("a+b and a%%20b describe the same request but were reported as different: %s", eq.Summary())
@@ -705,8 +622,7 @@ func TestDiffOnIdenticalURLs(t *testing.T) {
 	}
 }
 
-// TestDiffSeesComponentsOutsideTheQuery. The staging-versus-production case is
-// often the host or the port, not a parameter at all.
+// Staging versus production is often the host or the port, not a parameter at all.
 func TestDiffSeesComponentsOutsideTheQuery(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/x?a=1", "https://staging.example.com:8443/y?a=1")
@@ -724,8 +640,7 @@ func TestDiffSeesComponentsOutsideTheQuery(t *testing.T) {
 	}
 }
 
-// TestDiffKeepsRepeatedKeysApart: ?id=1&id=2 versus ?id=2&id=1 is a real
-// difference, and a map-based diff cannot see it.
+// ?id=1&id=2 versus ?id=2&id=1 is a real difference a map-based diff cannot see.
 func TestDiffKeepsRepeatedKeysApart(t *testing.T) {
 	t.Parallel()
 	d := diffOf(t, "https://example.com/?id=1&id=2", "https://example.com/?id=2&id=1")
@@ -736,8 +651,6 @@ func TestDiffKeepsRepeatedKeysApart(t *testing.T) {
 		t.Errorf("got %d rows for two occurrences of one key, want 2: %+v", len(d.Params), d.Params)
 	}
 }
-
-// --- EncodeAll -------------------------------------------------------------
 
 func encoding(t *testing.T, list []linktools.Encoding, name string) linktools.Encoding {
 	t.Helper()
@@ -750,10 +663,7 @@ func encoding(t *testing.T, list []linktools.Encoding, name string) linktools.En
 	return linktools.Encoding{}
 }
 
-// TestEncodeShowsQueryAndPathSideBySide is the page's whole differentiator.
-// url.QueryEscape("a b") is "a+b" and url.PathEscape("a b") is "a%20b", and no
-// surveyed tool makes that visible even though it is the single most common URL
-// bug (encode.go's opening note).
+// The page's differentiator: url.QueryEscape("a b") is "a+b", url.PathEscape("a b") is "a%20b".
 func TestEncodeShowsQueryAndPathSideBySide(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ in, query, path string }{
@@ -777,17 +687,14 @@ func TestEncodeShowsQueryAndPathSideBySide(t *testing.T) {
 		}
 	}
 
-	// The same split on the way back: "+" is a space to one reader and a plus to
-	// the other, which is what breaks base64 values pasted into a query.
+	// "+" is a space to one reader and a plus to the other, which breaks base64 pasted into a query.
 	r := linktools.EncodeAll("YWJjK2Rl")
 	if qd, pd := encoding(t, r.Decoded, "Percent (query)"), encoding(t, r.Decoded, "Percent (path)"); qd.Note == "" || pd.Note == "" {
 		t.Error("the decode side does not say which reading of '+' it used")
 	}
 }
 
-// TestEncodeNeverShowsASilentlyEmptyBox. url.QueryUnescape returns "" plus an
-// error on a bad escape, and an empty box reads as "this value is empty", which
-// is a different claim (docs/reports/go-url-stdlib-behaviour.md §2).
+// url.QueryUnescape returns "" on a bad escape, and an empty box claims the value is empty.
 func TestEncodeNeverShowsASilentlyEmptyBox(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ in, name string }{
@@ -805,8 +712,7 @@ func TestEncodeNeverShowsASilentlyEmptyBox(t *testing.T) {
 	}
 }
 
-// TestEncodeRunsTheSameLadderAsInspect, so a doubly-encoded value peels here too
-// rather than needing a second paste into another page.
+// So a doubly-encoded value peels here too, without a second paste into another page.
 func TestEncodeRunsTheSameLadderAsInspect(t *testing.T) {
 	t.Parallel()
 	r := linktools.EncodeAll("%2520")
@@ -821,8 +727,7 @@ func TestEncodeRunsTheSameLadderAsInspect(t *testing.T) {
 	}
 }
 
-// TestOrdinaryWordsAreNotBase64: eight base64-alphabet letters are as often a
-// word ("facebook") as an encoding.
+// Eight base64-alphabet letters are as often a word ("facebook") as an encoding.
 func TestOrdinaryWordsAreNotBase64(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -838,8 +743,7 @@ func TestOrdinaryWordsAreNotBase64(t *testing.T) {
 	}
 }
 
-// TestUTMKeepsWhatItWasNotGiven: an empty field keeps the URL's tag, a typed one
-// replaces it, and the result says which was which.
+// An empty field keeps the URL's tag, a typed one replaces it, and the result says which was which.
 func TestUTMKeepsWhatItWasNotGiven(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -871,8 +775,7 @@ func TestUTMKeepsWhatItWasNotGiven(t *testing.T) {
 	}
 }
 
-// TestUTMAssumesHTTPSAndNamesItsWorries: a scheme-less URL gets https://, and
-// the hygiene notes come with the link.
+// A scheme-less URL gets https://, and the hygiene notes come with the link.
 func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -917,8 +820,7 @@ func TestUTMAssumesHTTPSAndNamesItsWorries(t *testing.T) {
 	}
 }
 
-// TestExtractFlagsWhatAnAuditIsFor: a host mismatch, a javascript: link and a
-// mail wrapper are flagged on their rows; an honest link is not.
+// A host mismatch, a javascript: link and a mail wrapper are flagged on their rows; an honest link is not.
 func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -963,8 +865,7 @@ func TestExtractFlagsWhatAnAuditIsFor(t *testing.T) {
 	}
 }
 
-// TestNestedLinkIsReadable: a doubly encoded redirect parameter reports its link
-// decoded; only http(s) counts.
+// A doubly encoded redirect parameter reports its link decoded; only http(s) counts.
 func TestNestedLinkIsReadable(t *testing.T) {
 	t.Parallel()
 	in, err := linktools.NewService().Parse("https://example.com/out?next=https%253A%252F%252Fshop.example%252Fcart%253Fid%253D42&plain=https%3A%2F%2Fa.example%2F&js=javascript%3Aalert(1)")
@@ -979,8 +880,7 @@ func TestNestedLinkIsReadable(t *testing.T) {
 	}
 }
 
-// TestQueryTokensAreFlagged: a token in the query is flagged, as one in the
-// fragment always was.
+// A token in the query is flagged, like one in the fragment.
 func TestQueryTokensAreFlagged(t *testing.T) {
 	t.Parallel()
 	in, err := linktools.NewService().Parse("https://example.com/cb?access_token=abc&state=1")
@@ -996,8 +896,7 @@ func TestQueryTokensAreFlagged(t *testing.T) {
 	}
 }
 
-// TestCurlCommandSaysHowItSends: the method is curl's own choice, with the
-// reason, and the body is measured but never echoed.
+// The method is curl's own choice, with the reason; the body is measured but never echoed.
 func TestCurlCommandSaysHowItSends(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -1023,7 +922,6 @@ func TestCurlCommandSaysHowItSends(t *testing.T) {
 	}
 }
 
-// TestParserEdgeCases pins parser corner cases.
 func TestParserEdgeCases(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
@@ -1093,8 +991,7 @@ func TestParserEdgeCases(t *testing.T) {
 	}
 }
 
-// TestEncodeLeadsWithTheReading: base64 and JWTs lead with their decoding, the
-// ladder skips what is shown, and a trailing line break is named.
+// base64 and JWTs lead with their decoding, the ladder skips what is shown, a trailing newline is named.
 func TestEncodeLeadsWithTheReading(t *testing.T) {
 	t.Parallel()
 	r := linktools.EncodeAll("aGVsbG8gd29ybGQ=")

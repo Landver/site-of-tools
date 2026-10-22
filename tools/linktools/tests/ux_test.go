@@ -57,8 +57,7 @@ func TestHeadingIsThePageNameAlone(t *testing.T) {
 	}
 }
 
-// TestEveryExampleLoadsAResult: every chip lands on a result, not an error or
-// the empty form again.
+// Every chip lands on a result, not an error or the empty form again.
 func TestEveryExampleLoadsAResult(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -90,8 +89,7 @@ func TestEveryExampleLoadsAResult(t *testing.T) {
 	}
 }
 
-// TestClearingTheInputBringsTheExamplesBack: an emptied live box gets the empty
-// state, not a blank area or an error.
+// An emptied live box gets the empty state, not a blank area or an error.
 func TestClearingTheInputBringsTheExamplesBack(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -108,8 +106,7 @@ func TestClearingTheInputBringsTheExamplesBack(t *testing.T) {
 	}
 }
 
-// TestCleanNamesEachReasonOnce: one rule's reason prints once, every parameter
-// is still named, and the JSON keeps one entry per parameter.
+// One rule's reason prints once, every parameter is still named, and the JSON keeps one entry each.
 func TestCleanNamesEachReasonOnce(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -146,8 +143,7 @@ func TestUTMFoldOpensForAValue(t *testing.T) {
 	}
 }
 
-// TestLiveFormsKeepTheHistoryClean: live forms replace the URL rather than push
-// one per pause; Trace, which waits for its button, pushes.
+// Live forms replace the URL rather than push one per pause; Trace, which waits for its button, pushes.
 func TestLiveFormsKeepTheHistoryClean(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -166,8 +162,7 @@ func TestLiveFormsKeepTheHistoryClean(t *testing.T) {
 	}
 }
 
-// TestCreateAndRevokeReloadTheList: both send the list's reload event, to htmx
-// only. Live, because both need storage.
+// Both send the list's reload event, to htmx only. Live, because both need storage.
 func TestCreateAndRevokeReloadTheList(t *testing.T) {
 	ctx := context.Background()
 	short, _ := liveShortener(t, ctx)
@@ -213,8 +208,7 @@ func TestCreateAndRevokeReloadTheList(t *testing.T) {
 	}
 }
 
-// TestWrongPasteIsSentToTheRightPage: a curl command or text with links gets a
-// POST button to its page; a link would put a command's cookies in a URL.
+// A curl command or text with links gets a POST button: a link would put a command's cookies in a URL.
 func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -243,8 +237,7 @@ func TestWrongPasteIsSentToTheRightPage(t *testing.T) {
 	}
 }
 
-// TestOneURLIsNeverSentAway: the wrong-tool check never refuses a URL, with a
-// ?href=, a raw space or another URL in its query included.
+// The wrong-tool check never refuses one URL, even with a ?href=, a raw space or a URL in its query.
 func TestOneURLIsNeverSentAway(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -307,9 +300,7 @@ func TestCurlPasteNeverRidesInAURL(t *testing.T) {
 	}
 }
 
-// TestAlpineAttributesAreExpressions: a statement in an Alpine attribute
-// (try/catch, var, for) is a syntax error that silently disables the binding.
-// Statements belong in a script, as short.html's linkKey() does.
+// A statement in an Alpine attribute (try/catch, var, for) silently disables the binding.
 func TestAlpineAttributesAreExpressions(t *testing.T) {
 	t.Parallel()
 	files, _ := filepath.Glob("../templates/*.html")
@@ -330,8 +321,7 @@ func TestAlpineAttributesAreExpressions(t *testing.T) {
 	}
 }
 
-// TestCleanFormSendsUnwrapOnlyWhenTurnedOff: a default submit sends nothing for
-// unwrap, so a shared Clean URL stays clean.
+// A default submit sends nothing for unwrap, so a shared Clean URL stays clean.
 func TestCleanFormSendsUnwrapOnlyWhenTurnedOff(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -349,8 +339,7 @@ func TestCleanFormSendsUnwrapOnlyWhenTurnedOff(t *testing.T) {
 	}
 }
 
-// TestFragmentsAreNeverCachedAsPages: Vary and no-store keep Back from showing
-// a cached fragment bare, and an htmx error never becomes a history entry.
+// Vary and no-store keep Back from showing a bare cached fragment; an htmx error is never a history entry.
 func TestFragmentsAreNeverCachedAsPages(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -480,8 +469,7 @@ func TestEachStateSaysWhatItIs(t *testing.T) {
 	}
 }
 
-// TestShortKeyCheckSaysWhenItFails: a failed key check (429, 5xx, no answer) is
-// said in the key card, since the list stays hidden.
+// A failed key check (429, 5xx, no answer) is said in the key card, since the list stays hidden.
 func TestShortKeyCheckSaysWhenItFails(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile("../templates/short.html")

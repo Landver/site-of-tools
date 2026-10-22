@@ -60,8 +60,7 @@ func TestTraceAndShortBudgetsAreSeparate(t *testing.T) {
 	}
 }
 
-// /s/:code spent through AllowKey (the MCP door) is spent for REST too: the
-// per-client bucket across a /64, and the global breaker for everyone.
+// /s/:code spent through AllowKey (MCP) counts for REST too: the /64 client bucket and the global breaker.
 func TestResolveBudgetsAreSharedWithAllowKey(t *testing.T) {
 	t.Parallel()
 	lim := linktools.NewLimits()

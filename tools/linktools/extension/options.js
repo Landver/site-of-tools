@@ -5,9 +5,7 @@ chrome.storage.sync.get(['apiKey', 'baseUrl']).then(({ apiKey, baseUrl }) => {
   $('base').value = baseUrl || '';
 });
 
-// Mirrors resolveBase() in sw.js. Without this the page happily reported
-// "Saved." for a server the worker then silently discarded, so a typo looked
-// like it had worked and the key appeared not to function.
+// Mirrors resolveBase() in sw.js, so a server the worker would discard is never reported as saved.
 const DEFAULT_BASE = 'https://link.corpberry.com';
 function acceptedBase(v) {
   if (!v) return { ok: true, why: '' };

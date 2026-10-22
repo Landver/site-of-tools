@@ -1,17 +1,5 @@
-{{/* Campaign URL builder — page shell + result fragment (A11).
-
-     The inverse of Clean, running on the same table: the five parameters this
-     page adds are exactly the five the Clean page knows how to take away. That
-     is the reason it is worth having rather than being the hundredth utm
-     builder — the two pages agree, and each links to the other.
-
-     Fields come from the handler (handler.go's utmField), so the form cannot
-     drift out of step with what it reads. .Rare are folded unless one has a value.
-
-     Safety rule, carried from inspect.html: .Query and .Built are
-     attacker-supplied text and neither is written into an href. The built URL
-     is shown as text with a copy button; the only anchors are same-origin tool
-     links. */}}
+{{/* UTM builder page + result fragment: the inverse of Clean, adding exactly the five tags Clean removes.
+     .Query and .Built are attacker-supplied text: never an href. */}}
 {{define "link/utm"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -104,9 +92,7 @@
 </html>
 {{end}}
 
-{{/* The label is the name alone and the hint a description, so a screen reader
-     announces "utm_source", not a sentence. flex-none: .field's flex-1 grew the
-     input vertically in a flex-col label. */}}
+{{/* The label is the bare name, read as "utm_source"; flex-none stops .field's flex-1 growing it tall. */}}
 {{define "link/utmfield"}}
 <div class="flex flex-col gap-1 text-sm">
   <label for="tag-{{.Name}}" class="font-mono text-xs text-strong">{{.Name}}</label>
@@ -116,8 +102,7 @@
 </div>
 {{end}}
 
-{{/* Result fragment — the htmx swap target, and the body of the page above.
-     Each tag says where it came from: an empty field keeps the URL's own. */}}
+{{/* Result fragment. Each tag says where it came from: an empty field keeps the URL's own. */}}
 {{define "link/utmbuilt"}}
 {{with .Result}}
 
