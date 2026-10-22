@@ -359,7 +359,7 @@ func setup(all, toolset string) map[string]string {
 
 func (h *handler) landing(c *echo.Context) error {
 	eps := h.catalog.Endpoints
-	example := eps[min(1, len(eps)-1)]
+	example := eps[1]
 	vm := map[string]any{
 		"Title":     "MCP server — corpberry.com",
 		"Desc":      landingDesc,
