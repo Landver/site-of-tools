@@ -22,7 +22,7 @@ func sources(t *testing.T, obj map[string]any) []string {
 }
 
 func TestIPLookup(t *testing.T) {
-	s := newStack(t, stackOpts{chk: fakeChecker{lk: iptools.BlockLookup{Sources: []string{"spamhaus-drop"}}}})
+	s := newStack(t, stackOpts{chk: fakeBlock{lk: iptools.BlockLookup{Sources: []string{"spamhaus-drop"}}}})
 	cs := s.client(t, "/mcp/ip", nil, nil)
 
 	got := object(t, call(t, cs, "ip_lookup", map[string]any{"ip": " 8.8.8.8 "}))
@@ -101,7 +101,7 @@ func TestIPCIDR(t *testing.T) {
 }
 
 func TestIPParity(t *testing.T) {
-	s := newStack(t, stackOpts{chk: fakeChecker{lk: iptools.BlockLookup{Sources: []string{"ipsum"}, MaxCount: 3}}})
+	s := newStack(t, stackOpts{chk: fakeBlock{lk: iptools.BlockLookup{Sources: []string{"ipsum"}, MaxCount: 3}}})
 	cs := s.client(t, "/mcp", nil, nil)
 	cases := []struct {
 		tool, arg, value, rest string
