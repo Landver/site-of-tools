@@ -185,7 +185,7 @@ Cross-cutting engine files:
 - **MongoDB** is wired (one client from `platform.OpenMongo`, repositories below
   the domain, self-pruning via `platform.EnsureTTLIndex`, all no-ops without
   `MONGODB_URI`) and used by: IP lookup history, the request log (one record per
-  request, and per MCP message: tool, outcome, latency, IP — never arguments or
+  request, and per MCP message: tool, status, latency, IP — never arguments or
   results), botcheck's fingerprint corpus, and link short links (the only one
   that *is* the feature: unique index, long TTL so a slug is never reissued).
   Further storage follows the same shape.

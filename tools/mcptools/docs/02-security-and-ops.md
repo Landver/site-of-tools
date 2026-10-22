@@ -35,9 +35,9 @@ connectors call from Anthropic's cloud with an undocumented `Origin`, and Go's
 
 1. `"arguments": null` is read as none.
 2. `recover` → an "Internal error" result, stack logged without arguments.
-3. Deadline: 25 s IP, DNS and botcheck tools, 20 s `link_redirect_chain` and
-   owner tools, 15 s heavy cipher, 5 s the rest and other methods; a hang-up
-   cancels the call on any protocol version (`context.AfterFunc`).
+3. Deadline: 25 s `ip_lookup`, DNS and botcheck tools, 20 s
+   `link_redirect_chain` and owner tools, 15 s heavy cipher, 5 s the rest and
+   other methods; a hang-up cancels the call (`context.AfterFunc`).
 4. Rate: the tool's limiter; any other method only the gate's per-address limit.
 5. Capacity: a budget all clients share, if any, then the cap; full → "Busy".
 6. The tool, then [sanitize](#untrusted-output) and [record](#logs-and-licences).
