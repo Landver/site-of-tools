@@ -26,7 +26,7 @@ func TestGate(t *testing.T) {
 		{"unknown toolset", http.MethodPost, "/mcp/nope", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
 		{"empty toolset", http.MethodPost, "/mcp/", listBody, mcpHeaders(nil), http.StatusNotFound, "Not Found"},
 		{"owner endpoint off without a key", http.MethodPost, "/mcp/owner", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
-		{"body over 1 MiB", http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"x":"` + strings.Repeat("a", 1<<20) + `"}}`, mcpHeaders(nil), http.StatusRequestEntityTooLarge, "1 MiB"},
+		{"body over 1 MiB", http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"x":"` + strings.Repeat("a", 1<<20) + `"}}`, mcpHeaders(nil), http.StatusRequestEntityTooLarge, "exceeds"},
 		{"batch", http.MethodPost, "/mcp", " \n[" + listBody + "," + listBody + "]", mcpHeaders(nil), http.StatusBadRequest, "batching is not supported"},
 		{"cross-site browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "cross-site"}), http.StatusForbidden, "Cross-site"},
 		{"same-site browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "same-site"}), http.StatusForbidden, "Cross-site"},

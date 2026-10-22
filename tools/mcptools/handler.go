@@ -160,13 +160,7 @@ func (h *handler) serve(c *echo.Context) error {
 	}
 
 	if req.Method == http.MethodPost {
-		body, err := io.ReadAll(io.LimitReader(req.Body, maxBody+1))
-		switch {
-		case err != nil:
-			return refuseHTTP(c, http.StatusBadRequest, "Could not read the request body.")
-		case len(body) > maxBody:
-			return refuseHTTP(c, http.StatusRequestEntityTooLarge, "Request body over 1 MiB.")
-		}
+		body, _ := io.ReadAll(io.LimitReader(req.Body, maxBody+1)) // past maxBody the SDK's MaxRequestBodyBytes answers 413
 		// Without MCP-Protocol-Version the SDK speaks 2025-03-26, where an uncapped batch is legal.
 		if b := bytes.TrimLeft(body, " \t\r\n"); len(b) > 0 && b[0] == '[' {
 			return refuseHTTP(c, http.StatusBadRequest, "JSON-RPC batching is not supported: send one message per request.")
