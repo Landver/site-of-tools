@@ -97,11 +97,11 @@ every handler. Configure it per user (`claude mcp add --scope user … --header
 ## Logs and licences
 
 - Per message, a slog `MCP` line and a request-log record: host, URI
-  `/mcp/<endpoint>#<tool or method>`, outcome as status (`ok` 200,
-  `tool_error` 422, `error` 400, `limited` 429, `busy` 503, `timeout` 504,
-  `cancelled` 499, `internal`/`panic` 500), latency, bytes out, raw IP, client
-  name and version (else user agent). Never arguments, results or error text:
-  cipher errors quote their input. The HTTP-level Mongo log skips `/mcp`.
+  `/mcp/<endpoint>#<tool or method>`, status (200 ok, 422 tool error, 400
+  protocol error, 429 limited, 503 busy, 504 timeout, 499 hung up, 500
+  internal), latency, bytes out, raw IP, client name and version (else user
+  agent). Never arguments, results or error text: cipher errors quote their
+  input. The HTTP-level Mongo log skips `/mcp`.
 - Credits live once, in `platform/credits.go`, for the footer and for MCP
   results' `attribution` ([which tools](01-tool-catalog.md)): IP2Location
   LITE's notice word for word, Spamhaus's copyright line, Shodan's visible

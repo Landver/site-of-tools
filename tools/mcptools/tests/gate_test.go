@@ -226,7 +226,7 @@ func TestRecordsNeverHoldArguments(t *testing.T) {
 	call(t, cs, "ip_cidr", map[string]any{"cidr": "172.31.255.0/24"})
 	call(t, cs, "ip_cidr", map[string]any{"cidr": "secret-looking-input"})
 	got := log.String()
-	for _, want := range []string{`"msg":"MCP"`, `"uri":"/mcp/ip#ip_cidr"`, `"outcome":"ok"`, `"outcome":"tool_error"`, `"client":"mcptools-tests/1"`} {
+	for _, want := range []string{`"msg":"MCP"`, `"uri":"/mcp/ip#ip_cidr"`, `"status":200,"uri":"/mcp/ip#ip_cidr"`, `"status":422,"uri":"/mcp/ip#ip_cidr"`, `"client":"mcptools-tests/1"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log lacks %s:\n%s", want, got)
 		}

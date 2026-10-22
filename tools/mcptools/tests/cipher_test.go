@@ -226,8 +226,8 @@ func TestHeavyCipherOps(t *testing.T) {
 		t.Errorf("REST with the budget full = %d, want 503: one budget for both doors", rec.Code)
 	}
 	object(t, call(t, cs, "cipher_hash", map[string]any{"text": "abc"}))
-	if !strings.Contains(log.String(), `"outcome":"busy"`) || !strings.Contains(log.String(), "#cipher_password_hash") {
-		t.Errorf("log lacks the busy outcome:\n%s", log.String())
+	if !strings.Contains(log.String(), `"status":503,"uri":"/mcp/cipher#cipher_password_hash"`) {
+		t.Errorf("log lacks the busy status:\n%s", log.String())
 	}
 	lim.HeavyCap.Release(otherClient, budget)
 
