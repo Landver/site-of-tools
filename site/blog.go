@@ -101,25 +101,14 @@ func parsePost(fsys fs.FS, p string) (Post, error) {
 	}, nil
 }
 
-// stripFrontmatter follows goldmark-meta: a first line of only dashes, closed by the next such line.
+// stripFrontmatter drops the leading "---" block every post opens with.
 func stripFrontmatter(src []byte) string {
-	first, rest, ok := bytes.Cut(src, []byte("\n"))
-	if !ok || !isDashes(first) {
-		return string(src)
-	}
-	for len(rest) > 0 {
-		var line []byte
-		line, rest, _ = bytes.Cut(rest, []byte("\n"))
-		if isDashes(line) {
-			return strings.TrimLeft(string(rest), "\r\n")
+	if rest, ok := bytes.CutPrefix(src, []byte("---\n")); ok {
+		if _, body, ok := bytes.Cut(rest, []byte("\n---\n")); ok {
+			return strings.TrimLeft(string(body), "\n")
 		}
 	}
-	return ""
-}
-
-func isDashes(line []byte) bool {
-	line = bytes.TrimSpace(line)
-	return len(line) > 0 && len(bytes.Trim(line, "-")) == 0
+	return string(src)
 }
 
 // slugFromFilename: "2026-07-28-some-title.md" → "some-title"; a file with no
