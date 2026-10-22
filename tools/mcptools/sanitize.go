@@ -26,8 +26,8 @@ func sanitize(r *mcp.CallToolResult) (*mcp.CallToolResult, int, error) {
 		return r, 0, nil
 	}
 	obj, err := object(r.StructuredContent)
-	if err != nil || obj == nil {
-		return nil, 0, fmt.Errorf("structuredContent is not a JSON object (%v)", err)
+	if obj == nil {
+		return nil, 0, errors.Join(errors.New("structuredContent is not a JSON object"), err)
 	}
 	out, err := encode(walk(obj))
 	if err != nil {

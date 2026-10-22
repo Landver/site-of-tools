@@ -59,8 +59,8 @@ Owner endpoint, `/mcp/owner`:
 One tool per op, generated at boot from the field specs ciphertools exports
 (`ciphertools.Ops`): the specs its own parsers read, so the schemas can't
 drift (ciphertools' `TestFieldSpecsMatchTheCode`). An op without a description
-in `cipher.go` stops the boot. One adapter builds the `ciphertools.Input` a
-form post would and calls `ciphertools.Run`. `Coverage` maps each to its POST
+in `cipher.go` stops the boot. One adapter decodes the arguments with
+`ciphertools.InputFromJSON`, as the JSON API does, and calls `ciphertools.Run`. `Coverage` maps each to its POST
 route.
 
 - A list field (`sets`) is a comma-separated string, as in the JSON API; a

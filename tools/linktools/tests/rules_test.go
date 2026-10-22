@@ -31,6 +31,21 @@ func TestRuleMatchesNamesEveryCandidate(t *testing.T) {
 	}
 }
 
+// TestCleanAppliesHostScopedRules: ref is Amazon's tracker but a git forge's branch.
+func TestCleanAppliesHostScopedRules(t *testing.T) {
+	t.Parallel()
+	var removed []string
+	for _, r := range clean(t, "https://www.amazon.com/dp/X?tag=aff-20&ref=nav&th=1&utm_source=x&state=s", linktools.CleanOptions{}).Removed {
+		removed = append(removed, r.Key)
+	}
+	if diff := cmp.Diff([]string{"ref", "utm_source"}, removed); diff != "" {
+		t.Errorf("amazon removed (-want +got):\n%s", diff)
+	}
+	if got := clean(t, "https://github.com/o/r?ref=main&utm_source=x", linktools.CleanOptions{}).Output; got != "https://github.com/o/r?ref=main" {
+		t.Errorf("github = %s, want ref kept and utm_source gone", got)
+	}
+}
+
 func TestRuleSummaryCountsTheTables(t *testing.T) {
 	t.Parallel()
 	cat := linktools.Rules()

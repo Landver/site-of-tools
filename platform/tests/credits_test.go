@@ -42,12 +42,12 @@ func TestCreditFor(t *testing.T) {
 // Each credit's footer flag prints the words a page-less result carries.
 func TestFooterPrintsEachNotice(t *testing.T) {
 	tags := regexp.MustCompile(`<[^>]*>`)
-	for i, id := range creditIDs {
+	for id, flag := range footerFlags {
 		c, _ := platform.CreditFor(id)
-		page := renderFooter(t, map[string]any{footerFlags[i]: true})
+		page := renderFooter(t, map[string]any{flag: true})
 		text := strings.Join(strings.Fields(html.UnescapeString(tags.ReplaceAllString(page, ""))), " ")
 		if !strings.Contains(text, c.Notice) || !strings.Contains(page, `<a href="`+c.URL+`"`) {
-			t.Errorf("%s's flag %q: the footer lacks its notice or link:\n%s", id, footerFlags[i], text)
+			t.Errorf("%s's flag %q: the footer lacks its notice or link:\n%s", id, flag, text)
 		}
 	}
 }

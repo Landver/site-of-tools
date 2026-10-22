@@ -183,7 +183,11 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 			kept = append(kept, p)
 			continue
 		}
-		res.Removed = append(res.Removed, removalFor(p, r))
+		why := r.Origin + ": " + r.Class.why() + "."
+		if r.Note != "" {
+			why += " " + r.Note
+		}
+		res.Removed = append(res.Removed, Removal{Key: p.key, Value: p.value, Rule: r.name(), Why: why})
 	}
 
 	if opt.Sort {
@@ -256,14 +260,6 @@ func TrackingRuleFor(key string) string {
 		return ""
 	}
 	return r.name()
-}
-
-func removalFor(p rawPair, r Rule) Removal {
-	why := r.Origin + ": " + r.Class.why() + "."
-	if r.Note != "" {
-		why += " " + r.Note
-	}
-	return Removal{Key: p.key, Value: p.value, Rule: r.name(), Why: why}
 }
 
 // ---------------------------------------------------------------------------

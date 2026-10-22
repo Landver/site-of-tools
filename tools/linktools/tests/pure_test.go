@@ -1119,8 +1119,7 @@ func TestEncodeLeadsWithTheReading(t *testing.T) {
 	}
 }
 
-// TestUTMAbsentKeepsEmptyRemoves: a key left out keeps the URL's tag; "" removes
-// every copy of it.
+// TestUTMEmptyKeepsTheURLsTag: an empty or blank value keeps every copy of the URL's own tag.
 func TestUTMEmptyKeepsTheURLsTag(t *testing.T) {
 	t.Parallel()
 	const raw = "https://example.com/?utm_source=old&utm_medium=email&utm_campaign=a&utm_campaign=b&x=1"

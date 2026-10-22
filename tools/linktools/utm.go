@@ -153,8 +153,7 @@ func firstValue(ps []Param, key string) (string, int) {
 	return val, n
 }
 
-// upsertParam sets key to value, replacing the first occurrence and dropping
-// the rest; an empty value removes the key entirely.
+// upsertParam sets key to value, replacing the first occurrence and dropping the rest.
 func upsertParam(ps []Param, key, value string) []Param {
 	out := make([]Param, 0, len(ps)+1)
 	done := false
@@ -163,7 +162,7 @@ func upsertParam(ps []Param, key, value string) []Param {
 			out = append(out, p)
 			continue
 		}
-		if done || value == "" {
+		if done {
 			continue
 		}
 		p.Value, p.RawValue, p.Layers, p.List, p.Delimiter = value, "", nil, nil, ""
@@ -171,7 +170,7 @@ func upsertParam(ps []Param, key, value string) []Param {
 		out = append(out, p)
 		done = true
 	}
-	if !done && value != "" {
+	if !done {
 		out = append(out, Param{Index: len(out) + 1, Key: key, Value: value})
 	}
 	for i := range out {

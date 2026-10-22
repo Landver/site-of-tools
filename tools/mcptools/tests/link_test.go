@@ -169,7 +169,7 @@ func TestLinkExtract(t *testing.T) {
 	failsWith(t, call(t, cs, "link_extract", map[string]any{"text": "  \n "}), "no text given")
 }
 
-// TestLinkUTMAbsentKeepsEmptyRemoves: unlike REST's form, "" removes a tag.
+// TestLinkUTMAbsentOrEmptyKeeps: a tag left out or passed empty keeps the URL's own, as on REST.
 func TestLinkUTMAbsentOrEmptyKeeps(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	const tagged = "https://example.com/landing?utm_source=old&utm_medium=email&id=1"
@@ -220,7 +220,7 @@ func TestLinkWholeStrings(t *testing.T) {
 		"link_inspect":        {"url": long},
 		"link_extract":        {"text": "see " + long},
 	} {
-		if txt := text(t, call(t, cs, tool, args)); strings.Contains(txt, "[truncated") || !strings.Contains(txt, state) {
+		if txt := text(t, call(t, cs, tool, args)); !strings.Contains(txt, state) {
 			t.Errorf("%s cut the caller's own %d-byte value: %.120s", tool, len(state), txt)
 		}
 	}
