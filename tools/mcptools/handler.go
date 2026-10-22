@@ -272,12 +272,11 @@ type catalog struct {
 }
 
 type catalogEndpoint struct {
-	Path        string            `json:"path"`
-	URL         string            `json:"url"`
-	Title       string            `json:"title"`
-	REST        string            `json:"rest,omitempty"`
-	Attribution []platform.Credit `json:"attribution,omitempty"`
-	Tools       []catalogTool     `json:"tools"`
+	Path  string        `json:"path"`
+	URL   string        `json:"url"`
+	Title string        `json:"title"`
+	REST  string        `json:"rest,omitempty"`
+	Tools []catalogTool `json:"tools"`
 }
 
 type catalogTool struct {
@@ -291,18 +290,18 @@ func (t catalogTool) OpenWorld() bool { return *t.Annotations.OpenWorldHint }
 
 func (h *handler) describe(toolURL func(string) string) {
 	h.catalog = catalog{Name: "corpberry", Version: version}
-	add := func(ep *endpoint, title, rest string, cr []platform.Credit) {
+	add := func(ep *endpoint, title, rest string) {
 		tools := make([]catalogTool, len(ep.specs))
 		for i, s := range ep.specs {
 			tools[i] = catalogTool{Name: s.tool.Name, Title: s.tool.Title, Description: s.tool.Description, Annotations: s.tool.Annotations}
 		}
 		h.catalog.Endpoints = append(h.catalog.Endpoints, catalogEndpoint{Path: ep.path, URL: h.base + ep.path,
-			Title: title, REST: rest, Attribution: cr, Tools: tools})
+			Title: title, REST: rest, Tools: tools})
 	}
-	add(h.endpoints[""], "All tools", "", nil)
+	add(h.endpoints[""], "All tools", "")
 	for _, ts := range toolsets {
 		if ep := h.endpoints[ts.name]; ep != nil {
-			add(ep, ts.title, toolURL(ts.host), credits(ts.credits...))
+			add(ep, ts.title, toolURL(ts.host))
 		}
 	}
 }
@@ -340,11 +339,6 @@ func (h *handler) landing(c *echo.Context) error {
 		"Toolsets":  eps[1:],
 		"Example":   example,
 		"Setup":     setup(eps[0].URL, example.URL),
-	}
-	for _, ep := range eps {
-		for _, cr := range ep.Attribution {
-			vm[cr.Flag] = true
-		}
 	}
 	return platform.Reply(c, http.StatusOK, h.catalog, vm, "mcp/index", "mcp/index")
 }

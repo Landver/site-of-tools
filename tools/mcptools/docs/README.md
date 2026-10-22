@@ -118,7 +118,7 @@ Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
    REST twin's limiter and cap; `narrow` (how to ask for less); `whole` when
    the result holds no third-party text.
 3. Map its route in `Coverage`, or give the route an exclusion with a reason.
-4. A new toolset also needs a `toolsets` entry (title, REST host, credits) and
+4. A new toolset also needs a `toolsets` entry (title, REST host) and
    the MCP line on its pages ([ARCHITECTURE §8](../../../docs/ARCHITECTURE.md#8-adding-a-new-tool)).
 5. Add a parity test against the REST twin; `UPDATE_GOLDEN=1` rewrites the
    `tools/list` goldens, then review the diff.
@@ -140,5 +140,5 @@ and agents remember names.
   under 20 KB where REST is over;
 - **the rest**: gate, owner key, shared limits and caps, hang-up
   cancellation, panics, `null` arguments, records without arguments, the
-  sanitizer, the landing page (setup snippets, credits, the MCP line in every
-  terminal block).
+  sanitizer, the landing page (setup snippets, the MCP line in every terminal
+  block).

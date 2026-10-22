@@ -118,8 +118,8 @@
           quote them.
         </li>
         <li>
-          Results built on third-party data carry an <code class="font-mono text-strong">attribution</code> list,
-          the credits in this page's footer.
+          Results built on third-party data carry an <code class="font-mono text-strong">attribution</code> list
+          naming each source and its notice.
         </li>
       </ul>
     </section>
@@ -138,7 +138,6 @@
       <h2 class="eyebrow">{{.Title}}</h2>
       <p class="mt-2 text-sm text-muted">
         {{with .REST}}On the web and as a JSON API at <a href="{{.}}" class="link-inline">{{.}}</a>.{{end}}
-        {{with .Attribution}}Data from {{range $i, $c := .}}{{if $i}}, {{end}}<a href="{{$c.URL}}" class="link-inline">{{$c.Source}}</a>{{end}}.{{end}}
       </p>
       <div class="mt-3 divide-y divide-line rounded-lg border border-line">
         {{range .Tools}}

@@ -106,5 +106,4 @@ every handler. Configure it per user (`claude mcp add --scope user … --header
 - Credits live once, in `platform/credits.go`, for the footer and for MCP
   results' `attribution` ([which tools](01-tool-catalog.md)): IP2Location
   LITE's notice word for word, Spamhaus's copyright line, Shodan's visible
-  credit (non-commercial use), crt.sh, rdap.org. The landing page names each
-  toolset's sources; its footer prints them in full.
+  credit (non-commercial use), crt.sh, rdap.org.

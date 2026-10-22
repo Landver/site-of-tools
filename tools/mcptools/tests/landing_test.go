@@ -75,8 +75,6 @@ func TestLandingPage(t *testing.T) {
 		`data-copy="http://mcp.test/mcp/cipher"`, "cipher_jwt_decode", "Cipher Tools", `href="http://cipher.test"`,
 		`data-copy="http://mcp.test/mcp/botcheck"`, "botcheck_score", `href="http://botcheck.test"`,
 		`data-copy="http://mcp.test/mcp/site"`, "site_blog", `href="https://corpberry.test"`,
-		"IP2Location LITE", "DROP list", "InternetDB", "crt.sh", "rdap.org", // the footer's credits
-		`href="https://lite.ip2location.com"`, // and each toolset's sources
 
 		`id="setup"`,
 		"claude mcp add --scope user --transport http corpberry http://mcp.test/mcp",
@@ -97,10 +95,9 @@ func TestLandingPage(t *testing.T) {
 		t.Errorf("landing page = %d; it must not advertise the owner endpoint or its tools", rec.Code)
 	}
 
-	// Without the dns toolset nothing on the page reads its sources.
 	bare := newStack(t, stackOpts{bare: true}).do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"}).Body.String()
-	if strings.Contains(bare, "crt.sh") || strings.Contains(bare, "rdap.org") || strings.Contains(bare, "/mcp/dns") {
-		t.Errorf("the page credits or lists the dns toolset, which isn't served")
+	if strings.Contains(bare, "/mcp/dns") {
+		t.Errorf("the page lists the dns toolset, which isn't served")
 	}
 }
 
