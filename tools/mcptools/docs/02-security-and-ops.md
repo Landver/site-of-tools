@@ -18,20 +18,22 @@ serves every subdomain), upstreams we are a guest of, the domain's reputation
    so a page can't spend its visitors' key tries.
 5. `/mcp/owner`: the [owner key](#owner-key).
 6. All of `/mcp`, per address: 20/s, burst 100 → 429.
-7. Body over 1 MiB → 413; a JSON-RPC batch → 400 ([why](00-research.md#go-sdk-v180)).
+7. Body over 1 MiB → 413; a JSON-RPC batch → 400.
 8. A foreign `Origin` is served and logged (`mcp: foreign Origin`).
 9. Raw IP, host, user agent and HTTP context into the context.
 
 Echo's exact-Host vhost map stops DNS rebinding, so the SDK's localhost check
 (it would 403 dev's `mcp.localhost:8080`) is off. A page can't make a browser
 post here (anything but JSON gets 415; cross-origin JSON fails its preflight),
-so the spec's 403 for a foreign `Origin` waits for an allowlist ([why](00-research.md#clients)).
+so the spec's 403 for a foreign `Origin` waits for an allowlist: claude.ai's
+connectors call from Anthropic's cloud with an undocumented `Origin`, and Go's
+`CrossOriginProtection` would 403 any `Origin` that isn't the `Host`.
 
 ## Middleware
 
 `middleware.go`, per JSON-RPC message:
 
-1. `"arguments": null` is read as none ([SDK quirks](00-research.md#go-sdk-v180)).
+1. `"arguments": null` is read as none.
 2. `recover` → an "Internal error" result, stack logged without arguments.
 3. Deadline: 25 s IP, DNS and botcheck tools, 20 s `link_redirect_chain` and
    owner tools, 15 s heavy cipher, 5 s the rest and other methods; a hang-up

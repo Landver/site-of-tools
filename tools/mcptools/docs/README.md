@@ -9,9 +9,8 @@ clients, official `go-sdk` v1.8.0. Public tools need no account or key.
 | Doc | Holds |
 |---|---|
 | this file | endpoints, request flow, decisions, what is left, adding a tool, tests |
-| [01-tool-catalog.md](01-tool-catalog.md) | each tool's REST twin and how it differs; what isn't a tool |
+| [01-tool-catalog.md](01-tool-catalog.md) | where each tool differs from its REST twin |
 | [02-security-and-ops.md](02-security-and-ops.md) | threats, gate, middleware, egress, limits, sanitizer, owner key, logs, licences |
-| [00-research.md](00-research.md) | the spec, SDK and client facts the code relies on, with sources |
 
 ## Endpoints
 
@@ -19,7 +18,7 @@ clients, official `go-sdk` v1.8.0. Public tools need no account or key.
 |---|---|
 | `/` | landing page: endpoints, per-client setup, every tool; the same catalog as JSON for non-browsers |
 | `/mcp` | all 35 public tools, for clients with tool search (Claude Code) |
-| `/mcp/ip` · `/mcp/dns` · `/mcp/link` · `/mcp/cipher` · `/mcp/botcheck` · `/mcp/site` | one toolset each (2, 5, 11, 15, 1, 1 tools), for every other client |
+| `/mcp/ip` · `/mcp/dns` · `/mcp/link` · `/mcp/cipher` · `/mcp/botcheck` · `/mcp/site` | one toolset each, for every other client |
 | `/mcp/owner` | the owner's 3 short-link tools, behind `MCP_OWNER_KEY`; never advertised |
 
 A browser `GET` on a public endpoint gets the landing page. Tool lists are
@@ -28,24 +27,11 @@ CT URLs, the owner key) removes its tools, and a toolset left with none is a 404
 
 ## Request flow
 
-```
-POST /mcp/dns   tools/call dns_lookup {"name": "example.com"}
-  │  Cloudflare → nginx → Echo vhost (platform.NewApp: recover, request log, headers, gzip)
-  ▼
-gate        handler.go serve: endpoint · browser page · Sec-Fetch-Site · owner key ·
-            per-IP limit · 1 MiB body, no batches · Origin log · caller into ctx
-  ▼
-SDK         StreamableHTTPHandler, stateless + JSON: validates arguments, fills defaults
-  ▼
-middleware  middleware.go, per message: recover · deadline · rate · cap · tool ·
-            sanitize · record
-  ▼
-adapter     dns.go: typed args → dnstools.LookupEnriched → concise projection + attribution
-  ▼
-domain      the call GET dns.corpberry.com/ makes, on the same dnstools.Limits
-```
+`POST /mcp/dns` → gate (`handler.go` `serve`) → SDK (stateless, JSON;
+validates arguments, fills defaults) → `middleware.go`, per message → adapter
+(`dns.go`) → the call and `dnstools.Limits` `GET dns.corpberry.com/` uses.
+Each step's rules are in [02](02-security-and-ops.md).
 
-Each step's rules are in [02-security-and-ops.md](02-security-and-ops.md).
 Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
 `server.go` (one `*mcp.Server` per endpoint, boot checks), `middleware.go`,
 `registry.go` (`toolSpec`, deadlines, `toolsets`, `Coverage`), `schema.go`
@@ -57,7 +43,7 @@ Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
   `jsonschema-go`; tool packages, ciphertools' wasm build included, never do.
 - **Stateless, JSON responses only**: no sessions, no SSE.
 - **Toolsets by path.** Clients without tool search load every tool into the
-  model's context ([limits](00-research.md#clients)), so each toolset has a URL.
+  model's context, so each toolset has a URL.
 - **One tool per task.** No operation switches; reads and writes never share
   a tool; same-task routes share one (`GET`/`POST /extract`), a two-task route
   splits (`/curl` → parse, build).
@@ -67,10 +53,10 @@ Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
 - **Contracts come from the domain**: enums, defaults and bounds are read at
   boot (`dnstools.Types`, `linktools.Personas`, ciphertools' field specs).
 - **Results** are the REST body as `structuredContent` (always an object) plus
-  the same JSON as text; concise by default where the REST body passes ~20 KB,
-  `detailed: true` for all of it.
+  the same JSON as text; concise by default where the REST body passes ~20 KB
+  (Claude Code warns past 10K tokens), `detailed: true` for all of it.
 - **No `outputSchema`**, so a schema slip can't turn a good result into a
-  protocol error ([SDK](00-research.md#go-sdk-v180)).
+  protocol error.
 - **Errors are tool errors** (`isError`) with the REST message, so the model
   can fix its call.
 - **One budget per client per tool package**, whichever door
@@ -78,9 +64,6 @@ Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
 - **No auth on public tools**, as on REST. The owner's short-link tools live
   on their own endpoint with their own key, never beside tools that return
   third-party text.
-- **Server metadata**: capabilities are tools only (`listChanged: false`);
-  lists are cached an hour (`public`, `private` on `/mcp/owner`); each
-  endpoint's `instructions` name only its own tools.
 - **Licensed data stays**, credited in each result ([licences](02-security-and-ops.md#logs-and-licences)).
 - **Discovery**: the landing page, an MCP line closing every tool page's
   terminal block, the apex tools index, then the MCP Registry.
@@ -89,11 +72,7 @@ Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
 
 ## Left outside the repo
 
-1. **Launch** ([DEPLOYMENT §3–5](../../../docs/DEPLOYMENT.md#3-nginx-per-subdomain)):
-   the proxied Cloudflare `mcp` record, the nginx block, a check that the proxy
-   accepts only Cloudflare, Bot Fight Mode off, `EGRESS_DENY_ADDRS` and
-   `MCP_OWNER_KEY` in `.env.prod`; then `claude mcp add` and a claude.ai custom
-   connector against prod.
+1. **Launch**: [DEPLOYMENT §3–5](../../../docs/DEPLOYMENT.md#3-nginx-per-subdomain).
 2. **Origin allowlist**: once the `mcp: foreign Origin` log lines show what
    hosted clients send, allow those and answer 403 to every other foreign
    `Origin`, as the spec requires ([why it waits](02-security-and-ops.md#gate)).
@@ -127,17 +106,5 @@ and agents remember names.
 
 ## Tests
 
-`tests/` runs offline (fakes, in-memory and `httptest` clients):
-
-- **coverage**: every REST route has a `Coverage` entry, 41 map to tools, and
-  every served tool has a route;
-- **`tools/list` goldens** per endpoint, `/mcp` = their union, size budgets
-  (3 KB a tool, 32 KB a toolset, 64 KB for `/mcp`), cache scope and TTL,
-  instructions naming only served tools;
-- **results**: parity with each REST twin's body as projected; every tool
-  answers an object given only its required arguments; concise results stay
-  under 20 KB where REST is over;
-- **the rest**: gate, owner key, shared limits and caps, hang-up
-  cancellation, panics, `null` arguments, records without arguments, the
-  sanitizer, the landing page (setup snippets, the MCP line in every terminal
-  block).
+`tests/` runs offline (fakes, in-memory and `httptest` clients); each file is
+named for what it pins.
