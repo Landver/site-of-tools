@@ -11,14 +11,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Extraction is every URL found in a block of pasted text (A18,
-// docs/01-feature-inventory.md). It is a front door onto Parse rather than a
-// feature of its own: the page's job is to hand each row on to Inspect or Clean.
-//
-// Nothing here fetches anything. The job is "audit every link in this newsletter
-// before it goes out", and the surveyed tools that do it all fetch every URL
-// they find (docs/reports/), which is both slower and a different, riskier
-// promise.
+// Extraction is every URL found in pasted text (A18); nothing is fetched, unlike the surveyed tools.
 type Extraction struct {
 	URLs   []ExtractedURL `json:"urls"`
 	Total  int            `json:"total"`  // occurrences listed, before de-duplication
@@ -27,8 +20,7 @@ type Extraction struct {
 	Notes  []Note         `json:"notes,omitempty"`
 }
 
-// ExtractedURL is one distinct URL, in the order it was first seen. Flags are
-// what, read off its text alone, should stop someone sending it.
+// ExtractedURL is one distinct URL in first-seen order; Flags are what its text alone says to worry about.
 type ExtractedURL struct {
 	URL       string   `json:"url"`
 	Anchor    string   `json:"anchor,omitempty"`    // first non-empty link text, whitespace collapsed
@@ -46,28 +38,18 @@ const (
 )
 
 const (
-	// maxExtractInput bounds what is scanned at all. A megabyte is a very large
-	// newsletter and a very cheap denial of service; this route is reachable
-	// unauthenticated, the same reasoning as url.go's maxInput.
+	// maxExtractInput caps what is scanned: the route is unauthenticated and a megabyte is a cheap DoS.
 	maxExtractInput = 1 << 20
-	// maxExtractURLs bounds the table. Two thousand distinct links is already
-	// past the point where a human reads the page, and an input can carry far
-	// more than that per megabyte.
+	// maxExtractURLs caps the table: past two thousand rows no human reads the page.
 	maxExtractURLs = 2000
-	// maxPositions bounds one row. Count stays exact; only the offset list stops
-	// growing, because a thousand repeats of one URL is a number, not a list.
+	// maxPositions caps one row's offsets; Count stays exact.
 	maxPositions = 100
 	// maxAnchorText keeps one runaway link text from owning the table.
 	maxAnchorText = 200
 	maxAnchors    = 5
 )
 
-// Extract pulls every URL out of pasted text, deduplicated and counted.
-//
-// It never opens a connection — not to resolve a relative href, not to check
-// that a link works. Relative links are listed exactly as written, because
-// resolving them would need a base URL this function was not given and guessing
-// one would invent links that are not in the input.
+// Extract lists every URL in text, deduped; relative links stay as written, as resolving needs a base URL.
 func (s *Service) Extract(text string) (*Extraction, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("no text given")
@@ -95,9 +77,7 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 	for _, f := range hits {
 		u := strings.TrimSpace(f.url)
 		if u == "" || strings.HasPrefix(u, "#") {
-			// An empty href and a bare "#top" are links on the page but not URLs
-			// anyone can inspect. Everything else stays, including
-			// "javascript:…", which is precisely what this suite exists to show.
+			// "" and "#top" aren't inspectable; "javascript:…" stays: showing it is what this suite is for.
 			continue
 		}
 		if i, ok := seen[u]; ok {
@@ -148,8 +128,7 @@ func (s *Service) Extract(text string) (*Extraction, error) {
 	return out, nil
 }
 
-// addAnchor keeps the first text as Anchor and every distinct one in Anchors:
-// two texts are two claims about where a link goes.
+// addAnchor keeps every distinct text, not just the first: two texts are two claims about the destination.
 func (r *ExtractedURL) addAnchor(a string) {
 	if a == "" || slices.Contains(r.Anchors, a) || len(r.Anchors) >= maxAnchors {
 		return
@@ -233,8 +212,7 @@ func hostInText(a string) string {
 	return strings.ToLower(host)
 }
 
-// sameSite: the link goes where its text says, or to a subdomain of it.
-// "www.paypal.com" over paypal.com.example.net is not.
+// sameSite: the link goes where its text says or to a subdomain; paypal.com.example.net is not paypal.com.
 func sameSite(shown, host string) bool {
 	shown, host = strings.TrimPrefix(shown, "www."), strings.TrimPrefix(host, "www.")
 	return host == shown || strings.HasSuffix(host, "."+shown)
@@ -248,27 +226,15 @@ type found struct {
 }
 
 var (
-	// htmlishRe: a real tag carrying a real link attribute, or a document
-	// preamble. Deliberately narrow — Markdown routinely contains stray angle
-	// brackets and an autolink like <https://x> is not markup.
+	// htmlishRe is deliberately narrow: Markdown has stray angle brackets, and <https://x> is not markup.
 	htmlishRe = regexp.MustCompile(`(?is)<(?:!doctype\s+html|html[\s>]|/?(?:body|head|div|p|table|td|tr|span|br)[\s/>]|[a-z][a-z0-9]*\s[^<>]*\b(?:href|src|action)\s*=)`)
-	// mdLinkRe: "[text](url)", with CommonMark's two target spellings — bare, or
-	// wrapped in <> — and an optional title after it. The <> form is a separate
-	// alternative rather than an optional pair of brackets because it is the
-	// only one allowed to contain a space, which is the whole reason CommonMark
-	// has it. Nested parentheses in a bare target are not handled; that also
-	// needs the <> form.
+	// mdLinkRe: "[text](url)"; the <> target is a separate branch, being the only form allowed a space.
 	mdLinkRe = regexp.MustCompile(`\[([^\]\n]*)\]\(\s*(?:<([^>\n]*)>|([^)\s<>]*))(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)`)
-	// bareURLRe: a scheme-carrying URL in running text. The excluded bytes are
-	// the ones that end a URL in prose or in markup — quotes, angle brackets,
-	// braces — while parentheses stay in and are balanced afterwards.
+	// bareURLRe stops at quotes, angle brackets and braces; parentheses stay in and are balanced afterwards.
 	bareURLRe = regexp.MustCompile("(?i)\\b(?:(?:https?|ftps?|wss?)://|mailto:)[^\\s<>\"'`{}|\\\\^\\[\\]]+")
 )
 
-// detectSource decides how to read the input, and the answer is reported rather
-// than assumed, because reading Markdown as plain text quietly loses every
-// anchor text and reading HTML as text finds URLs inside <script> that are not
-// links.
+// detectSource picks the reader: Markdown read as text loses anchors, HTML read as text finds <script> URLs.
 func detectSource(text string) string {
 	switch {
 	case htmlishRe.MatchString(text):
@@ -280,15 +246,8 @@ func detectSource(text string) string {
 	}
 }
 
-// extractHTML walks markup with x/net/html's tokeniser and pulls href, src and
-// action, plus the anchor text of every <a>.
-//
-// The tokeniser rather than html.Parse: a paste is usually a fragment and often
-// malformed, and a tokeniser reports what is written instead of what a browser
-// would repair it into. Positions are the byte offset of the token that carried
-// the link, accumulated from Raw() because the tokeniser exposes no offset of
-// its own; inside a text run the offset is the run's start, since Text() has
-// already resolved entities and its indices no longer map to the input.
+// extractHTML uses the tokeniser, not html.Parse, so a malformed fragment reads as written, not as repaired.
+// Offsets sum Raw() lengths; within a text run they are the run's start, as Text() has resolved entities.
 func extractHTML(text string) []found {
 	var out []found
 	z := html.NewTokenizer(strings.NewReader(text))
@@ -296,8 +255,7 @@ func extractHTML(text string) []found {
 	inAnchor, pending, pendingLabel, pendingPos := false, "", "", 0
 	offset := 0
 
-	// flush closes the <a> currently open. Called on </a>, on a second <a>
-	// before one closed, and at EOF, because an unclosed <a> still had an href.
+	// flush closes the open <a>, also at EOF: an unclosed <a> still had an href.
 	flush := func() {
 		if !inAnchor {
 			return
@@ -314,8 +272,7 @@ func extractHTML(text string) []found {
 	for {
 		tt := z.Next()
 		start := offset
-		// Take the length first: Raw's backing array is reused by TagName and
-		// TagAttr, which the loop calls below.
+		// Take the length first: TagName and TagAttr below reuse Raw's backing array.
 		offset += len(z.Raw())
 
 		switch tt {
@@ -327,8 +284,7 @@ func extractHTML(text string) []found {
 				anchorText.Write(z.Text())
 				continue
 			}
-			// Outside a link, a bare URL in the page text is still a URL
-			// someone wants to check. Inside one it would count the href twice.
+			// A bare URL in page text still counts; inside an <a> it would count the href twice.
 			out = append(out, extractBare(string(z.Text()), start)...)
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, hasAttr := z.TagName()
@@ -364,11 +320,7 @@ func extractHTML(text string) []found {
 	}
 }
 
-// extractMarkdown pulls "[text](url)" links, then the bare URLs around them.
-//
-// The inline-link spans are blanked before the bare scan so the same URL is not
-// counted twice from inside its own parentheses, and the two sets are merged by
-// position so the table still reads in document order.
+// extractMarkdown blanks link spans before the bare scan so no URL counts twice, then merges by position.
 func extractMarkdown(text string) []found {
 	var out []found
 	rest := []byte(text)
@@ -389,13 +341,7 @@ func extractMarkdown(text string) []found {
 	return out
 }
 
-// extractBare finds scheme-carrying URLs in running text. base is added to every
-// offset, so a caller scanning one piece of a larger document still reports
-// positions into the original.
-//
-// A bare "www.example.com" is not matched. It is indistinguishable from a
-// sentence containing a hostname, and a link extractor that guesses invents
-// links that were never in the text.
+// extractBare finds scheme-carrying URLs, offsets shifted by base; a bare "www.x.com" is never guessed at.
 func extractBare(text string, base int) []found {
 	var out []found
 	for _, m := range bareURLRe.FindAllStringIndex(text, -1) {
@@ -406,13 +352,7 @@ func extractBare(text string, base int) []found {
 	return out
 }
 
-// trimTrailingPunct drops the punctuation that ended the sentence rather than
-// the URL.
-//
-// Parentheses are balanced instead of simply stripped, because
-// ".../wiki/Go_(language)" is a real URL and "(see https://x.com/a)" is a real
-// sentence, and the only thing telling them apart is whether the closing
-// parenthesis has a partner inside the match.
+// trimTrailingPunct balances ')': "…/Go_(language)" is a URL, "(see https://x.com/a)" is a sentence.
 func trimTrailingPunct(s string) string {
 	for len(s) > 0 {
 		switch s[len(s)-1] {
@@ -430,8 +370,7 @@ func trimTrailingPunct(s string) string {
 	return s
 }
 
-// tidyAnchor collapses a link text to one line and caps it. The table shows it
-// beside the URL, so a paragraph of alt text would push the URL off the screen.
+// tidyAnchor collapses link text to one capped line so alt text can't push the URL off screen.
 func tidyAnchor(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > maxAnchorText {
@@ -440,8 +379,7 @@ func tidyAnchor(s string) string {
 	return s
 }
 
-// truncateUTF8 cuts s to at most n bytes without splitting a rune, so a
-// truncated paste stays valid UTF-8 and the JSON encoder has nothing to repair.
+// truncateUTF8 cuts s to at most n bytes without splitting a rune.
 func truncateUTF8(s string, n int) string {
 	if len(s) <= n {
 		return s

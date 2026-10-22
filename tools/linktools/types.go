@@ -1,21 +1,12 @@
-// Package linktools powers link.corpberry.com: a suite of URL tools sharing one
-// parser. Parsing, cleaning, unwrapping and rebuilding are pure and open no
-// connections; only Trace and the short-link store reach outside the process.
-//
-// Layering follows docs/ARCHITECTURE.md §4 — everything in this file and its
-// neighbours returns structs and knows nothing about HTTP. handler.go is the
-// only file that imports echo.
+// Package linktools powers link.corpberry.com; only Trace and the short-link store open connections.
 package linktools
 
 import "errors"
 
-// ErrDisabled: a dependency this route needs is switched off (no Mongo, no API
-// key, no tracer). Handlers turn it into 503, never 502: nothing failed, the
-// feature simply is not running. Mirrors iptools.ErrUnavailable.
+// ErrDisabled means a dependency is switched off (no Mongo, key or tracer): a 503, never a 502.
 var ErrDisabled = errors.New("feature is not enabled")
 
-// Kind classifies a parameter value so the template can render it usefully and
-// so the decode ladder knows whether to descend. Empty means "ordinary string".
+// Kind classifies a value for display and for the decode ladder; empty means an ordinary string.
 type Kind string
 
 const (
@@ -31,8 +22,7 @@ const (
 	KindEmail     Kind = "email"
 )
 
-// Severity vocabulary shared with the note partial, matching dnstools so the
-// templates and the aria labels read the same across tools.
+// Severity vocabulary shared with the note partial, matching dnstools.
 const (
 	SevFail = "fail"
 	SevWarn = "warn"
@@ -54,20 +44,14 @@ type Layer struct {
 	Value  string `json:"value"`
 }
 
-// Segment is one decoded path segment, kept alongside its escaped form because
-// %2F inside a segment is not a separator and collapsing the two changes the
-// meaning of the path.
+// Segment keeps a path segment's escaped form too: %2F inside a segment is not a separator.
 type Segment struct {
 	Index   int    `json:"index"`
 	Raw     string `json:"raw"`
 	Decoded string `json:"decoded"`
 }
 
-// Param is one key=value pair, in the order it appeared.
-//
-// Repeated keys produce one Param each. Every hosted parser surveyed either
-// collapses them to last-wins or hides them in a map, and both lose a real class
-// of bug — see docs/reports/jsonutilities-query-string-parser.md.
+// Param is one key=value pair in order; a repeated key gets its own Param, never collapsed to last-wins.
 type Param struct {
 	Index     int      `json:"index"`
 	Key       string   `json:"key"`
@@ -86,13 +70,8 @@ type Param struct {
 	Nested    string   `json:"nested,omitempty"`    // the http(s) URL inside, once decoded
 }
 
-// Inspection is one parsed URL. Field order mirrors the URL's own left-to-right
-// shape so a template can walk it without reordering.
-//
-// Parse opens no connection. The URL does still reach Mongo, stdout, nginx and
-// Cloudflare through the ordinary request path, which is why platform.RedactURI
-// exists — see docs/06-security-and-abuse.md §5. "We don't fetch it" is the
-// honest claim; "it never leaves the box" is not.
+// Inspection is one parsed URL, fields in its left-to-right order. Parse opens no connection, but the URL
+// still reaches logs and the CDN through the request path, hence platform.RedactURI.
 type Inspection struct {
 	Input       string    `json:"input"`
 	Canonical   string    `json:"canonical,omitempty"`

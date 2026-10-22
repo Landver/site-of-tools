@@ -8,13 +8,7 @@ import (
 	"strings"
 )
 
-// A13 — compare two URLs. No new parsing logic: this is a second view over two
-// Inspections that Parse already produced, which is why it is forty lines
-// rather than four hundred.
-//
-// The case it exists for is "why does staging behave differently from
-// production", where the answer is almost always one parameter that is present
-// on one side, or reordered, or subtly different.
+// Comparing two URLs is a second view over two Parse results; no new parsing logic lives here.
 
 // ChangeKind names what happened to one parameter between two URLs.
 type ChangeKind string
@@ -37,9 +31,7 @@ type ParamChange struct {
 	IndexB int        `json:"index_b,omitempty"`
 }
 
-// FieldChange is one differing component outside the query. Cosmetic marks a
-// difference of spelling, not meaning (host case, a default port, a dot
-// segment, escape case): listed, but not counted against Identical.
+// FieldChange is a differing part outside the query; Cosmetic ones (host case, default port) keep Identical.
 type FieldChange struct {
 	Field    string `json:"field"`
 	A        string `json:"a,omitempty"`
@@ -77,22 +69,14 @@ func sideError(side string, err error) error {
 	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
 
-// DiffInspections compares two parsed URLs.
-//
-// Repeated keys are compared positionally within the key, not collapsed, for
-// the same reason Parse keeps them apart: ?id=1&id=2 versus ?id=2&id=1 is a real
-// difference and a map-based diff cannot see it.
+// DiffInspections compares repeated keys by position, never collapsed: ?id=1&id=2 vs ?id=2&id=1 differ.
 func DiffInspections(a, b *Inspection) *Diff {
 	d := &Diff{A: a.Input, B: b.Input}
 
 	// Values as written (av, bv) and normalised (an, bn).
 	for _, f := range []struct{ name, av, bv, an, bn string }{
 		{"scheme", a.Scheme, b.Scheme, strings.ToLower(a.Scheme), strings.ToLower(b.Scheme)},
-		// opaque carries the ENTIRE payload of a non-hierarchical URL
-		// (mailto:, tel:, javascript:, data:, magnet:). Omitting it made this
-		// function report "javascript:alert(1)" and "javascript:fetch(...)" as
-		// equivalent — an affirmative false claim from the one tool whose job is
-		// saying what differs.
+		// opaque is the whole payload of mailto:, javascript: etc.; skip it and two scripts look equal.
 		{"opaque", a.Opaque, b.Opaque, a.Opaque, b.Opaque},
 		{"host", a.Host, b.Host, normalHost(a), normalHost(b)},
 		{"port", a.Port, b.Port, normalPort(a), normalPort(b)},
@@ -105,10 +89,7 @@ func DiffInspections(a, b *Inspection) *Diff {
 			d.Fields = append(d.Fields, FieldChange{Field: f.name, A: f.av, B: f.bv, Cosmetic: f.an == f.bn})
 		}
 	}
-	// Passwords are deliberately never captured (Inspection.HasPass is a bool,
-	// docs/06-security-and-abuse.md §8), so presence can be compared but value
-	// cannot. Report the presence difference, and below refuse to claim
-	// equivalence whenever either side has one.
+	// Passwords are never captured (docs/06-security-and-abuse.md §8), so only presence is compared.
 	if a.HasPass != b.HasPass {
 		d.Fields = append(d.Fields, FieldChange{
 			Field: "password",
@@ -141,9 +122,7 @@ func DiffInspections(a, b *Inspection) *Diff {
 	// Order is load-bearing for signed URLs, so a move is named.
 	markMoves(d.Params)
 
-	// Two URLs both carrying a password can never be declared equivalent: the
-	// values were never captured, so the claim is unverifiable either way. Say
-	// that, rather than asserting equality we cannot stand behind.
+	// Two URLs that both carry a password can't be called equivalent: the values were never captured.
 	undecidable := a.HasPass && b.HasPass
 	d.Identical = !hasRealField(d.Fields) && !hasRealChange(d.Params) && !undecidable
 	if undecidable {
@@ -161,10 +140,8 @@ func DiffInspections(a, b *Inspection) *Diff {
 	return d
 }
 
-// markMoves marks the unchanged pairs that moved relative to the others: those
-// outside the longest run whose B positions rise in A order (on a tie, the run
-// keeping more exact positions). Absolute positions can't decide it: one
-// deletion shifts everything after it.
+// markMoves marks unchanged pairs outside the longest run whose B positions rise in A order (ties keep more
+// exact positions); absolute positions can't decide it, as one deletion shifts everything after it.
 func markMoves(cs []ParamChange) {
 	var same []int // indexes into cs of unchanged pairs present on both sides
 	for i, c := range cs {
@@ -221,8 +198,7 @@ func normalPort(in *Inspection) string {
 	return in.Port
 }
 
-// normalPath resolves dot segments and escapes; an empty http(s) path is "/"
-// (RFC 3986 §6.2.3).
+// normalPath resolves dot segments and escapes; an empty http(s) path is "/" (RFC 3986 §6.2.3).
 func normalPath(in *Inspection) string {
 	p := normalizeEscapes(removeDotSegments(in.Path))
 	if p == "" && in.Host != "" && (strings.EqualFold(in.Scheme, "http") || strings.EqualFold(in.Scheme, "https")) {
@@ -231,8 +207,7 @@ func normalPath(in *Inspection) string {
 	return p
 }
 
-// normalizeEscapes applies RFC 3986 §6.2.2: uppercase hex, unreserved
-// characters unescaped. %2F stays escaped: it is not a slash.
+// normalizeEscapes: RFC 3986 §6.2.2, uppercase hex and unreserved unescaped; %2F stays, it is not a slash.
 func normalizeEscapes(s string) string {
 	if !strings.Contains(s, "%") {
 		return s
@@ -278,8 +253,7 @@ func groupByKey(ps []Param) map[string][]Param {
 	return m
 }
 
-// orderedKeys returns every key in either URL, in first-seen order across A
-// then B, so the rendered diff reads in the order the URLs are written.
+// orderedKeys lists keys in first-seen order across A then B, so the diff reads as the URLs are written.
 func orderedKeys(a, b []Param) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -370,10 +344,7 @@ func (d *Diff) Summary() string {
 		out = append(out, "URL parts: "+strconv.Itoa(real)+" different.")
 	}
 	if len(out) == 0 {
-		// Reachable when the only reason these are not identical is something
-		// that cannot be counted — today, two URLs that both carry a password.
-		// Returning an empty heading would be a worse answer than saying plainly
-		// that we cannot tell.
+		// Reachable when only something uncountable differs (two passwords); an empty heading would be worse.
 		return "Nothing comparable differs, but these cannot be called equivalent: see the note below."
 	}
 	return strings.Join(out, " ")

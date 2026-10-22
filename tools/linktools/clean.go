@@ -10,64 +10,24 @@ import (
 	"strings"
 )
 
-// Cleaning and unwrapping — A4 and A16. Both are pure string work and neither
-// opens a connection, ever.
-//
-// THE INVARIANT, which is docs/04-short-links.md §9 and the reason the two
-// operations are separate functions rather than one option:
-//
-//   - CLEANING ONLY EVER DELETES QUERY PARAMETERS. It never rewrites scheme,
-//     host, port, path or fragment. This file achieves that structurally: Clean
-//     cuts the raw input into prefix / query / fragment, rebuilds only the
-//     query out of the surviving pairs' ORIGINAL BYTES, and splices the other
-//     two back untouched. Nothing is re-encoded, so a percent-escape a
-//     signature covers survives byte for byte.
-//
-//   - UNWRAPPING DOES CHANGE THE HOST. That makes it a separate, explicitly
-//     requested operation — CleanOptions.Unwrap, never implied by `clean: true`
-//     on the short-link create path — and ANYTHING UNWRAPPED MUST BE RE-PARSED
-//     AND RE-VALIDATED BY THE CALLER before it is stored or rendered as a link.
-//     Unwrapping an attacker-supplied Safe Links wrapper is exactly how a
-//     file:// or an internal host gets smuggled past a validation that ran on
-//     the wrapper. short.go's validateTarget is that second check.
-//
-// Rule tables live in rules.go; this file is the machinery that reads them.
-// Wrapper formats come from docs/reports/wrapper-formats.md, all of them
-// executed against a stated input before being written down.
+// Cleaning only ever deletes query pairs, splicing kept ones back as original bytes so signatures survive.
+// Unwrapping changes the host, so callers must re-validate what it returns (short.go's validateTarget).
 
-// Bounds. Every one of these is reachable unauthenticated, so the cost of a
-// hostile input is capped by arithmetic rather than by goodwill.
+// Every path here is reachable unauthenticated, so hostile input is capped by arithmetic.
 const (
 	maxUnwrapHops  = 5 // Safe Links around urldefense is routine where both are deployed
 	maxDecodeRungs = 4 // decode-once-then-test, with room for a genuine double encode
 )
 
-// CleanOptions are the three choices the page offers.
-//
-// Sort is OFF by default and stays that way. Reordering a query makes two URLs
-// comparable and breaks every signed one whose signature covers the literal
-// string — Azure SAS, CloudFront policies, any hand-rolled HMAC. A5 says the
-// same thing (docs/01-feature-inventory.md#a5) and it is the one option here
-// whose default is a correctness decision rather than a taste one.
-//
-// StripAffiliate is OFF by default for a different reason: stripping gclid
-// costs an advertiser a data point, stripping an Associates tag takes money
-// from whoever wrote the review the user followed. Those are different
-// decisions and the second one should be made deliberately.
+// CleanOptions defaults matter: Sort is off because reordering breaks signed URLs (SAS, CloudFront, HMAC),
+// StripAffiliate is off because dropping a tag takes money from whoever shared the link.
 type CleanOptions struct {
 	Sort           bool
 	StripAffiliate bool
 	Unwrap         bool
 }
 
-// Removal is one deleted parameter. The value is echoed back so the deletion is
-// reversible, and Rule names the rule that did it: A4 promises the output
-// "names every parameter removed and the rule that removed it", which is what
-// makes a wrong rule reportable instead of invisible. Why is never empty.
-//
-// This supersedes the `Removed` sketch in the tracking report §7: the origin
-// and class it carried as separate fields are folded into Rule and Why, because
-// four fields that must always be read together are one sentence.
+// Removal echoes the deleted value and names the rule, so a wrong rule is reportable instead of invisible.
 type Removal struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -75,9 +35,7 @@ type Removal struct {
 	Why   string `json:"why"`
 }
 
-// CleanResult is the whole answer. Output equals Input byte for byte when
-// nothing was removed, which is the cheapest possible proof of the invariant
-// above.
+// CleanResult.Output equals Input byte for byte when nothing was removed.
 type CleanResult struct {
 	Input     string    `json:"input"`
 	Output    string    `json:"output"`
@@ -87,11 +45,7 @@ type CleanResult struct {
 	Notes     []Note    `json:"notes,omitempty"`
 }
 
-// Clean strips the tracking parameters from raw and reports what went.
-//
-// When opt.Unwrap is set it unwraps FIRST and then cleans the target, because
-// cleaning the wrapper's own query would only delete the wrapper's bookkeeping.
-// The result carries a warning that the host changed, because it did.
+// Clean strips tracking parameters from raw, unwrapping first when asked so the target gets cleaned.
 func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -131,8 +85,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
-	// A relative reference is valid and comes back untouched
-	// (TestCleanRejectsEmptyInput); with no query, say what it is.
+	// A relative reference is valid and comes back untouched; with no query, say what it is.
 	if u.Scheme == "" && u.Host == "" && u.RawQuery == "" {
 		res.Notes = append(res.Notes, Note{SevWarn, "Not a whole link",
 			"There is no scheme, host or query here, so there was nothing to clean. If you meant to paste a link, paste all of it, starting with https://."})
@@ -152,11 +105,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	prefix, query, frag, hasQuery, hasFrag := splitParts(work)
 	pairs := splitRawPairs(query)
 
-	// Presigned URLs are all-or-nothing. AWS's canonical query string covers
-	// every parameter except X-Amz-Signature itself, so deleting ANY parameter
-	// invalidates the signature — including a genuine utm_source somebody
-	// appended by hand. The only correct behaviour is to touch nothing and say
-	// why (tracking report §2).
+	// Presigned URLs are all-or-nothing: the signature covers every other parameter, so touch nothing.
 	if reason, signed := looksSigned(pairs); signed {
 		res.Output = work
 		res.Notes = append(res.Notes, Note{SevWarn, "Signed URL: nothing removed",
@@ -173,8 +122,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 		}
 		r, ok := lookupTracking(p.key, host, opt.StripAffiliate)
 		if !ok {
-			// Name what the affiliate checkbox would have caught, so the option
-			// is discoverable without being on.
+			// Name what the affiliate option would have caught, so it is discoverable while off.
 			if !opt.StripAffiliate {
 				if a, hit := lookupTracking(p.key, host, true); hit && a.Class == ClassAffiliate {
 					affiliate = append(affiliate, p.key)
@@ -191,8 +139,7 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	}
 
 	if opt.Sort {
-		// Stable, so repeated keys keep their relative order — collapsing those
-		// is exactly the bug url.go refuses to have.
+		// Stable, so repeated keys keep their relative order.
 		slices.SortStableFunc(kept, func(a, b rawPair) int { return strings.Compare(a.key, b.key) })
 		if name, risky := looksSignable(pairs); risky {
 			res.Notes = append(res.Notes, Note{SevWarn, "Sorting a signed URL",
@@ -223,18 +170,8 @@ func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
 	return res, nil
 }
 
-// Unwrap recovers the real target from a known wrapper. Offline only: it reads
-// the string it was given and never opens a connection, which is the whole
-// argument for A16 existing separately from A6 Trace.
-//
-// Returns ok=false for anything it does not recognise, and for the opaque
-// shorteners on purpose — t.co, lnkd.in and bit.ly keep the mapping
-// server-side, so there is nothing in the string to recover and claiming
-// otherwise would be a lie the UI then has to apologise for.
-//
-// A partial wrapper (Mimecast) returns its NAME with ok=false: something was
-// recognised, but what came out is a bare domain, not a URL. Clean surfaces
-// that as a note; a caller of Unwrap must not treat it as a destination.
+// Unwrap recovers a known wrapper's target offline; opaque shorteners (t.co, bit.ly) give ok=false.
+// A partial wrapper (Mimecast) returns its name with ok=false: it holds a bare domain, not a URL.
 func (s *Service) Unwrap(raw string) (target string, wrapper string, ok bool) {
 	t, name, partial, got := unwrapAll(strings.TrimSpace(raw))
 	if !got {
@@ -246,14 +183,8 @@ func (s *Service) Unwrap(raw string) (target string, wrapper string, ok bool) {
 	return t, name, true
 }
 
-// TrackingRuleFor names the rule that would strip key, or "" — the hook url.go's
-// parser uses to fill Param.Tracking without importing anything.
-//
-// GLOBAL RULES ONLY, deliberately. A parameter name carries no information
-// about the server that will read it: ref=facebook is a tracker, ref=main picks
-// a git branch, ref=1234 is a foreign key, and nothing in the string separates
-// them (tracking report §3). So a caller with no host gets the rules that are
-// safe on a name alone; Clean, which does know the host, sees the rest.
+// TrackingRuleFor names the rule that would strip key, or "", from global rules only: a name alone
+// can't tell ref=facebook (tracker) from ref=main (a branch); Clean, knowing the host, sees the rest.
 func TrackingRuleFor(key string) string {
 	r, ok := lookupTracking(key, "", false)
 	if !ok {
@@ -262,27 +193,16 @@ func TrackingRuleFor(key string) string {
 	return r.name()
 }
 
-// ---------------------------------------------------------------------------
-// Query surgery. Everything here works on the ORIGINAL BYTES of each pair.
-// ---------------------------------------------------------------------------
+// Query surgery: everything below works on the original bytes of each pair.
 
-// rawPair is one query pair. raw is what was written; key and value are decoded
-// copies used only for matching and for display.
-//
-// parsePairs in url.go cannot be reused here: it returns decoded values, and
-// re-encoding a kept pair to put it back would change bytes that a signature
-// covers. Its decodeOrRaw IS reused, so the two files agree on what a malformed
-// escape means.
+// rawPair keeps the pair as written; key and value are decoded copies for matching and display only.
 type rawPair struct {
 	raw   string
 	key   string
 	value string
 }
 
-// splitRawPairs splits a query into pairs, keeping each one's exact text.
-// Splits on "&" only: ';' stopped being a separator in Go 1.17 and in most
-// servers in 2021, and url.go already reports that as a finding rather than
-// quietly honouring it.
+// splitRawPairs splits on "&" only: ';' stopped being a separator in Go 1.17, and url.go reports it.
 func splitRawPairs(query string) []rawPair {
 	if query == "" {
 		return nil
@@ -312,17 +232,14 @@ func joinRawPairs(ps []rawPair) string {
 	return strings.Join(parts, "&")
 }
 
-// splitParts cuts raw into the three ranges Clean treats differently. The
-// fragment is cut FIRST: a '?' after a '#' belongs to the fragment, and cutting
-// the other way round invents a query that is not there.
+// splitParts cuts the fragment first: a '?' after '#' belongs to the fragment, not a query.
 func splitParts(raw string) (prefix, query, frag string, hasQuery, hasFrag bool) {
 	base, frag, hasFrag := strings.Cut(raw, "#")
 	prefix, query, hasQuery = strings.Cut(base, "?")
 	return prefix, query, frag, hasQuery, hasFrag
 }
 
-// looksSigned reports whether the query carries a signature that covers the
-// other parameters. Returns the human name of the scheme for the note.
+// looksSigned reports whether a signature covers the other parameters, naming the scheme for the note.
 func looksSigned(ps []rawPair) (string, bool) {
 	has := make(map[string]bool, len(ps))
 	for _, p := range ps {
@@ -346,9 +263,7 @@ func looksSigned(ps []rawPair) (string, bool) {
 	return "", false
 }
 
-// looksSignable is the weaker check behind the sort warning: a bare signature
-// parameter with none of the vendor context looksSigned needs. Removing nothing
-// is still safe here, but reordering may not be.
+// looksSignable is the weaker check behind the sort warning: a bare signature parameter, no vendor context.
 func looksSignable(ps []rawPair) (string, bool) {
 	for _, p := range ps {
 		switch strings.ToLower(p.key) {
@@ -359,13 +274,7 @@ func looksSignable(ps []rawPair) (string, bool) {
 	return "", false
 }
 
-// ---------------------------------------------------------------------------
-// Unwrapping.
-// ---------------------------------------------------------------------------
-
-// unwrapAll peels nested wrappers. Bounded and cycle-guarded: wrappers nest for
-// real (Safe Links around urldefense wherever both products are deployed), and
-// a wrapper whose target is itself is a two-line denial of service otherwise.
+// unwrapAll peels nested wrappers, bounded and cycle-guarded: a self-targeting wrapper would loop forever.
 func unwrapAll(raw string) (target, name string, partial, ok bool) {
 	seen := map[string]bool{raw: true}
 	cur := raw
@@ -392,7 +301,6 @@ func unwrapAll(raw string) (target, name string, partial, ok bool) {
 	return target, strings.Join(names, " -> "), false, true
 }
 
-// unwrapOnce removes a single layer.
 func unwrapOnce(raw string) (target, name string, partial, ok bool) {
 	if raw == "" || len(raw) > maxInput {
 		return "", "", false, false
@@ -401,9 +309,7 @@ func unwrapOnce(raw string) (target, name string, partial, ok bool) {
 	if err != nil || u.Host == "" {
 		return "", "", false, false
 	}
-	// Every wrapper matching this host+path, tried in turn: one host can carry
-	// several shapes (google.<tld> is /url, /amp/ and ?adurl= at once), and the
-	// first match is not always the one holding a target.
+	// A host can carry several shapes (google: /url, /amp/, ?adurl=); the first match may hold no target.
 	for _, w := range wrappersFor(u.Hostname(), u.EscapedPath()) {
 		if t, n, p, got := applyWrapper(raw, u, w); got {
 			return t, n, p, true
@@ -412,20 +318,14 @@ func unwrapOnce(raw string) (target, name string, partial, ok bool) {
 	return "", "", false, false
 }
 
-// applyWrapper runs one wrapper rule against an already-parsed URL.
 func applyWrapper(raw string, u *url.URL, w Wrapper) (target, name string, partial, ok bool) {
 	var candidate string
 	switch w.Shape {
 	case ShapeParam:
-		// Read the PAIR, never regex the tail. The u=…&h=… bug — where a greedy
-		// capture appends the shim's own hash to the destination — is the most
-		// common failure in this whole genre, and pair-splitting makes it
-		// structurally impossible.
+		// Read the pair, never regex the tail: a greedy capture appends the shim's &h= hash to the target.
 		candidate = rawParam(u.RawQuery, w.Params)
 	case ShapeBareQuery:
-		// href.li and DeviantArt: the target IS the query string, with no
-		// parameter name. Running it through a pair parser would cut it at its
-		// own first '&'.
+		// href.li and DeviantArt: the whole query is the target; a pair parser would cut it at its first '&'.
 		candidate = u.RawQuery
 	case ShapePathTail:
 		candidate = pathTail(u.EscapedPath())
@@ -452,8 +352,7 @@ func applyWrapper(raw string, u *url.URL, w Wrapper) (target, name string, parti
 	}
 
 	if w.Partial {
-		// Mimecast: the answer is a domain, and it must look like one rather
-		// than being dressed up as a URL nobody can follow.
+		// Mimecast yields a bare domain; reject anything that does not look like one.
 		d := strings.ToLower(strings.TrimSpace(firstDecode(candidate)))
 		if d == "" || strings.ContainsAny(d, "/ \t") || !strings.Contains(d, ".") {
 			return "", "", false, false
@@ -466,9 +365,7 @@ func applyWrapper(raw string, u *url.URL, w Wrapper) (target, name string, parti
 	return target, w.Name, false, true
 }
 
-// rawParam returns the first of names present in the query, as RAW bytes.
-// Returning the raw value is what lets percentLadder decode exactly once;
-// handing back an already-decoded value would eat one rung invisibly.
+// rawParam returns the RAW value so percentLadder decodes it exactly once; a decoded one eats a rung.
 func rawParam(query string, names []string) string {
 	if query == "" {
 		return ""
@@ -485,8 +382,7 @@ func rawParam(query string, names []string) string {
 	return ""
 }
 
-// pathTail drops the first path segment, which for Cisco is the ~200-character
-// token, and returns the rest as one string.
+// pathTail drops the first segment (Cisco's ~200-character token) and returns the rest.
 func pathTail(escPath string) string {
 	segs := strings.Split(strings.TrimPrefix(escPath, "/"), "/")
 	if len(segs) < 2 {
@@ -495,13 +391,8 @@ func pathTail(escPath string) string {
 	return strings.Join(segs[1:], "/")
 }
 
-// percentLadder is the decode-once-then-test rule, and it is the single most
-// important line in this file.
-//
-// Safe Links percent-encodes the target once, so the target's OWN %20 arrives
-// as %2520. Decoding twice turns it into a space and yields a different URL.
-// The rule: stop as soon as the result is an absolute http(s) URL, and only go
-// again when it is not. Capped, because a nested encode is trivial to build.
+// percentLadder decodes only until the value is an absolute http(s) URL: Safe Links encodes once, so the
+// target's own %20 arrives as %2520, and one more decode would change the URL.
 func percentLadder(v string, unescape func(string) (string, error)) string {
 	cur := strings.TrimSpace(v)
 	for i := 0; i < maxDecodeRungs; i++ {
@@ -523,8 +414,7 @@ func percentLadder(v string, unescape func(string) (string, error)) string {
 	return ""
 }
 
-// firstDecode percent-decodes once, for values that are not URLs and so cannot
-// use the ladder's absolute-URL stopping test.
+// firstDecode percent-decodes once, for values that are not URLs and so can't use the ladder's stop test.
 func firstDecode(v string) string {
 	if dec, err := url.QueryUnescape(v); err == nil {
 		return dec
@@ -532,9 +422,7 @@ func firstDecode(v string) string {
 	return v
 }
 
-// absoluteHTTP is the gate on every unwrapped value. http(s) only: a wrapper
-// whose parameter decodes to file:// or javascript: is an attack, not a
-// destination, and the caller re-validates anyway.
+// absoluteHTTP gates every unwrapped value: a wrapper decoding to file:// or javascript: is an attack.
 func absoluteHTTP(s string) bool {
 	if s == "" || len(s) > maxInput {
 		return false
@@ -550,17 +438,11 @@ func absoluteHTTP(s string) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// Proofpoint urldefense. Formats and worked examples: wrapper report §4, every
-// one of them executed before it was written down. No API key is needed to
-// decode one, despite Proofpoint presenting their URL Decoder API as the way.
-// ---------------------------------------------------------------------------
+// Proofpoint urldefense (wrapper report §4); decoding needs no API key despite Proofpoint's docs.
 
 var (
-	// v1 and v2 are the documented exception to "read the pair, never regex the
-	// tail": the target may contain a raw '&', and the format's own boundary is
-	// the next KNOWN parameter, not the next separator. These are Proofpoint's
-	// own regexes, from the decoder their engineer published.
+	// v1/v2 regex the tail on purpose: the target may hold a raw '&', so it ends at the next KNOWN
+	// parameter. These are the regexes from Proofpoint's own published decoder.
 	v1Re     = regexp.MustCompile(`[?&]u=(.+?)&k=`)
 	v2Re     = regexp.MustCompile(`[?&]u=(.+?)&[dc]=`)
 	uTailRe  = regexp.MustCompile(`[?&]u=([^&]*)`)
@@ -568,9 +450,7 @@ var (
 	oneSlash = regexp.MustCompile(`^([a-zA-Z0-9+.\-]+:/)([^/].*)$`)
 )
 
-// decodeURLDefenseV1: percent-decode, then unescape HTML entities. Links pulled
-// from mail source arrive with &amp;, and skipping that step ends every target
-// at the next parameter.
+// decodeURLDefenseV1 also unescapes HTML entities: links pulled from mail source carry &amp;.
 func decodeURLDefenseV1(raw string) string {
 	m := v1Re.FindStringSubmatch(raw)
 	if m == nil {
@@ -586,11 +466,7 @@ func decodeURLDefenseV1(raw string) string {
 	return html.UnescapeString(dec)
 }
 
-// decodeURLDefenseV2 substitutes '-' -> '%' and '_' -> '/' first, then
-// percent-decodes, then unescapes entities. Order matters: a literal '-' in the
-// original was encoded to %2D and arrives as "-2D", so it survives the
-// substitution as %2D and comes back out of the percent-decode intact. The same
-// trick covers '_' as "-5F".
+// decodeURLDefenseV2 maps '-'->'%' and '_'->'/' before percent-decoding, so a literal '-' ("-2D") survives.
 func decodeURLDefenseV2(raw string) string {
 	m := v2Re.FindStringSubmatch(raw)
 	if m == nil {
@@ -608,24 +484,12 @@ func decodeURLDefenseV2(raw string) string {
 	return html.UnescapeString(dec)
 }
 
-// v3Alphabet is base64url's, and the run-length token indexes into it: '*X'
-// with X='A' means a run of 2, 'B' means 3, and so on.
+// v3Alphabet is base64url's; a run token '**X' indexes into it ('A' = a run of 2, 'B' = 3, ...).
 const v3Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
-// decodeURLDefenseV3 reverses the munged form:
-//
-//	https://urldefense.com/v3/__<munged target>__;<base64url>!!<tracking>$
-//
-// The munged target is the real URL with some characters replaced by '*'
-// tokens; those characters, concatenated in order, ARE the base64url payload
-// after "__;". So nothing here needs to know which characters Proofpoint
-// chooses to munge — the replacement string says. Every attempt to
-// reverse-engineer that character set is wasted effort.
-//
-// Token grammar: '*' consumes one replacement character; '**X' consumes a run
-// of len(X)+2. An unmunged URL has an EMPTY replacement string ("__;!!"), which
-// is a shape Proofpoint's own samples include, so both regex and base64 must
-// tolerate zero length.
+// decodeURLDefenseV3 reverses .../v3/__<munged>__;<base64url>!!...: each '*' takes the next replacement
+// byte and '**X' a run, so which characters Proofpoint munges never matters. An unmunged URL has an
+// empty replacement string ("__;!!"), so the regex and the base64 step must both tolerate zero length.
 func decodeURLDefenseV3(raw string) string {
 	m := v3Re.FindStringSubmatch(raw)
 	if m == nil {
@@ -635,16 +499,12 @@ func decodeURLDefenseV3(raw string) string {
 	if err != nil {
 		munged = m[1]
 	}
-	// Some v3 rewrites collapse the scheme's "//" to one slash; decoders that
-	// do not repair it emit https:/host/… or re-anchor the path against the
-	// wrapper host, which is a reported real failure.
+	// Some v3 rewrites collapse the scheme's "//" to one slash; unrepaired, the host is lost.
 	if r := oneSlash.FindStringSubmatch(munged); r != nil {
 		munged = r[1] + "/" + r[2]
 	}
 
-	// RawURLEncoding rather than appending "==": Go's padded decoders reject
-	// over-padding that Python's urlsafe_b64decode tolerates, and unpadded
-	// base64url handles all three length cases in one line.
+	// RawURLEncoding, not appending "==": Go's padded decoders reject over-padding that Python tolerates.
 	repl := []byte{}
 	if enc := strings.TrimRight(m[2], "="); enc != "" {
 		dec, err := base64.RawURLEncoding.DecodeString(enc)
@@ -685,10 +545,7 @@ func decodeURLDefenseV3(raw string) string {
 	return b.String()
 }
 
-// decodeAMPPath reconstructs the target from a Google AMP viewer URL:
-// google.com/amp/s/example.com/page -> https://example.com/page. The "/s/"
-// means https; without it, http. This is reconstruction rather than decoding,
-// and the UI should say so.
+// decodeAMPPath rebuilds google.com/amp/s/example.com/page as https://example.com/page (no /s/ = http).
 func decodeAMPPath(u *url.URL) string {
 	p := u.EscapedPath()
 	switch {
@@ -700,15 +557,8 @@ func decodeAMPPath(u *url.URL) string {
 	return ""
 }
 
-// CleanTargetFunc adapts *Service to the Shortener.CleanTarget seam, so short.go
-// never imports the rule tables and clean.go never learns about aliases.
-//
-// Unwrap is deliberately OFF here. Unwrapping changes the HOST, and the create
-// path validates the target before cleaning — so a clean step that could move
-// the host would void that validation. Stripping query parameters cannot, which
-// is exactly why the two operations are separate everywhere in this package
-// (docs/04-short-links.md §9). A wrapped URL is stored as given; the Inspect and
-// Clean pages will still reveal its real target on demand.
+// CleanTargetFunc adapts *Service to Shortener.CleanTarget. Unwrap stays off: the create path validates
+// the target before cleaning, and unwrapping changes the host, which would void that validation.
 func CleanTargetFunc(s *Service) func(string) (string, []string, error) {
 	return func(raw string) (string, []string, error) {
 		res, err := s.Clean(raw, CleanOptions{Unwrap: false})

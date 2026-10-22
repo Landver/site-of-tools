@@ -13,8 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Page descriptions, surfaced as <meta name="description"> + og:description by
-// shared/templates/partials/head.html via the "Desc" view-model key.
+// Page descriptions, surfaced as the meta and og descriptions via the "Desc" view-model key.
 const (
 	inspectDesc  = "Take a URL apart: every query parameter decoded and kept in order, repeated keys shown as repeats, comma-lists split and counted, double-encoded values peeled layer by layer, and the fragment parsed instead of thrown away. Nothing is fetched. Free, open source, JSON API included."
 	cleanDesc    = "Remove tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
@@ -48,13 +47,8 @@ func NewLimits() *Limits {
 
 const RecentLimit = 50
 
-// handler: transport-layer dependencies for link.corpberry.com.
-//
-// svc is required — a nil one can only be a wiring mistake, and left to be
-// discovered per request it surfaces as a panic-recovered 500 rather than an
-// error at startup. trace and short are CONCRETE POINTERS, never interfaces, so
-// the "nil means the feature is off" check actually works: a nil pointer stored
-// in an interface is not == nil, which would make every 503 branch dead code.
+// handler: trace and short are concrete pointers, not interfaces, so "nil means off" works: a nil pointer
+// stored in an interface is not == nil, which would make every 503 branch dead code.
 type handler struct {
 	svc   *Service
 	trace *Tracer
@@ -63,26 +57,7 @@ type handler struct {
 	lim   *Limits
 }
 
-// Register wires link.corpberry.com routes onto e. Query-param only and
-// GET-shaped wherever the operation is a read, so every result is a shareable
-// URL — the one convention every tool surveyed agrees on
-// (docs/reports/firsthand-ui-observations.md).
-//
-//	GET  /                  Inspect a URL
-//	GET  /clean             Strip trackers, unwrap wrappers
-//	GET  /clean/rules       The rule table, content-negotiated
-//	GET  /diff              Compare two URLs
-//	GET  /trace             Follow the redirect chain
-//	GET  /short             Console (list is key-gated)
-//	POST /short             Create an alias (key required)
-//	GET  /s/:code           The redirect itself
-//	GET  /curl              URL <-> curl command, both directions
-//	POST /curl              The paste direction, from the page's form
-//	GET  /extract           Pull every URL out of pasted text
-//	GET  /utm               Campaign URL builder
-//	GET  /encode            Encode / decode playground
-//	GET  /encoding          Percent-encoding reference
-//	GET  /extension/privacy Extension privacy policy
+// Register wires the routes; every read is a GET with query params, so each result is a shareable URL.
 func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string, lim *Limits) {
 	if svc == nil {
 		panic("linktools.Register: svc is nil")
@@ -100,8 +75,7 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/clean/rules", h.rules, pure)
 	e.GET("/diff", h.diff, pure)
 	e.GET("/curl", h.curl, pure)
-	// POST keeps a pasted command's cookies and tokens out of URLs, history and
-	// proxy logs, which the request-log redactor never sees. GET ?curl= stays.
+	// POST keeps a pasted command's cookies and tokens out of URLs, history and proxy logs; GET ?curl= stays.
 	e.POST("/curl", h.curl, pure)
 	e.GET("/extract", h.extract, pure)
 	e.POST("/extract", h.extract, pure)
@@ -115,26 +89,17 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 		return strings.TrimSpace(c.QueryParam("u")) == ""
 	}, limited))
 
-	// Both /short routes are on the strict limiter, not the pure one: the console
-	// is key-gated and reads the corpus, so it is not a cheap page (doc 06 §4).
+	// The key-gated console reads the corpus, so both /short routes get the strict limiter (doc 06 §4).
 	e.GET("/short", h.shortConsole, keyed)
 	e.POST("/short", h.shortCreate, keyed)
-	// Two limiters, deliberately. A generous per-IP bound (20/s, burst 60 — far
-	// above any human following links, far below a scanner) stops one source
-	// walking random codes straight through the resolve cache into the shared
-	// database, which the negative cache alone cannot prevent because every
-	// random code is a miss. The coarse global breaker then stops the aggregate
-	// from hurting the other subdomains (docs/04-short-links.md §7).
+	// Per-IP stops one source walking random codes past the negative cache into the database (every random
+	// code is a miss); the global breaker keeps the aggregate off the other subdomains (doc 04 §7).
 	e.GET("/s/:code", h.redirect,
 		platform.RateLimit(lim.Resolve, nil, limited),
 		platform.RateLimit(lim.ResolveGlobal, nil, func(c *echo.Context) error {
 			return c.String(http.StatusServiceUnavailable, "busy, try again shortly")
 		}))
 
-	// Revoking an alias. Without this Revoke had no caller at all, so the
-	// "kill switch" §10 promises did not exist: a leaked key's links could not
-	// be taken down by any means short of editing the database by hand.
-	// Soft-delete only — the document stays so the code is never reissued.
 	e.DELETE("/short/:code", h.shortRevoke, keyed)
 }
 
@@ -153,9 +118,7 @@ func listChanged(c *echo.Context) {
 	}
 }
 
-// needURL answers the bare hit: the empty form to a browser, an empty result to
-// htmx, and 400 to a JSON caller, for whom asking nothing is a mistake rather
-// than a starting point. Reports whether it has already answered.
+// needURL answers the bare hit (the empty form, or a 400 for JSON) and reports whether it answered.
 func (h *handler) needURL(c *echo.Context, raw string, vm map[string]any, page, frag, example string) (bool, error) {
 	if raw != "" {
 		return false, nil
@@ -175,9 +138,7 @@ type suggestion struct {
 	Label, Action, Field, Value string
 }
 
-// wrongTool answers input that belongs on another page with a 400 and a POST
-// button there, so a curl command's cookies never ride in a URL. Reports
-// whether it answered.
+// wrongTool sends misplaced input on with a 400 and a POST button, so curl cookies never ride in a URL.
 func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string) (bool, error) {
 	var msg string
 	switch WrongTool(raw) {
@@ -196,8 +157,6 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 	}
 	return true, h.fail(c, vm, http.StatusBadRequest, msg, page)
 }
-
-// --- inspect ---------------------------------------------------------------
 
 func (h *handler) inspect(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
@@ -218,8 +177,6 @@ func (h *handler) inspect(c *echo.Context) error {
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/index", "link/inspect")
 }
-
-// --- clean -----------------------------------------------------------------
 
 func (h *handler) clean(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
@@ -247,8 +204,7 @@ func (h *handler) clean(c *echo.Context) error {
 	return platform.Reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
 }
 
-// removalGroup is one rule's removals, so the page prints its reason once.
-// The JSON keeps the flat list.
+// removalGroup is one rule's removals, so the page prints its reason once; JSON keeps the flat list.
 type removalGroup struct {
 	Pattern string // the rule's parameter pattern, e.g. "utm_*"
 	Why     string
@@ -272,17 +228,12 @@ func groupRemovals(rs []Removal) []removalGroup {
 	return out
 }
 
-// rules serves the rule table. Content-negotiated rather than a ".json"
-// endpoint: golden rule #2 says every feature speaks HTML and JSON from one URL,
-// and a .json suffix would be the only route in the repo hard-coding one
-// representation. JSON is what the extension caches; the HTML view is also what
-// discharges the promise to state the catalog's scope rather than being magic.
+// rules is content-negotiated, not a ".json" route: every feature speaks HTML and JSON from one URL.
 func (h *handler) rules(c *echo.Context) error {
 	cat := Rules()
 	vm := h.vm("clean", "Tracking rules", rulesDesc, "")
 	vm["Catalog"] = cat
-	// Cheap validator for the extension's daily refresh. JSON only: the
-	// catalog version says nothing about the page template around it.
+	// Cheap validator for the extension's daily refresh; JSON only, as the version ignores the page template.
 	if platform.WantsJSON(c) {
 		c.Response().Header().Set("ETag", `"`+cat.Version+`"`)
 		if match := c.Request().Header.Get("If-None-Match"); match != "" && strings.Contains(match, cat.Version) {
@@ -291,12 +242,9 @@ func (h *handler) rules(c *echo.Context) error {
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
-	// Page and fragment differ, as on /short: serving the page to htmx would
-	// swap a whole <html> document into a div.
+	// Page and fragment differ: serving the page to htmx would swap a whole <html> document into a div.
 	return platform.Reply(c, http.StatusOK, cat, vm, "link/rules", "link/rulestable")
 }
-
-// --- diff ------------------------------------------------------------------
 
 // diff is A13: a second view over two Inspections, not new logic.
 func (h *handler) diff(c *echo.Context) error {
@@ -323,8 +271,6 @@ func (h *handler) diff(c *echo.Context) error {
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
 }
-
-// --- trace -----------------------------------------------------------------
 
 func (h *handler) traceRoute(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
@@ -359,11 +305,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	return platform.Reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
 }
 
-// --- short links -----------------------------------------------------------
-
-// shortOff answers a key-gated route when no key is configured: 503 before any
-// credential is read, because no key can work and a 401 would say otherwise.
-// Nil short also means no storage, so the redirect is down too.
+// shortOff answers 503 before any credential is read: no key can work, and a 401 would say otherwise.
 func (h *handler) shortOff(c *echo.Context, vm map[string]any) error {
 	vm["Disabled"] = true
 	msg := "Creating short links is switched off on this server: no API key is set, so links cannot be created, listed or revoked. Links that already exist keep redirecting."
@@ -373,10 +315,7 @@ func (h *handler) shortOff(c *echo.Context, vm map[string]any) error {
 	return h.fail(c, vm, http.StatusServiceUnavailable, msg, "link/short")
 }
 
-// shortConsole renders the create form, and the recent list ONLY to a caller
-// holding the key. A public list hands over the whole corpus with no guessing,
-// which defeats the code entropy outright and turns the hit counter into a
-// read-receipt oracle (docs/04-short-links.md §8).
+// shortConsole lists recent links only to a key holder: a public list is a read-receipt oracle (doc 04 §8).
 func (h *handler) shortConsole(c *echo.Context) error {
 	vm := h.vm("short", "Short links", shortDesc, "")
 	if !h.short.HasKey() {
@@ -390,16 +329,11 @@ func (h *handler) shortConsole(c *echo.Context) error {
 		if err != nil {
 			return h.storageError(c, vm, err, "link/short")
 		}
-		// Project before rendering. CreatedIP is json:"-" so the API is safe,
-		// but a struct tag means NOTHING to html/template — the HTML side would
-		// be protected only by nobody having typed {{.CreatedIP}} yet (§8).
+		// Project first: json:"-" hides CreatedIP from JSON but means nothing to html/template.
 		vm["Links"] = consoleRows(h.short, links)
 		body["links"] = links
 	}
-	// Page vs fragment differ here, unlike most routes: the browser gets the
-	// whole console, while an htmx request (the "Load aliases" button, which is
-	// the only thing that can send the X-Api-Key header) gets just the list.
-	// Returning the page to htmx would inject a full <html> document into a div.
+	// Page vs fragment differ: htmx's "Load aliases" (the only X-Api-Key sender) wants just the list.
 	return platform.Reply(c, http.StatusOK, body, vm, "link/short", "link/shortlist")
 }
 
@@ -409,8 +343,7 @@ func (h *handler) shortCreate(c *echo.Context) error {
 		return h.shortOff(c, vm)
 	}
 	if !h.short.Authorized(c.Request().Header.Get("X-Api-Key")) {
-		// Same body for a missing key and a wrong one: saying which is a free
-		// hint to anyone probing.
+		// Same body for a missing key and a wrong one: saying which is a free hint to a prober.
 		return h.fail(c, vm, http.StatusUnauthorized, "Creating a short link needs a valid API key.", "link/short")
 	}
 
@@ -442,14 +375,10 @@ func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page s
 	return platform.Reply(c, code, map[string]string{"error": msg}, vm, page, "link/error")
 }
 
-// consoleRow is the console's view of a Link: everything the page renders and
-// nothing it does not. Exists so CreatedIP cannot reach a template at all.
+// consoleRow is what the console renders of a Link, so CreatedIP can't reach a template at all.
 type consoleRow struct {
 	Code string
-	// Short is the full public URL, rendered here rather than assembled in the
-	// template: ShortURL owns the /s/ prefix, and a template that pasted base
-	// and code together would be a second copy of that rule waiting to drift
-	// (it already minted /s/s/ once when the prefix was added twice).
+	// Short comes from ShortURL, which owns the /s/ prefix; templates must not rebuild it from base + code.
 	Short     string
 	Target    string
 	Note      string
@@ -482,11 +411,7 @@ func consoleRows(s *Shortener, links []Link) []consoleRow {
 	return out
 }
 
-// shortRevoke soft-deletes an alias. Key-gated like every other write.
-//
-// Soft, never hard: deleting the row frees the code, and a custom slug
-// re-registered to a different target silently changes where every existing
-// copy of that link goes (docs/04-short-links.md §4).
+// shortRevoke soft-deletes: a freed slug re-registered to a new target would move every copy of the link.
 func (h *handler) shortRevoke(c *echo.Context) error {
 	vm := h.vm("short", "Short links", shortDesc, "")
 	if !h.short.HasKey() {
@@ -508,21 +433,15 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 		vm, "link/short", "link/revoked")
 }
 
-// redirect resolves an alias. Not content-negotiated: it is a redirect for every
-// caller, including one sending Accept: application/json, because an extension
-// resolving a link wants the behaviour and not a description of it.
+// redirect is not content-negotiated: a JSON caller resolving a link wants the redirect, not a description.
 func (h *handler) redirect(c *echo.Context) error {
 	if h.short == nil {
 		return c.String(http.StatusServiceUnavailable, "short links are not enabled here")
 	}
 	code := c.Param("code")
-	// Set on every answer, hit or miss: a 404 that omits them is still a URL
-	// Googlebot crawled and an intermediary may cache.
+	// Set on every answer, hit or miss: a 404 is still a URL Googlebot crawled and a proxy may cache.
 	hdr := c.Response().Header()
-	// The global breaker's own headers would publish the whole site's redirect
-	// volume to anyone who fetches one short link, which is a traffic figure
-	// nobody outside needs. The per-IP limiter's numbers are about the caller
-	// and are equally uninteresting to publish here.
+	// The global breaker's headers would publish the site's redirect volume to anyone with one short link.
 	hdr.Del("X-RateLimit-Limit")
 	hdr.Del("X-RateLimit-Remaining")
 	hdr.Del("X-RateLimit-Reset")
@@ -533,32 +452,22 @@ func (h *handler) redirect(c *echo.Context) error {
 
 	link, err := h.short.Resolve(c.Request().Context(), code)
 	if err != nil {
-		// One status for expired, revoked and never-existed. Telling them apart
-		// is an existence oracle over the guessable custom-slug namespace.
+		// One status for expired, revoked and never-existed: telling them apart is an existence oracle.
 		if !platform.WantsJSON(c) {
 			return c.Render(http.StatusNotFound, "link/gone", h.vm("", "Short link not found", shortDesc, ""))
 		}
 		return c.String(http.StatusNotFound, "no such link")
 	}
 
-	// The headers above are already set, which matters: Echo v5's c.Redirect
-	// sets Location and calls WriteHeader in the SAME call, so anything written
-	// after it never reaches the wire. 302 not 301, because a 301 is cached by
-	// browsers effectively forever and an alias that can never be repointed or
-	// retired is a liability. X-Robots-Tag because Googlebot follows short
-	// links, and would otherwise associate this domain with whatever they point
-	// at — the blocklisting threat arriving by a route the API key does not cover.
+	// Headers go above: Echo v5's c.Redirect writes the status in the same call. 302, not 301: browsers cache
+	// a 301 effectively forever, and an alias that can never be repointed or retired is a liability.
 	h.short.RecordHit(link.Code) // async; the redirect never waits on the write
 	return c.Redirect(http.StatusFound, link.Target)
 }
 
-// --- curl ------------------------------------------------------------------
-
 const curlDesc = "Paste a curl command, including Chrome's Copy as cURL, and get its URL, method and headers taken apart. Or turn a URL into a safely quoted curl command."
 
-// curl runs both ways. The inverse — pasting a command and getting the URL
-// parsed — is the genuinely useful half: people copy curl lines out of
-// documentation and DevTools constantly and nothing takes one apart.
+// curl runs both ways; pasting a command to get the URL parsed is the genuinely useful half.
 func (h *handler) curl(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
 	cmd := strings.TrimSpace(c.QueryParam("curl"))
@@ -579,10 +488,7 @@ func (h *handler) curl(c *echo.Context) error {
 	if c.Request().Method == http.MethodPost {
 		vm["EmptyExamples"] = paste
 	}
-	// Set before the empty-input branch below, not only on the ?u= path: the
-	// bare page renders the form too, and without these the "Ask as" select had
-	// nothing to list, so the persona feature was unreachable until after a
-	// first conversion.
+	// Set before the empty-input branch: the bare page renders the "Ask as" select too.
 	vm["Personas"], vm["Persona"] = Personas(), c.QueryParam("ua")
 
 	postReset(c, "/curl")
@@ -616,21 +522,16 @@ func (h *handler) curl(c *echo.Context) error {
 	return platform.Reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
-// postReset drops an example chip's ?curl= or ?text= from the address bar
-// after an htmx POST, so a reload doesn't bring the example back.
+// postReset clears ?curl= or ?text= from the address bar after an htmx POST, so a reload doesn't redo it.
 func postReset(c *echo.Context, path string) {
 	if c.Request().Method == http.MethodPost && platform.IsHTMX(c) {
 		c.Response().Header().Set("HX-Replace-Url", path)
 	}
 }
 
-// --- extract ---------------------------------------------------------------
-
 const extractDesc = "Paste HTML, Markdown or an email and get every link out, deduplicated and counted, with its anchor text. Nothing is fetched: this is for auditing links before they go out, not for checking whether they work."
 
-// extract accepts GET for a shareable result and POST for anything large.
-// The text parameter is redacted from the request log like every other input
-// on this host (platform/redact.go).
+// extract takes GET for a shareable result and POST for large text; text is redacted from the request log.
 func (h *handler) extract(c *echo.Context) error {
 	text := c.QueryParam("text")
 	if text == "" {
@@ -654,8 +555,6 @@ func (h *handler) extract(c *echo.Context) error {
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/extract", "link/extracted")
 }
-
-// --- utm -------------------------------------------------------------------
 
 const utmDesc = "Add UTM campaign tags to a URL: the utm_ parameters Google Analytics and most analytics tools read to credit a visit to a campaign. Tags already on the URL are kept unless you replace them."
 
@@ -706,8 +605,6 @@ func (h *handler) utm(c *echo.Context) error {
 	return platform.Reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
 }
 
-// --- encode ----------------------------------------------------------------
-
 const encodeDesc = "Percent-encode and decode with the right rules for where the value goes: a query and a path escape differently, and the difference is what breaks base64 values. Plus base64, base64url and multi-layer decoding."
 
 func (h *handler) encode(c *echo.Context) error {
@@ -725,8 +622,6 @@ func (h *handler) encode(c *echo.Context) error {
 	return platform.Reply(c, http.StatusOK, res, vm, "link/encode", "link/encoded")
 }
 
-// --- static pages ----------------------------------------------------------
-
 // Static documents: no result to negotiate and no fragment to swap.
 func (h *handler) encoding(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/encoding",
@@ -737,8 +632,6 @@ func (h *handler) privacy(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/privacy",
 		h.vm("", "Extension privacy", privacyDesc, ""))
 }
-
-// --- shared error paths ----------------------------------------------------
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
 	return h.fail(c, vm, http.StatusBadRequest, err.Error(), page)
@@ -759,8 +652,6 @@ func sentence(s string) string {
 	return s
 }
 
-// --- middleware ------------------------------------------------------------
-
 func limited(c *echo.Context) error {
 	const msg = platform.LimitedMessage
 	// A link back to the refused page; a POST can't be replayed by one.
@@ -774,12 +665,7 @@ func limited(c *echo.Context) error {
 		"link/ratelimited", "link/error")
 }
 
-// SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
-//
-// Tool pages only. /s/:code is a redirect carrying X-Robots-Tag: noindex,
-// /short is the owner's console, and the privacy policy is a document nobody
-// searches for — platform.BuildSitemap's own comment says transient and
-// non-page URLs have no business here.
+// SitemapPages lists the indexable tool pages for platform.RegisterSEO; redirects and the console stay out.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
 		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"}, {Path: "/trace"},
