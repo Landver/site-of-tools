@@ -17,7 +17,7 @@ clients, official `go-sdk` v1.8.0. Public tools need no account or key.
 
 | Path on `https://mcp.corpberry.com` | Serves |
 |---|---|
-| `/` | landing page: endpoints, per-client setup, every tool with the rate its limiter reports; the same catalog as JSON for non-browsers |
+| `/` | landing page: endpoints, per-client setup, every tool; the same catalog as JSON for non-browsers |
 | `/mcp` | all 35 public tools, for clients with tool search (Claude Code) |
 | `/mcp/ip` · `/mcp/dns` · `/mcp/link` · `/mcp/cipher` · `/mcp/botcheck` · `/mcp/site` | one toolset each (2, 5, 11, 15, 1, 1 tools), for every other client |
 | `/mcp/owner` | the owner's 3 short-link tools, behind `MCP_OWNER_KEY`; never advertised |
@@ -140,5 +140,5 @@ and agents remember names.
   under 20 KB where REST is over;
 - **the rest**: gate, owner key, shared limits and caps, hang-up
   cancellation, panics, `null` arguments, records without arguments, the
-  sanitizer, the landing page (setup snippets, published rates, credits, the
-  MCP line in every terminal block).
+  sanitizer, the landing page (setup snippets, credits, the MCP line in every
+  terminal block).

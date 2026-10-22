@@ -128,11 +128,8 @@
       <h2 class="eyebrow">Rate limits</h2>
       <p class="mt-2 text-sm text-muted">
         Per client address (an IPv6 address counts by its /64), and shared with each tool's JSON API: a call here
-        spends the budget the same request to the tool's own site would. Each tool's rate and burst are listed
-        beside it below. All requests to <code class="font-mono text-strong">/mcp</code> from one address count
-        against {{with .PerIP}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}. Some tools also have a budget every caller shares, of calls
-        running at once or calls a second. A refused call is an error result saying to try again in a few seconds.
-        Hosted connectors share their provider's addresses, and so their budgets.
+        spends the budget the same request to the tool's own site would. A refused call is an error result saying
+        to try again in a few seconds. Hosted connectors share their provider's addresses, and so their budgets.
       </p>
     </section>
 
@@ -151,7 +148,6 @@
             <span class="text-sm text-muted">{{.Title}}</span>
             {{if .Annotations.ReadOnlyHint}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">read-only</span>{{end}}
             {{if .OpenWorld}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">reaches the internet</span>{{end}}
-            <span class="ml-auto font-mono text-xs text-faint">{{.RateLimit}}</span>
           </div>
           <p class="mt-2 text-sm text-body wrap-anywhere">{{.Description}}</p>
         </div>

@@ -42,8 +42,8 @@ func TestLandingJSON(t *testing.T) {
 		for _, tl := range ep["tools"].([]any) {
 			tm := tl.(map[string]any)
 			tools[p] = append(tools[p], tm["name"].(string))
-			if tm["annotations"] == nil || tm["description"] == "" || tm["rate_limit"] == nil {
-				t.Errorf("%s lacks annotations, a description or its rate limit", tm["name"])
+			if tm["annotations"] == nil || tm["description"] == "" {
+				t.Errorf("%s lacks annotations or a description", tm["name"])
 			}
 		}
 	}
@@ -63,10 +63,8 @@ func TestLandingJSON(t *testing.T) {
 	}
 }
 
-// TestLandingPage is built with the real Limits, so it checks the published rates.
 func TestLandingPage(t *testing.T) {
-	s := newStack(t, stackOpts{owner: offlineOwner(t), dnsLim: dnstools.NewLimits(), linkLim: linktools.NewLimits(),
-		cipherLim: ciphertools.NewLimits(), botLim: botcheck.NewLimits()})
+	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	rec := s.do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"})
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{
@@ -90,8 +88,6 @@ func TestLandingPage(t *testing.T) {
 		"npx mcp-remote http://mcp.test/mcp/ip",
 
 		"test material only", "Never the arguments",
-		"20 a second (burst 100)",
-		"2/s, burst 10", "10/s, burst 50", "1 per 2 s, burst 3", "1/s, burst 5", "20/s, burst 60",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page lacks %q", want)

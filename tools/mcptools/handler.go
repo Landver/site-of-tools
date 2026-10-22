@@ -285,35 +285,16 @@ type catalogTool struct {
 	Title       string               `json:"title"`
 	Description string               `json:"description"`
 	Annotations *mcp.ToolAnnotations `json:"annotations"`
-	RateLimit   rateLimit            `json:"rate_limit"`
 }
 
 func (t catalogTool) OpenWorld() bool { return *t.Annotations.OpenWorldHint }
-
-type rateLimit struct {
-	PerSecond float64 `json:"per_second"`
-	Burst     int     `json:"burst"`
-}
-
-func rateOf(l platform.Limiter) rateLimit {
-	r, b := l.Rate()
-	return rateLimit{r, b}
-}
-
-func (r rateLimit) String() string {
-	if r.PerSecond > 0 && r.PerSecond < 1 {
-		return fmt.Sprintf("1 per %g s, burst %d", 1/r.PerSecond, r.Burst)
-	}
-	return fmt.Sprintf("%g/s, burst %d", r.PerSecond, r.Burst)
-}
 
 func (h *handler) describe(toolURL func(string) string) {
 	h.catalog = catalog{Name: "corpberry", Version: version}
 	add := func(ep *endpoint, title, rest string, cr []platform.Credit) {
 		tools := make([]catalogTool, len(ep.specs))
 		for i, s := range ep.specs {
-			tools[i] = catalogTool{Name: s.tool.Name, Title: s.tool.Title, Description: s.tool.Description,
-				Annotations: s.tool.Annotations, RateLimit: rateOf(s.limiter)}
+			tools[i] = catalogTool{Name: s.tool.Name, Title: s.tool.Title, Description: s.tool.Description, Annotations: s.tool.Annotations}
 		}
 		h.catalog.Endpoints = append(h.catalog.Endpoints, catalogEndpoint{Path: ep.path, URL: h.base + ep.path,
 			Title: title, REST: rest, Attribution: cr, Tools: tools})
@@ -359,7 +340,6 @@ func (h *handler) landing(c *echo.Context) error {
 		"Toolsets":  eps[1:],
 		"Example":   example,
 		"Setup":     setup(eps[0].URL, example.URL),
-		"PerIP":     rateOf(h.perIP),
 	}
 	for _, ep := range eps {
 		for _, cr := range ep.Attribution {
