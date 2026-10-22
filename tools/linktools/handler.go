@@ -684,10 +684,7 @@ func (h *handler) utm(c *echo.Context) error {
 	for i, key := range UTMKeys {
 		v := strings.TrimSpace(c.QueryParam(key))
 		fields[i] = utmField{Name: key, Placeholder: utmHelp[key][0], Hint: utmHelp[key][1], Value: v}
-		// The form submits every field, so an empty one means keep, not remove.
-		if v != "" {
-			typed[key] = v
-		}
+		typed[key] = v
 		rare = rare || (i >= utmCommon && v != "")
 		anyTag = anyTag || v != ""
 	}

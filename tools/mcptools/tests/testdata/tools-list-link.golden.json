@@ -316,7 +316,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Add or change a URL's UTM campaign tags. A tag you pass replaces the URL's own, an empty string removes it, and one you leave out is kept as it is. tags says where each tag came from (set, replaced or kept) and notes flag what trips analytics tools, such as capitals or a +. Example: url https://example.com/landing, utm_source newsletter, utm_medium email.",
+    "description": "Add or change a URL's UTM campaign tags. A tag you pass replaces the URL's own, and one you leave out is kept as it is. tags says where each tag came from (set, replaced or kept) and notes flag what trips analytics tools, such as capitals or a +. Example: url https://example.com/landing, utm_source newsletter, utm_medium email.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

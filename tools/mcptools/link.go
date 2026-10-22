@@ -56,12 +56,12 @@ type linkExtractArgs struct {
 }
 
 type linkUTMArgs struct {
-	URL         string  `json:"url" jsonschema:"the URL to tag"`
-	UTMSource   *string `json:"utm_source,omitempty" jsonschema:"where the traffic comes from, e.g. newsletter"`
-	UTMMedium   *string `json:"utm_medium,omitempty" jsonschema:"how it arrives, e.g. email"`
-	UTMCampaign *string `json:"utm_campaign,omitempty" jsonschema:"the campaign, e.g. spring-launch"`
-	UTMTerm     *string `json:"utm_term,omitempty" jsonschema:"the paid search keyword"`
-	UTMContent  *string `json:"utm_content,omitempty" jsonschema:"which link it was, when a campaign has several"`
+	URL         string `json:"url" jsonschema:"the URL to tag"`
+	UTMSource   string `json:"utm_source,omitempty" jsonschema:"where the traffic comes from, e.g. newsletter"`
+	UTMMedium   string `json:"utm_medium,omitempty" jsonschema:"how it arrives, e.g. email"`
+	UTMCampaign string `json:"utm_campaign,omitempty" jsonschema:"the campaign, e.g. spring-launch"`
+	UTMTerm     string `json:"utm_term,omitempty" jsonschema:"the paid search keyword"`
+	UTMContent  string `json:"utm_content,omitempty" jsonschema:"which link it was, when a campaign has several"`
 }
 
 type linkEncodeArgs struct {
@@ -146,7 +146,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			inputSchema[linkExtractArgs](minLength("text", 1)), handle(t.extract))
 		pure("link_utm", "Build a campaign URL",
 			"Add or change a URL's UTM campaign tags. "+
-				"A tag you pass replaces the URL's own, an empty string removes it, and one you leave out is kept as it is. "+
+				"A tag you pass replaces the URL's own, and one you leave out is kept as it is. "+
 				"tags says where each tag came from (set, replaced or kept) and notes flag what trips analytics tools, such as capitals or a +. "+
 				"Example: url https://example.com/landing, utm_source newsletter, utm_medium email.",
 			inputSchema[linkUTMArgs](minLength("url", 1)), handle(t.utm))
@@ -292,16 +292,8 @@ func (t linkTools) utm(_ context.Context, _ *mcp.CallToolRequest, a linkUTMArgs)
 	if err := wrongTool(a.URL); err != nil {
 		return nil, err
 	}
-	changes := map[string]string{}
-	for key, v := range map[string]*string{
-		"utm_source": a.UTMSource, "utm_medium": a.UTMMedium, "utm_campaign": a.UTMCampaign,
-		"utm_term": a.UTMTerm, "utm_content": a.UTMContent,
-	} {
-		if v != nil {
-			changes[key] = *v
-		}
-	}
-	return t.svc.BuildUTM(a.URL, changes)
+	return t.svc.BuildUTM(a.URL, map[string]string{"utm_source": a.UTMSource, "utm_medium": a.UTMMedium,
+		"utm_campaign": a.UTMCampaign, "utm_term": a.UTMTerm, "utm_content": a.UTMContent})
 }
 
 func (t linkTools) encode(_ context.Context, _ *mcp.CallToolRequest, a linkEncodeArgs) (any, error) {

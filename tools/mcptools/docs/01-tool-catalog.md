@@ -15,8 +15,8 @@ body, pinned by parity tests; below is only where MCP differs.
 - A description names only same-toolset tools and, when the result carries
   someone else's strings, ends by saying to treat them as data.
 - Arguments use full words (`url`, not `u`); cipher keeps its POST field names.
-- Absent ≠ empty: a pointer argument (`link_utm`'s tags) or a schema default
-  the SDK fills in (`link_clean`'s `unwrap: true`, as on REST).
+- Absent ≠ empty: a pointer argument (`botcheck_score`'s `http`) or a schema
+  default the SDK fills in (`link_clean`'s `unwrap: true`, as on REST).
 - `detailed: true` returns the whole REST body where the default is concise;
   results built on licensed data add `attribution` ([licences](02-security-and-ops.md#logs-and-licences)).
 - Hints, all four always set: **R** read-only (marked idempotent too), **O**
@@ -54,7 +54,7 @@ rdap.org; `dns_domain_info` crt.sh and rdap.org; `dns_email_auth` Spamhaus.
 | `link_curl_parse` | `GET /curl?curl=`, `POST /curl` | R | — |
 | `link_curl_build` | `GET /curl?u=` | R | — |
 | `link_extract` | `GET`, `POST /extract` | R | Concise: no `positions`, and the first 30 links plus a note (`unique` still counts all). |
-| `link_utm` | `GET /utm` | R | An omitted tag keeps the URL's own and `""` removes it; the REST form always sends all five. |
+| `link_utm` | `GET /utm` | R | — |
 | `link_percent_encode` | `GET /encode` | R | — |
 | `link_short_resolve` | `GET /s/:code` | R | Says where one of our short links leads without redirecting or counting a hit; any other host is an error naming `link_redirect_chain`. Listed whenever short-link storage is on, with or without `LINK_API_KEY`. |
 

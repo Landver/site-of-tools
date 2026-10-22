@@ -33,7 +33,7 @@ type UTMResult struct {
 	Notes []Note   `json:"notes,omitempty"`
 }
 
-// BuildUTM: a value replaces raw's tag (analytics tools disagree about duplicates); "" removes it.
+// BuildUTM: a value replaces raw's tag (analytics tools disagree about duplicates); an empty value keeps raw's own.
 func (s *Service) BuildUTM(raw string, changes map[string]string) (*UTMResult, error) {
 	raw = strings.TrimSpace(raw)
 	in, err := s.Parse(raw)
@@ -59,14 +59,9 @@ func (s *Service) BuildUTM(raw string, changes map[string]string) (*UTMResult, e
 	}
 
 	for _, key := range UTMKeys {
-		v, given := changes[key]
-		v = strings.TrimSpace(v)
+		v := strings.TrimSpace(changes[key])
 		old, copies := firstValue(in.Params, key)
 		switch {
-		case given && v == "":
-			if copies > 0 {
-				in.Params = upsertParam(in.Params, key, "")
-			}
 		case v != "":
 			in.Params = upsertParam(in.Params, key, v)
 			tag := UTMTag{Key: key, Value: v, Source: TagSet}

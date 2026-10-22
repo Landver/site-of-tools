@@ -170,7 +170,7 @@ func TestLinkExtract(t *testing.T) {
 }
 
 // TestLinkUTMAbsentKeepsEmptyRemoves: unlike REST's form, "" removes a tag.
-func TestLinkUTMAbsentKeepsEmptyRemoves(t *testing.T) {
+func TestLinkUTMAbsentOrEmptyKeeps(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	const tagged = "https://example.com/landing?utm_source=old&utm_medium=email&id=1"
 	cases := []struct {
@@ -178,7 +178,7 @@ func TestLinkUTMAbsentKeepsEmptyRemoves(t *testing.T) {
 		url  string
 	}{
 		{map[string]any{}, tagged},
-		{map[string]any{"utm_source": ""}, "https://example.com/landing?utm_medium=email&id=1"},
+		{map[string]any{"utm_source": ""}, tagged},
 		{map[string]any{"utm_source": "new"}, "https://example.com/landing?utm_source=new&utm_medium=email&id=1"},
 		{map[string]any{"utm_campaign": "spring"}, tagged + "&utm_campaign=spring"},
 	}

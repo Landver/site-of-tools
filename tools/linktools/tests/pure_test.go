@@ -1121,18 +1121,22 @@ func TestEncodeLeadsWithTheReading(t *testing.T) {
 
 // TestUTMAbsentKeepsEmptyRemoves: a key left out keeps the URL's tag; "" removes
 // every copy of it.
-func TestUTMAbsentKeepsEmptyRemoves(t *testing.T) {
+func TestUTMEmptyKeepsTheURLsTag(t *testing.T) {
 	t.Parallel()
-	res, err := linktools.NewService().BuildUTM(
-		"https://example.com/?utm_source=old&utm_medium=email&utm_campaign=a&utm_campaign=b&x=1",
-		map[string]string{"utm_medium": "", "utm_campaign": " ", "utm_term": ""})
+	const raw = "https://example.com/?utm_source=old&utm_medium=email&utm_campaign=a&utm_campaign=b&x=1"
+	res, err := linktools.NewService().BuildUTM(raw, map[string]string{"utm_medium": "", "utm_campaign": " ", "utm_term": ""})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.URL != "https://example.com/?utm_source=old&x=1" {
+	if res.URL != raw {
 		t.Errorf("built %q", res.URL)
 	}
-	if diff := cmp.Diff([]linktools.UTMTag{{Key: "utm_source", Value: "old", Source: linktools.TagKept}}, res.Tags); diff != "" {
+	want := []linktools.UTMTag{
+		{Key: "utm_source", Value: "old", Source: linktools.TagKept},
+		{Key: "utm_medium", Value: "email", Source: linktools.TagKept},
+		{Key: "utm_campaign", Value: "a", Source: linktools.TagKept},
+	}
+	if diff := cmp.Diff(want, res.Tags); diff != "" {
 		t.Errorf("tags (-want +got):\n%s", diff)
 	}
 }
