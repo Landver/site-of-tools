@@ -1,28 +1,4 @@
-{{/* Copy-to-clipboard. A text-only button carrying data-copy="<the text>"
-     copies it on click; add data-copy-auto and it is also copied the moment
-     htmx swaps it in.
-
-     Text-only because the confirmation replaces the element's textContent —
-     put data-copy on the <pre> itself and a click would eat the block.
-
-     Delegated from document, the same shape as partials/htmx-errors, because
-     most of what wants copying arrives in an htmx fragment: a <script> inside
-     the fragment would have to re-run on every reswap, and a load-time
-     querySelectorAll would miss that markup entirely. navigator.clipboard is
-     the only API used — execCommand needs a selection in a focused document,
-     which is why only the extension's offscreen page still wants it.
-
-     The confirmation appears only when the write RESOLVED. Chromium grants
-     clipboard-write to the active tab, so the auto-copy succeeds there; Firefox
-     and Safari require transient user activation, which a copy fired from an
-     htmx response does not have. A "Copied" printed optimistically would be a
-     lie on two engines out of three, and there the button is the whole feature.
-
-     is-copied / is-failed rather than toggling text-ok / text-danger directly:
-     those are Tailwind names, so using them would lean on the scanner having
-     found them inside a JS string, and on the utilities layer outranking the
-     components layer .btn-copy lives in. A class Tailwind does not own leans on
-     neither. The colours are in input.css beside the rest of .btn-copy. */}}
+{{/* data-copy="<text>" copies on click (data-copy-auto: on swap too); text-only, the label is replaced. */}}
 {{define "partials/copy"}}
 <script>
   (function () {

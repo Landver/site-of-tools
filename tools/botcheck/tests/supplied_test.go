@@ -12,8 +12,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// The rules that read header- or IP-derived fields; everything else skips
-// only for a missing fingerprint.
+// Rules reading header- or IP-derived fields; all others skip only for a missing fingerprint.
 var (
 	headerRules = []string{
 		"bot_user_agent", "ua_header_mismatch", "ch_platform_mismatch", "embedded_runtime", "lang_mismatch",
@@ -72,8 +71,7 @@ func TestUnsuppliedHalvesSkipNotFail(t *testing.T) {
 	}
 }
 
-// An absent header is evidence only when headers were supplied: the same
-// empty User-Agent fires bot_user_agent in one case and is skipped in the other.
+// An absent header is evidence only when headers were supplied.
 func TestEmptyUserAgentCountsOnlyWhenHeadersSupplied(t *testing.T) {
 	if c := check(t, botcheck.Evaluate(botcheck.Signals{}), "bot_user_agent"); !c.Skipped || c.Triggered {
 		t.Errorf("no headers: bot_user_agent = %+v, want skipped", c)

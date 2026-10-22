@@ -1,19 +1,4 @@
-{{/* htmx refuses to swap a non-2xx response by default, so without this a
-     validation error, an upstream failure or a 429 leaves the previous result
-     on screen and the page looks frozen. Shared so pages can't drift apart on
-     it again — every tool that renders an error fragment must include it.
-
-     Gated on CONTENT TYPE, not on status alone. An earlier version listed
-     statuses only, and that quietly changed behaviour on the DNS, IP and
-     botcheck pages: echo's DEFAULT error handler answers an unrouted path or a
-     recovered panic with JSON on every subdomain, so `{"message":"Not Found"}`
-     was being swapped raw into their result areas — and isError=false meant
-     htmx:responseError never fired, so nothing reported it.
-
-     A tool's own error fragment is HTML. Echo's default is JSON. Swapping only
-     HTML keeps every deliberate fragment working and leaves the accidental
-     ones exactly where they were: unswapped. sendError (no response at all)
-     gets a notice above the last result. */}}
+{{/* htmx won't swap a non-2xx; swap it only if HTML, since Echo's default error handler answers JSON. */}}
 {{define "partials/htmx-errors"}}
 <script>
   document.body.addEventListener('htmx:beforeSwap', (e) => {

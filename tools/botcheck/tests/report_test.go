@@ -10,11 +10,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/botcheck"
 )
 
-// report_test.go covers presentation helpers (report.go: G55 explanations,
-// G56 environment line) + rendering in result.html. Like domain tests: no
-// HTTP, no DB. Reports built by hand, fragment rendered straight thru real
-// templates.
-
 func TestSubgroup(t *testing.T) {
 	rep := botcheck.Report{Checks: []botcheck.Check{
 		{ID: "webdriver", Tier: "hard"},
@@ -77,8 +72,7 @@ func TestExplanation(t *testing.T) {
 	if got := (botcheck.Check{ID: "no_such_rule"}).Explanation(); got != "" {
 		t.Errorf("an unknown rule ID must have no explanation, got %q", got)
 	}
-	// Reserved IDs for in-flight rules must already carry theirs -> go live
-	// at merge time, not follow-up.
+	// Reserved IDs for in-flight rules carry theirs already, so they go live at merge time.
 	for _, id := range []string{"iframe_webdriver", "webrtc_ip_mismatch", "zero_outer_height"} {
 		if got := (botcheck.Check{ID: id}).Explanation(); got == "" {
 			t.Errorf("reserved rule ID %q must already have an explanation", id)
@@ -86,8 +80,7 @@ func TestExplanation(t *testing.T) {
 	}
 }
 
-// renderResult renders result fragment thru real embedded templates, same
-// way handler does.
+// renderResult renders through the real embedded templates, as the handler does.
 func renderResult(t *testing.T, rep botcheck.Report) string {
 	t.Helper()
 	r := platform.NewRenderer(false, nil,
@@ -125,9 +118,7 @@ func TestResultTemplateShowsNewSections(t *testing.T) {
 }
 
 func TestCheckFragmentShowsReportingSections(t *testing.T) {
-	// Handler-level proof: POST /check wires fingerprint into new reporting
-	// sections (raw dump, detected-environment line, per-tier sub-scores,
-	// per-signal "why" expanders) all render in swapped-in fragment.
+	// Handler-level: POST /check wires the fingerprint into the reporting sections of the fragment.
 	body := `{"navMainUA":"` + chromeMacUA + `","webdriver":true,"nativeToStringOK":true}`
 	rec := post(newTestApp(fakeLooker{}), "/check", body, map[string]string{"Accept": "text/html", "User-Agent": chromeMacUA})
 	frag := rec.Body.String()
@@ -144,8 +135,7 @@ func TestCheckFragmentShowsReportingSections(t *testing.T) {
 }
 
 func TestResultTemplateWithoutPayloadHidesNewSections(t *testing.T) {
-	// Server-only GET view (+ error path) has no client payload -> raw dump +
-	// environment line must not render.
+	// The server-only GET view (and error path) has no client payload, so neither section renders.
 	rep := botcheck.Report{
 		Score: 100, Verdict: "human",
 		Checks: []botcheck.Check{

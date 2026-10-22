@@ -1,24 +1,12 @@
-// botcheck collector — vendored, hand-written, no npm (CLAUDE.md rule #3).
-//
-// Gathers client-side signals server can't see: navigator/webdriver/CDP
-// traces, WebGL GPU vendor+renderer, cross-context navigator values from Web
-// Worker/iframe/Service Worker, permissions, geometry, timezone, userAgentData
-// version list, feature-detected engine family, engine constants like
-// navigator.productSub, + v4 "env" probes (media queries, connection/storage/
-// EME/GPC surface). POSTs as JSON to /check → swaps returned HTML fragment
-// into #result. After run, appends verdict to localStorage-only history (G46,
-// never uploaded). Every probe wrapped in safe() → one failure never aborts
-// collection. Scoring/verdict happens server-side in Go — this only
-// collects, never decides.
+// botcheck collector: gathers client-side signals the server can't see and POSTs them to /check.
+// Every probe goes through safe(), so one failure never aborts collection; scoring stays in Go.
 (() => {
   "use strict";
 
   const NATIVE_RE = /\{\s*\[native code\]\s*\}/;
 
-  // Known automation-framework globals; presence of any = near-standalone tell.
-  // Only AUTOMATION-only markers belong here — embedded-runtime markers
-  // (CefSharp/Awesomium/CEF) deliberately excluded: legit desktop apps embed
-  // those engines, UA-side embedded_runtime rule already covers that class.
+  // Automation-only globals. Embedded-runtime markers (CefSharp/CEF) stay out: legit desktop apps
+  // embed those engines, and the UA-side embedded_runtime rule covers them.
   const WINDOW_MARKERS = [
     "__playwright", "__pw_manual", "__PW_inspect", "_playwright",
     "__pwInitScripts", "__playwright__binding__", // Playwright binding hooks
@@ -27,8 +15,7 @@
     "__selenium_unwrapped", "__webdriver_evaluate", "__driver_evaluate",
     "__webdriver_script_fn", "__$webdriverAsyncExecutor", "__lastWatirAlert",
     "__fxdriver_unwrapped", "webdriver",
-    // G13: wider Selenium/Watir canon from intoli/fp-scanner lineage that
-    // BrowserScan/sannysoft check individually.
+    // G13: wider Selenium/Watir canon (intoli/fp-scanner lineage) that BrowserScan/sannysoft check.
     "__webdriver_unwrapped", "__driver_unwrapped", "__webdriver_script_function",
     "__webdriver_script_func", "_selenium", "calledSelenium", "_WEBDRIVER_ELEM_CACHE",
     "ChromeDriverw", "driver-evaluate", "webdriver-evaluate", "selenium-evaluate",
@@ -44,10 +31,8 @@
 
   const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
 
-  // cdpTrap: define getter on Error's `stack`, hand Error to console. DevTools-
-  // Protocol client w/ Runtime.enable (Puppeteer/Playwright/Selenium 4) — or open
-  // DevTools panel — serializes object, reads `.stack`, firing getter; plain
-  // browser never reads it. Must NOT touch `.stack` ourselves, or we'd self-trigger.
+  // A CDP client with Runtime.enable (or open DevTools) serializes the logged Error and reads .stack,
+  // firing the getter; a plain browser never does. Never read .stack here, or it self-triggers.
   const cdpTrap = () => safe(() => {
     let fired = false;
     const e = new Error();
@@ -59,16 +44,13 @@
   const frameworkGlobals = () => {
     const found = WINDOW_MARKERS.filter((k) => safe(() => typeof window[k] !== "undefined", false))
       .concat(DOC_MARKERS.filter((k) => safe(() => typeof document[k] !== "undefined", false)));
-    // Sweep for ChromeDriver's random-suffixed cdc_ key + similar markers — over
-    // both document and window own property names (G17): injected automation
-    // global explicit lists miss still surfaces here.
+    // Sweep own names too: ChromeDriver's cdc_ key has a random suffix no list can name (G17).
     for (const obj of [document, window]) {
       safe(() => Object.getOwnPropertyNames(obj).forEach((n) => {
         if (SUSPECT_RE.test(n) && !found.includes(n)) found.push(n);
       }));
     }
-    // Sequentum's scraping runtime brands window.external (fp-scanner's SEQUENTUM
-    // check; deviceandbrowserinfo's isSequentum reads same string).
+    // Sequentum's scraping runtime brands window.external (fp-scanner's SEQUENTUM check).
     safe(() => {
       const ext = window.external;
       if (ext && /sequentum/i.test(String(ext))) found.push("sequentum (window.external)");
@@ -88,43 +70,25 @@
   };
 
   // ── G04: deep native-tamper / lie detection (CreepJS queryLies-style) ───────
-  // Shallow nativeToStringOK() above only regexes toString output; stealth
-  // toolkits (puppeteer-extra-stealth) defeat exactly that by swapping
-  // Function.prototype.toString for Proxy that lies about patched functions.
-  // These probes look for what lie can't hide: impossible property descriptors,
-  // missing call/new TypeError traps, Proxy artifacts. Same convention as
-  // codecs(): probe that can't run or throws yields PASS value — never flag
-  // on doubt.
+  // Stealth kits swap toString for a lying Proxy, so probe what a lie can't hide; can't run = pass.
 
-  // hasOwn = Object.hasOwn w/ fail-safe: can't run (very old engine) →
-  // "absent" is conservative answer for every use below.
+  // Fails to "absent", the conservative answer for every use below.
   const hasOwn = (o, k) => safe(() => Object.hasOwn(o, k), false);
 
-  // findOwner walks prototype chain to object that actually owns prop —
-  // descriptor must be read where property lives, not assumed to sit on
-  // expected prototype (patch may install own property on instance).
+  // Read descriptors where the prop lives: a patch may install an own property on the instance.
   const findOwner = (obj, prop) => {
     let o = obj;
     while (o && !Object.prototype.hasOwnProperty.call(o, prop)) o = Object.getPrototypeOf(o);
     return o;
   };
 
-  // threwTypeError reports whether fn throws specifically TypeError — ONLY
-  // thing traps below assert (messages are engine-specific).
+  // Only the TypeError class is asserted: messages are engine-specific.
   const threwTypeError = (fn) => {
     try { fn(); return false; } catch (e) { return e instanceof TypeError; }
   };
 
-  // Descriptor / own-property sanity on same natives nativeToStringOK checks.
-  // Genuine native method = writable / configurable DATA property on its
-  // prototype, carries no own 'prototype' (non-constructors), 'arguments' or
-  // 'caller', keeps spec-mandated name/length — monkey-patch (plain or bound
-  // function, or defineProperty w/ wrong flags) breaks at least one of these.
-  // Enumerability differs BY SPEC, asserted per target: ECMA-262 built-ins
-  // (Function.prototype.toString) non-enumerable, WebIDL operations
-  // (permissions.query, toDataURL, getParameter) always enumerable — asserting
-  // one family's shape on other false-fires every real browser. Absent APIs
-  // skipped like nativeToStringOK; any probe failure yields true.
+  // A patch breaks a native's descriptor or own props. Enumerability differs BY SPEC: ECMA-262
+  // built-ins are non-enumerable, WebIDL ops enumerable; asserting the wrong one flags every browser.
   const nativeDescriptorsOK = () => safe(() => {
     // [holder, property, expected name, expected length, expected enumerable]
     const targets = [
@@ -135,10 +99,10 @@
     ];
     let checked = 0;
     const ok = targets.every(([obj, prop, name, len, enumerable]) => {
-      if (!obj) return true; // API not offered by this browser ⇒ nothing to check
+      if (!obj) return true;
       const owner = findOwner(obj, prop);
       const d = owner && safe(() => Object.getOwnPropertyDescriptor(owner, prop), null);
-      if (!d) return true; // property gone entirely ⇒ skip, same as absent API
+      if (!d) return true;
       checked++;
       if (typeof d.value !== "function") return false; // turned into getter/data lie
       return d.writable === true && d.enumerable === enumerable && d.configurable === true &&
@@ -148,64 +112,26 @@
     return checked > 0 && ok;
   }, true);
 
-  // call/new TypeError traps: platform objects reject wrong invocations in ways
-  // JS monkey-patch almost never reproduces — patch written as plain function
-  // is constructable, never brand-checks its receiver. Each trap asserts ONLY
-  // that TypeError is thrown; trap that can't run resolves to pass.
+  // Platform natives reject wrong calls in ways a plain-function patch almost never reproduces.
   const nativeCallNewOK = () => safe(() => {
     const traps = [
       // WebIDL operation is not constructor: `new query()` must throw.
       () => typeof navigator === "undefined" || !navigator.permissions ||
         threwTypeError(() => new (navigator.permissions.query)()),
-      // Platform class constructor called WITHOUT new must throw ("Illegal
-      // constructor"); JS shim commonly forgets to enforce it.
+      // A platform constructor called WITHOUT new must throw ("Illegal constructor"); shims forget.
       () => typeof HTMLElement !== "function" ||
         threwTypeError(() => HTMLElement()),
-      // WebIDL method brand-checks its receiver: foreign `this` must throw
-      // ("Illegal invocation"); plain-function patch never checks.
+      // WebIDL methods brand-check their receiver: a foreign `this` must throw ("Illegal invocation").
       () => typeof HTMLCanvasElement !== "function" ||
         threwTypeError(() => HTMLCanvasElement.prototype.toDataURL.call(document.createElement("div"))),
       () => typeof WebGLRenderingContext !== "function" ||
         threwTypeError(() => WebGLRenderingContext.prototype.getParameter.call(null, 0)),
     ];
-    return traps.every((t) => safe(t, true)); // trap that can't run ⇒ pass, never flag
+    return traps.every((t) => safe(t, true));
   }, true);
 
-  // Function.prototype.toString Proxy detection — puppeteer-extra-stealth
-  // hallmark. TRUE = BAD (inverted polarity vs other probes). Two independent
-  // tells, each firing only on confident contradiction:
-  //
-  // Tell A — shape differential vs control native. Pristine toString is
-  //   native non-constructor method (no own 'prototype', `new` throws TypeError)
-  //   — same for Function.prototype.call. Proxy forwards these traits from its
-  //   target → stealth build whose target is ORDINARY function makes toString
-  //   disagree w/ control. Only DISAGREEMENT fires: engine quirk would hit both
-  //   alike → reads as "can't tell".
-  //
-  // Tell B — error-stack trap frames (CreepJS queryLies-style). Calling proxied
-  //   function routes through attacker's JS trap → when native under it throws
-  //   (guaranteed here by illegal `this`), trap's own frame lands in err.stack.
-  //   Pristine engine throws straight at our call site — `.call` invocation
-  //   never produces extra trap frame. Message text never asserted; unreadable
-  //   or empty stack is "can't tell" ⇒ false.
-  //
-  //   2026-07-19 audit note: original regex (`at\s+\S*apply\b|\bapply@`)
-  //   assumed V8 names Proxy trap's frame as plain "at Object.apply" /
-  //   "at Function.apply" — true on older V8 puppeteer-extra-stealth's own
-  //   anchor-stripping (`stripProxyFromErrors` in its `_utils/index.js`) was
-  //   written against. Current V8 (Chrome 150) instead renders it as ALIAS
-  //   frame, e.g. "at newHandler.<computed> [as apply]" — old regex never
-  //   matched → tell silently never fired (confirmed evaded in multi-framework
-  //   matrix run). Alias format also means stealth's OWN anchor search (looks
-  //   for literal "Object.newHandler.<computed> [as " prefix) misses too, on
-  //   this V8, on very first illegal call — no double-nesting needed, its
-  //   stripping is just no-op here. Verified via
-  //   `automation-harness/frameworks/puppeteer-extra-stealth`: unmodified
-  //   stealth 2.11.2 leaks raw "[as apply]" frame on single throw; Playwright's
-  //   un-stealthed headless Chromium + genuine unpatched Chromium (Electron)
-  //   both throw clean, alias-free native stack for exact same call → broadened
-  //   pattern doesn't pick up ordinary automation or ordinary browsers — only
-  //   actual Proxy trap in the way.
+  // Proxy around Function.prototype.toString (puppeteer-extra-stealth hallmark). TRUE = BAD.
+  // Older V8 names a trap frame "at Object.apply", current V8 an alias ("[as apply]"): match both.
   const TRAP_ALIAS_RE =
     /\[as (?:apply|construct|get|set|has|deleteProperty|defineProperty|getOwnPropertyDescriptor|ownKeys|getPrototypeOf|setPrototypeOf|isExtensible|preventExtensions)\]/;
   const nativeToStringProxied = () => safe(() => {
@@ -213,38 +139,29 @@
     const ctrl = Function.prototype.call; // known-native control, same spec shape
     if (typeof fts !== "function" || typeof ctrl !== "function") return false;
 
-    // Tell A
+    // A: a Proxy forwards its target's shape, so an ordinary-function target disagrees with .call.
     const constructable = (fn) => !threwTypeError(() => new fn());
     if (constructable(fts) !== constructable(ctrl)) return true;
     if (hasOwn(fts, "prototype") !== hasOwn(ctrl, "prototype")) return true;
 
-    // Tell B
+    // B: when the native under a proxied call throws, the trap's own frame lands in the stack.
     const stack = safe(() => {
       try { Function.prototype.toString.call(null); return ""; } catch (e) { return String((e && e.stack) || ""); }
     }, "");
     const frames = stack.split("\n").slice(1).join("\n"); // drop the message line
     return /at\s+\S*apply\b|\bapply@/.test(frames) || TRAP_ALIAS_RE.test(frames);
-  }, false); // any failure ⇒ false: never flag on doubt
+  }, false);
 
-  // ── v3 probes (G09/G10/G17/G22/G23) ─────────────────────────────────────────
-  // Same conventions as G04 probes: OK bools fail to pass (false only on
-  // confirmed anomaly), TRUE=BAD values default false on any probe failure,
-  // strings/lists come out empty when probe can't run — Go treats empty as
-  // "not supplied", never evidence.
+  // ── v3 probes (G09/G10/G17/G22/G23): empty values are "not supplied" to Go, never evidence ──
 
-  // navProtoDescriptorsOK (G17): per WebIDL, webdriver / plugins / languages are
-  // accessor (getter-only) properties — enumerable, configurable, living on
-  // Navigator.prototype, never own data properties on navigator instance —
-  // getters are native. Spoof installed via defineProperty/assignment breaks
-  // at least one of those. Only confident anomalies count: absent or
-  // unreadable property (old engine, blocked API) resolves to pass.
+  // Per WebIDL, webdriver/plugins/languages are native getters on Navigator.prototype (G17).
   const navProtoDescriptorsOK = () => safe(() => {
     if (typeof Navigator === "undefined" || !Navigator.prototype || typeof navigator === "undefined") return true;
     return ["webdriver", "plugins", "languages"].every((prop) => {
       const owner = findOwner(navigator, prop);
-      if (!owner) return true; // property absent entirely ⇒ nothing to check
+      if (!owner) return true;
       const d = safe(() => Object.getOwnPropertyDescriptor(owner, prop), null);
-      if (!d) return true; // unreadable ⇒ pass, never flag on doubt
+      if (!d) return true;
       if (owner !== Navigator.prototype) return false; // own instance property ⇒ spoofed
       return typeof d.get === "function" && d.set === undefined &&
         d.enumerable === true && d.configurable === true &&
@@ -252,25 +169,8 @@
     });
   }, true);
 
-  // chromeRuntimeOK (G22): genuine window.chrome carries chrome.runtime whose
-  // sendMessage/connect are native NON-CONSTRUCTOR methods — no own 'prototype',
-  // `new fn()` throws TypeError. Stealth-bolted fake (plain or bound function)
-  // carries prototype or constructs silently; exotic throw isn't TypeError
-  // (CreepJS hasBadChromeRuntime). Fail-to-pass: absent chrome/runtime is no
-  // confident contradiction — absence is no_chrome_object's territory.
-  //
-  // 2026-07-19 audit note: tried tightening to flag window.chrome existing
-  // WITHOUT runtime at all (puppeteer-extra-plugin-stealth 2.11.2's chrome
-  // evasion has exactly this shape — adds app/csi, omits runtime — evaded this
-  // rule as originally written). Reverted after verification: official "Chrome
-  // for Testing" binary itself lacks chrome.runtime entirely — headless AND
-  // headful, even w/ --enable-automation stripped and navigator.webdriver
-  // patched away. Means absence is property of this Chrome *distribution*, not
-  // proof of automation or stealth, and no genuine consumer-Chrome sample in
-  // this audit's environment to confirm it behaves differently. Shipping
-  // tightened version risked scoring real human visitors on that build as
-  // tampered — not worth it w/o verifying against actual consumer Chrome first.
-  // See tools/botcheck/docs/testing/findings/2026-07-19-multi-framework-matrix-results.md for full note; left as open item.
+  // Real chrome.runtime.sendMessage/connect are native non-constructors (G22). A chrome without runtime
+  // passes: Chrome for Testing lacks it too (findings/2026-07-19-multi-framework-matrix-results.md).
   const chromeRuntimeOK = () => safe(() => {
     if (!("chrome" in window)) return true;
     const c = window.chrome;
@@ -279,7 +179,7 @@
     if (!rt || typeof rt !== "object") return true;
     for (const name of ["sendMessage", "connect"]) {
       const fn = rt[name];
-      if (typeof fn !== "function") continue; // no confident contradiction
+      if (typeof fn !== "function") continue;
       if ("prototype" in fn) return false; // native method carries none
       try {
         new fn();
@@ -291,22 +191,14 @@
     return true;
   }, true);
 
-  // chromeLateInjection (G22): genuine Chrome creates window.chrome during page
-  // setup → sits early among window keys; stealth patch bolting on fake chrome
-  // object appends it late (CreepJS hasHighChromeIndex — 'chrome' in last ~50 of
-  // both enumerable keys and own property names). TRUE = BAD.
+  // A bolted-on window.chrome lands among the last window keys (CreepJS hasHighChromeIndex). TRUE = BAD.
   const chromeLateInjection = () => safe(() => {
     if (!("chrome" in window)) return false;
     return Object.keys(window).slice(-50).includes("chrome") &&
       Object.getOwnPropertyNames(window).slice(-50).includes("chrome");
   }, false);
 
-  // jsEngine (G23): JS engine from Error-stack format — V8 (Chrome/Edge/Opera)
-  // frames look like "    at fn (url:line:col)"; SpiderMonkey (Firefox) stacks
-  // use "fn@url:line:col" AND Error carries proprietary fileName/lineNumber
-  // properties; JavaScriptCore (Safari + every iOS browser) also uses
-  // "fn@url:line:col" but no fileName/lineNumber. "" ⇒ couldn't tell
-  // (blocked/empty stack), Go treats as no signal.
+  // V8 stacks use " at "; SpiderMonkey and JSC "fn@url", but only SpiderMonkey has Error.fileName (G23).
   const jsEngine = () => safe(() => {
     const e = new Error();
     const stack = String((e && e.stack) || "");
@@ -316,12 +208,7 @@
     return "";
   }, "");
 
-  // webrtcProbe (G09): open RTCPeerConnection against public STUN server, harvest
-  // ICE candidate IPs for ~1.5s (same timeout shape as other async probes). mDNS
-  // *.local obfuscation names skipped — carry no IP. Go compares only PUBLIC
-  // candidates against connection's egress IP (VPN/proxy pierce), applies
-  // private/link-local/address-family exclusions; every failure path here
-  // resolves empty, never a signal.
+  // ICE candidate IPs via a public STUN server (G09); mDNS *.local names carry no IP. Go filters the rest.
   const webrtcProbe = () => new Promise((resolve) => {
     const fallback = [];
     try {
@@ -358,10 +245,7 @@
     } catch { resolve(fallback); }
   });
 
-  // imageProbe (G10): 1×1 data-URI GIF that MUST load in any real browser
-  // (sannysoft "Broken Image Dimensions"). naturalWidth == 0 — or error event —
-  // means images blocked/stripped, headless tell. TRUE = BAD; timeout or setup
-  // error reads as "can't tell" ⇒ false.
+  // A data-URI GIF loads in any real browser (sannysoft "Broken Image Dimensions", G10). TRUE = BAD.
   const imageProbe = () => new Promise((resolve) => {
     try {
       const img = new Image();
@@ -372,19 +256,10 @@
     } catch { resolve(false); }
   });
 
-  // ── v4 probes (G15/G21): additive "env" section ───────────────────────
-  // Same conventions as v3 probes, tightened: every value fails to ABSENT (key
-  // simply never set) — unsupported API or failed query is "not supplied",
-  // never zero that could read as evidence. Scored rules (matchmedia_missing,
-  // netinfo_incoherent) v4-gated server-side; rest is entropy for raw dump,
-  // deliberately never scored (user preferences and hardware capabilities are
-  // not bot tells).
+  // ── v4 probes (G15/G21): "env" section, every value fails to ABSENT, never a zero ──
+  // Only matchmedia_missing and netinfo_incoherent score; the rest is entropy (prefs aren't bot tells).
 
-  // mediaProbe reads CSS media-query / display-capability surface (G15).
-  // matchMedia itself is one capability flag: exists in every real browser →
-  // Go's matchmedia_missing rule treats its absence on browser UA as
-  // stripped-environment tell. Each query individually safe()d, set only when
-  // resolved — browser w/o matchMedia at all yields just { matchMedia: false }.
+  // matchMedia exists in every real browser, so its absence on a browser UA is a tell (G15).
   const mediaProbe = () => {
     const hasMM = safe(() => typeof window.matchMedia === "function", false);
     const out = { matchMedia: hasMM };
@@ -398,8 +273,7 @@
     if (rm !== null) out.reducedMotion = rm;
     const dr = mq("(dynamic-range: high)");
     if (dr !== null) out.dynamicRange = dr ? "high" : "standard";
-    // color-gamut: report widest supported; srgb universal → fallback answer
-    // whenever query API works at all.
+    // Widest gamut wins; srgb is universal, so it's the answer whenever the query API works.
     if (mq("(color-gamut: rec2020)") === true) out.gamut = "rec2020";
     else if (mq("(color-gamut: p3)") === true) out.gamut = "p3";
     else if (mq("(color-gamut: srgb)") !== null) out.gamut = "srgb";
@@ -408,10 +282,7 @@
     return out;
   };
 
-  // connectionProbe samples navigator.connection (G21) — browser's own
-  // network-quality estimate. API doesn't exist on most Firefox/Safari installs:
-  // absence normal, resolves null, Go reads as "not supplied" (netinfo_incoherent
-  // rule simply skips). Each field set only when it reports sensible value.
+  // navigator.connection is missing on most Firefox/Safari, so null is normal: "not supplied" (G21).
   const connectionProbe = () => safe(() => {
     const c = navigator.connection;
     if (!c) return null;
@@ -423,10 +294,7 @@
     return out;
   }, null);
 
-  // storageProbe reads storage quota estimate, rounded to whole MB (G21).
-  // 0 = couldn't tell (API absent, estimate failed) — Go treats 0 as absent.
-  // Quota feeds nothing but raw dump; deliberately no incognito heuristic
-  // (that's G19, skipped in roadmap).
+  // Quota in MB, 0 = couldn't tell; raw dump only, no incognito heuristic (G19 was skipped).
   const storageProbe = () => safe(
     () => navigator.storage?.estimate?.().then((e) => {
       const q = e && e.quota;
@@ -435,10 +303,7 @@
     Promise.resolve(0),
   );
 
-  // permissionsProbe samples two Permissions API states (G21). Each name
-  // individually fail-to-absent — older Safari rejects 'geolocation' — whole
-  // sample null when API itself missing. Entropy only: states are user
-  // choices, no rule ever scores them.
+  // Each name fails to absent (older Safari rejects 'geolocation'); user choices, so never scored.
   const permissionsProbe = () => {
     if (!safe(() => !!(navigator.permissions && navigator.permissions.query), false)) {
       return Promise.resolve(null);
@@ -455,9 +320,7 @@
     });
   };
 
-  // emeProbe asks whether ClearKey EME available (G21). true/false both
-  // determined answers; null means probe couldn't run (no EME API, unexpected
-  // error) — fail-to-absent, never evidence.
+  // ClearKey EME (G21): true/false are answers; null = couldn't run, never evidence.
   const emeProbe = () => safe(
     () => {
       if (typeof navigator.requestMediaKeySystemAccess !== "function") return Promise.resolve(null);
@@ -473,16 +336,13 @@
     Promise.resolve(null),
   );
 
-  // gpcProbe reads navigator.globalPrivacyControl (G21): boolean where browser
-  // exposes it (Firefox), null elsewhere — absent, never false.
+  // globalPrivacyControl (G21): a boolean where exposed (Firefox), else null, never false.
   const gpcProbe = () => safe(() => {
     const g = navigator.globalPrivacyControl;
     return typeof g === "boolean" ? g : null;
   }, null);
 
-  // envSection assembles v4 env object from probes above. quota/perms/eme are
-  // already-resolved async probe results from collect()'s one Promise.all →
-  // adds no wall time to happy path.
+  // quota/perms/eme come from collect()'s single Promise.all, so they add no wall time.
   const envSection = (quotaMB, perms, eme) => {
     const env = mediaProbe();
     const conn = connectionProbe();
@@ -495,10 +355,7 @@
     return env;
   };
 
-  // webglGPU reads unmasked VENDOR and RENDERER from WEBGL_debug_renderer_info.
-  // Go compares two against each other (vendor/renderer coherence, G07) and GPU
-  // family against UA-claimed OS (G08). Any failure (no WebGL, extension
-  // blocked) yields empty strings, Go treats as "not supplied", never a tell.
+  // Go checks vendor vs renderer (G07) and GPU family vs the UA's OS (G08); "" = not supplied.
   const webglGPU = () => safe(() => {
     const c = document.createElement("canvas");
     const gl = c.getContext("webgl") || c.getContext("experimental-webgl");
@@ -509,9 +366,7 @@
     };
   }, { webglVendor: "", webglRenderer: "" });
 
-  // canvasProbe draws same content twice: identical hashes ⇒ stable; blank
-  // (all-transparent) result ⇒ blocked/headless. Randomised output (unequal
-  // hashes) = noise-injecting anti-fingerprint tool.
+  // Draws twice: unequal hashes = anti-fingerprint noise; all-transparent = blocked or headless.
   const canvasProbe = () => safe(() => {
     const c = document.createElement("canvas");
     c.width = 60; c.height = 20;
@@ -540,8 +395,7 @@
     codecAAC: !!document.createElement("audio").canPlayType('audio/mp4; codecs="mp4a.40.2"'),
   }), { codecH264: true, codecAAC: true }); // default true ⇒ probe failure never flags
 
-  // detectFonts counts how many probe fonts render at different width than
-  // generic baselines (classic measureText technique). -1 ⇒ couldn't measure.
+  // Counts probe fonts whose width differs from the generic baselines; -1 = couldn't measure.
   const detectFonts = () => safe(() => {
     const bases = ["monospace", "sans-serif", "serif"];
     const probes = ["Arial", "Courier New", "Times New Roman", "Georgia", "Verdana",
@@ -553,32 +407,22 @@
       const baseW = Object.fromEntries(bases.map((b) => [b, w(b)]));
       return probes.filter((p) => bases.some((b) => w(`'${p}',${b}`) !== baseW[b])).length;
     };
-    // First canvas text measurement after navigation can hit cold font cache,
-    // return generic width for every probe — spurious "no fonts". Warm cache
-    // w/ throwaway pass, then take real measurement.
+    // A cold font cache makes the first pass report no fonts: warm it with a throwaway one.
     count();
     return count();
   }, -1);
 
-  // iframeProxied — CreepJS hasIframeProxy. puppeteer-extra-stealth
-  // iframe.contentWindow patch installs getter that THROWS when fresh srcdoc
-  // frame's window read this early; genuine engine never throws here (Chrome
-  // returns WindowProxy even detached, Firefox returns null). TRUE = BAD; any
-  // setup failure reads as false (never flag on doubt).
+  // Stealth's contentWindow getter throws on a fresh srcdoc frame; real engines don't. TRUE = BAD.
   const iframeProxied = () => {
     try {
       const f = document.createElement("iframe");
       f.srcdoc = "botcheck";
-      void f.contentWindow; // stealth getter throws here; real engine doesn't
+      void f.contentWindow;
       return false;
     } catch { return true; }
   };
 
-  // iframeProbe re-reads navigator inside display:none iframe (second JS
-  // context). Anti-detect tools commonly spoof only top frame's navigator →
-  // any value iframe reports differently is consistency tell — including
-  // navigator.webdriver, which stealth patches fix in top frame but forget in
-  // fresh iframe realm (G11). Empty values mean read failed — never a signal.
+  // Second JS context: anti-detect tools often spoof only the top frame, webdriver included (G11).
   const iframeProbe = () => safe(() => {
     const f = document.createElement("iframe");
     f.style.display = "none";
@@ -596,11 +440,7 @@
     return out;
   }, { ua: "", languages: [], cores: 0, platform: "", webdriver: false, proxied: false });
 
-  // workerProbe recomputes navigator values, runs CDP trap inside Web Worker
-  // (third JS context) — top-frame-only spoof leaks here. Also tries
-  // OffscreenCanvas WebGL unmasked-renderer read (CreepJS hasBadWebGL diff);
-  // many browsers lack OffscreenCanvas WebGL, just yields "". Uses blob URL so
-  // no separate file needed; resolves w/ fallback on timeout/error.
+  // Third JS context; also reads the OffscreenCanvas WebGL renderer (CreepJS hasBadWebGL diff).
   const workerProbe = () => new Promise((resolve) => {
     const fallback = { ua: "", cdp: false, languages: [], cores: 0, platform: "", webgl: "" };
     try {
@@ -624,12 +464,8 @@
     } catch { resolve(fallback); }
   });
 
-  // swProbe asks Service Worker at /botcheck-sw.js (served by app itself — blob:
-  // URL can't be registered as SW) for its navigator values: fourth JS context to
-  // cross-check. SW answers over MessageChannel port so we don't race global
-  // message listener; unregistered afterward so nothing left behind on
-  // visitor's browser. Every failure path resolves w/ empty values (no SW
-  // support, slow first install, HTTPS-only restrictions) — never a signal.
+  // Fourth JS context. A blob: URL can't register as a SW, hence /botcheck-sw.js; it answers over a
+  // MessageChannel port so it can't race the global message listener.
   const swProbe = () => new Promise((resolve) => {
     const fallback = { ua: "", languages: [], cores: 0, platform: "", webdriver: false, cdp: false };
     try {
@@ -662,12 +498,8 @@
 
   const uaData = async () => {
     const d = navigator.userAgentData;
-    // fullVersionList is load-bearing G01 signal: UA-string spoof that edits
-    // "Chrome/NNN" but leaves userAgentData intact disagrees w/ "Chromium"
-    // brand entry Go compares against. platform is low-entropy (read directly);
-    // fullVersionList is high-entropy, needs getHighEntropyValues — can REJECT
-    // (e.g. NotAllowedError in sandbox), safe() only catches synchronous throws
-    // → `.catch` stops rejection from aborting whole fingerprint.
+    // fullVersionList is the G01 signal (a "Chrome/NNN" UA edit disagrees with it). Fetching it can
+    // REJECT (NotAllowedError in a sandbox), which safe() can't catch: hence the .catch.
     const hi = await safe(() => d?.getHighEntropyValues?.(["fullVersionList"])?.catch(() => null), null);
     return {
       platform: safe(() => d?.platform ?? "", ""),
@@ -675,10 +507,7 @@
     };
   };
 
-  // engineFamily feature-detects real rendering engine, independent of
-  // (spoofable) UA string: gecko (Firefox), webkit (Safari + all iOS browsers),
-  // blink (Chrome/Edge/Opera/Chromium). Each probe reads capability unique to
-  // one engine; Go compares result to engine UA claims. "" ⇒ couldn't tell.
+  // Feature-detects the real engine, independent of the spoofable UA; "" = couldn't tell.
   const engineFamily = () => safe(() => {
     const sup = (p, v) => safe(() => CSS.supports(p, v), false);
     if (sup("-moz-appearance", "none") || "MozAppearance" in document.documentElement.style) return "gecko";
@@ -696,22 +525,19 @@
     const iframe = iframeProbe();
     const [worker, sw, ua, perm, webrtcIPs, imageBroken, quotaMB, perms, eme] = await Promise.all(
       [workerProbe(), swProbe(), uaData(), permState(), webrtcProbe(), imageProbe(),
-        storageProbe(), permissionsProbe(), emeProbe()], // v4: parallel with the rest — no added wall time
+        storageProbe(), permissionsProbe(), emeProbe()],
     );
     return {
-      // Payload version. Bump when new field is damning-when-false (missing key
-      // binds false server-side): Go skips those rules on older payloads →
-      // stale cached copy of this file never reads as tampered. v2 = G04
-      // probes; v3 = G09–G14/G17/G22/G23 batch + Layer-1 backlog fields; v4 =
-      // G15/G21 "env" section (media queries, connection, storage, EME, GPC).
+      // Bump when a new field is damning-when-false (a missing key binds false): Go skips those rules
+      // on older payloads, so a stale cached copy of this file never reads as tampered.
       v: 4,
       webdriver: safe(() => navigator.webdriver === true, false),
       frameworkGlobals: frameworkGlobals(),
       cdpMainThread: cdpTrap(),
       cdpWorker: !!worker.cdp,
       nativeToStringOK: nativeToStringOK(),
-      nativeDescriptorsOK: nativeDescriptorsOK(), // G04 deep probes — same fail-to-pass
-      nativeCallNewOK: nativeCallNewOK(), // convention: false only on confirmed tamper
+      nativeDescriptorsOK: nativeDescriptorsOK(), // G04: false only on confirmed tamper
+      nativeCallNewOK: nativeCallNewOK(),
       nativeToStringProxied: nativeToStringProxied(), // inverted: true = toString is Proxy
       navMainUA: safe(() => navigator.userAgent, ""),
       navWorkerUA: worker.ua || "",
@@ -741,9 +567,7 @@
       fontCount: detectFonts(),
       productSub: safe(() => navigator.productSub ?? "", ""),
       engine: engineFamily(),
-      // G03: same navigator values re-read in other JS contexts. Top-frame-only
-      // spoof leaves these untouched → Go diffs each against main thread's
-      // claim. Empty/0 ⇒ context didn't answer — never a signal.
+      // G03: the same values from other JS contexts; empty/0 = the context didn't answer, never a signal.
       swUA: sw.ua || "",
       workerLanguages: worker.languages || [],
       iframeLanguages: iframe.languages || [],
@@ -757,16 +581,14 @@
       workerWebGLRenderer: worker.webgl || "",
       ...canvasProbe(),
       ...codecs(),
-      // v3 batch: G09–G14/G17/G22/G23 signals + Layer-1 backlog fields. OK
-      // bools fail to pass (gated on v server-side); TRUE=BAD booleans and
-      // value fields default safe on stale payload.
-      iframeWebdriver: iframe.webdriver === true, // G11: webdriver re-read in iframe
+      // v3 batch: OK bools fail to pass (gated on v server-side); TRUE=BAD fields default safe.
+      iframeWebdriver: iframe.webdriver === true,
       iframeProxied: iframe.proxied === true, // G11: iframe contentWindow Proxy (true = bad)
-      swWebdriver: sw.webdriver === true, // G14: webdriver in Service Worker
+      swWebdriver: sw.webdriver === true,
       swCDP: !!sw.cdp, // G14: CDP Error.stack trap, in Service Worker
-      maxTouchPoints: safe(() => navigator.maxTouchPoints ?? 0, 0), // G12
-      navProtoDescriptorsOK: navProtoDescriptorsOK(), // G17 fail-to-pass
-      chromeRuntimeOK: chromeRuntimeOK(), // G22 fail-to-pass
+      maxTouchPoints: safe(() => navigator.maxTouchPoints ?? 0, 0),
+      navProtoDescriptorsOK: navProtoDescriptorsOK(),
+      chromeRuntimeOK: chromeRuntimeOK(),
       chromeLateInjection: chromeLateInjection(), // G22: true = bad
       jsEngine: jsEngine(), // G23: "v8" | "spidermonkey" | "jsc" | ""
       webrtcIPs: webrtcIPs, // G09: deduped candidate IPs (mDNS skipped); [] = no signal
@@ -774,20 +596,11 @@
       mimeTypes: safe(() => navigator.mimeTypes?.length ?? 0, 0),
       outerH: safe(() => window.outerHeight ?? 0, 0),
       innerH: safe(() => window.innerHeight ?? 0, 0),
-      // v4 batch (G15/G21): one additive env section — media-query/display
-      // values, connection sample, storage quota, permissions, EME, GPC. Every
-      // key inside fails to absent; scored rules are v4-gated, rest is entropy
-      // for raw dump only.
       env: envSection(quotaMB, perms, eme),
     };
   };
 
-  // ── G46: returning-visitor history (localStorage only, never uploaded) ────
-  // After each completed run, append {ts, score, verdict} — read off swapped-in
-  // verdict card's data attrs — to botcheck:history list (capped at 20 most
-  // recent), re-render "your recent checks" card. Every step goes through
-  // safe(): private mode can make any localStorage access throw, history is
-  // best-effort — must never break result flow.
+  // ── G46: localStorage-only history; private mode can make any access throw, so all is safe() ──
   const HISTORY_KEY = "botcheck:history";
   const HISTORY_MAX = 20;
   const VERDICT_CLASS = { human: "text-ok", suspicious: "text-warn-ink", "good-bot": "text-brand-ink" };
@@ -854,11 +667,8 @@
   window.runBotCheck = runBotCheck;
   renderHistory(); // G46: a returning visitor sees their history before the first run
 
-  // Auto-run once page warmed up. Probes touching font cache and media
-  // pipeline can read "cold" at DOMContentLoaded — spurious "no fonts / no
-  // codecs" — proxy extension slowing load makes that far more likely. Wait
-  // for load event and document.fonts.ready so those reads are stable, w/
-  // timeout fallback so stalled resource never leaves page on "analyzing".
+  // Font and media probes read cold at DOMContentLoaded ("no fonts / no codecs"), so wait for load and
+  // fonts.ready, with a timeout so a stalled resource can't leave the page on "analyzing".
   let autoStarted = false;
   const autoRun = () => {
     if (autoStarted) return;
