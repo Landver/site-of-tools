@@ -85,9 +85,10 @@ form post would and calls `ciphertools.Run`. All are R.
 | `cipher_encrypt` | `/encrypt` | `cipher_basic_auth` | `/encode/basic` |
 | | | `cipher_identify` | `/identify` |
 
-- A list field (`sets`) is a JSON array; a JSON field (`payload`, `header`)
-  stays a string, so re-encoding can't reorder the claims it signs; file
-  fields have no MCP form (binary goes as base64 or hex, ~750 KB at most).
+- A list field (`sets`) is a comma-separated string, as in the JSON API; a
+  JSON field (`payload`, `header`) stays a string, so re-encoding can't
+  reorder the claims it signs; file fields have no MCP form (binary goes as
+  base64 or hex, ~750 KB at most).
 - The pages run in the browser and send nothing; over MCP inputs and outputs
   (generated keys, random values) pass through this server and the user's AI
   provider, so every description ends "use test material only".

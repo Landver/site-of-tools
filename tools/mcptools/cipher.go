@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -68,7 +67,7 @@ var cipherTools = map[string]cipherTool{
 	"random": {"cipher_random", "Random tokens, passwords, UUIDs",
 		"Generate random values from a cryptographic source: tokens (kind token, the default) as hex, base64url, base64 or letters and digits; " +
 			"passwords from the character sets chosen, with their exact entropy; or UUIDs, version 4 or 7. " +
-			"count makes up to 20 tokens or passwords, or 100 UUIDs, at once. Example: kind password, length 24, sets [lower, upper, digits]."},
+			"count makes up to 20 tokens or passwords, or 100 UUIDs, at once. Example: kind password, length 24, sets lower,upper,digits."},
 	"encode": {"cipher_encode", "Convert byte encodings",
 		"Show the same bytes as UTF-8 text, hex, base64, base64url and base32: text is read per from (utf8 by default), and the base64 variant it was in is named. " +
 			"A character that isn't valid in the encoding is pointed at by its offset. " +
@@ -104,7 +103,7 @@ func cipherSpecs(d Deps) ([]toolSpec, error) {
 			deadline: quickDeadline,
 			limiter:  lim.Pure,
 			add: handle(func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
-				in, err := cipherInput(op, args)
+				in, err := ciphertools.InputFromJSON(args)
 				if err != nil {
 					return nil, err
 				}
@@ -116,27 +115,13 @@ func cipherSpecs(d Deps) ([]toolSpec, error) {
 			s.weight = func(raw json.RawMessage) int64 {
 				var args map[string]any
 				_ = json.Unmarshal(raw, &args) // arguments that don't decode fail validation next
-				in, _ := cipherInput(op, args)
+				in, _ := ciphertools.InputFromJSON(args)
 				return ciphertools.HeavyWeight(op.Name, in)
 			}
 		}
 		specs = append(specs, s)
 	}
 	return specs, nil
-}
-
-// cipherInput is the Input a form post would have made: lists joined with commas.
-func cipherInput(op ciphertools.Op, args map[string]any) (ciphertools.Input, error) {
-	for _, f := range op.Fields {
-		if list, ok := args[f.Name].([]any); ok && f.Kind == ciphertools.KindList {
-			parts := make([]string, len(list))
-			for i, v := range list {
-				parts[i] = fmt.Sprint(v)
-			}
-			args[f.Name] = strings.Join(parts, ",")
-		}
-	}
-	return ciphertools.InputFromJSON(args)
 }
 
 // A JSON field stays a string: re-encoding a payload would reorder the claims it signs.
@@ -149,15 +134,12 @@ func cipherSchema(op ciphertools.Op) *jsonschema.Schema {
 		switch f.Kind {
 		case ciphertools.KindFile:
 			continue
-		case ciphertools.KindString:
+		case ciphertools.KindString, ciphertools.KindList:
 			p.Type = "string"
 		case ciphertools.KindJSON:
 			p.Type, p.ContentMediaType = "string", "application/json"
 		case ciphertools.KindEnum:
 			p.Type, p.Enum = "string", values(f.Enum, false)
-		case ciphertools.KindList:
-			p.Type, p.Items = "array", &jsonschema.Schema{Type: "string", Enum: values(f.Enum, false)}
-			def = strings.Split(f.Default, ",")
 		case ciphertools.KindBool:
 			p.Type, def = "boolean", f.Default == "true"
 		case ciphertools.KindInt:
