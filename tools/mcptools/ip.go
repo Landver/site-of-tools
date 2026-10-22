@@ -26,10 +26,7 @@ type ipLookupResult struct {
 	Attribution []platform.Credit `json:"attribution"`
 }
 
-const (
-	selfNote          = "This is the address this MCP request came from: the machine running the MCP client, or the AI provider's servers when the client is a hosted connector."
-	shodanSkippedNote = "Open ports were not checked: the shared Shodan budget is spent for the moment. Ask again in a few seconds."
-)
+const selfNote = "This is the address this MCP request came from: the machine running the MCP client, or the AI provider's servers when the client is a hosted connector."
 
 type ipTools struct {
 	geo iptools.Looker
@@ -48,6 +45,7 @@ func ipSpecs(d Deps) []toolSpec {
 				Description: "Look up one IP address: its country, region, city and timezone, the network it belongs to (ASN and name), " +
 					"whether it is a VPN, proxy, Tor exit or hosting address, whether an abuse blocklist lists it, and the open ports Shodan last saw on it. " +
 					`Pass the address, e.g. 8.8.8.8 or 2606:4700:4700::1111, or "self" for the address this request came from (for a hosted connector that is the AI provider's server, not the user's machine). ` +
+					"shodan.skipped means the shared Shodan budget was spent and ports were not checked; ask again in a few seconds. " +
 					"For a whole network range rather than one address, use ip_cidr. " + thirdParty,
 				InputSchema: inputSchema[ipLookupArgs](minLength("ip", 1)),
 				Annotations: readOnly(true),
@@ -92,9 +90,6 @@ func (t ipTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a ipLookupA
 	out := ipLookupResult{Result: res, Self: self, Attribution: ipCredits(res)}
 	if self {
 		out.Notes = append(out.Notes, selfNote)
-	}
-	if res.Shodan != nil && res.Shodan.Skipped {
-		out.Notes = append(out.Notes, shodanSkippedNote)
 	}
 	return out, nil
 }

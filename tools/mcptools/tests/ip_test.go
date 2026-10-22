@@ -84,8 +84,8 @@ func TestIPLookupShodanSkipped(t *testing.T) {
 	if diff := cmp.Diff([]string{"IP2Location LITE", "The Spamhaus Project"}, sources(t, got)); diff != "" {
 		t.Errorf("attribution when Shodan was skipped (-want +got):\n%s", diff)
 	}
-	if notes, _ := got["notes"].([]any); len(notes) != 1 || !strings.Contains(notes[0].(string), "Shodan") {
-		t.Errorf("notes = %v, want one saying open ports weren't checked", got["notes"])
+	if dig(got, "shodan.skipped") != true || got["notes"] != nil {
+		t.Errorf("shodan = %v, notes = %v; want shodan.skipped and no notes", got["shodan"], got["notes"])
 	}
 }
 

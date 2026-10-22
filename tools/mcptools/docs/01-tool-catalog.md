@@ -26,7 +26,7 @@ body, pinned by parity tests; below is only where MCP differs.
 
 | Tool | REST twin | Hints | Differs from REST |
 |---|---|---|---|
-| `ip_lookup` | `GET /?ip=` | R O | `ip` is required: REST defaults to the caller, which over MCP is the client's host. `"self"` asks for it, adding `self: true` and a note saying whose address it is. When the process-wide Shodan budget is spent, ports are skipped with a note and Shodan's credit is left out. |
+| `ip_lookup` | `GET /?ip=` | R O | `ip` is required: REST defaults to the caller, which over MCP is the client's host. `"self"` asks for it, adding `self: true` and a note saying whose address it is. When the process-wide Shodan budget is spent, ports are skipped (`shodan.skipped: true`) and Shodan's credit is left out. |
 | `ip_cidr` | `GET /cidr` | R | — |
 
 ## dns
