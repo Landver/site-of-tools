@@ -102,7 +102,7 @@ form post would and calls `ciphertools.Run`. All are R.
 
 | Tool | REST twin | Hints | Differs from REST |
 |---|---|---|---|
-| `site_blog` | `GET /blog`, `GET /blog/:slug` | R | REST returns the page's view model. Without `slug`: `{posts: [{slug, title, date, description, url}]}`; with it, that post plus its Markdown, frontmatter stripped, relative links and images resolved against the post's URL (code untouched). |
+| `site_blog` | `GET /blog`, `GET /blog/:slug` | R | REST returns the page's view model. Without `slug`: `{posts: [{slug, title, date, description, url}]}`; with it, that post plus its Markdown, frontmatter stripped, root-relative links and images made absolute. |
 
 ## Not tools
 

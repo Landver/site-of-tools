@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -44,7 +42,7 @@ func siteSpecs(d Deps) []toolSpec {
 			Title: "corpberry.com blog",
 			Description: "Read the corpberry.com blog: technical write-ups by the site's author on bot detection, Go and the tools on the site. " +
 				"Without slug it lists every post, newest first, with its slug, title, date, description and url; " +
-				"with slug it returns that post as Markdown, its links and images made absolute. Example: slug the-bug-is-still-there.",
+				"with slug it returns that post as Markdown, its root-relative links and images made absolute. Example: slug the-bug-is-still-there.",
 			InputSchema: inputSchema[siteBlogArgs](),
 			Annotations: readOnly(false),
 		},
@@ -76,69 +74,11 @@ func (t siteTools) read(_ context.Context, _ *mcp.CallToolRequest, a siteBlogArg
 		return nil, err
 	}
 	e := t.entry(p)
-	e.Markdown = absolutize(p.Markdown, e.URL)
+	e.Markdown = strings.ReplaceAll(p.Markdown, "](/", "]("+t.base+"/")
 	return e, nil
 }
 
 func (t siteTools) entry(p site.Post) blogPost {
 	return blogPost{Slug: p.Slug, Title: p.Title, Date: p.Date.Format(site.DateLayout), Description: p.Desc,
 		URL: t.base + "/blog/" + p.Slug}
-}
-
-// Group 2 is a link or image destination, and nothing follows it in the match.
-var (
-	inlineDest = regexp.MustCompile(`(\]\(\s*<?)([^\s)>]+)`)
-	refDest    = regexp.MustCompile(`^( {0,3}\[[^\]]+\]:[ \t]*<?)([^\s>]+)`)
-	htmlDest   = regexp.MustCompile(`(\b(?:src|href)=["'])([^"']+)`)
-)
-
-// Read as source, a relative link resolves against nothing, so it is resolved against the post's URL.
-func absolutize(md, postURL string) string {
-	base, err := url.Parse(postURL)
-	if err != nil || !base.IsAbs() {
-		return md
-	}
-	resolve := func(re *regexp.Regexp, s string) string {
-		return re.ReplaceAllStringFunc(s, func(m string) string {
-			sub := re.FindStringSubmatch(m)
-			u, err := url.Parse(sub[2])
-			if err != nil || u.IsAbs() {
-				return m
-			}
-			return sub[1] + base.ResolveReference(u).String()
-		})
-	}
-	lines := strings.SplitAfter(md, "\n")
-	fence := ""
-	for i, line := range lines {
-		lead := strings.TrimLeft(line, " ")
-		switch {
-		case fence != "":
-			if strings.HasPrefix(lead, fence) {
-				fence = ""
-			}
-			continue
-		case fenceOf(lead) != "":
-			fence = fenceOf(lead)
-			continue
-		}
-		parts := strings.Split(line, "`") // odd parts are inside code spans
-		for j := 0; j < len(parts); j += 2 {
-			if j == 0 {
-				parts[j] = resolve(refDest, parts[j])
-			}
-			parts[j] = resolve(htmlDest, resolve(inlineDest, parts[j]))
-		}
-		lines[i] = strings.Join(parts, "`")
-	}
-	return strings.Join(lines, "")
-}
-
-func fenceOf(line string) string {
-	for _, c := range []string{"`", "~"} {
-		if n := len(line) - len(strings.TrimLeft(line, c)); n >= 3 {
-			return strings.Repeat(c, n)
-		}
-	}
-	return ""
 }
