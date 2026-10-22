@@ -11,11 +11,9 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/time/rate"
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/site"
@@ -60,7 +58,6 @@ type handler struct {
 	endpoints map[string]*endpoint
 	sdk       echo.HandlerFunc
 	owner     *linktools.Shortener
-	keys      *keyGuard
 	perIP     platform.Limiter
 	log       *slog.Logger
 	catalog   catalog
@@ -109,7 +106,6 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 		endpoints: eps,
 		sdk:       echo.WrapHandler(sdk),
 		owner:     d.Owner,
-		keys:      &keyGuard{clients: map[string]*rate.Limiter{}},
 		// Above every tool's budget, so a call is always decided by its own.
 		perIP: platform.NewLimiter(20, 100),
 		log:   log,
@@ -134,23 +130,22 @@ func (h *handler) serve(c *echo.Context) error {
 	if page {
 		return h.landing(c)
 	}
-	// Before the owner key, so a web page can't spend its visitor's key tries.
 	switch req.Header.Get("Sec-Fetch-Site") {
 	case "cross-site", "same-site":
 		return refuseHTTP(c, http.StatusForbidden, "Cross-site browser requests are refused.")
 	}
 
 	ip := c.RealIP()
+	if !platform.AllowKey(h.perIP, ip) {
+		return refuseHTTP(c, http.StatusTooManyRequests, platform.LimitedMessage)
+	}
 	if name == ownerEndpoint {
-		if code, msg := h.checkKey(req.Header, platform.RateLimitKey(ip)); code != 0 {
-			return refuseHTTP(c, code, msg)
+		if !h.owner.Authorized(ownerKey(req.Header)) {
+			return refuseHTTP(c, http.StatusForbidden, "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer.")
 		}
 		// The SDK copies every header into each handler's request; none needs these.
 		req.Header.Del("X-Api-Key")
 		req.Header.Del("Authorization")
-	}
-	if !platform.AllowKey(h.perIP, ip) {
-		return refuseHTTP(c, http.StatusTooManyRequests, platform.LimitedMessage)
 	}
 
 	if req.Method == http.MethodPost {
@@ -176,22 +171,6 @@ func refuseHTTP(c *echo.Context, code int, msg string) error {
 	return c.JSON(code, map[string]string{"error": msg})
 }
 
-// No key costs no try, and a locked-out client's key isn't compared: guessing runs at one try a second.
-func (h *handler) checkKey(hdr http.Header, client string) (int, string) {
-	const needKey = "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer."
-	k := ownerKey(hdr)
-	switch {
-	case k == "":
-		return http.StatusForbidden, needKey
-	case h.keys.locked(client):
-		return http.StatusTooManyRequests, "Too many wrong keys from your address. Try again in a few seconds."
-	case h.owner.Authorized(k):
-		return 0, ""
-	}
-	h.keys.fail(client)
-	return http.StatusForbidden, needKey
-}
-
 func ownerKey(h http.Header) string {
 	if k := h.Get("X-Api-Key"); k != "" {
 		return k
@@ -200,50 +179,6 @@ func ownerKey(h http.Header) string {
 		return strings.TrimSpace(token)
 	}
 	return ""
-}
-
-type keyGuard struct {
-	mu      sync.Mutex
-	clients map[string]*rate.Limiter
-}
-
-const (
-	keyTries    = 5
-	keyClients  = 4096
-	keyRefillHz = 1
-)
-
-func (g *keyGuard) locked(client string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	l := g.clients[client]
-	return l != nil && l.Tokens() < 1
-}
-
-func (g *keyGuard) fail(client string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	l := g.clients[client]
-	if l == nil {
-		if len(g.clients) >= keyClients {
-			g.prune()
-		}
-		l = rate.NewLimiter(keyRefillHz, keyTries)
-		g.clients[client] = l
-	}
-	l.Allow()
-}
-
-// Forgetting everyone is fine: a flood from keyClients addresses is past what per-client counts stop.
-func (g *keyGuard) prune() {
-	for k, l := range g.clients {
-		if l.Tokens() >= keyTries {
-			delete(g.clients, k)
-		}
-	}
-	if len(g.clients) >= keyClients {
-		clear(g.clients)
-	}
 }
 
 type callerKey struct{}

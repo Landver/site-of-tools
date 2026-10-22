@@ -75,48 +75,19 @@ func TestForeignOriginIsServedAndLogged(t *testing.T) {
 
 func TestOwnerKey(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
-	try := func(ip string, hdr map[string]string) int {
-		hdr = mcpHeaders(hdr)
-		hdr["CF-Connecting-IP"] = ip
-		return s.do(http.MethodPost, "/mcp/owner", listBody, hdr).Code
-	}
-	const guesser = "198.51.100.2"
-	wrong := map[string]string{"X-Api-Key": "guess"}
-	for i := range 5 {
-		if code := try(guesser, wrong); code != http.StatusForbidden {
-			t.Fatalf("wrong key, try %d = %d, want 403", i+1, code)
-		}
-	}
-	refused := false
-	for range 5 {
-		if try(guesser, wrong) == http.StatusTooManyRequests {
-			refused = true
-			break
-		}
-	}
-	if !refused {
-		t.Errorf("never 429 after five wrong keys")
-	}
-	if code := try(guesser, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusTooManyRequests {
-		t.Errorf("the right key while locked out = %d, want 429 before it is compared", code)
-	}
-
-	// What a web page can make a browser send can't lock the owner out.
 	for name, hdr := range map[string]map[string]string{
 		"no key":     nil,
+		"wrong key":  {"X-Api-Key": "guess"},
 		"basic":      {"Authorization": "Basic " + ownerKey},
-		"cross-site": {"X-Api-Key": "guess", "Sec-Fetch-Site": "cross-site"},
-		"same-site":  {"X-Api-Key": "guess", "Sec-Fetch-Site": "same-site"},
+		"cross-site": {"X-Api-Key": ownerKey, "Sec-Fetch-Site": "cross-site"},
+		"same-site":  {"X-Api-Key": ownerKey, "Sec-Fetch-Site": "same-site"},
 	} {
-		ip := map[string]string{"no key": "198.51.100.1", "basic": "198.51.100.3", "cross-site": "198.51.100.4", "same-site": "198.51.100.5"}[name]
-		for i := range 10 {
-			if code := try(ip, hdr); code != http.StatusForbidden {
-				t.Fatalf("%s, try %d = %d, want 403", name, i+1, code)
-			}
+		if code := s.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(hdr)).Code; code != http.StatusForbidden {
+			t.Errorf("%s = %d, want 403", name, code)
 		}
-		if code := try(ip, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusOK {
-			t.Errorf("%s ten times, then the right key = %d, want 200", name, code)
-		}
+	}
+	if code := s.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(map[string]string{"X-Api-Key": ownerKey})).Code; code != http.StatusOK {
+		t.Errorf("the right key = %d, want 200", code)
 	}
 
 	browser := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}

@@ -14,10 +14,9 @@ serves every subdomain), upstreams we are a guest of, the domain's reputation
 1. `Cache-Control: no-store` on every response: cipher results can be secrets.
 2. Unknown toolset or one with no tools, `/mcp/owner` unconfigured or browsed → 404.
 3. Browser `GET` → the landing page; other `GET`/`DELETE` → the SDK's 405.
-4. `Sec-Fetch-Site: cross-site` or `same-site` → 403, ahead of the owner key
-   so a page can't spend its visitors' key tries.
-5. `/mcp/owner`: the [owner key](#owner-key).
-6. All of `/mcp`, per address: 20/s, burst 100 → 429.
+4. `Sec-Fetch-Site: cross-site` or `same-site` → 403.
+5. All of `/mcp`, per address: 20/s, burst 100 → 429.
+6. `/mcp/owner`: the [owner key](#owner-key).
 7. Body over 1 MiB → 413; a JSON-RPC batch → 400.
 8. A foreign `Origin` is served and logged (`mcp: foreign Origin`).
 9. Raw IP, host, user agent and HTTP context into the context.
@@ -90,9 +89,8 @@ source.
 `/mcp/owner` needs short-link storage and `MCP_OWNER_KEY`: a second `Shortener`
 on the same store, rotated apart from `LINK_API_KEY`, serving only the three
 short-link tools. The key, as `X-Api-Key` or `Authorization: Bearer`, is
-compared as SHA-256 in constant time. No key → 403, costing no try; a wrong one
-spends one of the client's 5 tries (one back a second), then 429 before any
-compare. Both headers are deleted before the SDK, which copies headers into
+compared as SHA-256 in constant time; no key or a wrong one → 403, after the
+per-address limit, so guessing a 256-bit key gets nowhere. Both headers are deleted before the SDK, which copies headers into
 every handler. Configure it per user (`claude mcp add --scope user … --header
 "X-Api-Key: …"`), never in a committed `.mcp.json`.
 

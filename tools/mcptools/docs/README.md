@@ -32,7 +32,7 @@ validates arguments, fills defaults) → `middleware.go`, per message → adapte
 (`dns.go`) → the call and `dnstools.Limits` `GET dns.corpberry.com/` uses.
 Each step's rules are in [02](02-security-and-ops.md).
 
-Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
+Files: `handler.go` (`Register`, `Deps`, gate, landing page),
 `server.go` (one `*mcp.Server` per endpoint, boot checks), `middleware.go`,
 `registry.go` (`toolSpec`, deadlines, `toolsets`, `Coverage`), `schema.go`
 (input schemas), `sanitize.go`, and one adapter per toolset (`ip.go` … `owner.go`).
