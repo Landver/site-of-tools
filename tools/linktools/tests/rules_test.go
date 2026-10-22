@@ -31,58 +31,6 @@ func TestRuleMatchesNamesEveryCandidate(t *testing.T) {
 	}
 }
 
-func verdicts(t *testing.T, raw string) (*linktools.URLVerdict, map[string]string) {
-	t.Helper()
-	v, err := linktools.Rules().Verdict(raw)
-	if err != nil {
-		t.Fatalf("Verdict(%q): %v", raw, err)
-	}
-	got := map[string]string{}
-	for _, p := range v.Params {
-		switch {
-		case p.Strip:
-			got[p.Key] = "strip"
-		case p.Affiliate:
-			got[p.Key] = "affiliate"
-		case p.NeverStrip:
-			got[p.Key] = "never strip"
-		default:
-			got[p.Key] = "keep"
-		}
-	}
-	return v, got
-}
-
-func TestRuleVerdictIsWhatCleanDoes(t *testing.T) {
-	t.Parallel()
-	amazon := "https://www.amazon.com/dp/X?tag=aff-20&ref=nav&th=1&utm_source=x&state=s"
-	_, got := verdicts(t, amazon)
-	want := map[string]string{"tag": "affiliate", "ref": "strip", "th": "keep", "utm_source": "strip", "state": "never strip"}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("amazon (-want +got):\n%s", diff)
-	}
-	var removed []string
-	for _, r := range clean(t, amazon, linktools.CleanOptions{}).Removed {
-		removed = append(removed, r.Key)
-	}
-	if diff := cmp.Diff([]string{"ref", "utm_source"}, removed); diff != "" {
-		t.Errorf("Clean disagrees with the verdict (-want +got):\n%s", diff)
-	}
-
-	if _, got := verdicts(t, "https://github.com/o/r?ref=main&utm_source=x"); got["ref"] != "never strip" || got["utm_source"] != "strip" {
-		t.Errorf("github = %v, want ref protected there", got)
-	}
-	v, got := verdicts(t, "https://b.s3.amazonaws.com/k?X-Amz-Signature=a&utm_source=x")
-	if v.Signed == "" || got["utm_source"] != "keep" || v.Params[1].Rule == "" {
-		t.Errorf("presigned = %+v, want the signature named, the rule shown and nothing stripped", v)
-	}
-	for _, bad := range []string{"", "http://[::1"} {
-		if _, err := linktools.Rules().Verdict(bad); err == nil {
-			t.Errorf("Verdict(%q) gave no error", bad)
-		}
-	}
-}
-
 func TestRuleSummaryCountsTheTables(t *testing.T) {
 	t.Parallel()
 	cat := linktools.Rules()

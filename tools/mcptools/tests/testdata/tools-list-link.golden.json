@@ -291,7 +291,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Look up the tracking-parameter rules link_clean applies. param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; url returns what link_clean would do with each of that URL's parameters, and why; full: true returns the whole table (about 20 KB), as the JSON API serves it. With none of them it returns the table's version, scope and size. Pass at most one of param, url and full.",
+    "description": "Look up the tracking-parameter rules link_clean applies. param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; full: true returns the whole table (about 20 KB), as the JSON API serves it. With none of them it returns the table's version, scope and size. Pass param or full, not both.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -301,10 +301,6 @@
         },
         "param": {
           "description": "a parameter name, e.g. ref",
-          "type": "string"
-        },
-        "url": {
-          "description": "a URL whose parameters to judge",
           "type": "string"
         }
       },

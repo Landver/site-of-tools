@@ -85,15 +85,10 @@ func TestLinkTrackingRules(t *testing.T) {
 	if hosts := rows(t, ref, "never_strip")[0]["hosts"]; hosts == nil {
 		t.Errorf("the never-strip entry for ref lists no hosts")
 	}
-	verdict := object(t, call(t, cs, "link_tracking_rules", map[string]any{"url": "https://github.com/x?ref=main&utm_source=a"}))
-	ps := rows(t, verdict, "params")
-	if verdict["host"] != "github.com" || ps[0]["never_strip"] != true || ps[1]["strip"] != true {
-		t.Errorf("url verdict = %v, want ref kept on github.com and utm_source stripped", verdict)
-	}
 	if full := object(t, call(t, cs, "link_tracking_rules", map[string]any{"full": true})); len(rows(t, full, "tracking")) != len(cat.Tracking) {
 		t.Errorf("full = %d tracking rules, want all %d", len(rows(t, full, "tracking")), len(cat.Tracking))
 	}
-	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "url": "https://github.com/"}), "at most one")
+	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "full": true}), "not both")
 }
 
 func TestLinkDiff(t *testing.T) {

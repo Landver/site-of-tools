@@ -26,7 +26,6 @@ type linkCleanArgs struct {
 
 type linkRulesArgs struct {
 	Param string `json:"param,omitempty" jsonschema:"a parameter name, e.g. ref"`
-	URL   string `json:"url,omitempty" jsonschema:"a URL whose parameters to judge"`
 	Full  bool   `json:"full,omitempty" jsonschema:"the whole rule table"`
 }
 
@@ -118,9 +117,8 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 		pure("link_tracking_rules", "Tracking rules",
 			"Look up the tracking-parameter rules link_clean applies. "+
 				"param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; "+
-				"url returns what link_clean would do with each of that URL's parameters, and why; "+
 				"full: true returns the whole table (about 20 KB), as the JSON API serves it. "+
-				"With none of them it returns the table's version, scope and size. Pass at most one of param, url and full.",
+				"With none of them it returns the table's version, scope and size. Pass param or full, not both.",
 			inputSchema[linkRulesArgs](), handle(t.rules))
 		pure("link_diff", "Compare two URLs",
 			"Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved, "+
@@ -228,24 +226,13 @@ func (t linkTools) clean(_ context.Context, _ *mcp.CallToolRequest, a linkCleanA
 
 func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesArgs) (any, error) {
 	cat := linktools.Rules()
-	asked := 0
-	for _, set := range []bool{a.Param != "", a.URL != "", a.Full} {
-		if set {
-			asked++
-		}
-	}
 	switch {
-	case asked > 1:
-		return nil, errors.New("pass at most one of param, url and full")
+	case a.Param != "" && a.Full:
+		return nil, errors.New("pass param or full, not both")
 	case a.Full:
 		return cat, nil
 	case a.Param != "":
 		return cat.Matches(a.Param), nil
-	case a.URL != "":
-		if err := wrongTool(a.URL); err != nil {
-			return nil, err
-		}
-		return cat.Verdict(a.URL)
 	}
 	return cat.Summary(), nil
 }

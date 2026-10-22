@@ -813,7 +813,7 @@ type RuleMatches struct {
 	NeverStrip []Deny `json:"never_strip"`
 }
 
-// Matches lists the rules naming param as Clean's lookup does; Verdict says which fires.
+// Matches lists the rules naming param as Clean's lookup does.
 func (c RuleCatalog) Matches(param string) RuleMatches {
 	k := strings.ToLower(strings.TrimSpace(param))
 	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}

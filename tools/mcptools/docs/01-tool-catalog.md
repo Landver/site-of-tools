@@ -48,7 +48,7 @@ rdap.org; `dns_domain_info` crt.sh and rdap.org; `dns_email_auth` Spamhaus.
 |---|---|---|---|
 | `link_inspect` | `GET /?u=` | R | — |
 | `link_clean` | `GET /clean` | R | — |
-| `link_tracking_rules` | `GET /clean/rules` | R | At most one of `param` (every rule naming it, with its hosts), `url` (what `link_clean` does with each parameter, and why) and `full: true` (the REST body); none returns the table's version, scope and size. |
+| `link_tracking_rules` | `GET /clean/rules` | R | `param` (every rule naming it, with its hosts) or `full: true` (the REST body), not both; none returns the table's version, scope and size. |
 | `link_diff` | `GET /diff` | R | — |
 | `link_redirect_chain` | `GET /trace` | O | Not read-only: it visits the URL from this server, which can use up a one-time link. Status, timing and headers per hop, never a body. |
 | `link_curl_parse` | `GET /curl?curl=`, `POST /curl` | R | — |
