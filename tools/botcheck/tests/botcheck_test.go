@@ -42,13 +42,12 @@ func cleanChrome() botcheck.Signals {
 		AppVersion:       strings.TrimPrefix(chromeMacUA, "Mozilla/"),
 		AcceptLanguage:   "en-US,en;q=0.9",
 		// G06 server-observed headers — as real Chrome sends.
-		HTTPAccept:                  "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-		HTTPAcceptEncoding:          "gzip, deflate, br, zstd",
-		HTTPUpgradeInsecureRequests: "1",
-		WebGLRenderer:               "ANGLE (Apple, Apple M1, OpenGL 4.1)",
-		WebGLVendor:                 "Google Inc. (Apple)", // Chrome's ANGLE vendor shim — same family as renderer → G07/G08 stay silent
-		Plugins:                     3,
-		ScreenW:                     1920, ScreenH: 1080,
+		HTTPAccept:         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		HTTPAcceptEncoding: "gzip, deflate, br, zstd",
+		WebGLRenderer:      "ANGLE (Apple, Apple M1, OpenGL 4.1)",
+		WebGLVendor:        "Google Inc. (Apple)", // Chrome's ANGLE vendor shim — same family as renderer → G07/G08 stay silent
+		Plugins:            3,
+		ScreenW:            1920, ScreenH: 1080,
 		AvailW: 1920, AvailH: 1040,
 		ColorDepth: 30,
 		OuterW:     1680, InnerW: 1400,

@@ -27,7 +27,7 @@ var cmpSorted = cmpopts.SortSlices(func(a, b string) bool { return a < b })
 func withoutHeaders(s botcheck.Signals) botcheck.Signals {
 	s.HeadersSupplied = false
 	s.HTTPUserAgent, s.HTTPAccept, s.HTTPAcceptEncoding, s.AcceptLanguage = "", "", "", ""
-	s.SecCHUA, s.SecCHUAPlatform, s.SecFetchMode, s.HTTPUpgradeInsecureRequests = "", "", "", ""
+	s.SecCHUA, s.SecCHUAPlatform, s.SecFetchMode = "", "", ""
 	return s
 }
 
@@ -113,12 +113,12 @@ func TestAddHTTPSignals(t *testing.T) {
 	var s botcheck.Signals
 	botcheck.AddHTTPSignals(&s, botcheck.HTTPSignals{
 		UserAgent: "ua", Accept: "acc", AcceptLanguage: "lang", AcceptEncoding: "enc",
-		SecCHUA: "chua", SecCHUAPlatform: "plat", SecFetchMode: "mode", UpgradeInsecureRequests: "1",
+		SecCHUA: "chua", SecCHUAPlatform: "plat", SecFetchMode: "mode",
 	})
 	want := botcheck.Signals{
 		HeadersSupplied: true,
 		HTTPUserAgent:   "ua", HTTPAccept: "acc", AcceptLanguage: "lang", HTTPAcceptEncoding: "enc",
-		SecCHUA: "chua", SecCHUAPlatform: "plat", SecFetchMode: "mode", HTTPUpgradeInsecureRequests: "1",
+		SecCHUA: "chua", SecCHUAPlatform: "plat", SecFetchMode: "mode",
 	}
 	if diff := cmp.Diff(want, s); diff != "" {
 		t.Errorf("(-want +got):\n%s", diff)

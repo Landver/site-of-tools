@@ -2,7 +2,6 @@ package mcptools
 
 import (
 	"context"
-	"errors"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -39,8 +38,6 @@ type dnsEmailArgs struct {
 }
 
 const certNames = 50
-
-var errUnavailable = errors.New(dnstools.UnavailableMessage)
 
 type dnsTools struct {
 	svc  dnstools.Looker
@@ -213,10 +210,7 @@ func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomai
 	if err != nil {
 		return nil, err
 	}
-	switch err := rep.Err(); {
-	case errors.Is(err, dnstools.ErrDisabled):
-		return nil, errUnavailable
-	case err != nil:
+	if err := rep.Err(); err != nil {
 		return nil, err
 	}
 	out, err := object(rep)

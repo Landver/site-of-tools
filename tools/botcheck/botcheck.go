@@ -212,17 +212,13 @@ type Signals struct {
 	// G06 header-consistency signals, all server-observed.
 	HTTPAccept         string `json:"-"` // Accept header; browser nav/fetch Accept includes text/html
 	HTTPAcceptEncoding string `json:"-"` // Accept-Encoding header; every real browser sends one, every request
-	// Upgrade-Insecure-Requests captured for completeness, deliberately
-	// UNUSED: Safari never sends it → keying a rule on it false-positives
-	// every real Safari user.
-	HTTPUpgradeInsecureRequests string `json:"-"`
-	IPTimezone                  string `json:"-"`
-	EgressIP                    string `json:"-"` // connection IP server observed (c.RealIP()), for WebRTC cross-check (G09)
-	ASN                         string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
-	IsDatacenter                bool   `json:"-"`
-	IsProxy                     bool   `json:"-"`
-	IsVPN                       bool   `json:"-"`
-	IsTor                       bool   `json:"-"`
+	IPTimezone         string `json:"-"`
+	EgressIP           string `json:"-"` // connection IP server observed (c.RealIP()), for WebRTC cross-check (G09)
+	ASN                string `json:"-"` // egress ASN number (IP2Location), for good-bot corroboration
+	IsDatacenter       bool   `json:"-"`
+	IsProxy            bool   `json:"-"`
+	IsVPN              bool   `json:"-"`
+	IsTor              bool   `json:"-"`
 	// FingerprintIPs: distinct IPs presenting this exact fingerprint, rolling
 	// 30-day corpus (G41/G42). Handler-filled from Mongo on POST /check only;
 	// 0 = no corpus data (store off, count failed, first sighting) →

@@ -172,14 +172,13 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnN
 
 func requestHeaders(r *http.Request) HTTPSignals {
 	return HTTPSignals{
-		UserAgent:               r.UserAgent(),
-		Accept:                  r.Header.Get("Accept"),
-		AcceptLanguage:          r.Header.Get("Accept-Language"),
-		AcceptEncoding:          r.Header.Get("Accept-Encoding"),
-		SecCHUA:                 r.Header.Get("Sec-CH-UA"),
-		SecCHUAPlatform:         r.Header.Get("Sec-CH-UA-Platform"),
-		SecFetchMode:            r.Header.Get("Sec-Fetch-Mode"),
-		UpgradeInsecureRequests: r.Header.Get("Upgrade-Insecure-Requests"),
+		UserAgent:       r.UserAgent(),
+		Accept:          r.Header.Get("Accept"),
+		AcceptLanguage:  r.Header.Get("Accept-Language"),
+		AcceptEncoding:  r.Header.Get("Accept-Encoding"),
+		SecCHUA:         r.Header.Get("Sec-CH-UA"),
+		SecCHUAPlatform: r.Header.Get("Sec-CH-UA-Platform"),
+		SecFetchMode:    r.Header.Get("Sec-Fetch-Mode"),
 	}
 }
 

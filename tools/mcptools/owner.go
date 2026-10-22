@@ -11,14 +11,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-type shortCreateArgs struct {
-	URL   string `json:"url" jsonschema:"the destination, an http or https URL on a public host"`
-	Slug  string `json:"slug,omitempty" jsonschema:"the code to use, e.g. q4-report"`
-	TTL   string `json:"ttl,omitempty" jsonschema:"how long the link lives, a Go duration such as 720h; left out, it never expires"`
-	Note  string `json:"note,omitempty" jsonschema:"a label for the list, up to 256 bytes"`
-	Clean bool   `json:"clean,omitempty" jsonschema:"strip tracking parameters from url first"`
-}
-
 type shortListArgs struct {
 	Limit int `json:"limit,omitempty" jsonschema:"how many links to list"`
 }
@@ -47,7 +39,7 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 					"slug picks the code (2 to 64 lowercase letters, digits and hyphens) in place of a random one, " +
 					"note labels it in link_short_list, and clean: true strips tracking parameters from url first. " +
 					"The link is public the moment it exists and its code is never reissued, so check the destination before creating one.",
-				InputSchema: inputSchema[shortCreateArgs](minLength("url", 1)),
+				InputSchema: inputSchema[linktools.CreateRequest](minLength("url", 1)),
 				Annotations: acts(true, false, true),
 			},
 			add: handle(t.create),
@@ -81,9 +73,8 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 	return specs
 }
 
-func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a shortCreateArgs) (any, error) {
-	req := linktools.CreateRequest{URL: a.URL, Slug: a.Slug, TTL: a.TTL, Note: a.Note, Clean: a.Clean}
-	created, err := t.owner.CreateFrom(ctx, req, callerFrom(ctx).ip)
+func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a linktools.CreateRequest) (any, error) {
+	created, err := t.owner.CreateFrom(ctx, a, callerFrom(ctx).ip)
 	if err != nil {
 		return nil, publicError(t.log, "link_short_create", err)
 	}

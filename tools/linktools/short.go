@@ -66,11 +66,11 @@ type CreateOptions struct {
 
 // CreateRequest's fields are scalars, so a decoded {"slug":{"$ne":null}} can't reach Mongo as an operator.
 type CreateRequest struct {
-	URL   string `json:"url" form:"url"`
-	Slug  string `json:"slug" form:"slug"`
-	TTL   string `json:"ttl" form:"ttl"` // a Go duration, e.g. 720h; blank is permanent
-	Note  string `json:"note" form:"note"`
-	Clean bool   `json:"clean" form:"clean"`
+	URL   string `json:"url" form:"url" jsonschema:"the destination, an http or https URL on a public host"`
+	Slug  string `json:"slug,omitempty" form:"slug" jsonschema:"the code to use, e.g. q4-report"`
+	TTL   string `json:"ttl,omitempty" form:"ttl" jsonschema:"how long the link lives, a Go duration such as 720h; left out, it never expires"`
+	Note  string `json:"note,omitempty" form:"note" jsonschema:"a label for the list, up to 256 bytes"`
+	Clean bool   `json:"clean,omitempty" form:"clean" jsonschema:"strip tracking parameters from url first"`
 }
 
 type Created struct {
