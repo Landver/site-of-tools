@@ -77,26 +77,10 @@
         <div>
           <h3 class="font-medium text-strong">Codex CLI</h3>
           {{template "mcp/snippet" .Setup.Codex}}
-          <p class="mt-2">or in <code class="font-mono text-strong">~/.codex/config.toml</code>:</p>
-          {{template "mcp/snippet" .Setup.CodexTOML}}
         </div>
         <div>
           <h3 class="font-medium text-strong">Gemini CLI</h3>
           {{template "mcp/snippet" .Setup.Gemini}}
-          <p class="mt-2">
-            or in <code class="font-mono text-strong">~/.gemini/settings.json</code>, as
-            <code class="font-mono text-strong">httpUrl</code>: Gemini reads <code class="font-mono text-strong">url</code>
-            as the older SSE transport, which this server doesn't speak.
-          </p>
-          {{template "mcp/snippet" .Setup.GeminiJSON}}
-        </div>
-        <div>
-          <h3 class="font-medium text-strong">Clients that only start local servers</h3>
-          <p class="mt-1">
-            Give the client <code class="font-mono text-strong">mcp-remote</code> as the server's command: it bridges
-            stdio to this server, and runs on Node.
-          </p>
-          {{template "mcp/snippet" .Setup.Remote}}
         </div>
       </div>
     </section>

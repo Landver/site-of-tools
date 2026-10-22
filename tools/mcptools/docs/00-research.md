@@ -54,9 +54,8 @@ Checked 2026-10-04 against the spec, go-sdk v1.8.0's source and vendors' docs.
 | ChatGPT | Settings → Apps → Developer mode | beta, paid plans; OpenAI advises under 20 tools [C5][C6] |
 | VS Code | `.vscode/mcp.json`, `"type": "http"` | [C7] |
 | Cursor | `~/.cursor/mcp.json` | ~40 tools across all servers [C8] |
-| Codex CLI | `codex mcp add --url`, or `config.toml` | a key via `bearer_token_env_var` [C9] |
-| Gemini CLI | `gemini mcp add --transport http`, or `httpUrl` | its `url` key means SSE [C10] |
-| stdio-only | `npx mcp-remote <url>` | — |
+| Codex CLI | `codex mcp add --url` | a key via `bearer_token_env_var` [C9] |
+| Gemini CLI | `gemini mcp add --transport http` | [C10] |
 
 claude.ai and ChatGPT connectors can't send a header (the owner key).
 `clientInfo.name` is unauthenticated: telemetry only. The Claude API rejects

@@ -81,9 +81,8 @@ func TestLandingPage(t *testing.T) {
 		"Customize → Connectors → Add custom connector", "Developer mode",
 		`"corpberry-ip": { "type": "http", "url": "http://mcp.test/mcp/ip" }`,
 		`"mcpServers": {`, `"corpberry-ip": { "url": "http://mcp.test/mcp/ip" }`, "~/.cursor/mcp.json",
-		"codex mcp add corpberry-ip --url http://mcp.test/mcp/ip", "[mcp_servers.corpberry-ip]\nurl = \"http://mcp.test/mcp/ip\"",
-		"gemini mcp add --transport http corpberry-ip http://mcp.test/mcp/ip", `"corpberry-ip": { "httpUrl": "http://mcp.test/mcp/ip" }`,
-		"npx mcp-remote http://mcp.test/mcp/ip",
+		"codex mcp add corpberry-ip --url http://mcp.test/mcp/ip",
+		"gemini mcp add --transport http corpberry-ip http://mcp.test/mcp/ip",
 
 		"test material only", "Never the arguments",
 	} {

@@ -322,10 +322,7 @@ func setup(all, toolset string) map[string]string {
 		"VSCode":     config("servers", `"type": "http", `+url),
 		"Cursor":     config("mcpServers", url),
 		"Codex":      "codex mcp add " + name + " --url " + toolset,
-		"CodexTOML":  "[mcp_servers." + name + "]\nurl = \"" + toolset + "\"",
 		"Gemini":     "gemini mcp add --transport http " + name + " " + toolset,
-		"GeminiJSON": config("mcpServers", `"httpUrl": "`+toolset+`"`),
-		"Remote":     "npx mcp-remote " + toolset,
 	}
 }
 
