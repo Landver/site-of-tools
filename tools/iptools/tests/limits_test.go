@@ -25,8 +25,7 @@ func limitsApp(lim *iptools.Limits) *echo.Echo {
 	return e
 }
 
-// spend uses up a route's burst and returns the first refused response. A slow
-// run may refill a token or two meanwhile, so it keeps asking a little longer.
+// spend exhausts a route's burst, then keeps asking a little longer since a slow run may refill a token.
 func spend(t *testing.T, e *echo.Echo, target string, burst int, hdr map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	for i := range burst {

@@ -11,17 +11,12 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// historyTTL: how long recorded lookup stays. Long enough for useful
-// "recent lookups" list, short enough tool never becomes permanent
-// who-looked-up-what registry. Self-prunes via TTL index.
+// Long enough for a useful recent list, short enough never to become a who-looked-up-what registry.
 const historyTTL = 90 * 24 * time.Hour
 
-// historyCollection: collection name in site-of-tools database.
 const historyCollection = "ip_lookups"
 
-// HistoryEntry is one recorded lookup: queried IP, salient facts, when.
-// Deliberately projection of Result, not whole struct → enough to show +
-// replay (click IP to re-run), no more.
+// HistoryEntry is a projection of Result: enough to show and replay a lookup, no more.
 type HistoryEntry struct {
 	IP          string    `bson:"ip" json:"ip"`
 	CountryCode string    `bson:"country_code,omitempty" json:"country_code,omitempty"`
@@ -32,17 +27,12 @@ type HistoryEntry struct {
 	CreatedAt   time.Time `bson:"created_at" json:"created_at"`
 }
 
-// History is persistence layer for IP-lookup history: repository below
-// domain, per CLAUDE.md rule #5. Nil *History = valid "disabled" value (Mongo
-// off) → Record no-ops, Recent returns nothing → handler needs no guards,
-// same as nil *Service or nil *platform.RequestLog.
+// History is nil-safe: a nil *History (Mongo off) no-ops, so the handler needs no guards.
 type History struct {
 	coll *mongo.Collection
 }
 
-// NewHistory builds repository from app database handle. Nil db (Mongo
-// disabled) → returns nil, nil-safe disabled store. TTL index best-effort:
-// failure only forfeits auto-expiry → non-fatal.
+// NewHistory returns nil when db is nil; a failed TTL index only forfeits auto-expiry.
 func NewHistory(ctx context.Context, db *mongo.Database) *History {
 	if db == nil {
 		return nil
@@ -52,11 +42,7 @@ func NewHistory(ctx context.Context, db *mongo.Database) *History {
 	return &History{coll: coll}
 }
 
-// Record persists one successful lookup. Nil-safe. Writes off request path
-// (background goroutine, own bounded context) → recording never adds latency
-// to, or fails, lookup visitor waiting on: lost record OK, slowed lookup not.
-// Volume low (user-initiated lookups only) → plain goroutine enough;
-// higher-volume request log uses bounded queue instead.
+// Record writes off the request path: a lost record is fine, a slowed lookup is not.
 func (h *History) Record(res *Result) {
 	if h == nil || res == nil {
 		return
@@ -72,10 +58,7 @@ func (h *History) Record(res *Result) {
 	}()
 }
 
-// Recent returns most recent n lookups, newest first. Nil-safe: disabled
-// store returns empty result + no error → handler renders empty history, no
-// special-casing Mongo off. created_at TTL index also serves this descending
-// sort (Mongo scans it in reverse) → no second index.
+// Recent: the created_at TTL index also serves this descending sort, so no second index.
 func (h *History) Recent(ctx context.Context, n int64) ([]HistoryEntry, error) {
 	if h == nil {
 		return nil, nil

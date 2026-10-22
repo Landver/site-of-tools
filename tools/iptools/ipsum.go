@@ -12,58 +12,39 @@ import (
 	"time"
 )
 
-// ipsum.go: periodic ingest of stamparm/ipsum threat feed -> shared blocklist
-// corpus (blocklist.go). ipsum folds 30+ public blocklists into one
-// `IP<TAB>count` file (count = how many lists flag IP), Unlicense (public
-// domain). Download once/day, upsert every listed IP as source "ipsum". One
-// writer among many into ip_blocklist — not privileged over manual/service ban.
-// Shared sync/fetch scaffolding (BlockSyncResult, syncFeed, fetchFeed,
-// runDailySync) in blocklist.go, reused by spamhaus.go's identical shape.
+// stamparm/ipsum folds 30+ public blocklists into `IP<TAB>count` (lists flagging it); Unlicense.
 
 const (
-	// ipsumURL: raw aggregate feed. count column = ipsum's finest published
-	// granularity (no per-feed attribution) → count is most we preserve per IP.
+	// count is ipsum's finest granularity: it publishes no per-list attribution.
 	ipsumURL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
 
-	// ipsumHTTPTimeout bounds download; feed ~1.8 MB.
 	ipsumHTTPTimeout = 60 * time.Second
 
-	// ipsumUpsertChunk bounds entries per BulkWrite → ~45k-line feed doesn't
-	// build one giant command or hold every write model at once.
+	// Chunked so the ~45k-line feed never builds one giant BulkWrite.
 	ipsumUpsertChunk = 5000
 )
 
-// ipsumHTTPClient dedicated (not http.DefaultClient) → timeout is ours, not
-// mutable by other code sharing the default.
+// Own client so no code sharing http.DefaultClient can change its timeout.
 var ipsumHTTPClient = &http.Client{Timeout: ipsumHTTPTimeout}
 
-// SyncIPsum downloads ipsum feed + upserts every listed IP under source
-// "ipsum" — thin wrapper supplying ipsum's fetch/parse to BlockList.syncFeed
-// (blocklist.go), which owns shared skip/nil/chunking/partial-write behavior
-// every feed sync shares.
 func SyncIPsum(ctx context.Context, bl *BlockList) (BlockSyncResult, error) {
 	return bl.syncFeed(ctx, BlocklistSourceIPsum, ipsumUpsertChunk,
 		func(ctx context.Context) (io.ReadCloser, error) {
 			return fetchFeed(ctx, ipsumHTTPClient, ipsumURL, "ipsum feed")
 		},
 		func(r io.Reader) ([]BlockEntry, error) {
-			entries, _, err := parseIPsum(r) // feed timestamp already folded into each entry's Meta
+			entries, _, err := parseIPsum(r) // feed time is already in each entry's Meta
 			return entries, err
 		},
 	)
 }
 
-// RunIPsumSync runs SyncIPsum once now (self-skips if fresh), then on daily
-// ticker until ctx cancelled — thin wrapper over shared runDailySync
-// (blocklist.go). Launch as background goroutine from main.
+// RunIPsumSync syncs now, then daily until ctx ends; run it as a goroutine from main.
 func RunIPsumSync(ctx context.Context, bl *BlockList) {
 	runDailySync(ctx, bl, "ipsum", "IPs", SyncIPsum)
 }
 
-// parseIPsum turns feed body into entries. Pure (no Mongo, no network) →
-// unit-testable offline. Comment lines skipped except "# Last update:" (stamp
-// captured). A line that isn't `<valid-ip> <count>` skipped, not fatal — one
-// stray row mustn't abort a 45k-line sync.
+// A malformed line is skipped, not fatal: one stray row mustn't abort a 45k-line sync.
 func parseIPsum(r io.Reader) ([]BlockEntry, time.Time, error) {
 	var (
 		entries  []BlockEntry
@@ -93,8 +74,6 @@ func parseIPsum(r io.Reader) ([]BlockEntry, time.Time, error) {
 	return entries, feedTime, nil
 }
 
-// parseIPsumLine reads one `IP<TAB>count` row. ok=false unless valid IP +
-// non-negative int.
 func parseIPsumLine(line string) (ip string, count int, ok bool) {
 	fields := strings.Fields(line) // tab-separated in practice; Fields tolerates any space run
 	if len(fields) < 2 {
@@ -110,9 +89,7 @@ func parseIPsumLine(line string) (ip string, count int, ok bool) {
 	return fields[0], n, true
 }
 
-// parseIPsumHeaderTime pulls stamp from
-// "# Last update: Tue, 21 Jul 2026 03:00:58 +0200" (RFC 1123, numeric zone).
-// ok=false for any other comment line.
+// parseIPsumHeaderTime reads "# Last update: Tue, 21 Jul 2026 03:00:58 +0200" (RFC 1123Z).
 func parseIPsumHeaderTime(line string) (time.Time, bool) {
 	const marker = "Last update:"
 	i := strings.Index(line, marker)
@@ -126,8 +103,6 @@ func parseIPsumHeaderTime(line string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// ipsumEntry builds record for one listed IP, stashing all ipsum exposes:
-// count as Count, feed stamp + URL in Meta → nothing dropped.
 func ipsumEntry(ip string, count int, feedTime time.Time) BlockEntry {
 	meta := map[string]any{"feed_url": ipsumURL}
 	if !feedTime.IsZero() {

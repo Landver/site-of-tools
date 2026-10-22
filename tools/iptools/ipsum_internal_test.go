@@ -6,9 +6,7 @@ import (
 	"time"
 )
 
-// White-box (package iptools): parseIPsum & helpers unexported —
-// CLAUDE.md-sanctioned exception for testing non-public internals. Covers
-// network-free parse logic w/o hitting GitHub.
+// White-box: parseIPsum is unexported; this covers parsing without hitting GitHub.
 
 func TestParseIPsum(t *testing.T) {
 	feed := strings.Join([]string{
@@ -41,8 +39,7 @@ func TestParseIPsum(t *testing.T) {
 		t.Errorf("feed time = %v, want %v", feedTime, want)
 	}
 
-	// First entry carries count, ipsum source, reason, & preserves feed
-	// timestamp + URL in meta (nothing ipsum exposes dropped).
+	// Nothing ipsum exposes is dropped: count, reason, and the feed stamp and URL in meta.
 	e := entries[0]
 	if e.IP != "77.90.185.20" || e.Count != 11 || e.Source != BlocklistSourceIPsum {
 		t.Errorf("entry[0] = %+v, want ip=77.90.185.20 count=11 source=ipsum", e)
@@ -58,8 +55,6 @@ func TestParseIPsum(t *testing.T) {
 	}
 }
 
-// TestParseIPsumNoHeaderTime: feed w/o "Last update" header still parses;
-// entries carry no feed_updated_at (zero time omitted).
 func TestParseIPsumNoHeaderTime(t *testing.T) {
 	entries, feedTime, err := parseIPsum(strings.NewReader("5.6.7.8\t4\n"))
 	if err != nil {

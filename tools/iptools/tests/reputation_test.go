@@ -60,8 +60,7 @@ func TestLookupWithReputation(t *testing.T) {
 	}
 }
 
-// A nil *BlockList answers "not listed"; wrapped raw it would mark every
-// lookup checked-clean.
+// A nil *BlockList answers "not listed"; wrapped raw, it would mark every lookup checked-clean.
 func TestCheckerFromNilIsNoChecker(t *testing.T) {
 	if chk := iptools.CheckerFrom(nil); chk != nil {
 		t.Fatalf("CheckerFrom(nil) = %#v, want a nil interface", chk)

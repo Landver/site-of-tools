@@ -8,30 +8,27 @@ import (
 	"strings"
 )
 
-// Subnet: calculated view of CIDR block, rendered HTML or JSON. Counts
-// = strings -> IPv6 block address count overflows uint64.
+// Counts are strings because an IPv6 block's address count overflows uint64.
 type Subnet struct {
-	CIDR      string `json:"cidr"`                // canonical network, e.g. 192.168.1.0/24
-	Family    string `json:"family"`              // "IPv4" or "IPv6"
-	Prefix    int    `json:"prefix_length"`       // e.g. 24
-	Network   string `json:"network"`             // network address
+	CIDR      string `json:"cidr"`
+	Family    string `json:"family"` // "IPv4" or "IPv6"
+	Prefix    int    `json:"prefix_length"`
+	Network   string `json:"network"`
 	Broadcast string `json:"broadcast,omitempty"` // IPv4, prefixes /30 and shorter
 	Netmask   string `json:"netmask,omitempty"`   // IPv4 only
 	Wildcard  string `json:"wildcard,omitempty"`  // IPv4 only
 	FirstHost string `json:"first_host"`
 	LastHost  string `json:"last_host"`
-	Usable    string `json:"usable_hosts"`    // usable host count
-	Total     string `json:"total_addresses"` // total addresses in the block
+	Usable    string `json:"usable_hosts"`
+	Total     string `json:"total_addresses"`
 }
 
-// ParseSubnet parses CIDR (or bare IP, treated as /32 or /128) -> computes
-// network properties. Pure, offline: no DB, no network.
+// ParseSubnet treats a bare IP as a /32 or /128 network; pure, no DB or network.
 func ParseSubnet(s string) (*Subnet, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, fmt.Errorf("enter a CIDR, e.g. 192.168.1.0/24 or 2001:db8::/32")
 	}
-	// Lenient: bare address = own single-host network.
 	if !strings.Contains(s, "/") {
 		if a, err := netip.ParseAddr(s); err == nil {
 			s = fmt.Sprintf("%s/%d", a, a.BitLen())
@@ -44,10 +41,10 @@ func ParseSubnet(s string) (*Subnet, error) {
 	pfx = pfx.Masked()
 	network := pfx.Addr()
 	bits := pfx.Bits()
-	hostBits := network.BitLen() - bits // 32-bits (v4) or 128-bits (v6)
+	hostBits := network.BitLen() - bits
 	last := lastAddr(pfx)
 
-	total := new(big.Int).Lsh(big.NewInt(1), uint(hostBits)) // 2^hostBits
+	total := new(big.Int).Lsh(big.NewInt(1), uint(hostBits))
 	sub := &Subnet{
 		CIDR:    pfx.String(),
 		Prefix:  bits,
@@ -59,7 +56,7 @@ func ParseSubnet(s string) (*Subnet, error) {
 		sub.Family = "IPv4"
 		sub.Netmask, sub.Wildcard = v4Masks(bits)
 		switch {
-		case bits == 32: // single host
+		case bits == 32:
 			sub.FirstHost, sub.LastHost, sub.Usable = network.String(), network.String(), "1"
 		case bits == 31: // RFC 3021 point-to-point: both addrs usable, no broadcast
 			sub.FirstHost, sub.LastHost, sub.Usable = network.String(), last.String(), "2"
@@ -71,18 +68,15 @@ func ParseSubnet(s string) (*Subnet, error) {
 		}
 	} else {
 		sub.Family = "IPv6"
-		// IPv6 has no broadcast/netmask/wildcard convention -> treat all as usable.
+		// IPv6 has no broadcast convention, so every address counts as usable.
 		sub.FirstHost, sub.LastHost, sub.Usable = network.String(), last.String(), total.String()
 	}
 	return sub, nil
 }
 
-// v4HostMask returns trailing host-bit mask for IPv4 prefix length: low
-// (32-bits) bits set. Go zeroes shift by full width -> /32 correctly yields 0.
-// Shared by lastAddr + v4Masks -> /32 edge case lives in one place.
+// Go yields 0 for a full-width shift, so /32 correctly gets an empty host mask.
 func v4HostMask(bits int) uint32 { return uint32(0xffffffff) >> uint(bits) }
 
-// lastAddr returns highest addr in prefix (all host bits set to 1).
 func lastAddr(pfx netip.Prefix) netip.Addr {
 	if pfx.Addr().Is4() {
 		v := pfx.Addr().As4()
@@ -97,13 +91,12 @@ func lastAddr(pfx netip.Prefix) netip.Addr {
 		if n > 8 {
 			n = 8
 		}
-		v[i] |= byte(0xff) >> (8 - n) // set low n bits of byte
+		v[i] |= byte(0xff) >> (8 - n)
 		host -= n
 	}
 	return netip.AddrFrom16(v)
 }
 
-// v4Masks returns dotted netmask + wildcard mask for IPv4 prefix length.
 func v4Masks(bits int) (netmask, wildcard string) {
 	host := v4HostMask(bits)
 	var nm, wc [4]byte
@@ -112,13 +105,7 @@ func v4Masks(bits int) (netmask, wildcard string) {
 	return netip.AddrFrom4(nm).String(), netip.AddrFrom4(wc).String()
 }
 
-// ipv4RangeBounds parses cidr -> inclusive [start, end] IPv4 addr bounds as
-// uint32, reusing same network/lastAddr math ParseSubnet does. ok=false for
-// unparseable input or IPv6 prefix. Feeds BlockEntry.RangeStart/RangeEnd
-// (blocklist.go): whole flagged netblock (e.g. Spamhaus DROP entry) stored
-// as one range instead of one document per addr. Unexported: only
-// spamhaus.go (same package) needs it today, no external caller, so stays
-// off package public surface until one shows up.
+// ipv4RangeBounds returns inclusive IPv4 bounds for cidr; ok=false for IPv6 or unparseable input.
 func ipv4RangeBounds(cidr string) (start, end uint32, ok bool) {
 	pfx, err := netip.ParsePrefix(strings.TrimSpace(cidr))
 	if err != nil || !pfx.Addr().Is4() {
@@ -128,8 +115,7 @@ func ipv4RangeBounds(cidr string) (start, end uint32, ok bool) {
 	return ipv4Uint32(pfx.Addr()), ipv4Uint32(lastAddr(pfx)), true
 }
 
-// ipv4Uint32 converts IPv4 netip.Addr to its big-endian uint32 form:
-// comparable, sortable, indexable, unlike addr string.
+// ipv4Uint32 gives a comparable, indexable form, unlike the address string.
 func ipv4Uint32(a netip.Addr) uint32 {
 	v := a.As4()
 	return binary.BigEndian.Uint32(v[:])

@@ -13,8 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// copyLooker hands out a fresh copy of res per call, so enrichment of one
-// response can't leak into the next.
+// copyLooker copies res per call so one response's enrichment can't leak into the next.
 type copyLooker struct {
 	res iptools.Result
 	err error

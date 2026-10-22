@@ -10,25 +10,22 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Page descriptions, surfaced as <meta name="description"> + og:description by
-// shared/templates/partials/head.html via the "Desc" VM key.
+// Page descriptions feed <meta name="description"> and og:description via the "Desc" VM key.
 const (
 	lookupDesc  = "Look up any IP: geolocation, ASN, VPN/proxy/Tor and blocklist reputation, and open ports. Or inspect your own connection. Free, open source, with a curl-able JSON API."
 	cidrDesc    = "CIDR subnet calculator: network range, broadcast address, netmask, and host counts for any CIDR. Free, open source, JSON API included."
 	historyDesc = "Recent IP lookups made from this browser."
 )
 
-// Looker: handler dependency, anything resolving IP. *Service satisfies;
-// tests inject fake. (nil *Service = valid Looker → returns ErrUnavailable.)
+// Looker is satisfied by *Service (a nil one returns ErrUnavailable) and by test fakes.
 type Looker interface {
 	Lookup(ip string) (*Result, error)
 }
 
-// handler: transport-layer deps for ip.corpberry.com routes.
 type handler struct {
 	svc  Looker
-	hist *History // nil when Mongo disabled — Record/Recent nil-safe
-	chk  Checker  // nil when Mongo disabled → no blocklist row
+	hist *History // nil when Mongo is off; nil-safe
+	chk  Checker  // nil when Mongo is off, so no blocklist row
 	lim  *Limits
 }
 
@@ -47,13 +44,7 @@ func NewLimits() *Limits {
 	}
 }
 
-// Register wires ip.corpberry.com routes onto e. Lookups query-param only
-// (?ip=…), consistent w/ /cidr?cidr=… — no /:ip pretty route. hist may be nil
-// (Mongo off) → /history view empty.
-//
-//	GET /         IP's geo/ASN/proxy — caller's own by default, or ?ip= to look one up
-//	GET /cidr     subnet / CIDR calculator (?cidr=…)
-//	GET /history  most recent user-initiated lookups
+// Register: lookups take ?ip= only, matching /cidr?cidr=; there is no /:ip route.
 func Register(e *echo.Echo, svc Looker, hist *History, chk Checker, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
@@ -103,16 +94,11 @@ func (h *handler) historyVM() map[string]any {
 		"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true}
 }
 
-// index serves visitor's own IP by default, or ?ip= to look one up. Bare hit
-// w/ no resolvable IP renders empty lookup page to browser, (empty) result
-// fragment to htmx — never full page into #result slot — & 400 to JSON caller
-// (same contract /cidr follows).
+// No routable IP: browsers get the empty page, htmx an empty fragment (never the full page), JSON a 400.
 func (h *handler) index(c *echo.Context) error {
 	ip := strings.TrimSpace(c.QueryParam("ip"))
 	self := false
 	if ip == "" {
-		// Default to caller's own IP when routable public address
-		// (skips 127.0.0.1 in dev, private ranges, etc.).
 		if own := c.RealIP(); Routable(own) {
 			ip, self = own, true
 		}
@@ -132,10 +118,9 @@ func (h *handler) index(c *echo.Context) error {
 	return h.show(c, ip, self)
 }
 
-// cidr serves subnet / CIDR calculator (GET /cidr, ?cidr=…). Pure math, no
-// databases → no IP2Location attribution on this page.
+// cidr uses no databases, so its page carries no IP2Location attribution.
 func (h *handler) cidr(c *echo.Context) error {
-	platform.SetNegotiationHeaders(c, http.StatusOK) // HTML or JSON from one URL
+	platform.SetNegotiationHeaders(c, http.StatusOK)
 	input := strings.TrimSpace(c.QueryParam("cidr"))
 	if input == "" {
 		if platform.WantsJSON(c) {
@@ -161,14 +146,11 @@ func (h *handler) cidr(c *echo.Context) error {
 	return c.Render(code, "ip/cidr", vm)
 }
 
-// history lists most recent user-initiated lookups. Content-negotiated like
-// rest of tool: JSON for API/CLI, page for browsers. Mongo disabled → repo nil
-// → shows empty history. HTML view carries IP2Location credit (displays
-// geo/ASN data from databases).
+// history's page shows geo/ASN data from the databases, so it carries the IP2Location credit.
 func (h *handler) history(c *echo.Context) error {
 	const limit = 50
 	entries, err := h.hist.Recent(c.Request().Context(), limit)
-	platform.SetNegotiationHeaders(c, http.StatusOK) // HTML or JSON from one URL
+	platform.SetNegotiationHeaders(c, http.StatusOK)
 
 	if platform.WantsJSON(c) {
 		if err != nil {
@@ -188,17 +170,11 @@ func (h *handler) history(c *echo.Context) error {
 	return c.Render(http.StatusOK, "ip/history", vm)
 }
 
-// show looks up ip & responds in caller's preferred format. self marks result
-// as visitor's own IP (small label in HTML view).
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.lookup(c, ip)
 	wantsJSON := platform.WantsJSON(c)
 
-	// Record real user-initiated web lookups for /history view: successful,
-	// not visitor's own auto-looked-up IP (self), from browser UI not JSON
-	// caller — also excludes page's own IPv6 self-probe (requests JSON) + CLI
-	// calls. Record fire-and-forget + nil-safe → no added latency, no-ops when
-	// Mongo off.
+	// Only browser lookups of another IP reach /history; the IPv6 self-probe asks for JSON, so it's out.
 	if err == nil && !self && !wantsJSON {
 		h.hist.Record(res)
 	}
@@ -209,7 +185,6 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	}
 	platform.SetNegotiationHeaders(c, code)
 
-	// API / CLI: raw JSON — geolocation result or error.
 	if wantsJSON {
 		if err != nil {
 			return c.JSON(statusFor(err), map[string]string{"ip": ip, "error": err.Error()})
@@ -217,7 +192,6 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 		return c.JSON(http.StatusOK, res)
 	}
 
-	// Browser / htmx: view model rendered as full page or fragment.
 	vm := lookupVM(ip)
 	vm["Self"] = self
 	if err != nil {
@@ -229,10 +203,7 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	if platform.IsHTMX(c) {
 		return c.Render(code, "ip/result", vm)
 	}
-	// Full page only — "your request" card. G38/G44: when visitor looked at
-	// OWN IP, same lookup also enriches card w/ ASN/proxy attribution shared
-	// conn partial renders (lookup of someone else's IP says nothing about this
-	// connection → only self-lookups enrich).
+	// Only a self-lookup enriches the conn card: someone else's IP says nothing about this connection.
 	conn := platform.Conn(c)
 	if self && err == nil {
 		conn = conn.WithNetwork(res.ConnNetwork())
@@ -264,17 +235,8 @@ func statusFor(err error) int {
 	return http.StatusBadRequest
 }
 
-// ConnNetwork maps lookup result into shared conn-card network attribution
-// (G38/G44): ASN/AS-name plus proxy type/provider, as plain strings
-// platform.ConnInfo.WithNetwork expects. THE Result → ConnNetwork mapping,
-// shared by iptools' own handler + botcheck's (whose conn card enriches from
-// same lookup) → two tools can't drift apart.
-// Lookup already blanks databases' "-" placeholders via clean(); runs again
-// here so hand-built Result (tests, fakes) maps same way. Exported method on
-// exported type, so nil-safe on principle even though neither current caller
-// (this file, botcheck's handler) ever passes nil: nil Result → zero value, no
-// enrichment, card renders plain transport rows — not a live path today, just
-// same public-API nil-safety this package's other exported methods keep.
+// ConnNetwork is the one Result-to-conn-card mapping, shared with botcheck so the two can't drift.
+// It re-runs clean() so hand-built Results (tests, fakes) map the same way.
 func (r *Result) ConnNetwork() platform.ConnNetwork {
 	if r == nil {
 		return platform.ConnNetwork{}
@@ -287,9 +249,7 @@ func (r *Result) ConnNetwork() platform.ConnNetwork {
 	return n
 }
 
-// SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
-// Deliberately excludes /history — it lists recently looked-up IP addresses,
-// which is transient third-party data with no search value.
+// SitemapPages leaves out /history: transient third-party IPs with no search value.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{{Path: "/"}, {Path: "/cidr"}}, nil
 }

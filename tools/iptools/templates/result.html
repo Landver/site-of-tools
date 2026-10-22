@@ -1,6 +1,4 @@
-{{/* commaList joins a slice ([]int or []string) as "a, b, c". Go templates have
-     no join builtin; this sub-template is the one place that idiom lives, so the
-     Shodan card's rows don't each repeat it. */}}
+{{/* Go templates have no join builtin; commaList is that idiom, in one place. */}}
 {{define "ip/commaList"}}{{range $i, $e := .}}{{if $i}}, {{end}}{{$e}}{{end}}{{end}}
 {{define "ip/result"}}
 {{if .Error}}
@@ -8,8 +6,7 @@
     {{.Error}}
   </div>
 {{else if .Result}}
-  {{/* Cards emit w/o wrapper: parent in ip/index = flex-wrap flow, #result =
-       display:contents → cards become flow items directly. */}}
+  {{/* No wrapper: #result is display:contents, so these cards are flow items of ip/index. */}}
   {{with .Result}}
   <div class="card order-1">
     <div class="eyebrow">{{if $.Self}}your location{{else}}location{{end}}</div>
@@ -45,10 +42,7 @@
     </dl>
   </div>
   {{end}}
-  {{/* Shodan InternetDB: what the internet already knows is open on this IP —
-       last-seen (≈weekly), NOT a live scan. Handler-populated best-effort; the
-       card renders only when we checked or skipped (.Shodan non-nil). Attribution
-       to Shodan is mandatory + kept inline with the data (their terms). */}}
+  {{/* Last-seen data (about weekly), not a live scan; Shodan's terms require attribution with it. */}}
   {{with .Shodan}}
   <div class="card order-5">
     <div class="eyebrow">open ports · shodan</div>
