@@ -19,46 +19,23 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Shortener is the short-link domain service: the only stateful, abusable
-// feature in this suite (docs/04-short-links.md §1). It owns validation,
-// code generation and expiry; storage sits below it in LinkStore, per CLAUDE.md
-// rule #5, and HTTP sits above it in handler.go.
-//
-// Nil *Shortener means no storage: every method reports ErrDisabled or does
-// nothing, and every route answers 503. Built without an API key it still
-// resolves, but Create, Recent and Revoke report ErrDisabled and Authorized
-// refuses everyone: the key gates writes and the list, never the redirect.
+// Shortener owns short-link validation, codes and expiry. A nil one means no storage (routes answer
+// 503); without an API key it still resolves, but the key gates every write and the list.
 type Shortener struct {
 	store   *LinkStore
 	keyHash [sha256.Size]byte
 	hasKey  bool // false: keyHash is the zero value and must never be compared
 	baseURL string
 
-	// CleanTarget is the seam to clean.go, injected at wiring time: it takes a
-	// URL and returns the cleaned URL plus the names of the parameters it
-	// removed (§9's "cleaned" array, which the handler reports so the strip is
-	// never silent). Cleaning is not implemented here; this file only enforces
-	// the order §9 fixes:
-	//
-	//	parse → validate → clean → re-parse and re-validate → store
-	//
-	// Both halves are load-bearing. Rules in this genre conventionally unwrap
-	// redirect parameters (?url=, ?redirect=), and the moment a rule can change
-	// the host, a validation that ran before cleaning is void. Create therefore
-	// re-runs the full target validation on whatever comes back, and keeps the
-	// pre-clean URL in Link.Original so a rule bug stays recoverable.
-	//
-	// Left nil, a create asking for clean fails closed rather than storing an
-	// uncleaned target while reporting a clean one.
+	// CleanTarget is injected at wiring time. A rule may unwrap ?url= and change the host, so Create
+	// re-validates whatever it returns; left nil, a create asking for clean fails closed.
 	CleanTarget func(raw string) (cleaned string, removed []string, err error)
 }
 
-// CreateOptions carries everything about a create except the target itself.
-// Every field is optional; the zero value makes a permanent, uncleaned alias
-// under a generated code.
+// CreateOptions' zero value makes a permanent, uncleaned alias under a generated code.
 type CreateOptions struct {
-	Slug      string        // custom slug; empty = generate a code
-	Note      string        // operator label, rendered on the console
+	Slug      string // custom slug; empty = generate a code
+	Note      string
 	TTL       time.Duration // <= 0 means permanent
 	Clean     bool          // strip trackers before storing (needs CleanTarget)
 	CreatedIP string        // forensics only, never rendered or serialised
@@ -97,58 +74,40 @@ var (
 const storageFailure = "Something went wrong on our side. Nothing was changed."
 
 var (
-	// ErrInvalidTarget: the destination is not a URL we will ever redirect to.
-	// 400 (docs/04-short-links.md §9).
+	// ErrInvalidTarget: a destination we will never redirect to. 400.
 	ErrInvalidTarget = errors.New("destination URL not allowed")
-	// ErrInvalidSlug: the custom slug is malformed, reserved, or shaped like a
-	// generated code. 400.
+	// ErrInvalidSlug: malformed, reserved, or shaped like a generated code. 400.
 	ErrInvalidSlug = errors.New("custom code not allowed")
 	// ErrInvalidNote: note over the cap. 400.
 	ErrInvalidNote = errors.New("note is too long")
-	// ErrSlugTaken: the slug exists. 409, never a silent suffix — a caller who
-	// asked for /s/q4-report and got /s/q4-report-2 will paste the one they
-	// asked for.
+	// ErrSlugTaken: 409, never a silent suffix; whoever asked for q4-report will paste q4-report.
 	ErrSlugTaken = errors.New("that code is already taken")
 )
 
 const (
-	// base58Alphabet: digits and letters minus 0, O, I and l. These codes get
-	// read aloud and typed by hand (docs/04-short-links.md §3).
+	// base58Alphabet drops 0, O, I and l: codes get read aloud and typed by hand.
 	base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-	// base58Reject: the smallest byte value that would bias the modulo. 256 is
-	// not a multiple of 58, so bytes at or above this are discarded and redrawn
-	// rather than folded, which would make 24 of the 58 characters ~1.8% more
-	// likely than the rest.
+	// base58Reject: bytes at or above it are redrawn, since folding them would bias 24 of 58 characters.
 	base58Reject = 256 - 256%len(base58Alphabet)
-	// codeLength: 7 → 58^7 ≈ 2.2 × 10^12. The claim covers generated codes
-	// only; custom slugs share the namespace and are dictionary-shaped.
+	// codeLength: 58^7 ≈ 2.2 × 10^12, a claim about generated codes only, not custom slugs.
 	codeLength = 7
-	// maxCodeAttempts: insert-and-retry budget for a duplicate key. Five is
-	// already absurd at this collision probability; the point is a bound.
+	// maxCodeAttempts bounds duplicate-key retries; five is already absurd at this collision rate.
 	maxCodeAttempts = 5
 	// maxTargetLen: above every real browser limit (§7).
 	maxTargetLen = 2048
 	// maxNoteLen: it is rendered on the console (§7).
 	maxNoteLen = 256
-	// shortPath: the prefixed path from §2. A prefix means page names and alias
-	// names can never collide, and a future page can never retroactively break
-	// an alias somebody already pasted into their notes.
+	// shortPath's prefix keeps page names and aliases from colliding, now or with a future page.
 	shortPath = "/s/"
 )
 
-// slugPattern is docs/04-short-links.md §3 verbatim: lowercase only, so /s/Foo
-// and /s/foo cannot be different links.
+// slugPattern is lowercase only, so /s/Foo and /s/foo cannot be different links.
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,63}$`)
 
-// codePattern is the shape check every lookup key passes before it is allowed
-// near a Mongo filter (§3). It is the union of a generated code and a slug.
+// codePattern screens every lookup key before a Mongo filter: a generated code or a slug.
 var codePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
 
-// reservedSlugs is the list from docs/03-architecture.md §3: every page name,
-// plus the ones a future page might want. Cheap to over-reserve now, impossible
-// to reclaim later without breaking a link someone already has. The dotted
-// entries can never match slugPattern anyway; they are kept so the two lists
-// read the same.
+// reservedSlugs over-reserves on purpose: a taken slug can't be reclaimed without breaking a link.
 var reservedSlugs = map[string]bool{
 	"s": true, "clean": true, "trace": true, "short": true, "preview": true,
 	"api": true, "static": true, "extension": true, "diff": true, "curl": true,
@@ -157,19 +116,8 @@ var reservedSlugs = map[string]bool{
 	"favicon.ico": true, "admin": true, "login": true,
 }
 
-// NewShortener wires the domain service. It returns nil — the feature off —
-// when there is no store.
-//
-// An empty apiKey still builds one, because resolving never needs the key and
-// links already handed out must keep working. What it switches off is
-// everything the key gates. An unset LINK_API_KEY means nobody can create,
-// never that anybody can (docs/04-short-links.md §5). A public shortener is
-// found by scanners within days, and when one is used for phishing the
-// blocklists take the whole domain, not the offending path: the portfolio, the
-// blog and all four tools, with an appeal measured in weeks.
-//
-// baseURL is the origin aliases are handed out under, config-driven so moving
-// to a dedicated short domain stays a one-line change (§2).
+// NewShortener returns nil without a store. An empty apiKey means nobody can create, never anybody:
+// a public shortener gets used for phishing, and blocklists then take the whole domain.
 func NewShortener(store *LinkStore, apiKey, baseURL string) *Shortener {
 	if store == nil {
 		return nil
@@ -184,18 +132,12 @@ func NewShortener(store *LinkStore, apiKey, baseURL string) *Shortener {
 	return s
 }
 
-// HasKey reports whether an API key is configured, i.e. whether create, list
-// and revoke can run at all. Nil-safe.
+// HasKey reports whether create, list and revoke can run at all. Nil-safe.
 func (s *Shortener) HasKey() bool {
 	return s != nil && s.hasKey
 }
 
-// Authorized reports whether key is the configured API key.
-//
-// Both sides are SHA-256'd first. subtle.ConstantTimeCompare returns 0
-// immediately on a length mismatch, so comparing the raw strings would leak the
-// key's length; hashing makes both operands fixed-length (§5). A nil receiver,
-// or one with no key configured, authorises nobody.
+// Authorized hashes both sides first: ConstantTimeCompare returns early on a length mismatch.
 func (s *Shortener) Authorized(key string) bool {
 	if !s.HasKey() {
 		return false
@@ -204,8 +146,7 @@ func (s *Shortener) Authorized(key string) bool {
 	return subtle.ConstantTimeCompare(got[:], s.keyHash[:]) == 1
 }
 
-// ShortURL renders the public form of a code. Relative when no base URL is
-// configured, which is what dev wants and what a template can still link.
+// ShortURL is relative when no base URL is configured, which is what dev wants.
 func (s *Shortener) ShortURL(code string) string {
 	if s == nil {
 		return ""
@@ -238,12 +179,7 @@ func CodeFromShortURL(s, base string) (code string, ok bool) {
 	return c, err == nil
 }
 
-// Create validates a target and stores one alias.
-//
-// Order is §9's, and it is fixed: parse → validate → clean → re-parse and
-// re-validate → store. Callers get back the stored Link; the response's
-// "cleaned" array is the handler's to report from CleanTarget's second return,
-// and Link.Original is set whenever cleaning changed the URL.
+// Create re-validates after cleaning and sets Original whenever cleaning changed the URL.
 func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions) (*Link, error) {
 	if !s.HasKey() {
 		return nil, ErrDisabled
@@ -258,9 +194,7 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		return nil, err
 	}
 	final, original := u.String(), ""
-	// Names of the parameters cleaning removed. §9 makes this a stated property
-	// of the response — "the response names what went, so it is never a silent
-	// mutation" — so it is carried back on the Link rather than discarded.
+	// Reported back, so cleaning is never a silent mutation.
 	var strippedNames []string
 
 	if opt.Clean {
@@ -271,10 +205,7 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		if err != nil {
 			return nil, fmt.Errorf("%w: cleaning failed: %v", ErrInvalidTarget, err)
 		}
-		// Re-validate from scratch. Cleaning is only supposed to delete query
-		// parameters, but "supposed to" is not a security boundary: a rule that
-		// rewrites scheme, host or port would otherwise inherit a validation
-		// that ran against a different URL.
+		// Cleaning should only drop parameters, but "should" is no security boundary.
 		cu, err := validateTarget(cleaned)
 		if err != nil {
 			return nil, err
@@ -314,9 +245,7 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		return l, nil
 	}
 
-	// Generated codes: insert and retry on a duplicate key, never
-	// check-then-insert — that is a race, and the unique index is the only
-	// thing that can arbitrate it (§3).
+	// Insert and retry, never check-then-insert: only the unique index can arbitrate the race.
 	for attempt := 0; attempt < maxCodeAttempts; attempt++ {
 		code, err := newCode()
 		if err != nil {
@@ -370,22 +299,9 @@ func PublicError(err error) (status int, msg string) {
 	return http.StatusInternalServerError, storageFailure
 }
 
-// Resolve returns the link a code points at, or ErrLinkNotFound.
-//
-// Expiry is enforced here, against time.Now(), regardless of whether the
-// document is still present. Mongo's TTL monitor sweeps roughly every 60
-// seconds and lags under load, so a resolver that treated document-absence as
-// expiry would keep serving a revoked link for a minute or more, silently. The
-// index is garbage collection, never the enforcement point (§4).
-//
-// "Expired", "revoked" and "never existed" all come back as the same error on
-// purpose: distinguishing them is an existence oracle over the guessable
-// custom-slug namespace (§7).
-//
-// The stored scheme is checked again on the way out. It was already checked at
-// create, and that is the point — a row written by an earlier buggy version, or
-// by anyone who ever gets write access to the database, must not turn the
-// redirect handler into a javascript: dispenser (§6).
+// Resolve enforces expiry against time.Now(), as Mongo's TTL sweep lags a minute or more. Expired,
+// revoked and missing share one error so slugs give no existence oracle, and the scheme is rechecked
+// so a bad stored row can't make the redirect a javascript: dispenser.
 func (s *Shortener) Resolve(ctx context.Context, code string) (*Link, error) {
 	if s == nil {
 		return nil, ErrDisabled
@@ -411,10 +327,7 @@ func (s *Shortener) Resolve(ctx context.Context, code string) (*Link, error) {
 	return l, nil
 }
 
-// RecordHit counts one redirect. Deliberately separate from Resolve so the
-// routes that resolve without being a redirect — the QR image, the console —
-// do not inflate the counter. Asynchronous and nil-safe; see
-// LinkStore.RecordHit for why it cannot use the request context.
+// RecordHit is separate from Resolve so the QR image and the console don't inflate the count.
 func (s *Shortener) RecordHit(code string) {
 	if s == nil {
 		return
@@ -422,20 +335,12 @@ func (s *Shortener) RecordHit(code string) {
 	s.store.RecordHit(code)
 }
 
-// Revoke soft-deletes one alias: the document stays, RevokedAt is set, and
-// Resolve refuses it from that moment. No cache TTL to wait out — the store
-// invalidates the cached entry on write.
-//
-// Never a hard delete. Deleting frees the code, and a custom slug someone
-// re-registers to a different target silently changes the destination of every
-// copy of that link already sitting in other people's notes
-// (docs/04-short-links.md §4). Until this existed Revoke had no caller at all,
-// so the kill switch §10 promises was not reachable by any route.
+// Revoke only soft-deletes: a freed custom slug, re-registered elsewhere, would silently redirect
+// every copy of the old link already in people's notes.
 func (s *Shortener) Revoke(ctx context.Context, code string) error {
 	if !s.HasKey() {
 		return ErrDisabled
 	}
-	// Validated before it reaches a Mongo filter, like every other code path.
 	clean, err := validateCode(code)
 	if err != nil {
 		return ErrLinkNotFound
@@ -443,9 +348,7 @@ func (s *Shortener) Revoke(ctx context.Context, code string) error {
 	return s.store.Revoke(ctx, clean, time.Now())
 }
 
-// Recent lists the newest aliases for the key-gated console (§8). The console
-// is key-gated precisely because this list defeats §3's entropy argument
-// outright and turns hits/last_hit_at into a read-receipt oracle.
+// Recent is key-gated: the list defeats code entropy and turns hit counts into read receipts.
 func (s *Shortener) Recent(ctx context.Context, n int64) ([]Link, error) {
 	if !s.HasKey() {
 		return nil, ErrDisabled
@@ -453,11 +356,7 @@ func (s *Shortener) Recent(ctx context.Context, n int64) ([]Link, error) {
 	return s.store.Recent(ctx, n)
 }
 
-// newCode draws codeLength characters of base58 from crypto/rand.
-//
-// Never math/rand, whose sequences are predictable, and never a hash of the
-// target: that is worse than it looks, because it makes the resolver an oracle
-// for "has anyone shortened this exact URL" (§3).
+// newCode uses crypto/rand: math/rand is predictable, and hashing the target would make an oracle.
 func newCode() (string, error) {
 	buf := make([]byte, codeLength*2) // slack for rejected draws
 	out := make([]byte, 0, codeLength)
@@ -478,14 +377,8 @@ func newCode() (string, error) {
 	return string(out), nil
 }
 
-// validateTarget parses and screens a destination. Returns the parsed URL so
-// the caller stores a round-tripped form rather than raw caller text.
-//
-// Scheme, address and port, per §6. Hostnames are deliberately NOT resolved:
-// rejecting literals is free, resolving a caller-chosen name is a DNS lookup
-// we decline to make. That leaves a hostname that resolves to a private
-// address unscreened, which is the accepted residual — the API key already
-// closes the population that could exploit it.
+// validateTarget screens scheme, address and port. Hostnames are deliberately not resolved: one
+// that resolves privately is the accepted residual, since the API key gates who can create.
 func validateTarget(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -498,8 +391,7 @@ func validateTarget(raw string) (*url.URL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidTarget, err)
 	}
-	// linkableSchemes is url.go's allowlist, shared so the redirect and the
-	// Inspect page can never disagree about what is safe to navigate to.
+	// Shared with url.go so the redirect and Inspect never disagree on what is safe to open.
 	if !linkableSchemes[strings.ToLower(u.Scheme)] {
 		return nil, fmt.Errorf("%w: scheme %q is not http or https", ErrInvalidTarget, u.Scheme)
 	}
@@ -510,29 +402,19 @@ func validateTarget(raw string) (*url.URL, error) {
 	if host == "" {
 		return nil, fmt.Errorf("%w: no host", ErrInvalidTarget)
 	}
-	// Normalise through IDNA *before* any check below, because the resolver
-	// does. Verified: the system resolver maps "１２７.０.０.１" (fullwidth),
-	// "127.０.0.1" (mixed) and even "①②⑦.0.0.1" (circled digits) all to
-	// 127.0.0.1. An ASCII-only digit test therefore sees a "hostname" where the
-	// operating system sees loopback, which is precisely the router-CSRF target
-	// the literal check exists to refuse. idna.Lookup applies the same NFKC-ish
-	// mapping, so validating the normalised form closes the whole class rather
-	// than the three spellings someone happened to think of.
+	// IDNA-normalise before any check, as the resolver does: "１２７.０.０.１" and "①②⑦.0.0.1"
+	// both reach 127.0.0.1, which an ASCII digit test would call a hostname.
 	normalised, err := idna.Lookup.ToASCII(host)
 	if err != nil {
-		// A host the IDNA profile refuses is not one we should be storing a
-		// redirect to, whatever it would have resolved to.
+		// A host the IDNA profile refuses is no redirect target, whatever it resolves to.
 		return nil, fmt.Errorf("%w: %q is not a usable hostname (%v)", ErrInvalidTarget, host, err)
 	}
 	host = normalised
-	// localhost resolves to loopback on a normal machine, but a hostile
-	// resolver need not agree, so it is refused by name as well as by address.
+	// Refused by name too: a hostile resolver need not map localhost to loopback.
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return nil, fmt.Errorf("%w: %s is not a permitted destination", ErrInvalidTarget, host)
 	}
-	// Without the literal check, /s/aB3xY9k → http://192.168.1.1/setup.cgi is a
-	// router-CSRF launcher: the victim's own browser, on their own LAN, with
-	// their cookies, and a scheme-only allowlist waves it through.
+	// Without this, /s/x → http://192.168.1.1/setup.cgi is a router-CSRF launcher on the victim's LAN.
 	if addr, perr := netip.ParseAddr(host); perr == nil {
 		if !platform.PubliclyRoutable(addr) {
 			return nil, fmt.Errorf("%w: %s is not publicly routable", ErrInvalidTarget, addr)
@@ -546,13 +428,7 @@ func validateTarget(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// validateSlug screens a caller-chosen slug, §3.
-//
-// Runs entirely on the string, before anything reaches a Mongo filter. That
-// ordering is the operator-injection guard: combined with a request body that
-// decodes into a typed struct with string fields only, a slug arriving as
-// {"$ne": null} never becomes a query operator. One line to prevent, expensive
-// to retrofit.
+// validateSlug runs on the string alone, before any Mongo filter: the operator-injection guard.
 func validateSlug(slug string) (string, error) {
 	s := strings.TrimSpace(slug)
 	if !slugPattern.MatchString(s) {
@@ -567,9 +443,7 @@ func validateSlug(slug string) (string, error) {
 	return s, nil
 }
 
-// isGeneratedShape reports whether s could have come out of newCode. A slug
-// that could must be refused, so a custom slug can never occupy — or collide
-// with — the generated-code space (§3).
+// isGeneratedShape flags slugs newCode could produce, keeping the two namespaces apart.
 func isGeneratedShape(s string) bool {
 	if len(s) != codeLength {
 		return false
@@ -582,11 +456,7 @@ func isGeneratedShape(s string) bool {
 	return true
 }
 
-// validateCode screens a lookup key before it is used as a filter value. Both
-// namespaces pass through here — a generated code is case-sensitive base58, a
-// slug is lowercase — so it only enforces the shared shape and the length
-// bound. A key that cannot exist is answered as a miss, not as a bad request,
-// so probing the validator tells an attacker nothing the resolver would not.
+// validateCode answers an impossible key as a miss, so probing it tells an attacker nothing new.
 func validateCode(code string) (string, error) {
 	code = strings.TrimSpace(code)
 	if !codePattern.MatchString(code) {
@@ -595,25 +465,12 @@ func validateCode(code string) (string, error) {
 	return code, nil
 }
 
-// publicHostnameShape rejects anything that is not a syntactically valid public
-// DNS name. It exists because netip.ParseAddr only accepts CANONICAL dotted-quad,
-// while browsers, getaddrinfo and inet_aton are far more liberal — so a
-// "does it contain a dot?" test is not an address check at all.
-//
-// Accepted by a browser and missed by netip: 127.1, 192.168.1, 0x7f.1,
-// 0177.0.0.1. Each resolves to a private or loopback address, which makes an
-// alias to one a router-CSRF launcher aimed at whoever opens the link
-// (docs/04-short-links.md §6).
-//
-// The discriminator is the last label: a real TLD is never all digits and never
-// an octal or hex literal, while every liberal IPv4 form ends in a numeric
-// label. That one predicate kills the whole class without needing to enumerate
-// the forms.
+// publicHostnameShape catches what netip.ParseAddr misses but browsers accept (127.1, 0x7f.1,
+// 0177.0.0.1): every liberal IPv4 form ends in a numeric label, and no real TLD does.
 func publicHostnameShape(host string) error {
 	labels := strings.Split(host, ".")
 	if len(labels) < 2 {
-		// A single label is a LAN name (http://router/) or an integer-form IPv4
-		// address (http://2130706433/) that a browser resolves to 127.0.0.1.
+		// A LAN name (http://router/) or integer IPv4 (http://2130706433/ is 127.0.0.1).
 		return fmt.Errorf("%q is not a public hostname", host)
 	}
 	for _, l := range labels {

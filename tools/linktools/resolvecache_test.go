@@ -12,23 +12,9 @@ import (
 	mopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// White-box, beside the code, per CLAUDE.md rule #6's exception: resolveCache
-// and hitBatcher are unexported and have no exported surface at all. The only
-// tests that reached this file before went through LinkStore, which skips
-// without Mongo — so on an ordinary CI run these two types, which exist purely
-// to bound the one unauthenticated route in the suite, were executed zero
-// times. Everything here runs with no database.
-//
-// Run with -race: both types are touched concurrently by every redirect.
+// White-box: resolveCache and hitBatcher are unexported. No database needed; run with -race.
 
-// offlineCollection returns a real *mongo.Collection pointed at a port nothing
-// listens on.
-//
-// Not nil: hitBatcher.flush calls b.coll.BulkWrite, which dereferences the
-// collection, so a nil one panics inside the flush goroutine and takes the test
-// binary with it. An unreachable-but-real collection exercises the actual flush
-// path and fails server selection in ~100ms, which is also exactly what a Mongo
-// outage looks like in production — the case the batcher has to survive.
+// offlineCollection is real but unreachable: a nil one panics in flush, and this mimics an outage.
 func offlineCollection(t *testing.T) *mongo.Collection {
 	t.Helper()
 	cl, err := mongo.Connect(mopts.Client().
@@ -46,10 +32,7 @@ func testLink(code string) *Link {
 	return &Link{Code: code, Target: "https://example.com/" + code, CreatedAt: time.Now()}
 }
 
-// TestResolveCacheRoundTrip. The negative half is the one that matters: a
-// scanner walking random codes costs one FindOne per request without it, and
-// /s/:code is deliberately not rate-limited, so "known absent" has to come back
-// as a HIT carrying a nil link, never as a miss.
+// /s/:code isn't rate-limited, so "known absent" must come back as a hit with a nil link, not a miss.
 func TestResolveCacheRoundTrip(t *testing.T) {
 	c := newResolveCache()
 
@@ -77,8 +60,7 @@ func TestResolveCacheRoundTrip(t *testing.T) {
 	}
 }
 
-// TestResolveCachePutSetsTheRightTTL reads the stored entry directly, because
-// the TTL is only observable from outside by waiting a minute for it.
+// Reads the entry directly: from outside, the TTL is only observable by waiting it out.
 func TestResolveCachePutSetsTheRightTTL(t *testing.T) {
 	cases := []struct {
 		name string
@@ -108,9 +90,6 @@ func TestResolveCachePutSetsTheRightTTL(t *testing.T) {
 	}
 }
 
-// TestResolveCacheExpires: entries are written straight into the map with a
-// chosen expiry rather than sleeping out a real 60s TTL. A stale entry served
-// after expiry is a redirect to a target that may have been revoked.
 func TestResolveCacheExpires(t *testing.T) {
 	c := newResolveCache()
 	l := testLink("fresh")
@@ -129,9 +108,7 @@ func TestResolveCacheExpires(t *testing.T) {
 	}
 }
 
-// TestResolveCacheIsBounded. The key space is attacker-chosen: without the
-// bound, a scanner walking random codes turns the negative cache into a
-// memory-growth path, which is the same outcome the cache exists to prevent.
+// The key space is attacker-chosen, so an unbounded negative cache is a memory-growth path.
 func TestResolveCacheIsBounded(t *testing.T) {
 	c := newResolveCache()
 	for i := 0; i < resolveCacheMax; i++ {
@@ -145,16 +122,12 @@ func TestResolveCacheIsBounded(t *testing.T) {
 	if len(c.entries) > resolveCacheMax {
 		t.Errorf("cache grew to %d entries, past its %d bound — a code scan is now a memory-growth path", len(c.entries), resolveCacheMax)
 	}
-	// Clearing wholesale costs a brief miss storm and cannot leak; what it must
-	// not do is drop the entry being written.
+	// Clearing wholesale costs a brief miss storm, but must not drop the entry being written.
 	if _, ok := c.get("one-too-many"); !ok {
 		t.Error("the put that triggered the clear lost its own entry; the cache would thrash instead of refilling")
 	}
 }
 
-// TestResolveCacheInvalidate: revocation must not wait on a TTL. A link revoked
-// because it was pasted somewhere it should not have been keeps working for up
-// to a minute otherwise.
 func TestResolveCacheInvalidate(t *testing.T) {
 	c := newResolveCache()
 	c.put("abc1234", testLink("abc1234"))
@@ -165,22 +138,14 @@ func TestResolveCacheInvalidate(t *testing.T) {
 	c.invalidate("never-existed") // must not panic
 }
 
-// TestHitBatcherNilIsSafe: a nil *hitBatcher is how "Mongo is off" propagates
-// down here, same contract as a nil LinkStore or a nil RequestLog. Both methods
-// are called from the redirect path and from shutdown.
+// A nil *hitBatcher is how "Mongo is off" reaches here, as with a nil LinkStore.
 func TestHitBatcherNilIsSafe(t *testing.T) {
 	var b *hitBatcher
 	b.record("abc1234") // must not panic
 	b.Close()           // must not panic or block
 }
 
-// TestHitBatcherRecordNeverBlocks. record runs on the redirect path, so a full
-// queue must drop the count rather than make the visitor wait on a writer that
-// is busy talking to Mongo. A lost hit count on a personal link shortener is
-// acceptable; a redirect that waits on a write is not.
-//
-// This batcher is built by hand, without run(), precisely so nothing drains the
-// queue: with the real goroutine running, "full" is not reachable on purpose.
+// Built by hand without run(), so nothing drains the queue and "full" is reachable.
 func TestHitBatcherRecordNeverBlocks(t *testing.T) {
 	b := &hitBatcher{ch: make(chan string, 8), done: make(chan struct{})}
 
@@ -202,14 +167,7 @@ func TestHitBatcherRecordNeverBlocks(t *testing.T) {
 	}
 }
 
-// TestHitBatcherCloseIsIdempotent. Close is called from main's shutdown path,
-// and closing an already-closed channel panics — a crash during shutdown that
-// only shows up when the shutdown path is touched twice (a signal handler plus
-// a deferred Close, say). sync.Once is the thing being tested here.
-//
-// It also proves Close drains and flushes without a reachable database: flush
-// errors out and is discarded, because a lost hit count must never stop the
-// process from exiting.
+// Shutdown may Close twice (signal plus defer), and a failed flush must never block exit.
 func TestHitBatcherCloseIsIdempotent(t *testing.T) {
 	b := newHitBatcher(offlineCollection(t))
 	b.record("abc1234")
@@ -227,15 +185,7 @@ func TestHitBatcherCloseIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestResolveCacheAndBatcherUnderConcurrency is the -race test. Every redirect
-// reads the cache, writes it on a miss, and records a hit; a create or revoke
-// invalidates from a different request at the same time. A data race here is
-// not theoretical, it is the normal traffic pattern.
-//
-// Note the ordering: every record finishes before Close is called. That is not
-// incidental tidiness — record sends on b.ch and Close closes it, with no guard
-// between them, so a record racing a Close would panic with "send on closed
-// channel". See the report accompanying these tests.
+// The -race test: this interleaving of reads, writes and invalidations is normal redirect traffic.
 func TestResolveCacheAndBatcherUnderConcurrency(t *testing.T) {
 	c := newResolveCache()
 	b := newHitBatcher(offlineCollection(t))
@@ -252,7 +202,7 @@ func TestResolveCacheAndBatcherUnderConcurrency(t *testing.T) {
 				case 0:
 					c.put(code, testLink(code))
 				case 1:
-					c.put(code, nil) // negative entry
+					c.put(code, nil)
 				case 2:
 					c.invalidate(code)
 				default:
@@ -273,15 +223,7 @@ func TestResolveCacheAndBatcherUnderConcurrency(t *testing.T) {
 	}
 }
 
-// TestRecordIsSafeDuringAndAfterClose covers the property that did NOT hold
-// when these tests were first written: Close() closed the channel with no
-// guard, and record()'s `select { case ch <- code: default: }` panics on a
-// closed channel — `default` covers a FULL channel, not a closed one.
-//
-// It matters because Close runs from main's shutdown path (SIGTERM, which is
-// what `docker compose up -d --build` sends on every deploy) while redirects
-// can still be in flight, so the crash window is a real one rather than a
-// theoretical one.
+// select's default covers a full channel, not a closed one, and Close runs with redirects in flight.
 func TestRecordIsSafeDuringAndAfterClose(t *testing.T) {
 	b := newHitBatcher(offlineCollection(t))
 
@@ -296,12 +238,9 @@ func TestRecordIsSafeDuringAndAfterClose(t *testing.T) {
 			}
 		}(i)
 	}
-	// Close concurrently with the writers. A panic here fails the test, which
-	// is the whole point.
 	b.Close()
 	wg.Wait()
 
-	// And after Close has definitely returned.
 	b.record("after-close")
 
 	// Idempotent: a second Close must not close an already-closed channel.

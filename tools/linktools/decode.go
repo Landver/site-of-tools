@@ -10,22 +10,13 @@ import (
 	"unicode/utf8"
 )
 
-// Ladder bounds. A value that is base64 of base64 of base64 is trivial to
-// construct and each rung can be larger than the last, so the ladder stops and
-// SAYS it stopped rather than truncating silently or running out of memory.
-// This function is reachable unauthenticated on every parse.
+// Nested base64 is trivial to build and this runs unauthenticated, so the ladder stops and says so.
 const (
 	maxLadderDepth = 5
 	maxRungBytes   = 64 << 10
 )
 
-// decodeLadder peels a value until it stops changing, recording each rung.
-//
-// Returns nil when the value is already plain — the overwhelmingly common case,
-// and the template renders nothing for it. urldecoder.org does this for whole
-// strings with a cap of 16; the difference here is that it runs per parameter
-// and the rungs are shown, so a double-encoded value is visible as such rather
-// than silently flattened.
+// decodeLadder peels v until it stops changing; nil when v is already plain, the common case.
 func decodeLadder(v string) []Layer {
 	if v == "" || len(v) > maxRungBytes {
 		return nil
@@ -52,11 +43,7 @@ func decodeLadder(v string) []Layer {
 	return out
 }
 
-// peel applies the single most likely decoding to s, returning the result and
-// the method used. Empty method means nothing applied.
-//
-// Order matters: percent first because it is cheapest and most common, then
-// JWT (a specific base64 shape worth naming), then plain base64, then JSON.
+// peel applies the most likely single decoding (JWT before plain base64); empty method means none.
 func peel(s string) (string, string) {
 	if strings.Contains(s, "%") {
 		if dec, err := url.QueryUnescape(s); err == nil && dec != s && utf8.ValidString(dec) {
@@ -84,9 +71,7 @@ var (
 	mailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$`)
 )
 
-// looksBase64 reports whether s could be base64. Used for the '+' ambiguity
-// warning, so it is deliberately permissive: a false positive costs a note, a
-// false negative costs a destroyed value.
+// looksBase64 is permissive on purpose: a false positive costs a note, a false negative a lost value.
 func looksBase64(s string) bool {
 	if len(s) < 8 || len(s)%4 != 0 {
 		return false
@@ -94,9 +79,7 @@ func looksBase64(s string) bool {
 	return b64Std.MatchString(s) || b64URL.MatchString(s)
 }
 
-// tryBase64 decodes s if it is base64 of something printable. The printable
-// check is what stops every long hex id and random token being reported as
-// base64 of binary noise.
+// tryBase64 accepts only printable output, so long hex ids and tokens aren't reported as base64.
 func tryBase64(s string) (string, string, bool) {
 	if len(s) < 8 || len(s) > maxRungBytes {
 		return "", "", false
@@ -126,8 +109,7 @@ func tryBase64(s string) (string, string, bool) {
 	return "", "", false
 }
 
-// jwtPayload returns a JWT's payload, pretty-printed. Header and payload only:
-// this never verifies a signature and the page must never imply that it did.
+// jwtPayload pretty-prints header and payload; it never verifies the signature and must not imply it did.
 func jwtPayload(s string) (string, bool) {
 	if !jwtRe.MatchString(s) {
 		return "", false
@@ -152,8 +134,7 @@ func jwtPayload(s string) (string, bool) {
 // jwtUnverified ends every decoded JWT; Encode's reading trims it.
 const jwtUnverified = "\n\n(signature not verified — this tool only decodes)"
 
-// prettyJSON reformats s when it is a JSON object or array. Scalars are
-// excluded: "1" is valid JSON and reporting a number as JSON is noise.
+// prettyJSON skips scalars: "1" is valid JSON, and calling a number JSON is noise.
 func prettyJSON(s string) (string, bool) {
 	t := strings.TrimSpace(s)
 	if len(t) < 2 || (t[0] != '{' && t[0] != '[') {
@@ -170,8 +151,7 @@ func prettyJSON(s string) (string, bool) {
 	return string(out), true
 }
 
-// classify types a value so the template can render it usefully. Best-effort and
-// advisory; nothing downstream depends on getting it right.
+// classify is best-effort and advisory; nothing downstream depends on getting it right.
 func classify(v string) Kind {
 	if v == "" {
 		return ""
@@ -190,7 +170,6 @@ func classify(v string) Kind {
 		return KindEmail
 	}
 	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-		// Unix seconds or milliseconds within a plausible window read as a time.
 		if isTimestamp(n) {
 			return KindTimestamp
 		}
@@ -216,14 +195,12 @@ func classify(v string) Kind {
 	return ""
 }
 
-// decodesToText: base64 of something a person could read.
 func decodesToText(v string) bool {
 	_, _, ok := tryBase64(v)
 	return ok
 }
 
-// encodedLooking tells base64 of binary from a plain word ("facebook" is valid
-// base64): real encodings mix digits and both cases, or carry +, / or =.
+// encodedLooking tells real base64 from a plain word: "facebook" is valid base64 too.
 func encodedLooking(v string) bool {
 	if strings.ContainsAny(v, "+/=") {
 		return true
@@ -242,10 +219,9 @@ func encodedLooking(v string) bool {
 	return digit && lower && upper
 }
 
-// isTimestamp reports whether n is plausibly a Unix time in seconds or
-// milliseconds. Bounded to 2001-2286 so ordinary ids aren't mislabelled.
+// isTimestamp accepts Unix seconds or ms in 2001-2286 only, so ordinary ids aren't mislabelled.
 func isTimestamp(n int64) bool {
-	const lo, hi = 1_000_000_000, 9_999_999_999 // seconds: 2001 .. 2286
+	const lo, hi = 1_000_000_000, 9_999_999_999
 	if n >= lo && n <= hi {
 		return true
 	}
@@ -255,8 +231,7 @@ func isTimestamp(n int64) bool {
 	return false
 }
 
-// printable reports whether s is text a human could read, used to reject base64
-// that decodes to binary.
+// printable rejects control characters, which is how base64 of binary is refused.
 func printable(s string) bool {
 	if !utf8.ValidString(s) {
 		return false

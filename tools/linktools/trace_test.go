@@ -1,10 +1,6 @@
 package linktools
 
-// White-box, and it has to be: the egress gate rejects loopback, which is
-// exactly where httptest servers live, so these tests set the unexported
-// allowLoopback seam. That seam is per-instance rather than a package-level var
-// (dnstools' resolverOverride is a global behind a mutex) so parallel tests
-// cannot see each other's. Rule #6's stated exception.
+// White-box: the gate rejects loopback, where httptest lives, so these set the allowLoopback seam.
 
 import (
 	"context"
@@ -22,8 +18,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// testTracer builds a tracer that may dial loopback. Never reachable from
-// outside this package: allowLoopback is unexported and NewTracer never sets it.
+// testTracer may dial loopback; NewTracer itself never sets allowLoopback.
 func testTracer(t *testing.T) *Tracer {
 	t.Helper()
 	tr := NewTracer(platform.NewEgressGuard([]string{"80", "443"}, nil), 10*time.Second)
@@ -84,9 +79,7 @@ func TestTraceFollowsAChain(t *testing.T) {
 	}
 }
 
-// TestNeverForwardsRefererOrAuthorization. A hand-rolled walk that copies
-// headers forward would send the pasted URL — tokens and all — to every
-// subsequent attacker-chosen host. That is a worse leak than the request log's.
+// Copying headers forward would send the pasted URL, tokens and all, to every later host.
 func TestNeverForwardsRefererOrAuthorization(t *testing.T) {
 	var got http.Header
 	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +107,7 @@ func TestNeverForwardsRefererOrAuthorization(t *testing.T) {
 	}
 }
 
-// TestRefusesPrivateAddressMidChain. The obvious attack: a public first hop
-// redirecting into the private network. Every hop must be re-gated, not just
-// the first.
+// A public first hop redirecting into the private network: every hop must be re-gated.
 func TestRefusesPrivateAddressMidChain(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
@@ -137,8 +128,7 @@ func TestRefusesPrivateAddressMidChain(t *testing.T) {
 	}
 }
 
-// TestUngatedTracerRefusesLoopback proves the seam is the only thing letting
-// these tests reach 127.0.0.1, i.e. that production is closed.
+// Proves the seam is the only way these tests reach 127.0.0.1, so production stays closed.
 func TestUngatedTracerRefusesLoopback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
 	defer srv.Close()
@@ -150,8 +140,7 @@ func TestUngatedTracerRefusesLoopback(t *testing.T) {
 	}
 }
 
-// TestNonHTTPSchemeEndsTheChain: a Location of intent:// or javascript: is
-// named, never dialled.
+// A Location of intent:// or javascript: is named, never dialled.
 func TestNonHTTPSchemeEndsTheChain(t *testing.T) {
 	for _, loc := range []string{"javascript:alert(1)", "intent://x#Intent;scheme=http;end", "file:///etc/passwd"} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -183,8 +172,7 @@ func TestHopCapTrips(t *testing.T) {
 	}
 }
 
-// TestMetaRefreshAndRefreshHeaderAreNamed. Reporting "chain finished" on a 200
-// that carries a refresh is a wrong answer in the security-relevant direction.
+// "Chain finished" on a 200 that carries a refresh is wrong in the security-relevant direction.
 func TestMetaRefreshAndRefreshHeaderAreNamed(t *testing.T) {
 	t.Run("meta", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -262,8 +250,7 @@ func TestNilTracerIsDisabled(t *testing.T) {
 	}
 }
 
-// TestTransportStaysClosed guards the three settings that are silent bypasses if
-// someone "tidies" them away later.
+// These settings are silent bypasses if someone "tidies" them away later.
 func TestTransportStaysClosed(t *testing.T) {
 	tr := testTracer(t)
 	c := tr.client
@@ -291,8 +278,7 @@ func TestTransportStaysClosed(t *testing.T) {
 	}
 }
 
-// TestTraceSaysWhenTheChainEndsAtAnError: a 404 is still Final, with its status
-// and a finding that it is an error page.
+// A 404 is still Final, with its status and a finding that it is an error page.
 func TestTraceSaysWhenTheChainEndsAtAnError(t *testing.T) {
 	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -308,8 +294,7 @@ func TestTraceSaysWhenTheChainEndsAtAnError(t *testing.T) {
 	}
 }
 
-// TestTraceLiftsTheReasonIntoFindings: a chain that stops short has the reason
-// in its own findings, where the page points.
+// A chain that stops short carries the reason in its own findings, where the page points.
 func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
@@ -329,8 +314,7 @@ func TestTraceLiftsTheReasonIntoFindings(t *testing.T) {
 	}
 }
 
-// TestHopUnlistedSkipsWhatFindingsSay: the page prints the reason once; the
-// JSON keeps both.
+// The page prints the reason once; the JSON keeps both.
 func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
@@ -349,8 +333,7 @@ func TestHopUnlistedSkipsWhatFindingsSay(t *testing.T) {
 	}
 }
 
-// A target picks its headers and its certificate's names. Normal values are
-// kept as sent; oversized ones are clipped before a hop or note holds them.
+// Target-chosen headers keep normal values as sent and are clipped when oversized.
 func TestTraceBoundsTargetChosenStrings(t *testing.T) {
 	normal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Server", "nginx/1.27.0")
