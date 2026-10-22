@@ -7,16 +7,14 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestNewRequestLogDisabled: nil db (Mongo off) → nil store, valid "disabled"
-// value w/ no-op methods → Mongo-less boot needs no guards.
+// TestNewRequestLogDisabled: a nil db yields a nil store whose no-op methods need no guards.
 func TestNewRequestLogDisabled(t *testing.T) {
 	if rl := platform.NewRequestLog(context.Background(), nil); rl != nil {
 		t.Fatalf("NewRequestLog(nil db) = %v, want nil (disabled)", rl)
 	}
 }
 
-// TestNilRequestLogIsSafe: Record + Close must be nil-safe — nil *RequestLog =
-// how "Mongo disabled" propagates through NewApp into middleware.
+// TestNilRequestLogIsSafe: a nil *RequestLog is how "Mongo disabled" reaches the middleware.
 func TestNilRequestLogIsSafe(t *testing.T) {
 	var rl *platform.RequestLog
 	rl.Record(platform.RequestEntry{Method: "GET", URI: "/"}) // must not panic
@@ -25,8 +23,7 @@ func TestNilRequestLogIsSafe(t *testing.T) {
 	}
 }
 
-// TestShouldRecord: page requests persisted, static assets not — high volume,
-// no analytic value — and MCP not, which records each message itself.
+// TestShouldRecord: pages are persisted; static assets and /mcp (which records itself) are not.
 func TestShouldRecord(t *testing.T) {
 	cases := map[string]bool{
 		"/":                   true,

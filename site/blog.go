@@ -16,10 +16,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 )
 
-// Post: one blog entry, rendered from a markdown file in posts/.
-// HTML is trusted — posts are our own committed content.
-// Image: optional frontmatter `image` — a site path ("/static/img/x.png")
-// or absolute URL used as the post's og:image instead of the default cover.
+// Post is one blog entry; HTML is trusted because posts are our own committed content.
 type Post struct {
 	Slug  string
 	Title string
@@ -32,18 +29,13 @@ type Post struct {
 	Markdown string `json:"-"`
 }
 
-// DateLayout: frontmatter `date` format. Dates must be quoted in frontmatter
-// ("2026-07-28") — unquoted dates (YAML hands us a time.Time) are a load error.
+// DateLayout is the frontmatter date format; an unquoted date becomes a YAML time.Time and fails the load.
 const DateLayout = "2006-01-02"
 
-// md renders every post body; goldmark-meta parses the YAML frontmatter,
-// Linkify turns bare https:// URLs into links (posts cite them constantly).
+// md: goldmark-meta parses frontmatter; Linkify links bare https:// URLs, which posts cite constantly.
 var md = goldmark.New(goldmark.WithExtensions(meta.Meta, extension.Linkify))
 
-// LoadPosts parses every *.md at fsys root into Posts: frontmatter → fields,
-// body → HTML, slug from filename. Drafts filtered, rest sorted by date
-// descending. Any malformed post fails the whole load — caller decides
-// (prod boot = fatal; better a refused deploy than a half-broken blog).
+// LoadPosts skips drafts, sorts newest first, and fails whole on one malformed post (fatal at prod boot).
 func LoadPosts(fsys fs.FS) ([]Post, error) {
 	var posts []Post
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
@@ -69,7 +61,6 @@ func LoadPosts(fsys fs.FS) ([]Post, error) {
 	return posts, nil
 }
 
-// parsePost renders one markdown file into a Post.
 func parsePost(fsys fs.FS, p string) (Post, error) {
 	src, err := fs.ReadFile(fsys, p)
 	if err != nil {
@@ -111,8 +102,7 @@ func stripFrontmatter(src []byte) string {
 	return string(src)
 }
 
-// slugFromFilename: "2026-07-28-some-title.md" → "some-title"; a file with no
-// date prefix keeps its whole basename.
+// slugFromFilename: "2026-07-28-some-title.md" → "some-title"; no date prefix keeps the whole basename.
 func slugFromFilename(p string) string {
 	base := strings.TrimSuffix(path.Base(p), ".md")
 	if len(base) > len(DateLayout)+1 {
@@ -128,9 +118,6 @@ func metaString(m map[string]any, key string) string {
 	return s
 }
 
-// metaDate requires the house format: quoted "YYYY-MM-DD" string.
-// Unquoted dates (YAML hands us a time.Time) fail fast like any other
-// malformed frontmatter.
 func metaDate(m map[string]any) (time.Time, error) {
 	v, ok := m["date"].(string)
 	if !ok {

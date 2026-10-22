@@ -53,8 +53,7 @@ func TestHomeHTML(t *testing.T) {
 }
 
 func TestHomeOmitsIP2LocationCredit(t *testing.T) {
-	// Apex uses no IP2Location or blocklist data → neither credit must appear
-	// here; both scoped to IP tool + botcheck via .Attribution flag.
+	// Apex uses no IP2Location or blocklist data, so neither credit may appear here.
 	body := get(newTestApp(t), "/", "text/html").Body.String()
 	if strings.Contains(body, "lite.ip2location.com") || strings.Contains(body, "IP2Location LITE database") {
 		t.Errorf("apex must not show the IP2Location credit (it uses no such data), got:\n%s", body)
@@ -75,8 +74,7 @@ func TestHomeJSON(t *testing.T) {
 }
 
 func TestToolsAlphabetical(t *testing.T) {
-	// Catalog order = render order of apex index + header Tools dropdown → A→Z,
-	// case-insensitive ("Bot check" and "IP Tools" differ in case style).
+	// Catalog order is render order: A→Z, case-insensitive ("Bot check" vs "IP Tools").
 	var got []string
 	for _, tool := range site.Tools(platform.Config{Env: "prod", BaseDomain: "corpberry.com"}) {
 		got = append(got, tool.Name)
@@ -140,14 +138,13 @@ func TestBlogPostOGImage(t *testing.T) {
 
 func TestThemeScriptCookieSharedDarkDefault(t *testing.T) {
 	body := get(newTestApp(t), "/", "text/html").Body.String()
-	// Old per-origin / OS-preference logic must be gone entirely.
+	// Neither per-origin storage nor the OS preference may decide the theme.
 	for _, gone := range []string{"localStorage", "matchMedia", "prefers-color-scheme"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("theme script must not reference %q anymore", gone)
 		}
 	}
-	// New contract: validated cookie read, unconditional dark default,
-	// parent-Domain write shared across subdomains.
+	// Validated cookie read, dark by default, written on the parent Domain so subdomains share it.
 	for _, want := range []string{
 		`readTheme() || "dark"`, // no cookie → dark
 		`theme=(dark|light)`,    // cookie read validates value

@@ -12,43 +12,22 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
-// DefaultMongoDatabase: app db on shared MongoDB server (localhost).
-// Config.MongoDatabase defaults to this; override w/ MONGODB_DATABASE. Not
-// db in connection string's path (that segment names auth db — "/admin" —
-// separate from app db selected here).
+// DefaultMongoDatabase is the app DB; the URI's path names the auth DB ("/admin"), not this one.
 const DefaultMongoDatabase = "site-of-tools"
 
-// mongoServerSelectionTimeout bounds how long OpenMongo waits for reachable
-// server → down/unreachable host fails fast at startup, not blocking on
-// driver's 30s default. Doesn't cap ordinary query latency (still governed by
-// caller's context).
+// mongoServerSelectionTimeout fails startup fast on an unreachable server instead of the driver's 30s.
 const mongoServerSelectionTimeout = 10 * time.Second
 
-// ErrMongoUnavailable: returned when Mongo not configured (empty MONGODB_URI).
-// Mirrors iptools.ErrUnavailable: callers treat as "feature off", not
-// fatal → server still boots w/o database.
+// ErrMongoUnavailable means MONGODB_URI is empty: callers treat it as "feature off", not fatal.
 var ErrMongoUnavailable = errors.New("mongodb is not configured (MONGODB_URI is empty)")
 
-// Mongo: shared MongoDB client. Opened once at startup, shared across request
-// goroutines — driver's *mongo.Client safe for concurrent use, pools
-// connections internally → (like iptools BIN handles) never reopened per
-// request. nil *Mongo = valid "disabled" value: every method below nil-safe,
-// same as nil *iptools.Service.
-//
-// Owns only connection, no business logic. Per CLAUDE.md rule #5, a
-// feature's persistence (repositories, queries, indexes) lives *below* its
-// domain service, taking *mongo.Database from DB() — see iptools.History
-// (lookup history) & RequestLog (request corpus), first two consumers.
+// Mongo is the one shared client; a nil *Mongo is the valid "disabled" value and every method is nil-safe.
 type Mongo struct {
 	Client *mongo.Client // raw driver client (transactions, admin commands, …)
 	db     *mongo.Database
 }
 
-// OpenMongo dials server, verifies connection w/ ping, selects app db. Empty
-// uri returns (nil, ErrMongoUnavailable) → caller can start w/o Mongo — same
-// "missing data non-fatal" contract iptools.OpenService uses for absent
-// BINs. Empty dbName falls back to DefaultMongoDatabase. Caller owns returned
-// client, must Close it.
+// OpenMongo connects and pings; an empty uri returns ErrMongoUnavailable. The caller must Close it.
 func OpenMongo(ctx context.Context, uri, dbName string) (*Mongo, error) {
 	if uri == "" {
 		return nil, ErrMongoUnavailable
@@ -65,8 +44,7 @@ func OpenMongo(ctx context.Context, uri, dbName string) (*Mongo, error) {
 		return nil, fmt.Errorf("connect mongo: %w", err)
 	}
 
-	// Connect lazy → ping to fail fast if server unreachable or creds wrong;
-	// disconnect half-open client so it never leaks on error path.
+	// Connect is lazy, so ping to fail fast; disconnect so the half-open client doesn't leak.
 	pingCtx, cancel := context.WithTimeout(ctx, mongoServerSelectionTimeout)
 	defer cancel()
 	if err := client.Ping(pingCtx, readpref.Primary()); err != nil {
@@ -77,8 +55,7 @@ func OpenMongo(ctx context.Context, uri, dbName string) (*Mongo, error) {
 	return &Mongo{Client: client, db: client.Database(dbName)}, nil
 }
 
-// DB returns app *mongo.Database, or nil on nil receiver. Feature
-// repositories build their collections from this handle.
+// DB returns the app database, or nil on a nil receiver.
 func (m *Mongo) DB() *mongo.Database {
 	if m == nil {
 		return nil
@@ -86,8 +63,7 @@ func (m *Mongo) DB() *mongo.Database {
 	return m.db
 }
 
-// Ping verifies connection still usable. nil receiver reports
-// ErrMongoUnavailable rather than panicking.
+// Ping reports ErrMongoUnavailable on a nil receiver.
 func (m *Mongo) Ping(ctx context.Context) error {
 	if m == nil {
 		return ErrMongoUnavailable
@@ -95,8 +71,7 @@ func (m *Mongo) Ping(ctx context.Context) error {
 	return m.Client.Ping(ctx, readpref.Primary())
 }
 
-// Close disconnects client & drains its connection pool. nil receiver =
-// no-op, so `defer m.Close(ctx)` safe even when Mongo disabled.
+// Close is a no-op on a nil receiver, so `defer m.Close(ctx)` is safe when Mongo is disabled.
 func (m *Mongo) Close(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -104,16 +79,12 @@ func (m *Mongo) Close(ctx context.Context) error {
 	return m.Client.Disconnect(ctx)
 }
 
-// EnsureDatabase makes app database exist explicitly by creating a small
-// sentinel collection. MongoDB creates a database lazily on first write →
-// untouched database never appears in `listDatabases`; calling this once
-// (e.g. via `make mongo-init`) provisions "site-of-tools" up front. Idempotent
-// — already-present collection (NamespaceExists) counts as success.
+// EnsureDatabase creates a sentinel collection, since Mongo lists a database only after its first write.
 func (m *Mongo) EnsureDatabase(ctx context.Context) error {
 	if m == nil {
 		return ErrMongoUnavailable
 	}
-	const sentinel = "_meta" // empty collection, only job: keep db present
+	const sentinel = "_meta"
 	if err := m.db.CreateCollection(ctx, sentinel); err != nil {
 		var cmdErr mongo.CommandError
 		if !errors.As(err, &cmdErr) || cmdErr.Code != 48 { // 48 = NamespaceExists
@@ -123,14 +94,8 @@ func (m *Mongo) EnsureDatabase(ctx context.Context) error {
 	return nil
 }
 
-// EnsureTTLIndex idempotently creates ascending index on field that also
-// expires each document ttl after its field value. One bit of setup every
-// time-ordered collection here needs — rolling corpus that self-prunes — so
-// features (request log, iptools history) share this helper instead of
-// repeating options dance. Same ascending index also serves a
-// *descending* sort on field (Mongo scans it in reverse) → "most recent N"
-// query needs no second index. Re-creating identical index is no-op, so
-// callers can run this on every startup.
+// EnsureTTLIndex creates an ascending index that expires documents ttl after field; it also serves a
+// descending "most recent N" sort, and re-creating it is a no-op, so call it on every startup.
 func EnsureTTLIndex(ctx context.Context, coll *mongo.Collection, field string, ttl time.Duration) error {
 	_, err := coll.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: field, Value: 1}},

@@ -14,10 +14,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestRedactURI: on link.corpberry.com the request URI IS the visitor's pasted
-// input, which routinely carries a session token or a password-reset link. It
-// must not reach the 30-day Mongo corpus, and — more importantly — must not
-// reach the stdout log, which Docker keeps on the host with no TTL at all.
+// TestRedactURI: a pasted URL's token must reach neither the Mongo corpus nor the TTL-less stdout log.
 func TestRedactURI(t *testing.T) {
 	cases := []struct {
 		name, in string
@@ -43,9 +40,7 @@ func TestRedactURI(t *testing.T) {
 	}
 }
 
-// TestRedactURIKeepsShape: the corpus still has to show which endpoint was hit
-// and with what shape of request, so paths, key names and other parameters all
-// survive.
+// TestRedactURIKeepsShape: paths, key names and other params survive, so the log still shows the endpoint.
 func TestRedactURIKeepsShape(t *testing.T) {
 	got := platform.RedactURI("/trace?u=https%3A%2F%2Fsecret.example&ua=googlebot")
 	for _, want := range []string{"/trace", "u=", "ua=googlebot"} {
@@ -55,15 +50,12 @@ func TestRedactURIKeepsShape(t *testing.T) {
 	}
 }
 
-// TestRedactURILeavesOthersAlone: this runs on every request to every subdomain,
-// so it must not touch ip.corpberry.com's ?ip= or dns.corpberry.com's ?name=.
+// TestRedactURILeavesOthersAlone: it runs on every subdomain, so ?ip= and a plain DNS ?name= stay intact.
 func TestRedactURILeavesOthersAlone(t *testing.T) {
 	for _, in := range []string{
 		"/?ip=8.8.8.8", "/?name=example.com&type=MX", "/cidr?cidr=10.0.0.0%2F8", "/",
 		"/static/js/app.js",
-		// "v" is a redacted key (/encode's input) but it is also every static
-		// asset's cache-buster, and rewriting those would make the whole site's
-		// asset log lines unreadable for nothing.
+		// "v" is /encode's redacted key but also every static asset's cache-buster, which must stay readable.
 		"/static/css/styles.css?v=1a2b3c4d",
 	} {
 		if got := platform.RedactURI(in); got != in {
@@ -72,8 +64,7 @@ func TestRedactURILeavesOthersAlone(t *testing.T) {
 	}
 }
 
-// TestRedactURIUnparseable: an unparseable URI is exactly when a naive logger
-// leaks the most, so it is truncated rather than logged whole.
+// TestRedactURIUnparseable: a malformed URI is where a naive logger leaks the most.
 func TestRedactURIUnparseable(t *testing.T) {
 	got := platform.RedactURI("/?u=%zz%SECRET{]|")
 	if strings.Contains(got, "SECRET") {
@@ -81,18 +72,10 @@ func TestRedactURIUnparseable(t *testing.T) {
 	}
 }
 
-// TestRedactionIsWiredIntoTheRequestLogger is the integration half, and it is
-// the half that matters. Every test above passes with RedactURI never called:
-// the unit can be perfect while app.go logs v.URI raw, and the leak the
-// function exists to prevent happens on every request anyway.
-//
-// So this drives a real request through a real app built by NewApp, with the
-// app's slog logger pointed at a buffer, and reads what the middleware actually
-// wrote. Deleting the RedactURI call from requestLogger fails it.
+// TestRedactionIsWiredIntoTheRequestLogger reads what NewApp's real middleware logs: every test above
+// passes even if requestLogger logs v.URI raw, so deleting the RedactURI call must fail here.
 func TestRedactionIsWiredIntoTheRequestLogger(t *testing.T) {
-	// A token in the pasted URL: the realistic case from docs — someone
-	// inspects a password-reset link and the reset token rides along in the
-	// query string of OUR request, straight into a log Docker keeps forever.
+	// The realistic case: an inspected password-reset link carries its token in OUR request's query string.
 	const secret = "reset-token-DO-NOT-LOG"
 
 	cases := []struct {
@@ -112,8 +95,7 @@ func TestRedactionIsWiredIntoTheRequestLogger(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var logged bytes.Buffer
 			e := platform.NewApp(nil, fstest.MapFS{}, false, nil)
-			// Echo resolves c.Logger() to e.Logger at call time, so pointing it
-			// at a buffer after NewApp still captures what the middleware writes.
+			// c.Logger() resolves e.Logger at call time, so swapping it after NewApp still captures the log.
 			e.Logger = slog.New(slog.NewTextHandler(&logged, nil))
 			e.GET("/*", func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
 
@@ -133,8 +115,7 @@ func TestRedactionIsWiredIntoTheRequestLogger(t *testing.T) {
 			if !strings.Contains(line, "redacted") {
 				t.Errorf("no redaction marker in the log line %q; the URI was logged verbatim", line)
 			}
-			// The corpus still has to show which endpoint was hit, or the log
-			// is safe and useless.
+			// The log must still show which endpoint was hit, or it is safe and useless.
 			if !strings.Contains(line, "status=200") {
 				t.Errorf("log line lost the status field: %q", line)
 			}
@@ -142,9 +123,7 @@ func TestRedactionIsWiredIntoTheRequestLogger(t *testing.T) {
 	}
 }
 
-// TestRedactionLeavesOrdinaryRequestsLegible: the same middleware runs on
-// ip.corpberry.com and dns.corpberry.com, where the query string is the whole
-// analytic value of the log. Redaction that over-reaches costs that.
+// TestRedactionLeavesOrdinaryRequestsLegible: on ip/dns the query string is the log's whole analytic value.
 func TestRedactionLeavesOrdinaryRequestsLegible(t *testing.T) {
 	var logged bytes.Buffer
 	e := platform.NewApp(nil, fstest.MapFS{}, false, nil)

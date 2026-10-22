@@ -11,17 +11,12 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestRealIPExtraction locks client-IP trust model wired by platform.NewApp
-// (cfIPExtractor). Security-relevant → c.RealIP() feeds request log + geo/reputation
-// lookups. No other test builds app via NewApp → regression dropping CF branch,
-// inverting precedence, or trusting X-Forwarded-For from untrusted peer would
-// otherwise pass whole suite.
+// TestRealIPExtraction pins cfIPExtractor's trust model; no other test builds the app through NewApp.
 func TestRealIPExtraction(t *testing.T) {
 	app := platform.NewApp(nil, fstest.MapFS{}, false, nil) // nil RequestLog: persistence off
 	app.GET("/ip", func(c *echo.Context) error { return c.String(http.StatusOK, c.RealIP()) })
 
-	// httptest default RemoteAddr (192.0.2.1, TEST-NET-1) neither loopback nor
-	// private → stands in for untrusted direct peer.
+	// httptest's default RemoteAddr (192.0.2.1) is neither loopback nor private: an untrusted peer.
 	const untrustedPeer = "192.0.2.1:1234"
 
 	cases := []struct {

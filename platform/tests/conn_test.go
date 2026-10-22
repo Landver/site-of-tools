@@ -13,9 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 )
 
-// conn_test.go: G38/G44 conn-inspector enrichment — additive ConnInfo net
-// fields, IP2Proxy type-code map, partial render guards (empty → unchanged
-// output for every existing tool).
+// Conn-inspector network enrichment: ConnInfo fields, the IP2Proxy code map and the partial's empty guards.
 
 func TestConnTransportFields(t *testing.T) {
 	e := echo.New()
@@ -63,8 +61,7 @@ func TestWithNetworkMapsProxyTypes(t *testing.T) {
 	if ci.ASN != "12345" || ci.ASName != "Example ISP" || ci.ProxyKind != "VPN" || ci.ProxyProvider != "NordVPN" {
 		t.Errorf("WithNetwork = %+v, want the enrichment carried through with the mapped kind", ci)
 	}
-	// Empty enrichment → every field empty — unchanged-render guarantee for
-	// tools that never resolve IP.
+	// Empty enrichment leaves every field empty, so tools that never resolve an IP render unchanged.
 	if ci := (platform.ConnInfo{}).WithNetwork(platform.ConnNetwork{}); ci.ASN != "" || ci.ProxyKind != "" {
 		t.Errorf("WithNetwork(empty) = %+v, want all network fields empty", ci)
 	}
@@ -83,8 +80,7 @@ func renderConn(t *testing.T, ci platform.ConnInfo) string {
 }
 
 func TestConnPartialUnenrichedRendersUnchanged(t *testing.T) {
-	// Every tool today renders partial w/ transport fields only → G38/G44 rows
-	// mustn't appear (not even labels) when empty.
+	// Without enrichment no network row may appear, not even its label.
 	body := renderConn(t, platform.ConnInfo{
 		IP: "203.0.113.7", Via: "direct", Scheme: "https",
 		Host: "ip.corpberry.com", Browser: "TestBrowser/1.0", Language: "en-US",
@@ -114,8 +110,7 @@ func TestConnPartialRendersNetworkRows(t *testing.T) {
 		}
 	}
 
-	// Partial enrichment: ASN w/o name, no proxy data → only what's really
-	// there renders.
+	// Partial enrichment (ASN without a name, no proxy data) renders only what's there.
 	body = renderConn(t, platform.ConnInfo{IP: "203.0.113.7"}.WithNetwork(platform.ConnNetwork{ASN: "714"}))
 	if !strings.Contains(body, "AS714") {
 		t.Errorf("a bare ASN should render without a name:\n%s", body)

@@ -13,8 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Independent shape, so a field-name change in the real urlset is caught
-// rather than silently round-tripped.
+// An independent shape, so a field rename in the real urlset is caught rather than round-tripped.
 type sitemap struct {
 	XMLName xml.Name `xml:"urlset"`
 	URLs    []struct {
@@ -55,9 +54,7 @@ func TestSitemapExpandsPathsAgainstHost(t *testing.T) {
 	if len(got.URLs) != 2 {
 		t.Fatalf("got %d urls, want 2", len(got.URLs))
 	}
-	// Every loc must be absolute and on this host: a crawler ignores a
-	// sitemap entry pointing anywhere else, which is invisible without a
-	// validator.
+	// A crawler silently ignores an entry off this host, so every loc must be absolute and on it.
 	for _, u := range got.URLs {
 		if !strings.HasPrefix(u.Loc, "https://ip.corpberry.com/") {
 			t.Errorf("loc %q is not absolute on the sitemap's own host", u.Loc)

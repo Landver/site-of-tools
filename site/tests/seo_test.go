@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// Sitemap shape, mirrored here rather than exported from site — a test that
-// unmarshals independently catches a field-name change in the real thing.
+// Sitemap shape mirrored independently, so a field rename in the real one is caught.
 type sitemap struct {
 	XMLName xml.Name `xml:"urlset"`
 	URLs    []struct {
@@ -50,8 +49,7 @@ func TestSitemapListsPagesAndPosts(t *testing.T) {
 			t.Errorf("sitemap missing %q, got %v", want, locs)
 		}
 	}
-	// Every loc must be absolute — a relative sitemap entry is silently
-	// dropped by crawlers, which is invisible until you check a validator.
+	// Crawlers silently drop a relative entry, so every loc must be absolute.
 	for loc := range locs {
 		if !strings.HasPrefix(loc, "https://") {
 			t.Errorf("loc %q is not absolute", loc)
@@ -95,8 +93,7 @@ func TestPostEmitsArticleJSONLD(t *testing.T) {
 	raw := body[i+len(open):]
 	raw = raw[:strings.Index(raw, "</script>")]
 
-	// Must survive a real JSON parse: html/template escaping the payload
-	// would break every consumer, and only a parse catches it.
+	// html/template escaping the payload would break every consumer, and only a real JSON parse catches it.
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		t.Fatalf("ld+json is not valid JSON: %v\n%s", err, raw)
@@ -134,8 +131,7 @@ func TestPostEmitsAuthorAndDateMeta(t *testing.T) {
 	}
 }
 
-// The head partial is shared with every tool, so the article-only tags must
-// not leak onto pages that pass no Author/Published/JSONLD.
+// The head partial is shared, so article tags must not leak onto pages with no Author/Published/JSONLD.
 func TestNonArticlePagesOmitArticleMeta(t *testing.T) {
 	for _, path := range []string{"/", "/blog"} {
 		body := get(newTestApp(t), path, "text/html").Body.String()
