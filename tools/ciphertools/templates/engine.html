@@ -45,8 +45,7 @@
 <script src="{{asset "js/cipher.js"}}" defer></script>
 {{end}}
 
-{{/* Leaves the <pre> open for the page's curl lines. Each page keeps its own summary and MCP line, which
-     mcptools' TestEveryTerminalBlockPointsAtItsToolset reads from the source. */}}
+{{/* Leaves the <pre> open for the page's curl lines; mcptools tests read each page's own MCP line. */}}
 {{define "cipher/engine-terminal"}}<p class="text-xs">Every tool here also answers a plain POST with JSON. From a terminal your input goes to
   this server, unlike on the page, which runs everything in your browser.</p>
 <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{end}}

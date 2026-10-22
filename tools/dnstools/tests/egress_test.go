@@ -14,8 +14,7 @@ var egress struct {
 	ok   bool
 }
 
-// requireEgress skips a live test on a host without UDP/53, probing once per run.
-// LookupSet reports transport failures in Failed with a nil err, so the signal is nothing Found.
+// requireEgress skips without UDP/53. Transport failures land in Failed with a nil err, so it checks Found.
 func requireEgress(t *testing.T) {
 	t.Helper()
 	egress.once.Do(func() {

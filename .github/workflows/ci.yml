@@ -1,8 +1,5 @@
 name: CI/CD
 
-# CI runs on every push to master and on PRs targeting master.
-# CD (deploy to the prod host over SSH) runs only after a green build on a real
-# master push (or a manual "Run workflow"), never on a PR.
 on:
   push:
     branches: [master]
@@ -10,8 +7,7 @@ on:
     branches: [master]
   workflow_dispatch:
 
-# Least privilege: the jobs only read the repo. Deploy reaches prod over SSH, not
-# via the GITHUB_TOKEN.
+# Deploy reaches prod over SSH, not the GITHUB_TOKEN, so read-only is enough.
 permissions:
   contents: read
 
@@ -26,8 +22,6 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          # Track the version pinned in go.mod (Go 1.26.x); setup-go caches
-          # modules and build output by default.
           go-version-file: go.mod
           check-latest: true
 
@@ -37,22 +31,19 @@ jobs:
       - name: go build
         run: go build ./...
 
-      # The cipher engine's main package is js-only, so the steps above never
-      # compile it. Built, not just vetted: a wasm link failure is still a failure.
+      # js-only main: the steps above never compile it, and only a build catches wasm link failures.
       - name: wasm engine
         run: |
           GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
           GOOS=js GOARCH=wasm go build -o /dev/null ./tools/ciphertools/wasm
 
-      # Same gate as the pre-push hook. DB-dependent tests skip when the BINs are
-      # absent (they are never committed), so this is green without any assets.
+      # DB tests skip without the BINs (never committed), so this is green without assets.
       - name: go test (race)
         run: go test ./... -race
 
   deploy:
     name: Deploy to prod
     needs: test
-    # Deploy on a master push or a manual run — but never on a PR.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     # Never let two deploys touch the host at once; don't cancel one mid-rebuild.

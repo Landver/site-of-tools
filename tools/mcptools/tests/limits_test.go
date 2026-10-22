@@ -16,8 +16,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// TestOneBudgetWhicheverDoor: a budget spent over REST is spent over MCP, an
-// IPv6 client's by its /64; a tool on another budget still answers.
+// TestOneBudgetWhicheverDoor: a budget spent over REST is spent over MCP, an IPv6 client's by its /64.
 func TestOneBudgetWhicheverDoor(t *testing.T) {
 	resolve := func(set func(*linktools.Limits)) stackOpts { l := roomyLink(); set(l); return stackOpts{linkLim: l} }
 	type rest struct{ host, method, target, body string }
@@ -180,8 +179,7 @@ func (b blockingChecker) Check(ctx context.Context, _ string) (iptools.BlockLook
 	return iptools.BlockLookup{}, ctx.Err()
 }
 
-// TestHangUpCancelsTheCall: the SDK cancels no call when its client hangs up,
-// so the middleware must.
+// TestHangUpCancelsTheCall: the SDK cancels no call when its client hangs up, so the middleware must.
 func TestHangUpCancelsTheCall(t *testing.T) {
 	chk := blockingChecker{ended: make(chan error, 1)}
 	s := newStack(t, stackOpts{chk: chk})

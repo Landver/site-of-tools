@@ -20,8 +20,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// White-box: no owner tool reports the headers it was handed, so a probe tool
-// on the owner server shows what a handler gets.
+// No owner tool echoes its headers, so a probe tool on the owner server shows what a handler gets.
 type probe struct {
 	header http.Header
 	who    caller

@@ -2,8 +2,7 @@ package tests
 
 import "testing"
 
-// required holds each tool's required arguments only, so every optional one
-// takes its default; one needing one of several inputs gets the smallest.
+// required holds only required args, so optional ones default; a one-of input gets the smallest.
 var required = map[string]map[string]any{
 	"ip_lookup":           {"ip": "8.8.8.8"},
 	"ip_cidr":             {"cidr": "192.168.1.0/24"},
