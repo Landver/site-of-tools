@@ -63,13 +63,8 @@ type handler struct {
 	catalog   catalog
 }
 
-func Register(e *echo.Echo, d Deps, base string) error {
-	h, err := newHandler(d, base, e.Logger)
-	if err != nil {
-		return err
-	}
-	h.routes(e)
-	return nil
+func Register(e *echo.Echo, d Deps, base string) {
+	newHandler(d, base, e.Logger).routes(e)
 }
 
 func (h *handler) routes(e *echo.Echo) {
@@ -78,17 +73,14 @@ func (h *handler) routes(e *echo.Echo) {
 	e.Any("/mcp/:toolset", h.serve)
 }
 
-func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
+func newHandler(d Deps, base string, log *slog.Logger) *handler {
 	// A nil *iptools.Service is the databases failing to load: its lookups can only fail.
 	if s, ok := d.Geo.(*iptools.Service); ok && s == nil {
 		d.Geo = nil
 	}
 	m := &calls{reqlog: d.RequestLog, log: log}
 	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), siteSpecs(d))
-	eps, err := buildEndpoints(public, ownerSpecs(d, log), m, base)
-	if err != nil {
-		return nil, err
-	}
+	eps := buildEndpoints(public, ownerSpecs(d, log), m, base)
 	sdk := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		if ep := eps[r.PathValue("toolset")]; ep != nil {
 			return ep.server
@@ -111,7 +103,7 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 		log:   log,
 	}
 	h.describe(d.ToolURL)
-	return h, nil
+	return h
 }
 
 func (h *handler) serve(c *echo.Context) error {

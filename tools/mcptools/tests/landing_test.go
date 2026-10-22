@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,6 +42,9 @@ func TestLandingJSON(t *testing.T) {
 		}
 		for _, tl := range ep["tools"].([]any) {
 			tm := tl.(map[string]any)
+			if slices.Contains(tools[p], tm["name"].(string)) {
+				t.Errorf("%s listed twice on %s", tm["name"], p)
+			}
 			tools[p] = append(tools[p], tm["name"].(string))
 			if tm["annotations"] == nil || tm["description"] == "" {
 				t.Errorf("%s lacks annotations or a description", tm["name"])

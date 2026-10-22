@@ -218,7 +218,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.log != nil {
 		mcpApp.Logger = slog.New(slog.NewJSONHandler(o.log, nil))
 	}
-	err := mcptools.Register(mcpApp, mcptools.Deps{
+	mcptools.Register(mcpApp, mcptools.Deps{
 		Geo: o.geo, Blocklist: o.chk, IPLimits: o.ipLim,
 		DNS: o.dns, DNSGeo: dnsGeo, DNSBlocklist: fakeBlock{}, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
@@ -230,9 +230,6 @@ func newStack(t *testing.T, o stackOpts) *stack {
 			return "http://" + sub + ".test"
 		},
 	}, base)
-	if err != nil {
-		t.Fatal(err)
-	}
 	hosts[mcpHost] = mcpApp
 	h := echo.NewVirtualHostHandler(hosts)
 	srv := httptest.NewServer(h)

@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"html/template"
 	"log"
 	"maps"
@@ -238,15 +237,13 @@ func run() error {
 	// (tools/ciphertools/docs/02-build-plan.md).
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), staticFS, cipherLim)
 
-	if err := mcptools.Register(apps["mcp"], mcptools.Deps{
+	mcptools.Register(apps["mcp"], mcptools.Deps{
 		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck, DNSBlocklist: dnsCheck,
 		DNS: dnsSvc, Domain: domainClient, Blog: blog,
 		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim,
 		RequestLog: reqlog, ToolURL: cfg.URL,
-	}, cfg.URL("mcp")); err != nil {
-		return fmt.Errorf("mcp: %w", err)
-	}
+	}, cfg.URL("mcp"))
 
 	// A sitemap only covers URLs on its own host (sitemaps.org), so each
 	// subdomain advertises its own /sitemap.xml + /robots.txt rather than the

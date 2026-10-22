@@ -36,10 +36,7 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 	owner := linktools.NewShortener(linktools.NewLinkStore(context.Background(), client.Database("offline")), "k3y", "http://link.test")
 	d := Deps{Owner: owner, IPLimits: iptools.NewLimits(), LinkLimits: linktools.NewLimits(),
 		CipherLimits: ciphertools.NewLimits(), BotLimits: botcheck.NewLimits(), ToolURL: func(string) string { return "" }}
-	h, err := newHandler(d, "http://mcp.test", slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := newHandler(d, "http://mcp.test", slog.New(slog.DiscardHandler))
 	seen := make(chan probe, 1)
 	mcp.AddTool(h.endpoints[ownerEndpoint].server, &mcp.Tool{Name: "probe"},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
