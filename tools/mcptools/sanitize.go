@@ -26,11 +26,8 @@ func sanitize(r *mcp.CallToolResult) (*mcp.CallToolResult, int, error) {
 		return r, 0, nil
 	}
 	obj, err := object(r.StructuredContent)
-	if err != nil {
-		return nil, 0, err
-	}
-	if obj == nil {
-		return nil, 0, errors.New("structuredContent is not a JSON object")
+	if err != nil || obj == nil {
+		return nil, 0, fmt.Errorf("structuredContent is not a JSON object (%v)", err)
 	}
 	out, err := encode(walk(obj))
 	if err != nil {
@@ -40,10 +37,9 @@ func sanitize(r *mcp.CallToolResult) (*mcp.CallToolResult, int, error) {
 		return errorResult(fmt.Sprintf("Result too large: %d KB, over the %d KB one call may return. Ask for less: leave detailed off, or narrow the input.",
 			len(out)>>10, maxResult>>10)), 0, nil
 	}
-	s := *r
-	s.StructuredContent = json.RawMessage(out)
-	s.Content = []mcp.Content{&mcp.TextContent{Text: string(out)}}
-	return &s, len(out), nil
+	r.StructuredContent = json.RawMessage(out)
+	r.Content = []mcp.Content{&mcp.TextContent{Text: string(out)}}
+	return r, len(out), nil
 }
 
 func walk(v any) any {
