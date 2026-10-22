@@ -180,8 +180,8 @@ func (b blockingChecker) Check(ctx context.Context, _ string) (iptools.BlockLook
 	return iptools.BlockLookup{}, ctx.Err()
 }
 
-// TestHangUpCancelsTheCall: the SDK cancels only 2026-07-28 requests; a
-// 2025-11-25 client hanging up must stop the work too.
+// TestHangUpCancelsTheCall: the SDK cancels no call when its client hangs up,
+// so the middleware must.
 func TestHangUpCancelsTheCall(t *testing.T) {
 	chk := blockingChecker{ended: make(chan error, 1)}
 	s := newStack(t, stackOpts{chk: chk})

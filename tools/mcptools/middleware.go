@@ -73,13 +73,13 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 
 			ctx, cancel := context.WithTimeout(ctx, spec.deadline)
 			defer cancel()
-			// The SDK cancels only 2026-07-28 requests when the client goes.
+			// The SDK doesn't cancel a call when its client hangs up.
 			defer context.AfterFunc(who.http, cancel)()
-			if !platform.AllowKey(spec.limiter, who.key) {
+			if !platform.AllowKey(spec.limiter, who.ip) {
 				got = outcomeLimited
 				return refuse(call, codeRefused, platform.LimitedMessage)
 			}
-			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.key) {
+			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.ip) {
 				got = outcomeBusy
 				return refuse(call, codeRefused, platform.BusyMessage)
 			}
@@ -87,11 +87,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 			if spec.weight != nil {
 				w = spec.weight(call.Params.Arguments)
 			}
-			if !spec.cap.TryAcquire(who.key, w) {
+			if !spec.cap.TryAcquire(who.ip, w) {
 				got = outcomeBusy
 				return refuse(call, codeRefused, platform.BusyMessage)
 			}
-			defer spec.cap.Release(who.key, w)
+			defer spec.cap.Release(who.ip, w)
 
 			res, err = next(ctx, method, req)
 			if err != nil {

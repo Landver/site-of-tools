@@ -20,7 +20,7 @@ serves every subdomain), upstreams we are a guest of, the domain's reputation
 6. All of `/mcp`, per address: 20/s, burst 100 → 429.
 7. Body over 1 MiB → 413; a JSON-RPC batch → 400 ([why](00-research.md#go-sdk-v180)).
 8. A foreign `Origin` is served and logged (`mcp: foreign Origin`).
-9. Raw IP, rate-limit key, host, user agent and HTTP context into the context.
+9. Raw IP, host, user agent and HTTP context into the context.
 
 Echo's exact-Host vhost map stops DNS rebinding, so the SDK's localhost check
 (it would 403 dev's `mcp.localhost:8080`) is off. A page can't make a browser

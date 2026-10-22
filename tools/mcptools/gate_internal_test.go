@@ -69,9 +69,9 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 		if got.header.Get("X-Api-Key") != "" || got.header.Get("Authorization") != "" {
 			t.Errorf("%v: the handler saw the key: %v", auth, got.header)
 		}
-		if w := got.who; w.ip != "127.0.0.1" || w.key != "127.0.0.1" || w.userAgent != "probe-agent" || w.http == nil ||
+		if w := got.who; w.ip != "127.0.0.1" || w.userAgent != "probe-agent" || w.http == nil ||
 			!strings.HasPrefix(w.host, "127.0.0.1:") {
-			t.Errorf("%v: caller in the handler = %+v, want the raw address and its key", auth, w)
+			t.Errorf("%v: caller in the handler = %+v, want the raw address", auth, w)
 		}
 	}
 }

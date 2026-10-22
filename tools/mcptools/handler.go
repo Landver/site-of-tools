@@ -87,7 +87,6 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 	if s, ok := d.Geo.(*iptools.Service); ok && s == nil {
 		d.Geo = nil
 	}
-	base = strings.TrimRight(base, "/")
 	m := &calls{protocol: platform.NewLimiter(5, 20), reqlog: d.RequestLog, log: log}
 	cipher, err := cipherSpecs(d)
 	if err != nil {
@@ -104,10 +103,9 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 		}
 		return nil
 	}, &mcp.StreamableHTTPOptions{
-		Stateless:                    true,
-		JSONResponse:                 true,
-		PropagateRequestCancellation: true,
-		MaxRequestBodyBytes:          maxBody,
+		Stateless:           true,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: maxBody,
 		// Echo's vhost map 404s foreign Hosts; the SDK's check would 403 mcp.localhost:8080.
 		DisableLocalhostProtection: true,
 	})
@@ -149,16 +147,15 @@ func (h *handler) serve(c *echo.Context) error {
 	}
 
 	ip := c.RealIP()
-	key := platform.RateLimitKey(ip)
 	if name == ownerEndpoint {
-		if code, msg := h.checkKey(req.Header, key); code != 0 {
+		if code, msg := h.checkKey(req.Header, platform.RateLimitKey(ip)); code != 0 {
 			return refuseHTTP(c, code, msg)
 		}
 		// The SDK copies every header into each handler's request; none needs these.
 		req.Header.Del("X-Api-Key")
 		req.Header.Del("Authorization")
 	}
-	if !platform.AllowKey(h.perIP, key) {
+	if !platform.AllowKey(h.perIP, ip) {
 		return refuseHTTP(c, http.StatusTooManyRequests, platform.LimitedMessage)
 	}
 
@@ -182,7 +179,7 @@ func (h *handler) serve(c *echo.Context) error {
 			"user_agent", platform.Clip(req.UserAgent(), 200), "uri", ep.path)
 	}
 
-	who := &caller{ip: ip, key: key, host: req.Host, userAgent: req.UserAgent(), http: req.Context()}
+	who := &caller{ip: ip, host: req.Host, userAgent: req.UserAgent(), http: req.Context()}
 	c.SetRequest(req.WithContext(context.WithValue(req.Context(), callerKey{}, who)))
 	return h.sdk(c)
 }
@@ -265,7 +262,7 @@ type callerKey struct{}
 
 // The SDK hands a tool only the request's context, so serve puts the caller there, always.
 type caller struct {
-	ip, key         string
+	ip              string
 	host, userAgent string
 	http            context.Context // ends when the client goes away
 }
@@ -299,10 +296,7 @@ type catalogTool struct {
 	RateLimit   rateLimit            `json:"rate_limit"`
 }
 
-func (t catalogTool) OpenWorld() bool {
-	h := t.Annotations.OpenWorldHint
-	return h == nil || *h
-}
+func (t catalogTool) OpenWorld() bool { return *t.Annotations.OpenWorldHint }
 
 type rateLimit struct {
 	PerSecond float64 `json:"per_second"`
