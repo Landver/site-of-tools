@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,11 @@ type botScoreArgs struct {
 	HTTP        *botcheck.HTTPSignals `json:"http,omitempty" jsonschema:"that browser's request headers; one left out counts as not sent"`
 	IP          string                `json:"ip,omitempty" jsonschema:"the address that browser connects from, e.g. 203.0.113.7"`
 	Detailed    bool                  `json:"detailed,omitempty" jsonschema:"list every check, not only the ones that fired"`
+}
+
+type botScoreResult struct {
+	botcheck.Report
+	Attribution []platform.Credit `json:"attribution,omitempty"`
 }
 
 var errNothingToScore = errors.New("Nothing to score: pass fingerprint (the JSON the bot check collector produced in the browser), " +
@@ -79,24 +85,11 @@ func (t ipTools) score(ctx context.Context, _ *mcp.CallToolRequest, a botScoreAr
 		}
 		attribution = ipCredits(botcheck.AddIPSignals(ctx, &sig, addr.String(), t.geo, t.chk))
 	}
-	out, err := object(botcheck.Evaluate(sig))
-	if err != nil {
-		return nil, err
-	}
+	rep := botcheck.Evaluate(sig)
 	if !a.Detailed {
-		fired := []any{}
-		checks, _ := out["checks"].([]any)
-		for _, c := range checks {
-			if row, ok := c.(map[string]any); ok && row["triggered"] == true {
-				fired = append(fired, row)
-			}
-		}
-		out["checks"] = fired
+		rep.Checks = slices.DeleteFunc(rep.Checks, func(c botcheck.Check) bool { return !c.Triggered })
 	}
-	if attribution != nil {
-		out["attribution"] = attribution
-	}
-	return out, nil
+	return botScoreResult{Report: rep, Attribution: attribution}, nil
 }
 
 // Strict: an unknown field is a hand-built payload's mistake.

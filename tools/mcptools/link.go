@@ -273,24 +273,19 @@ func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtr
 	if err != nil {
 		return nil, err
 	}
-	out, err := object(res)
-	if err != nil || a.Detailed {
-		return out, err
+	if a.Detailed {
+		return res, nil
 	}
-	urls, _ := out["urls"].([]any)
-	for _, u := range urls {
-		if row, ok := u.(map[string]any); ok {
-			delete(row, "positions")
-		}
+	for i := range res.URLs {
+		res.URLs[i].Positions = nil
 	}
-	if len(urls) > extractRows {
-		out["urls"] = urls[:extractRows]
-		notes, _ := out["notes"].([]any)
-		out["notes"] = append(notes, linktools.Note{Severity: linktools.SevInfo,
-			Title:  fmt.Sprintf("The first %d of %d links", extractRows, len(urls)),
+	if n := len(res.URLs); n > extractRows {
+		res.URLs = res.URLs[:extractRows]
+		res.Notes = append(res.Notes, linktools.Note{Severity: linktools.SevInfo,
+			Title:  fmt.Sprintf("The first %d of %d links", extractRows, n),
 			Detail: "Pass detailed: true for all of them, with their positions in the text."})
 	}
-	return out, nil
+	return res, nil
 }
 
 func (t linkTools) utm(_ context.Context, _ *mcp.CallToolRequest, a linkUTMArgs) (any, error) {
