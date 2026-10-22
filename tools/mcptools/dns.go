@@ -89,7 +89,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		},
 		limiter: lim.Lookup,
 		cap:     lim.LookupCap,
-		narrow:  "Ask for one record type instead of ALL, and leave detailed off.",
 		add:     handle(t.lookup),
 	})
 	spec(t.spr != nil, toolSpec{
@@ -106,7 +105,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		},
 		limiter: lim.Walk,
 		cap:     lim.WalkCap,
-		narrow:  "Leave detailed off.",
 		add:     handle(t.consistency),
 	})
 	spec(t.tra != nil, toolSpec{
@@ -138,7 +136,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		},
 		limiter: lim.Lookup,
 		cap:     lim.DomainCap,
-		narrow:  "Leave detailed off.",
 		add:     handle(t.domain),
 	})
 	spec(t.mail != nil, toolSpec{

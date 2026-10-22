@@ -61,8 +61,7 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 				InputSchema: inputSchema[shortListArgs](between("limit", 1, linktools.RecentLimit), defaultTo("limit", linktools.RecentLimit)),
 				Annotations: readOnly(false),
 			},
-			narrow: "Ask for fewer with limit.",
-			add:    handle(t.list),
+			add: handle(t.list),
 		},
 		{
 			tool: &mcp.Tool{

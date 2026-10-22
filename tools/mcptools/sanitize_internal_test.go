@@ -43,7 +43,7 @@ func TestSanitize(t *testing.T) {
 		"url":         "https://x.test/?a=1&b=<2>",
 	}
 	raw, _ := json.Marshal(in)
-	res, size, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "")
+	res, size, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)})
 	if err != nil || res.IsError {
 		t.Fatalf("sanitize = %v %v", res, err)
 	}
@@ -79,19 +79,19 @@ func TestSanitizeRefuses(t *testing.T) {
 		big["rows"].([]string)[i] = strings.Repeat("r", 60)
 	}
 	raw, _ := json.Marshal(big)
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "Ask for one record type.")
-	if err != nil || !res.IsError || !strings.HasSuffix(res.Content[0].(*mcp.TextContent).Text, "Ask for one record type.") {
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)})
+	if err != nil || !res.IsError || !strings.HasSuffix(res.Content[0].(*mcp.TextContent).Text, "Ask for less: leave detailed off, or narrow the input.") {
 		t.Errorf("over the hard cap = %+v %v, want an error that says how to narrow", res, err)
 	}
 
 	for _, sc := range []any{nil, json.RawMessage(`[1,2]`), json.RawMessage(`"s"`)} {
-		if _, _, err := sanitize(&mcp.CallToolResult{StructuredContent: sc}, ""); err == nil {
+		if _, _, err := sanitize(&mcp.CallToolResult{StructuredContent: sc}); err == nil {
 			t.Errorf("structuredContent %v accepted; it must be an object", sc)
 		}
 	}
 
 	errRes := errorResult("upstream said \u202eevil " + strings.Repeat("e", maxResult+5000))
-	got, _, _ := sanitize(errRes, "")
+	got, _, _ := sanitize(errRes)
 	if txt := got.Content[0].(*mcp.TextContent).Text; !got.IsError || !strings.Contains(txt, `\u{202E}`) || len(txt) > maxResult {
 		t.Errorf("error text = %.60q (%d bytes), want escaped and clipped", txt, len(txt))
 	}
@@ -99,7 +99,7 @@ func TestSanitizeRefuses(t *testing.T) {
 
 func TestSanitizeKeepsOrderOfLists(t *testing.T) {
 	raw := json.RawMessage(`{"a":[3,1,2],"b":{"z":1,"y":2}}`)
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: raw}, "")
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: raw})
 	if err != nil {
 		t.Fatal(err)
 	}

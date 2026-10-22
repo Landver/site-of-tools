@@ -16,7 +16,7 @@ import (
 const maxResult = 80 << 10
 
 // Lists are never cut: the dropped item can be the one that matters.
-func sanitize(r *mcp.CallToolResult, narrow string) (*mcp.CallToolResult, int, error) {
+func sanitize(r *mcp.CallToolResult) (*mcp.CallToolResult, int, error) {
 	if r.IsError {
 		for _, c := range r.Content {
 			if t, ok := c.(*mcp.TextContent); ok {
@@ -37,11 +37,8 @@ func sanitize(r *mcp.CallToolResult, narrow string) (*mcp.CallToolResult, int, e
 		return nil, 0, err
 	}
 	if len(out) > maxResult {
-		msg := fmt.Sprintf("Result too large: %d KB, over the %d KB one call may return.", len(out)>>10, maxResult>>10)
-		if narrow != "" {
-			msg += " " + narrow
-		}
-		return errorResult(msg), 0, nil
+		return errorResult(fmt.Sprintf("Result too large: %d KB, over the %d KB one call may return. Ask for less: leave detailed off, or narrow the input.",
+			len(out)>>10, maxResult>>10)), 0, nil
 	}
 	s := *r
 	s.StructuredContent = json.RawMessage(out)

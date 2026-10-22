@@ -51,7 +51,6 @@ func botSpecs(d Deps) []toolSpec {
 		deadline: upstreamDeadline,
 		limiter:  d.BotLimits.Check,
 		cap:      d.BotLimits.CheckCap,
-		narrow:   "Leave detailed off.",
 		add:      handle(t.score),
 	}}
 }

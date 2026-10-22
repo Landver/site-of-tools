@@ -115,7 +115,7 @@ Files: `handler.go` (`Register`, `Deps`, gate, owner-key guard, landing page),
    sibling fits better, an example; ending in `thirdParty` when the result
    carries someone else's strings); `inputSchema[T](…)` with the domain's
    enums, defaults and bounds; hints via `readOnly`/`acts`; a deadline; the
-   REST twin's limiter and cap; `narrow` (how to ask for less).
+   REST twin's limiter and cap.
 3. Map its route in `Coverage`, or give the route an exclusion with a reason.
 4. A new toolset also needs a `toolsets` entry (title, REST host) and
    the MCP line on its pages ([ARCHITECTURE §8](../../../docs/ARCHITECTURE.md#8-adding-a-new-tool)).
