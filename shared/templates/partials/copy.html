@@ -2,11 +2,9 @@
 {{define "partials/copy"}}
 <script>
   (function () {
-    // How long the confirmation stays before the label goes back.
     var RESET_MS = 1600
 
-    // A labelled button never announces its new text, so "Copied" goes to a
-    // status line, found by id (Back replaces the body).
+    // A labelled button never announces its new text, so "Copied" goes to a status line.
     function live() {
       var el = document.getElementById('copy-status')
       if (!el) {
@@ -21,8 +19,7 @@
     live()
 
     function flash(el, label, cls) {
-      // Remember the real label once per flash cycle, not per call: a second
-      // click inside the window would otherwise memorise "Copied" forever.
+      // Save the label once per flash cycle, or a second click would keep "Copied" for good.
       if (el._copyTimer) clearTimeout(el._copyTimer)
       else el._copyLabel = el.textContent.trim()
       el.textContent = label
@@ -38,10 +35,7 @@
 
     function copy(el) {
       var text = el.dataset.copy
-      // navigator.clipboard is undefined outside a secure context — reachable
-      // in dev over http://192.168.x.x:8080 from a phone. Reading .writeText
-      // off it would throw synchronously, before the caller's .catch is
-      // attached, and the click would die with nothing shown.
+      // Outside a secure context (dev over LAN http) navigator.clipboard is undefined and would throw.
       if (!text || !navigator.clipboard) return Promise.reject(new Error('no clipboard'))
       return navigator.clipboard.writeText(text).then(function () {
         flash(el, 'Copied', 'is-copied')
@@ -57,8 +51,7 @@
       // A history restore fires afterSwap with no target.
       if (!e.detail.target) return
       var el = e.detail.target.querySelector('[data-copy][data-copy-auto]')
-      // Swallowed on purpose: a browser that refuses an unattended write has
-      // not failed, it has just left the button to do the job.
+      // Swallowed on purpose: a refused unattended write leaves the button to do the job.
       if (el) copy(el).catch(function () {})
     })
   })()

@@ -69,8 +69,7 @@
   {{template "partials/htmx-errors" .}}
 
   <script>
-    // A non-HTML error (echo's JSON for a panic), which partials/htmx-errors
-    // never swaps in. Text nodes only: nothing from the response is parsed.
+    // A non-HTML error (echo's JSON for a panic) htmx-errors never swaps in; text nodes only.
     document.body.addEventListener('htmx:responseError', (e) => {
       const area = e.detail.target
       if (!area || area.id !== 'result') return
@@ -80,10 +79,7 @@
       area.replaceChildren(alert)
     })
 
-    // IPv6 support probe (Alpine, hybrid). Step 1: hit IPv6-only echo — resolves
-    // only if browser has working IPv6. Step 2: pull address details from our own
-    // content-negotiated JSON endpoint → nothing but detection ping (of your own
-    // IP) ever leaves box.
+    // An IPv6-only echo answers only over working IPv6; the details come from our own JSON endpoint.
     document.addEventListener('alpine:init', () => {
       Alpine.data('ipv6probe', () => ({
         state: 'loading',
@@ -95,8 +91,7 @@
             const probe = await fetch('https://api6.ipify.org?format=json', { signal: AbortSignal.timeout(4000) })
             if (!probe.ok) throw new Error('probe failed')
             this.ip = (await probe.json()).ip
-            // Same content-negotiated endpoint form uses (?ip=); address re-validated
-            // server-side. Encoded → colons go in query value.
+            // The form's own endpoint (?ip=), re-validated server-side; encoded so colons survive.
             const res = await fetch('/?ip=' + encodeURIComponent(this.ip), { headers: { Accept: 'application/json' } })
             if (res.ok) {
               const d = await res.json()

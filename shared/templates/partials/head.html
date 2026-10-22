@@ -38,9 +38,7 @@
         return m ? m[1] : null;
       }
 
-      // Parent domain for the cookie (apex + subdomains share it). Host-only
-      // where a parent makes no sense: single-label hosts (localhost) and IP
-      // literals.
+      // Parent domain so apex and subdomains share it; host-only for localhost and IP literals.
       function cookieDomain() {
         var h = location.hostname;
         if (h.indexOf(".") === -1 || /^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return "";
