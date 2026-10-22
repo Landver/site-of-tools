@@ -46,7 +46,7 @@ func TestToolsListGolden(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	var all, union []*mcp.Tool
 	for i, ep := range endpoints {
-		// One address per endpoint: every message spends the protocol budget.
+		// One address per endpoint: every message spends the per-address budget.
 		hdr := map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}
 		res := listTools(t, s.client(t, ep.path, hdr, nil))
 		switch ep.path {

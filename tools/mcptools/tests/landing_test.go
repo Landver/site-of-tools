@@ -90,7 +90,7 @@ func TestLandingPage(t *testing.T) {
 		"npx mcp-remote http://mcp.test/mcp/ip",
 
 		"test material only", "Never the arguments",
-		"5 a second (burst 20)", "20 a second (burst 100)",
+		"20 a second (burst 100)",
 		"2/s, burst 10", "10/s, burst 50", "1 per 2 s, burst 3", "1/s, burst 5", "20/s, burst 60",
 	} {
 		if !strings.Contains(body, want) {

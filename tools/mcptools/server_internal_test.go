@@ -16,7 +16,7 @@ func TestBuildEndpointsRefusesBadSpecs(t *testing.T) {
 	spec := func(name, toolset string, l platform.Limiter) toolSpec {
 		return toolSpec{toolset: toolset, tool: &mcp.Tool{Name: name}, limiter: l}
 	}
-	m := &calls{protocol: lim, log: slog.New(slog.DiscardHandler)}
+	m := &calls{log: slog.New(slog.DiscardHandler)}
 	for name, specs := range map[string][]toolSpec{
 		"dotted name":            {spec("ip.lookup", "ip", lim)},
 		"capitals":               {spec("IP_lookup", "ip", lim)},

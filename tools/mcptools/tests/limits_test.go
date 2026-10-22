@@ -156,20 +156,20 @@ func TestDomainInfoHasItsOwnCap(t *testing.T) {
 	}
 }
 
-// TestListFloodIsLimited: every message counts, not only tool calls.
+// TestListFloodIsLimited: every request counts, not only tool calls.
 func TestListFloodIsLimited(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	hdr := mcpHeaders(map[string]string{"Mcp-Protocol-Version": "2025-11-25", "CF-Connecting-IP": "198.51.100.30"})
-	for i := range 60 {
+	for i := range 400 {
 		rec := s.do(http.MethodPost, "/mcp", listBody, hdr)
 		if strings.Contains(rec.Body.String(), "Too many requests") {
-			if i < 20 {
-				t.Errorf("tools/list refused after %d, inside its burst of 20", i)
+			if i < 100 {
+				t.Errorf("tools/list refused after %d, inside the gate's burst of 100", i)
 			}
 			return
 		}
 	}
-	t.Error("60 tools/list in a row were never limited")
+	t.Error("400 tools/list in a row were never limited")
 }
 
 type blockingChecker struct{ ended chan error }

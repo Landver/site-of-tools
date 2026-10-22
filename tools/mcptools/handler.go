@@ -61,7 +61,6 @@ type handler struct {
 	sdk       echo.HandlerFunc
 	owner     *linktools.Shortener
 	keys      *keyGuard
-	protocol  platform.Limiter
 	perIP     platform.Limiter
 	log       *slog.Logger
 	catalog   catalog
@@ -87,7 +86,7 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 	if s, ok := d.Geo.(*iptools.Service); ok && s == nil {
 		d.Geo = nil
 	}
-	m := &calls{protocol: platform.NewLimiter(5, 20), reqlog: d.RequestLog, log: log}
+	m := &calls{reqlog: d.RequestLog, log: log}
 	cipher, err := cipherSpecs(d)
 	if err != nil {
 		return nil, err
@@ -115,7 +114,6 @@ func newHandler(d Deps, base string, log *slog.Logger) (*handler, error) {
 		sdk:       echo.WrapHandler(sdk),
 		owner:     d.Owner,
 		keys:      &keyGuard{clients: map[string]*rate.Limiter{}},
-		protocol:  m.protocol,
 		// Above every tool's budget, so a call is always decided by its own.
 		perIP: platform.NewLimiter(20, 100),
 		log:   log,
@@ -361,7 +359,6 @@ func (h *handler) landing(c *echo.Context) error {
 		"Toolsets":  eps[1:],
 		"Example":   example,
 		"Setup":     setup(eps[0].URL, example.URL),
-		"Protocol":  rateOf(h.protocol),
 		"PerIP":     rateOf(h.perIP),
 	}
 	for _, ep := range eps {

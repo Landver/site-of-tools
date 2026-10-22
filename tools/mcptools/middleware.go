@@ -15,9 +15,6 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// codeRefused answers a message turned away; MCP defines no code for one.
-const codeRefused = -32000
-
 // A record carries the outcome, never the arguments, result or error text: cipher errors quote their input.
 type outcome struct {
 	name   string
@@ -37,14 +34,13 @@ var (
 )
 
 type calls struct {
-	protocol platform.Limiter // every message that isn't a tools/call
-	reqlog   *platform.RequestLog
-	log      *slog.Logger
+	reqlog *platform.RequestLog
+	log    *slog.Logger
 }
 
 // The SDK has no recover: a panicking tool would take every host down.
 func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middleware {
-	protocol := &toolSpec{deadline: quickDeadline, limiter: m.protocol}
+	protocol := &toolSpec{deadline: quickDeadline}
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (res mcp.Result, err error) {
 			start := time.Now()
@@ -66,7 +62,7 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				if p := recover(); p != nil {
 					m.log.Error("mcp: panic", "uri", path+"#"+name, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 					got = outcomePanic
-					res, err = refuse(call, jsonrpc.CodeInternalError, "Internal error; it has been logged.")
+					res, err = refuse(call, "Internal error; it has been logged.")
 				}
 				m.record(who, path+"#"+name, got, size, time.Since(start), req)
 			}()
@@ -75,13 +71,13 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 			defer cancel()
 			// The SDK doesn't cancel a call when its client hangs up.
 			defer context.AfterFunc(who.http, cancel)()
-			if !platform.AllowKey(spec.limiter, who.ip) {
+			if spec != protocol && !platform.AllowKey(spec.limiter, who.ip) {
 				got = outcomeLimited
-				return refuse(call, codeRefused, platform.LimitedMessage)
+				return refuse(call, platform.LimitedMessage)
 			}
 			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.ip) {
 				got = outcomeBusy
-				return refuse(call, codeRefused, platform.BusyMessage)
+				return refuse(call, platform.BusyMessage)
 			}
 			w := int64(1)
 			if spec.weight != nil {
@@ -89,7 +85,7 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 			}
 			if !spec.cap.TryAcquire(who.ip, w) {
 				got = outcomeBusy
-				return refuse(call, codeRefused, platform.BusyMessage)
+				return refuse(call, platform.BusyMessage)
 			}
 			defer spec.cap.Release(who.ip, w)
 
@@ -115,7 +111,7 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 			if serr != nil {
 				m.log.Error("mcp: unusable tool result", "uri", path+"#"+name, "error", serr.Error())
 				got = outcomeInternal
-				return refuse(call, jsonrpc.CodeInternalError, "Internal error; it has been logged.")
+				return refuse(call, "Internal error; it has been logged.")
 			}
 			if out.IsError && got == outcomeOK {
 				got = outcomeToolError
@@ -127,11 +123,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 }
 
 // A call is refused with an isError result, which the model can act on.
-func refuse(call *mcp.CallToolRequest, code int64, msg string) (mcp.Result, error) {
+func refuse(call *mcp.CallToolRequest, msg string) (mcp.Result, error) {
 	if call != nil {
 		return errorResult(msg), nil
 	}
-	return nil, &jsonrpc.Error{Code: code, Message: msg}
+	return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msg}
 }
 
 // The request log skips /mcp: each message is recorded here instead.

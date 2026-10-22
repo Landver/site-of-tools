@@ -36,7 +36,7 @@ so the spec's 403 for a foreign `Origin` waits for an allowlist ([why](00-resear
 3. Deadline: 25 s IP, DNS and botcheck tools, 20 s `link_redirect_chain` and
    owner tools, 15 s heavy cipher, 5 s the rest and other methods; a hang-up
    cancels the call on any protocol version (`context.AfterFunc`).
-4. Rate: the tool's limiter; any other method, the protocol one (5/s, burst 20).
+4. Rate: the tool's limiter; any other method only the gate's per-address limit.
 5. Capacity: a budget all clients share, if any, then the cap; full → "Busy".
 6. The tool, then [sanitize](#untrusted-output) and [record](#logs-and-licences).
 
