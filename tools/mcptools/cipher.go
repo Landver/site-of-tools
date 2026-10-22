@@ -3,7 +3,6 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -84,18 +83,12 @@ var cipherTools = map[string]cipherTool{
 
 const maxSafeInt = 1<<53 - 1
 
-func cipherSpecs(d Deps) ([]toolSpec, error) {
+func cipherSpecs(d Deps) []toolSpec {
 	lim := d.CipherLimits
 	ops := ciphertools.Ops()
-	if len(ops) != len(cipherTools) {
-		return nil, fmt.Errorf("%d cipher ops but %d cipher tool descriptions", len(ops), len(cipherTools))
-	}
 	specs := make([]toolSpec, 0, len(ops))
 	for _, op := range ops {
-		ct, ok := cipherTools[op.Name]
-		if !ok {
-			return nil, fmt.Errorf("cipher op %q has no tool description", op.Name)
-		}
+		ct := cipherTools[op.Name]
 		s := toolSpec{
 			toolset: "cipher",
 			tool: &mcp.Tool{Name: ct.name, Title: ct.title, Description: ct.desc + " " + testMaterial,
@@ -121,7 +114,7 @@ func cipherSpecs(d Deps) ([]toolSpec, error) {
 		}
 		specs = append(specs, s)
 	}
-	return specs, nil
+	return specs
 }
 
 // A JSON field stays a string: re-encoding a payload would reorder the claims it signs.
