@@ -125,7 +125,7 @@ func TestIPParity(t *testing.T) {
 	}
 }
 
-// TestUntrustedStringsThroughTheStack: strings capped and shown, lists whole, too big an error.
+// TestUntrustedStringsThroughTheStack: invisible characters shown, lists whole, too big an error.
 func TestUntrustedStringsThroughTheStack(t *testing.T) {
 	r := richResult
 	r.ASName = "Evil\u202eCorp\U000E0041" + strings.Repeat("x", 10<<10)
@@ -136,8 +136,8 @@ func TestUntrustedStringsThroughTheStack(t *testing.T) {
 	cs := newStack(t, stackOpts{geo: &fakeGeo{res: r}}).client(t, "/mcp", nil, nil)
 	got := object(t, call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"}))
 	as := got["as_name"].(string)
-	if !strings.HasPrefix(as, `Evil\u{202E}Corp\u{E0041}`) || !strings.HasSuffix(as, " bytes]") || len(as) > 2100 {
-		t.Errorf("as_name = %.60q…(%d bytes), want visible escapes and a cap with its marker", as, len(as))
+	if as != `Evil\u{202E}Corp\u{E0041}`+strings.Repeat("x", 10<<10) {
+		t.Errorf("as_name = %.60q…(%d bytes), want visible escapes and the rest whole", as, len(as))
 	}
 	if n := len(got["shodan"].(map[string]any)["hostnames"].([]any)); n != 300 {
 		t.Errorf("hostnames kept %d of 300; lists are never cut", n)

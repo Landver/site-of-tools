@@ -7,22 +7,20 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
-const (
-	maxString = 2 << 10 // keeps a 4096-bit DKIM key whole
-	maxResult = 80 << 10
-)
+const maxResult = 80 << 10
 
-// Strings are capped, never lists: the dropped item can be the one that matters.
-func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolResult, int, error) {
+// Lists are never cut: the dropped item can be the one that matters.
+func sanitize(r *mcp.CallToolResult, narrow string) (*mcp.CallToolResult, int, error) {
 	if r.IsError {
 		for _, c := range r.Content {
 			if t, ok := c.(*mcp.TextContent); ok {
-				t.Text = clean(t.Text, maxString)
+				t.Text = platform.Clip(clean(t.Text), maxResult)
 			}
 		}
 		return r, 0, nil
@@ -34,11 +32,7 @@ func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolRe
 	if obj == nil {
 		return nil, 0, errors.New("structuredContent is not a JSON object")
 	}
-	limit := maxString
-	if whole {
-		limit = maxResult
-	}
-	out, err := encode(walk(obj, limit))
+	out, err := encode(walk(obj))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -55,44 +49,37 @@ func sanitize(r *mcp.CallToolResult, narrow string, whole bool) (*mcp.CallToolRe
 	return &s, len(out), nil
 }
 
-func walk(v any, limit int) any {
+func walk(v any) any {
 	switch t := v.(type) {
 	case string:
-		return clean(t, limit)
+		return clean(t)
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, e := range t {
-			out[clean(k, limit)] = walk(e, limit)
+			out[clean(k)] = walk(e)
 		}
 		return out
 	case []any:
 		for i, e := range t {
-			t[i] = walk(e, limit)
+			t[i] = walk(e)
 		}
 	}
 	return v
 }
 
-func clean(s string, limit int) string {
-	if strings.ContainsFunc(s, invisible) {
-		var b strings.Builder
-		for _, r := range s {
-			if invisible(r) {
-				fmt.Fprintf(&b, `\u{%04X}`, r)
-			} else {
-				b.WriteRune(r)
-			}
-		}
-		s = b.String()
-	}
-	if len(s) <= limit {
+func clean(s string) string {
+	if !strings.ContainsFunc(s, invisible) {
 		return s
 	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
+	var b strings.Builder
+	for _, r := range s {
+		if invisible(r) {
+			fmt.Fprintf(&b, `\u{%04X}`, r)
+		} else {
+			b.WriteRune(r)
+		}
 	}
-	return fmt.Sprintf("%s…[truncated %d bytes]", s[:cut], len(s)-cut)
+	return b.String()
 }
 
 // invisible: characters that hide text or carry text a reader never sees, Hangul fillers among them.

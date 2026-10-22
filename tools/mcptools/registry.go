@@ -32,7 +32,6 @@ type toolSpec struct {
 	cap      *platform.Cap
 	weight   func(json.RawMessage) int64 // of cap, from arguments not yet validated; nil weighs 1
 	narrow   string                      // how to ask for less, when a result is over the hard cap
-	whole    bool                        // no third-party text, so no string is cut
 	add      func(*mcp.Server, *mcp.Tool)
 }
 

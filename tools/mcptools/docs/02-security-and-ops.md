@@ -76,13 +76,12 @@ share their provider's addresses, so their users share budgets.
 
 ## Untrusted output
 
-`sanitize.go`, on every result: strings and keys cut at 2 KB with a
-`…[truncated N bytes]` marker, invisible characters (format, Tag block,
-variation selectors, DEL, C1, U+2028/9, Hangul fillers) shown as `\u{XXXX}`.
-Lists are never cut: a dropped nameserver can be the one that disagrees. Over
-80 KB → a tool error with the tool's hint for asking less. `whole` tools
-(cipher, `site_blog`, link tools reworking the caller's input) skip the 2 KB
-cut. The tracer and MTA-STS check clip third-party header values at the source.
+`sanitize.go`, on every result: invisible characters (format, Tag block,
+variation selectors, DEL, C1, U+2028/9, Hangul fillers) in strings and keys
+shown as `\u{XXXX}`. Neither lists nor strings are cut. A result over 80 KB
+becomes a tool error with the tool's hint for asking less, and error text is
+clipped at 80 KB. The tracer and MTA-STS check clip third-party header values
+at the source.
 
 ## Owner key
 

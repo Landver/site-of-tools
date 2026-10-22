@@ -104,7 +104,6 @@ func cipherSpecs(d Deps) ([]toolSpec, error) {
 			deadline: quickDeadline,
 			limiter:  lim.Pure,
 			narrow:   "Pass less input.",
-			whole:    true,
 			add: handle(func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
 				in, err := cipherInput(op, args)
 				if err != nil {

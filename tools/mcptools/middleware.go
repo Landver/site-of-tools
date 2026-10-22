@@ -107,7 +107,7 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 					got = outcomeCancelled
 				}
 			}
-			out, n, serr := sanitize(r, spec.narrow, spec.whole)
+			out, n, serr := sanitize(r, spec.narrow)
 			if serr != nil {
 				m.log.Error("mcp: unusable tool result", "uri", path+"#"+name, "error", serr.Error())
 				got = outcomeInternal

@@ -43,7 +43,7 @@ In code, ` + "`[kept](/as/is)`" + ` stays.
 [paper]: https://corpberry.test/static/files/paper.pdf
 `
 
-// testPosts are two posts and a draft; the second is over the sanitizer's string cap.
+// testPosts are two posts and a draft; the second is 3.6 KB.
 var testPosts = fstest.MapFS{
 	"2026-09-01-first-steps.md": {Data: []byte(firstSteps)},
 	"2026-09-20-second-thoughts.md": {Data: []byte("---\ntitle: \"Second thoughts\"\ndescription: \"Later, and longer.\"\ndate: \"2026-09-20\"\n---\n\n" +

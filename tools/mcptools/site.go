@@ -51,7 +51,6 @@ func siteSpecs(d Deps) []toolSpec {
 		deadline: quickDeadline,
 		// The REST blog is static and has no budget to share.
 		limiter: platform.NewLimiter(10, 50),
-		whole:   true,
 		add:     handle(t.read),
 	}}
 }

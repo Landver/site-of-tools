@@ -3,7 +3,6 @@ package mcptools
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -171,9 +170,6 @@ func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLooku
 	if !a.Detailed {
 		delete(out, "zone")
 		delete(out, "dig")
-	} else if set.Zone != "" {
-		// A line per record, so the string cap can only cut one long record.
-		out["zone"] = strings.Split(strings.TrimSuffix(set.Zone, "\n"), "\n")
 	}
 	out["attribution"] = credits(platform.CreditIP2Location)
 	return out, nil

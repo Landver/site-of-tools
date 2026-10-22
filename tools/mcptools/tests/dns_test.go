@@ -2,13 +2,11 @@ package tests
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -76,13 +74,13 @@ func TestDNSLookup(t *testing.T) {
 	if dig, _ := full["dig"].([]any); len(dig) != 1 || !strings.HasSuffix(dig[0].(string), " MX") {
 		t.Errorf("dig = %v, want the one MX command", full["dig"])
 	}
-	if diff := cmp.Diff([]any{"example.com.\t3600\tIN\tMX\t10 mail.example.com."}, full["zone"]); diff != "" {
-		t.Errorf("zone, a line per record (-want +got):\n%s", diff)
+	if diff := cmp.Diff("example.com.\t3600\tIN\tMX\t10 mail.example.com.\n", full["zone"]); diff != "" {
+		t.Errorf("zone (-want +got):\n%s", diff)
 	}
 	heavy := newStack(t, stackOpts{dns: &fakeDNS{heavy: true}}).client(t, "/mcp/dns", nil, nil)
 	txt := object(t, call(t, heavy, "dns_lookup", map[string]any{"name": "example.com", "type": "TXT", "detailed": true}))
-	if zone, _ := txt["zone"].([]any); len(zone) != 60 || strings.Contains(fmt.Sprint(zone), "[truncated") {
-		t.Errorf("a 60-record TXT zone = %d lines, want every record whole", len(zone))
+	if zone, _ := txt["zone"].(string); strings.Count(zone, "\n") != 60 || strings.Contains(zone, "[truncated") {
+		t.Errorf("a 60-record TXT zone = %d lines, want every record whole", strings.Count(zone, "\n"))
 	}
 	if ptr := object(t, call(t, cs, "dns_lookup", map[string]any{"name": "192.0.2.10"})); ptr["reversed"] != true {
 		t.Errorf("an IP = %v, want its reverse lookup", ptr)
@@ -217,17 +215,6 @@ func groupServers(body map[string]any) {
 	}
 }
 
-// zoneLines is detailed dns_lookup's: the zone text as a line per record.
-func zoneLines(body map[string]any) {
-	if z, ok := body["zone"].(string); ok {
-		lines := []any{}
-		for _, l := range strings.Split(strings.TrimSuffix(z, "\n"), "\n") {
-			lines = append(lines, l)
-		}
-		body["zone"] = lines
-	}
-}
-
 // firstCertNames is dns_domain_info's: the first 50 CT names, names only.
 func firstCertNames(body map[string]any) {
 	ct := body["certificate_names"].(map[string]any)
@@ -241,31 +228,6 @@ func firstCertNames(body map[string]any) {
 	if total, _ := ct["total"].(json.Number).Int64(); int(total) > len(names) {
 		ct["truncated"] = true
 	}
-}
-
-// capped is v as the sanitizer leaves it when nothing is invisible: strings cut at 2 KB.
-func capped(v any) any {
-	const limit = 2 << 10
-	switch t := v.(type) {
-	case string:
-		if len(t) <= limit {
-			return t
-		}
-		cut := limit
-		for !utf8.RuneStart(t[cut]) {
-			cut--
-		}
-		return fmt.Sprintf("%s…[truncated %d bytes]", t[:cut], len(t)-cut)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = capped(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = capped(e)
-		}
-	}
-	return v
 }
 
 func drop(keys ...string) func(map[string]any) {
@@ -284,7 +246,7 @@ func TestDNSParity(t *testing.T) {
 		project func(map[string]any)
 	}{
 		{"dns_lookup", map[string]any{"name": "Example.com"}, "/?name=Example.com", drop("zone", "dig")},
-		{"dns_lookup", map[string]any{"name": "example.com", "type": "TXT", "resolver": "quad9", "detailed": true}, "/?name=example.com&type=TXT&resolver=quad9", zoneLines},
+		{"dns_lookup", map[string]any{"name": "example.com", "type": "TXT", "resolver": "quad9", "detailed": true}, "/?name=example.com&type=TXT&resolver=quad9", nil},
 		{"dns_consistency", map[string]any{"name": "example.com", "type": "TXT"}, "/consistency?name=example.com&type=TXT", groupServers},
 		{"dns_consistency", map[string]any{"name": "example.com", "detailed": true}, "/consistency?name=example.com", nil},
 		{"dns_trace", map[string]any{"name": "www.example.com", "type": "AAAA"}, "/trace?name=www.example.com&type=AAAA", nil},
@@ -301,7 +263,7 @@ func TestDNSParity(t *testing.T) {
 		if tc.project != nil {
 			tc.project(want)
 		}
-		if diff := cmp.Diff(capped(want), got); diff != "" {
+		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("%s %v vs REST %s (-rest +mcp):\n%s", tc.tool, tc.args, tc.rest, diff)
 		}
 	}

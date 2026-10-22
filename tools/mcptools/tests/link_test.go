@@ -222,17 +222,11 @@ func TestLinkWholeStrings(t *testing.T) {
 		"link_percent_encode": {"value": state},
 		"link_diff":           {"url_a": long, "url_b": "https://example.com/p?state=b"},
 		"link_curl_parse":     {"command": "curl '" + long + "'"},
+		"link_inspect":        {"url": long},
+		"link_extract":        {"text": "see " + long},
 	} {
 		if txt := text(t, call(t, cs, tool, args)); strings.Contains(txt, "[truncated") || !strings.Contains(txt, state) {
 			t.Errorf("%s cut the caller's own %d-byte value: %.120s", tool, len(state), txt)
-		}
-	}
-	for tool, args := range map[string]map[string]any{
-		"link_inspect": {"url": long},
-		"link_extract": {"text": "see " + long},
-	} {
-		if txt := text(t, call(t, cs, tool, args)); !strings.Contains(txt, "…[truncated") {
-			t.Errorf("%s returned a %d-byte value uncut", tool, len(state))
 		}
 	}
 }
@@ -312,7 +306,7 @@ func TestLinkParity(t *testing.T) {
 		}
 		delete(got, "elapsed_ms")
 		delete(want, "elapsed_ms")
-		if diff := cmp.Diff(capped(want), got); diff != "" {
+		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("%s %.80v vs REST %s (-rest +mcp):\n%s", tc.tool, tc.args, tc.target, diff)
 		}
 	}

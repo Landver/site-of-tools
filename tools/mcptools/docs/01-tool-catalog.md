@@ -33,7 +33,7 @@ body, pinned by parity tests; below is only where MCP differs.
 
 | Tool | REST twin | Hints | Differs from REST |
 |---|---|---|---|
-| `dns_lookup` | `GET /` | R O | Concise drops `zone` and `dig`; detailed returns `zone` as a list of lines, so the string cap can only cut one record. |
+| `dns_lookup` | `GET /` | R O | Concise drops `zone` and `dig`. |
 | `dns_consistency` | `GET /consistency` | R O | Concise: each server row names its answer `group` instead of repeating its `values`. |
 | `dns_trace` | `GET /trace` | R O | — |
 | `dns_domain_info` | `GET /domain` | R O | Concise: `certificate_names.names` is the first 50 names as strings (`total` kept, `truncated` when cut). One half failing is named in the result; both failing is a tool error, as REST's 502. |
