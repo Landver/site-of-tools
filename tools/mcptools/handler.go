@@ -316,7 +316,7 @@ func (r rateLimit) String() string {
 }
 
 func (h *handler) describe(toolURL func(string) string) {
-	h.catalog = catalog{Name: "corpberry", Version: version()}
+	h.catalog = catalog{Name: "corpberry", Version: version}
 	add := func(ep *endpoint, title, rest string, cr []platform.Credit) {
 		tools := make([]catalogTool, len(ep.specs))
 		for i, s := range ep.specs {

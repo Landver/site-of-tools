@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
@@ -62,7 +61,7 @@ func buildEndpoints(public, owner []toolSpec, m *calls, base string) (map[string
 		}
 		eps[ownerEndpoint] = ep
 	}
-	impl := &mcp.Implementation{Name: "corpberry", Title: "corpberry.com tools", Version: version(), WebsiteURL: base}
+	impl := &mcp.Implementation{Name: "corpberry", Title: "corpberry.com tools", Version: version, WebsiteURL: base}
 	for _, ep := range eps {
 		slices.SortFunc(ep.specs, func(a, b *toolSpec) int { return strings.Compare(a.tool.Name, b.tool.Name) })
 		ep.server = newServer(ep, impl, m)
@@ -112,13 +111,4 @@ func instructions(ep *endpoint) string {
 	return b.String()
 }
 
-func version() string {
-	if bi, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range bi.Settings {
-			if s.Key == "vcs.revision" && s.Value != "" {
-				return s.Value[:min(len(s.Value), 12)]
-			}
-		}
-	}
-	return "dev"
-}
+const version = "1.0.0"
