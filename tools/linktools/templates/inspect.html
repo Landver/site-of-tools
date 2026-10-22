@@ -1,16 +1,9 @@
-{{/* Inspect result fragment — the htmx swap target, and the body of the full
-     page. Everything here renders an attacker-supplied URL, so the single rule
-     that governs this file: the input is TEXT unless .Linkable says the scheme
-     passed the http(s) allowlist. html/template does neuter javascript: in a
-     URL context, but this page exists to display hostile URLs and one refactor
-     into an attribute context would be all it takes.
-     See docs/06-security-and-abuse.md §8. */}}
+{{/* Inspect result fragment. Hostile input: text unless .Linkable says it passed the http(s) allowlist.
+     html/template neuters javascript: only in URL context; one refactor into another context loses that. */}}
 {{define "link/inspect"}}
 {{with .Result}}
 
-{{/* Summary strip, before the table. Borrowed from calcbe, which is the one
-     surveyed parser that tells you what shape it decided the input was
-     (docs/reports/calcbe-query-string-parser.md). */}}
+{{/* Summary strip, before the table: what shape the input was parsed as. */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="Parsed: {{len .Params}} {{if eq (len .Params) 1}}parameter{{else}}parameters{{end}}{{if .Notes}}, {{len .Notes}} {{if eq (len .Notes) 1}}finding{{else}}findings{{end}}{{end}}.">
   <span class="text-muted">Scheme <span class="font-mono text-strong">{{or .Scheme "none"}}</span></span>
@@ -166,8 +159,7 @@
 {{if .Segments}}
 <section class="mt-6">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Path segments</h2>
-  {{/* The slashes are drawn, not data: a segment that decodes to a literal
-       "/" (%2F) would otherwise be indistinguishable from two segments. */}}
+  {{/* Slashes are drawn, not data: a segment decoding to "/" (%2F) must not look like two segments. */}}
   <ol class="mt-2 flex flex-wrap items-center gap-1 text-sm">
     {{range .Segments}}
     <li class="flex items-center gap-1">
@@ -211,6 +203,5 @@
 {{end}}
 {{end}}
 
-{{/* The JSON keeps the short codes; base64 and hex are hedged, since a value
-     can match either by accident. */}}
+{{/* The JSON keeps the short codes; base64 and hex are hedged, as a value can match either by accident. */}}
 {{define "link/kind"}}{{if eq . "bool"}}true/false{{else if eq . "url"}}URL{{else if eq . "json"}}JSON{{else if eq . "jwt"}}JWT{{else if eq . "uuid"}}UUID{{else if eq . "base64"}}maybe base64{{else if eq . "hex"}}maybe hex{{else}}{{.}}{{end}}{{end}}

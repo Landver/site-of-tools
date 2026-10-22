@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/Landver/site-of-tools/platform/goldentest"
 )
+
+// toolName is what every client accepts: the Claude API rejects dots.
+var toolName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
 // Budgets for what a client puts in the model's context before any call. One
 // tool may take 3 KB: a cipher op with eleven fields needs most of it.
@@ -46,7 +50,7 @@ func TestToolsListGolden(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	var all, union []*mcp.Tool
 	for i, ep := range endpoints {
-		// One address per endpoint: every message spends the protocol budget.
+		// One address per endpoint: every message spends the per-address budget.
 		hdr := map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}
 		res := listTools(t, s.client(t, ep.path, hdr, nil))
 		switch ep.path {
@@ -69,6 +73,9 @@ func TestToolsListGolden(t *testing.T) {
 			t.Errorf("%s tools/list is %d bytes, over the %d budget", ep.path, wire, budget)
 		}
 		for _, tool := range res.Tools {
+			if !toolName.MatchString(tool.Name) {
+				t.Errorf("%s: not [a-z0-9_]{1,64}, which every client accepts", tool.Name)
+			}
 			if b, _ := json.Marshal(tool); len(b) > maxToolBytes {
 				t.Errorf("%s is %d bytes, over the %d per-tool budget", tool.Name, len(b), maxToolBytes)
 			}

@@ -2,8 +2,6 @@ package mcptools
 
 import (
 	"context"
-	"errors"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -40,8 +38,6 @@ type dnsEmailArgs struct {
 }
 
 const certNames = 50
-
-var errUnavailable = errors.New(dnstools.UnavailableMessage)
 
 type dnsTools struct {
 	svc  dnstools.Looker
@@ -90,7 +86,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		},
 		limiter: lim.Lookup,
 		cap:     lim.LookupCap,
-		narrow:  "Ask for one record type instead of ALL, and leave detailed off.",
 		add:     handle(t.lookup),
 	})
 	spec(t.spr != nil, toolSpec{
@@ -107,7 +102,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		},
 		limiter: lim.Walk,
 		cap:     lim.WalkCap,
-		narrow:  "Leave detailed off.",
 		add:     handle(t.consistency),
 	})
 	spec(t.tra != nil, toolSpec{
@@ -139,7 +133,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		},
 		limiter: lim.Lookup,
 		cap:     lim.DomainCap,
-		narrow:  "Leave detailed off.",
 		add:     handle(t.domain),
 	})
 	spec(t.mail != nil, toolSpec{
@@ -171,9 +164,6 @@ func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLooku
 	if !a.Detailed {
 		delete(out, "zone")
 		delete(out, "dig")
-	} else if set.Zone != "" {
-		// A line per record, so the string cap can only cut one long record.
-		out["zone"] = strings.Split(strings.TrimSuffix(set.Zone, "\n"), "\n")
 	}
 	out["attribution"] = credits(platform.CreditIP2Location)
 	return out, nil
@@ -220,10 +210,7 @@ func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomai
 	if err != nil {
 		return nil, err
 	}
-	switch err := rep.Err(); {
-	case errors.Is(err, dnstools.ErrDisabled):
-		return nil, errUnavailable
-	case err != nil:
+	if err := rep.Err(); err != nil {
 		return nil, err
 	}
 	out, err := object(rep)

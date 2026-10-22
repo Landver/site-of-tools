@@ -16,8 +16,7 @@ func clean(t *testing.T, raw string, opt linktools.CleanOptions) *linktools.Clea
 	return res
 }
 
-// TestStripsTheHeadOfTheDistribution. The four the research corpus found missing
-// from ClearURLs entirely are the point of hand-writing the table.
+// The four the research corpus found missing from ClearURLs are the point of hand-writing the table.
 func TestStripsTheHeadOfTheDistribution(t *testing.T) {
 	for _, key := range []string{
 		"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
@@ -35,8 +34,7 @@ func TestStripsTheHeadOfTheDistribution(t *testing.T) {
 	}
 }
 
-// TestNeverStripList. Stripping an OAuth parameter breaks a login; stripping a
-// presigned URL's signature turns it into a 403. This test is the guard.
+// Stripping an OAuth parameter breaks a login; stripping a presigned URL's signature makes it a 403.
 func TestNeverStripList(t *testing.T) {
 	for _, key := range []string{
 		"q", "id", "page", "token", "code", "state", "redirect_uri",
@@ -49,8 +47,7 @@ func TestNeverStripList(t *testing.T) {
 	}
 }
 
-// TestPresignedURLUntouched. The canonical query of a presigned URL covers every
-// other parameter, so removing any of them invalidates the signature.
+// A presigned URL's canonical query covers every other parameter, so removing any voids the signature.
 func TestPresignedURLUntouched(t *testing.T) {
 	const presigned = "https://bucket.s3.amazonaws.com/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA%2F20260925%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260925T000000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abc123&utm_source=email"
 	res := clean(t, presigned, linktools.CleanOptions{})
@@ -62,9 +59,7 @@ func TestPresignedURLUntouched(t *testing.T) {
 	}
 }
 
-// TestCleaningNeverChangesTheHost is the invariant the short-link create path
-// depends on: it validates a target and THEN cleans it, so a clean step able to
-// move the host would void that validation (docs/04-short-links.md §9).
+// Short-link create validates a target and THEN cleans it, so a host-moving clean would void the check.
 func TestCleaningNeverChangesTheHost(t *testing.T) {
 	cases := []string{
 		"https://example.com/a/b?utm_source=x",
@@ -86,8 +81,7 @@ func TestCleaningNeverChangesTheHost(t *testing.T) {
 	}
 }
 
-// TestNothingRemovedMeansByteIdentical: the cheapest possible proof that
-// cleaning is not quietly reformatting URLs.
+// The cheapest proof that cleaning is not quietly reformatting URLs.
 func TestNothingRemovedMeansByteIdentical(t *testing.T) {
 	for _, raw := range []string{
 		"https://example.com/a%2Fb/c?q=a+b&x=%2520&bad=%zz#frag",
@@ -101,8 +95,7 @@ func TestNothingRemovedMeansByteIdentical(t *testing.T) {
 	}
 }
 
-// TestEveryRemovalIsAttributed. Both the page and the API promise to name the
-// rule; an unattributed removal is exactly the magic this tool exists not to be.
+// The page and the API promise to name the rule; an unattributed removal is the magic this tool isn't.
 func TestEveryRemovalIsAttributed(t *testing.T) {
 	res := clean(t, "https://example.com/?utm_source=a&fbclid=b&gclid=c", linktools.CleanOptions{})
 	if len(res.Removed) != 3 {
@@ -118,8 +111,7 @@ func TestEveryRemovalIsAttributed(t *testing.T) {
 	}
 }
 
-// TestSortIsOffByDefault. Reordering a query breaks every signed URL whose
-// signature covers the literal string, so it can never be automatic.
+// Reordering breaks any signed URL whose signature covers the literal query, so it is never automatic.
 func TestSortIsOffByDefault(t *testing.T) {
 	const raw = "https://example.com/?z=1&a=2&m=3"
 	if got := clean(t, raw, linktools.CleanOptions{}).Output; got != raw {
@@ -127,8 +119,7 @@ func TestSortIsOffByDefault(t *testing.T) {
 	}
 }
 
-// TestAffiliateOffByDefault. Stripping gclid costs an advertiser a data point;
-// stripping an Associates tag takes money from whoever wrote the review.
+// Stripping an Associates tag takes money from whoever wrote the review.
 func TestAffiliateOffByDefault(t *testing.T) {
 	const raw = "https://www.amazon.com/dp/B000?tag=someblog-20"
 	if got := clean(t, raw, linktools.CleanOptions{}).Output; !strings.Contains(got, "tag=someblog-20") {
@@ -140,11 +131,7 @@ func TestAffiliateOffByDefault(t *testing.T) {
 	}
 }
 
-// TestUnwrapIsOfflineAndDecodesExactlyOnce.
-//
-// The subtle one: a Safe Links target is encoded ONCE, so a second decode pass
-// eats the target's own %20 and yields a different URL
-// (docs/reports/wrapper-formats.md).
+// A Safe Links target is encoded ONCE, so a second decode pass would eat the target's own %20.
 func TestUnwrapIsOfflineAndDecodesExactlyOnce(t *testing.T) {
 	const wrapped = "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2Fa%2520b%3Fq%3D1&data=x&sdata=y&reserved=0"
 	res := clean(t, wrapped, linktools.CleanOptions{Unwrap: true})
@@ -156,8 +143,7 @@ func TestUnwrapIsOfflineAndDecodesExactlyOnce(t *testing.T) {
 	}
 }
 
-// TestOpaqueShortenersAreNotWrappers. t.co and friends hold no target in the
-// string, so claiming to unwrap them would be a lie; they belong to the tracer.
+// t.co and friends hold no target in the string: they belong to the tracer.
 func TestOpaqueShortenersAreNotWrappers(t *testing.T) {
 	for _, raw := range []string{"https://t.co/abc123", "https://lnkd.in/abc123", "https://bit.ly/abc123"} {
 		target, _, ok := linktools.NewService().Unwrap(raw)
@@ -167,9 +153,7 @@ func TestOpaqueShortenersAreNotWrappers(t *testing.T) {
 	}
 }
 
-// TestCleanRejectsEmptyInput. A relative reference like "not a url" is a valid
-// URL reference and cleaning it is meaningful, so only genuinely empty input is
-// an error — but it must then come back untouched rather than reformatted.
+// A relative reference is worth cleaning, so only empty input errors, and it comes back untouched.
 func TestCleanRejectsEmptyInput(t *testing.T) {
 	for _, raw := range []string{"", "   "} {
 		if _, err := linktools.NewService().Clean(raw, linktools.CleanOptions{}); err == nil {
@@ -182,8 +166,7 @@ func TestCleanRejectsEmptyInput(t *testing.T) {
 	}
 }
 
-// TestRuleTableInvariants: properties of the data, so the table can grow
-// without the test rotting.
+// Properties of the data, so the table can grow without the test rotting.
 func TestRuleTableInvariants(t *testing.T) {
 	cat := linktools.Rules()
 	if cat.Version == "" {
@@ -209,9 +192,7 @@ func TestRuleTableInvariants(t *testing.T) {
 			t.Errorf("rule %q explains nothing; every removal must be attributable", r.Param)
 		}
 	}
-	// The deny set and the GLOBAL rule table must not intersect: one says
-	// "never remove this", the other says "remove this". Host-scoped rules are
-	// exempt — "ref" on one specific host is precisely the two-tier design.
+	// The deny set and the GLOBAL rule table must not intersect; host-scoped rules are exempt by design.
 	global := map[string]bool{}
 	for _, r := range cat.Tracking {
 		if len(r.Hosts) == 0 {
@@ -228,14 +209,7 @@ func TestRuleTableInvariants(t *testing.T) {
 	}
 }
 
-// TestInspectMarksKnownTrackers is a regression guard for a feature that had
-// never worked. inspect.html renders a "tracker" badge on {{if .Tracking}}, and
-// Param.Tracking was never assigned anywhere — TrackingRuleFor existed, was
-// exported, was documented as "the hook url.go's parser uses", and had no
-// caller. The badge had not rendered once.
-//
-// It is also what makes Inspect and Clean agree: both read the same table, so a
-// parameter Clean would strip is the parameter Inspect marks.
+// Inspect and Clean read one table, so every parameter Clean strips gets Inspect's tracker badge.
 func TestInspectMarksKnownTrackers(t *testing.T) {
 	in := parse(t, "https://example.com/p?utm_source=news&gclid=abc&id=42&q=shoes")
 

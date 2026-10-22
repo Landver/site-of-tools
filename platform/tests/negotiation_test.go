@@ -13,8 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestNegotiation: drives content-negotiation predicates thru real request
-// via throwaway route, exported API only.
+// TestNegotiation drives the negotiation predicates through a real request on a throwaway route.
 func TestNegotiation(t *testing.T) {
 	e := echo.New()
 	e.GET("/n", func(c *echo.Context) error {
@@ -32,9 +31,7 @@ func TestNegotiation(t *testing.T) {
 		{"explicit json", map[string]string{"Accept": "application/json"}, true, false},
 		{"htmx", map[string]string{"HX-Request": "true", "Accept": "*/*"}, false, true},
 		{"htmx overrides json accept", map[string]string{"HX-Request": "true", "Accept": "application/json"}, false, true},
-		// Back with htmx's snapshot cache missed: htmx swaps the response in
-		// as the whole body, so it must get the page, not a fragment, and
-		// not JSON for its */* either.
+		// htmx swaps a history restore in as the whole body, so it needs the page: not a fragment, not JSON.
 		{"htmx history restore", map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true", "Accept": "*/*"}, false, false},
 		{"history restore without HX-Request", map[string]string{"HX-History-Restore-Request": "true", "Accept": "*/*"}, false, false},
 	}
@@ -58,8 +55,7 @@ func TestNegotiation(t *testing.T) {
 	}
 }
 
-// TestNegotiationHeaders: Vary, no-store on fragments, and no history entry for
-// an htmx error.
+// TestNegotiationHeaders: Vary, no-store on fragments, and no history entry for an htmx error.
 func TestNegotiationHeaders(t *testing.T) {
 	e := echo.New()
 	e.GET("/h", func(c *echo.Context) error {
@@ -107,8 +103,7 @@ func TestNegotiationHeaders(t *testing.T) {
 	}
 }
 
-// TestReply: API callers get the body, the browser the page and htmx the
-// fragment, each rendered from the view model, never the other way round.
+// TestReply: API callers get the body; the page and the htmx fragment render from the view model.
 func TestReply(t *testing.T) {
 	e := echo.New()
 	e.Renderer = platform.NewRenderer(false, nil, platform.TemplateSource{Embed: fstest.MapFS{

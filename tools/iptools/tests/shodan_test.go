@@ -18,13 +18,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// shodan_test.go covers Shodan InternetDB enrichment: offline client (vs
-// httptest server), nil-safe/disabled shape, handler card + JSON wiring
-// (Result.Shodan pre-set, like blocklist handler tests). One live test, opt-in
-// via SHODAN_LIVE_TEST, hits real endpoint.
-
-// stubInternetDB serves canned InternetDB responses: data for 8.8.8.8, 404 for
-// 198.51.100.9 (no record), 500 else (upstream failure).
+// stubInternetDB: data for 8.8.8.8, 404 for 198.51.100.9, 500 for anything else.
 func stubInternetDB(t *testing.T) *iptools.Shodan {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +50,7 @@ func TestShodanLookupParsesInternetDB(t *testing.T) {
 		Hostnames: []string{"dns.google"},
 		Vulns:     []string{"CVE-2021-1234"},
 	}
-	// EquateEmpty: JSON "[]" decodes to non-nil empty slice; treat as nil want
-	// omits (CPEs/Tags here) so comparison is about content.
+	// JSON "[]" decodes to an empty, non-nil slice; EquateEmpty matches it to the nil in want.
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("ShodanInfo mismatch (-want +got):\n%s", diff)
 	}
@@ -76,8 +69,6 @@ func TestShodanLookup404IsCheckedNoData(t *testing.T) {
 
 func TestShodanLookupErrorOmits(t *testing.T) {
 	sh := stubInternetDB(t)
-	// 500 -> error, and (nil, err) so handler omits card rather than implying
-	// "no open ports".
 	got, err := sh.Lookup(context.Background(), "10.0.0.1")
 	if err == nil {
 		t.Errorf("unexpected status should return an error")
@@ -156,7 +147,7 @@ func TestHandlerShodanSkippedState(t *testing.T) {
 }
 
 func TestShodanNilAndEmptyURLDisabled(t *testing.T) {
-	var sh *iptools.Shodan // disabled (nil receiver)
+	var sh *iptools.Shodan
 	if got, err := sh.Lookup(context.Background(), "8.8.8.8"); got != nil || err != nil {
 		t.Errorf("nil Shodan must no-op, got (%v, %v)", got, err)
 	}
@@ -173,7 +164,6 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 		IP:     "8.8.8.8",
 		Shodan: &iptools.ShodanInfo{Found: true, Ports: []int{53, 443}, Hostnames: []string{"dns.google"}, Vulns: []string{"CVE-2021-1234"}},
 	}
-	// HTML: card w/ ports, a CVE, mandatory Shodan attribution.
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	for _, want := range []string{"open ports · shodan", "53, 443", "dns.google", "CVE-2021-1234", "InternetDB", "© Shodan"} {
@@ -181,7 +171,6 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 			t.Errorf("shodan card missing %q in:\n%s", want, body)
 		}
 	}
-	// JSON: nested shodan object flows through content negotiation free.
 	recj := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "application/json"})
 	jb := strings.ReplaceAll(recj.Body.String(), " ", "")
 	if !strings.Contains(jb, `"shodan":{`) || !strings.Contains(jb, `"found":true`) || !strings.Contains(jb, `"ports":[53,443]`) {
@@ -190,7 +179,6 @@ func TestHandlerShowsShodanCard(t *testing.T) {
 }
 
 func TestFuseShodanProxy(t *testing.T) {
-	// 1. Tag "proxy" -> "PUB"
 	res := &iptools.Result{
 		Proxy:  &iptools.Proxy{IsProxy: false},
 		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"proxy"}},
@@ -200,7 +188,7 @@ func TestFuseShodanProxy(t *testing.T) {
 		t.Fatalf("expected proxy fused from Shodan as PUB, got %+v", res.Proxy)
 	}
 
-	// 2. Priority: VPN > PUB even when "proxy" appears first in tags
+	// "proxy" comes first in the tags, yet VPN must win.
 	resVPN := &iptools.Result{
 		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"proxy", "vpn"}},
 	}
@@ -209,7 +197,6 @@ func TestFuseShodanProxy(t *testing.T) {
 		t.Fatalf("expected VPN priority, got %+v", resVPN.Proxy)
 	}
 
-	// 3. TOR tag -> "TOR"
 	resTOR := &iptools.Result{
 		Shodan: &iptools.ShodanInfo{Found: true, Tags: []string{"tor"}},
 	}
@@ -218,7 +205,6 @@ func TestFuseShodanProxy(t *testing.T) {
 		t.Fatalf("expected TOR, got %+v", resTOR.Proxy)
 	}
 
-	// 4. HTML output check
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=121.127.45.50", map[string]string{"Accept": "text/html"})
 	if strings.Contains(rec.Body.String(), "not in any known proxy or VPN list") {
 		t.Errorf("must not render old misleading negative text")
@@ -226,8 +212,6 @@ func TestFuseShodanProxy(t *testing.T) {
 }
 
 func TestHandlerShodanNoDataState(t *testing.T) {
-	// Checked-but-empty (404) renders "No open ports on record" state —
-	// counterpart to blocklist card's checked-but-clean row.
 	res := &iptools.Result{IP: "198.51.100.9", Shodan: &iptools.ShodanInfo{Found: false}}
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=198.51.100.9", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
@@ -237,7 +221,6 @@ func TestHandlerShodanNoDataState(t *testing.T) {
 }
 
 func TestHandlerNoShodanNoCard(t *testing.T) {
-	// nil Shodan (not checked) -> no card at all, no shodan key in JSON.
 	res := &iptools.Result{IP: "8.8.8.8"}
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	if strings.Contains(rec.Body.String(), "open ports · shodan") {
@@ -250,26 +233,19 @@ func TestHandlerNoShodanNoCard(t *testing.T) {
 }
 
 func TestFullPageShowsShodanCredit(t *testing.T) {
-	// Shodan ToS requires visible credit when their data shown. Shared footer
-	// carries it (like IP2Location/Spamhaus credits), gated on Shodan-specific
-	// flag — not shared .Attribution — so shows only when lookup actually
-	// consulted InternetDB, never on botcheck.
+	// Shodan's credit has its own flag, not .Attribution, so it shows only when InternetDB was consulted.
 	withData := &iptools.Result{IP: "8.8.8.8", Shodan: &iptools.ShodanInfo{Found: true, Ports: []int{443}}}
 	rec := do(newTestApp(fakeLooker{res: withData}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	if !strings.Contains(rec.Body.String(), shodanCredit) {
 		t.Errorf("full page with Shodan data must carry the © Shodan footer credit, got:\n%s", rec.Body.String())
 	}
 
-	// Lookup that never consulted Shodan (no Result.Shodan) gets no credit —
-	// unlike IP2Location, always credited on IP-tool pages.
 	rec2 := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	if strings.Contains(rec2.Body.String(), shodanCredit) {
 		t.Errorf("page without Shodan data must not carry the Shodan footer credit")
 	}
 }
 
-// TestShodanLookupLive hits real InternetDB endpoint; opt-in only (network).
-// Run w/ SHODAN_LIVE_TEST=1 go test ./tools/iptools/...
 func TestShodanLookupLive(t *testing.T) {
 	if os.Getenv("SHODAN_LIVE_TEST") == "" {
 		t.Skip("set SHODAN_LIVE_TEST=1 to hit the real Shodan InternetDB endpoint")

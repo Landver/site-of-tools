@@ -8,27 +8,17 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// sitemapDate: <lastmod> format. Date-only is valid W3C datetime and matches
-// the granularity we actually have (posts carry a date, not a timestamp).
+// sitemapDate: date-only is valid W3C datetime and all the precision posts have.
 const sitemapDate = "2006-01-02"
 
-// Page: one indexable URL on a host. Path is host-relative ("/cidr"); LastMod
-// is optional — the zero time omits the element rather than emitting a lie.
+// Page is one indexable, host-relative URL; a zero LastMod omits <lastmod> rather than emitting a lie.
 type Page struct {
 	Path    string
 	LastMod time.Time
 }
 
-// RegisterSEO wires /sitemap.xml + /robots.txt onto e for the host rooted at
-// base (e.g. "https://ip.corpberry.com").
-//
-// Per-host by design: the sitemaps.org spec scopes a sitemap to URLs on the
-// same host as the sitemap itself, so a crawler ignores cross-host entries.
-// One apex sitemap therefore cannot advertise the tool subdomains — each
-// *echo.Echo in the vhost map needs its own pair.
-//
-// pages is evaluated per request so hosts with dynamic content (the blog)
-// stay current without a second copy of the load logic.
+// RegisterSEO serves /sitemap.xml and /robots.txt per host: sitemaps.org scopes a sitemap to its own host,
+// so every vhost needs its own pair. pages runs per request so the blog stays current.
 func RegisterSEO(e *echo.Echo, base string, pages func() ([]Page, error)) {
 	e.GET("/sitemap.xml", func(c *echo.Context) error {
 		list, err := pages()
@@ -43,8 +33,7 @@ func RegisterSEO(e *echo.Echo, base string, pages func() ([]Page, error)) {
 			append([]byte(xml.Header), out...))
 	})
 
-	// Allow everything and advertise this host's own sitemap. These sites
-	// exist to be indexed and cited, so no agent is excluded.
+	// These sites exist to be indexed and cited, so no agent is excluded.
 	e.GET("/robots.txt", func(c *echo.Context) error {
 		return c.String(http.StatusOK,
 			"User-agent: *\nAllow: /\n\nSitemap: "+base+"/sitemap.xml\n")
@@ -62,9 +51,7 @@ type sitemapURL struct {
 	LastMod string `xml:"lastmod,omitempty"`
 }
 
-// BuildSitemap renders pages as a urlset, expanding each Path against base.
-// Callers pass only URLs they want indexed: POST endpoints, service workers
-// and pages of transient user data have no business here.
+// BuildSitemap: callers pass only URLs to index, never POST endpoints, workers or transient user data.
 func BuildSitemap(base string, pages []Page) urlSet {
 	set := urlSet{Xmlns: "http://www.sitemaps.org/schemas/sitemap/0.9"}
 	for _, p := range pages {

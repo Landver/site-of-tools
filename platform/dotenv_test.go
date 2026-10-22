@@ -1,7 +1,6 @@
 package platform
 
-// White-box test (pkg platform): parseDotEnv + mergeEnv are unexported dev
-// helpers → sits beside code per ARCHITECTURE §9, not black-box tests/ pkg.
+// White-box test: parseDotEnv and mergeEnv are unexported (ARCHITECTURE §9).
 
 import (
 	"os"

@@ -11,25 +11,12 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// The clipboard affordance is declarative: data-copy carries the text and
-// data-copy-auto also copies it when htmx swaps the element in
-// (shared/templates/partials/copy.html). Asserting the attributes is therefore
-// asserting the feature.
-//
-// Two failure modes are worth a test. A button whose page forgot the partial is
-// inert — it looks exactly like a working one and does nothing. And a button
-// wired to the wrong value fails silently, in the paste, somewhere else
-// entirely, which is why the short-link case is pinned to Shortener.ShortURL's
-// output rather than to a prefix.
+// data-copy and data-copy-auto (partials/copy.html) are the feature, so asserting them tests it.
 
-// asOperator is an htmx swap carrying the key: the only shape the console's own
-// requests take, since a page navigation cannot send a header.
+// asOperator is the console's own htmx request shape: a page navigation cannot send the key header.
 var asOperator = map[string]string{"Accept": "text/html", "HX-Request": "true", "X-Api-Key": testAPIKey}
 
-// TestEveryCopyButtonHasTheScriptBehindIt is the guard that actually runs on a
-// push: no Mongo, no key. Five pages render data-copy controls and each one has
-// to include partials/copy separately, so the sixth page to grow a Copy button
-// is the one that will forget — and nothing about the result looks broken.
+// Each page includes partials/copy itself, and a button without it looks fine but does nothing.
 func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
@@ -51,9 +38,8 @@ func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 		}
 	}
 
-	// /short is the odd one: with no shortener wired it answers 503 and renders
-	// no button at all, but it must still ship the script, because the include
-	// sits outside {{if .Disabled}} and a configured server shares the template.
+	// With no shortener /short renders no button, but the include sits outside {{if .Disabled}}
+	// in a template a configured server shares, so the script must still ship.
 	rec := request(t, e, http.MethodGet, "/short", asHTML)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("GET /short with no shortener = %d, want 503", rec.Code)
@@ -68,13 +54,7 @@ func TestEveryCopyButtonHasTheScriptBehindIt(t *testing.T) {
 	}
 }
 
-// TestCopyOffersTheWholeShortURL covers the value itself, at both places a short
-// link is rendered — freshly created, and fetched back from the list a week
-// later — plus the refusal that goes with the second. Live, because both come
-// from storage.
-//
-// A custom slug, so the URL the markup must carry is known up front and the
-// assertion is exact rather than a prefix match.
+// Live: the fresh link and the list both come from storage. A custom slug makes the expected URL exact.
 func TestCopyOffersTheWholeShortURL(t *testing.T) {
 	ctx := context.Background()
 	short, store := liveShortener(t, ctx)
@@ -113,16 +93,14 @@ func TestCopyOffersTheWholeShortURL(t *testing.T) {
 		t.Fatalf("GET /short as operator = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
 	html := rec.Body.String()
-	// The full URL, not the bare code the table prints: a code on the clipboard
-	// pastes as nonsense.
+	// The full URL, not the bare code the table prints: a code on the clipboard pastes as nonsense.
 	if !strings.Contains(html, want) {
 		t.Errorf("live alias row does not offer %s to the clipboard:\n%s", want, html)
 	}
 	if got := `data-copy="` + short.ShortURL(dead.Code) + `"`; strings.Contains(html, got) {
 		t.Error("a revoked alias is still offered to the clipboard; a dead link fails silently in the paste")
 	}
-	// The list never auto-copies: ten rows cannot each claim the clipboard, and
-	// nothing in it was just created.
+	// The list never auto-copies: ten rows cannot each claim the clipboard.
 	if strings.Contains(html, "data-copy-auto") {
 		t.Error("the alias list auto-copies a row; only a freshly created link may do that")
 	}

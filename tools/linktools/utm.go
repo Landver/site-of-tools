@@ -33,7 +33,7 @@ type UTMResult struct {
 	Notes []Note   `json:"notes,omitempty"`
 }
 
-// BuildUTM: a value replaces raw's tag (analytics tools disagree about duplicates); "" removes it.
+// BuildUTM: a value replaces raw's tag (analytics tools disagree about duplicates); an empty value keeps raw's own.
 func (s *Service) BuildUTM(raw string, changes map[string]string) (*UTMResult, error) {
 	raw = strings.TrimSpace(raw)
 	in, err := s.Parse(raw)
@@ -59,14 +59,9 @@ func (s *Service) BuildUTM(raw string, changes map[string]string) (*UTMResult, e
 	}
 
 	for _, key := range UTMKeys {
-		v, given := changes[key]
-		v = strings.TrimSpace(v)
+		v := strings.TrimSpace(changes[key])
 		old, copies := firstValue(in.Params, key)
 		switch {
-		case given && v == "":
-			if copies > 0 {
-				in.Params = upsertParam(in.Params, key, "")
-			}
 		case v != "":
 			in.Params = upsertParam(in.Params, key, v)
 			tag := UTMTag{Key: key, Value: v, Source: TagSet}
@@ -158,8 +153,7 @@ func firstValue(ps []Param, key string) (string, int) {
 	return val, n
 }
 
-// upsertParam sets key to value, replacing the first occurrence and dropping
-// the rest; an empty value removes the key entirely.
+// upsertParam sets key to value, replacing the first occurrence and dropping the rest.
 func upsertParam(ps []Param, key, value string) []Param {
 	out := make([]Param, 0, len(ps)+1)
 	done := false
@@ -168,7 +162,7 @@ func upsertParam(ps []Param, key, value string) []Param {
 			out = append(out, p)
 			continue
 		}
-		if done || value == "" {
+		if done {
 			continue
 		}
 		p.Value, p.RawValue, p.Layers, p.List, p.Delimiter = value, "", nil, nil, ""
@@ -176,7 +170,7 @@ func upsertParam(ps []Param, key, value string) []Param {
 		out = append(out, p)
 		done = true
 	}
-	if !done && value != "" {
+	if !done {
 		out = append(out, Param{Index: len(out) + 1, Key: key, Value: value})
 	}
 	for i := range out {

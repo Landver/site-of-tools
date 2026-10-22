@@ -1,8 +1,4 @@
-// Clipboard writer. Runs in the offscreen document; see offscreen.html for why
-// this cannot use navigator.clipboard.
-//
-// The listener is registered at top-level script execution, which is what
-// guarantees we are listening by the time createDocument() resolves in sw.js.
+// Registered at top level so it is listening by the time createDocument() resolves in sw.js.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== 'offscreen' || msg.type !== 'copy') return false;
 
@@ -17,9 +13,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } finally {
     el.value = '';
   }
-  // Answer, rather than the sample's fire-and-forget. This acknowledgement is
-  // the only signal the badge has for showing a tick versus a cross, and it is
-  // also what lets sw.js close the document only after the write has landed.
+  // Reply, unlike Google's sample: this ack is the badge's only signal for a tick or a cross.
   sendResponse({ ok });
   return true;
 });

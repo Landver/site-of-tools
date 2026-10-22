@@ -9,7 +9,9 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 )
 
-var footerFlags = []string{"Attribution", "SpamhausAttribution", "ShodanAttribution", "CertsAttribution", "RDAPAttribution"}
+// footerFlags maps each credit ID to the view-model key that prints it in the footer.
+var footerFlags = map[string]string{platform.CreditIP2Location: "Attribution", platform.CreditSpamhaus: "SpamhausAttribution",
+	platform.CreditShodan: "ShodanAttribution", platform.CreditCrtSh: "CertsAttribution", platform.CreditRDAP: "RDAPAttribution"}
 
 func renderFooter(t *testing.T, data map[string]any) string {
 	t.Helper()

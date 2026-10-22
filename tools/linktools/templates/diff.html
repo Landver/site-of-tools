@@ -1,28 +1,5 @@
-{{/* Diff — page shell + result fragment (A13).
-
-     A Diff holds two attacker-supplied URLs (.A and .B) and carries no Linkable
-     flag, so neither side is ever written into an href. Both are text. The only
-     anchors are same-origin tool links, where html/template percent-escapes the
-     value into the query and the destination is this site. Same rule as
-     inspect.html's header comment.
-
-     The colour vocabulary is the one decision here that is not cosmetic.
-     ChangeKind has five values and they are NOT a severity ramp:
-
-       added / removed / modified  a real difference, in the ordinary sense
-       moved                       identical value, different position
-       same                        shown, because a diff that hides what matched
-                                   makes the reader re-derive the whole URL
-
-     "moved" gets its own colour and its own callout because it is the one
-     answer people misread. Reordering a query string is harmless to almost every
-     server — and fatal to any URL whose signature covers the literal query
-     string, where it turns into a 403 with no explanation. Folding it into
-     "same" would hide that; folding it into "modified" would cry wolf on every
-     reordered link. It is a third thing and it is rendered as a third thing.
-
-     Every class string below is written out per branch. Tailwind only ever sees
-     literal class names, never one assembled from .Kind. */}}
+{{/* Diff page + result fragment. .A and .B carry no Linkable flag: text, never an href.
+     "moved" gets its own colour: harmless to most servers, a 403 where a signature covers the query. */}}
 {{define "link/diff"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -223,8 +200,7 @@
 </section>
 {{end}}
 
-{{/* The "moved only" explainer, for the mixed case: when every change is a
-     move, the domain's finding already says so. */}}
+{{/* The "moved only" explainer for the mixed case; an all-moves diff already says so in its finding. */}}
 {{$moved := false}}
 {{$other := false}}
 {{range .Params}}{{if eq .Kind "moved"}}{{$moved = true}}{{else if ne .Kind "same"}}{{$other = true}}{{end}}{{end}}

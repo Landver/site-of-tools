@@ -42,14 +42,11 @@ More detail and my firsthand research on 12 commercial detectors live in
 Every tool is also served over the Model Context Protocol at
 **[mcp.corpberry.com](https://mcp.corpberry.com)**, so Claude, ChatGPT, Cursor,
 VS Code, Codex or Gemini can call the tools directly: same code, results and rate
-limits as the pages and their JSON API, no account or key. Setup per client is
-on that page; internals in [tools/mcptools/docs/](tools/mcptools/docs/README.md).
-
-- `https://mcp.corpberry.com/mcp`: all 35 tools, for Claude Code (it loads
-  tools through tool search):
-  `claude mcp add --scope user --transport http corpberry https://mcp.corpberry.com/mcp`
-- `/mcp/ip`, `/mcp/dns`, `/mcp/link`, `/mcp/cipher`, `/mcp/botcheck`,
-  `/mcp/site`: one toolset each, for every other client.
+limits as the pages and their JSON API, no account or key. Claude Code takes
+all 35 tools at once (it loads them through tool search):
+`claude mcp add --scope user --transport http corpberry https://mcp.corpberry.com/mcp`.
+Every other client takes one toolset per URL; that page lists them with each
+client's setup. Internals in [tools/mcptools/docs/](tools/mcptools/docs/README.md).
 
 ## Stack
 
@@ -114,7 +111,7 @@ nginx blocks live in the reverse proxy's own project; full steps in
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Cloudflare → nginx → Docker, ports, IP trust
 - [tools/iptools/](tools/iptools/docs/README.md) — the IP tools
 - [tools/botcheck/](tools/botcheck/docs/README.md) — the Bot check tool (docs split by topic: RESEARCH.md, roadmap/, testing/, reports/)
-- [tools/mcptools/](tools/mcptools/docs/README.md) — the MCP server: design, tool catalog, security, research
+- [tools/mcptools/](tools/mcptools/docs/README.md) — the MCP server: design, tool catalog, security
 - [CLAUDE.md](CLAUDE.md) — conventions for anyone (incl. AI) developing here
 
 ## Layout

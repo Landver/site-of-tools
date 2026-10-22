@@ -166,8 +166,7 @@ func TestGoldenEncodeJSON(t *testing.T) {
 	})
 }
 
-// POST /short, offline only: every case here is answered before a successful
-// insert, which needs Mongo.
+// Offline only: every case is answered before a successful insert, which needs Mongo.
 func TestGoldenShortCreateJSON(t *testing.T) {
 	t.Parallel()
 	keyed := map[string]string{"X-Api-Key": testAPIKey}

@@ -15,8 +15,7 @@ import (
 
 var ErrPostNotFound = errors.New("blog: post not found")
 
-// absoluteURL expands a site path ("/static/img/x.png") against base;
-// already-absolute URLs pass through. og:image must be absolute.
+// absoluteURL expands a site path against base, since og:image must be absolute.
 func absoluteURL(base, u string) string {
 	if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") {
 		return u
@@ -24,17 +23,14 @@ func absoluteURL(base, u string) string {
 	return base + u
 }
 
-// Blog serves posts loaded from fsys. Prod loads once at boot (NewBlog);
-// dev reloads per request so edits show without restart — same contract as
-// the template renderer.
+// Blog loads posts once in prod and on every request in dev, like the template renderer.
 type Blog struct {
 	fsys   fs.FS
 	dev    bool
 	loaded []Post
 }
 
-// NewBlog builds the blog. Prod parses posts immediately → a malformed post
-// fails boot (caller: log.Fatal) instead of serving a broken page.
+// NewBlog parses posts at once in prod, so a malformed post fails boot instead of serving a broken page.
 func NewBlog(fsys fs.FS, dev bool) (*Blog, error) {
 	b := &Blog{fsys: fsys, dev: dev}
 	if !dev {
@@ -78,11 +74,9 @@ func (b *Blog) Post(slug string) (Post, error) {
 	return Post{}, ErrPostNotFound
 }
 
-// registerRoutes wires /blog, /blog/:slug, /blog/feed.xml onto the apex app.
-// base = full apex origin (cfg.URL("")) for absolute canonical + feed URLs.
+// registerRoutes: base is the full apex origin, for absolute canonical and feed URLs.
 func (b *Blog) registerRoutes(e *echo.Echo, base string) {
-	// Single source for blog URLs — handlers' canonical URLs and the feed's
-	// self/entry URLs must match.
+	// Handlers' canonical URLs and the feed's self/entry URLs must match.
 	blogURL := base + "/blog"
 	feedURL := blogURL + "/feed.xml"
 	postURL := func(slug string) string { return blogURL + "/" + slug }
@@ -118,8 +112,7 @@ func (b *Blog) registerRoutes(e *echo.Echo, base string) {
 			"OGType":    "article",
 			"Canonical": canonical,
 			"Feed":      feedURL,
-			// Authorship + publication date, for search engines and for AI
-			// answers that need someone to attribute the claims to.
+			// Author and date let search engines and AI answers attribute the claims.
 			"Author":    authorName,
 			"Published": post.Date.UTC().Format(time.RFC3339),
 		}
@@ -176,8 +169,7 @@ type atomEntry struct {
 	Summary string   `xml:"summary"`
 }
 
-// buildFeed renders posts as an Atom feed from the blog's canonical URLs
-// (derived in registerRoutes). posts arrive newest-first from LoadPosts.
+// buildFeed expects posts newest first, as LoadPosts returns them.
 func buildFeed(blogURL, feedURL string, posts []Post) atomFeed {
 	updated := time.Now().UTC()
 	if len(posts) > 0 {

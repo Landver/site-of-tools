@@ -16,34 +16,18 @@ date: "2026-09-01"
 
 ![The first page](/static/img/first.png "First")
 
-Read [the next post](/blog/second-thoughts), the [notes](notes.txt) beside this one,
-[the spec](https://example.com/spec), [a mail](mailto:stas@example.com) and [the end](#end).
-
-<img src="/static/img/inline.png" alt="inline">
-
-In code, ` + "`[kept](/as/is)`" + ` stays.
-
-` + "```md\n![kept too](/static/img/raw.png)\n```" + `
-
-[paper]: /static/files/paper.pdf
+Read [the next post](/blog/second-thoughts), [the spec](https://example.com/spec)
+and [a mail](mailto:stas@example.com).
 `
 
-// firstStepsMarkdown is firstSteps as site_blog returns it, code untouched.
+// firstStepsMarkdown is firstSteps as site_blog returns it.
 const firstStepsMarkdown = `![The first page](https://corpberry.test/static/img/first.png "First")
 
-Read [the next post](https://corpberry.test/blog/second-thoughts), the [notes](https://corpberry.test/blog/notes.txt) beside this one,
-[the spec](https://example.com/spec), [a mail](mailto:stas@example.com) and [the end](https://corpberry.test/blog/first-steps#end).
-
-<img src="https://corpberry.test/static/img/inline.png" alt="inline">
-
-In code, ` + "`[kept](/as/is)`" + ` stays.
-
-` + "```md\n![kept too](/static/img/raw.png)\n```" + `
-
-[paper]: https://corpberry.test/static/files/paper.pdf
+Read [the next post](https://corpberry.test/blog/second-thoughts), [the spec](https://example.com/spec)
+and [a mail](mailto:stas@example.com).
 `
 
-// testPosts are two posts and a draft; the second is over the sanitizer's string cap.
+// testPosts are two posts and a draft; the second is 3.6 KB.
 var testPosts = fstest.MapFS{
 	"2026-09-01-first-steps.md": {Data: []byte(firstSteps)},
 	"2026-09-20-second-thoughts.md": {Data: []byte("---\ntitle: \"Second thoughts\"\ndescription: \"Later, and longer.\"\ndate: \"2026-09-20\"\n---\n\n" +

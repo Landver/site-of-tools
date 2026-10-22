@@ -85,15 +85,10 @@ func TestLinkTrackingRules(t *testing.T) {
 	if hosts := rows(t, ref, "never_strip")[0]["hosts"]; hosts == nil {
 		t.Errorf("the never-strip entry for ref lists no hosts")
 	}
-	verdict := object(t, call(t, cs, "link_tracking_rules", map[string]any{"url": "https://github.com/x?ref=main&utm_source=a"}))
-	ps := rows(t, verdict, "params")
-	if verdict["host"] != "github.com" || ps[0]["never_strip"] != true || ps[1]["strip"] != true {
-		t.Errorf("url verdict = %v, want ref kept on github.com and utm_source stripped", verdict)
-	}
 	if full := object(t, call(t, cs, "link_tracking_rules", map[string]any{"full": true})); len(rows(t, full, "tracking")) != len(cat.Tracking) {
 		t.Errorf("full = %d tracking rules, want all %d", len(rows(t, full, "tracking")), len(cat.Tracking))
 	}
-	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "url": "https://github.com/"}), "at most one")
+	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "full": true}), "not both")
 }
 
 func TestLinkDiff(t *testing.T) {
@@ -174,8 +169,8 @@ func TestLinkExtract(t *testing.T) {
 	failsWith(t, call(t, cs, "link_extract", map[string]any{"text": "  \n "}), "no text given")
 }
 
-// TestLinkUTMAbsentKeepsEmptyRemoves: unlike REST's form, "" removes a tag.
-func TestLinkUTMAbsentKeepsEmptyRemoves(t *testing.T) {
+// TestLinkUTMAbsentOrEmptyKeeps: a tag left out or passed empty keeps the URL's own, as on REST.
+func TestLinkUTMAbsentOrEmptyKeeps(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/link", nil, nil)
 	const tagged = "https://example.com/landing?utm_source=old&utm_medium=email&id=1"
 	cases := []struct {
@@ -183,7 +178,7 @@ func TestLinkUTMAbsentKeepsEmptyRemoves(t *testing.T) {
 		url  string
 	}{
 		{map[string]any{}, tagged},
-		{map[string]any{"utm_source": ""}, "https://example.com/landing?utm_medium=email&id=1"},
+		{map[string]any{"utm_source": ""}, tagged},
 		{map[string]any{"utm_source": "new"}, "https://example.com/landing?utm_source=new&utm_medium=email&id=1"},
 		{map[string]any{"utm_campaign": "spring"}, tagged + "&utm_campaign=spring"},
 	}
@@ -222,17 +217,11 @@ func TestLinkWholeStrings(t *testing.T) {
 		"link_percent_encode": {"value": state},
 		"link_diff":           {"url_a": long, "url_b": "https://example.com/p?state=b"},
 		"link_curl_parse":     {"command": "curl '" + long + "'"},
+		"link_inspect":        {"url": long},
+		"link_extract":        {"text": "see " + long},
 	} {
-		if txt := text(t, call(t, cs, tool, args)); strings.Contains(txt, "[truncated") || !strings.Contains(txt, state) {
+		if txt := text(t, call(t, cs, tool, args)); !strings.Contains(txt, state) {
 			t.Errorf("%s cut the caller's own %d-byte value: %.120s", tool, len(state), txt)
-		}
-	}
-	for tool, args := range map[string]map[string]any{
-		"link_inspect": {"url": long},
-		"link_extract": {"text": "see " + long},
-	} {
-		if txt := text(t, call(t, cs, tool, args)); !strings.Contains(txt, "…[truncated") {
-			t.Errorf("%s returned a %d-byte value uncut", tool, len(state))
 		}
 	}
 }
@@ -312,7 +301,7 @@ func TestLinkParity(t *testing.T) {
 		}
 		delete(got, "elapsed_ms")
 		delete(want, "elapsed_ms")
-		if diff := cmp.Diff(capped(want), got); diff != "" {
+		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("%s %.80v vs REST %s (-rest +mcp):\n%s", tc.tool, tc.args, tc.target, diff)
 		}
 	}

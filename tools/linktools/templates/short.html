@@ -1,13 +1,5 @@
-{{/* Short-link console.
-
-     Read-only in the browser and KEY-GATED. Without a key this renders the
-     create form and nothing else: a public list of every alias and its target
-     hands over the whole corpus with no guessing, which defeats the code
-     entropy outright, and turns hits/last-hit into a read-receipt oracle
-     showing whether and when a recipient clicked (docs/04-short-links.md §8).
-
-     CreatedIP is json:"-" on the struct, but a struct tag means nothing to a
-     template — it is simply never referenced here. */}}
+{{/* Short-link console, key-gated: without a key only the create form renders, since a public alias list
+     hands over the corpus and turns hit counts into a read-receipt oracle. */}}
 {{define "link/short"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -24,18 +16,13 @@
       blocklisting that follows takes the whole domain with it.
     </p>
 
-    {{/* The handler words it: with no key the redirects still work, with no
-         storage they do not. */}}
+    {{/* The handler words it: without a key redirects still work, without storage they do not. */}}
     {{if .Disabled}}
       <div class="mt-6 alert-error">{{.Error}}</div>
     {{else}}
 
-    {{/* The key lives in localStorage and is attached by htmx as a HEADER, never
-         as a query parameter or a form field — a query parameter would land in
-         the server log, in the browser's history and in any referrer. This is
-         also the only way the console can work in a browser at all: a page
-         navigation cannot carry a custom header, so the alias list is loaded by
-         htmx rather than rendered by the initial GET. */}}
+    {{/* htmx sends the key as a header, never a query or form field (logs, history, referrers). A navigation
+         can't carry a header, so htmx loads the alias list rather than the initial GET. */}}
     {{/* State lives in linkKey() below: Alpine attributes take expressions, not statements. */}}
     <noscript>
       <p class="mt-6 text-sm text-muted">
@@ -67,8 +54,7 @@
 
     <section class="mt-4 rounded-lg border border-line bg-surface p-4" x-show="state === 'ok'" x-cloak>
       <h2 class="text-sm font-semibold text-strong">Create a short link</h2>
-      {{/* Reset on a 2xx read off the xhr: partials/htmx-errors marks error
-           fragments successful, so detail.successful is true for a 409 too. */}}
+      {{/* Check the xhr's 2xx: htmx-errors marks error fragments successful, so a 409 counts too. */}}
       <form hx-post="/short" hx-target="#result" hx-swap="innerHTML" hx-sync="this:drop"
             hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'
             hx-on::after-request="if (event.detail.xhr.status >= 200 && event.detail.xhr.status < 300) this.reset()"
@@ -113,15 +99,13 @@
 
     <div id="result" class="mt-6" aria-live="polite" aria-atomic="false">{{if .Error}}{{template "link/error" .}}{{end}}</div>
 
-    {{/* Reloads on link-list-changed: sent on arrival with a saved key, and
-         after each create or revoke. */}}
+    {{/* Reloads on link-list-changed, sent on arrival with a saved key and after each create or revoke. */}}
     <div id="aliases" class="mt-8" x-show="state === 'ok'" x-cloak
          hx-get="/short" hx-swap="innerHTML" hx-trigger="link-list-changed from:body"
          hx-headers='js:{"X-Api-Key": document.getElementById("apikey").value}'></div>
     </div>
 
-    {{/* Runs during parsing, before Alpine (deferred) and htmx start. Storage
-         throws in a private window, hence the try. */}}
+    {{/* Runs while parsing, before deferred Alpine and htmx start; storage throws in a private window. */}}
     <script>
       (function () {
         function read() {
@@ -225,12 +209,8 @@
 {{define "link/created"}}
 {{with .Created}}
 <div class="rounded-lg border border-ok bg-surface p-4">
-  {{/* data-copy-auto puts the link on the clipboard the moment it appears,
-       because a short link is worth nothing until it is pasted somewhere and
-       the create button is the only gesture anyone wants to make. The button
-       is not redundant with it: Firefox and Safari refuse a clipboard write
-       that has no user gesture behind it, and it is also how you copy the
-       link again a minute later. See partials/copy. */}}
+  {{/* data-copy-auto copies the link as soon as it appears; the button stays, since Firefox and Safari
+       refuse a clipboard write without a user gesture. */}}
   <h2 class="text-sm font-semibold text-strong">Short link created</h2>
   <div class="mt-2 flex flex-wrap items-start gap-3">
     <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.Short}}</p>
@@ -255,15 +235,7 @@
 {{end}}
 {{end}}
 
-{{/* Link list, swapped into #aliases.
-
-     A separate fragment because the page itself is a full document: serving
-     "link/short" as the htmx response would inject an entire <html> into a div.
-     It is also the only way this list can exist in a browser — the route gates
-     on an X-Api-Key HEADER, which a page navigation cannot send.
-
-     CreatedIP is never referenced here, and the handler projects it out before
-     rendering anyway: a json:"-" tag means nothing to a template. */}}
+{{/* Link list for #aliases. Never reference CreatedIP: a json:"-" tag means nothing to a template. */}}
 {{define "link/shortlist"}}
 {{if not .Authed}}
   {{/* data-key is what the page reads; the key card says it in words. */}}
@@ -275,11 +247,7 @@
   <p class="text-sm text-muted" data-key="ok">No short links yet. The first one you create shows up here.</p>
 {{else}}
 <h2 class="text-sm font-semibold uppercase tracking-wide text-muted" data-key="ok">Your short links</h2>
-{{/* relative is load-bearing: the Actions header is an sr-only <span>, which
-     is position:absolute, and without a positioned ancestor its containing
-     block is the page — so it escaped this scroll container and gave the whole
-     document 86px of horizontal scroll at 375px wide while the table itself
-     looked fine. */}}
+{{/* relative is load-bearing: the sr-only Actions header is absolute and would escape the scroll box. */}}
 <div class="relative mt-2 overflow-x-auto rounded-lg border border-line" tabindex="0" role="region" aria-label="Your short links">
   <table class="w-full text-left text-sm">
     <thead class="bg-surface text-xs uppercase tracking-wide text-muted">
@@ -295,16 +263,14 @@
     </thead>
     <tbody class="divide-y divide-line">
       {{range .Links}}
-      {{/* Dead rows strike the code through rather than dim the row: opacity
-           failed contrast. */}}
+      {{/* Dead rows strike the code through rather than dim the row: opacity failed contrast. */}}
       <tr class="align-top">
         <td class="px-2 py-2 sm:px-3 font-mono {{if or .RevokedAt .Expired}}text-faint{{else}}text-strong{{end}}">
           <span class="whitespace-nowrap{{if or .RevokedAt .Expired}} line-through{{end}}">{{.Code}}</span>{{if .RevokedAt}} <span class="block font-sans text-xs text-danger">revoked</span>{{else if .Expired}} <span class="block font-sans text-xs text-warn-ink">expired</span>{{end}}
           {{/* On a phone the actions column is off-screen, so they sit here. */}}
           {{if not (or .RevokedAt .Expired)}}<div class="mt-2 flex items-center gap-3 font-sans sm:hidden">{{template "link/rowactions" .}}</div>{{end}}
         </td>
-        {{/* Text, never an anchor: these destinations are arbitrary and the
-             point of the page is reading them, not visiting them. */}}
+        {{/* Text, never an anchor: these destinations are arbitrary, for reading, not visiting. */}}
         <td class="px-2 py-2 sm:px-3 text-xs text-muted">
           <span class="wrap-anywhere font-mono">{{.Target}}</span>
           {{if .Note}}<span class="mt-1 block break-words sm:hidden">{{.Note}}</span>{{end}}
@@ -314,10 +280,7 @@
         <td class="hidden whitespace-nowrap px-2 py-2 sm:px-3 text-xs text-muted sm:table-cell">{{.CreatedAt.UTC.Format "2 Jan 2006"}}</td>
         <td class="px-2 py-2 sm:px-3 text-xs text-muted sm:whitespace-nowrap">{{.Expires}}</td>
         <td class="hidden px-2 py-2 sm:px-3 text-right sm:table-cell">
-          {{/* The kill switch had a route and no control, so it was curl-only,
-               while the table below already rendered a "revoked" badge for a
-               state the UI could not produce. Same key expression as the
-               loader: the header is the only way a browser can authenticate. */}}
+          {{/* Same key expression as the loader: a header is the only way the browser can authenticate. */}}
           {{if not (or .RevokedAt .Expired)}}
           <div class="flex items-center justify-end gap-3">{{template "link/rowactions" .}}</div>
           {{end}}
@@ -330,8 +293,7 @@
 {{end}}
 {{end}}
 
-{{/* A live row's controls, rendered twice: display:none hides whichever copy
-     the breakpoint does not show, from assistive tech as well. */}}
+{{/* A live row's controls, rendered twice; display:none hides the unused copy from assistive tech too. */}}
 {{define "link/rowactions"}}
 <button type="button" class="btn-copy" data-copy="{{.Short}}">Copy</button>
 <button type="button" class="text-xs text-danger hover:underline"
@@ -342,10 +304,7 @@
 </button>
 {{end}}
 
-{{/* Revoke confirmation. Its own fragment because reusing link/created gave a
-     ZERO-LENGTH body: that template is wrapped in {{with .Created}}, which
-     shortRevoke never sets, so an htmx revoke returned 200 with nothing in it
-     and the page looked like the click had done nothing. */}}
+{{/* Not link/created: that sits in {{with .Created}}, which revoke never sets, so it renders nothing. */}}
 {{define "link/revoked"}}
 {{with .Revoked}}
 <div class="rounded-lg border border-warn bg-surface p-4" tabindex="-1" data-autofocus>
@@ -358,8 +317,7 @@
 {{end}}
 {{end}}
 
-{{/* One page for never-existed, expired and revoked: which it was is exactly
-     what it must not say. No sub-nav: whoever lands here came for a link. */}}
+{{/* One page for never-existed, expired and revoked: which it was is what it must not say. */}}
 {{define "link/gone"}}
 <!DOCTYPE html>
 <html lang="en">

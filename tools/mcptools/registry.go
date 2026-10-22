@@ -31,8 +31,6 @@ type toolSpec struct {
 	breaker  platform.Limiter // a budget every client shares; its refusal reads as busy
 	cap      *platform.Cap
 	weight   func(json.RawMessage) int64 // of cap, from arguments not yet validated; nil weighs 1
-	narrow   string                      // how to ask for less, when a result is over the hard cap
-	whole    bool                        // no third-party text, so no string is cut
 	add      func(*mcp.Server, *mcp.Tool)
 }
 
@@ -71,18 +69,15 @@ func object(v any) (map[string]any, error) {
 	return m, nil
 }
 
-type toolset struct {
-	name, title, host string
-	credits           []string
-}
+type toolset struct{ name, title, host string }
 
 var toolsets = []toolset{
-	{"ip", "IP Tools", "ip", []string{platform.CreditIP2Location, platform.CreditSpamhaus, platform.CreditShodan}},
-	{"dns", "DNS Tools", "dns", []string{platform.CreditIP2Location, platform.CreditSpamhaus, platform.CreditCrtSh, platform.CreditRDAP}},
-	{"link", "Link Tools", "link", nil},
-	{"cipher", "Cipher Tools", "cipher", nil},
-	{"botcheck", "Bot check", "botcheck", []string{platform.CreditIP2Location, platform.CreditSpamhaus, platform.CreditShodan}},
-	{"site", "corpberry.com", "", nil},
+	{"ip", "IP Tools", "ip"},
+	{"dns", "DNS Tools", "dns"},
+	{"link", "Link Tools", "link"},
+	{"cipher", "Cipher Tools", "cipher"},
+	{"botcheck", "Bot check", "botcheck"},
+	{"site", "corpberry.com", ""},
 }
 
 const ownerEndpoint = "owner"

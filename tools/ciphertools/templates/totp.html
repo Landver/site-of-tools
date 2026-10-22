@@ -102,8 +102,7 @@
     <button type="button" class="btn-copy" data-copy="{{.Code}}">Copy</button>
   </div>
   {{if eq .Type "totp"}}
-  {{/* Counts to a wall-clock deadline, so a throttled tab is right once seen; at zero the live form re-runs.
-       It starts from the result's integer, never a form value. */}}
+  {{/* Wall-clock deadline, so a throttled tab stays right; seeded from an integer, never a form value. */}}
   <p class="mt-2 text-sm text-muted"
      x-data="{ left: {{.Remaining}}, end: 0, timer: 0,
                init() {

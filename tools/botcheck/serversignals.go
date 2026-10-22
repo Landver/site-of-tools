@@ -19,8 +19,6 @@ type HTTPSignals struct {
 	SecCHUA         string `json:"sec_ch_ua,omitempty" jsonschema:"Sec-CH-UA"`
 	SecCHUAPlatform string `json:"sec_ch_ua_platform,omitempty" jsonschema:"Sec-CH-UA-Platform"`
 	SecFetchMode    string `json:"sec_fetch_mode,omitempty" jsonschema:"Sec-Fetch-Mode"`
-	// No rule reads it (Safari never sends it), so no caller is asked for it.
-	UpgradeInsecureRequests string `json:"-"`
 }
 
 // AddHTTPSignals marks the headers supplied, so an empty one is evidence, not a skip.
@@ -33,7 +31,6 @@ func AddHTTPSignals(sig *Signals, h HTTPSignals) {
 	sig.SecCHUA = h.SecCHUA
 	sig.SecCHUAPlatform = h.SecCHUAPlatform
 	sig.SecFetchMode = h.SecFetchMode
-	sig.HTTPUpgradeInsecureRequests = h.UpgradeInsecureRequests
 }
 
 // AddIPSignals fills sig's IP half, returning the lookup or nil; zero sig.Now skips the tz checks.

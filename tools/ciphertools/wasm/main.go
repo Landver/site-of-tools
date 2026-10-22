@@ -1,7 +1,6 @@
 //go:build js && wasm
 
-// Command wasm is cipher.corpberry.com's in-browser engine (make wasm), hosted by cipher-worker.js. Its
-// cipherRun(op, fields, files) renders with the server's own templates, so there is nothing to drift.
+// Command wasm is cipher.corpberry.com's in-browser engine; cipherRun renders with the server's own templates.
 package main
 
 import (

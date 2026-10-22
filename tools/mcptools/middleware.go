@@ -15,36 +15,16 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// codeRefused answers a message turned away; MCP defines no code for one.
-const codeRefused = -32000
-
-// A record carries the outcome, never the arguments, result or error text: cipher errors quote their input.
-type outcome struct {
-	name   string
-	status int
-}
-
-var (
-	outcomeOK        = outcome{"ok", http.StatusOK}
-	outcomeToolError = outcome{"tool_error", http.StatusUnprocessableEntity}
-	outcomeError     = outcome{"error", http.StatusBadRequest}
-	outcomeLimited   = outcome{"limited", http.StatusTooManyRequests}
-	outcomeBusy      = outcome{"busy", http.StatusServiceUnavailable}
-	outcomeTimeout   = outcome{"timeout", http.StatusGatewayTimeout}
-	outcomeCancelled = outcome{"cancelled", 499}
-	outcomeInternal  = outcome{"internal", http.StatusInternalServerError}
-	outcomePanic     = outcome{"panic", http.StatusInternalServerError}
-)
+const statusCancelled = 499 // nginx's: the client hung up
 
 type calls struct {
-	protocol platform.Limiter // every message that isn't a tools/call
-	reqlog   *platform.RequestLog
-	log      *slog.Logger
+	reqlog *platform.RequestLog
+	log    *slog.Logger
 }
 
 // The SDK has no recover: a panicking tool would take every host down.
 func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middleware {
-	protocol := &toolSpec{deadline: quickDeadline, limiter: m.protocol}
+	protocol := &toolSpec{deadline: quickDeadline}
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (res mcp.Result, err error) {
 			start := time.Now()
@@ -61,41 +41,41 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 					call.Params.Arguments = nil
 				}
 			}
-			got, size := outcomeOK, 0
+			got, size := http.StatusOK, 0
 			defer func() {
 				if p := recover(); p != nil {
 					m.log.Error("mcp: panic", "uri", path+"#"+name, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
-					got = outcomePanic
-					res, err = refuse(call, jsonrpc.CodeInternalError, "Internal error; it has been logged.")
+					got = http.StatusInternalServerError
+					res, err = refuse(call, "Internal error; it has been logged.")
 				}
 				m.record(who, path+"#"+name, got, size, time.Since(start), req)
 			}()
 
 			ctx, cancel := context.WithTimeout(ctx, spec.deadline)
 			defer cancel()
-			// The SDK cancels only 2026-07-28 requests when the client goes.
+			// The SDK doesn't cancel a call when its client hangs up.
 			defer context.AfterFunc(who.http, cancel)()
-			if !platform.AllowKey(spec.limiter, who.key) {
-				got = outcomeLimited
-				return refuse(call, codeRefused, platform.LimitedMessage)
+			if spec != protocol && !platform.AllowKey(spec.limiter, who.ip) {
+				got = http.StatusTooManyRequests
+				return refuse(call, platform.LimitedMessage)
 			}
-			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.key) {
-				got = outcomeBusy
-				return refuse(call, codeRefused, platform.BusyMessage)
+			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.ip) {
+				got = http.StatusServiceUnavailable
+				return refuse(call, platform.BusyMessage)
 			}
 			w := int64(1)
 			if spec.weight != nil {
 				w = spec.weight(call.Params.Arguments)
 			}
-			if !spec.cap.TryAcquire(who.key, w) {
-				got = outcomeBusy
-				return refuse(call, codeRefused, platform.BusyMessage)
+			if !spec.cap.TryAcquire(who.ip, w) {
+				got = http.StatusServiceUnavailable
+				return refuse(call, platform.BusyMessage)
 			}
-			defer spec.cap.Release(who.key, w)
+			defer spec.cap.Release(who.ip, w)
 
 			res, err = next(ctx, method, req)
 			if err != nil {
-				got = outcomeError
+				got = http.StatusBadRequest
 				return res, err
 			}
 			r, ok := res.(*mcp.CallToolResult)
@@ -103,22 +83,21 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				return res, err
 			}
 			if r.IsError {
-				got = outcomeToolError
 				switch {
 				case errors.Is(ctx.Err(), context.DeadlineExceeded):
-					got, r = outcomeTimeout, errorResult(fmt.Sprintf("Timed out after %s. Try again, or ask for less.", spec.deadline))
+					got, r = http.StatusGatewayTimeout, errorResult(fmt.Sprintf("Timed out after %s. Try again, or ask for less.", spec.deadline))
 				case ctx.Err() != nil:
-					got = outcomeCancelled
+					got = statusCancelled
 				}
 			}
-			out, n, serr := sanitize(r, spec.narrow, spec.whole)
+			out, n, serr := sanitize(r)
 			if serr != nil {
 				m.log.Error("mcp: unusable tool result", "uri", path+"#"+name, "error", serr.Error())
-				got = outcomeInternal
-				return refuse(call, jsonrpc.CodeInternalError, "Internal error; it has been logged.")
+				got = http.StatusInternalServerError
+				return refuse(call, "Internal error; it has been logged.")
 			}
-			if out.IsError && got == outcomeOK {
-				got = outcomeToolError
+			if out.IsError && got == http.StatusOK {
+				got = http.StatusUnprocessableEntity
 			}
 			size = n
 			return out, nil
@@ -127,15 +106,16 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 }
 
 // A call is refused with an isError result, which the model can act on.
-func refuse(call *mcp.CallToolRequest, code int64, msg string) (mcp.Result, error) {
+func refuse(call *mcp.CallToolRequest, msg string) (mcp.Result, error) {
 	if call != nil {
 		return errorResult(msg), nil
 	}
-	return nil, &jsonrpc.Error{Code: code, Message: msg}
+	return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msg}
 }
 
-// The request log skips /mcp: each message is recorded here instead.
-func (m *calls) record(who *caller, uri string, o outcome, size int, d time.Duration, req mcp.Request) {
+// The request log skips /mcp: each message is recorded here instead, never with
+// its arguments, result or error text: cipher errors quote their input.
+func (m *calls) record(who *caller, uri string, status, size int, d time.Duration, req mcp.Request) {
 	client := who.userAgent
 	if ci, ok := req.(interface{ ClientInfo() *mcp.Implementation }); ok {
 		if info := ci.ClientInfo(); info != nil && info.Name != "" {
@@ -147,8 +127,7 @@ func (m *calls) record(who *caller, uri string, o outcome, size int, d time.Dura
 	}
 	client = platform.Clip(client, 200)
 	m.log.LogAttrs(context.Background(), slog.LevelInfo, "MCP",
-		slog.String("outcome", o.name),
-		slog.Int("status", o.status),
+		slog.Int("status", status),
 		slog.String("uri", uri),
 		slog.Duration("latency", d),
 		slog.String("host", who.host),
@@ -160,7 +139,7 @@ func (m *calls) record(who *caller, uri string, o outcome, size int, d time.Dura
 		Method:    "MCP",
 		Host:      who.host,
 		URI:       uri,
-		Status:    o.status,
+		Status:    status,
 		RemoteIP:  who.ip,
 		UserAgent: client,
 		LatencyMS: d.Milliseconds(),

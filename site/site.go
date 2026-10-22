@@ -1,5 +1,4 @@
-// Package site: serves apex host corpberry.com — portfolio landing page,
-// tools index, and the blog (posts embedded from site/posts/).
+// Package site serves the apex corpberry.com: landing page, tools index and blog.
 package site
 
 import (
@@ -11,10 +10,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Tools is single tool catalog, shared by apex tools index + header's Tools
-// dropdown (wired as template func in main). Add new tools here -> both index
-// + nav pick them up. Keep A→Z by Name: slice order = render order in both,
-// and a site test fails on an out-of-order entry.
+// Tools is the one catalog for the apex index and header dropdown; keep it A→Z (a test enforces it).
 func Tools(cfg platform.Config) []platform.Tool {
 	return []platform.Tool{
 		{
@@ -50,10 +46,7 @@ func Tools(cfg platform.Config) []platform.Tool {
 	}
 }
 
-// Register wires apex routes onto e. blogFS = posts filesystem (embedded in
-// prod, disk dir in dev — caller builds it via platform.SubFS). A malformed
-// post fails Register in prod → main treats it as fatal, refusing to boot a
-// broken blog.
+// Register wires the apex routes; in prod a malformed post fails it, and main refuses to boot.
 func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) (*Blog, error) {
 	blog, err := NewBlog(blogFS, cfg.IsDev())
 	if err != nil {
@@ -71,9 +64,7 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) (*Blog, error) {
 	})
 
 	blog.registerRoutes(e, cfg.URL(""))
-	// Apex sitemap is dynamic (tracks published posts), so it's wired here
-	// where the Blog lives. The tool subdomains' page lists are static and
-	// get wired in main.go alongside the vhost map.
+	// The apex sitemap tracks posts, so it's wired here; the subdomains' static lists are wired in main.go.
 	platform.RegisterSEO(e, cfg.URL(""), blog.sitemapPages)
 	return blog, nil
 }

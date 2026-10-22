@@ -14,10 +14,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestPubliclyRoutable is the highest-value test in the suite: it is the whole
-// address half of the SSRF defence, and it needs no server, no network and no
-// fixtures. Every entry is a range that is either reachable inside a datacentre
-// or a way to smuggle an IPv4 destination past an IPv6 check.
+// TestPubliclyRoutable covers the SSRF defence's whole address half, with no server, network or fixtures.
 func TestPubliclyRoutable(t *testing.T) {
 	blocked := []struct{ addr, why string }{
 		{"127.0.0.1", "loopback"},
@@ -75,10 +72,7 @@ func TestPubliclyRoutable(t *testing.T) {
 	}
 }
 
-// TestEgressGuardPorts: the port allowlist is a first-class control, not an
-// anti-scanning nicety. Without it, a public-but-firewalled service (the Mongo
-// host is reached by a public name on an IP allowlist) is dialled from the one
-// source address its firewall trusts.
+// TestEgressGuardPorts: without the allowlist a firewalled public host (Mongo) is dialled from a trusted IP.
 func TestEgressGuardPorts(t *testing.T) {
 	g := platform.NewEgressGuard([]string{"80", "443"}, nil)
 	for _, p := range []string{"80", "443"} {
@@ -93,12 +87,9 @@ func TestEgressGuardPorts(t *testing.T) {
 	}
 }
 
-// TestEgressGuardHosts: names refused before resolution, plus IP literals
-// judged immediately so the caller gets a reason rather than a dial error.
+// TestEgressGuardHosts: names refused before resolution; IP literals judged at once for a clear reason.
 func TestEgressGuardHosts(t *testing.T) {
-	// The mongodb:// form is the one that used to break: it carries credentials
-	// and a port, so SplitHostPort rejects it and a TrimPrefix chain that only
-	// knows http(s) leaves it whole — a deny entry that silently matches nothing.
+	// A mongodb:// URI with credentials and a port defeats SplitHostPort and an http(s)-only trim.
 	g := platform.NewEgressGuard([]string{"80", "443"}, []string{
 		"link.corpberry.com",
 		"https://mongo.example.com:27017",
@@ -197,9 +188,7 @@ func TestNilGuardFailsClosed(t *testing.T) {
 	}
 }
 
-// TestRateLimitKey: a bare IP is not a usable key over IPv6, where an ordinary
-// client holds a /64 — 2^64 addresses, so a per-address bucket is no limit at
-// all and each distinct address also allocates memory for the expiry window.
+// TestRateLimitKey: an IPv6 client holds a /64, so a per-address bucket is no limit and grows memory.
 func TestRateLimitKey(t *testing.T) {
 	if got := platform.RateLimitKey("8.8.8.8"); got != "8.8.8.8" {
 		t.Errorf("IPv4 key = %q, want the full address", got)
@@ -234,14 +223,8 @@ func TestRateLimitKey(t *testing.T) {
 	}
 }
 
-// TestEgressGuardControl covers the hook itself, not the predicates underneath
-// it. PubliclyRoutable can be perfect and the guard still useless: Control is
-// where the port allowlist, the self-connection check and the routable check
-// are actually composed, and it is the last thing to run before the kernel
-// connects. It is also the only one of these that the resolver calls with a
-// literal address, which is what makes DNS rebinding a non-issue — so a
-// hostname arriving here means something is wrong and must be refused, never
-// resolved a second time.
+// TestEgressGuardControl: Control composes the port, self-connection and routable checks and gets a
+// literal address from the resolver, so a hostname arriving here is refused, never resolved again.
 func TestEgressGuardControl(t *testing.T) {
 	g := platform.NewEgressGuard([]string{"80", "443"}, nil)
 
@@ -295,8 +278,7 @@ func TestEgressGuardControl(t *testing.T) {
 		})
 	}
 
-	// A nil guard reaching Control must refuse rather than panic or permit: nil
-	// is how "this feature is not configured" propagates through the wiring.
+	// nil is how "feature not configured" propagates, so Control must refuse rather than panic or permit.
 	t.Run("nil guard", func(t *testing.T) {
 		var nilGuard *platform.EgressGuard
 		if err := nilGuard.Control("tcp", "93.184.216.34:443", nil); err == nil {
@@ -304,24 +286,12 @@ func TestEgressGuardControl(t *testing.T) {
 		}
 	})
 
-	// syscall.RawConn is ignored by this implementation, and the signature has
-	// to stay assignable to net.Dialer.Control or the whole gate silently
-	// detaches. Assigning it here is the compile-time half of that check.
+	// Compile-time check: if Control stops being assignable to net.Dialer.Control, the gate detaches.
 	var _ func(string, string, syscall.RawConn) error = g.Control
 }
 
-// TestGuardedDialerRefusesLoopback is the end-to-end assertion: a real dial, to
-// a real listening server, through the dialer the features actually use.
-//
-// Everything above tests the guard's opinion. This tests that the opinion is
-// WIRED — that Control is still attached to the Dialer, and to the DialContext
-// an http.Transport is built from. Deleting `Control: g.Control` from Dialer
-// leaves every predicate test green and the tool wide open, so this is the one
-// that has to fail.
-//
-// The server's own port is put on the allowlist on purpose: it removes the port
-// check as an explanation, leaving the address check as the only thing that can
-// refuse the connection.
+// TestGuardedDialerRefusesLoopback proves Control is wired: deleting it from Dialer leaves every other test
+// green. The server's port is allowlisted so only the address check can refuse.
 func TestGuardedDialerRefusesLoopback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -356,10 +326,7 @@ func TestGuardedDialerRefusesLoopback(t *testing.T) {
 		}
 	})
 
-	// The shape a feature actually uses: a transport whose DialContext is the
-	// guard's. DisableKeepAlives mirrors the production requirement documented
-	// on EgressGuard (a pooled connection would answer a second, unchecked
-	// authority).
+	// The shape features use: the guard's DialContext with DisableKeepAlives, as EgressGuard requires.
 	t.Run("http.Client", func(t *testing.T) {
 		client := &http.Client{Transport: &http.Transport{
 			DialContext:       g.DialContext(2 * time.Second),

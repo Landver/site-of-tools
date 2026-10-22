@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-// Config: all runtime config, loaded from env vars (12-factor). Dev loads
-// .env at repo root first.
+// Config is all runtime config, read from env vars; dev loads the repo-root .env first.
 type Config struct {
 	Env        string // "dev" | "prod"
 	ListenAddr string // e.g. ":8080"
@@ -24,31 +23,20 @@ type Config struct {
 	// IP2Proxy PX12 (proxy/VPN/threat). Optional — empty → proxy section disabled.
 	PX12 string
 
-	// Shodan InternetDB base URL (free, keyless open-port lookups). Defaults to
-	// live endpoint; blank disables enrichment (NewShodan → nil no-op).
+	// Shodan InternetDB base URL (free, keyless open-port lookups); blank disables enrichment.
 	ShodanURL string
 
-	// RDAP bootstrap + Certificate Transparency endpoints for the DNS tool's
-	// domain page. Both free and keyless; blank disables that lookup.
+	// RDAP bootstrap + Certificate Transparency endpoints for the DNS tool; blank disables that lookup.
 	RDAPURL  string
 	CrtShURL string
 
-	// Short-link creation API key (linktools). Empty disables the write path
-	// AND the console — the redirect path /s/:code stays public. Deliberately
-	// fail-closed: an unset key means nobody can create links, never that
-	// anybody can. An open shortener gets the whole domain blocklisted
-	// (tools/linktools/docs/04-short-links.md §1).
+	// LinkAPIKey is fail-closed: empty disables link creation, since an open shortener gets blocklisted.
 	LinkAPIKey string
 
 	// MCPOwnerKey gates /mcp/owner; apart from LinkAPIKey so each rotates alone.
 	MCPOwnerKey string
 
-	// MongoDB conn. Optional — empty MongoURI disables Mongo entirely
-	// (OpenMongo returns ErrMongoUnavailable, callers degrade — same as
-	// missing-BIN path). MongoDatabase = app DB name on shared server,
-	// defaults to DefaultMongoDatabase ("site-of-tools"). Used by IP-tool
-	// lookup history + request-log corpus; empty MongoURI → both no-op, app
-	// still boots (ARCHITECTURE §10).
+	// MongoURI is optional: empty disables lookup history and the request log, and the app still boots.
 	MongoURI      string
 	MongoDatabase string
 
@@ -60,20 +48,19 @@ type Config struct {
 func Load() Config {
 	loadDotEnv()
 	return Config{
-		Env:        getenv("APP_ENV", "dev"),
-		ListenAddr: getenv("LISTEN_ADDR", ":8080"),
-		BaseDomain: getenv("BASE_DOMAIN", "localhost"),
-		DB11V4:     os.Getenv("IP2LOCATION_DB11_V4"),
-		DB11V6:     os.Getenv("IP2LOCATION_DB11_V6"),
-		ASNV4:      os.Getenv("IP2LOCATION_ASN_V4"),
-		ASNV6:      os.Getenv("IP2LOCATION_ASN_V6"),
-		PX12:       os.Getenv("IP2PROXY_PX12"),
-		ShodanURL:  getenv("SHODAN_INTERNETDB_URL", "https://internetdb.shodan.io"),
-		RDAPURL:    getenv("RDAP_URL", "https://rdap.org"),
-		CrtShURL:   getenv("CRTSH_URL", "https://crt.sh"),
-		LinkAPIKey: os.Getenv("LINK_API_KEY"),
-		MongoURI:   os.Getenv("MONGODB_URI"),
-		// Default app DB name → only MONGODB_URI mandatory to enable Mongo.
+		Env:             getenv("APP_ENV", "dev"),
+		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
+		BaseDomain:      getenv("BASE_DOMAIN", "localhost"),
+		DB11V4:          os.Getenv("IP2LOCATION_DB11_V4"),
+		DB11V6:          os.Getenv("IP2LOCATION_DB11_V6"),
+		ASNV4:           os.Getenv("IP2LOCATION_ASN_V4"),
+		ASNV6:           os.Getenv("IP2LOCATION_ASN_V6"),
+		PX12:            os.Getenv("IP2PROXY_PX12"),
+		ShodanURL:       getenv("SHODAN_INTERNETDB_URL", "https://internetdb.shodan.io"),
+		RDAPURL:         getenv("RDAP_URL", "https://rdap.org"),
+		CrtShURL:        getenv("CRTSH_URL", "https://crt.sh"),
+		LinkAPIKey:      os.Getenv("LINK_API_KEY"),
+		MongoURI:        os.Getenv("MONGODB_URI"),
 		MongoDatabase:   getenv("MONGODB_DATABASE", DefaultMongoDatabase),
 		EgressDenyAddrs: splitList(os.Getenv("EGRESS_DENY_ADDRS")),
 		MCPOwnerKey:     os.Getenv("MCP_OWNER_KEY"),
@@ -92,9 +79,7 @@ func splitList(s string) []string {
 
 func (c Config) IsDev() bool { return c.Env != "prod" }
 
-// VHost builds Host key for echo.NewVirtualHostHandler. sub == "" = apex. Dev
-// browser sends port in Host header (e.g. "ip.localhost:8080") → included;
-// prod nginx forwards bare host.
+// VHost builds the echo.NewVirtualHostHandler key ("" = apex); dev Host headers carry the port, prod's don't.
 func (c Config) VHost(sub string) string {
 	host := c.BaseDomain
 	if sub != "" {
@@ -106,7 +91,7 @@ func (c Config) VHost(sub string) string {
 	return host
 }
 
-// URL returns full origin (scheme + host) for subdomain, e.g. for links.
+// URL returns the subdomain's full origin (scheme + host).
 func (c Config) URL(sub string) string {
 	scheme := "https://"
 	if c.IsDev() {
@@ -127,10 +112,7 @@ func getenv(k, def string) string {
 	return cmp.Or(os.Getenv(k), def)
 }
 
-// loadDotEnv reads KEY=VALUE lines from ./.env → applies to process env,
-// never overriding var already set. No dependency; dev convenience only.
-// Parse/merge split out (parseDotEnv/mergeEnv) → both unit-testable w/o real
-// .env file or ambient env.
+// loadDotEnv applies ./.env to the process env; a dev convenience.
 func loadDotEnv() {
 	f, err := os.Open(".env")
 	if err != nil {
@@ -140,9 +122,7 @@ func loadDotEnv() {
 	mergeEnv(parseDotEnv(f))
 }
 
-// parseDotEnv parses KEY=VALUE lines from r into map. Blank lines, "#"
-// comments, lines w/o "=" skipped; key+value whitespace-trimmed (value may
-// contain "="). Pure — no env access → directly unit-testable.
+// parseDotEnv skips blank lines, "#" comments and lines without "="; a value may itself contain "=".
 func parseDotEnv(r io.Reader) map[string]string {
 	out := map[string]string{}
 	sc := bufio.NewScanner(r)
@@ -160,9 +140,7 @@ func parseDotEnv(r io.Reader) map[string]string {
 	return out
 }
 
-// mergeEnv sets each pair in process env, skipping keys already present →
-// real env always wins over .env (& .env.prod layered on top in prod).
-// Split from loadDotEnv so no-override rule testable.
+// mergeEnv skips keys already set, so the real env (and .env.prod in prod) always wins over .env.
 func mergeEnv(pairs map[string]string) {
 	for k, v := range pairs {
 		if _, exists := os.LookupEnv(k); !exists {

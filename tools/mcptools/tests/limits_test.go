@@ -16,8 +16,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// TestOneBudgetWhicheverDoor: a budget spent over REST is spent over MCP, an
-// IPv6 client's by its /64; a tool on another budget still answers.
+// TestOneBudgetWhicheverDoor: a budget spent over REST is spent over MCP, an IPv6 client's by its /64.
 func TestOneBudgetWhicheverDoor(t *testing.T) {
 	resolve := func(set func(*linktools.Limits)) stackOpts { l := roomyLink(); set(l); return stackOpts{linkLim: l} }
 	type rest struct{ host, method, target, body string }
@@ -156,20 +155,20 @@ func TestDomainInfoHasItsOwnCap(t *testing.T) {
 	}
 }
 
-// TestListFloodIsLimited: every message counts, not only tool calls.
+// TestListFloodIsLimited: every request counts, not only tool calls.
 func TestListFloodIsLimited(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	hdr := mcpHeaders(map[string]string{"Mcp-Protocol-Version": "2025-11-25", "CF-Connecting-IP": "198.51.100.30"})
-	for i := range 60 {
+	for i := range 400 {
 		rec := s.do(http.MethodPost, "/mcp", listBody, hdr)
 		if strings.Contains(rec.Body.String(), "Too many requests") {
-			if i < 20 {
-				t.Errorf("tools/list refused after %d, inside its burst of 20", i)
+			if i < 100 {
+				t.Errorf("tools/list refused after %d, inside the gate's burst of 100", i)
 			}
 			return
 		}
 	}
-	t.Error("60 tools/list in a row were never limited")
+	t.Error("400 tools/list in a row were never limited")
 }
 
 type blockingChecker struct{ ended chan error }
@@ -180,8 +179,7 @@ func (b blockingChecker) Check(ctx context.Context, _ string) (iptools.BlockLook
 	return iptools.BlockLookup{}, ctx.Err()
 }
 
-// TestHangUpCancelsTheCall: the SDK cancels only 2026-07-28 requests; a
-// 2025-11-25 client hanging up must stop the work too.
+// TestHangUpCancelsTheCall: the SDK cancels no call when its client hangs up, so the middleware must.
 func TestHangUpCancelsTheCall(t *testing.T) {
 	chk := blockingChecker{ended: make(chan error, 1)}
 	s := newStack(t, stackOpts{chk: chk})

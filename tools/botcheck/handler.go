@@ -10,7 +10,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// handler holds transport-layer deps for botcheck.corpberry.com.
 type handler struct {
 	svc       Looker
 	corpus    *Corpus         // nil-safe: Mongo disabled → fingerprint corpus no-ops
@@ -29,10 +28,6 @@ func NewLimits() *Limits {
 }
 
 // Register wires botcheck.corpberry.com routes onto e.
-//
-//	GET  /                  check page (browser) — or server-only score (curl/JSON)
-//	POST /check             accepts collected client fingerprint, returns full score
-//	GET  /botcheck-sw.js    tiny Service Worker collector registers (G03)
 func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
@@ -56,14 +51,8 @@ func refuse(c *echo.Context, code int, msg string) error {
 	return c.Render(code, "botcheck/result", map[string]any{"Report": Report{Verdict: "error", Checks: []Check{{Label: msg}}}})
 }
 
-// swScript: Service Worker source collector registers as 4th JS context for
-// cross-context checks (G03) plus G14 additions: reports its
-// navigator.webdriver (top-frame-only webdriver patch forgets this context)
-// & runs same CDP Error.stack trap worker probe uses. Answers one
-// message (over posted MessageChannel port), has NO fetch handler —
-// deliberate, so can never intercept or modify any request on origin.
-// Served as constant: reads nothing from req, never changes.
-// Trap must NOT touch `.stack` itself, or it'd self-trigger.
+// swScript has no fetch handler on purpose, so it can never intercept a request on the origin.
+// The CDP trap must not read .stack itself, or it would trigger itself.
 const swScript = `self.onmessage=(ev)=>{` +
 	`const p=ev.ports&&ev.ports[0];` +
 	`if(p){` +
@@ -80,17 +69,12 @@ const swScript = `self.onmessage=(ev)=>{` +
 	`cdp:c` +
 	`});}};`
 
-// serviceWorker serves swScript w/ JS MIME type (Service Worker registration
-// refuses anything else). Sits at root → registration gets widest default
-// scope; script never uses it.
+// Service Worker registration refuses any non-JS MIME type; serving from root gives the widest scope.
 func (h *handler) serviceWorker(c *echo.Context) error {
 	return c.Blob(http.StatusOK, "application/javascript", []byte(swScript))
 }
 
-// index serves page shell to browsers; vendored collector then gathers
-// client signals & POSTs them to /check. Non-browser caller (curl, API
-// client) gets immediate JSON score built from server-only signals — same
-// content-negotiation contract as IP tool.
+// index: browsers get the page shell (the collector POSTs to /check); other clients get a JSON score.
 func (h *handler) index(c *echo.Context) error {
 	if platform.WantsJSON(c) {
 		if !h.lim.CheckCap.TryAcquire(c.RealIP(), 1) {
@@ -101,14 +85,9 @@ func (h *handler) index(c *echo.Context) error {
 		h.addServerSignals(c, &sig)
 		return c.JSON(http.StatusOK, Evaluate(sig))
 	}
-	// Opt in to Sec-CH-UA-Platform → follow-up POST /check reliably carries
-	// header side of platform cross-check (spoofing client keeps header +
-	// JS userAgentData.platform out of sync). Low-entropy hint Chromium already
-	// sends by default on secure origins; explicit opt-in makes dependency
-	// clear. Request only what scorer reads — nothing more.
+	// Opt in so the follow-up POST /check carries Sec-CH-UA-Platform for the platform cross-check.
 	c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform")
-	// Attribution: IP2Location LITE license requires credit on any page that
-	// uses or mentions data — botcheck's IP reputation checks do (see iptools.Looker).
+	// The IP2Location LITE licence requires credit on any page that uses its data.
 	return c.Render(http.StatusOK, "botcheck/index", map[string]any{
 		"Title":               "Bot check",
 		"Desc":                "Open-source bot-detection self-test: see which of 68 signals give your browser away. Client fingerprint, HTTP headers, and IP reputation, cross-checked. Every signal shown, nothing blocked.",
@@ -117,11 +96,7 @@ func (h *handler) index(c *echo.Context) error {
 	})
 }
 
-// check fuses POSTed client fingerprint w/ server-observed signals, scores
-// it, & replies w/ JSON (API/CLI) or HTML results fragment (browser). Has
-// no full-page representation: page served by index & this only ever
-// fills #result slot, so — unlike IP tool's show — never renders a page
-// template even when Accept says text/html.
+// check only ever fills #result, so unlike the IP tool's show it never renders a full page.
 func (h *handler) check(c *echo.Context) error {
 	var sig Signals // client half binds straight from JSON body (json tags on Signals)
 	if err := c.Bind(&sig); err != nil {
@@ -136,19 +111,13 @@ func (h *handler) check(c *echo.Context) error {
 	defer h.lim.CheckCap.Release(c.RealIP(), 1)
 	sig.ClientCollected = true
 	connNet := h.addServerSignals(c, &sig)
-	// G41/G42: fold fingerprint into rolling corpus, then count how many
-	// distinct IPs presented this exact one — scraping-farm tell. Best-effort:
-	// disabled corpus or Mongo error leaves FingerprintIPs 0 ("no corpus
-	// data"), fingerprint_reuse rule stays silent, score unchanged.
+	// Best-effort: a disabled corpus or Mongo error leaves the count at 0, which the rule reads as no data.
 	hash := sig.FingerprintHash()
 	_ = h.corpus.Record(c.Request().Context(), hash, c.RealIP())
 	if n, err := h.corpus.DistinctIPs(c.Request().Context(), hash); err == nil {
 		sig.FingerprintIPs = n
 	}
-	// G43: count how many distinct fingerprints this IP cycled through in
-	// churn window — fingerprint-rotation tell. Same best-effort contract:
-	// disabled corpus or Mongo error leaves FingerprintChurn 0 ("no corpus
-	// data"), ip_fingerprint_churn rule stays silent, score unchanged.
+	// Same best-effort contract for the per-IP churn count.
 	if n, err := h.corpus.DistinctHashesByIP(c.Request().Context(), c.RealIP(), churnWindow); err == nil {
 		sig.FingerprintChurn = n
 	}
@@ -172,20 +141,17 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnN
 
 func requestHeaders(r *http.Request) HTTPSignals {
 	return HTTPSignals{
-		UserAgent:               r.UserAgent(),
-		Accept:                  r.Header.Get("Accept"),
-		AcceptLanguage:          r.Header.Get("Accept-Language"),
-		AcceptEncoding:          r.Header.Get("Accept-Encoding"),
-		SecCHUA:                 r.Header.Get("Sec-CH-UA"),
-		SecCHUAPlatform:         r.Header.Get("Sec-CH-UA-Platform"),
-		SecFetchMode:            r.Header.Get("Sec-Fetch-Mode"),
-		UpgradeInsecureRequests: r.Header.Get("Upgrade-Insecure-Requests"),
+		UserAgent:       r.UserAgent(),
+		Accept:          r.Header.Get("Accept"),
+		AcceptLanguage:  r.Header.Get("Accept-Language"),
+		AcceptEncoding:  r.Header.Get("Accept-Encoding"),
+		SecCHUA:         r.Header.Get("Sec-CH-UA"),
+		SecCHUAPlatform: r.Header.Get("Sec-CH-UA-Platform"),
+		SecFetchMode:    r.Header.Get("Sec-Fetch-Mode"),
 	}
 }
 
-// SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
-// /check is POST-only and botcheck-sw.js is a service worker, so neither
-// belongs in a sitemap.
+// SitemapPages lists only /: /check is POST-only and botcheck-sw.js is a service worker.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{{Path: "/"}}, nil
 }

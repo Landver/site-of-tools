@@ -14,29 +14,30 @@ serves every subdomain), upstreams we are a guest of, the domain's reputation
 1. `Cache-Control: no-store` on every response: cipher results can be secrets.
 2. Unknown toolset or one with no tools, `/mcp/owner` unconfigured or browsed → 404.
 3. Browser `GET` → the landing page; other `GET`/`DELETE` → the SDK's 405.
-4. `Sec-Fetch-Site: cross-site` or `same-site` → 403, ahead of the owner key
-   so a page can't spend its visitors' key tries.
-5. `/mcp/owner`: the [owner key](#owner-key).
-6. All of `/mcp`, per address: 20/s, burst 100 → 429.
-7. Body over 1 MiB → 413; a JSON-RPC batch → 400 ([why](00-research.md#go-sdk-v180)).
+4. `Sec-Fetch-Site: cross-site` or `same-site` → 403.
+5. All of `/mcp`, per address: 20/s, burst 100 → 429.
+6. `/mcp/owner`: the [owner key](#owner-key).
+7. Body over 1 MiB → 413; a JSON-RPC batch → 400.
 8. A foreign `Origin` is served and logged (`mcp: foreign Origin`).
-9. Raw IP, rate-limit key, host, user agent and HTTP context into the context.
+9. Raw IP, host, user agent and HTTP context into the context.
 
 Echo's exact-Host vhost map stops DNS rebinding, so the SDK's localhost check
 (it would 403 dev's `mcp.localhost:8080`) is off. A page can't make a browser
 post here (anything but JSON gets 415; cross-origin JSON fails its preflight),
-so the spec's 403 for a foreign `Origin` waits for an allowlist ([why](00-research.md#clients)).
+so the spec's 403 for a foreign `Origin` waits for an allowlist: claude.ai's
+connectors call from Anthropic's cloud with an undocumented `Origin`, and Go's
+`CrossOriginProtection` would 403 any `Origin` that isn't the `Host`.
 
 ## Middleware
 
 `middleware.go`, per JSON-RPC message:
 
-1. `"arguments": null` is read as none ([SDK quirks](00-research.md#go-sdk-v180)).
+1. `"arguments": null` is read as none.
 2. `recover` → an "Internal error" result, stack logged without arguments.
-3. Deadline: 25 s IP, DNS and botcheck tools, 20 s `link_redirect_chain` and
-   owner tools, 15 s heavy cipher, 5 s the rest and other methods; a hang-up
-   cancels the call on any protocol version (`context.AfterFunc`).
-4. Rate: the tool's limiter; any other method, the protocol one (5/s, burst 20).
+3. Deadline: 25 s `ip_lookup`, DNS and botcheck tools, 20 s
+   `link_redirect_chain` and owner tools, 15 s heavy cipher, 5 s the rest and
+   other methods; a hang-up cancels the call (`context.AfterFunc`).
+4. Rate: the tool's limiter; any other method only the gate's per-address limit.
 5. Capacity: a budget all clients share, if any, then the cap; full → "Busy".
 6. The tool, then [sanitize](#untrusted-output) and [record](#logs-and-licences).
 
@@ -76,35 +77,32 @@ share their provider's addresses, so their users share budgets.
 
 ## Untrusted output
 
-`sanitize.go`, on every result: strings and keys cut at 2 KB with a
-`…[truncated N bytes]` marker, invisible characters (format, Tag block,
-variation selectors, DEL, C1, U+2028/9, Hangul fillers) shown as `\u{XXXX}`.
-Lists are never cut: a dropped nameserver can be the one that disagrees. Over
-80 KB → a tool error with the tool's hint for asking less. `whole` tools
-(cipher, `site_blog`, link tools reworking the caller's input) skip the 2 KB
-cut. The tracer and MTA-STS check clip third-party header values at the source.
+`sanitize.go`, on every result: invisible characters (format, Tag block,
+variation selectors, DEL, C1, U+2028/9, Hangul fillers) in strings and keys
+shown as `\u{XXXX}`. Neither lists nor strings are cut. A result over 80 KB
+becomes a tool error saying to ask for less, and error text is clipped at
+80 KB. The tracer and MTA-STS check clip third-party header values at the
+source.
 
 ## Owner key
 
 `/mcp/owner` needs short-link storage and `MCP_OWNER_KEY`: a second `Shortener`
 on the same store, rotated apart from `LINK_API_KEY`, serving only the three
 short-link tools. The key, as `X-Api-Key` or `Authorization: Bearer`, is
-compared as SHA-256 in constant time. No key → 403, costing no try; a wrong one
-spends one of the client's 5 tries (one back a second), then 429 before any
-compare. Both headers are deleted before the SDK, which copies headers into
+compared as SHA-256 in constant time; no key or a wrong one → 403, after the
+per-address limit, so guessing a 256-bit key gets nowhere. Both headers are deleted before the SDK, which copies headers into
 every handler. Configure it per user (`claude mcp add --scope user … --header
 "X-Api-Key: …"`), never in a committed `.mcp.json`.
 
 ## Logs and licences
 
 - Per message, a slog `MCP` line and a request-log record: host, URI
-  `/mcp/<endpoint>#<tool or method>`, outcome as status (`ok` 200,
-  `tool_error` 422, `error` 400, `limited` 429, `busy` 503, `timeout` 504,
-  `cancelled` 499, `internal`/`panic` 500), latency, bytes out, raw IP, client
-  name and version (else user agent). Never arguments, results or error text:
-  cipher errors quote their input. The HTTP-level Mongo log skips `/mcp`.
+  `/mcp/<endpoint>#<tool or method>`, status (200 ok, 422 tool error, 400
+  protocol error, 429 limited, 503 busy, 504 timeout, 499 hung up, 500
+  internal), latency, bytes out, raw IP, client name and version (else user
+  agent). Never arguments, results or error text: cipher errors quote their
+  input. The HTTP-level Mongo log skips `/mcp`.
 - Credits live once, in `platform/credits.go`, for the footer and for MCP
   results' `attribution` ([which tools](01-tool-catalog.md)): IP2Location
   LITE's notice word for word, Spamhaus's copyright line, Shodan's visible
-  credit (non-commercial use), crt.sh, rdap.org. The landing page names each
-  toolset's sources; its footer prints them in full.
+  credit (non-commercial use), crt.sh, rdap.org.

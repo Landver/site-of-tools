@@ -16,18 +16,12 @@
       many IPs. The check runs the moment this page loads.
     </p>
 
-    <!-- Controls first: button sits where other tools' form does → "run" up top,
-         results flow beneath. Vendored collector (no npm; shared/static/js/botcheck.js)
-         gathers client signals, POSTs to /check, swaps returned fragment into #result.
-         Plain fetch not htmx: fingerprint collection needs JS anyway → swap rides
-         along (rule #4). -->
+    <!-- Plain fetch, not htmx: botcheck.js needs JS to collect anyway, so it swaps #result itself. -->
     <div class="mt-6">
       <button type="button" onclick="runBotCheck()" class="btn-primary">Run again</button>
       <span id="botcheck-status" class="ml-2 text-sm text-faint"></span>
     </div>
 
-    <!-- Scope disclosure (G53): state plainly what verdict is/isn't built from →
-         reads as honest reference, not black box. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">What this checks, and what it doesn't</summary>
       <div class="mt-3 space-y-3 text-muted">
@@ -54,9 +48,6 @@
       </div>
     </details>
 
-    <!-- Docs sit right under button (mirrors IP-lookup / CIDR pages). Non-obvious
-         part: JSON/CLI interface → GET / negotiates content, plain curl gets
-         server-only score; POST /check scores fingerprint you supply. -->
     <details class="mt-4 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
       <div class="mt-3 space-y-3 text-muted">
@@ -73,7 +64,6 @@
       </div>
     </details>
 
-    <!-- Results land here — analyzing placeholder till collector's POST returns. -->
     <div id="result" class="mt-6" aria-live="polite">
       <div class="card">
         <div class="eyebrow">analyzing</div>

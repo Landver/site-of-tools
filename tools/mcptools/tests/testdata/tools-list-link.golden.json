@@ -291,7 +291,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Look up the tracking-parameter rules link_clean applies. param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; url returns what link_clean would do with each of that URL's parameters, and why; full: true returns the whole table (about 20 KB), as the JSON API serves it. With none of them it returns the table's version, scope and size. Pass at most one of param, url and full.",
+    "description": "Look up the tracking-parameter rules link_clean applies. param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; full: true returns the whole table (about 20 KB), as the JSON API serves it. With none of them it returns the table's version, scope and size. Pass param or full, not both.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -301,10 +301,6 @@
         },
         "param": {
           "description": "a parameter name, e.g. ref",
-          "type": "string"
-        },
-        "url": {
-          "description": "a URL whose parameters to judge",
           "type": "string"
         }
       },
@@ -320,7 +316,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Add or change a URL's UTM campaign tags. A tag you pass replaces the URL's own, an empty string removes it, and one you leave out is kept as it is. tags says where each tag came from (set, replaced or kept) and notes flag what trips analytics tools, such as capitals or a +. Example: url https://example.com/landing, utm_source newsletter, utm_medium email.",
+    "description": "Add or change a URL's UTM campaign tags. A tag you pass replaces the URL's own, and one you leave out is kept as it is. tags says where each tag came from (set, replaced or kept) and notes flag what trips analytics tools, such as capitals or a +. Example: url https://example.com/landing, utm_source newsletter, utm_medium email.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

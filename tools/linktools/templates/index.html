@@ -14,11 +14,7 @@
       lists split, double-encoding peeled layer by layer. Nothing is fetched.
     </p>
 
-    {{/* GET-shaped, so every result is a shareable URL — the one pattern every
-         tool surveyed agrees on. The trade this makes is stated below the result
-         rather than buried: hosted parsers are client-side and keep the URL on
-         your machine, and we don't. See docs/06 §5. replace-url, not push-url:
-         a live form would add a history step per pause. */}}
+    {{/* GET, so results are shareable URLs; replace-url, as push-url adds a history step per pause. */}}
     <form action="/" hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
           class="mt-6 flex flex-wrap gap-2">

@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Download the IP2Location LITE databases into tools/iptools/assets/.
-# Requires IP2LOCATION_DOWNLOAD_TOKEN in .env. Files that already exist are
-# skipped. Downloads are ZIPs containing a .BIN.
-#
-# NOTE: verify the `file=` product codes against your IP2Location account's
-# download page if a download 404s — LITE product codes occasionally change.
+# If a download 404s, re-check its product code on your IP2Location account's download page.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -19,8 +14,7 @@ targets=(
   "tools/iptools/assets/ipv6|DB11LITEBINIPV6|IP2LOCATION-LITE-DB11.IPV6.BIN"
   "tools/iptools/assets/asn|DBASNLITEBIN|IP2LOCATION-LITE-ASN.BIN"
   "tools/iptools/assets/asn|DBASNLITEBINIPV6|IP2LOCATION-LITE-ASN.IPV6.BIN"
-  # IP2Proxy PX12 (proxy/VPN/threat). Large (~1.6 GB BIN); unzip -j grabs only
-  # the .BIN, ignoring the .IPV6.CIDR.CSV the app doesn't use.
+  # IP2Proxy PX12 (~1.6 GB); unzip -j extracts only the .BIN from the zip.
   "tools/iptools/assets/ip2proxy|PX12LITEBIN|IP2PROXY-LITE-PX12.BIN"
 )
 

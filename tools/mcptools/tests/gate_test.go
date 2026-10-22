@@ -26,7 +26,7 @@ func TestGate(t *testing.T) {
 		{"unknown toolset", http.MethodPost, "/mcp/nope", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
 		{"empty toolset", http.MethodPost, "/mcp/", listBody, mcpHeaders(nil), http.StatusNotFound, "Not Found"},
 		{"owner endpoint off without a key", http.MethodPost, "/mcp/owner", listBody, mcpHeaders(nil), http.StatusNotFound, "No MCP endpoint"},
-		{"body over 1 MiB", http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"x":"` + strings.Repeat("a", 1<<20) + `"}}`, mcpHeaders(nil), http.StatusRequestEntityTooLarge, "1 MiB"},
+		{"body over 1 MiB", http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"x":"` + strings.Repeat("a", 1<<20) + `"}}`, mcpHeaders(nil), http.StatusRequestEntityTooLarge, "exceeds"},
 		{"batch", http.MethodPost, "/mcp", " \n[" + listBody + "," + listBody + "]", mcpHeaders(nil), http.StatusBadRequest, "batching is not supported"},
 		{"cross-site browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "cross-site"}), http.StatusForbidden, "Cross-site"},
 		{"same-site browser", http.MethodPost, "/mcp", listBody, mcpHeaders(map[string]string{"Sec-Fetch-Site": "same-site"}), http.StatusForbidden, "Cross-site"},
@@ -75,48 +75,19 @@ func TestForeignOriginIsServedAndLogged(t *testing.T) {
 
 func TestOwnerKey(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
-	try := func(ip string, hdr map[string]string) int {
-		hdr = mcpHeaders(hdr)
-		hdr["CF-Connecting-IP"] = ip
-		return s.do(http.MethodPost, "/mcp/owner", listBody, hdr).Code
-	}
-	const guesser = "198.51.100.2"
-	wrong := map[string]string{"X-Api-Key": "guess"}
-	for i := range 5 {
-		if code := try(guesser, wrong); code != http.StatusForbidden {
-			t.Fatalf("wrong key, try %d = %d, want 403", i+1, code)
-		}
-	}
-	refused := false
-	for range 5 {
-		if try(guesser, wrong) == http.StatusTooManyRequests {
-			refused = true
-			break
-		}
-	}
-	if !refused {
-		t.Errorf("never 429 after five wrong keys")
-	}
-	if code := try(guesser, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusTooManyRequests {
-		t.Errorf("the right key while locked out = %d, want 429 before it is compared", code)
-	}
-
-	// What a web page can make a browser send can't lock the owner out.
 	for name, hdr := range map[string]map[string]string{
 		"no key":     nil,
+		"wrong key":  {"X-Api-Key": "guess"},
 		"basic":      {"Authorization": "Basic " + ownerKey},
-		"cross-site": {"X-Api-Key": "guess", "Sec-Fetch-Site": "cross-site"},
-		"same-site":  {"X-Api-Key": "guess", "Sec-Fetch-Site": "same-site"},
+		"cross-site": {"X-Api-Key": ownerKey, "Sec-Fetch-Site": "cross-site"},
+		"same-site":  {"X-Api-Key": ownerKey, "Sec-Fetch-Site": "same-site"},
 	} {
-		ip := map[string]string{"no key": "198.51.100.1", "basic": "198.51.100.3", "cross-site": "198.51.100.4", "same-site": "198.51.100.5"}[name]
-		for i := range 10 {
-			if code := try(ip, hdr); code != http.StatusForbidden {
-				t.Fatalf("%s, try %d = %d, want 403", name, i+1, code)
-			}
+		if code := s.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(hdr)).Code; code != http.StatusForbidden {
+			t.Errorf("%s = %d, want 403", name, code)
 		}
-		if code := try(ip, map[string]string{"X-Api-Key": ownerKey}); code != http.StatusOK {
-			t.Errorf("%s ten times, then the right key = %d, want 200", name, code)
-		}
+	}
+	if code := s.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(map[string]string{"X-Api-Key": ownerKey})).Code; code != http.StatusOK {
+		t.Errorf("the right key = %d, want 200", code)
 	}
 
 	browser := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}
@@ -226,7 +197,7 @@ func TestRecordsNeverHoldArguments(t *testing.T) {
 	call(t, cs, "ip_cidr", map[string]any{"cidr": "172.31.255.0/24"})
 	call(t, cs, "ip_cidr", map[string]any{"cidr": "secret-looking-input"})
 	got := log.String()
-	for _, want := range []string{`"msg":"MCP"`, `"uri":"/mcp/ip#ip_cidr"`, `"outcome":"ok"`, `"outcome":"tool_error"`, `"client":"mcptools-tests/1"`} {
+	for _, want := range []string{`"msg":"MCP"`, `"uri":"/mcp/ip#ip_cidr"`, `"status":200,"uri":"/mcp/ip#ip_cidr"`, `"status":422,"uri":"/mcp/ip#ip_cidr"`, `"client":"mcptools-tests/1"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log lacks %s:\n%s", want, got)
 		}

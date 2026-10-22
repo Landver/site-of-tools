@@ -9,18 +9,7 @@ import (
 	"strings"
 )
 
-// A14 — the encode/decode scratchpad.
-//
-// Crowded and undifferentiated as a category: urldecoder.org owns it and a
-// hundred SEO farms sit behind it. It is here anyway because every operation is
-// already implemented for the decode ladder, so exposing them is a template and
-// a route rather than new logic — and because it is the page people search for
-// by name.
-//
-// The one thing done better than the incumbents: query and path encoding shown
-// SIDE BY SIDE. url.QueryEscape("a b") is "a+b" and url.PathEscape("a b") is
-// "a%20b", and no surveyed tool makes that difference visible even though it is
-// the single most common URL bug.
+// Query and path escaping sit side by side: "a+b" vs "a%20b" is the most common URL bug.
 
 // Encoding is one representation of the input value.
 type Encoding struct {
@@ -30,10 +19,7 @@ type Encoding struct {
 	Err   string `json:"error,omitempty"`
 }
 
-// EncodeResult is every reading of one value at once, rather than a dropdown.
-// Seeing them together is the entire value of the page. AlreadyEncoded and
-// Reading pick what the page leads with; Ladder is Layers without a first rung
-// already on screen.
+// EncodeResult is every reading at once; Ladder is Layers minus a first rung already on screen.
 type EncodeResult struct {
 	Input          string     `json:"input"`
 	Encoded        []Encoding `json:"encoded"`
@@ -57,7 +43,6 @@ func alreadyEncoded(v string) bool {
 	return err == nil && dec != v
 }
 
-// EncodeAll computes every representation of v.
 func EncodeAll(v string) *EncodeResult {
 	r := &EncodeResult{Input: v, Kind: classify(v), AlreadyEncoded: alreadyEncoded(v)}
 
@@ -78,10 +63,7 @@ func EncodeAll(v string) *EncodeResult {
 			"'+' is read as a space here."),
 		decodeEntry("Percent (path)", v, func(s string) (string, error) { return url.PathUnescape(s) },
 			"'+' is left alone here. Use this reading for a path segment, or for a base64 value."),
-		// Padded first, then the raw (unpadded) variant. Without the fallback
-		// this table called a value "illegal base64" while the decode ladder
-		// immediately below it — which does try the raw encodings — showed the
-		// decoded text. One page, two contradictory answers about one value.
+		// The unpadded fallback keeps this table agreeing with the ladder below it.
 		decodeEntry("Base64", v, func(s string) (string, error) {
 			return decodeBase64(s, base64.StdEncoding, base64.RawStdEncoding)
 		}, ""),
@@ -91,8 +73,6 @@ func EncodeAll(v string) *EncodeResult {
 		decodeEntry("HTML entities", v, func(s string) (string, error) { return html.UnescapeString(s), nil }, ""),
 	}
 
-	// The same ladder the Inspect page runs per parameter, so a doubly-encoded
-	// value peels here too rather than needing a second paste.
 	r.Layers = decodeLadder(v)
 
 	if (r.Kind == KindBase64 || r.Kind == KindJWT) && len(r.Layers) > 0 {
@@ -135,9 +115,7 @@ func decodeEntry(name, v string, fn func(string) (string, error), note string) E
 	out, err := fn(v)
 	e := Encoding{Name: name, Note: note}
 	if err != nil {
-		// Say the decode failed rather than showing the empty string it returns:
-		// url.QueryUnescape yields "" plus an error on a bad escape, and an
-		// empty box reads as "this value is empty", which is a different claim.
+		// The failed decode's "" would read as "this value is empty", a different claim.
 		e.Err = err.Error()
 		return e
 	}
@@ -149,8 +127,7 @@ func decodeEntry(name, v string, fn func(string) (string, error), note string) E
 	return e
 }
 
-// unicodeEscape renders non-ASCII runes as \uXXXX, the form that turns up in
-// JSON and JavaScript source.
+// unicodeEscape writes non-ASCII as \uXXXX, the form JSON and JavaScript source use.
 func unicodeEscape(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -174,9 +151,7 @@ func pad(s string, n int) string {
 	return s
 }
 
-// decodeBase64 tries the padded encoding, then the unpadded one. Real-world
-// base64 in URLs is unpadded about as often as not, because "=" has to be
-// percent-encoded in a query.
+// decodeBase64 falls back to unpadded: URLs often drop "=" since it must be percent-encoded in a query.
 func decodeBase64(s string, padded, raw *base64.Encoding) (string, error) {
 	if b, err := padded.DecodeString(s); err == nil {
 		return string(b), nil

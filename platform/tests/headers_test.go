@@ -12,9 +12,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// headersApp builds the app the way every subdomain gets it: through NewApp, so
-// the middleware stack under test is the production one and a header that is
-// only set by a tool's own code cannot stand in for one set here.
+// headersApp builds through NewApp, so the middleware under test is the production stack.
 func headersApp(t *testing.T) *echo.Echo {
 	t.Helper()
 	e := platform.NewApp(nil, fstest.MapFS{}, false, nil)
@@ -30,9 +28,7 @@ func headersFor(t *testing.T, e *echo.Echo, path string) http.Header {
 	return rec.Header()
 }
 
-// TestSecurityHeadersPresent: these are set in NewApp precisely so a new tool
-// cannot forget them, which means nothing else in the repo sets them and
-// nothing else would notice if they stopped being set.
+// TestSecurityHeadersPresent: only NewApp sets these, so nothing else would notice them going missing.
 func TestSecurityHeadersPresent(t *testing.T) {
 	cases := []struct {
 		header, want, why string
@@ -46,8 +42,7 @@ func TestSecurityHeadersPresent(t *testing.T) {
 	}
 
 	e := headersApp(t)
-	// Every response, not just the happy one: an error response is the one most
-	// likely to echo attacker input back, so it needs the headers most.
+	// An error response is the likeliest to echo attacker input, so it needs the headers most.
 	for _, path := range []string{"/", "/boom", "/does-not-exist"} {
 		h := headersFor(t, e, path)
 		for _, c := range cases {
@@ -61,16 +56,7 @@ func TestSecurityHeadersPresent(t *testing.T) {
 	}
 }
 
-// TestCSPDirectives pins the directives that are load-bearing, one assertion
-// each, so deleting any single one fails this test by name rather than being
-// absorbed into a whole-string comparison nobody can read.
-//
-// Two of these are regressions that already happened and were found by loading
-// a page rather than by reading the policy: worker-src (botcheck spawns a
-// Worker from a blob: URL, and worker-src falls back to script-src, which does
-// not allow blob:) and connect-src (the IP tool asks api6.ipify.org from the
-// VISITOR's browser, because only the visitor's own connection can answer "do
-// you have working IPv6").
+// TestCSPDirectives pins each load-bearing directive separately, so dropping one fails by name.
 func TestCSPDirectives(t *testing.T) {
 	csp := headersFor(t, headersApp(t), "/").Get("Content-Security-Policy")
 	if csp == "" {
@@ -108,10 +94,7 @@ func TestCSPDirectives(t *testing.T) {
 		})
 	}
 
-	// script-src is deliberately permissive (Alpine's runtime directives need
-	// 'unsafe-eval', three templates carry inline blocks). What must NOT happen
-	// is that permissiveness spreading: no wildcard source anywhere, or the
-	// policy stops being a containment layer at all.
+	// script-src is permissive on purpose, but a wildcard source anywhere would end the policy's containment.
 	if strings.Contains(csp, "*") {
 		t.Errorf("CSP contains a wildcard source: %s — that turns the whole policy into decoration", csp)
 	}
@@ -120,9 +103,7 @@ func TestCSPDirectives(t *testing.T) {
 	}
 }
 
-// One URL answers as a page, an htmx fragment or JSON depending on request
-// headers. Without Vary the browser cache keyed on the URL alone and Back
-// after an htmx swap showed the cached fragment as the whole document.
+// Without Vary, Back after an htmx swap shows the cached fragment as the whole page.
 func TestNegotiatedResponsesVary(t *testing.T) {
 	e := headersApp(t)
 

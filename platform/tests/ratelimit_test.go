@@ -86,9 +86,6 @@ func TestAllowKeySpendsTheMiddlewaresBucket(t *testing.T) {
 
 func TestGlobalLimiterIsOneBucketForEveryone(t *testing.T) {
 	l := platform.NewGlobalLimiter(0.001, 2)
-	if r, b := l.Rate(); r != 0.001 || b != 2 {
-		t.Errorf("Rate() = %g, %d, want what it was built with", r, b)
-	}
 	e := limitedApp(l)
 	if !platform.AllowKey(l, "198.51.100.1") {
 		t.Fatal("first call refused")

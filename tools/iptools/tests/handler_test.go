@@ -18,7 +18,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// fakeLooker impl iptools.Looker → test handler w/o real databases.
 type fakeLooker struct {
 	res *iptools.Result
 	err error
@@ -26,8 +25,7 @@ type fakeLooker struct {
 
 func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
 
-// newTestApp builds bare echo w/ real (embedded) templates + given Looker.
-// Embedded FS → works regardless of test cwd.
+// newTestApp uses the embedded templates, so tests work from any cwd.
 func newTestApp(svc iptools.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
@@ -35,7 +33,7 @@ func newTestApp(svc iptools.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc, nil, nil, nil) // nil History/BlockList: enrichment off in handler tests
+	iptools.Register(e, svc, nil, nil, nil) // no History or BlockList
 	return e
 }
 
@@ -94,10 +92,7 @@ func TestHandlerHTMXGetsFragment(t *testing.T) {
 }
 
 func TestHandlerBadIPRendersErrorFragment(t *testing.T) {
-	// Malformed IP → domain Lookup fails w/ validation error (not ErrUnavailable).
-	// htmx path must return 400 + error-alert fragment → box shows "not a valid
-	// IP" instead of silently keeping prev result. (Client swaps this 400 in via
-	// partials/htmx-errors; htmx otherwise drops 4xx response.)
+	// partials/htmx-errors swaps this 400 in; htmx alone drops a 4xx and keeps the old result.
 	app := newTestApp(fakeLooker{err: errors.New(`"104.253.63." is not a valid IP address`)})
 	rec := do(app, "/?ip=104.253.63.", map[string]string{"HX-Request": "true"})
 	if rec.Code != http.StatusBadRequest {
@@ -120,8 +115,6 @@ func TestHandlerErrorStatus(t *testing.T) {
 	}
 }
 
-// TestUnavailableLookupShowsItsReason: a 503 is a readable error fragment, never
-// a history entry.
 func TestUnavailableLookupShowsItsReason(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{err: iptools.ErrUnavailable}), "/?ip=1.2.3.4",
 		map[string]string{"Accept": "text/html", "HX-Request": "true"})
@@ -140,8 +133,6 @@ func TestUnavailableLookupShowsItsReason(t *testing.T) {
 	}
 }
 
-// TestLookupPageSwapsEveryError: the shared htmx error handler is included, not
-// a 400-only one, plus the fallback for a non-HTML error.
 func TestLookupPageSwapsEveryError(t *testing.T) {
 	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	page := rec.Body.String()
@@ -159,7 +150,6 @@ func TestLookupPageSwapsEveryError(t *testing.T) {
 }
 
 func TestHandlerDefaultsToVisitorIP(t *testing.T) {
-	// Bare "/" w/ no ?ip → look up caller's own (routable) IP.
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "203.0.113.7", CountryCode: "US"}})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "application/json")
@@ -176,13 +166,10 @@ func TestHandlerDefaultsToVisitorIP(t *testing.T) {
 }
 
 func TestHandlerJSONWithoutResolvableIPGetsError(t *testing.T) {
-	// JSON caller w/ no ?ip + non-routable own address (loopback, as in dev) has
-	// nothing to look up: must get JSON error, not HTML page — same
-	// content-negotiation contract /cidr follows.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "application/json")
-	req.RemoteAddr = "127.0.0.1:5555" // loopback is not routable
+	req.RemoteAddr = "127.0.0.1:5555"
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, req)
 
@@ -198,8 +185,6 @@ func TestHandlerJSONWithoutResolvableIPGetsError(t *testing.T) {
 }
 
 func TestHandlerBrowserWithoutResolvableIPGetsPage(t *testing.T) {
-	// Same as above but from browser: empty lookup page (form + connection
-	// inspector) is right response — only JSON callers get 400.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/html")
@@ -216,9 +201,7 @@ func TestHandlerBrowserWithoutResolvableIPGetsPage(t *testing.T) {
 }
 
 func TestHandlerHTMXWithoutResolvableIPGetsFragment(t *testing.T) {
-	// htmx submit w/ empty box from non-routable own IP (dev on loopback) must
-	// get (empty) result fragment — swapping full page into #result would
-	// nest whole document inside it.
+	// A full page swapped into #result would nest a whole document inside it.
 	app := newTestApp(fakeLooker{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("HX-Request", "true")
@@ -235,9 +218,7 @@ func TestHandlerHTMXWithoutResolvableIPGetsFragment(t *testing.T) {
 }
 
 func TestFullPageShowsIP2LocationCredit(t *testing.T) {
-	// IP2Location LITE license requires exact acknowledgment on any page using
-	// the data. Full IP-tool page must carry it (apex must not — see site
-	// package's TestHomeOmitsIP2LocationCredit).
+	// IP2Location LITE's licence requires this exact credit on any page that uses its data.
 	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "uses the IP2Location LITE database") || !strings.Contains(body, "lite.ip2location.com") {
@@ -246,9 +227,7 @@ func TestFullPageShowsIP2LocationCredit(t *testing.T) {
 }
 
 func TestFullPageShowsSpamhausCredit(t *testing.T) {
-	// Spamhaus permission to use DROP came w/ one condition: credit them on
-	// any page using the data (specifically asked for © mark). Same
-	// Attribution-gated footer as IP2Location → carried on same pages.
+	// Spamhaus allowed DROP use on one condition: a © credit on any page that uses the data.
 	rec := do(newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}), "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "© The Spamhaus Project") || !strings.Contains(body, "spamhaus.org/blocklists/do-not-route-or-peer") {
@@ -274,7 +253,6 @@ func TestConnectionInspectorCard(t *testing.T) {
 }
 
 func TestConnectionInspectorHidesSecrets(t *testing.T) {
-	// Inspector must never reflect Cookie / Authorization back into page.
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "198.51.100.7"}})
 	req := httptest.NewRequest(http.MethodGet, "/?ip=198.51.100.7", nil)
 	req.Header.Set("Accept", "text/html")
@@ -302,20 +280,17 @@ func TestCIDRCalculatorJSON(t *testing.T) {
 }
 
 func TestCIDRCalculatorPage(t *testing.T) {
-	// HTML page renders form + suite sub-nav.
 	rec := do(newTestApp(fakeLooker{}), "/cidr", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "Subnet calculator") || !strings.Contains(body, "IP lookup") {
 		t.Errorf("cidr page missing heading/sub-nav:\n%s", body)
 	}
-	// Bad input → 400.
 	if bad := do(newTestApp(fakeLooker{}), "/cidr?cidr=nope", map[string]string{"Accept": "text/html"}); bad.Code != http.StatusBadRequest {
 		t.Errorf("bad CIDR code = %d, want 400", bad.Code)
 	}
 }
 
-// A /32 holds 79228162514264337593543950336 addresses: a value cell that can't
-// break widens the page past a phone's screen.
+// An IPv6 /32 holds 2^96 addresses: a value cell that can't break widens the page past a phone screen.
 func TestCIDRValuesCanWrap(t *testing.T) {
 	cell := regexp.MustCompile(`<dd[^>]*>`)
 	for _, q := range []string{"192.168.1.0/24", "2001:db8::/32"} {
@@ -337,13 +312,11 @@ func TestHandlerShowsProxySection(t *testing.T) {
 		IP: "1.2.3.4", CountryCode: "US",
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", UsageType: "VPN", ISP: "Acme VPN"},
 	}
-	// HTML renders proxy section.
 	rec := do(newTestApp(fakeLooker{res: res}), "/?ip=1.2.3.4", map[string]string{"Accept": "text/html"})
 	body := rec.Body.String()
 	if !strings.Contains(body, "proxy / blocklist / network") || !strings.Contains(body, "VPN") {
 		t.Errorf("expected a proxy section with VPN, got:\n%s", body)
 	}
-	// JSON includes nested proxy object.
 	recj := do(newTestApp(fakeLooker{res: res}), "/?ip=1.2.3.4", map[string]string{"Accept": "application/json"})
 	if !strings.Contains(recj.Body.String(), `"is_proxy":true`) {
 		t.Errorf("json missing proxy object: %s", recj.Body.String())
@@ -351,9 +324,6 @@ func TestHandlerShowsProxySection(t *testing.T) {
 }
 
 func TestConnectionInspectorEnrichedForOwnIP(t *testing.T) {
-	// G38/G44 wiring: when visitor looks at own IP, same lookup also enriches
-	// "your request" card w/ ASN/proxy rows (shared conn partial renders them
-	// only when enriched via WithNetwork).
 	res := &iptools.Result{
 		IP: "203.0.113.7", ASN: "14061", ASName: "DigitalOcean, LLC",
 		Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"},
@@ -371,9 +341,7 @@ func TestConnectionInspectorEnrichedForOwnIP(t *testing.T) {
 		}
 	}
 
-	// ?ip= lookup of SOMEONE ELSE's IP must not enrich conn card: their ASN
-	// says nothing about this connection. (Lookup result itself shows own
-	// ASN/proxy section — asserted here = conn card's formats.)
+	// Someone else's IP says nothing about this connection, so it must not enrich the conn card.
 	rec = do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})
 	body = rec.Body.String()
 	for _, absent := range []string{"AS14061 (DigitalOcean, LLC)", "VPN — NordVPN"} {
@@ -405,8 +373,7 @@ func TestOGTags(t *testing.T) {
 	}
 }
 
-// TestLookupFragmentIsNeverCached: Vary and no-store keep Back from showing the
-// pushed fragment bare.
+// Vary and no-store keep Back from showing the pushed fragment bare.
 func TestLookupFragmentIsNeverCached(t *testing.T) {
 	app := newTestApp(fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}})
 	page := do(app, "/?ip=8.8.8.8", map[string]string{"Accept": "text/html"})

@@ -7,24 +7,14 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// Wrapper unwrapping (A16) is the feature a non-developer uses daily: corporate
-// mail gateways rewrite every link they touch, and the rewritten form hides
-// where the link actually goes. It was also the least-tested part of clean.go —
-// decodeURLDefenseV1/V2/V3 and decodeAMPPath had zero coverage, which is poor
-// odds for the one piece of this tool whose algorithms are genuinely non-obvious.
-//
-// Tested through the exported Unwrap rather than the decoders directly, so these
-// exercise host matching and shape dispatch too.
+// Tested through the exported Unwrap, so host matching and shape dispatch are exercised too.
 
 func unwrap(t *testing.T, raw string) (string, string, bool) {
 	t.Helper()
 	return linktools.NewService().Unwrap(raw)
 }
 
-// TestSafeLinksDecodesExactlyOnce is the subtle one, and the reason the corpus
-// report exists: a Safe Links target is encoded ONCE. A second decode pass eats
-// the target's own %20 and yields a different URL — the "obviously you decode
-// until it stops changing" instinct is wrong here.
+// A Safe Links target is encoded ONCE: decoding until it stops changing would eat the target's own %20.
 func TestSafeLinksDecodesExactlyOnce(t *testing.T) {
 	const wrapped = "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2Fa%2520b%3Fq%3D1&data=x&sdata=y&reserved=0"
 	got, name, ok := unwrap(t, wrapped)
@@ -39,8 +29,7 @@ func TestSafeLinksDecodesExactlyOnce(t *testing.T) {
 	}
 }
 
-// TestSafeLinksHostScoping: the rule is scoped to *.safelinks.protection.*,
-// so a lookalike host must not be unwrapped as one.
+// Scoped to *.safelinks.protection.*, so a lookalike host is not unwrapped.
 func TestSafeLinksHostScoping(t *testing.T) {
 	for _, raw := range []string{
 		"https://evil.com/?url=https%3A%2F%2Fexample.com%2F",
@@ -52,8 +41,7 @@ func TestSafeLinksHostScoping(t *testing.T) {
 	}
 }
 
-// TestURLDefenseV2 uses Proofpoint's custom substitution: "-" for "%" and "_"
-// for "/", applied BEFORE percent-decoding.
+// Proofpoint's substitution: "-" for "%" and "_" for "/", applied BEFORE percent-decoding.
 func TestURLDefenseV2(t *testing.T) {
 	const wrapped = "https://urldefense.proofpoint.com/v2/url?u=https-3A__example.com_a_b&d=DwMFaQ&c=abc"
 	got, name, ok := unwrap(t, wrapped)
@@ -65,19 +53,15 @@ func TestURLDefenseV2(t *testing.T) {
 	}
 }
 
-// TestURLDefenseV3 is the non-obvious algorithm: the target sits between "__"
-// markers in the PATH, and the base64url payload after "__;" says which
-// characters Proofpoint replaced with "*". You never need to know its
-// substitution alphabet — the payload carries it.
+// The target sits between "__" markers in the PATH, and the base64url payload after "__;" supplies
+// the characters Proofpoint replaced with "*".
 func TestURLDefenseV3(t *testing.T) {
 	// No replacements: empty payload, target passes through verbatim.
 	got, _, ok := unwrap(t, "https://urldefense.com/v3/__https://example.com/a/b__;!!abc$")
 	if !ok || got != "https://example.com/a/b" {
 		t.Errorf("v3 with no replacements: got %q ok=%v, want https://example.com/a/b", got, ok)
 	}
-	// A real replacement: "*" in the target stands for a character the payload
-	// supplies. Whatever the decoder does, it must not return a URL still
-	// containing the "*" placeholder or the "__;" machinery.
+	// "*" stands for a character the payload supplies; the result must keep neither "*" nor "__;".
 	got2, _, ok2 := unwrap(t, "https://urldefense.com/v3/__https://example.com/*path__;Iw!!abc$")
 	if ok2 {
 		if strings.Contains(got2, "__;") || strings.Contains(got2, "!!") {
@@ -86,8 +70,7 @@ func TestURLDefenseV3(t *testing.T) {
 	}
 }
 
-// TestSimpleParamWrappers covers the ShapeParam family in one table: each holds
-// its target in a named query parameter, percent-encoded once.
+// The ShapeParam family: each holds its target in a named query parameter, percent-encoded once.
 func TestSimpleParamWrappers(t *testing.T) {
 	cases := []struct{ name, wrapped, want string }{
 		{"facebook", "https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fx&h=AT1", "https://example.com/x"},
@@ -113,10 +96,7 @@ func TestSimpleParamWrappers(t *testing.T) {
 	}
 }
 
-// TestOpaqueShortenersAreNeverUnwrapped. t.co, lnkd.in and bit.ly keep the
-// mapping server-side, so there is nothing in the string to recover. Claiming
-// otherwise would be a lie the UI then has to apologise for — these belong to
-// the redirect tracer, not here.
+// t.co, lnkd.in and bit.ly keep the mapping server-side: nothing to recover; they belong to the tracer.
 func TestOpaqueShortenersAreNeverUnwrapped(t *testing.T) {
 	for _, raw := range []string{
 		"https://t.co/abc123", "https://lnkd.in/abc123", "https://bit.ly/abc123",
@@ -129,10 +109,7 @@ func TestOpaqueShortenersAreNeverUnwrapped(t *testing.T) {
 	}
 }
 
-// TestPartialWrapperIsNotADestination: Mimecast exposes only the target's
-// DOMAIN, and only when the administrator enabled it. Returning that as if it
-// were the destination would drop the path silently, so it comes back with
-// ok=false while still naming what was recognised.
+// Mimecast exposes only the target's domain, so it returns ok=false rather than a pathless destination.
 func TestPartialWrapperIsNotADestination(t *testing.T) {
 	got, name, ok := unwrap(t, "https://protect-eu.mimecast.com/s/AbCd1234?domain=example.com")
 	if ok {
@@ -143,7 +120,7 @@ func TestPartialWrapperIsNotADestination(t *testing.T) {
 	}
 }
 
-// TestUnwrapNeverPanics. Input is attacker-controlled by definition.
+// Input is attacker-controlled by definition.
 func TestUnwrapNeverPanics(t *testing.T) {
 	for _, raw := range []string{
 		"", "   ", "not a url",
@@ -157,13 +134,11 @@ func TestUnwrapNeverPanics(t *testing.T) {
 		"https://l.facebook.com/l.php?u=javascript%3Aalert(1)",
 		"https://urldefense.proofpoint.com/v2/url?u=" + strings.Repeat("-", 5000),
 	} {
-		_, _, _ = linktools.NewService().Unwrap(raw) // must not panic
+		_, _, _ = linktools.NewService().Unwrap(raw)
 	}
 }
 
-// TestUnwrappedTargetIsStillHostile: unwrapping is not sanitising. A wrapper
-// around a javascript: URL must not come back looking safe — the caller
-// re-validates, and Parse must still refuse to make it linkable.
+// Unwrapping is not sanitising: a wrapped javascript: URL must still be refused as linkable.
 func TestUnwrappedTargetIsStillHostile(t *testing.T) {
 	got, _, ok := unwrap(t, "https://l.facebook.com/l.php?u=javascript%3Aalert(1)&h=AT1")
 	if !ok {
@@ -175,9 +150,7 @@ func TestUnwrappedTargetIsStillHostile(t *testing.T) {
 	}
 }
 
-// TestURLDefenseV1 is the oldest form: the target sits in ?u= up to &k=, and
-// HTML entities survive the mail gateway, so it is entity-unescaped as well as
-// percent-decoded.
+// The target sits in ?u= up to &k=, and is entity-unescaped as well as percent-decoded.
 func TestURLDefenseV1(t *testing.T) {
 	got, name, ok := unwrap(t, "https://urldefense.proofpoint.com/v1/url?u=https%3A%2F%2Fexample.com%2Fa%26amp%3Bb&k=abc&r=def")
 	if !ok {
@@ -191,9 +164,7 @@ func TestURLDefenseV1(t *testing.T) {
 	}
 }
 
-// TestGoogleAMPViewer: the target is the PATH TAIL, not a query parameter, and
-// the /s/ variant means the original was https while bare /amp/ means http.
-// Getting that backwards would silently downgrade a link.
+// The target is the path tail; /s/ means https and bare /amp/ http, or a link silently downgrades.
 func TestGoogleAMPViewer(t *testing.T) {
 	https, _, ok := unwrap(t, "https://www.google.com/amp/s/example.com/article")
 	if !ok {

@@ -18,8 +18,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-// The live corpus end-to-end through the handler, gated on MONGODB_TEST_URI;
-// supplied_test.go covers the BlockLookup→Signals mapping offline.
+// The live corpus through the handler (MONGODB_TEST_URI); supplied_test.go covers the mapping offline.
 
 func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	t.Helper()
@@ -27,10 +26,7 @@ func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	if uri == "" {
 		t.Skip("MONGODB_TEST_URI not set; skipping live blocklist handler test")
 	}
-	// Distinct DB from iptools/tests' "site-of-tools-test": ip_blocklist
-	// collection now exercised by both packages, & `go test ./...` runs package
-	// binaries in parallel — shared DB would let them drop/seed each other's
-	// rows mid-test. Own DB = no cross-package collision.
+	// Own DB: go test runs packages in parallel and iptools/tests drops/seeds ip_blocklist too.
 	m, err := platform.OpenMongo(ctx, uri, "site-of-tools-test-botcheck")
 	if err != nil {
 		t.Fatalf("open mongo: %v", err)
@@ -47,10 +43,7 @@ func liveBlockList(t *testing.T, ctx context.Context) *iptools.BlockList {
 	return bl
 }
 
-// TestBlocklistLiveViaHandler proves handler mapping end-to-end: ipsum-only IP
-// at floor fires ip_blocklisted (floor path), deliberate non-ipsum ban fires
-// regardless of count (Deliberate loop bypassing floor), unlisted IP stays
-// silent.
+// Ipsum at the floor fires, a deliberate ban fires with no count, an unlisted IP stays silent.
 func TestBlocklistLiveViaHandler(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -61,8 +54,7 @@ func TestBlocklistLiveViaHandler(t *testing.T) {
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ipsumIP, Source: iptools.BlocklistSourceIPsum, Count: 3}); err != nil {
 		t.Fatalf("seed ipsum: %v", err)
 	}
-	// Deliberate, non-ipsum ban w/ NO count — fires only if Deliberate mapping
-	// set bypass; floor check alone would keep it silent.
+	// NO count: fires only if the Deliberate mapping bypasses the floor.
 	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: deliberateIP, Source: "rate-limiter", Reason: "too many requests"}); err != nil {
 		t.Fatalf("seed deliberate: %v", err)
 	}

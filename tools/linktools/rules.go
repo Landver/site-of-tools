@@ -5,39 +5,13 @@ import (
 	"strings"
 )
 
-// This file is data. The two tables below are the whole of A4 and A16, and the
-// evidence for every row is in docs/reports/tracking-parameter-reference.md and
-// docs/reports/wrapper-formats.md. Both were compiled 2026-09-25.
-//
-// The tracking table is HAND-WRITTEN, deliberately. ClearURLs' catalog is
-// LGPL-3.0 and this repo is MIT (report §5), but licensing is the secondary
-// reason. The primary ones (report §7): its 733 rules miss `gbraid`, `wbraid`,
-// `gclsrc` and `ttclid` entirely — the four click IDs a 2026 ad click most often
-// carries — and four separate mechanisms in its format (`redirections`,
-// `rawRules`, `completeProvider`, and the ordinary rules' `[/?#&]` delimiter
-// class) rewrite the host, path or fragment, which docs/04-short-links.md §9
-// forbids. Adopting it would be a re-implementation, not a data import.
-//
-// Report §7 also asks that this file stay shaped so an optional runtime loader
-// could read a ClearURLs-format file from a configured path later. Everything
-// here is plain data behind two lookup functions, so that stays possible; it is
-// documented, not built.
-//
-// Matching is exact on the ASCII-lowercased key, or by literal prefix. No
-// regexes: ClearURLs' own `[a-z]?mc` is the argument against them. A rule nobody
-// can read at a glance is a rule nobody reviews, and A4's whole claim
-// (docs/01-feature-inventory.md#a4) is that every deletion is auditable.
+// Hand-written, not ClearURLs' catalog: that is LGPL-3.0, misses gbraid/wbraid/gclsrc/ttclid, and rewrites
+// hosts and paths (report §7). Matching is exact or literal prefix, never regex, so each rule is reviewable.
 
-// RulesVersion is bumped by hand whenever either table changes. The extension
-// caches the catalog keyed on it (docs/05-extension.md §3), so it is part of the
-// API, not a comment. Date form because the tables are dated evidence.
+// RulesVersion is bumped by hand on any table change; the extension caches the catalog keyed on it.
 const RulesVersion = "2026-10-04"
 
-// catalogScope is the honest scope statement the rules page must show, verbatim
-// from the report §3.5. It is shipped as data so the page and the JSON API
-// cannot drift apart, and so nobody is tempted to replace it with an
-// unfalsifiable "% of trackers removed" — which docs/02-build-fit.md §5 rules
-// out.
+// catalogScope is the scope statement the rules page shows verbatim, shipped as data so page and API agree.
 const catalogScope = "A curated list, not a complete one. It will miss regional ad networks, " +
 	"and it will not guess about parameters that are functional on some sites."
 
@@ -65,12 +39,10 @@ func (c Class) String() string {
 	return "unknown"
 }
 
-// MarshalText makes the JSON say "person", not 2. The extension and any curl
-// caller read this; an integer would be a private encoding leaking into an API.
+// MarshalText makes the JSON say "person", not 2.
 func (c Class) MarshalText() ([]byte, error) { return []byte(c.String()), nil }
 
-// why is the one-line explanation attached to every removal, so Removal.Why is
-// never empty and the user is never asked to trust a bare rule name.
+// why explains every removal, so Removal.Why is never empty.
 func (c Class) why() string {
 	switch c {
 	case ClassClick:
@@ -85,13 +57,7 @@ func (c Class) why() string {
 	return "tracking"
 }
 
-// Rule is one entry in the tracking-parameter table.
-//
-// Hosts is the two-tier part, and it is the finding the report argues hardest
-// for (§3): `ref=facebook` is a tracker, `ref=main` picks a git branch, and
-// nothing in the *name* separates them. ClearURLs needs 79 exceptions to survive
-// its own global list, ten of them protecting `ref` alone. So the ambiguous
-// names ship host-scoped or they do not ship. One struct field, one code path.
+// Rule is one tracking-table entry; ambiguous names (ref) ship host-scoped or not at all (report §3).
 type Rule struct {
 	Param  string   `json:"param"`            // exact parameter name, lowercase; or the prefix when Prefix
 	Prefix bool     `json:"prefix,omitempty"` // match Param as a prefix: "utm_", "mtm_", "pd_rd_"
@@ -102,10 +68,7 @@ type Rule struct {
 	Doc    string   `json:"doc,omitempty"`  // vendor doc URL, or "" when the entry is only believed
 }
 
-// applies reports whether this rule may fire for host. An affiliate rule needs
-// the caller to have asked for affiliate stripping: report §3.3 — deleting
-// `gclid` costs an advertiser a data point, deleting `tag` takes money from a
-// creator whose review the user found useful. Different decisions.
+// applies reports whether this rule may fire for host; affiliate rules only when asked (report §3.3).
 func (r Rule) applies(host string, affiliate bool) bool {
 	if r.Class == ClassAffiliate && !affiliate {
 		return false
@@ -121,8 +84,7 @@ func (r Rule) applies(host string, affiliate bool) bool {
 	return false
 }
 
-// name is what A4 promises to print beside every deletion, and what lands in
-// Param.Tracking so Inspect can mark a tracker without Clean being involved.
+// name is printed beside every deletion and lands in Param.Tracking for Inspect.
 func (r Rule) name() string {
 	if r.Prefix {
 		return r.Param + "* · " + r.Origin
@@ -130,14 +92,7 @@ func (r Rule) name() string {
 	return r.Param + " · " + r.Origin
 }
 
-// Deny is one never-strip entry. Why is the failure mode, stored as data rather
-// than left in a comment because the rules page prints it: "we do not touch
-// `state` — here is what breaks if anyone does" is the sentence that makes the
-// table reviewable by someone who is not reading this file.
-//
-// The deny set is consulted BEFORE any rule, prefix rules included (report §7
-// invariant 1). A test asserts the two sets do not intersect on any shared host
-// (invariant 2).
+// Deny is a never-strip entry, consulted before any rule (prefixes too); Why is printed on the rules page.
 type Deny struct {
 	Param  string   `json:"param"`
 	Prefix bool     `json:"prefix,omitempty"`
@@ -145,27 +100,9 @@ type Deny struct {
 	Why    string   `json:"why"`
 }
 
-// ---------------------------------------------------------------------------
-// The tracking table — report §1. 95 rules covering its 74 entries: a report row
-// naming five parameters ("linkCode, ascsubtag, …") is five rules here, because
-// a Rule holds one name.
-//
-// Rows the report lists and this table deliberately omits, so nobody
-// rediscovers them as gaps:
-//   - amazon `th`, `psc` — variant selectors, 60% safe. They choose which child
-//     ASIN renders. Wrong product beats a clean URL.
-//   - substack `publication_id`, `post_id` — they read as record IDs, which is
-//     exactly the shape §2 says never to guess at.
-//   - Shopify's whole group (`_pos`, `_ss`, `_psq`, `pr_*`) — they are only
-//     identifiable by *host*, and a Shopify storefront is an arbitrary custom
-//     domain. Scoping them to `myshopify.com` would cover the minority of
-//     storefronts that never set one up; global would be reckless, since `_v`
-//     and `_fd` are one keystroke from anything. Needs a fetch, so it is not
-//     A4's problem.
-//   - `si` on open.spotify.com — report §2 has it gating access on playlist
-//     invite links, marked B. It ships for YouTube only until someone drives a
-//     sample.
-// ---------------------------------------------------------------------------
+// Tracking table (report §1). Deliberately omitted: amazon th/psc (variant selectors), substack
+// publication_id/post_id (record IDs), Shopify's _pos/_ss/_psq/pr_* (custom domains need a fetch),
+// and si on Spotify (reported to gate playlist invites).
 
 var trackingRules = []Rule{
 	// --- Google Ads and Analytics (report §1.1) ---
@@ -206,9 +143,7 @@ var trackingRules = []Rule{
 	{Param: "u_code", Hosts: []string{"tiktok.com"}, Origin: "TikTok", Class: ClassSession},
 	{Param: "twclid", Origin: "X Ads", Class: ClassClick},
 	{Param: "__twitter_impression", Origin: "X", Class: ClassSession},
-	// `s` and `t` are the report's own example of what must never be global:
-	// `t` is a share token on x.com and a video timestamp on YouTube, where it
-	// is in the deny set below.
+	// `t` is a share token on x.com but a timestamp on YouTube (deny set), so neither s nor t can be global.
 	{Param: "s", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Names the surface the link was shared from (s=20, s=46)."},
 	{Param: "t", Hosts: []string{"x.com", "twitter.com"}, Origin: "X share sheet", Class: ClassSession, Note: "Opaque share token. On YouTube the same name is a timestamp and is never removed."},
 	{Param: "ref_src", Hosts: []string{"x.com", "twitter.com"}, Origin: "X embeds", Class: ClassSession},
@@ -234,14 +169,9 @@ var trackingRules = []Rule{
 	{Param: "vero_conv", Origin: "Vero", Class: ClassSession},
 	{Param: "vero_id", Origin: "Vero", Class: ClassPerson},
 	{Param: "bsft_", Prefix: true, Origin: "Blueshift", Class: ClassPerson, Note: "Blueshift's email click family."},
-	// Braze has no entry, and that is the finding (report §1.4): its click
-	// tracking rewrites the link's HOST (ablink.<brand>.com/ls/click?upn=…)
-	// rather than appending a parameter. There is nothing here to delete, so it
-	// belongs to the wrapper table below, not to this one.
+	// No Braze entry: its tracking rewrites the host (ablink.<brand>.com) instead of adding a parameter.
 
 	// --- Open analytics families (report §1.5) ---
-	// Matomo documents that a Matomo site consumes all three of its prefixes
-	// plus utm_, so all of them must be here or the feature looks arbitrary.
 	{Param: "utm_", Prefix: true, Origin: "Google Analytics, and by now everyone", Class: ClassSession, Note: "The campaign family: source, medium, campaign, term, content, id, source_platform, creative_format, marketing_tactic.", Doc: "https://matomo.org/faq/reports/how-to-build-campaign-tracking-urls/"},
 	{Param: "mtm_", Prefix: true, Origin: "Matomo 4+", Class: ClassSession, Note: "Matomo's eight documented campaign parameters.", Doc: "https://matomo.org/faq/how-to/faq_120/"},
 	{Param: "pk_", Prefix: true, Origin: "Piwik / Matomo 3", Class: ClassSession, Note: "Kept working for backwards compatibility.", Doc: "https://matomo.org/faq/how-to/faq_120/"},
@@ -249,11 +179,7 @@ var trackingRules = []Rule{
 	{Param: "matomo_", Prefix: true, Origin: "Matomo", Class: ClassSession},
 
 	// --- Site-scoped (report §1.6) ---
-	// Global, not host-scoped, and deliberately so: Instagram appends these to
-	// links shared OUT of the app, so they land on third-party hosts and almost
-	// never on instagram.com itself. Scoping them to instagram.com would mean
-	// they never fire on the URLs people actually paste. Safe globally because
-	// the names are Instagram inventions that collide with nothing.
+	// Instagram's are global on purpose: they ride links shared out of the app, so they land on other hosts.
 	{Param: "igshid", Origin: "Instagram", Class: ClassSession, Note: "Share ID, added to links shared out of the app."},
 	{Param: "igsh", Origin: "Instagram", Class: ClassSession, Note: "Share ID, newer form."},
 	{Param: "si", Hosts: []string{"youtube.com", "youtu.be"}, Origin: "YouTube", Class: ClassSession, Note: "Share-attribution token. Not removed on Spotify: there it is reported to gate access on playlist invites."},
@@ -290,15 +216,7 @@ var trackingRules = []Rule{
 	{Param: "showwelcomeonshare", Hosts: []string{"substack.com"}, Origin: "Substack", Class: ClassSession},
 }
 
-// ---------------------------------------------------------------------------
-// Never strip — report §2. Checked before any rule fires.
-//
-// A prefix rule is one careless entry away from eating any of these, and the
-// failure modes are not cosmetic: a dead password-reset link, a 403 from a
-// presigned URL, an unsubscribe that silently does nothing. Several entries are
-// host-scoped for the same reason the tracking table is two-tier — `t` is a
-// timestamp on YouTube and a share token on x.com, and both facts are true.
-// ---------------------------------------------------------------------------
+// Never strip (report §2), checked before any rule: failures here are dead reset links and 403s.
 
 var denyList = []Deny{
 	{Param: "q", Why: "The search is gone. On google.com/url?q= it is the destination itself, so deleting it turns an unwrap into a dead link."},
@@ -328,19 +246,14 @@ var denyList = []Deny{
 	{Param: "signature", Why: "Signature mismatch, 403."},
 	{Param: "hmac", Why: "Signature mismatch, 403."},
 	{Param: "mac", Why: "Signature mismatch, 403."},
-	// S3 SigV4 presigned URLs. The canonical query string covers EVERY parameter
-	// except X-Amz-Signature, so removing any parameter at all invalidates one —
-	// which is why looksSigned() in clean.go refuses to remove anything from a
-	// URL carrying these, not just these.
+	// S3 SigV4 signs every parameter but X-Amz-Signature, so looksSigned() refuses to remove anything at all.
 	{Param: "x-amz-", Prefix: true, Why: "403 SignatureDoesNotMatch on an S3 presigned URL.", Hosts: nil},
 	{Param: "x-goog-", Prefix: true, Why: "403 on a Google Cloud Storage signed URL."},
 	{Param: "awsaccesskeyid", Why: "403 on an S3 SigV2 presigned URL."},
 	{Param: "expires", Why: "403 on a SigV2 presigned URL, and a cache directive elsewhere."},
 	{Param: "key-pair-id", Why: "403 on a CloudFront signed URL."},
 	{Param: "policy", Why: "403 on a CloudFront signed URL."},
-	// Azure SAS. Scoped, because `sv`/`se`/`sp`/`st` are two-letter names that
-	// would shadow real rules everywhere else; a SAS on a custom domain is
-	// caught by looksSigned() instead.
+	// Azure SAS is host-scoped as two-letter names shadow real rules; looksSigned() catches custom domains.
 	{Param: "sv", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL."},
 	{Param: "se", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL."},
 	{Param: "sp", Hosts: []string{"core.windows.net"}, Why: "403 on an Azure Blob SAS URL. Note sp is also a Bing tracking parameter."},
@@ -374,16 +287,9 @@ var denyList = []Deny{
 	{Param: "raw", Why: "Renders instead of serving the file."},
 }
 
-// ---------------------------------------------------------------------------
-// Wrappers — docs/reports/wrapper-formats.md. Waves 1 to 4 of its ship order.
-//
-// Wave 5 is "never": t.co, lnkd.in and bit.ly store the mapping server-side and
-// the path is an opaque database key. No amount of string work recovers those,
-// so they are NOT in this table — they are A6 Trace's job, and the report's
-// §2 argues that naming the boundary honestly is most of A16's value.
-// ---------------------------------------------------------------------------
+// Wrappers (wrapper report waves 1-4); t.co, lnkd.in and bit.ly map server-side, so they are Trace's job.
 
-// Shape says where the target hides. Four shapes cover every wrapper here.
+// Shape says where the target hides.
 type Shape uint8
 
 const (
@@ -422,11 +328,7 @@ const (
 	DecodeAMPPath
 )
 
-// Wrapper is one entry. Hosts are lowercased; see matchHost for the forms.
-//
-// Params is a SLICE, which is what lets Google (q or url) and Steam (url or u)
-// be one row rather than two — and what this table will need again the next time
-// a vendor renames a parameter without telling anyone.
+// Wrapper is one entry (hosts lowercase, forms in matchHost); Params is a slice so renames stay one row.
 type Wrapper struct {
 	Name    string   `json:"name"`              // "Microsoft Safe Links" — shown verbatim in the note
 	Hosts   []string `json:"hosts"`             //
@@ -440,17 +342,14 @@ type Wrapper struct {
 }
 
 var wrappers = []Wrapper{
-	// --- Wave 1: the reason A16 exists. Anyone on Microsoft 365 or Proofpoint
-	// meets these on every link of every day. ---
+	// --- Wave 1: Microsoft 365 and Proofpoint users meet these on every link. ---
 	{
 		Name:  "Microsoft Safe Links",
 		Hosts: []string{"*.safelinks.protection.outlook.com", "*.safelinks.protection.office365.us", "*.safelinks.protection.outlook.cn"},
 		Shape: ShapeParam, Params: []string{"url"}, Decode: DecodePercent, Conf: "high",
 		Doc: "https://learn.microsoft.com/en-us/defender-office-365/safe-links-about",
 	},
-	// data, sdata and reserved are dropped without interpretation. Microsoft has
-	// never documented them and the question sat unanswered on their own forum,
-	// so nothing here tries to surface a "sender" from data.
+	// data, sdata and reserved are dropped uninterpreted: Microsoft never documented them.
 	{
 		Name:  "Proofpoint urldefense v1",
 		Hosts: []string{"urldefense.proofpoint.com", "urldefense.com"},
@@ -471,8 +370,6 @@ var wrappers = []Wrapper{
 	},
 
 	// --- Wave 2: highest volume outside mail. ---
-	// The report cites `*.google.<tld>`, which is why the host pattern is the
-	// registrable form "google." rather than a list of every ccTLD.
 	{
 		Name:  "Google redirect",
 		Hosts: []string{"google."}, Path: "/url",
@@ -505,8 +402,7 @@ var wrappers = []Wrapper{
 		Shape: ShapeParam, Params: []string{"q"}, Decode: DecodePercent, Conf: "high",
 	},
 
-	// --- Wave 3: same population as wave 1, different vendors. Cisco is the
-	// row that proves ShapePathTail. ---
+	// --- Wave 3: same population as wave 1, different vendors. ---
 	{
 		Name:  "Cisco Secure Email",
 		Hosts: []string{"secure-web.cisco.com"},
@@ -517,10 +413,7 @@ var wrappers = []Wrapper{
 		Hosts: []string{"linkprotect.cudasvc.com"}, Path: "/url",
 		Shape: ShapeParam, Params: []string{"a"}, Decode: DecodePercent, Conf: "high",
 	},
-	// Mimecast is the honest half-answer: /s/<token> is opaque, and ?domain=
-	// names the destination DOMAIN only, and only when the admin enabled
-	// "Display URL Destination Domain". Partial results must look partial, so
-	// Unwrap declines this one and Clean reports it as a note instead.
+	// Mimecast's ?domain= names only the destination DOMAIN (when the admin enabled it), so it stays partial.
 	{
 		Name:  "Mimecast URL Protect",
 		Hosts: []string{"mimecast.com"}, Path: "/s/",
@@ -539,8 +432,7 @@ var wrappers = []Wrapper{
 		Hosts: []string{"out.reddit.com", "click.redditmail.com"},
 		Shape: ShapeParam, Params: []string{"url"}, Decode: DecodePercent, Conf: "high",
 	},
-	// Steam moved: ?u= is reported in community posts from Aug-Sep 2025 while
-	// ClearURLs still carries ?url=. Both ship, ?url= first.
+	// Steam moved from ?url= to ?u= (community reports, Aug-Sep 2025); both ship, ?url= first.
 	{
 		Name:  "Steam link filter",
 		Hosts: []string{"steamcommunity.com"}, Path: "/linkfilter",
@@ -561,8 +453,7 @@ var wrappers = []Wrapper{
 		Hosts: []string{"slack-redir.net"}, Path: "/link",
 		Shape: ShapeParam, Params: []string{"url"}, Decode: DecodePercent, Conf: "medium",
 	},
-	// The bare-query pair: the target is the raw query string with no parameter
-	// name at all, so it must never be run through a pair parser.
+	// The bare-query pair: the target is the raw query with no name, so never run it through a pair parser.
 	{
 		Name:  "href.li",
 		Hosts: []string{"href.li"},
@@ -575,14 +466,9 @@ var wrappers = []Wrapper{
 	},
 }
 
-// ---------------------------------------------------------------------------
-// Lookups. Everything above is data; everything below is the three small
-// functions that read it.
-// ---------------------------------------------------------------------------
+// Lookups: everything below reads the tables above.
 
-// Indexes, built once at package init. Go resolves package-level var order by
-// dependency, so the tables above are populated before these run. Exact-name
-// lookup has to be O(1): Parse calls it once per parameter on every request.
+// Built at init after the tables (Go orders package vars by dependency); exact lookup is O(1) per parameter.
 var (
 	trackingByName   = indexRules(trackingRules)
 	trackingPrefixes = prefixRules(trackingRules)
@@ -630,8 +516,7 @@ func prefixDeny(ds []Deny) []Deny {
 	return out
 }
 
-// denyReason reports why key must never be stripped on host, if it must not.
-// Consulted before any rule, prefix rules included.
+// denyReason reports why key must never be stripped on host; consulted before any rule.
 func denyReason(key, host string) (string, bool) {
 	k := strings.ToLower(key)
 	for _, d := range denyByName[k] {
@@ -659,8 +544,7 @@ func (d Deny) covers(host string) bool {
 	return false
 }
 
-// lookupTracking finds the rule that would strip key on host, if any. Exact
-// names win over prefixes, which is why the prefix scan runs second.
+// lookupTracking finds the rule that would strip key on host; exact names win over prefixes.
 func lookupTracking(key, host string, affiliate bool) (Rule, bool) {
 	k := strings.ToLower(key)
 	if _, denied := denyReason(k, host); denied {
@@ -679,15 +563,8 @@ func lookupTracking(key, host string, affiliate bool) (Rule, bool) {
 	return Rule{}, false
 }
 
-// wrappersFor returns every wrapper covering host+path, in table order. Path is
-// matched as a prefix because urldefense v3 carries the payload in the rest of
-// the path.
-//
-// It returns a slice rather than the first hit because one host legitimately
-// carries several shapes: google.<tld> is /url, /amp/ and a bare ?adurl= all at
-// once, and the ?adurl= row has no path to discriminate on. Returning only the
-// first match let it shadow the other two. The caller tries each until one
-// actually yields a target.
+// wrappersFor returns every wrapper covering host+path (path as a prefix, for urldefense v3), not just the
+// first: google.<tld> carries /url, /amp/ and a path-less ?adurl=, which would shadow the other two.
 func wrappersFor(host, path string) []Wrapper {
 	path = strings.ToLower(path)
 	var out []Wrapper
@@ -705,17 +582,9 @@ func wrappersFor(host, path string) []Wrapper {
 	return out
 }
 
-// matchHost reports whether host is covered by pattern. Three forms:
-//
-//	"linkedin.com"     the host itself, or any subdomain of it
-//	"*.safelinks.…"    identical; the "*." is documentation, not extra power
-//	"amazon."          registrable-name match: the label "amazon" followed by a
-//	                   public suffix, so amazon.co.uk and smile.amazon.com match
-//	                   and notamazon.com and amazon.evil.com do not
-//
-// The trailing-dot form is report §7 invariant 5. It exists because the
-// alternative — listing every Google and Amazon ccTLD — is a list that is wrong
-// the week after it is written.
+// matchHost: "linkedin.com" matches it and its subdomains ("*." prefix is documentation only); "amazon."
+// matches the label plus a public suffix (amazon.co.uk, smile.amazon.com, not amazon.evil.com), since a
+// list of every ccTLD is wrong the week after it is written.
 func matchHost(host, pattern string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	if host == "" || pattern == "" {
@@ -728,11 +597,7 @@ func matchHost(host, pattern string) bool {
 	return host == pattern || strings.HasSuffix(host, "."+pattern)
 }
 
-// secondLevelSuffixes: the handful of two-label public suffixes the
-// trailing-dot form needs. Shipping the full Public Suffix List for this would
-// be a dependency and a megabyte; being wrong about amazon.co.uk would not be
-// acceptable, and being wrong about amazon.commercial-bank.zz costs one
-// unstripped parameter.
+// secondLevelSuffixes stands in for the Public Suffix List: a miss costs one unstripped parameter.
 var secondLevelSuffixes = map[string]bool{
 	"co": true, "com": true, "net": true, "org": true, "ac": true, "gov": true, "edu": true,
 }
@@ -753,8 +618,7 @@ func matchRegistrable(host, name string) bool {
 	return false
 }
 
-// alphaLabel reports whether s could be a TLD: letters only, and short. This is
-// what stops "amazon.evil.com" matching the pattern "amazon.".
+// alphaLabel reports whether s could be a TLD; it stops "amazon.evil.com" matching "amazon.".
 func alphaLabel(s string) bool {
 	if len(s) < 2 || len(s) > 24 {
 		return false
@@ -767,9 +631,7 @@ func alphaLabel(s string) bool {
 	return true
 }
 
-// RuleCatalog is what GET /clean/rules serves: the whole of both tables, plus
-// the version the extension caches on and the scope sentence the page must
-// print. Nothing is computed here — it is the tables, verbatim.
+// RuleCatalog is what GET /clean/rules serves: both tables verbatim, the version and the scope sentence.
 type RuleCatalog struct {
 	Version    string    `json:"version"`
 	Scope      string    `json:"scope"`
@@ -778,10 +640,7 @@ type RuleCatalog struct {
 	Wrappers   []Wrapper `json:"wrappers"`
 }
 
-// Rules returns the catalog. The slices are cloned so a handler, a template or
-// the JSON encoder cannot reorder the package's own tables; the string fields
-// inside are immutable, and the Hosts slices are shared, which is the one thing
-// a caller must not write to.
+// Rules clones the tables against reordering; the Hosts slices inside are shared and must not be written.
 func Rules() RuleCatalog {
 	return RuleCatalog{
 		Version:    RulesVersion,
@@ -813,7 +672,7 @@ type RuleMatches struct {
 	NeverStrip []Deny `json:"never_strip"`
 }
 
-// Matches lists the rules naming param as Clean's lookup does; Verdict says which fires.
+// Matches lists the rules naming param as Clean's lookup does.
 func (c RuleCatalog) Matches(param string) RuleMatches {
 	k := strings.ToLower(strings.TrimSpace(param))
 	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}

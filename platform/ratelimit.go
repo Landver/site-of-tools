@@ -10,10 +10,7 @@ import (
 )
 
 // Limiter: build one per tool and hand it to REST and MCP alike, so a client has one budget.
-type Limiter interface {
-	middleware.RateLimiterStore
-	Rate() (perSecond float64, burst int)
-}
+type Limiter = middleware.RateLimiterStore
 
 const (
 	LimitedMessage = "Too many requests from your address. Try again in a few seconds."
@@ -28,27 +25,19 @@ func NewGlobalLimiter(rate float64, burst int) Limiter {
 	return globalLimiter{newStore(rate, burst)}
 }
 
-type memStore struct {
+func newStore(rate float64, burst int) *middleware.RateLimiterMemoryStore {
+	return middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{Rate: rate, Burst: burst})
+}
+
+type globalLimiter struct {
 	*middleware.RateLimiterMemoryStore
-	perSecond float64
-	burst     int
 }
 
-func newStore(rate float64, burst int) memStore {
-	return memStore{middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
-		Rate: rate, Burst: burst,
-	}), rate, burst}
-}
-
-func (s memStore) Rate() (float64, int) { return s.perSecond, s.burst }
-
-type globalLimiter struct{ memStore }
-
-func (g globalLimiter) Allow(string) (bool, error) { return g.memStore.Allow("") }
+func (g globalLimiter) Allow(string) (bool, error) { return g.RateLimiterMemoryStore.Allow("") }
 
 // Echo calls AllowContext when a store has it, so it too must drop the client key.
 func (g globalLimiter) AllowContext(c *echo.Context, _ string) (bool, error) {
-	return g.memStore.AllowContext(c, "")
+	return g.RateLimiterMemoryStore.AllowContext(c, "")
 }
 
 func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context) error) echo.MiddlewareFunc {

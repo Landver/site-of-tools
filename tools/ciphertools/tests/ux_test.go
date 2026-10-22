@@ -12,7 +12,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 )
 
-// Markup checks for phones, screen readers and JavaScript off, parsed with scripting off as a no-JS browser does.
+// Markup checks for phones, screen readers and no-JS, parsed with scripting off as a no-JS browser does.
 
 func parseHTML(t *testing.T, s string) *html.Node {
 	t.Helper()
@@ -164,8 +164,7 @@ func TestTabButtonsHiddenWithoutJS(t *testing.T) {
 	}
 }
 
-// The tabbed pages open on the tab of the form that was sent, picked from literals: a crafted kind must not
-// reach the Alpine expression.
+// The starting tab is picked from literals, so a crafted kind can't reach the Alpine expression.
 func TestStartingTabIsALiteral(t *testing.T) {
 	e := newCipherApp(t)
 	for _, c := range []struct{ method, path, body, tab string }{

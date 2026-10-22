@@ -8,22 +8,13 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Author identity. Single source for the `author` meta tag and the JSON-LD
-// Person, so a search engine or an AI answer attributes a post to a stable
-// entity rather than to whoever syndicated it. Profile links are the
-// `sameAs` anchors that tie this Person to accounts elsewhere.
+// One author identity for the meta tag and JSON-LD Person, so posts attribute to a stable entity.
 const (
 	authorName    = "Stas"
 	authorProfile = "https://www.linkedin.com/in/stanislav-navarici/"
 )
 
-// sitemapPages lists the apex's indexable URLs: landing, blog index, and one
-// entry per published post. lastmod on the two static pages tracks the newest
-// post, so publishing re-dates the pages that link to it. Drafts never reach
-// here — LoadPosts filters them first.
-//
-// Method on Blog (not a package func) so platform.RegisterSEO can take it as
-// a per-request closure and pick up dev's live reload for free.
+// sitemapPages dates the landing and blog index by the newest post; as a Blog method it sees dev reloads.
 func (b *Blog) sitemapPages() ([]platform.Page, error) {
 	posts, err := b.Posts()
 	if err != nil {
@@ -72,16 +63,10 @@ type ldBlogPosting struct {
 	InLanguage       string    `json:"inLanguage"`
 }
 
-// articleJSONLD builds the schema.org BlogPosting for one post. Returns
-// template.JS so html/template drops it into the ld+json script tag verbatim
-// instead of escaping the JSON — safe because every field is our own
-// committed content, marshalled by encoding/json.
-//
-// postURL and imageURL must be absolute; relative URLs are silently ignored
-// by consumers, which is the kind of bug that only shows up in a validator.
+// articleJSONLD returns template.JS so the JSON isn't escaped, safe as every field is our own content.
+// postURL and imageURL must be absolute: consumers silently ignore relative ones.
 func articleJSONLD(post Post, postURL, imageURL, base string) (template.JS, error) {
-	// Date-only frontmatter → RFC3339 at UTC midnight. Posts are not revised
-	// in place, so modified tracks published.
+	// Posts aren't revised in place, so modified tracks published.
 	published := post.Date.UTC().Format(time.RFC3339)
 	me := ldPerson{
 		Type:   "Person",

@@ -1,17 +1,8 @@
-{{/* Shared "your request" body: eyebrow + spec list over platform.ConnInfo
-     (the dot). Six transport rows always render; ASN/proxy rows (G38/G44)
-     appear only if tool enriched ConnInfo via WithNetwork. Each tool's page
-     renders it inside own .card wrapper → page-specific spacing stays at call
-     site, rows/labels live in exactly one place. Guard w/ {{with .Conn}} at
-     call site → render w/o .Conn drops card entirely. TLS + visitor's HTTP
-     version terminate upstream → omitted; Cookie + Authorization never read. */}}
+{{/* ASN/proxy rows need WithNetwork; no TLS/HTTP-version rows, as both terminate upstream. */}}
 {{define "partials/conn"}}
 <div class="eyebrow">your request</div>
 <dl class="spec">
   <dt>Your IP</dt>      <dd class="font-mono break-all text-strong">{{.IP}}</dd>
-  {{/* G38/G44: optional network attribution (ASN/ISP, proxy kind + provider).
-       Each row renders only if value non-empty → tool that never enriches
-       ConnInfo, or lookup w/o proxy data, renders exactly rows it always did. */}}
   {{if .ASN}}<dt>ASN</dt>         <dd>AS{{.ASN}}{{with .ASName}} ({{.}}){{end}}</dd>{{end}}
   {{if .ProxyKind}}<dt>Proxy</dt> <dd>{{.ProxyKind}}{{with .ProxyProvider}} — {{.}}{{end}}</dd>{{end}}
   <dt>Detected via</dt> <dd>{{.Via}}</dd>

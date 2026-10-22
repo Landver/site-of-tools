@@ -10,9 +10,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// TestOpenMongoDisabled: empty URI = Mongo off -> OpenMongo returns
-// ErrMongoUnavailable, no client -> server boots w/o database. Same non-fatal
-// contract as iptools.OpenService w/ absent BINs.
+// TestOpenMongoDisabled: an empty URI returns ErrMongoUnavailable and no client, so the server still boots.
 func TestOpenMongoDisabled(t *testing.T) {
 	m, err := platform.OpenMongo(context.Background(), "", "")
 	if !errors.Is(err, platform.ErrMongoUnavailable) {
@@ -23,9 +21,7 @@ func TestOpenMongoDisabled(t *testing.T) {
 	}
 }
 
-// TestNilMongoIsSafe: nil *Mongo = valid "disabled" value. Every method must be
-// nil-safe -> callers can `defer m.Close(ctx)` + probe m.DB() w/o nil check, same
-// as nil *iptools.Service.
+// TestNilMongoIsSafe: callers may `defer m.Close(ctx)` and call m.DB() without a nil check.
 func TestNilMongoIsSafe(t *testing.T) {
 	var m *platform.Mongo
 	ctx := context.Background()
@@ -44,15 +40,7 @@ func TestNilMongoIsSafe(t *testing.T) {
 	}
 }
 
-// TestOpenMongoLive: integration test. Runs only when MONGODB_TEST_URI set (+
-// server reachable), skips otherwise -> CI, fresh clones, plain `make test` stay
-// green. Mirrors BIN-dependent tests skipping w/ absent databases (ARCHITECTURE
-// §9).
-//
-// Reads MONGODB_TEST_URI not app's MONGODB_URI on purpose: `make test` includes+
-// exports .env -> keying off MONGODB_URI fires live network call every run.
-// Dedicated var keeps suite hermetic, makes hitting real server explicit opt-in
-// (`MONGODB_TEST_URI=… go test ./platform/...`).
+// TestOpenMongoLive reads MONGODB_TEST_URI, not MONGODB_URI, which `make test` exports from .env every run.
 func TestOpenMongoLive(t *testing.T) {
 	uri := os.Getenv("MONGODB_TEST_URI")
 	if uri == "" {

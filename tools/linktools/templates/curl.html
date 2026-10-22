@@ -1,23 +1,4 @@
-{{/* curl, both directions — page shell + result fragment (A19).
-
-     Two forms, one route. GET carrying ?u= renders a command; GET carrying
-     ?curl= takes a pasted command apart. The handler branches on ?curl= first,
-     so the paste form wins when both are filled.
-
-     Safety rules carried from inspect.html:
-       - Neither the URL typed in nor the URL recovered from a pasted command is
-         ever written into an href. .Result is an Inspection and DOES carry
-         .Linkable, so the delegated "link/inspect" block below is free to make
-         it clickable under its own allowlist check; nothing in THIS file does.
-       - The generated command is rendered inside <pre> as text. It is shell
-         source that a human is about to paste into a terminal, and everything
-         the caller supplied was single-quoted on the way out (ToCurl) precisely
-         so an "&", ";" or "$(…)" in a URL stays part of the URL.
-
-     Two view-model notes. The handler sets Personas only on the ?u= branch, so
-     the persona select is guarded and simply absent after a paste — the form
-     still submits, and an absent ua means curl's own user agent. And .Cmd is
-     re-rendered into the textarea, which is how the back button survives. */}}
+{{/* curl page + fragment. No URL goes into an href here; the link/inspect block keeps its own allowlist. */}}
 {{define "link/curl"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -35,10 +16,8 @@
       nothing is fetched.
     </p>
 
-    {{/* The panel switch is CSS (group-has), so it works without JavaScript;
-         the radios are in no form. relative keeps the sr-only radios inside.
-         hx-history="false" on <main>: a pasted command, cookies and all, must
-         not be kept in htmx's sessionStorage snapshot of the page. */}}
+    {{/* The panel switch is CSS (group-has), so it works without JavaScript; the radios belong to no form.
+         hx-history="false" on <main>: a pasted command's cookies must not reach htmx's history cache. */}}
     {{$build := and .Query (not .Cmd)}}
     <div class="group/curl mt-6">
       <div class="relative inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="radiogroup" aria-label="Direction">
@@ -117,9 +96,8 @@
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
 
-    {{/* The address bar follows the direction shown (paste has no URL: it
-         posts). A curl command typed into Build moves to the paste box; this
-         listener is registered before link/live's, which it stops. */}}
+    {{/* Keeps the address bar on the shown direction and moves a curl command typed into Build to paste.
+         Must be registered before link/live's listener, which it stops. */}}
     <script>
       (function () {
         var paste = document.getElementById('curl-mode-paste')
@@ -189,9 +167,7 @@
 </html>
 {{end}}
 
-{{/* Result fragment — the htmx swap target, and the body of the page above.
-     Both directions render through here; which one fired is decided by which
-     view-model keys the handler set. */}}
+{{/* Result fragment for both directions: which one fired depends on the view-model keys the handler set. */}}
 {{define "link/curled"}}
 
 {{if .Curl}}
@@ -216,8 +192,7 @@
 <section data-announce="Command taken apart: {{len .Headers}} {{if eq (len .Headers) 1}}header{{else}}headers{{end}}.">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The URL in that command</h2>
   <div class="mt-2 rounded-lg border border-line bg-surface p-4">
-    {{/* The body is measured, never shown: it is where a copied command keeps
-         its passwords. */}}
+    {{/* Measured, never shown: the body is where a copied command keeps its passwords. */}}
     {{with .Request}}
     {{if .Notes}}<div class="mb-3 rounded-lg border border-line bg-surface px-4 py-2">{{template "link/notes" .Notes}}</div>{{end}}
     <p class="text-xs text-muted">
@@ -263,10 +238,7 @@
 </section>
 {{end}}
 
-{{/* The parse itself is Inspect's, not a second implementation of it. The
-     handler put the Inspection under the same .Result key that block reads,
-     and .Linkable travels with it, so the allowlist decision stays in one
-     place. */}}
+{{/* Inspect's own parse block: .Linkable rides in .Result, so the allowlist check stays in one place. */}}
 {{if .Result}}
 {{/* No heading: the parse brings its own sections at the same rank. */}}
 <div class="mt-6">{{template "link/inspect" .}}</div>

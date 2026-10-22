@@ -94,7 +94,7 @@ func cipherCases() []cipherCase {
 		// RFC 6238 Appendix B, T=59, SHA1.
 		{tool: "cipher_totp", args: map[string]any{"secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "digits": 8, "now": 59, "code": "94287082"},
 			want: map[string]any{"code": "94287082", "check.match": true, "check.step": "current"}},
-		{tool: "cipher_random", args: map[string]any{"kind": "password", "length": 24, "sets": []any{"digits"}, "count": 2},
+		{tool: "cipher_random", args: map[string]any{"kind": "password", "length": 24, "sets": "digits", "count": 2},
 			want: map[string]any{"kind": "password", "alphabet": "0123456789"}, random: true},
 		{tool: "cipher_encode", args: map[string]any{"text": "aGVsbG8=", "from": "base64"},
 			want: map[string]any{"text": "hello", "hex": "68656c6c6f", "base32": "NBSWY3DP"}},
@@ -147,10 +147,10 @@ func TestCipherToolsKnownVectors(t *testing.T) {
 			t.Errorf("verify %s against its own argon2id hash = %v, want %s", password, v["state"], state)
 		}
 	}
-	rnd := object(t, call(t, cs, "cipher_random", map[string]any{"kind": "password", "length": 24, "sets": []any{"digits"}, "count": 2}))
+	rnd := object(t, call(t, cs, "cipher_random", map[string]any{"kind": "password", "length": 24, "sets": "digits", "count": 2}))
 	for _, v := range rnd["values"].([]any) {
 		if !regexp.MustCompile(`^[0-9]{24}$`).MatchString(v.(string)) {
-			t.Errorf("sets [digits] gave %q", v)
+			t.Errorf("sets digits gave %q", v)
 		}
 	}
 	// A bad key_enc is reported where the signature check would be.
@@ -181,8 +181,8 @@ func TestCipherBadInput(t *testing.T) {
 	}{
 		{"cipher_hash", map[string]any{"text": "abc", "enc": "rot13"}, "enc"},
 		{"cipher_identify", map[string]any{"text": "abc", "nope": 1}, "nope"},
-		{"cipher_random", map[string]any{"kind": "password", "sets": []any{"emoji"}}, "sets"},
-		{"cipher_random", map[string]any{"kind": "password", "sets": []any{}}, "pick at least one"},
+		{"cipher_random", map[string]any{"kind": "password", "sets": "emoji"}, "sets"},
+		{"cipher_random", map[string]any{"kind": "password", "sets": ""}, "pick at least one"},
 		{"cipher_random", map[string]any{"kind": "uuid", "version": 5}, "version"},
 		{"cipher_totp", map[string]any{"secret": "JBSWY3DPEHPK3PXP", "digits": 9}, "digits"},
 		{"cipher_totp", map[string]any{"secret": "JBSWY3DPEHPK3PXP", "mode": "hotp", "counter": 1 << 53}, "counter"},
@@ -226,8 +226,8 @@ func TestHeavyCipherOps(t *testing.T) {
 		t.Errorf("REST with the budget full = %d, want 503: one budget for both doors", rec.Code)
 	}
 	object(t, call(t, cs, "cipher_hash", map[string]any{"text": "abc"}))
-	if !strings.Contains(log.String(), `"outcome":"busy"`) || !strings.Contains(log.String(), "#cipher_password_hash") {
-		t.Errorf("log lacks the busy outcome:\n%s", log.String())
+	if !strings.Contains(log.String(), `"status":503,"uri":"/mcp/cipher#cipher_password_hash"`) {
+		t.Errorf("log lacks the busy status:\n%s", log.String())
 	}
 	lim.HeavyCap.Release(otherClient, budget)
 
@@ -276,18 +276,7 @@ func TestCipherParity(t *testing.T) {
 	}
 	paths["cipher_basic_auth"] = "/encode/basic"
 	for _, tc := range cipherCases() {
-		form := map[string]any{}
-		for k, v := range tc.args {
-			if list, ok := v.([]any); ok {
-				parts := make([]string, len(list))
-				for i, e := range list {
-					parts[i] = e.(string)
-				}
-				v = strings.Join(parts, ",")
-			}
-			form[k] = v
-		}
-		body, _ := json.Marshal(form)
+		body, _ := json.Marshal(tc.args)
 		rec := s.do(http.MethodPost, paths[tc.tool], string(body),
 			map[string]string{"Host": cipherHost, "Accept": "application/json", "Content-Type": "application/json"})
 		if rec.Code != http.StatusOK {

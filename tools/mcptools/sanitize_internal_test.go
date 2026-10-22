@@ -12,7 +12,6 @@ import (
 // White-box: these edge cases need inputs no tool produces yet.
 
 func TestClean(t *testing.T) {
-	long := strings.Repeat("a", 10<<10)
 	cases := []struct{ in, want string }{
 		{"plain", "plain"},
 		{"a\u202eb", `a\u{202E}b`},
@@ -24,12 +23,9 @@ func TestClean(t *testing.T) {
 		{"ᅟᅠㅤﾠ", `\u{115F}\u{1160}\u{3164}\u{FFA0}`},
 		{"tab\tand\nnewline stay", "tab\tand\nnewline stay"},
 		{"emoji 👍 and ü stay", "emoji 👍 and ü stay"},
-		{long, long[:maxString] + "…[truncated 8192 bytes]"},
-		// The cut lands on a rune boundary: é is two bytes.
-		{"x" + strings.Repeat("é", maxString), "x" + strings.Repeat("é", (maxString-1)/2) + "…[truncated 2050 bytes]"},
 	}
 	for _, tc := range cases {
-		if got := clean(tc.in, maxString); got != tc.want {
+		if got := clean(tc.in); got != tc.want {
 			t.Errorf("clean(%.40q) = %.80q, want %.80q", tc.in, got, tc.want)
 		}
 	}
@@ -47,7 +43,7 @@ func TestSanitize(t *testing.T) {
 		"url":         "https://x.test/?a=1&b=<2>",
 	}
 	raw, _ := json.Marshal(in)
-	res, size, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "", false)
+	res, size, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)})
 	if err != nil || res.IsError {
 		t.Fatalf("sanitize = %v %v", res, err)
 	}
@@ -66,8 +62,8 @@ func TestSanitize(t *testing.T) {
 	}
 	hdrs := got["headers"].(map[string]any)
 	v, ok := hdrs[`X-\u{202E}Evil`].(string)
-	if !ok || !strings.HasSuffix(v, "…[truncated 952 bytes]") {
-		t.Errorf("headers = %.80v, want the key escaped and the value capped", hdrs)
+	if !ok || v != strings.Repeat("v", 3000) {
+		t.Errorf("headers = %.80v, want the key escaped and the value whole", hdrs)
 	}
 	if got["exact"] != json.Number("12345678901234567890") {
 		t.Errorf("exact = %v: numbers must survive as written", got["exact"])
@@ -83,48 +79,31 @@ func TestSanitizeRefuses(t *testing.T) {
 		big["rows"].([]string)[i] = strings.Repeat("r", 60)
 	}
 	raw, _ := json.Marshal(big)
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "Ask for one record type.", false)
-	if err != nil || !res.IsError || !strings.HasSuffix(res.Content[0].(*mcp.TextContent).Text, "Ask for one record type.") {
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)})
+	if err != nil || !res.IsError || !strings.HasSuffix(res.Content[0].(*mcp.TextContent).Text, "Ask for less: leave detailed off, or narrow the input.") {
 		t.Errorf("over the hard cap = %+v %v, want an error that says how to narrow", res, err)
 	}
 
 	for _, sc := range []any{nil, json.RawMessage(`[1,2]`), json.RawMessage(`"s"`)} {
-		if _, _, err := sanitize(&mcp.CallToolResult{StructuredContent: sc}, "", false); err == nil {
+		if _, _, err := sanitize(&mcp.CallToolResult{StructuredContent: sc}); err == nil {
 			t.Errorf("structuredContent %v accepted; it must be an object", sc)
 		}
 	}
 
-	errRes := errorResult("upstream said \u202eevil " + strings.Repeat("e", 5000))
-	got, _, _ := sanitize(errRes, "", false)
-	if txt := got.Content[0].(*mcp.TextContent).Text; !got.IsError || !strings.Contains(txt, `\u{202E}`) || len(txt) > maxString+40 {
-		t.Errorf("error text = %.60q (%d bytes), want escaped and capped", txt, len(txt))
+	errRes := errorResult("upstream said \u202eevil " + strings.Repeat("e", maxResult+5000))
+	got, _, _ := sanitize(errRes)
+	if txt := got.Content[0].(*mcp.TextContent).Text; !got.IsError || !strings.Contains(txt, `\u{202E}`) || len(txt) > maxResult {
+		t.Errorf("error text = %.60q (%d bytes), want escaped and clipped", txt, len(txt))
 	}
 }
 
 func TestSanitizeKeepsOrderOfLists(t *testing.T) {
 	raw := json.RawMessage(`{"a":[3,1,2],"b":{"z":1,"y":2}}`)
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: raw}, "", false)
+	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: raw})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if diff := cmp.Diff(`{"a":[3,1,2],"b":{"y":2,"z":1}}`, res.Content[0].(*mcp.TextContent).Text); diff != "" {
 		t.Errorf("(-want +got):\n%s", diff)
-	}
-}
-
-// A whole result keeps its long strings, but invisible characters and the hard cap still apply.
-func TestSanitizeWhole(t *testing.T) {
-	pem := strings.Repeat("k", 3300)
-	raw, _ := json.Marshal(map[string]any{"private_pem": pem, "text": "a\u202eb"})
-	res, _, err := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(raw)}, "", true)
-	if err != nil || res.IsError {
-		t.Fatalf("sanitize = %v %v", res, err)
-	}
-	if diff := cmp.Diff(`{"private_pem":"`+pem+`","text":"a\\u{202E}b"}`, res.Content[0].(*mcp.TextContent).Text); diff != "" {
-		t.Errorf("(-want +got):\n%s", diff)
-	}
-	big, _ := json.Marshal(map[string]any{"text": strings.Repeat("x", maxResult)})
-	if res, _, _ := sanitize(&mcp.CallToolResult{StructuredContent: json.RawMessage(big)}, "", true); !res.IsError {
-		t.Error("a whole result over the hard cap was sent")
 	}
 }

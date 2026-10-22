@@ -7,16 +7,13 @@ import (
 	"strings"
 )
 
-// Header is one HTTP request header. An ordered slice of these, rather than a
-// map, for the same reason Param is a slice (types.go): a pasted command can
-// repeat a header, and the order is part of what was pasted.
+// Header is one request header, kept in an ordered slice because a pasted command can repeat one.
 type Header struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-// CurlOptions shapes the generated command (A19,
-// docs/01-feature-inventory.md).
+// CurlOptions shapes the generated command (A19, docs/01-feature-inventory.md).
 type CurlOptions struct {
 	Persona         string `json:"persona"`          // a trace.go persona key; empty sends curl's own UA
 	Method          string `json:"method"`           // empty or GET emits no -X
@@ -25,15 +22,8 @@ type CurlOptions struct {
 	Insecure        bool   `json:"insecure"`         // -k; see the note on ToCurl
 }
 
-// curlPersona resolves a persona key against the one table this package keeps,
-// trace.go's personas (A17). Deliberately not a second table: the whole value of
-// the feature is that the curl line and the traced request claim to be the same
-// agent, and two lists would drift the day one of them gained an entry.
-//
-// Unlike trace.go's personaFor, an unrecognised key is an error rather than a
-// fallback to the default. A trace with the wrong user agent still reports which
-// one answered; a generated command hands the caller a line that silently claims
-// to be somebody else.
+// curlPersona reuses trace.go's personas so curl and Trace claim the same agent. Unlike personaFor, an
+// unknown key is an error: a generated command would otherwise silently claim to be somebody else.
 func curlPersona(key string) (Persona, bool) {
 	for _, p := range personas {
 		if strings.EqualFold(p.Key, key) {
@@ -43,20 +33,8 @@ func curlPersona(key string) (Persona, bool) {
 	return Persona{}, false
 }
 
-// ToCurl renders a runnable curl command for one URL.
-//
-// Everything the caller supplied is single-quoted, and an embedded single quote
-// is written '\” — close the quote, emit an escaped one, reopen. This is not
-// decoration. A URL is attacker-influenced text and the output is something a
-// human pastes into a shell, so an unquoted "&", ";", "|" or "$(…)" inside one
-// would stop being part of the URL and start being shell syntax on their
-// machine. Nothing here is ever emitted bare, and the URL is parsed before it is
-// quoted so a control character cannot reach the clipboard at all.
-//
-// opt.Insecure emits -k, which turns off certificate verification and turns the
-// request into one anybody on the path can read and rewrite. It is emitted only
-// when explicitly asked for, never as part of a default, and it is worth
-// treating a habit of reaching for it as a bug in the server being tested.
+// ToCurl renders a runnable curl command. Every caller-supplied piece is single-quoted, since the URL is
+// attacker-influenced and gets pasted into a shell. -k is emitted only when opt.Insecure asks for it.
 func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -70,10 +48,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		return "", fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 	if isDangerousScheme(u.Scheme) {
-		// Checked before the host, because "javascript:alert(1)" has no host
-		// either and "it needs a host" is the wrong thing to tell someone about
-		// it. Shares url.go's table: these are the schemes a browser executes or
-		// resolves locally rather than fetches over the wire.
+		// Before the host check: javascript:alert(1) has no host either, and "needs a host" is wrong there.
 		return "", fmt.Errorf("curl fetches over the network and %q is not a network scheme", u.Scheme+":")
 	}
 	if u.Scheme == "" || u.Host == "" {
@@ -90,9 +65,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 	if opt.FollowRedirects {
 		args = append(args, "-L")
 	}
-	// No flag for the other direction: curl does not follow a redirect unless
-	// asked, so "--max-redirs 0" without -L is a no-op, and a no-op flag on a
-	// line a human will paste is just noise.
+	// No flag for the other direction: curl only follows redirects when asked, so --max-redirs 0 is noise.
 	if opt.ShowHeaders {
 		args = append(args, "-i")
 	}
@@ -102,8 +75,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 	if opt.Persona != "" {
 		p, ok := curlPersona(opt.Persona)
 		if !ok {
-			// Not silently ignored: a typo that quietly sends the wrong user
-			// agent defeats the only reason the option exists.
+			// A typo quietly sending the wrong user agent would defeat the option.
 			return "", fmt.Errorf("unknown persona %q", opt.Persona)
 		}
 		args = append(args, "-H", shellQuote("User-Agent: "+p.UA))
@@ -116,21 +88,8 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
-// FromCurl takes a pasted curl command apart and returns its URL and headers.
-//
-// The genuinely useful half of A19. People paste curl lines out of documentation
-// and out of a browser's "Copy as cURL" constantly — the browser's version is
-// multi-line, continuation-escaped and carries twenty -H flags — and nothing in
-// the surveyed landscape takes one apart.
-//
-// This is a shell-shaped tokeniser, not a shell. It understands the quoting
-// forms that actually appear in a copied command and nothing else: no variable
-// expansion, no command substitution, no globbing, no execution. The input is
-// untrusted text and the only safe way to read it is to not evaluate it.
-//
-// The URL is returned exactly as it was written, including a missing scheme.
-// curl would assume http there; Parse says so in a note instead, and inventing
-// the scheme here would hide the fact that the pasted command relied on it.
+// FromCurl takes a pasted curl command apart without evaluating it: a shell-shaped tokeniser, not a shell.
+// The URL comes back as written; a missing scheme is left for Parse to note rather than invented here.
 func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 	r, err := s.FromCurlRequest(cmd)
 	if err != nil {
@@ -139,8 +98,7 @@ func (s *Service) FromCurl(cmd string) (string, []Header, error) {
 	return r.URL, r.Headers, nil
 }
 
-// CurlRequest is a pasted command taken apart. The body is measured, never
-// echoed: it is where a copied command keeps its passwords.
+// CurlRequest is a pasted command taken apart; the body is measured, never echoed: it holds passwords.
 type CurlRequest struct {
 	URL       string   `json:"url"`
 	Headers   []Header `json:"headers"`
@@ -176,8 +134,7 @@ func (s *Service) ParseCurl(cmd string) (*CurlParse, error) {
 	}, nil
 }
 
-// urlencodeData encodes a --data-urlencode argument as curl does; "@file" is
-// left alone.
+// urlencodeData encodes a --data-urlencode argument as curl does; "@file" is left alone.
 func urlencodeData(v string) string {
 	esc := func(x string) string { return strings.ReplaceAll(url.QueryEscape(x), "+", "%20") }
 	if strings.HasPrefix(v, "@") || strings.Contains(v, "@") && !strings.Contains(v, "=") {
@@ -235,8 +192,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		t := toks[i]
 		i++
 		if t == "--" {
-			// End of flags: whatever follows is an operand, even if it starts
-			// with a dash.
+			// End of flags: whatever follows is an operand, even if it starts with a dash.
 			for ; i < len(toks); i++ {
 				if r.URL == "" && looksLikeURL(toks[i]) {
 					r.URL = toks[i]
@@ -245,8 +201,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 			break
 		}
 		if !strings.HasPrefix(t, "-") || t == "-" {
-			// curl accepts several URLs; this tool inspects one, so the first
-			// wins and the rest are left alone.
+			// curl accepts several URLs; this tool inspects the first.
 			if r.URL == "" && looksLikeURL(t) {
 				r.URL = t
 			}
@@ -260,8 +215,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		case name == "--head":
 			head = true
 		case !strings.HasPrefix(t, "--"):
-			// "-sSLG", "-GXPOST": G and I count among the booleans before any
-			// letter that takes an argument.
+			// "-sSLG", "-GXPOST": G and I count only before the first letter that takes an argument.
 			bools := t[1:]
 			if j := strings.IndexAny(bools, curlArgShorts); j >= 0 {
 				bools = bools[:j]
@@ -270,8 +224,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 			head = head || strings.ContainsRune(bools, 'I')
 		}
 		if !hasVal && curlFlagTakesArg(name) && i < len(toks) {
-			// Consuming the argument matters even for flags we ignore: without
-			// it, the filename after -o or the body after -d becomes the URL.
+			// Consume it even for flags we ignore, or the file after -o or body after -d becomes the URL.
 			val, hasVal = toks[i], true
 			i++
 		}
@@ -292,8 +245,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		case "-e", "--referer":
 			r.Headers = append(r.Headers, Header{"Referer", strings.TrimSuffix(val, ";auto")})
 		case "-b", "--cookie":
-			// curl reads this as a file when it has no "=" in it, and a file
-			// name is not a header.
+			// Without "=" curl reads this as a file name, which is not a header.
 			if strings.Contains(val, "=") {
 				r.Headers = append(r.Headers, Header{"Cookie", val})
 			}
@@ -322,8 +274,7 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		return nil, fmt.Errorf("couldn't read the URL in that command: %w", parseReason(err))
 	}
 
-	// curl's own order of precedence: -X wins, then -I, then -G (which turns a
-	// body into the query string), then a body means POST.
+	// curl's precedence: -X, then -I, then -G (body into the query string), then a body means POST.
 	switch {
 	case explicit != "":
 		r.Method, r.MethodWhy = explicit, "set with -X"
@@ -345,22 +296,13 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 	return r, nil
 }
 
-// shellQuote wraps s in single quotes for POSIX sh.
-//
-// Single quotes are the only quoting form in which nothing at all is special,
-// which is why this uses them and not double quotes: inside '…' a "$", a
-// backtick and a backslash are literal bytes. The one character that cannot
-// appear is a single quote, written as '\” — end the quoted run, emit an
-// escaped quote outside it, start a new run. Every caller-supplied piece of the
-// command goes through here; see the note on ToCurl for why.
+// shellQuote single-quotes s for POSIX sh, where nothing inside is special; an embedded single quote
+// closes the run, is escaped, and reopens it.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// shellSplit breaks a pasted command into tokens, honouring the quoting the
-// browsers and the documentation actually emit: '…', "…" with backslash
-// escapes, $'…' ANSI-C quoting, bare backslash escapes, and line continuations
-// in all three flavours a "Copy as cURL" produces.
+// shellSplit honours the quoting copied commands use: '…', "…", $'…', backslashes and line continuations.
 func shellSplit(s string) ([]string, shellInfo) {
 	var out []string
 	var info shellInfo
@@ -388,16 +330,14 @@ func shellSplit(s string) ([]string, shellInfo) {
 		c := s[i]
 		switch {
 		case (c == '\\' || c == '^' || c == '`') && i+1 < len(s) && (s[i+1] == '\n' || s[i+1] == '\r'):
-			// Line continuation. bash writes "\", cmd.exe writes "^",
-			// PowerShell writes "`", and Chrome's copy menu offers all three.
+			// Line continuation: bash "\", cmd.exe "^", PowerShell "`"; Chrome's copy menu offers all three.
 			i += 2
 		case c == '\\' && i+1 < len(s):
 			cur.WriteByte(s[i+1])
 			open = true
 			i += 2
 		case c == '$' && i+1 < len(s) && s[i+1] == '\'':
-			// $'…': bash reaches for this as soon as a header value contains a
-			// quote or a non-ASCII byte, so a copied command hits it often.
+			// $'…': bash emits it once a header value has a quote or non-ASCII byte, so copies hit it often.
 			var raw strings.Builder
 			j := i + 2
 			for j < len(s) && s[j] != '\'' {
@@ -489,8 +429,7 @@ type shellInfo struct {
 	expansion    bool
 }
 
-// ansiCDecode expands the escapes inside bash's $'…' quoting. An escape it does
-// not know keeps its backslash, which is what bash does with it too.
+// ansiCDecode expands escapes inside bash's $'…'; an unknown escape keeps its backslash, as in bash.
 func ansiCDecode(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -566,10 +505,7 @@ func ansiCDecode(s string) string {
 	return b.String()
 }
 
-// curlArgFlags: the long flags whose next token is a value rather than a URL.
-// The list does not have to be exhaustive for the parser to work, but every
-// entry missing from it is a chance to mistake a filename or a POST body for the
-// URL, so the ones that show up in a copied command are all here.
+// curlArgFlags lists long flags taking a value; any missing one lets a file name or body pose as the URL.
 var curlArgFlags = map[string]bool{
 	"--header": true, "--url": true, "--request": true, "--data": true,
 	"--data-raw": true, "--data-binary": true, "--data-urlencode": true,
@@ -584,8 +520,7 @@ var curlArgFlags = map[string]bool{
 	"--continue-at": true, "--config": true, "--netrc-file": true,
 }
 
-// curlArgShorts: the single-letter flags that take a value. Kept as a string
-// because splitCurlFlag walks a cluster like "-sSLXPOST" byte by byte.
+// curlArgShorts is a string because splitCurlFlag walks a cluster like "-sSLXPOST" byte by byte.
 const curlArgShorts = "AbCcDdEeFHKmoPQrTtUuwXxYyz"
 
 func curlFlagTakesArg(name string) bool {
@@ -595,12 +530,7 @@ func curlFlagTakesArg(name string) bool {
 	return len(name) == 2 && strings.IndexByte(curlArgShorts, name[1]) >= 0
 }
 
-// splitCurlFlag normalises one flag token into a name and, when the value was
-// attached rather than separate, that value.
-//
-// "-sSL" is three booleans, "-XPOST" is a flag with its value stuck to it, and
-// "-sSLXPOST" is both — so a short cluster is walked until a letter that takes
-// an argument, and everything after that letter is the argument.
+// splitCurlFlag walks a cluster like "-sSLXPOST" to the first letter taking a value; the rest is that value.
 func splitCurlFlag(t string) (name, val string, hasVal bool) {
 	if strings.HasPrefix(t, "--") {
 		if n, v, ok := strings.Cut(t, "="); ok {
@@ -616,8 +546,7 @@ func splitCurlFlag(t string) (name, val string, hasVal bool) {
 	return t, "", false
 }
 
-// parseHeaderArg reads one -H argument. Returns false for the shapes curl treats
-// as something other than a header to send.
+// parseHeaderArg reads one -H argument, rejecting shapes curl treats as something other than a header.
 func parseHeaderArg(s string) (Header, bool) {
 	name, value, ok := strings.Cut(s, ":")
 	if !ok {
@@ -634,8 +563,7 @@ func parseHeaderArg(s string) (Header, bool) {
 	return Header{Name: name, Value: strings.TrimSpace(value)}, true
 }
 
-// isPromptNoise skips what comes along when a command is copied out of a
-// terminal or a README rather than out of a browser.
+// isPromptNoise skips what comes along when a command is copied from a terminal or a README.
 func isPromptNoise(t string) bool {
 	switch t {
 	case "$", "%", "#", ">", "PS>", "sudo", "&&", ";", "|":
@@ -644,11 +572,7 @@ func isPromptNoise(t string) bool {
 	return false
 }
 
-// looksLikeURL keeps a stray word from being read as the URL. It matters because
-// a pasted line is not always curl's: "wget https://…", "http GET https://…" and
-// "xh https://…" all arrive here, and without this the program name becomes the
-// answer. Deliberately loose — a host with no dot and no scheme is real on a LAN,
-// hence the localhost and bracketed-IPv6 cases.
+// looksLikeURL stops a program name (wget, xh, http) becoming the URL; loose, as LAN hosts lack dots.
 func looksLikeURL(t string) bool {
 	if strings.Contains(t, "://") || strings.HasPrefix(t, "[") {
 		return true
@@ -664,9 +588,7 @@ func isCurlWord(t string) bool {
 	return t == "curl" || strings.HasSuffix(t, "/curl")
 }
 
-// isMethodToken keeps an edited method to RFC 9110's token shape. The command is
-// quoted anyway, so this is not what stops an injection; it stops a newline or a
-// stray flag from being pasted into somebody's shell looking like part of curl.
+// isMethodToken enforces RFC 9110's token shape: quoting stops injection, this stops a stray newline.
 func isMethodToken(m string) bool {
 	if m == "" {
 		return false

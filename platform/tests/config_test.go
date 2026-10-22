@@ -1,6 +1,4 @@
-// Package tests: black-box tests for platform package. Own folder → tests
-// never sit among code they exercise; tradeoff: only platform's exported API
-// usable.
+// Package tests holds black-box tests for platform, so only its exported API is usable.
 package tests
 
 import (

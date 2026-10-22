@@ -16,22 +16,20 @@ import (
 )
 
 func TestLookupNilService(t *testing.T) {
-	var s *iptools.Service // never opened
+	var s *iptools.Service
 	if _, err := s.Lookup("8.8.8.8"); !errors.Is(err, iptools.ErrUnavailable) {
 		t.Errorf("nil service Lookup: got %v, want ErrUnavailable", err)
 	}
 }
 
 func TestLookupBadIP(t *testing.T) {
-	// Non-nil Service validates IP before touching DB handle.
+	// A non-nil Service validates the IP before touching a DB handle.
 	s := &iptools.Service{}
 	if _, err := s.Lookup("not-an-ip"); err == nil {
 		t.Fatal("expected an error for a malformed IP")
 	}
 }
 
-// resolveDB returns p if exists, else tries rel to repo root
-// (test file at <root>/iptools/tests/). "" if not found.
 func resolveDB(p string) string {
 	if p == "" {
 		return ""
@@ -40,7 +38,7 @@ func resolveDB(p string) string {
 		return p
 	}
 	_, thisFile, _, _ := runtime.Caller(0)
-	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile))) // tests → iptools → root
+	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
 	alt := filepath.Join(root, p)
 	if _, err := os.Stat(alt); err == nil {
 		return alt
@@ -48,11 +46,7 @@ func resolveDB(p string) string {
 	return ""
 }
 
-// TestLookupIntegration exercises real DBs; skips unless IP2LOCATION_* env
-// vars resolve to existing BINs -> CI/fresh clones stay green (BINs
-// gitignored). Run locally:
-//
-//	set -a; . ./.env; set +a; go test ./iptools/tests -run Integration
+// Skips unless IP2LOCATION_* resolve to real BINs, which are gitignored, so CI stays green.
 func TestLookupIntegration(t *testing.T) {
 	svc, px12 := integrationService(t)
 	got, err := svc.Lookup("8.8.8.8")
@@ -70,8 +64,7 @@ func TestLookupIntegration(t *testing.T) {
 	}
 }
 
-// integrationService opens the real BINs, skipping the test without them.
-// px12 is the proxy BIN's path, "" when it is not loaded.
+// integrationService skips the test without the BINs; px12 is "" when the proxy BIN isn't loaded.
 func integrationService(t *testing.T) (svc *iptools.Service, px12 string) {
 	t.Helper()
 	paths := []string{
@@ -85,7 +78,7 @@ func integrationService(t *testing.T) (svc *iptools.Service, px12 string) {
 			t.Skip("IP2LOCATION_* not set or BINs not found; skipping integration test")
 		}
 	}
-	px12 = resolveDB(os.Getenv("IP2PROXY_PX12")) // optional
+	px12 = resolveDB(os.Getenv("IP2PROXY_PX12"))
 	svc, err := iptools.OpenService(paths[0], paths[1], paths[2], paths[3], px12)
 	if err != nil {
 		t.Fatalf("OpenService: %v", err)
@@ -93,8 +86,7 @@ func integrationService(t *testing.T) (svc *iptools.Service, px12 string) {
 	return svc, px12
 }
 
-// DNS enrichment looks up every record through Offline(), which must leave
-// the process-wide Shodan budget alone.
+// DNS enrichment looks up records through Offline(), which must leave the shared Shodan budget alone.
 func TestOfflineLookupMakesNoShodanCall(t *testing.T) {
 	svc, _ := integrationService(t)
 	var hits atomic.Int32

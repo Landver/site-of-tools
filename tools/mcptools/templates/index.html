@@ -77,26 +77,10 @@
         <div>
           <h3 class="font-medium text-strong">Codex CLI</h3>
           {{template "mcp/snippet" .Setup.Codex}}
-          <p class="mt-2">or in <code class="font-mono text-strong">~/.codex/config.toml</code>:</p>
-          {{template "mcp/snippet" .Setup.CodexTOML}}
         </div>
         <div>
           <h3 class="font-medium text-strong">Gemini CLI</h3>
           {{template "mcp/snippet" .Setup.Gemini}}
-          <p class="mt-2">
-            or in <code class="font-mono text-strong">~/.gemini/settings.json</code>, as
-            <code class="font-mono text-strong">httpUrl</code>: Gemini reads <code class="font-mono text-strong">url</code>
-            as the older SSE transport, which this server doesn't speak.
-          </p>
-          {{template "mcp/snippet" .Setup.GeminiJSON}}
-        </div>
-        <div>
-          <h3 class="font-medium text-strong">Clients that only start local servers</h3>
-          <p class="mt-1">
-            Give the client <code class="font-mono text-strong">mcp-remote</code> as the server's command: it bridges
-            stdio to this server, and runs on Node.
-          </p>
-          {{template "mcp/snippet" .Setup.Remote}}
         </div>
       </div>
     </section>
@@ -113,13 +97,13 @@
           travel like any other call's, so use test material only: never a real password, key or token.
         </li>
         <li>
-          Each call is logged with the tool's name, the outcome, how long it took, the result's size, and the
+          Each call is logged with the tool's name, its status, how long it took, the result's size, and the
           caller's IP address and client name. Never the arguments, the result or an error message, which can
           quote them.
         </li>
         <li>
-          Results built on third-party data carry an <code class="font-mono text-strong">attribution</code> list,
-          the credits in this page's footer.
+          Results built on third-party data carry an <code class="font-mono text-strong">attribution</code> list
+          naming each source and its notice.
         </li>
       </ul>
     </section>
@@ -128,12 +112,8 @@
       <h2 class="eyebrow">Rate limits</h2>
       <p class="mt-2 text-sm text-muted">
         Per client address (an IPv6 address counts by its /64), and shared with each tool's JSON API: a call here
-        spends the budget the same request to the tool's own site would. Each tool's rate and burst are listed
-        beside it below. Every other message, such as <code class="font-mono text-strong">tools/list</code>, counts
-        against {{with .Protocol}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}, and all requests to <code class="font-mono text-strong">/mcp</code> from one
-        address against {{with .PerIP}}{{.PerSecond}} a second (burst {{.Burst}}){{end}}. Some tools also have a budget every caller shares, of calls
-        running at once or calls a second. A refused call is an error result saying to try again in a few seconds.
-        Hosted connectors share their provider's addresses, and so their budgets.
+        spends the budget the same request to the tool's own site would. A refused call is an error result saying
+        to try again in a few seconds. Hosted connectors share their provider's addresses, and so their budgets.
       </p>
     </section>
 
@@ -142,7 +122,6 @@
       <h2 class="eyebrow">{{.Title}}</h2>
       <p class="mt-2 text-sm text-muted">
         {{with .REST}}On the web and as a JSON API at <a href="{{.}}" class="link-inline">{{.}}</a>.{{end}}
-        {{with .Attribution}}Data from {{range $i, $c := .}}{{if $i}}, {{end}}<a href="{{$c.URL}}" class="link-inline">{{$c.Source}}</a>{{end}}.{{end}}
       </p>
       <div class="mt-3 divide-y divide-line rounded-lg border border-line">
         {{range .Tools}}
@@ -152,7 +131,6 @@
             <span class="text-sm text-muted">{{.Title}}</span>
             {{if .Annotations.ReadOnlyHint}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">read-only</span>{{end}}
             {{if .OpenWorld}}<span class="rounded border border-line px-1.5 py-0.5 text-xs text-faint">reaches the internet</span>{{end}}
-            <span class="ml-auto font-mono text-xs text-faint">{{.RateLimit}}</span>
           </div>
           <p class="mt-2 text-sm text-body wrap-anywhere">{{.Description}}</p>
         </div>

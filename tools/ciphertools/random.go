@@ -23,7 +23,7 @@ func init() {
 			randomFormatField,
 			passwordLengthField,
 			{Name: "sets", Kind: KindList, Enum: []string{"lower", "upper", "digits", "symbols"}, Default: "lower,upper,digits,symbols",
-				Description: "The character sets a password draws from (kind password), any of lower, upper, digits and symbols; each chosen set appears at least once."},
+				Description: "The character sets a password draws from (kind password), any of lower, upper, digits and symbols, comma-separated, e.g. lower,digits; each chosen set appears at least once."},
 			{Name: "exclude_ambiguous", Kind: KindBool, Default: "false",
 				Description: "Leave out characters easily misread when copied by hand, 0 O 1 l I | and ` (kind password)."},
 			uuidVersionField,

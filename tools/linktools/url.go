@@ -14,34 +14,26 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// Service is the stateless half of this tool: parsing, rebuilding, cleaning,
-// unwrapping. It holds no state and opens no connections, so one value is shared
-// by every request and a nil check is never needed.
+// Service holds no state and opens no connections, so one value serves every request.
 type Service struct{}
 
 func NewService() *Service { return &Service{} }
 
-// Inspector is the handler's view of parsing. Not optional — a nil one is a
-// wiring mistake, so Register panics rather than letting it surface per request.
+// Inspector is never nil: Register panics on that wiring mistake rather than failing per request.
 type Inspector interface {
 	Parse(raw string) (*Inspection, error)
 }
 
-// maxInput bounds what we will parse at all. Well above any real URL; the point
-// is that Parse is reachable unauthenticated and its cost should be bounded by
-// something other than goodwill.
+// maxInput bounds Parse, which is reachable unauthenticated; well above any real URL.
 const maxInput = 64 << 10
 
-// linkableSchemes: schemes we are willing to render as a clickable anchor.
-// Everything else is displayed as text. The Inspect page's whole job is showing
-// URLs that may be hostile, so this is an allowlist, never a denylist.
+// linkableSchemes is an allowlist of schemes rendered as anchors; Inspect shows possibly hostile URLs.
 var linkableSchemes = map[string]bool{"http": true, "https": true}
 
 // defaultPorts: ports that add nothing when written out.
 var defaultPorts = map[string]string{"http": "80", "https": "443", "ftp": "21", "ws": "80", "wss": "443"}
 
-// parseReason drops url.Error's `parse "<input>": ` prefix: the input is
-// already in the box above the message.
+// parseReason drops url.Error's `parse "<input>": ` prefix: the input is already on screen.
 func parseReason(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
@@ -64,10 +56,8 @@ const (
 	TextNotURL = "That looks like text with links in it, not one URL."
 )
 
-// WrongTool names the page an input belongs on when it is plainly not one URL
-// (a curl command, or text with links), else "". It must never refuse a URL:
-// markup needs a quoted href (share and tracking links use ?href=), and text
-// needs words before the first link or a second link after whitespace.
+// WrongTool names the page for input that is plainly not one URL, else "". It must never refuse a
+// URL: markup needs a quoted href (links use ?href=), text needs words before or a link after.
 func WrongTool(raw string) string {
 	t := strings.TrimSpace(raw)
 	low := strings.ToLower(t)
@@ -89,17 +79,10 @@ func WrongTool(raw string) string {
 	return ""
 }
 
-// laterLink is a scheme:// after whitespace: a second link, where one inside a
-// query follows "=". templates/live.html carries the same expression.
+// laterLink is a scheme:// after whitespace; templates/live.html carries the same expression.
 var laterLink = regexp.MustCompile(`[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*://`)
 
-// Parse takes a URL apart. It never fetches anything.
-//
-// Deliberately does NOT use url.ParseQuery for the parameter list: that returns
-// a map, which loses the original order, and on a malformed escape it returns
-// *partial* values alongside an error while silently dropping the offending
-// pair (docs/reports/go-url-stdlib-behaviour.md §1). Both behaviours are wrong
-// for a tool whose job is showing exactly what is there.
+// Parse never fetches. Not url.ParseQuery: its map loses order, and it drops a pair with a bad escape.
 func (s *Service) Parse(raw string) (*Inspection, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -115,8 +98,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	}
 
 	in := &Inspection{Input: raw, Scheme: u.Scheme, Opaque: u.Opaque}
-	// A browser rewrites a bad escape ("%zz" to "%25zz") before following it,
-	// so the link would go somewhere other than the URL on screen.
+	// A browser rewrites "%zz" to "%25zz" before following, so the link would go elsewhere.
 	in.Linkable = linkableSchemes[strings.ToLower(u.Scheme)] && !hasBadEscape(raw)
 
 	if u.Scheme == "" {
@@ -148,7 +130,6 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	s.describeHost(in, u)
 	s.describePath(in, u)
 
-	// Query. Hand-split so order, repeats and broken escapes all survive.
 	in.Params = parsePairs(u.RawQuery, true)
 	// A warning, not a failure: presigned URLs and magic links carry one on purpose.
 	if keys := secretishNames(in.Params); len(keys) > 0 {
@@ -161,9 +142,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 			"This query separates pairs with ';', which most modern servers no longer accept. It is shown as a single parameter because that is how a server would now read it."})
 	}
 
-	// Fragment. Both hosted parsers surveyed discard everything after '#'
-	// (docs/reports/), which hides an OAuth implicit-flow access token
-	// completely. u.Fragment is already decoded, so re-read the raw tail.
+	// Parsers that drop the fragment hide OAuth tokens; u.Fragment is decoded, so re-read the raw tail.
 	if frag := rawFragment(raw); frag != "" {
 		in.Fragment = u.Fragment
 		if strings.Contains(frag, "=") {
@@ -183,8 +162,7 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	return in, nil
 }
 
-// describeHost fills in the host fields and the two host-shaped findings that
-// matter: IDN homographs, and userinfo used to disguise the real host.
+// describeHost flags IDN homographs and userinfo used to disguise the real host.
 func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	in.Host = u.Hostname()
 	in.Port = u.Port()
@@ -225,9 +203,7 @@ func (s *Service) describeHost(in *Inspection, u *url.URL) {
 	}
 }
 
-// numericIPv4 reads a host as inet_aton and browsers do: "2130706433",
-// "0x7f000001", "0177.1" and "127.1" are all 127.0.0.1. A plain dotted quad is
-// left to net.ParseIP.
+// numericIPv4 reads a host as inet_aton and browsers do: "0x7f000001" and "127.1" are 127.0.0.1.
 func numericIPv4(h string) (string, bool) {
 	if h == "" || net.ParseIP(h) != nil {
 		return "", false
@@ -276,12 +252,7 @@ func hasBadEscape(s string) bool {
 	return false
 }
 
-// describePath splits the path into segments and resolves dot segments.
-//
-// Works on EscapedPath, not Path: url.URL.Path has already percent-decoded %2F
-// into a real slash, so splitting it turns one segment into two
-// (docs/reports/go-url-stdlib-behaviour.md §5). path.Clean is wrong here for the
-// same reason, plus it drops RFC 3986's trailing slash and maps "" to ".".
+// describePath splits EscapedPath, not Path: Path has decoded %2F into a real slash.
 func (s *Service) describePath(in *Inspection, u *url.URL) {
 	esc := u.EscapedPath()
 	in.Path = esc
@@ -309,10 +280,7 @@ func (s *Service) describePath(in *Inspection, u *url.URL) {
 	}
 }
 
-// parsePairs splits a query or fragment into ordered Params.
-//
-// The whole point of hand-rolling this: order, repeats, valueless keys and
-// broken escapes all survive, and nothing is dropped.
+// parsePairs is hand-rolled so order, repeats, valueless keys and broken escapes all survive.
 func parsePairs(raw string, enrich bool) []Param {
 	if raw == "" {
 		return nil
@@ -348,12 +316,7 @@ func parsePairs(raw string, enrich bool) []Param {
 	return out
 }
 
-// decodeOrRaw percent-decodes s, keeping the raw text and recording a warning
-// when the escape is malformed.
-//
-// url.QueryUnescape returns the EMPTY STRING on error, not the original
-// (docs/reports/go-url-stdlib-behaviour.md §2). Taking its return value blindly
-// turns "?bad=%zz" into "?bad=", which looks like a real, empty value.
+// decodeOrRaw keeps the raw text on error: QueryUnescape returns "", making "?bad=%zz" look empty.
 func decodeOrRaw(s string, warn *string, what string) string {
 	dec, err := url.QueryUnescape(s)
 	if err != nil {
@@ -371,13 +334,8 @@ func decodeOrRaw(s string, warn *string, what string) string {
 	return dec
 }
 
-// enrichParam adds the value-level findings: the ambiguous '+', delimited
-// lists, the decode ladder, and a type.
 func enrichParam(p *Param, rawVal string) {
-	// The '+' ambiguity. In a query '+' means space; in base64 it is a real
-	// character. calcbe and jsonutilities return opposite answers for "a+b" on
-	// the same input and neither says so (docs/reports/). Show both readings
-	// rather than choosing one.
+	// '+' is a space in a query but a real character in base64: show both readings, don't choose.
 	if strings.Contains(rawVal, "+") && looksBase64(strings.ReplaceAll(rawVal, "%3D", "=")) {
 		p.AltValue = rawVal
 		p.Warn = "'+' means a space in a query but is a real character in base64. This value looks like base64, so both readings are shown."
@@ -385,12 +343,7 @@ func enrichParam(p *Param, rawVal string) {
 	if d, list := splitList(p.Value); d != "" {
 		p.Delimiter, p.List = d, list
 	}
-	// Name the rule that would strip this parameter, so Inspect can mark a
-	// known tracker without Clean being involved — both read one table, which
-	// is what makes the two pages agree. This call was missing entirely, so
-	// Param.Tracking was never set and inspect.html's "tracker" badge had never
-	// rendered once. Global rules only, for the reason on TrackingRuleFor: a
-	// key alone cannot tell ref=facebook from ref=main.
+	// Global rules only: a key alone can't tell ref=facebook from ref=main.
 	p.Tracking = TrackingRuleFor(p.Key)
 	p.Layers = decodeLadder(p.Value)
 	p.Kind = classify(p.Value)
@@ -410,9 +363,7 @@ func nestedLink(p *Param) string {
 	return cand
 }
 
-// splitList recognises a delimited list. The delimiter is returned so the page
-// can name it: "Smith,John" is one value containing a comma, not two values,
-// and only the reader can tell which.
+// splitList returns the delimiter so the page can name it: "Smith,John" may well be one value.
 func splitList(v string) (string, []string) {
 	if len(v) < 3 || strings.Contains(v, " ") {
 		return "", nil
@@ -435,9 +386,7 @@ func splitList(v string) (string, []string) {
 	return "", nil
 }
 
-// mixedScriptLabel returns the first host label mixing writing systems, with the
-// scripts found. This is the homograph tell, and idna exposes no script data, so
-// it comes from the stdlib's own range tables.
+// mixedScriptLabel uses the stdlib's range tables because idna exposes no script data.
 func mixedScriptLabel(host string) (string, []string) {
 	if host == "" {
 		return "", nil
@@ -464,10 +413,7 @@ func mixedScriptLabel(host string) (string, []string) {
 	return "", nil
 }
 
-// removeDotSegments implements RFC 3986 §5.2.4 over the ESCAPED path.
-//
-// path.Clean cannot be used: it works on the decoded path, drops the trailing
-// slash the RFC preserves after a final "." or "..", and maps "" to ".".
+// removeDotSegments is RFC 3986 §5.2.4 on the escaped path; path.Clean would drop the trailing slash.
 func removeDotSegments(p string) string {
 	if p == "" {
 		return ""
@@ -502,17 +448,11 @@ func removeDotSegments(p string) string {
 	return res
 }
 
-// canonicalise applies the lossless normalisations only: lowercase scheme and
-// host, drop a default port, resolve dot segments. Stripping parameters is
-// Clean's job and is lossy, so it never happens here.
+// canonicalise applies lossless normalisations only; stripping parameters is Clean's lossy job.
 func canonicalise(u *url.URL) string {
 	c := *u
 	c.Scheme = strings.ToLower(c.Scheme)
-	// Never echo a password. url.URL.String() writes userinfo back out
-	// verbatim, so copying the struct would reproduce the secret in a field the
-	// page renders and the API serialises. Inspection.HasPass is a bool for
-	// exactly this reason (docs/06-security-and-abuse.md §8); keep the username,
-	// which is the phishing-relevant half, and drop the rest.
+	// Never echo a password: String() writes userinfo verbatim. Keep the phishing-relevant username.
 	if c.User != nil {
 		if name := c.User.Username(); name != "" {
 			c.User = url.User(name)
@@ -543,8 +483,7 @@ func canonicalise(u *url.URL) string {
 	return c.String()
 }
 
-// rawFragment returns the fragment as written, before any decoding. u.Fragment
-// is already decoded, which would corrupt any parameters inside it.
+// rawFragment: u.Fragment is already decoded, which would corrupt parameters inside it.
 func rawFragment(raw string) string {
 	_, frag, ok := strings.Cut(raw, "#")
 	if !ok {

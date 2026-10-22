@@ -679,7 +679,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Generate random values from a cryptographic source: tokens (kind token, the default) as hex, base64url, base64 or letters and digits; passwords from the character sets chosen, with their exact entropy; or UUIDs, version 4 or 7. count makes up to 20 tokens or passwords, or 100 UUIDs, at once. Example: kind password, length 24, sets [lower, upper, digits]. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "description": "Generate random values from a cryptographic source: tokens (kind token, the default) as hex, base64url, base64 or letters and digits; passwords from the character sets chosen, with their exact entropy; or UUIDs, version 4 or 7. count makes up to 20 tokens or passwords, or 100 UUIDs, at once. Example: kind password, length 24, sets lower,upper,digits. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -731,23 +731,9 @@
           "type": "integer"
         },
         "sets": {
-          "default": [
-            "lower",
-            "upper",
-            "digits",
-            "symbols"
-          ],
-          "description": "The character sets a password draws from (kind password), any of lower, upper, digits and symbols; each chosen set appears at least once.",
-          "items": {
-            "enum": [
-              "lower",
-              "upper",
-              "digits",
-              "symbols"
-            ],
-            "type": "string"
-          },
-          "type": "array"
+          "default": "lower,upper,digits,symbols",
+          "description": "The character sets a password draws from (kind password), any of lower, upper, digits and symbols, comma-separated, e.g. lower,digits; each chosen set appears at least once.",
+          "type": "string"
         },
         "version": {
           "default": 4,

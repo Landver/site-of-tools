@@ -1,22 +1,5 @@
-{{/* The rule catalog — the page that discharges Clean's "curated, not magic"
-     promise. One define serves both the page and the htmx fragment, because
-     handler.rules passes the same name for each: nothing on this page posts, so
-     it is only ever rendered whole.
-
-     Grouped by class rather than by vendor. Class is what decides behaviour —
-     affiliate rules are off unless asked for, the other three are on — so
-     grouping by it puts the rules that will actually fire in front of the
-     reader. Rule.Class is a Go uint8 with a String method, so the grouping
-     filters compare .Class.String against literal names; four passes over one
-     slice, each branch written out in full.
-
-     Doc links ARE anchors, unlike every other URL in this suite. They are
-     compile-time constants from rules.go, not user input: this page renders no
-     pasted data at all.
-
-     .Catalog.Scope is shipped as data from rules.go for one reason — so the
-     page and the JSON API cannot drift apart, and so nobody replaces it with an
-     unfalsifiable "% of trackers removed". It is printed verbatim. */}}
+{{/* Rule catalog. Doc links ARE anchors, unlike everywhere else: they are constants from rules.go, not input.
+     .Catalog.Scope is printed verbatim; never swap it for an unfalsifiable "% of trackers removed". */}}
 {{define "link/rules"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -42,9 +25,7 @@
 </html>
 {{end}}
 
-{{/* One tracking-rule row. A helper rather than four copies of the same six
-     cells: the class sections differ in their prose, not in their table. The
-     dot is a Rule. */}}
+{{/* One tracking-rule row; the class sections differ in prose, not in their table. The dot is a Rule. */}}
 {{define "link/rulerow"}}
 <tr class="align-top">
   <td class="px-3 py-2 font-mono text-strong">
@@ -65,9 +46,7 @@
 </tr>
 {{end}}
 
-{{/* The catalog itself, split out so an htmx request gets the table rather
-     than a whole <html> document swapped into a div. The page above and the
-     fragment are the same markup by construction, so they cannot drift. */}}
+{{/* The catalog alone, so an htmx request swaps in the table, not a whole <html> document. */}}
 {{define "link/rulestable"}}
     {{with .Catalog}}
     <div class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
@@ -138,7 +117,6 @@
     </p>
 
     <div id="rule-tables">
-    {{/* --- tracking rules, one section per class --- */}}
 
     <section id="click" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Click identifiers</h2>
@@ -232,8 +210,6 @@
       </div>
     </section>
 
-    {{/* --- the deny list: what it refuses to touch --- */}}
-
     <section id="never" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Never removed, whatever else matches</h2>
       <p class="mt-1 text-sm text-muted">
@@ -269,8 +245,6 @@
         </table>
       </div>
     </section>
-
-    {{/* --- wrappers --- */}}
 
     <section id="wrappers" class="mt-10 scroll-mt-6">
       <h2 class="text-lg font-semibold text-strong">Wrappers that get unwrapped</h2>

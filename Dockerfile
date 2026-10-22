@@ -6,7 +6,6 @@ ARG TARGETARCH
 ARG TAILWIND_VERSION=v4.3.2
 WORKDIR /src
 
-# Tailwind standalone binary (golang image already ships curl/ca-certs).
 # Docker's TARGETARCH is amd64/arm64; Tailwind names its assets x64/arm64.
 RUN case "$TARGETARCH" in \
       amd64) TW=x64 ;; \
@@ -22,10 +21,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# Build the stylesheet (Tailwind scans the templates), then embed it in the binary.
 RUN tailwindcss -i shared/static/css/input.css -o shared/static/css/styles.css --minify
-# The in-browser engine for cipher.corpberry.com (see `make wasm`), embedded
-# like the stylesheet. wasm_exec.js comes from this same toolchain on purpose.
+# wasm_exec.js must come from the same toolchain that built cipher.wasm.
 RUN mkdir -p shared/static/wasm \
     && GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o shared/static/wasm/cipher.wasm ./tools/ciphertools/wasm \
     && cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" shared/static/wasm/wasm_exec.js
@@ -33,9 +30,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app .
 
 # ---- 2) Runtime: distroless-static (CA certs + tzdata + nonroot, ~2 MB) ----
 FROM gcr.io/distroless/static-debian12:nonroot
-# Pin cwd to / (the base image defaults to /home/nonroot). The DB .BINs are
-# bind-mounted at /tools/iptools/assets, so the repo-relative IP2LOCATION_* paths
-# from .env resolve here exactly as they do in dev (run from the repo root).
+# cwd / (base default is /home/nonroot): the BINs mount at /tools/iptools/assets, so the
+# repo-relative IP2LOCATION_* paths from .env resolve as in dev.
 WORKDIR /
 COPY --from=build /app /app
 USER nonroot:nonroot

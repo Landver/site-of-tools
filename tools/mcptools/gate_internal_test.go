@@ -20,8 +20,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// White-box: no owner tool reports the headers it was handed, so a probe tool
-// on the owner server shows what a handler gets.
+// No owner tool echoes its headers, so a probe tool on the owner server shows what a handler gets.
 type probe struct {
 	header http.Header
 	who    caller
@@ -36,10 +35,7 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 	owner := linktools.NewShortener(linktools.NewLinkStore(context.Background(), client.Database("offline")), "k3y", "http://link.test")
 	d := Deps{Owner: owner, IPLimits: iptools.NewLimits(), LinkLimits: linktools.NewLimits(),
 		CipherLimits: ciphertools.NewLimits(), BotLimits: botcheck.NewLimits(), ToolURL: func(string) string { return "" }}
-	h, err := newHandler(d, "http://mcp.test", slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := newHandler(d, "http://mcp.test", slog.New(slog.DiscardHandler))
 	seen := make(chan probe, 1)
 	mcp.AddTool(h.endpoints[ownerEndpoint].server, &mcp.Tool{Name: "probe"},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
@@ -69,9 +65,9 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 		if got.header.Get("X-Api-Key") != "" || got.header.Get("Authorization") != "" {
 			t.Errorf("%v: the handler saw the key: %v", auth, got.header)
 		}
-		if w := got.who; w.ip != "127.0.0.1" || w.key != "127.0.0.1" || w.userAgent != "probe-agent" || w.http == nil ||
+		if w := got.who; w.ip != "127.0.0.1" || w.userAgent != "probe-agent" || w.http == nil ||
 			!strings.HasPrefix(w.host, "127.0.0.1:") {
-			t.Errorf("%v: caller in the handler = %+v, want the raw address and its key", auth, w)
+			t.Errorf("%v: caller in the handler = %+v, want the raw address", auth, w)
 		}
 	}
 }

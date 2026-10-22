@@ -1,9 +1,7 @@
-/* Tailwind v4 — CSS-first config, no tailwind.config.js.
-   Built by standalone binary: `make css` (or --watch). */
+/* Tailwind v4, CSS-first (no tailwind.config.js); built by the standalone binary: `make css`. */
 @import "tailwindcss";
 
-/* Scan every project's Go html/template files for class names.
-   Paths relative to THIS file (shared/static/css/). */
+/* Class-name scan of every Go template; paths are relative to THIS file (shared/static/css/). */
 @source "../../templates/**/*.html";
 @source "../../../site/templates/**/*.html";
 @source "../../../tools/iptools/templates/**/*.html";
@@ -13,22 +11,16 @@
 @source "../../../tools/ciphertools/templates/**/*.html";
 @source "../../../tools/mcptools/templates/**/*.html";
 
-/* Dark mode driven by data-theme attribute (set before paint by head script),
-   not OS media query directly → manual toggle can override OS default. This
-   variant only used for sun/moon icon swap; colors use semantic tokens
-   below, which theme themselves. */
+/* data-theme, not the OS query, so the toggle can override; only the sun/moon icon swap uses it. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  /* Accent — corpberry magenta (identical in both themes). Small accent text
-     uses brand-ink, lighter in the dark theme for contrast. */
+  /* Small accent text uses brand-ink, lighter in the dark theme for contrast. */
   --color-brand: #b83266;
   --color-brand-ink: #b83266;
 
-  /* Semantic tokens — LIGHT values (default). Markup only ever names these
-     (bg-canvas, text-body, border-line, …); switching theme flips variable
-     values → no per-element dark: duplication anywhere. Text colours clear
-     WCAG AA (4.5:1) on canvas and surface. */
+  /* LIGHT values. Markup names only these tokens, so a theme switch needs no per-element dark:.
+     Text colours clear WCAG AA (4.5:1) on canvas and surface. */
   --color-canvas:  #ffffff; /* page background          */
   --color-surface: #f4f4f5; /* raised bg: cards, inputs */
   --color-line:    #e4e4e7; /* borders, dividers        */
@@ -46,8 +38,7 @@
   --color-info:    #1d4ed8;
 }
 
-/* DARK theme — override same tokens. Utilities compile to var(--color-*) →
-   re-pointing variables re-themes entire site w/ zero markup churn. */
+/* DARK theme: utilities compile to var(--color-*), so re-pointing the tokens re-themes everything. */
 /* Native controls (checkboxes, popups, scrollbars) follow the theme. */
 :root {
   color-scheme: light;
@@ -73,13 +64,10 @@
 }
 
 @layer base {
-  /* Page shell — every page renders same flex-column body → footer (mt-auto)
-     sticks to bottom. Centralised here → markup keeps bare <body> on all
-     pages instead of repeating the cluster. */
+  /* Every page shares this flex-column body, so the footer's mt-auto pins it to the bottom. */
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;
   }
-  /* One focus ring everywhere. */
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
@@ -91,24 +79,18 @@
 }
 
 @layer components {
-  /* Reusable info card, used across tools (lookup results, IPv6, verdicts,
-     empty states). One definition keeps repeated styling DRY; basis-80 =
-     comfortable min width → cards wrap to next line rather than cramming;
-     grow fills the row. */
+  /* basis-80 is a comfortable min width: cards wrap to the next row instead of cramming. */
   .card {
     @apply grow basis-80 min-w-0 rounded-lg border border-line bg-surface p-5;
   }
-  /* Small brand-magenta uppercase label above section headings and card titles. */
   .eyebrow {
     @apply font-mono text-xs uppercase tracking-widest text-brand-ink;
   }
-  /* …and as card title always gets same bottom margin — baked in → call
-     sites stay bare `eyebrow` (same precedent as .spec > dt). */
+  /* Card-title margin baked in, so call sites stay a bare `eyebrow`. */
   .card > .eyebrow {
     @apply mb-3;
   }
-  /* Text input + primary button, shared by lookup and CIDR forms. 16px on a
-     phone: iOS zooms into any smaller input. */
+  /* 16px on a phone: iOS zooms into any smaller input. */
   .field {
     @apply flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 text-base text-strong placeholder-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand aria-invalid:border-danger sm:text-sm;
   }
@@ -123,10 +105,7 @@
   .btn-secondary {
     @apply rounded-md border border-line-strong bg-canvas px-4 py-2 text-sm font-medium text-strong hover:border-brand;
   }
-  /* Small secondary control that sits beside the thing it acts on. Driven by
-     partials/copy, which toggles is-copied / is-failed and nothing else: names
-     Tailwind does not own, so the confirmation never depends on the scanner
-     having found a utility name inside a JS string. */
+  /* partials/copy toggles is-copied/is-failed: names Tailwind doesn't own, so no JS-string scan needed. */
   .btn-copy {
     @apply shrink-0 rounded-md border border-line-strong bg-canvas px-3 py-1.5 text-xs font-medium text-strong hover:border-brand;
   }
@@ -140,17 +119,15 @@
   .alert-error {
     @apply rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger wrap-anywhere;
   }
-  /* Two-column label/value grid for result cards' <dl>. Override column width
-     inline where needed, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */
+  /* Override column width inline, e.g. `spec grid-cols-[8rem_1fr]` (utilities beat this layer). */
   .spec {
     @apply grid grid-cols-[7rem_1fr] gap-x-4 gap-y-2 text-sm;
   }
-  /* Every <dt> in spec list is faint label — baked in → rows stay bare <dt>. */
+  /* Baked in so rows stay a bare <dt>. */
   .spec > dt {
     @apply text-faint;
   }
-  /* Label/value rows (<div><dt><dd></div>) whose value can be long: it sits
-     beside the label when it fits and drops below it when it doesn't. */
+  /* A long value sits beside its label when it fits and drops below it when it doesn't. */
   .pairs {
     @apply grid gap-y-3 text-sm;
   }
@@ -158,8 +135,7 @@
     @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1;
   }
 
-  /* Page scaffolding shared by every page: centred column, capped width,
-     vertical rhythm. Apex narrows it inline (`page-main max-w-2xl`). */
+  /* Apex narrows it inline (`page-main max-w-2xl`). */
   .page-main {
     @apply mx-auto w-full max-w-4xl px-4 py-8 flex-1 sm:px-6 sm:py-12;
   }
@@ -168,14 +144,12 @@
   .link-brand {
     @apply border-b border-brand text-strong hover:text-brand-ink;
   }
-  /* A link inside a sentence: underlined, since colour alone does not set it
-     apart from the words around it (WCAG 1.4.1). */
+  /* Underlined: colour alone doesn't set a link apart from the sentence around it (WCAG 1.4.1). */
   .link-inline {
     @apply text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink;
   }
 
-  /* Rendered blog markdown body — bare tags straight from goldmark, so all
-     styling hangs off the wrapper (same precedent as .spec > dt). */
+  /* Blog body: goldmark emits bare tags, so all styling hangs off this wrapper. */
   .post-body {
     @apply mt-8 leading-relaxed text-body;
   }

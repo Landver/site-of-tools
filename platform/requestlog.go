@@ -9,18 +9,13 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-// requestLogTTL bounds doc lifetime. Corpus = recent-traffic observability, not
-// permanent archive -> self-prunes via TTL index, no manual cleanup, no unbounded growth.
+// requestLogTTL: the corpus is recent-traffic observability, not an archive, so it self-prunes.
 const requestLogTTL = 30 * 24 * time.Hour
 
-// requestLogBuffer caps pending writes before drop. One goroutine drains
-// sequentially -> Mongo stall drops rather than blocks request or grows memory
-// unbounded. Personal site's traffic log, not audit trail; losing rows under pressure = right trade.
+// requestLogBuffer: a Mongo stall drops rows rather than blocking requests; fine for a traffic log.
 const requestLogBuffer = 1024
 
-// RequestEntry is one recorded request: only fields making useful traffic
-// corpus, nothing more. Client IP intentional (DEPLOYMENT §4); Cookie +
-// Authorization never captured (mirrors ConnInfo inspector).
+// RequestEntry keeps the client IP on purpose (DEPLOYMENT §4); Cookie and Authorization are never captured.
 type RequestEntry struct {
 	Method    string    `bson:"method"`
 	Host      string    `bson:"host"`
@@ -33,34 +28,18 @@ type RequestEntry struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// RequestLog persists rolling corpus of requests to MongoDB, off request path.
-// First shared, engine-level Mongo consumer; feature repositories (e.g.
-// iptools.History) follow same nil-safe shape: nil *RequestLog = valid
-// "disabled" store, methods no-op -> Mongo-less boot needs no special-casing anywhere.
-//
-// Writes async: Record does non-blocking send to buffered channel, single
-// background goroutine drains -> slow/absent database never adds latency to (or
-// fails) a request. Overflow dropped, by design.
+// RequestLog writes to Mongo off the request path, dropping overflow; a nil *RequestLog is a no-op store.
 type RequestLog struct {
 	coll *mongo.Collection
 	ch   chan RequestEntry
 	done chan struct{}
-	// mu guards ch. Close runs from main's shutdown path while requests can
-	// still be in flight — echo finishes them during graceful shutdown, and
-	// each one reaches Record through the logging middleware — and a send on a
-	// closed channel PANICS. The select's default case does not save it:
-	// default covers a FULL channel, not a closed one. Sending under RLock and
-	// closing under Lock makes the two mutually exclusive.
-	//
-	// Same guard, same reasoning as linktools' hitBatcher, which has the
-	// identical shape.
+	// mu guards ch: Close can run while echo finishes in-flight requests, and a send on a closed channel
+	// panics (select's default covers a full channel, not a closed one). Send under RLock, close under Lock.
 	mu     sync.RWMutex
 	closed bool
 }
 
-// NewRequestLog builds store from app database handle, starts its writer. Nil db
-// (Mongo disabled) -> returns nil, valid no-op store. TTL index best-effort:
-// failure only forfeits auto-expiry, never writes -> intentionally non-fatal, unlogged here.
+// NewRequestLog returns nil for a nil db; a failed TTL index only forfeits auto-expiry, so it's ignored.
 func NewRequestLog(ctx context.Context, db *mongo.Database) *RequestLog {
 	if db == nil {
 		return nil
@@ -76,8 +55,7 @@ func NewRequestLog(ctx context.Context, db *mongo.Database) *RequestLog {
 	return rl
 }
 
-// Record queues one entry. Nil-safe + non-blocking: store disabled or buffer
-// full -> entry dropped, never delays caller.
+// Record never delays the caller: a disabled store or a full buffer drops the entry.
 func (rl *RequestLog) Record(e RequestEntry) {
 	if rl == nil {
 		return
@@ -89,12 +67,11 @@ func (rl *RequestLog) Record(e RequestEntry) {
 	}
 	select {
 	case rl.ch <- e:
-	default: // buffer full: drop, never block request path
+	default:
 	}
 }
 
-// run drains queue, inserts each entry w/ own bounded context -> one slow write
-// can't wedge writer.
+// run gives each insert its own timeout, so one slow write can't wedge the writer.
 func (rl *RequestLog) run() {
 	defer close(rl.done)
 	for e := range rl.ch {
@@ -104,17 +81,12 @@ func (rl *RequestLog) run() {
 	}
 }
 
-// Close stops writer, waits (bounded by ctx) for queue to drain -> graceful
-// shutdown doesn't lose buffered entries. Nil-safe. Call only after HTTP server
-// stopped accepting requests (no concurrent Record); natural ordering in main:
-// defer runs after Start returns.
+// Close waits, bounded by ctx, for the queue to drain, so shutdown keeps buffered entries. Nil-safe.
 func (rl *RequestLog) Close(ctx context.Context) error {
 	if rl == nil {
 		return nil
 	}
-	// Flag and close together under the write lock, so no reader can observe
-	// closed == false and then send into an already-closed channel. Idempotent:
-	// a second Close finds closed already set and does nothing.
+	// Flag and close under one write lock, so no reader sees closed == false and then sends.
 	rl.mu.Lock()
 	if rl.closed {
 		rl.mu.Unlock()
@@ -131,9 +103,7 @@ func (rl *RequestLog) Close(ctx context.Context) error {
 	return nil
 }
 
-// ShouldRecord reports whether a request path is worth persisting. Static assets
-// skipped: high-volume, no analytic value beyond page requests. /mcp skipped:
-// mcptools records each MCP message itself, so one call isn't counted twice.
+// ShouldRecord skips static assets and /mcp, whose messages mcptools records itself.
 func ShouldRecord(path string) bool {
 	return !strings.HasPrefix(path, "/static/") && path != "/mcp" && !strings.HasPrefix(path, "/mcp/")
 }

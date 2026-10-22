@@ -1,5 +1,4 @@
-{{/* Three forms post to the one op; the hidden kind also routes the no-JS result to its box.
-     None is live: every result is a fresh secret. */}}
+{{/* The hidden kind routes the no-JS result to its box. None is live: every result is a fresh secret. */}}
 {{define "cipher/random"}}
 {{template "cipher/engine-open" .}}
     {{$kind := .Form.Get "kind"}}{{$random := eq .Op "random"}}

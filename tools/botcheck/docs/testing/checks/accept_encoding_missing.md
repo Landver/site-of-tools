@@ -10,7 +10,7 @@ Every real browser sends Accept-Encoding (all support at least gzip); absence me
 
 ## Origin & history
 
-**G06**, shipped 2026-07-17, one of three soft header-presence rules (with `accept_language_missing`, `accept_nav_mismatch`), keyed on `looksLikeBrowser(UA)`. Every real browser sends `Accept-Encoding` (all support at least gzip); kept soft not hard, specifically because a proxy in the path can strip or rewrite it. `Upgrade-Insecure-Requests` captured but deliberately left unused: Safari never sends it, so any rule requiring it would false-positive real Safari.
+**G06**, shipped 2026-07-17, one of three soft header-presence rules (with `accept_language_missing`, `accept_nav_mismatch`), keyed on `looksLikeBrowser(UA)`. Every real browser sends `Accept-Encoding` (all support at least gzip); kept soft not hard, specifically because a proxy in the path can strip or rewrite it. `Upgrade-Insecure-Requests` is deliberately not used (Safari never sends it, so any rule requiring it would false-positive real Safari).
 
 ## Test status: Verified — fires correctly
 

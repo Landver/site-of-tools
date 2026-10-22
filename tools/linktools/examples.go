@@ -2,9 +2,7 @@ package linktools
 
 import "net/url"
 
-// Example is one "try it" link in a page's empty state. Built in Go so
-// url.Values does the escaping: a hand-escaped href is one typo away from the
-// bug the page exists to explain.
+// Example is a "try it" link built with url.Values, since a hand-escaped href is one typo from a bug.
 type Example struct {
 	Label string
 	Href  string
@@ -18,8 +16,7 @@ func ex(label, path string, kv ...string) Example {
 	return Example{Label: label, Href: path + "?" + v.Encode()}
 }
 
-// examples per page key (the sub-nav's .Active). All on reserved example
-// domains (RFC 2606) except Trace's, which needs real hosts that redirect.
+// examples per sub-nav key, on RFC 2606 domains except Trace's, which needs real hosts that redirect.
 var examples = map[string][]Example{
 	"inspect": {
 		ex("A tracking-heavy link", "/",

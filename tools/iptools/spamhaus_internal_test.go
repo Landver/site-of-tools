@@ -6,9 +6,7 @@ import (
 	"time"
 )
 
-// White-box (package iptools): parseDROP & helpers unexported — same
-// CLAUDE.md-sanctioned exception as ipsum_internal_test.go. Covers
-// network-free parse logic w/o hitting spamhaus.org.
+// White-box: parseDROP is unexported; this covers parsing without hitting spamhaus.org.
 
 func TestParseDROP(t *testing.T) {
 	feed := strings.Join([]string{
@@ -18,8 +16,7 @@ func TestParseDROP(t *testing.T) {
 		`not json at all`,                      // malformed line skipped
 		`{"cidr":"2001:db8::/32","sblid":"x"}`, // IPv6 CIDR: valid JSON but ipv4RangeBounds rejects
 		`{"sblid":"no-cidr-field"}`,            // missing cidr skipped
-		// metadata trails data rows in real feed — must apply to every entry
-		// above it, not only ones after.
+		// Metadata trails the data rows, as in the real feed, yet must reach every entry.
 		`{"type":"metadata","timestamp":1784708042,"size":101809,"records":1669,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`,
 	}, "\n")
 
@@ -45,10 +42,7 @@ func TestParseDROP(t *testing.T) {
 		t.Errorf("entry[0] Count = %d, want 0 (DROP is presence-only, no confidence count)", e.Count)
 	}
 
-	// Meta: record's own sblid/rir PLUS feed-level copyright/terms/timestamp —
-	// though metadata trails every data row in file, must still reach entry[0]
-	// ("date and copy text remain with the file and data" requirement from
-	// Spamhaus terms).
+	// Spamhaus terms: the date and copy text must remain with the data, so even entry[0] carries them.
 	if e.Meta["sblid"] != "SBL256894" || e.Meta["rir"] != "apnic" {
 		t.Errorf("entry[0] missing its own sblid/rir: %+v", e.Meta)
 	}
@@ -71,8 +65,6 @@ func TestParseDROP(t *testing.T) {
 	}
 }
 
-// TestParseDROPNoMetadata: feed w/ no trailing metadata record still parses
-// CIDR rows; entries carry no feed-level copyright/terms/time.
 func TestParseDROPNoMetadata(t *testing.T) {
 	entries, err := parseDROP(strings.NewReader(`{"cidr":"203.0.113.0/24","sblid":"SBL1","rir":"arin"}` + "\n"))
 	if err != nil {

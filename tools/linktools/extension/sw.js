@@ -1,28 +1,11 @@
-// Corpberry Link — MV3 service worker.
-//
-// Two context-menu items on any link:
-//   Copy Short Link Address  — one POST to the API, needs a key
-//   Copy Clean Link Address  — no network at all, see cleanLocally()
-//
-// Chrome collapses two or more extension items into a submenu named after the
-// extension. That is accepted deliberately: hiding half the functionality
-// behind an options-page preference is how features go unused. If the extra
-// click proves annoying, keep exactly one item *visible* at a time via
-// contextMenus.update({visible}) — that keeps a top-level entry and the setting
-// can be flipped from the menu itself.
+// Corpberry Link MV3 service worker.
+// Chrome nests the two menu items in a submenu: accepted, as an item hidden behind an option goes unused.
 
 const DEFAULT_BASE = 'https://link.corpberry.com';
 const RULES_ALARM = 'refresh-rules';
 
-// resolveBase gates where the API key may be sent.
-//
-// A service-worker fetch to an origin NOT in host_permissions is an ordinary
-// CORS request, so a hostile server that answers the preflight with
-// Access-Control-Allow-Origin: * and Access-Control-Allow-Headers: x-api-key
-// simply receives the key. The options page invites the user to edit this
-// field, so "whatever they typed" is not an acceptable destination for a
-// secret. Anything unrecognised falls back to the default rather than erroring,
-// so a typo costs a wrong-server request and never the key.
+// Gates where the API key may go: a foreign origin answering CORS preflight permissively would receive it.
+// Anything unrecognised falls back to the default, so a typo costs a wrong request, never the key.
 function resolveBase(configured) {
   if (!configured) return DEFAULT_BASE;
   let u;
@@ -32,24 +15,19 @@ function resolveBase(configured) {
     return DEFAULT_BASE;
   }
   if (u.origin === new URL(DEFAULT_BASE).origin) return u.origin;
-  // Dev builds only, and only over loopback: a "localhost" that resolves
-  // elsewhere cannot be reached over http from here without the user having
-  // pointed it there deliberately.
+  // Dev builds only, and only over loopback.
   const devHost = u.hostname === 'localhost' || u.hostname.endsWith('.localhost') ||
     u.hostname === '127.0.0.1' || u.hostname === '[::1]';
   if (u.protocol === 'http:' && devHost) return u.origin;
   return DEFAULT_BASE;
 }
 
-// --- menu ------------------------------------------------------------------
-
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'short', title: 'Copy Short Link Address', contexts: ['link'] });
     chrome.contextMenus.create({ id: 'clean', title: 'Copy Clean Link Address', contexts: ['link'] });
   });
-  // setTimeout cannot survive service-worker teardown, so a "daily" refresh has
-  // to be an alarm. This is why "alarms" is in the manifest.
+  // setTimeout dies with the worker, so the daily refresh has to be an alarm.
   chrome.alarms.create(RULES_ALARM, { periodInMinutes: 60 * 24 });
   refreshRules();
 });
@@ -73,14 +51,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   setTimeout(() => badge('', '#000000'), 2000);
 });
 
-// --- clipboard -------------------------------------------------------------
-
-// creating: module-scope promise that serialises two callers within one worker
-// lifetime. Needed IN ADDITION to the getContexts() check below, not instead of
-// it: getContexts catches a document that survived a worker eviction, this
-// catches two rapid right-clicks inside one lifetime. Either alone is
-// insufficient, and a second createDocument() rejects with
-// "Only a single offscreen document may be created."
+// Serialises rapid clicks in one worker lifetime; getContexts() catches a document left by an evicted one.
 let creating = null;
 
 async function ensureOffscreen() {
@@ -96,12 +67,7 @@ async function ensureOffscreen() {
 }
 
 async function copyViaOffscreen(text) {
-  // Firefox has no chrome.offscreen and does not need it: its MV3 background is
-  // an event page WITH a DOM, so the clipboard API is reachable directly (the
-  // clipboardWrite permission covers it there, and also removes the
-  // transient-activation requirement). Feature-detect rather than sniffing the
-  // browser — this is the branch the docs promised and the first version did
-  // not actually have, so on Firefox it simply threw.
+  // Firefox has no chrome.offscreen: its MV3 event page has a DOM, so the clipboard API works directly.
   if (!chrome.offscreen) {
     try {
       await navigator.clipboard.writeText(text);
@@ -113,31 +79,21 @@ async function copyViaOffscreen(text) {
 
   await ensureOffscreen();
   const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'copy', text });
-  // Do NOT close here. Two overlapping clicks would have the first one tear the
-  // document down while the second is still using it; the second then fails.
-  // The document is cheap, idle-safe, and torn down with the worker, so it is
-  // left open and reused instead.
+  // Not closed: an overlapping second click would lose it. It is cheap and dies with the worker.
   return !!(res && res.ok);
 }
-
-// --- shorten ---------------------------------------------------------------
 
 async function shorten(url) {
   const { apiKey, baseUrl } = await chrome.storage.sync.get(['apiKey', 'baseUrl']);
   const base = resolveBase(baseUrl);
   if (!apiKey) throw new Error('No API key set. Open the extension options and paste your key.');
 
-  // Fetched from the service worker, not a content script: a service-worker
-  // request to a host in host_permissions is exempt from page CORS and is NOT
-  // preflighted, which is what makes a custom X-Api-Key header cheap here and
-  // expensive anywhere else.
+  // From the worker, a fetch to a host_permissions origin skips the CORS preflight X-Api-Key would cost.
   const res = await fetch(base + '/short', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
     body: JSON.stringify({ url, clean: true }),
-    // fetch follows redirects by default and REPLAYS the headers, so a redirect
-    // off our origin would hand X-Api-Key to whoever it points at. There is no
-    // legitimate redirect on this endpoint, so treat one as an error.
+    // fetch replays headers on redirect, leaking X-Api-Key off-origin; this endpoint never redirects.
     redirect: 'error',
   });
   if (res.status === 401) throw new Error('Key rejected.');
@@ -148,11 +104,7 @@ async function shorten(url) {
   return data.short;
 }
 
-// --- clean -----------------------------------------------------------------
-
-// Cleaning is a pure function of a rule table, so it runs locally and instantly
-// rather than costing a round trip. The table is single-sourced in Go and
-// fetched from /clean/rules, so the two can never drift.
+// The rule table is single-sourced in Go and fetched from /clean/rules, so local cleaning cannot drift.
 async function refreshRules() {
   try {
     const { baseUrl } = await chrome.storage.sync.get(['baseUrl']);
@@ -164,13 +116,11 @@ async function refreshRules() {
     const rules = await res.json();
     await chrome.storage.local.set({ rules, rulesFetchedAt: Date.now() });
   } catch (_) {
-    // Offline or server down: keep whatever is cached. cleanLocally falls back
-    // to a built-in list, so the menu item never becomes a dead end.
+    // Offline: keep the cache; cleanLocally falls back to FALLBACK.
   }
 }
 
-// Fallback list, used before the first successful fetch. Deliberately the
-// highest-volume click IDs only — the full table comes from the server.
+// Used before the first successful fetch: the highest-volume click IDs only.
 const FALLBACK = [
   /^utm_/i, /^mtm_/i, /^pk_/i, /^ga_/i,
   'gclid', 'gbraid', 'wbraid', 'gclsrc', 'dclid', 'srsltid',
@@ -178,10 +128,7 @@ const FALLBACK = [
   'mc_cid', 'mc_eid', 'mkt_tok', '_hsenc', '_hsmi', 'vero_id', '_openstat',
 ];
 
-// hostMatches implements the server's two-tier scoping: a rule with no `hosts`
-// is global, otherwise it applies only on those registrable domains. "amazon."
-// must match amazon.co.uk without matching notamazon.com, so compare on a label
-// boundary rather than with a bare endsWith.
+// No hosts means global; otherwise match on a label boundary, never a bare endsWith.
 function hostMatches(host, hosts) {
   if (!hosts || !hosts.length) return true;
   return hosts.some((h) => {
@@ -191,8 +138,7 @@ function hostMatches(host, hosts) {
 }
 
 function ruleHits(key, host, rules) {
-  // never_strip wins outright — these look like tracking and break things:
-  // redirect_uri, state, signature, and friends.
+  // never_strip wins: these look like tracking but break things (redirect_uri, state, signature).
   for (const d of rules.never_strip || []) {
     const p = String(d.param || '').toLowerCase();
     if (!hostMatches(host, d.hosts)) continue;
@@ -200,9 +146,7 @@ function ruleHits(key, host, rules) {
   }
   for (const r of rules.tracking || []) {
     const p = String(r.param || '').toLowerCase();
-    // Affiliate tags stay, matching the server's default: stripping a click ID
-    // costs an advertiser a data point, stripping an Associates tag takes money
-    // from whoever wrote the review you followed.
+    // Affiliate tags stay, as on the server: stripping one takes money from the reviewer you followed.
     if (r.class === 'affiliate') continue;
     if (!hostMatches(host, r.hosts)) continue;
     if (r.prefix ? key.startsWith(p) : key === p) return r;
@@ -210,21 +154,15 @@ function ruleHits(key, host, rules) {
   return null;
 }
 
-// cleanLocally strips tracking parameters without a network call.
-//
-// It does query-string surgery on the ORIGINAL bytes rather than rebuilding via
-// URL.searchParams: searchParams.toString() re-encodes every surviving
-// parameter, so a link with nothing to strip could still come back textually
-// different from the one the user right-clicked. The Go cleaner makes the same
-// promise — output equals input byte for byte when nothing was removed — and
-// the two must not disagree.
+// Edits the original query bytes: searchParams.toString() re-encodes, and like the Go cleaner
+// the output must equal the input byte for byte when nothing is stripped.
 async function cleanLocally(raw) {
   const { rules } = await chrome.storage.local.get(['rules']);
   const u = new URL(raw); // throws on garbage; the caller shows the error badge
   const host = u.hostname.toLowerCase().replace(/\.$/, '');
 
   const qStart = raw.indexOf('?');
-  if (qStart === -1) return raw; // no query, nothing to strip, nothing to touch
+  if (qStart === -1) return raw;
   const hashAt = raw.indexOf('#', qStart);
   const head = raw.slice(0, qStart);
   const query = raw.slice(qStart + 1, hashAt === -1 ? undefined : hashAt);
@@ -243,11 +181,7 @@ async function cleanLocally(raw) {
   return kept.length ? head + '?' + kept.join('&') + tail : head + tail;
 }
 
-// --- feedback --------------------------------------------------------------
-
-// Badge text is invisible unless the extension is pinned to the toolbar, and a
-// fresh install is unpinned by default. So the badge serves whoever pins it,
-// and failures also raise a notification, which does not depend on pinning.
+// The badge shows only when pinned (fresh installs are not), so failures also raise a notification.
 async function badge(text, colour) {
   try {
     await chrome.action.setBadgeBackgroundColor({ color: colour });
@@ -255,10 +189,7 @@ async function badge(text, colour) {
   } catch (_) { /* no action surface: not fatal */ }
 }
 
-// notify is best-effort and deliberately not backed by a manifest permission:
-// "notifications" would add a second install warning for a failure path, and the
-// badge already carries the signal for anyone who pinned the extension. The
-// optional chaining means this is simply a no-op when the API is absent.
+// No "notifications" permission on purpose: it would add an install warning for a failure path.
 async function notify(message) {
   try {
     await chrome.notifications?.create({

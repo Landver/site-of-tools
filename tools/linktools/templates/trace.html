@@ -18,9 +18,7 @@
         Tracing is switched off on this server. Nothing failed &mdash; the feature simply is not running.
       </div>
     {{else}}
-    {{/* Not live: every trace dials out, and the route allows one a second.
-         hx-sync="this:queue last", not hx-disabled-elt: disabling the focused
-         button throws focus to <body>. */}}
+    {{/* Not live: each trace dials out. hx-sync over hx-disabled-elt, which would throw focus to <body>. */}}
     <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
           hx-trigger="submit, change from:find select" hx-sync="this:queue last"
           class="mt-6 flex flex-wrap gap-2">

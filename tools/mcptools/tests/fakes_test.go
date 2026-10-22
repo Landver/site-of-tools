@@ -239,10 +239,10 @@ var dnsGeo = netGeo{
 	"198.51.100.53": {ASN: "64501", ASName: "Other Net", Country: "Elsewhere"},
 }
 
-type fakeBlock struct{}
+type fakeBlock struct{ lk iptools.BlockLookup }
 
-func (fakeBlock) Check(context.Context, string) (iptools.BlockLookup, error) {
-	return iptools.BlockLookup{}, nil
+func (f fakeBlock) Check(context.Context, string) (iptools.BlockLookup, error) {
+	return f.lk, nil
 }
 
 func (fakeBlock) LastSync(context.Context, string) (time.Time, error) {

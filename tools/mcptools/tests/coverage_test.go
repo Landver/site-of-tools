@@ -53,8 +53,7 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 	return routes
 }
 
-// TestEveryRouteHasAnMCPDecision: a REST route added without a Coverage entry,
-// or an entry left behind by a removed route, fails here.
+// TestEveryRouteHasAnMCPDecision: a route without a Coverage entry, or a stale entry, fails here.
 func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 	routes := restRoutes(t)
 	coverage := mcptools.Coverage()

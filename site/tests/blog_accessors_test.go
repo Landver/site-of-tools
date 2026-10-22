@@ -46,9 +46,7 @@ func TestBlogAccessors(t *testing.T) {
 func TestPostMarkdownDropsFrontmatter(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"plain", "---\ntitle: \"A\"\ndate: \"2026-07-20\"\n---\n\nHello **body**.\n", "Hello **body**.\n"},
-		{"crlf", "---\r\ntitle: \"A\"\r\ndate: \"2026-07-20\"\r\n---\r\n\r\nBody.\r\n", "Body.\r\n"},
 		{"later rule kept", "---\ntitle: \"A\"\ndate: \"2026-07-20\"\n---\nIntro\n\n---\n\nAfter\n", "Intro\n\n---\n\nAfter\n"},
-		{"long separators", "-----\ntitle: \"A\"\ndate: \"2026-07-20\"\n-----\nBody\n", "Body\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,27 +1,4 @@
-{{/* Encode / decode — page shell + result fragment (A14).
-
-     The category is crowded and undifferentiated, so this page does one thing
-     the incumbents do not: it shows QUERY and PATH encoding SIDE BY SIDE.
-     `a b` is `a+b` after a "?" and `a%20b` inside a path, `+` is a space in one
-     and a literal plus in the other, and that single difference is the most
-     common URL bug there is. Every surveyed tool hides one of the two behind a
-     dropdown, which is exactly how the difference stays invisible. The pair of
-     cards at the top of the fragment is therefore the point of the page, not
-     decoration, and the full tables below repeat both entries on purpose.
-
-     Those two cards pick their entry by matching Encoding.Name against the
-     literal names set in encode.go, rather than by index. If a name ever
-     changes, a card disappears — visibly wrong. Indexing by position would
-     instead show the WRONG value under the right heading, which is the failure
-     that matters on this page of all pages.
-
-     A failed decode renders as a stated failure, never as an empty box:
-     url.QueryUnescape returns "" plus an error on a bad escape, and a blank
-     cell reads as "this value is empty", which is a different claim about the
-     input. That is the same mistake the Inspect page exists to avoid.
-
-     Nothing here is a URL, so nothing here is ever a link: the input is a
-     VALUE, and a value that happens to look like a URL is still just text. */}}
+{{/* Encode page + fragment. Show a failed decode, never a blank cell: blank claims the value is empty. */}}
 {{define "link/encode"}}
 <!DOCTYPE html>
 <html lang="en">
@@ -104,8 +81,7 @@
 {{if and .Kind (not .Reading)}}<p class="mb-4 text-sm text-muted">Looks like <span class="font-mono text-strong">{{.Kind}}</span></p>{{end}}
 {{with .Notes}}<div class="mb-4">{{template "link/notes" .}}</div>{{end}}
 
-{{/* A value that is most likely encoded (base64, a JWT, %XX) leads with its
-     decoding; plain text leads with the query-vs-path pair. */}}
+{{/* Likely-encoded values (base64, JWT, %XX) lead with their decoding; plain text with query vs path. */}}
 {{if .Reading}}
 <section class="rounded-lg border border-info bg-surface p-4" data-announce="Looks like {{.Kind}}; decoded first.">
   <h2 id="reading" class="text-sm font-semibold text-strong">{{if eq .Kind "jwt"}}Decoded JWT: header and payload{{else}}Decoded {{.Reading.Method}}{{end}}</h2>
@@ -148,9 +124,8 @@
 {{end}}
 {{end}}
 
-{{/* THE point of the page. Matched by name, never by index — see the file
-     comment. Copy is described by its card's heading: aria-describedby, as a
-     label would hide the "Copied" text. */}}
+{{/* The page's point: query vs path. Matched by name, not index, so a renamed entry vanishes, not mislabels.
+     Copy is described via aria-describedby, as a label would hide the "Copied" text. */}}
 {{define "link/enc-pair"}}
 <section>
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">Query rules vs path rules</h2>

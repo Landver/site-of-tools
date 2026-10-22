@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,9 +42,12 @@ func TestLandingJSON(t *testing.T) {
 		}
 		for _, tl := range ep["tools"].([]any) {
 			tm := tl.(map[string]any)
+			if slices.Contains(tools[p], tm["name"].(string)) {
+				t.Errorf("%s listed twice on %s", tm["name"], p)
+			}
 			tools[p] = append(tools[p], tm["name"].(string))
-			if tm["annotations"] == nil || tm["description"] == "" || tm["rate_limit"] == nil {
-				t.Errorf("%s lacks annotations, a description or its rate limit", tm["name"])
+			if tm["annotations"] == nil || tm["description"] == "" {
+				t.Errorf("%s lacks annotations or a description", tm["name"])
 			}
 		}
 	}
@@ -63,10 +67,8 @@ func TestLandingJSON(t *testing.T) {
 	}
 }
 
-// TestLandingPage is built with the real Limits, so it checks the published rates.
 func TestLandingPage(t *testing.T) {
-	s := newStack(t, stackOpts{owner: offlineOwner(t), dnsLim: dnstools.NewLimits(), linkLim: linktools.NewLimits(),
-		cipherLim: ciphertools.NewLimits(), botLim: botcheck.NewLimits()})
+	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	rec := s.do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"})
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{
@@ -77,21 +79,16 @@ func TestLandingPage(t *testing.T) {
 		`data-copy="http://mcp.test/mcp/cipher"`, "cipher_jwt_decode", "Cipher Tools", `href="http://cipher.test"`,
 		`data-copy="http://mcp.test/mcp/botcheck"`, "botcheck_score", `href="http://botcheck.test"`,
 		`data-copy="http://mcp.test/mcp/site"`, "site_blog", `href="https://corpberry.test"`,
-		"IP2Location LITE", "DROP list", "InternetDB", "crt.sh", "rdap.org", // the footer's credits
-		`href="https://lite.ip2location.com"`, // and each toolset's sources
 
 		`id="setup"`,
 		"claude mcp add --scope user --transport http corpberry http://mcp.test/mcp",
 		"Customize → Connectors → Add custom connector", "Developer mode",
 		`"corpberry-ip": { "type": "http", "url": "http://mcp.test/mcp/ip" }`,
 		`"mcpServers": {`, `"corpberry-ip": { "url": "http://mcp.test/mcp/ip" }`, "~/.cursor/mcp.json",
-		"codex mcp add corpberry-ip --url http://mcp.test/mcp/ip", "[mcp_servers.corpberry-ip]\nurl = \"http://mcp.test/mcp/ip\"",
-		"gemini mcp add --transport http corpberry-ip http://mcp.test/mcp/ip", `"corpberry-ip": { "httpUrl": "http://mcp.test/mcp/ip" }`,
-		"npx mcp-remote http://mcp.test/mcp/ip",
+		"codex mcp add corpberry-ip --url http://mcp.test/mcp/ip",
+		"gemini mcp add --transport http corpberry-ip http://mcp.test/mcp/ip",
 
 		"test material only", "Never the arguments",
-		"5 a second (burst 20)", "20 a second (burst 100)",
-		"2/s, burst 10", "10/s, burst 50", "1 per 2 s, burst 3", "1/s, burst 5", "20/s, burst 60",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page lacks %q", want)
@@ -101,10 +98,9 @@ func TestLandingPage(t *testing.T) {
 		t.Errorf("landing page = %d; it must not advertise the owner endpoint or its tools", rec.Code)
 	}
 
-	// Without the dns toolset nothing on the page reads its sources.
 	bare := newStack(t, stackOpts{bare: true}).do(http.MethodGet, "/", "", map[string]string{"Accept": "text/html"}).Body.String()
-	if strings.Contains(bare, "crt.sh") || strings.Contains(bare, "rdap.org") || strings.Contains(bare, "/mcp/dns") {
-		t.Errorf("the page credits or lists the dns toolset, which isn't served")
+	if strings.Contains(bare, "/mcp/dns") {
+		t.Errorf("the page lists the dns toolset, which isn't served")
 	}
 }
 

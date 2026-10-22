@@ -20,45 +20,31 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// Bounds on one trace. Every value is from docs/06-security-and-abuse.md §3;
-// they exist because this route makes the box fetch a URL a stranger chose, so
-// the cost of a request has to be bounded by something other than goodwill.
+// This route fetches a URL a stranger chose, so every cost of one trace is bounded here.
 const (
 	maxHops = 10 // above every legitimate chain
-	// hopTimeout is also the dial, TLS-handshake and response-header timeout: a
-	// chain of ten slow hops is a slowloris aimed at us, not at the target.
+	// hopTimeout also bounds dial, TLS and headers: ten slow hops would be a slowloris aimed at us.
 	hopTimeout = 5 * time.Second
 	// totalTimeout is the fallback wall clock when NewTracer is given none.
 	totalTimeout = 15 * time.Second
-	// maxLocation bounds a Location header we are willing to resolve.
-	maxLocation = 2048
+	maxLocation  = 2048
 	// maxHeaderValue, maxErrorText bound target-chosen text a hop or note quotes.
 	maxHeaderValue = 256
 	maxErrorText   = 300
-	// maxHeaderBytes: Go's default is 10 MB. 10 hops x 10 MB x burst 5 x N
-	// source IPs is a free bandwidth amplifier pointed at this box.
+	// maxHeaderBytes: Go's 10 MB default times hops, burst and IPs is a free bandwidth amplifier.
 	maxHeaderBytes = 64 << 10
-	// maxBodyScan: the only bytes of any body we ever read, and only on the
-	// hop that ends the chain, for meta-refresh and JS-redirect detection.
+	// maxBodyScan: the only body bytes ever read, on the final hop, for refresh and JS redirects.
 	maxBodyScan = 64 << 10
 )
 
-// traceAccept is the one Accept value sent on every hop. Fixed, never derived
-// from the caller, because the header set is an allowlist (doc §2).
+// traceAccept is fixed, never taken from the caller: the header set is an allowlist.
 const traceAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
-// Chain is one traced redirect chain. Pure data: handler.go renders it as HTML
-// or JSON without knowing how it was produced.
 type Chain struct {
 	Input string `json:"input"`
 	Hops  []Hop  `json:"hops,omitempty"`
-	// Final is the last URL the chain actually REACHED. It is deliberately
-	// empty whenever the chain demonstrably continues somewhere we did not
-	// follow — a JavaScript redirect, a meta refresh, a Refresh header, a
-	// non-HTTP scheme, the hop cap, a loop, a refusal. Reporting a
-	// pre-redirect URL as the destination is the wrong answer in the
-	// security-relevant direction (docs/02-build-fit.md §5), so in those cases
-	// the Note names the target instead and this stays blank.
+	// Final is the last URL actually reached, empty whenever the chain demonstrably continues
+	// unfollowed (JS, refresh, loop, refusal): a pre-redirect URL as destination is the dangerous answer.
 	Final string `json:"final,omitempty"`
 	// FinalStatus is the status Final answered with: a 404 is still where it ends.
 	FinalStatus int    `json:"final_status,omitempty"`
@@ -78,33 +64,21 @@ type Hop struct {
 	Location string `json:"location,omitempty"`
 	// ElapsedMS covers the whole hop: dial, TLS, request, response headers.
 	ElapsedMS int64 `json:"elapsed_ms"`
-	// SetCookie records that the response set a cookie, for the per-hop marker
-	// stolen from wheregoes.com (docs/reports/wheregoes-com.md). It is a bool
-	// on purpose: the value is never read, stored or sent anywhere. There is no
-	// cookie jar (doc §2 rule 4).
+	// SetCookie is a bool on purpose: the value is never read, stored or sent; there is no cookie jar.
 	SetCookie   bool   `json:"set_cookie,omitempty"`
 	Server      string `json:"server,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Notes       []Note `json:"notes,omitempty"`
 }
 
-// Persona is a user-agent we are willing to present as (feature A17, stolen
-// from httpstatus.io's 27-entry selector).
-//
-// The point is not novelty, it is honesty: "what does Googlebot see here" and
-// "what do I see" are different questions, and when the browser persona gets a
-// 403 and Googlebot gets a 200 the tool can state that the target discriminates
-// by user agent instead of reporting a dead link
-// (docs/reports/httpstatus-io.md, docs/02-build-fit.md §5).
+// Persona exists so a target that refuses browsers but serves Googlebot isn't called a dead link.
 type Persona struct {
 	Key  string `json:"key"`
 	Name string `json:"name"`
 	UA   string `json:"ua"`
 }
 
-// personas: the selector, default first. Short list on purpose — these are the
-// agents whose answer actually differs in practice (search crawlers, the link
-// unfurlers, an AI crawler, and a bare HTTP client).
+// personas, default first: only agents whose answer actually differs in practice.
 var personas = []Persona{
 	{"browser", "Browser (Chrome, macOS)", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"},
 	{"googlebot", "Googlebot", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
@@ -116,12 +90,10 @@ var personas = []Persona{
 	{"curl", "curl", "curl/8.7.1"},
 }
 
-// Personas returns the selector's entries, default first. A copy, so a
-// template or handler cannot reorder or rewrite the table it renders from.
+// Personas returns a copy, so a caller can't reorder or rewrite the table it renders from.
 func Personas() []Persona { return append([]Persona(nil), personas...) }
 
-// personaFor resolves a key from the query string. Unknown and empty both fall
-// back to the default rather than erroring: a bad ?ua= is not worth a 400.
+// personaFor falls back to the default for an unknown key: a bad ?ua= is not worth a 400.
 func personaFor(key string) Persona {
 	key = strings.ToLower(strings.TrimSpace(key))
 	for _, p := range personas {
@@ -132,35 +104,21 @@ func personaFor(key string) Persona {
 	return personas[0]
 }
 
-// Tracer walks a redirect chain. Concrete pointer, nil-receiver-safe: a nil
-// *Tracer means the feature is switched off and Trace returns ErrDisabled, so
-// the handler answers 503 (docs/03-architecture.md §2). Held as a pointer, not
-// an interface, because a nil pointer inside an interface is not == nil and the
-// 503 branch would never run.
+// Tracer is nil-safe (nil means off, 503) and a pointer: a nil inside an interface isn't == nil.
 type Tracer struct {
 	guard *platform.EgressGuard
-	// gated is guard.DialContext: the SSRF gate, running in Dialer.Control on
-	// the literal address the kernel is about to connect to. That placement is
-	// the point — there is no check-then-connect window for DNS rebinding to
-	// exploit (platform/netgate.go, doc §2).
+	// gated checks the literal address in Dialer.Control, leaving no window for DNS rebinding.
 	gated  func(context.Context, string, string) (net.Conn, error)
 	client *http.Client
 	total  time.Duration
 
-	// allowLoopback is a test-only seam. The gate rejects loopback, which is
-	// exactly where httptest servers live. Per-instance and unexported, so it
-	// is race-free without a mutex and nothing outside this package can reach
-	// it — docs/07-testing.md §4 chose this over dnstools' package-level
-	// resolverOverride for that reason. Never set in production.
+	// allowLoopback is a test-only seam (httptest serves loopback), per-instance so it needs no mutex.
 	allowLoopback bool
-	// direct is the ungated dialer the seam uses. Unreachable unless
-	// allowLoopback is set AND the address is loopback.
+	// direct is ungated, reachable only with allowLoopback set and a loopback address.
 	direct *net.Dialer
 }
 
-// NewTracer builds the tracer. timeout is the TOTAL wall clock for one chain,
-// not per hop. A nil guard disables the feature: fail closed, because the guard
-// is the whole of the SSRF defence.
+// NewTracer's timeout covers the whole chain. A nil guard turns it off: the guard is the SSRF defence.
 func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 	if guard == nil {
 		return nil
@@ -185,24 +143,18 @@ func NewTracer(guard *platform.EgressGuard, timeout time.Duration) *Tracer {
 	// Never InsecureSkipVerify: a certificate failure is a finding we report.
 	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	t.client = &http.Client{
-		// Walk the chain by hand, one request at a time, so every hop is a
-		// fresh gated dial and every hop is recorded (doc §2).
+		// Walk by hand, so every hop is a fresh gated dial and gets recorded.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		// No cookie jar. Ever (doc §2 rule 4). Explicit because the zero value
-		// is the correct one and a later "tidy up" should have to delete a
-		// commented line rather than silently add one.
+		// No cookie jar, ever; explicit so a later tidy-up has to delete a commented line.
 		Jar: nil,
-		// No client-wide deadline: each hop carries its own context timeout and
-		// the caller's context carries the total.
+		// Each hop's context has its own timeout and the caller's carries the total.
 		Timeout:   0,
 		Transport: tr,
 	}
 	return t
 }
 
-// dialContext is the transport's dialer. Everything goes through the egress
-// gate; the loopback branch is the test seam and is dead code in production,
-// where allowLoopback is false and nothing exported can change it.
+// dialContext gates every dial; the loopback branch is the test seam, dead in production.
 func (t *Tracer) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if t.allowLoopback {
 		if host, _, err := net.SplitHostPort(address); err == nil && isLoopbackHost(host) {
@@ -212,13 +164,7 @@ func (t *Tracer) dialContext(ctx context.Context, network, address string) (net.
 	return t.gated(ctx, network, address)
 }
 
-// Trace walks the redirect chain from raw, at most maxHops deep.
-//
-// The error return is for input that is not traceable at all (empty, oversized,
-// unparseable, wrong scheme). Everything discovered during the walk — a refused
-// destination, a TLS failure, a loop, a bot wall — comes back as a *Chain with
-// notes, because those are findings about the URL and the page's whole job is
-// showing them. Only a nil *Tracer returns ErrDisabled.
+// Trace errors only on untraceable input; anything found on the walk is a note on the Chain.
 func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Chain, err error) {
 	if t == nil {
 		return nil, ErrDisabled
@@ -236,8 +182,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 		return nil, err
 	}
 
-	// Total wall clock. Each hop takes its own 5s slice out of this, so a chain
-	// of slow-but-not-timing-out hops still ends on schedule (doc §3).
+	// Each hop's slice comes out of this, so slow-but-alive hops still end on schedule.
 	ctx, cancel := context.WithTimeout(ctx, t.total)
 	defer cancel()
 
@@ -256,9 +201,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 		seen[cur.String()] = true
 
 		hop := Hop{Index: len(ch.Hops) + 1, URL: cur.String()}
-		// The gate runs in two places because a dialer hook only fires when a
-		// dial happens (doc §2(b)). This is the second place: scheme, host and
-		// port are judged here, above the transport, before anything is sent.
+		// A dialer hook only fires on a dial, so scheme, host and port are judged here first too.
 		if err := t.check(cur); err != nil {
 			hop.Notes = append(hop.Notes, Note{SevFail, "Refused before connecting", refusalDetail(err)})
 			ch.Hops = append(ch.Hops, hop)
@@ -268,8 +211,6 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 		loc := t.step(ctx, &hop, cur, p)
 		ch.Hops = append(ch.Hops, hop)
 		if loc == "" {
-			// Terminal hop. step has already attached whatever it found; Final
-			// stays empty when the chain plainly continues elsewhere.
 			if !continuesElsewhere(hop.Notes) {
 				ch.Final, ch.FinalStatus, ch.FinalReason = hop.URL, hop.Status, hop.Reason
 			}
@@ -281,8 +222,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 			ch.Notes = append(ch.Notes, *note)
 			return ch, nil
 		}
-		// An https -> http step is flagged, not taken silently: from here on the
-		// chain, and anything in the URL, is on the wire in clear (doc §2 rule 5).
+		// Flagged, not taken silently: from here on the URL travels in clear.
 		if strings.EqualFold(cur.Scheme, "https") && strings.EqualFold(next.Scheme, "http") {
 			ch.Notes = append(ch.Notes, Note{SevWarn, "HTTPS downgraded to HTTP",
 				fmt.Sprintf("Hop %d left HTTPS for plain HTTP. Everything from here, including anything carried in the URL, travels unencrypted.", hop.Index)})
@@ -296,8 +236,7 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 	}
 }
 
-// liftLastHop copies the last hop's warnings into the chain's findings, where
-// the page says the reason is, and adds one for a chain ending at an error page.
+// liftLastHop promotes the last hop's warnings to findings and flags a chain ending at an error page.
 func (ch *Chain) liftLastHop() {
 	if ch == nil || len(ch.Hops) == 0 {
 		return
@@ -345,32 +284,22 @@ func (h Hop) Unlisted(findings []Note) []Note {
 	return out
 }
 
-// step performs one hop, fills in the response fields and notes, and returns
-// the Location to follow — empty when the chain ends here.
+// step performs one hop and returns the Location to follow, empty when the chain ends here.
 func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) string {
-	// Per-hop deadline, inside the total. Cancelled only after the body has
-	// been read, since cancelling the context kills the body reader too.
+	// Cancelled only after the body is read: cancelling the context kills the body reader too.
 	hopCtx, cancel := context.WithTimeout(ctx, hopTimeout)
 	defer cancel()
 	began := time.Now()
 	defer func() { hop.ElapsedMS = time.Since(began).Milliseconds() }()
 
-	// GET, not HEAD: too many servers answer HEAD differently, or not at all,
-	// and a redirect chain measured with HEAD is not the chain a browser walks
-	// (doc §3). The body is closed unread unless this hop ends the chain.
+	// GET, not HEAD: servers answer HEAD differently or not at all, so it isn't the browser's chain.
 	req, err := http.NewRequestWithContext(hopCtx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		hop.Notes = append(hop.Notes, Note{SevFail, "Could not build the request", err.Error()})
 		return ""
 	}
-	// Headers are BUILT FRESH from a fixed allowlist on every hop, never
-	// carried forward (doc §2). In particular:
-	//   - no Referer. Go's own client sets one on redirects it follows; a
-	//     hand-rolled walk that copies headers forward would hand the pasted
-	//     URL, tokens and all, to every subsequent attacker-chosen host.
-	//   - no Authorization, on any hop, to any host. There is nothing to
-	//     "drop on the first cross-host hop" because it is never set, and
-	//     parseTarget stripped userinfo so net/http cannot derive one either.
+	// Built fresh from an allowlist every hop: no Referer (it would hand the pasted URL to every later
+	// host) and no Authorization (parseTarget stripped userinfo, so net/http can't derive one).
 	req.Header = http.Header{
 		"User-Agent": {p.UA},
 		"Accept":     {traceAccept},
@@ -395,8 +324,7 @@ func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) stri
 		return loc
 	}
 
-	// The chain ends at this hop, so this is the one place a body is read —
-	// capped, and only when it could carry a redirect we would otherwise miss.
+	// The only body ever read: capped, on the final hop, when it could carry a missed redirect.
 	var body []byte
 	if wantsBody(hop.ContentType, resp.StatusCode) {
 		body, _ = io.ReadAll(io.LimitReader(resp.Body, maxBodyScan))
@@ -405,14 +333,9 @@ func (t *Tracer) step(ctx context.Context, hop *Hop, u *url.URL, p Persona) stri
 	return ""
 }
 
-// explain attaches the findings that make a terminal hop readable: the two
-// refresh mechanisms, the JavaScript redirect we cannot follow, and a refusal
-// that is not a dead link.
+// explain names what a terminal hop hides: refreshes, JS redirects, refusals that aren't dead links.
 func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) {
-	// The Refresh HTTP HEADER, not only the <meta> tag. It is widely honoured
-	// and easy to miss, and answering "chain complete" on a 200 that carries
-	// `Refresh: 0;url=...` is wrong in the security-relevant direction
-	// (doc §9). Named, never followed.
+	// The Refresh header too, not just <meta>: easy to miss, and browsers honour it. Named, never followed.
 	if target, ok := parseRefresh(resp.Header.Get("Refresh")); ok {
 		hop.Notes = append(hop.Notes, Note{SevWarn, "Refresh header, not a redirect",
 			fmt.Sprintf("This response is %d, but it carries a Refresh header pointing at %s. Browsers honour it, so the chain does not end here. We name it rather than following it.", hop.Status, absolute(hop.URL, target))})
@@ -429,9 +352,7 @@ func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) 
 		hop.Notes = append(hop.Notes, Note{SevWarn, "Meta refresh, not a redirect", detail})
 	}
 
-	// JavaScript redirects need a JS engine, which this tool deliberately does
-	// not have (docs/02-build-fit.md §5). Detect and NAME it; never present the
-	// pre-redirect URL as the destination.
+	// No JS engine by design: name the redirect, never present this URL as the destination.
 	if what, ok := jsRedirect(body); ok {
 		hop.Notes = append(hop.Notes, Note{SevWarn, "JavaScript redirect, not followed",
 			fmt.Sprintf("The page runs %s. Following it needs a browser, so the real destination is unknown: it is not this URL.", what)})
@@ -456,11 +377,7 @@ func (t *Tracer) explain(hop *Hop, resp *http.Response, body []byte, p Persona) 
 	}
 }
 
-// check enforces scheme, host and port above the transport.
-//
-// Not redundant with the dialer gate: a Control hook only fires on a real dial
-// (doc §2(b)), and checking here also turns a refusal into a stated finding
-// instead of an opaque dial error.
+// check isn't redundant with the dialer gate: that fires only on a dial, and this states the refusal.
 func (t *Tracer) check(u *url.URL) error {
 	scheme := strings.ToLower(u.Scheme)
 	if scheme != "http" && scheme != "https" {
@@ -477,10 +394,7 @@ func (t *Tracer) check(u *url.URL) error {
 	if err := t.guard.AllowHost(host); err != nil {
 		return err
 	}
-	// 80 and 443 only. This is a first-class control, not an anti-scanning
-	// nicety: a source-IP-allowlisted service on a public address (the Mongo
-	// host) passes the routable check and would be dialled from the one source
-	// IP its firewall trusts. Doc §2(c), and threat #13 on the Hetzner account.
+	// 80/443 only: an IP-allowlisted public service (the Mongo host) would otherwise trust our dial.
 	return t.guard.AllowPort(port)
 }
 
@@ -492,8 +406,7 @@ func parseTarget(raw string) (*url.URL, []Note, error) {
 		return nil, nil, fmt.Errorf("not a valid URL: %w", parseReason(err))
 	}
 	if !strings.Contains(raw, "://") && !isHTTPScheme(u.Scheme) {
-		// "example.com/x" is what people paste. Assume https and say so,
-		// rather than refusing on a technicality.
+		// "example.com/x" is what people paste: assume https and say so.
 		if u2, err2 := url.Parse("https://" + raw); err2 == nil && u2.Host != "" {
 			u = u2
 			notes = append(notes, Note{SevInfo, "No scheme", "Traced as https://" + raw + "."})
@@ -515,19 +428,14 @@ func parseTarget(raw string) (*url.URL, []Note, error) {
 	return u, notes, nil
 }
 
-// resolveNext resolves a Location against the URL that issued it, returning a
-// note instead when the chain ends there.
+// resolveNext returns a note instead of a URL when the chain ends at loc.
 func resolveNext(cur *url.URL, loc string) (*url.URL, *Note) {
 	if len(loc) > maxLocation {
 		return nil, &Note{SevFail, "Location header is too long",
 			fmt.Sprintf("%d bytes; the limit is %d. Not resolved.", len(loc), maxLocation)}
 	}
-	// url.Parse, NOT url.ParseRequestURI: the latter reads the
-	// protocol-relative "//evil.tld/x" as a PATH, leaving Host empty and
-	// returning no error, so a naive check sees a same-host relative redirect
-	// where a browser sees a jump to evil.tld. ResolveReference then applies
-	// RFC 3986 §5 properly for relative, absolute and protocol-relative forms
-	// alike (doc §2 rule 1).
+	// url.Parse, NOT url.ParseRequestURI: the latter reads "//evil.tld/x" as a path with no host,
+	// so a check would see a same-host redirect where a browser jumps to evil.tld.
 	ref, err := url.Parse(strings.TrimSpace(loc))
 	if err != nil {
 		return nil, &Note{SevFail, "Location header is not a URL",
@@ -545,8 +453,7 @@ func resolveNext(cur *url.URL, loc string) (*url.URL, *Note) {
 	return next, nil
 }
 
-// transportNote turns a client error into something a reader can act on. A TLS
-// failure in particular is a finding, never a reason to retry over http.
+// transportNote: a TLS failure is a finding, never a reason to retry over http.
 func transportNote(ctx context.Context, err error) Note {
 	switch {
 	case errors.Is(err, platform.ErrBlockedAddress), errors.Is(err, platform.ErrBlockedPort):
@@ -588,9 +495,7 @@ func clipCause(err error) string {
 	return platform.Clip(msg, maxErrorText)
 }
 
-// refusalDetail states a gate refusal in the reader's terms. The underlying
-// error names the address or port, which is exactly what a person checking a
-// suspicious link wants to see.
+// refusalDetail states a gate refusal in the reader's terms, naming the address or port.
 func refusalDetail(err error) string {
 	switch {
 	case errors.Is(err, platform.ErrBlockedPort):
@@ -610,8 +515,7 @@ func afterColon(err error) string {
 	return "That address"
 }
 
-// continuesElsewhere reports whether a terminal hop's notes say the chain does
-// not actually settle here — the condition for leaving Chain.Final empty.
+// continuesElsewhere: the terminal hop's notes say the chain doesn't settle, so Final stays empty.
 func continuesElsewhere(notes []Note) bool {
 	for _, n := range notes {
 		switch n.Title {
@@ -625,9 +529,7 @@ func continuesElsewhere(notes []Note) bool {
 	return false
 }
 
-// wantsBody decides whether this terminal hop's body is worth the 64 KB. HTML
-// and an absent Content-Type can carry a refresh or a redirect script; a
-// refusal page is worth reading whatever it claims to be.
+// wantsBody: HTML or no Content-Type may hide a redirect; a refusal page is worth reading regardless.
 func wantsBody(contentType string, status int) bool {
 	if status == http.StatusForbidden || status == http.StatusServiceUnavailable ||
 		status == http.StatusUnauthorized || status == http.StatusTooManyRequests {
@@ -637,11 +539,7 @@ func wantsBody(contentType string, status int) bool {
 	return ct == "" || strings.HasPrefix(ct, "text/html") || strings.HasPrefix(ct, "application/xhtml")
 }
 
-// metaRefresh finds <meta http-equiv="refresh"> in the head.
-//
-// Tokenised rather than regexped: the input is attacker-controlled markup, and
-// x/net/html is already a direct dependency. Stops at <body>, so a 64 KB scan
-// is bounded by the head in practice.
+// metaRefresh tokenises (the markup is hostile) and stops at <body>, so the scan is bounded by the head.
 func metaRefresh(body []byte) (string, bool) {
 	if len(body) == 0 {
 		return "", false
@@ -679,8 +577,7 @@ func metaRefresh(body []byte) (string, bool) {
 	}
 }
 
-// parseRefresh reads the "5; url=..." form shared by the Refresh header and the
-// meta tag. Returns false when there is no target, which is a self-reload.
+// parseRefresh reads "5; url=..."; false when there is no target, which is a self-reload.
 func parseRefresh(v string) (string, bool) {
 	if v == "" {
 		return "", false
@@ -709,14 +606,7 @@ func parseRefresh(v string) (string, bool) {
 var jsRedirectTargets = []string{"location.href", "window.location", "document.location",
 	"top.location", "self.location", "parent.location"}
 
-// jsRedirect heuristically spots a navigation performed by script, returning
-// the construct found.
-//
-// Heuristic on purpose, and the note says so: a call is unambiguous, an
-// assignment less so, and ordinary page script does touch location. Being
-// slightly over-eager is the right failure direction here, because the cost of
-// a false positive is a hedge on the page and the cost of a false negative is
-// reporting a redirect shim's own URL as the destination.
+// jsRedirect is a heuristic that errs eager: missing one would name a shim as the destination.
 func jsRedirect(body []byte) (string, bool) {
 	if len(body) == 0 {
 		return "", false
@@ -735,8 +625,7 @@ func jsRedirect(body []byte) (string, bool) {
 	return "", false
 }
 
-// assignedTo reports whether needle is followed by a single '=', i.e. an
-// assignment rather than a comparison.
+// assignedTo: needle followed by a single '=', an assignment rather than a comparison.
 func assignedTo(s, needle string) bool {
 	for i := 0; i < len(s); {
 		j := strings.Index(s[i:], needle)
@@ -768,8 +657,7 @@ var botWallHeaders = map[string]string{
 	"x-perimeterx-blocking": "PerimeterX",
 }
 
-// botWallCookies / botWallBody: the second and third tells, for edges that do
-// not announce themselves in a header.
+// botWallCookies and botWallBody catch edges that don't announce themselves in a header.
 var botWallCookies = map[string]string{
 	"__cf_bm": "Cloudflare", "cf_clearance": "Cloudflare", "datadome": "DataDome",
 	"incap_ses": "Imperva", "visid_incap": "Imperva", "reese84": "Imperva",
@@ -788,11 +676,7 @@ var botWallBody = map[string]string{
 	"access denied":                 "an access-denied page",
 }
 
-// botWall names the bot-protection product behind a refusal, when it can.
-//
-// The point is the framing, not the attribution: a 403 or 503 here means the
-// target declined to answer an automated request from a datacentre address
-// (docs/02-build-fit.md §5). Reporting that as a dead link is a wrong answer.
+// botWall names the product behind a refusal, so it reads as bot protection, not a dead link.
 func botWall(h http.Header, body []byte) (string, bool) {
 	for name, vendor := range botWallHeaders {
 		if h.Get(name) != "" {
@@ -825,9 +709,7 @@ func botWall(h http.Header, body []byte) (string, bool) {
 	return "", false
 }
 
-// absolute resolves a refresh target against the hop that carried it, so the
-// note names a whole URL rather than "/d". Falls back to the raw text: this
-// feeds a note, never a fetch, so an unresolvable target is shown as written.
+// absolute feeds a note, never a fetch, so an unresolvable target is shown as written.
 func absolute(base, target string) string {
 	if target == "" {
 		return target
@@ -848,12 +730,7 @@ func isHTTPScheme(s string) bool {
 	return s == "http" || s == "https"
 }
 
-// stripUserinfo removes credentials from a URL before it is fetched or shown,
-// reporting whether there were any.
-//
-// Two reasons, both load-bearing: net/http's send() turns URL userinfo into a
-// Basic Authorization header, which doc §2 rule 3 forbids outright; and a
-// password must never be echoed back into the page (doc §8).
+// stripUserinfo: net/http turns userinfo into Basic auth, and a password must never be echoed back.
 func stripUserinfo(u *url.URL) bool {
 	if u.User == nil {
 		return false
@@ -862,9 +739,7 @@ func stripUserinfo(u *url.URL) bool {
 	return true
 }
 
-// isLoopbackHost backs the test seam only. It is not part of the egress
-// decision: the gate in platform/netgate.go is, and this never widens it except
-// when allowLoopback has been set from inside this package's own tests.
+// isLoopbackHost backs the test seam only; it never widens the gate in platform/netgate.go.
 func isLoopbackHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true

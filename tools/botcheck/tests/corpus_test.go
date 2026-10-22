@@ -18,19 +18,13 @@ import (
 	"github.com/Landver/site-of-tools/tools/botcheck"
 )
 
-// corpus_test.go covers G41/G42 fingerprint corpus: FingerprintHash identity,
-// fingerprint_reuse rule (floor + good-bot suppression), nil-safe repo
-// contract, + w/ MONGODB_TEST_URI set: live Mongo round-trip + end-to-end
-// handler wiring (mirrors iptools history tests).
-
 func TestFingerprintHashDeterministic(t *testing.T) {
 	s := cleanChrome()
 	h := s.FingerprintHash()
 	if h == "" || h != s.FingerprintHash() {
 		t.Fatalf("hash not deterministic: %q then %q", h, s.FingerprintHash())
 	}
-	// Server-observed fields must NOT change hash -> corpus tracks browser's
-	// identity; IPs it appears from = corpus's half.
+	// Server-observed fields stay out: the corpus tracks the browser, the IPs are its other half.
 	s2 := s
 	s2.HTTPUserAgent = "curl/8.7.1"
 	s2.IPTimezone = "+03:00"
@@ -81,8 +75,7 @@ func TestFingerprintReuseRule(t *testing.T) {
 		}
 	}
 
-	// Server-only request never consulted corpus -> rule reads "not collected",
-	// never pass or fire, even w/ count somehow present.
+	// A server-only request never consulted the corpus: skipped, even with a count somehow present.
 	s = cleanChrome()
 	s.ClientCollected = false
 	s.FingerprintIPs = 9
@@ -96,9 +89,7 @@ func TestFingerprintReuseRule(t *testing.T) {
 }
 
 func TestFingerprintReuseSuppressedForGoodBot(t *testing.T) {
-	// Verified crawler fleet legitimately shares one fingerprint across many
-	// IPs -> reuse deduction recorded as "expected", not counted. Otherwise-clean
-	// fingerprint isolates suppression (score stays 100).
+	// A verified crawler fleet legitimately shares one fingerprint across many IPs: "expected".
 	const applebot = "Mozilla/5.0 (Applebot/0.1; +http://www.apple.com/go/applebot)"
 	s := cleanChrome()
 	s.NavMainUA, s.NavWorkerUA, s.NavIframeUA, s.SWUA = applebot, applebot, applebot, applebot
@@ -116,15 +107,13 @@ func TestFingerprintReuseSuppressedForGoodBot(t *testing.T) {
 	}
 }
 
-// TestNewCorpusDisabled: nil db (Mongo off) yields nil repo -> nil-safe
-// disabled store -> handler needs no Mongo guards.
+// A nil db (Mongo off) yields a nil-safe nil repo, so the handler needs no Mongo guards.
 func TestNewCorpusDisabled(t *testing.T) {
 	if c := botcheck.NewCorpus(nil); c != nil {
 		t.Fatalf("NewCorpus(nil db) = %v, want nil (disabled)", c)
 	}
 }
 
-// TestNilCorpusIsSafe: every method no-ops on nil repo.
 func TestNilCorpusIsSafe(t *testing.T) {
 	var c *botcheck.Corpus
 	ctx := context.Background()
@@ -146,13 +135,9 @@ func TestNilCorpusIsSafe(t *testing.T) {
 	}
 }
 
-// TestFingerprintChurnRule covers G43: ip_fingerprint_churn soft rule fires at
-// its distinct-fingerprint floor, stays silent below it, never docks score on
-// its own (soft, cluster-only), carries count into report, skips a
-// server-only request that never consulted corpus.
+// G43's ip_fingerprint_churn is soft (cluster-only), so it never docks the score on its own.
 func TestFingerprintChurnRule(t *testing.T) {
-	// Fires at 8-distinct-fingerprint floor. Soft signal, so alone forms no
-	// cluster, leaves score at 100.
+	// Fires at the 8-distinct-fingerprint floor.
 	s := cleanChrome()
 	s.FingerprintChurn = 8
 	r := botcheck.Evaluate(s)
@@ -182,9 +167,7 @@ func TestFingerprintChurnRule(t *testing.T) {
 	}
 }
 
-// TestCheckNilCorpusLeavesRuleSilent: w/ Mongo off handler still scores,
-// corpus rule has no data (0 IPs never evidence), JSON carries no
-// fingerprintIPs key.
+// With Mongo off the handler still scores; 0 IPs is never evidence and stays out of the JSON.
 func TestCheckNilCorpusLeavesRuleSilent(t *testing.T) {
 	rec := post(newTestApp(fakeLooker{}), "/check", cleanClientBody, map[string]string{
 		"Accept": "application/json", "User-Agent": chromeMacUA,
@@ -211,10 +194,7 @@ func TestCheckNilCorpusLeavesRuleSilent(t *testing.T) {
 	}
 }
 
-// liveCorpusDB opens dedicated test database, returns fresh Corpus,
-// registers cleanup so collection never lingers. Skips test when
-// MONGODB_TEST_URI unset (keeps `make test`/CI hermetic). iptools
-// history pattern.
+// liveCorpusDB skips without MONGODB_TEST_URI, keeping `make test` and CI hermetic.
 func liveCorpusDB(t *testing.T, ctx context.Context) *botcheck.Corpus {
 	t.Helper()
 	uri := os.Getenv("MONGODB_TEST_URI")
@@ -237,9 +217,7 @@ func liveCorpusDB(t *testing.T, ctx context.Context) *botcheck.Corpus {
 	return c
 }
 
-// TestCorpusLiveRoundTrip is an integration test (MONGODB_TEST_URI only):
-// distinct-IP counting per hash, duplicate sightings not double-counted,
-// hashes isolated from each other.
+// Live Mongo (MONGODB_TEST_URI) round trip for DistinctIPs.
 func TestCorpusLiveRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -261,8 +239,7 @@ func TestCorpusLiveRoundTrip(t *testing.T) {
 	if n := distinct("hash-a"); n != 4 {
 		t.Fatalf("DistinctIPs = %d, want 4", n)
 	}
-	// Repeat sighting from same IP doesn't double-count; another hash starts
-	// own count.
+	// A repeat IP doesn't double-count; another hash starts its own count.
 	if err := c.Record(ctx, "hash-a", "203.0.113.4"); err != nil {
 		t.Fatalf("record: %v", err)
 	}
@@ -284,10 +261,7 @@ func TestCorpusLiveRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCorpusLiveViaHandler drives real handler against real Mongo to prove
-// end-to-end wiring: same client fingerprint POSTed from 5 distinct egress
-// IPs crosses fingerprint_reuse floor, count carried into report. RemoteAddr
-// stands in for RealIP (bare test app configures no XFF trust).
+// 5 egress IPs cross the fingerprint_reuse floor; RemoteAddr stands in for RealIP (no XFF trust).
 func TestCorpusLiveViaHandler(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -332,10 +306,7 @@ func TestCorpusLiveViaHandler(t *testing.T) {
 	}
 }
 
-// TestCorpusChurnLiveRoundTrip is an integration test (MONGODB_TEST_URI only)
-// for DistinctHashesByIP: distinct-fingerprint counting per IP, IPs isolated
-// from each other, repeat sightings not double-counted, rolling window
-// enforced (window shorter than sightings' age excludes them all).
+// Live Mongo (MONGODB_TEST_URI) round trip for DistinctHashesByIP.
 func TestCorpusChurnLiveRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -368,17 +339,13 @@ func TestCorpusChurnLiveRoundTrip(t *testing.T) {
 	if n := churn("198.51.100.8", time.Hour); n != 1 {
 		t.Errorf("churn(B, 1h) = %d, want 1 (IPs are isolated)", n)
 	}
-	// Window enforced: window shorter than sightings' age (recorded a moment
-	// ago) excludes them all.
+	// Sightings recorded a moment ago are already older than a 1ns window.
 	if n := churn("198.51.100.7", time.Nanosecond); n != 0 {
 		t.Errorf("churn(A, 1ns) = %d, want 0 (all sightings older than the window)", n)
 	}
 }
 
-// TestCorpusChurnLiveViaHandler drives real handler against real Mongo: 8
-// DISTINCT fingerprints POSTed from ONE egress IP cross ip_fingerprint_churn
-// floor, count carried into report. Distinct fingerprints produced by varying
-// one stable field (screenW), which changes fingerprint hash.
+// 8 DISTINCT fingerprints from ONE IP cross the churn floor; varying screenW changes the hash.
 func TestCorpusChurnLiveViaHandler(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

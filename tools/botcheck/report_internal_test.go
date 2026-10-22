@@ -2,10 +2,6 @@ package botcheck
 
 import "testing"
 
-// TestEveryRuleHasAnExplanation = G55 coverage guard. Lives white-box → rule
-// list unexported. Fails moment rule lands w/o ruleExplanations entry — incl.
-// 14 rules built in parallel on sibling branch, entries pre-seeded here, must
-// survive merge (2nd loop pins those reserved IDs by name).
 func TestEveryConsistencyRuleHasSubgroup(t *testing.T) {
 	for _, r := range rules {
 		if r.tier == TierConsistency && r.subgroup == "" {

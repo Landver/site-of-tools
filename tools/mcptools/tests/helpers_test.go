@@ -18,6 +18,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -86,10 +87,6 @@ func (f *fakeGeo) lastAsked() string {
 	}
 	return f.asked[len(f.asked)-1]
 }
-
-type fakeChecker struct{ lk iptools.BlockLookup }
-
-func (f fakeChecker) Check(context.Context, string) (iptools.BlockLookup, error) { return f.lk, nil }
 
 var richResult = iptools.Result{
 	CountryCode: "US", Country: "United States", Region: "California", City: "Mountain View",
@@ -221,7 +218,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.log != nil {
 		mcpApp.Logger = slog.New(slog.NewJSONHandler(o.log, nil))
 	}
-	err := mcptools.Register(mcpApp, mcptools.Deps{
+	mcptools.Register(mcpApp, mcptools.Deps{
 		Geo: o.geo, Blocklist: o.chk, IPLimits: o.ipLim,
 		DNS: o.dns, DNSGeo: dnsGeo, DNSBlocklist: fakeBlock{}, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
@@ -233,9 +230,6 @@ func newStack(t *testing.T, o stackOpts) *stack {
 			return "http://" + sub + ".test"
 		},
 	}, base)
-	if err != nil {
-		t.Fatal(err)
-	}
 	hosts[mcpHost] = mcpApp
 	h := echo.NewVirtualHostHandler(hosts)
 	srv := httptest.NewServer(h)
@@ -355,12 +349,11 @@ func object(t *testing.T, res *mcp.CallToolResult) map[string]any {
 	if _, ok := res.StructuredContent.(map[string]any); !ok {
 		t.Fatalf("structuredContent is %T, want a JSON object", res.StructuredContent)
 	}
-	got := decode(t, []byte(text(t, res)))
-	sc, _ := json.Marshal(res.StructuredContent)
-	if !jsonEqual(t, sc, []byte(text(t, res))) {
-		t.Errorf("text block differs from structuredContent:\n%s\n%s", text(t, res), sc)
+	var plain any
+	if err := json.Unmarshal([]byte(text(t, res)), &plain); err != nil || !cmp.Equal(plain, res.StructuredContent) {
+		t.Errorf("text block differs from structuredContent:\n%s\n%v", text(t, res), res.StructuredContent)
 	}
-	return got
+	return decode(t, []byte(text(t, res)))
 }
 
 func decode(t *testing.T, b []byte) map[string]any {
@@ -372,15 +365,4 @@ func decode(t *testing.T, b []byte) map[string]any {
 		t.Fatalf("decode %s: %v", b, err)
 	}
 	return v
-}
-
-func jsonEqual(t *testing.T, a, b []byte) bool {
-	t.Helper()
-	var x, y any
-	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
-		return false
-	}
-	xa, _ := json.Marshal(x)
-	ya, _ := json.Marshal(y)
-	return bytes.Equal(xa, ya)
 }

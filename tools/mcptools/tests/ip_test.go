@@ -22,7 +22,7 @@ func sources(t *testing.T, obj map[string]any) []string {
 }
 
 func TestIPLookup(t *testing.T) {
-	s := newStack(t, stackOpts{chk: fakeChecker{lk: iptools.BlockLookup{Sources: []string{"spamhaus-drop"}}}})
+	s := newStack(t, stackOpts{chk: fakeBlock{lk: iptools.BlockLookup{Sources: []string{"spamhaus-drop"}}}})
 	cs := s.client(t, "/mcp/ip", nil, nil)
 
 	got := object(t, call(t, cs, "ip_lookup", map[string]any{"ip": " 8.8.8.8 "}))
@@ -84,8 +84,8 @@ func TestIPLookupShodanSkipped(t *testing.T) {
 	if diff := cmp.Diff([]string{"IP2Location LITE", "The Spamhaus Project"}, sources(t, got)); diff != "" {
 		t.Errorf("attribution when Shodan was skipped (-want +got):\n%s", diff)
 	}
-	if notes, _ := got["notes"].([]any); len(notes) != 1 || !strings.Contains(notes[0].(string), "Shodan") {
-		t.Errorf("notes = %v, want one saying open ports weren't checked", got["notes"])
+	if dig(got, "shodan.skipped") != true || got["notes"] != nil {
+		t.Errorf("shodan = %v, notes = %v; want shodan.skipped and no notes", got["shodan"], got["notes"])
 	}
 }
 
@@ -101,7 +101,7 @@ func TestIPCIDR(t *testing.T) {
 }
 
 func TestIPParity(t *testing.T) {
-	s := newStack(t, stackOpts{chk: fakeChecker{lk: iptools.BlockLookup{Sources: []string{"ipsum"}, MaxCount: 3}}})
+	s := newStack(t, stackOpts{chk: fakeBlock{lk: iptools.BlockLookup{Sources: []string{"ipsum"}, MaxCount: 3}}})
 	cs := s.client(t, "/mcp", nil, nil)
 	cases := []struct {
 		tool, arg, value, rest string
@@ -125,7 +125,7 @@ func TestIPParity(t *testing.T) {
 	}
 }
 
-// TestUntrustedStringsThroughTheStack: strings capped and shown, lists whole, too big an error.
+// TestUntrustedStringsThroughTheStack: invisible characters shown, lists whole, too big an error.
 func TestUntrustedStringsThroughTheStack(t *testing.T) {
 	r := richResult
 	r.ASName = "Evil\u202eCorp\U000E0041" + strings.Repeat("x", 10<<10)
@@ -136,8 +136,8 @@ func TestUntrustedStringsThroughTheStack(t *testing.T) {
 	cs := newStack(t, stackOpts{geo: &fakeGeo{res: r}}).client(t, "/mcp", nil, nil)
 	got := object(t, call(t, cs, "ip_lookup", map[string]any{"ip": "8.8.8.8"}))
 	as := got["as_name"].(string)
-	if !strings.HasPrefix(as, `Evil\u{202E}Corp\u{E0041}`) || !strings.HasSuffix(as, " bytes]") || len(as) > 2100 {
-		t.Errorf("as_name = %.60q…(%d bytes), want visible escapes and a cap with its marker", as, len(as))
+	if as != `Evil\u{202E}Corp\u{E0041}`+strings.Repeat("x", 10<<10) {
+		t.Errorf("as_name = %.60q…(%d bytes), want visible escapes and the rest whole", as, len(as))
 	}
 	if n := len(got["shodan"].(map[string]any)["hostnames"].([]any)); n != 300 {
 		t.Errorf("hostnames kept %d of 300; lists are never cut", n)

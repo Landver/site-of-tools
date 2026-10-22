@@ -13,8 +13,7 @@ import (
 	"github.com/Landver/site-of-tools/shared"
 )
 
-// cipher-worker.js runs under jsc, macOS's JavaScriptCore shell, with a stand-in for what wasm/main.go
-// registers; without jsc these tests skip. No Node.
+// Runs cipher-worker.js under macOS's jsc with a stand-in for wasm/main.go; skips without jsc. No Node.
 
 const jscMacOS = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc"
 

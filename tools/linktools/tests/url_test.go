@@ -1,6 +1,4 @@
-// Package tests holds linktools' black-box tests: exported API only, per
-// CLAUDE.md rule #6. White-box tests that need unexported symbols sit beside the
-// code instead (trace_test.go is the one that genuinely does).
+// Package tests holds linktools' black-box tests: exported API only (CLAUDE.md rule #6).
 package tests
 
 import (
@@ -13,9 +11,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
-// The probe URL the whole research corpus was driven with
-// (docs/reports/README.md). Every pathology in one string, so the parser is
-// tested against exactly what the competitors were tested against.
+// The probe URL the research corpus was driven with (docs/reports/README.md): every pathology at once.
 const probe = "https://example.com/a/b/../c?cityIdList=95&subdistrictIds=6%2C7%2C8%2C9%2C10%2C11&currencyId=1&rooms=1%2C2&id=1&id=2&debug&q=a+b&x=%2520&bad=%zz&utm_source=test&t=YWJjK2RlZg%3D%3D#frag=1&access_token=abc"
 
 func parse(t *testing.T, raw string) *linktools.Inspection {
@@ -64,8 +60,7 @@ func TestProbeURL(t *testing.T) {
 	}
 }
 
-// TestOrderPreserved is the test that fails the moment anyone reaches for
-// url.ParseQuery, which returns a map and loses the original order.
+// Fails the moment anyone reaches for url.ParseQuery, whose map loses the original order.
 func TestOrderPreserved(t *testing.T) {
 	in := parse(t, "https://example.com/?b=1&a=2&c=3")
 	var keys []string
@@ -77,8 +72,7 @@ func TestOrderPreserved(t *testing.T) {
 	}
 }
 
-// TestRepeatedKeys: two rows, the second marked. Collapsing to last-wins is what
-// every surveyed parser does and it hides a real class of bug.
+// Two rows, the second marked: last-wins, as every surveyed parser does, hides a real class of bug.
 func TestRepeatedKeys(t *testing.T) {
 	in := parse(t, "https://example.com/?id=1&id=2")
 	if got := len(in.Params); got != 2 {
@@ -107,11 +101,7 @@ func TestValuelessVsEmpty(t *testing.T) {
 	}
 }
 
-// TestMalformedEscape: the raw text survives and a warning is set.
-//
-// url.QueryUnescape returns the EMPTY STRING plus an error here, so a parser
-// that takes its return value blindly turns ?bad=%zz into ?bad=, which looks
-// like a real, empty value (docs/reports/go-url-stdlib-behaviour.md §2).
+// The raw text survives: url.QueryUnescape returns "" on error, which looks like a real empty value.
 func TestMalformedEscape(t *testing.T) {
 	for _, raw := range []string{"https://example.com/?bad=%zz", "https://example.com/?bad=%2"} {
 		p := findParam(t, parse(t, raw), "bad", 0)
@@ -124,8 +114,7 @@ func TestMalformedEscape(t *testing.T) {
 	}
 }
 
-// TestOtherParamsSurviveABadEscape: one broken pair must not cost the rest.
-// url.ParseQuery drops the offending pair AND returns an error.
+// One broken pair must not cost the rest: url.ParseQuery drops it AND returns an error.
 func TestOtherParamsSurviveABadEscape(t *testing.T) {
 	in := parse(t, "https://example.com/?a=1&bad=%zz&c=3")
 	if got := len(in.Params); got != 3 {
@@ -147,9 +136,7 @@ func TestDoubleEncoding(t *testing.T) {
 	}
 }
 
-// TestPlusAmbiguity: where a value contains '+' AND looks like base64, both
-// readings are offered. calcbe and jsonutilities return opposite answers here
-// and neither says so (docs/reports/).
+// A '+' value that looks like base64 gets both readings; calcbe and jsonutilities silently disagree.
 func TestPlusAmbiguity(t *testing.T) {
 	p := findParam(t, parse(t, "https://example.com/?t=YWJjK2Rl+mc="), "t", 0)
 	if p.AltValue == "" {
@@ -185,8 +172,7 @@ func TestPasswordNeverEchoed(t *testing.T) {
 	}
 }
 
-// TestDangerousSchemeNotLinkable: the Inspect page displays hostile URLs, so
-// only http(s) is ever rendered as an anchor.
+// Inspect displays hostile URLs, so only http(s) is ever rendered as an anchor.
 func TestDangerousSchemeNotLinkable(t *testing.T) {
 	for _, raw := range []string{"javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "file:///etc/passwd"} {
 		in := parse(t, raw)
@@ -199,8 +185,7 @@ func TestDangerousSchemeNotLinkable(t *testing.T) {
 	}
 }
 
-// TestDotSegments resolves over the escaped path and keeps RFC 3986's trailing
-// slash, both of which path.Clean gets wrong.
+// Resolves over the escaped path and keeps RFC 3986's trailing slash; path.Clean gets both wrong.
 func TestDotSegments(t *testing.T) {
 	in := parse(t, "https://example.com/a/b/../c")
 	if !strings.Contains(in.Canonical, "/a/c") {
@@ -211,9 +196,7 @@ func TestDotSegments(t *testing.T) {
 	}
 }
 
-// TestEncodedSlashIsNotASeparator: %2F inside a segment is a literal slash.
-// url.URL.Path has already decoded it, so splitting Path turns one segment into
-// two (docs/reports/go-url-stdlib-behaviour.md §5).
+// %2F inside a segment is a literal slash; url.URL.Path has already decoded it, so never split Path.
 func TestEncodedSlashIsNotASeparator(t *testing.T) {
 	in := parse(t, "https://example.com/a%2Fb/c")
 	if got := len(in.Segments); got != 2 {
@@ -221,8 +204,7 @@ func TestEncodedSlashIsNotASeparator(t *testing.T) {
 	}
 }
 
-// TestFragmentParams: every hosted parser surveyed throws the fragment away,
-// which hides an OAuth implicit-flow access token completely.
+// Every surveyed parser drops the fragment, hiding an OAuth implicit-flow access token completely.
 func TestFragmentParams(t *testing.T) {
 	in := parse(t, "https://example.com/cb#access_token=secret&state=xyz")
 	if len(in.FragParams) != 2 {
@@ -236,8 +218,7 @@ func TestFragmentParams(t *testing.T) {
 	}
 }
 
-// TestJWTNeverClaimsVerification. Decoding is not verifying, and the page must
-// never imply otherwise.
+// Decoding is not verifying, and the page must never imply otherwise.
 func TestJWTNeverClaimsVerification(t *testing.T) {
 	const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.sig"
 	p := findParam(t, parse(t, "https://example.com/?t="+jwt), "t", 0)
@@ -253,7 +234,6 @@ func TestJWTNeverClaimsVerification(t *testing.T) {
 	}
 }
 
-// TestNestedURLRecognised.
 func TestNestedURLRecognised(t *testing.T) {
 	p := findParam(t, parse(t, "https://example.com/?u=https%3A%2F%2Finner.example%2F%3Fa%3D1"), "u", 0)
 	if p.Kind != linktools.KindURL {
@@ -261,8 +241,7 @@ func TestNestedURLRecognised(t *testing.T) {
 	}
 }
 
-// TestLadderIsBounded: a nested-base64 bomb must stop and SAY it stopped rather
-// than truncating silently or running out of memory.
+// A nested-base64 bomb must stop and SAY so, not truncate silently or run out of memory.
 func TestLadderIsBounded(t *testing.T) {
 	v := "aGVsbG8gd29ybGQgaGVsbG8gd29ybGQ="
 	for i := 0; i < 12; i++ {
@@ -274,17 +253,15 @@ func TestLadderIsBounded(t *testing.T) {
 	}
 }
 
-// TestGarbageDoesNotPanic. Parse takes attacker-controlled strings by
-// definition, so it must fail cleanly rather than crash.
+// Parse takes attacker-controlled strings, so it must fail cleanly rather than crash.
 func TestGarbageDoesNotPanic(t *testing.T) {
 	for _, raw := range []string{
 		"", " ", "not a url at all", "://", "http://", "%", "?a=%", "#", "http://[::1", strings.Repeat("a", 100000),
 	} {
-		_, _ = linktools.NewService().Parse(raw) // must not panic
+		_, _ = linktools.NewService().Parse(raw)
 	}
 }
 
-// TestOversizedInputRejected.
 func TestOversizedInputRejected(t *testing.T) {
 	if _, err := linktools.NewService().Parse("https://example.com/?x=" + strings.Repeat("a", 200000)); err == nil {
 		t.Error("oversized input accepted; Parse is reachable unauthenticated and must be bounded")
