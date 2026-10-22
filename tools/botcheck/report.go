@@ -5,20 +5,12 @@ import (
 	"strings"
 )
 
-// report.go: presentation helpers template renders on top of scored Report —
-// per-signal explanations (G55) + detected-environment line (G56). Nothing here
-// changes scoring → read-only views over what Evaluate computed.
+// Presentation helpers over a scored Report; nothing here changes scoring.
 
-// Explanation: G55 per-signal write-up — what check looks at, why fires, known
-// limitation. Candor = what makes transparency tool trustworthy. "" for unknown
-// rule ID (e.g. check added w/o map entry) → template hides "why" expander.
+// Explanation is "" for a rule without a write-up, which hides the template's "why" expander.
 func (c Check) Explanation() string { return ruleExplanations[c.ID] }
 
-// ruleExplanations maps every rule ID → one/two plain sentences. Covers full
-// current rule set + IDs reserved for rules built in parallel (inert till those
-// rules land). Map beside template-facing accessor, not field on rule →
-// write-ups in one reviewable block; report_internal_test.go asserts no rule
-// lacks one.
+// ruleExplanations is one reviewable block; report_internal_test.go asserts every rule has a write-up.
 var ruleExplanations = map[string]string{
 	// ── Hard tells ────────────────────────────────────────────────────────────
 	"webdriver":         "navigator.webdriver is the W3C-standard flag a browser sets when it is driven by automation (Selenium, Puppeteer, Playwright). A human's browser never sets it — but a well-patched bot can delete the property, so a clean value proves nothing.",
@@ -82,7 +74,7 @@ var ruleExplanations = map[string]string{
 	"cdp_main_only":              "The same CDP-preview trap as cdp_both, but only the main thread tripped it (not a Worker). Same 2026-07-19 finding applies: it didn't fire against any of five real automation frameworks tested, so treat a miss here as inconclusive rather than reassuring.",
 	"cdp_sw_only":                "The same CDP-preview trap as cdp_both, tripped only in the Service Worker context. Same 2026-07-19 finding applies — not shown reliable against real automation, kept only because it's free when silent.",
 
-	// ── Reserved IDs (rules being built in parallel; inert until they land) ────
+	// ── v3 collector probes (system_color_headless is reserved, no rule yet) ──────
 	"iframe_webdriver":             "navigator.webdriver re-read inside a fresh same-origin iframe — automation often deletes the flag from the top frame but forgets new browsing contexts, so a clean top frame with webdriver still true in the iframe is the tell.",
 	"iframe_proxy":                 "The JavaScript Proxy constructor re-checked inside an iframe's separate realm: runtimes that instrument only the main window disagree with themselves there.",
 	"mobile_no_touch":              "A mobile (Android/iOS) User-Agent with no touch support, though every real phone browser reports touch points — a desktop spoofing a mobile UA usually forgets the touch surface. Desktop-mode edge cases are why it isn't a hard tell.",
@@ -98,13 +90,7 @@ var ruleExplanations = map[string]string{
 	"zero_outer_height":            "window.outerHeight is exactly 0 — no real browser window has zero outer height, but a headless environment that never creates a visible window reports it.",
 }
 
-// Environment names detected browsing environment in one short human line
-// (G56) — credibility flex: "Chrome 125 · macOS · Blink", "Firefox 128 ·
-// Windows · Gecko", "Electron 32.1.1 (embedded Chromium)". Parses only
-// client-reported UA (NavMainUA), reuses same osFromUA/engineFromUA vocab rules
-// use, returns "" when can't tell → template hides line. Every part
-// independently omittable: unparseable OS or engine drops its segment, never
-// guesses.
+// Environment returns "" when it can't tell; an unparseable OS or engine drops its segment, never guesses.
 func (s Signals) Environment() string {
 	ua := s.NavMainUA
 	if ua == "" {
@@ -127,10 +113,7 @@ func (s Signals) Environment() string {
 	return strings.Join(parts, " · ")
 }
 
-// embeddedEnvironment names embedded runtime from its UA token, w/ version
-// when UA carries one ("Electron/32.1.1" → "Electron 32.1.1") — Fingerprint-
-// style naming. All recognised embedded runtimes wrap Chromium engine, hence
-// uniform suffix. "" when UA holds no embedded-runtime token.
+// embeddedEnvironment: every recognised runtime wraps Chromium, hence the uniform suffix.
 func embeddedEnvironment(ua string) string {
 	tok := embeddedRuntimeToken(ua)
 	if tok == "" {
@@ -153,11 +136,7 @@ func embeddedEnvironment(ua string) string {
 	return name + " (embedded Chromium)"
 }
 
-// browserNameVersion extracts "Chrome 125"-style name + major version from UA.
-// Order matters: Edge/Opera UAs also carry "Chrome/", iOS browsers carry
-// "Safari/", real Safari version lives in "Version/" token, not "Safari/"
-// (engine build). ok=false when no known browser token appears → callers treat
-// as can't tell.
+// Order matters: Edge/Opera UAs also carry "Chrome/"; Safari's real version is in "Version/", not "Safari/".
 func browserNameVersion(ua string) (string, bool) {
 	for _, b := range []struct{ token, name string }{
 		{"Edg/", "Edge"},
@@ -184,8 +163,6 @@ func browserNameVersion(ua string) (string, bool) {
 	return "", false
 }
 
-// engineDisplay maps internal engine vocab → display names. "" for unknown
-// case → segment drops out of environment line.
 func engineDisplay(engine string) string {
 	switch engine {
 	case "blink":
@@ -199,8 +176,7 @@ func engineDisplay(engine string) string {
 	}
 }
 
-// uaTokenMajor parses major version of UA token ("Firefox/128.0" ⇒ 128). 0 ⇒
-// token absent or no leading digits.
+// uaTokenMajor: "Firefox/128.0" ⇒ 128; 0 when the token is absent.
 func uaTokenMajor(ua, token string) int {
 	if i := strings.Index(ua, token); i >= 0 {
 		return majorOf(ua[i+len(token):])
@@ -208,9 +184,7 @@ func uaTokenMajor(ua, token string) int {
 	return 0
 }
 
-// uaTokenVersion parses full dotted version of UA token, case-insensitive
-// ("Electron/32.1.1" ⇒ "32.1.1"). "" ⇒ absent. Used for embedded runtimes,
-// where whole version string is credibility flex, not major alone.
+// uaTokenVersion matches case-insensitively: "Electron/32.1.1" ⇒ "32.1.1"; "" when absent.
 func uaTokenVersion(ua, token string) string {
 	i := strings.Index(strings.ToLower(ua), strings.ToLower(token)+"/")
 	if i < 0 {

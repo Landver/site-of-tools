@@ -10,34 +10,24 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// corpusTTL bounds how long fingerprint sighting stays: long enough → catch
-// scraping farm rotating proxies within month, short enough → tool never
-// becomes permanent registry of who visited. Self-prunes via TTL index.
+// 30 days: long enough to catch a farm rotating proxies, short enough to never become a visitor registry.
 const corpusTTL = 30 * 24 * time.Hour
 
-// corpusCollection: collection in site-of-tools database.
 const corpusCollection = "botcheck_fingerprints"
 
-// corpusEntry: one recorded sighting — this exact fingerprint hash presented
-// from this IP at this time. Minimal: hash one-way (sha256 over stable client
-// fields; raw fingerprint never stored), IP feeds distinct count, ts drives TTL.
+// Only a one-way hash of the stable fields is stored, never the raw fingerprint.
 type corpusEntry struct {
 	Hash string    `bson:"hash"`
 	IP   string    `bson:"ip"`
 	TS   time.Time `bson:"ts"`
 }
 
-// Corpus: persistence layer for fingerprint-reuse signal (G41/G42) —
-// repository below domain, per CLAUDE.md rule #5, mirrors
-// tools/iptools/history.go. Nil *Corpus = valid "disabled" value (Mongo off):
-// Record no-ops, DistinctIPs returns zero → handler needs no guards, same as
-// nil *iptools.History.
+// Corpus stores fingerprint sightings; a nil *Corpus (Mongo off) is a valid store that no-ops.
 type Corpus struct {
 	coll *mongo.Collection
 }
 
-// NewCorpus builds repository from app database handle. Nil db (Mongo
-// disabled) → returns nil, nil-safe disabled store.
+// NewCorpus returns nil when db is nil (Mongo disabled).
 func NewCorpus(db *mongo.Database) *Corpus {
 	if db == nil {
 		return nil
@@ -45,9 +35,7 @@ func NewCorpus(db *mongo.Database) *Corpus {
 	return &Corpus{coll: db.Collection(corpusCollection)}
 }
 
-// EnsureIndexes creates TTL index that prunes corpus. Best-effort + idempotent
-// (safe every startup); failure only forfeits auto-expiry → callers treat as
-// non-fatal. Nil-safe.
+// EnsureIndexes creates the TTL index; a failure only loses auto-expiry, so callers treat it as non-fatal.
 func (c *Corpus) EnsureIndexes(ctx context.Context) error {
 	if c == nil {
 		return nil
@@ -55,12 +43,7 @@ func (c *Corpus) EnsureIndexes(ctx context.Context) error {
 	return platform.EnsureTTLIndex(ctx, c.coll, "ts", corpusTTL)
 }
 
-// Record persists one fingerprint sighting. Nil-safe; empty hash or IP =
-// "not supplied" → records nothing. Runs on request path (synchronous):
-// handler counts right after recording — pair must stay ordered or current
-// request could miss its own sighting. Volume low (one POST per page view) →
-// single insert fine; error is for tests + callers who care, handler treats
-// lost record as acceptable.
+// Record is synchronous: the handler counts right after, and the count must include this sighting.
 func (c *Corpus) Record(ctx context.Context, hash, ip string) error {
 	if c == nil || hash == "" || ip == "" {
 		return nil
@@ -69,9 +52,7 @@ func (c *Corpus) Record(ctx context.Context, hash, ip string) error {
 	return err
 }
 
-// DistinctIPs counts how many different IPs presented this exact fingerprint
-// within retention window — fingerprint_reuse rule's input. Nil-safe: disabled
-// store returns (0, nil), rule treats as "no corpus data", never evidence.
+// DistinctIPs feeds fingerprint_reuse; a disabled store returns 0, which the rule treats as no data.
 func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
 	if c == nil {
 		return 0, nil
@@ -83,15 +64,7 @@ func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
 	return len(ips), nil
 }
 
-// DistinctHashesByIP counts how many DIFFERENT fingerprint hashes this IP
-// presented within given rolling window — ip_fingerprint_churn rule's input,
-// temporal inverse of DistinctIPs (reuse = one fingerprint from many IPs;
-// churn = many fingerprints from one IP). Normal address shows one or few
-// (household devices); single address cycling many distinct fingerprints in
-// minutes = randomising automation client or busy shared egress. Nil-safe +
-// empty-ip-safe: both return (0, nil), rule treats as "no corpus data", never
-// evidence. Window passed in (not package constant) → domain layer owns churn
-// semantics, this stays plain query.
+// DistinctHashesByIP feeds ip_fingerprint_churn (many fingerprints from one IP); the caller owns window.
 func (c *Corpus) DistinctHashesByIP(ctx context.Context, ip string, window time.Duration) (int, error) {
 	if c == nil || ip == "" {
 		return 0, nil
