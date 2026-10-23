@@ -122,10 +122,10 @@
 
     <div class="card">
       <h2 class="eyebrow">the query</h2>
-      <dl class="spec">
+      <dl class="spec {{if not $side}}sm:grid-cols-[6rem_1fr_6rem_1fr]{{end}}">
         <dt>Asked</dt>     <dd class="font-mono break-all text-strong">{{.QName}}</dd>
-        <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
         <dt>Resolver</dt>  <dd>{{.ResolverName}}</dd>
+        <dt>Types</dt>     <dd>{{.Asked}} queried, {{len .Found}} with records</dd>
         <dt>Flags</dt>     <dd class="font-mono text-muted">{{.Flags}}</dd>
         <dt>DNSSEC</dt>
         <dd>
@@ -140,12 +140,12 @@
           <a href="/trace?name={{$.NavName}}" class="mt-1 block w-fit text-xs link-brand">See where the chain breaks</a>
           {{end}}
         </dd>
-        {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
         <dt>Took</dt>
         <dd class="tabular-nums">
           {{if .Cached}}<span class="text-strong">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
           {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}{{end}}
         </dd>
+        {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
       </dl>
       {{if .Reversed}}
       <p class="mt-3 text-xs text-faint">

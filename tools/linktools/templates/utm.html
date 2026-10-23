@@ -143,11 +143,11 @@
 </section>
 {{end}}
 
-<p class="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-  <a href="/?u={{.URL}}" class="text-brand-ink hover:underline">Inspect it</a>
-  <a href="/clean?u={{.URL}}" class="text-brand-ink hover:underline">Clean it</a>
-  <a href="/clean/rules" class="text-brand-ink hover:underline">See the rules</a>
-</p>
+<div class="mt-6 flex flex-wrap gap-2 text-xs">
+  <a href="/?u={{.URL}}" class="inline-flex items-center rounded border border-line bg-canvas px-2.5 py-1 font-medium text-strong hover:border-brand hover:text-brand-ink transition">Inspect URL</a>
+  <a href="/clean?u={{.URL}}" class="inline-flex items-center rounded border border-line bg-canvas px-2.5 py-1 font-medium text-strong hover:border-brand hover:text-brand-ink transition">Clean trackers</a>
+  <a href="/clean/rules" class="inline-flex items-center rounded border border-line bg-canvas px-2.5 py-1 font-medium text-strong hover:border-brand hover:text-brand-ink transition">See rules</a>
+</div>
 
 {{else}}
 {{if and .AnyTag (not .Error)}}

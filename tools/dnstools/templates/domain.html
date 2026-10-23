@@ -7,7 +7,7 @@
   {{with $.Domain.RegistrableDomain}}
   <p class="-mt-1 mb-3 text-xs text-faint"><span class="font-mono text-muted">{{$.Query}}</span> is a name under <span class="font-mono text-muted">{{.}}</span>, so this is {{.}}'s registration.</p>
   {{end}}
-  <dl class="spec">
+  <dl class="spec {{if not .Statuses}}sm:grid-cols-[7rem_1fr_7rem_1fr]{{end}}">
     {{if .Registrar}}<dt>Registrar</dt> <dd class="text-strong">{{.Registrar}}</dd>{{end}}
     {{if .Registered}}<dt>Registered</dt> <dd class="tabular-nums">{{.Registered}}</dd>{{end}}
     {{if .Expires}}

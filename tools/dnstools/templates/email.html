@@ -1,7 +1,7 @@
 {{define "dns/emailauth"}}
   {{with .Email}}
 
-  {{/* Counts, not a score out of 100: a single number invites arguing with the number. */}}
+  {{if .NXDomain}}
   <div class="card sm:col-span-2">
     <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h2 class="eyebrow">findings</h2>
@@ -13,72 +13,83 @@
     </div>
     {{template "dns/notes" .Notes}}
   </div>
+  {{else}}
 
-  {{template "dns/mxrep" .}}
-
-  {{if not .NXDomain}}
-  {{/* Column wrappers are grid items even when empty: guard each, or it strands a half-row. */}}
-  {{with .SPF}}
   <div class="grid gap-4 content-start">
-  <div class="card">
-    <h2 class="eyebrow">spf</h2>
-    <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
-    <dl class="spec mt-3">
-      <dt>DNS lookups</dt>
-      <dd class="tabular-nums {{if gt .Lookups .Limit}}text-danger{{else if ge .Lookups 8}}text-warn-ink{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
-      {{if .All}}<dt>Ends with</dt> <dd class="font-mono">{{.All}}</dd>{{end}}
-    </dl>
-    {{if .Chain}}
-    <div class="mt-3 border-t border-line pt-3">
-      <div class="text-xs text-faint">Expanded through</div>
-      <div class="mt-1 font-mono text-xs wrap-anywhere text-muted">{{range $i, $c := .Chain}}{{if $i}}<br>{{end}}{{$c}}{{end}}</div>
-      {{if .Truncated}}<p class="mt-2 text-xs text-warn-ink">Stopped expanding here: the record is already past the limit, so resolving further includes can't change the verdict.</p>{{end}}
+    <div class="card">
+      <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 class="eyebrow">findings</h2>
+        <div class="text-sm tabular-nums">
+          {{if $.Fail}}<span class="text-danger">{{$.Fail}} failing</span>{{end}}
+          {{if $.Warn}}{{if $.Fail}}<span class="text-faint"> · </span>{{end}}<span class="text-warn-ink">{{$.Warn}} to improve</span>{{end}}
+          {{if $.OK}}{{if or $.Fail $.Warn}}<span class="text-faint"> · </span>{{end}}<span class="text-ok">{{$.OK}} good</span>{{end}}
+        </div>
+      </div>
+      {{template "dns/notes" .Notes}}
+    </div>
+
+    {{with .SPF}}
+    <div class="card">
+      <h2 class="eyebrow">spf</h2>
+      <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
+      <dl class="spec mt-3">
+        <dt>DNS lookups</dt>
+        <dd class="tabular-nums {{if gt .Lookups .Limit}}text-danger{{else if ge .Lookups 8}}text-warn-ink{{else}}text-muted{{end}}">{{.Lookups}} of {{.Limit}} allowed</dd>
+        {{if .All}}<dt>Ends with</dt> <dd class="font-mono">{{.All}}</dd>{{end}}
+      </dl>
+      {{if .Chain}}
+      <div class="mt-3 border-t border-line pt-3">
+        <div class="text-xs text-faint">Expanded through</div>
+        <div class="mt-1 font-mono text-xs wrap-anywhere text-muted">{{range $i, $c := .Chain}}{{if $i}}<br>{{end}}{{$c}}{{end}}</div>
+        {{if .Truncated}}<p class="mt-2 text-xs text-warn-ink">Stopped expanding here: the record is already past the limit, so resolving further includes can't change the verdict.</p>{{end}}
+      </div>
+      {{end}}
     </div>
     {{end}}
   </div>
-  </div>
-  {{end}}
 
-  <div class="grid gap-4 content-start {{if not .SPF}}sm:col-span-2{{end}}">
-  {{with .DMARC}}
-  <div class="card">
-    <h2 class="eyebrow">dmarc</h2>
-    <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
-    <dl class="spec mt-3">
-      <dt>Policy</dt>
-      <dd class="font-mono {{if eq .Policy "none"}}text-warn-ink{{else}}text-ok{{end}}">p={{.Policy}}</dd>
-      {{if .SubPolicy}}<dt>Subdomains</dt> <dd class="font-mono">sp={{.SubPolicy}}</dd>{{end}}
-      {{if .Percent}}<dt>Applies to</dt> <dd class="tabular-nums">{{.Percent}}% of mail</dd>{{end}}
-      {{if .Aggregate}}<dt>Reports to</dt> <dd class="wrap-anywhere">{{.Aggregate}}</dd>{{end}}
-    </dl>
-  </div>
-  {{end}}
+  <div class="grid gap-4 content-start">
+    {{with .DMARC}}
+    <div class="card">
+      <h2 class="eyebrow">dmarc</h2>
+      <p class="font-mono text-xs wrap-anywhere text-strong">{{.Record}}</p>
+      <dl class="spec mt-3">
+        <dt>Policy</dt>
+        <dd class="font-mono {{if eq .Policy "none"}}text-warn-ink{{else}}text-ok{{end}}">p={{.Policy}}</dd>
+        {{if .SubPolicy}}<dt>Subdomains</dt> <dd class="font-mono">sp={{.SubPolicy}}</dd>{{end}}
+        {{if .Percent}}<dt>Applies to</dt> <dd class="tabular-nums">{{.Percent}}% of mail</dd>{{end}}
+        {{if .Aggregate}}<dt>Reports to</dt> <dd class="wrap-anywhere">{{.Aggregate}}</dd>{{end}}
+      </dl>
+    </div>
+    {{end}}
 
-  <div class="card">
-    <h2 class="eyebrow">other records</h2>
-    <dl class="spec">
-      <dt>DKIM</dt>
-      <dd>
-        {{if .DKIM}}{{range $i, $k := .DKIM}}{{if $i}}, {{end}}<span class="font-mono">{{$k.Selector}}</span>{{end}}
-        {{else}}<span class="text-faint">no key at the selectors tried</span>{{end}}
-        <span class="block text-xs text-faint">Found by trying common selectors. DNS can't list selectors, so others may exist.</span>
-      </dd>
-      <dt>MTA-STS</dt>
-      <dd>
-        {{with .MTASTS}}
-          {{if .PolicyFound}}<span class="font-mono">{{.Mode}}</span>{{if .MaxAge}} <span class="text-faint">· max_age {{.MaxAgeHuman}}</span>{{end}}
-            {{if .MX}}<span class="block text-xs text-faint wrap-anywhere">policy MX: {{range $i, $m := .MX}}{{if $i}}, {{end}}{{$m}}{{end}}</span>{{end}}
-          {{else if .Fetched}}<span class="text-danger">policy file invalid</span>
-          {{else}}<span class="text-danger">policy file unreachable</span>{{end}}
-        {{else}}<span class="text-faint">not published</span>{{end}}
-      </dd>
-      <dt>TLS-RPT</dt>
-      <dd>{{if .TLSRPT}}<span class="font-mono text-xs wrap-anywhere">{{.TLSRPT}}</span>{{else}}<span class="text-faint">not published</span>{{end}}</dd>
-      <dt>BIMI</dt>
-      <dd>{{if .BIMI}}<span class="font-mono text-xs wrap-anywhere">{{.BIMI}}</span>{{else}}<span class="text-faint">not published</span>{{end}}</dd>
-    </dl>
-  </div>
+    <div class="card">
+      <h2 class="eyebrow">other records</h2>
+      <dl class="spec">
+        <dt>DKIM</dt>
+        <dd>
+          {{if .DKIM}}{{range $i, $k := .DKIM}}{{if $i}}, {{end}}<span class="font-mono">{{$k.Selector}}</span>{{end}}
+          {{else}}<span class="text-faint">no key at the selectors tried</span>{{end}}
+          <span class="block text-xs text-faint">Found by trying common selectors. DNS can't list selectors, so others may exist.</span>
+        </dd>
+        <dt>MTA-STS</dt>
+        <dd>
+          {{with .MTASTS}}
+            {{if .PolicyFound}}<span class="font-mono">{{.Mode}}</span>{{if .MaxAge}} <span class="text-faint">· max_age {{.MaxAgeHuman}}</span>{{end}}
+              {{if .MX}}<span class="block text-xs text-faint wrap-anywhere">policy MX: {{range $i, $m := .MX}}{{if $i}}, {{end}}{{$m}}{{end}}</span>{{end}}
+            {{else if .Fetched}}<span class="text-danger">policy file invalid</span>
+            {{else}}<span class="text-danger">policy file unreachable</span>{{end}}
+          {{else}}<span class="text-faint">not published</span>{{end}}
+        </dd>
+        <dt>TLS-RPT</dt>
+        <dd>{{if .TLSRPT}}<span class="font-mono text-xs wrap-anywhere">{{.TLSRPT}}</span>{{else}}<span class="text-faint">not published</span>{{end}}</dd>
+        <dt>BIMI</dt>
+        <dd>{{if .BIMI}}<span class="font-mono text-xs wrap-anywhere">{{.BIMI}}</span>{{else}}<span class="text-faint">not published</span>{{end}}</dd>
+      </dl>
+    </div>
+
+    {{template "dns/mxrep" .}}
   </div>
   {{end}}
-  {{end}}
+{{end}}
 {{end}}

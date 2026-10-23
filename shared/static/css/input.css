@@ -135,9 +135,9 @@
     @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1;
   }
 
-  /* Apex narrows it inline (`page-main max-w-2xl`). */
+  /* Base page container for apex and tools. */
   .page-main {
-    @apply mx-auto w-full max-w-4xl px-4 py-8 flex-1 sm:px-6 sm:py-12;
+    @apply mx-auto w-full max-w-6xl px-4 py-6 flex-1 sm:px-6 sm:py-8;
   }
 
   /* Underlined brand link (apex contact rows, history IP links). */

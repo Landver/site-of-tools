@@ -23,67 +23,102 @@
 {{if eq .Report.Verdict "error"}}
   <div class="alert-error w-full">{{(index .Report.Checks 0).Label}}</div>
 {{else}}
-<div class="w-full" x-data="{tab: 'breakdown'}">
-  <div class="card" data-score="{{.Report.Score}}" data-verdict="{{.Report.Verdict}}">
-    <div class="eyebrow">verdict</div>
-    <div class="flex items-baseline gap-3">
-      <span class="text-4xl font-semibold
-        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
-        {{.Report.Score}}<span class="text-xl text-faint">/100</span>
-      </span>
-      <span class="text-lg font-medium
-        {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
-        {{if eq .Report.Verdict "human"}}Looks human{{else if eq .Report.Verdict "suspicious"}}Suspicious{{else if eq .Report.Verdict "good-bot"}}Verified {{if eq .Report.Bot.Kind "ai-agent"}}AI agent{{else}}crawler{{end}}{{else}}Looks like a bot{{end}}
-      </span>
-    </div>
-    <p class="mt-2 text-sm text-muted">
-      Authenticity score: 100 means the browser looks fully human, 0 fully automated.
-      Each flagged check subtracts its points; environment checks are weak on their
-      own and only count once three or more fire together.
-    </p>
-    {{with .Report.ClientPayload}}
-      {{with .Environment}}
-    <p class="mt-2 text-sm text-faint">Detected environment: <span class="font-mono">{{.}}</span></p>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" x-data="{tab: 'breakdown'}">
+  <div class="lg:col-span-4 space-y-4">
+    <div class="card" data-score="{{.Report.Score}}" data-verdict="{{.Report.Verdict}}">
+      <div class="eyebrow">verdict</div>
+      <div class="flex items-baseline gap-3">
+        <span class="text-4xl font-semibold
+          {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
+          {{.Report.Score}}<span class="text-xl text-faint">/100</span>
+        </span>
+        <span class="text-lg font-medium
+          {{if eq .Report.Verdict "human"}}text-ok{{else if eq .Report.Verdict "suspicious"}}text-warn-ink{{else if eq .Report.Verdict "good-bot"}}text-brand-ink{{else}}text-danger{{end}}">
+          {{if eq .Report.Verdict "human"}}Looks human{{else if eq .Report.Verdict "suspicious"}}Suspicious{{else if eq .Report.Verdict "good-bot"}}Verified {{if eq .Report.Bot.Kind "ai-agent"}}AI agent{{else}}crawler{{end}}{{else}}Looks like a bot{{end}}
+        </span>
+      </div>
+      <p class="mt-2 text-sm text-muted">
+        Authenticity score: 100 means the browser looks fully human, 0 fully automated.
+        Each flagged check subtracts its points; environment checks are weak on their
+        own and only count once three or more fire together.
+      </p>
+      {{with .Report.ClientPayload}}
+        {{with .Environment}}
+      <p class="mt-2 text-sm text-faint">Detected environment: <span class="font-mono">{{.}}</span></p>
+        {{end}}
       {{end}}
-    {{end}}
-    {{with .Report.Bot}}
-    <div class="mt-3 pt-3 border-t border-line text-sm">
-      {{if .Verified}}
-        <span class="text-brand-ink font-medium">Verified {{if eq .Kind "ai-agent"}}AI agent{{else}}search crawler{{end}}:</span>
-        {{.Name}}. The request comes from this operator's own network, so its bot-shaped
-        signals are expected, not penalised.
-      {{else}}
-        <span class="text-warn-ink font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
-        {{.Name}}, declared by the User-Agent but not corroborated by the network, so it is
-        still scored as automation. A scraper can copy this User-Agent; only traffic from the
-        operator's own network reads as verified.
+      {{with .Report.Bot}}
+      <div class="mt-3 pt-3 border-t border-line text-sm">
+        {{if .Verified}}
+          <span class="text-brand-ink font-medium">Verified {{if eq .Kind "ai-agent"}}AI agent{{else}}search crawler{{end}}:</span>
+          {{.Name}}. The request comes from this operator's own network, so its bot-shaped
+          signals are expected, not penalised.
+        {{else}}
+          <span class="text-warn-ink font-medium">Recognized {{if eq .Kind "ai-agent"}}AI agent{{else}}crawler{{end}}:</span>
+          {{.Name}}, declared by the User-Agent but not corroborated by the network, so it is
+          still scored as automation. A scraper can copy this User-Agent; only traffic from the
+          operator's own network reads as verified.
+        {{end}}
+      </div>
       {{end}}
     </div>
-    {{end}}
+
+    <details class="card text-sm cursor-pointer">
+      <summary class="font-mono text-xs uppercase tracking-wider text-brand-ink hover:text-strong">Using from terminal ▾</summary>
+      <div class="mt-3 space-y-2 border-t border-line pt-3 font-mono text-xs text-muted">
+        <p class="text-faint font-sans">Every view also speaks JSON — browsers get the page, everything else gets JSON.</p>
+        <div class="space-y-1">
+          <p><span class="text-faint"># server-only score</span><br>
+             <span class="text-strong select-all">curl https://botcheck.corpberry.com</span></p>
+          <p><span class="text-faint"># score collected fingerprint</span><br>
+             <span class="text-strong select-all">curl -X POST https://botcheck.corpberry.com/check \</span><br>
+             <span class="text-strong select-all">&nbsp;&nbsp;-H 'Content-Type: application/json' -d '{"webdriver":true}'</span></p>
+        </div>
+        <p class="text-xs text-muted font-sans">The POST /check JSON echoes clientPayload to diff against.</p>
+        {{template "partials/mcp-hint" "botcheck"}}
+      </div>
+    </details>
+
+    <details class="card text-sm cursor-pointer">
+      <summary class="font-mono text-xs uppercase tracking-wider text-brand-ink hover:text-strong">What this checks ▾</summary>
+      <div class="mt-3 space-y-2 border-t border-line pt-3 text-muted leading-relaxed text-xs">
+        <p>
+          The score comes from three things: your browser's own JavaScript fingerprint,
+          your HTTP request headers, and the reputation of your IP address (datacenter,
+          VPN, proxy, Tor). The strongest checks are the cross-checks.
+        </p>
+        <p>
+          It does <span class="text-strong">not</span> use behavioral tracking, mouse or
+          keystroke analysis, or machine learning. The one thing stored is a rolling
+          30-day fingerprint corpus to catch scraping farms. Sightings expire automatically.
+        </p>
+      </div>
+    </details>
   </div>
 
-  <div class="mt-4 inline-flex flex-wrap gap-y-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
-    <button type="button" @click="tab = 'breakdown'"
-       class="grow rounded-md px-4 py-1.5 transition"
-       :class="tab === 'breakdown' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
-      Score breakdown
-    </button>
-    <button type="button" @click="tab = 'raw'"
-       class="grow rounded-md px-4 py-1.5 transition"
-       :class="tab === 'raw' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
-      Raw fingerprint
-    </button>
-    <button type="button" @click="tab = 'request'"
-       class="grow rounded-md px-4 py-1.5 transition"
-       :class="tab === 'request' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
-      Your request
-    </button>
-    <button type="button" @click="tab = 'history'"
-       class="grow rounded-md px-4 py-1.5 transition"
-       :class="tab === 'history' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
-      Recent checks
-    </button>
-  </div>
+  <div class="lg:col-span-8 min-w-0">
+    <div class="inline-flex flex-wrap gap-y-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium w-full">
+      <button type="button" @click="tab = 'breakdown'"
+         class="grow rounded-md px-4 py-1.5 transition"
+         :class="tab === 'breakdown' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
+        Score breakdown
+      </button>
+      <button type="button" @click="tab = 'raw'"
+         class="grow rounded-md px-4 py-1.5 transition"
+         :class="tab === 'raw' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
+        Raw fingerprint
+      </button>
+      <button type="button" @click="tab = 'request'"
+         class="grow rounded-md px-4 py-1.5 transition"
+         :class="tab === 'request' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
+        Your request
+      </button>
+      <button type="button" @click="tab = 'history'"
+         class="grow rounded-md px-4 py-1.5 transition"
+         :class="tab === 'history' ? 'bg-brand text-white' : 'text-muted hover:text-strong'">
+        Recent checks
+      </button>
+    </div>
 
   <div x-show="tab === 'breakdown'" class="mt-4">
     <div class="grid gap-4 items-start sm:grid-cols-2">
@@ -147,7 +182,7 @@
       <p class="mb-2 text-sm text-faint">This IP presented {{$.Report.FingerprintChurn}} different fingerprints in the last few minutes.</p>
       {{end}}
       <p class="text-sm text-faint">The exact values your browser sent</p>
-      <pre class="mt-3 max-h-96 overflow-auto rounded-md border border-line p-4 font-mono text-xs text-muted">{{.RawJSON}}</pre>
+      <pre class="mt-3 overflow-x-auto rounded-md border border-line p-4 font-mono text-xs text-muted">{{.RawJSON}}</pre>
     </div>
     {{end}}
   </div>
@@ -167,6 +202,7 @@
       </p>
       <ul class="mt-3 flex flex-col divide-y divide-line text-sm"></ul>
     </div>
+  </div>
   </div>
 </div>
 {{end}}

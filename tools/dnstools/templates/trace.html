@@ -1,149 +1,148 @@
 {{define "dns/tracewalk"}}
   {{with .Trace}}
 
-  {{/* Only the headline is written here; the paragraph is .Verdict.Text, composed in verdict(). */}}
-  <div class="card sm:col-span-2">
-    <h2 class="eyebrow">verdict</h2>
-    <p class="text-sm">
-      {{if eq .DNSSEC "secure"}}
-        <span class="block text-base font-medium text-ok">Signed, and the chain checks out.</span>
-      {{else if and (eq .DNSSEC "insecure") (eq .Verdict.Level "warn")}}
-        <span class="block text-base font-medium text-warn-ink">Signed, but the parent has no DS record for it.</span>
-      {{else if eq .DNSSEC "insecure"}}
-        <span class="block text-base font-medium text-strong">Not signed with DNSSEC.</span>
-      {{else if and (eq .DNSSEC "indeterminate") .AnswerRcode (not .Answer) (not .CNAME)}}
-        <span class="block text-base font-medium text-strong">{{if eq .AnswerRcode "NXDOMAIN"}}The zone says this name does not exist.{{else}}The zone says it has no {{.Type}} record.{{end}}</span>
-      {{else if eq .DNSSEC "indeterminate"}}
-        <span class="block text-base font-medium text-warn-ink">No verdict: this walk could not check it.</span>
-      {{else}}
-        <span class="block text-base font-medium text-danger">The chain of trust is broken.</span>
-      {{end}}
-      <span class="mt-1 block text-faint">{{.Verdict.Text}}</span>
-    </p>
+  <div class="grid gap-4 content-start">
+    {{/* Only the headline is written here; the paragraph is .Verdict.Text, composed in verdict(). */}}
+    <div class="card">
+      <h2 class="eyebrow">verdict</h2>
+      <p class="text-sm">
+        {{if eq .DNSSEC "secure"}}
+          <span class="block text-base font-medium text-ok">Signed, and the chain checks out.</span>
+        {{else if and (eq .DNSSEC "insecure") (eq .Verdict.Level "warn")}}
+          <span class="block text-base font-medium text-warn-ink">Signed, but the parent has no DS record for it.</span>
+        {{else if eq .DNSSEC "insecure"}}
+          <span class="block text-base font-medium text-strong">Not signed with DNSSEC.</span>
+        {{else if and (eq .DNSSEC "indeterminate") .AnswerRcode (not .Answer) (not .CNAME)}}
+          <span class="block text-base font-medium text-strong">{{if eq .AnswerRcode "NXDOMAIN"}}The zone says this name does not exist.{{else}}The zone says it has no {{.Type}} record.{{end}}</span>
+        {{else if eq .DNSSEC "indeterminate"}}
+          <span class="block text-base font-medium text-warn-ink">No verdict: this walk could not check it.</span>
+        {{else}}
+          <span class="block text-base font-medium text-danger">The chain of trust is broken.</span>
+        {{end}}
+        <span class="mt-1 block text-faint">{{.Verdict.Text}}</span>
+      </p>
 
-    {{if .Answer}}
-    {{$addr := or (eq .Type "A") (eq .Type "AAAA")}}
-    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{$v}}<span class="sr-only"> in IP Tools</span></a>{{else}}{{$v}}{{end}}{{end}}</div>
-    {{else if .CNAME}}
-    <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">alias → {{.CNAME}}</div>
-    <a href="/trace?name={{.CNAME}}{{if ne .Type "A"}}&amp;type={{.Type}}{{end}}" class="mt-1 inline-block text-xs link-brand">Trace where it points</a>
-    {{else if and .AnswerRcode (ne .DNSSEC "indeterminate")}}
-    <div class="mt-3 text-sm text-muted">
-      {{if eq .AnswerRcode "NXDOMAIN"}}The zone says this name does not exist.{{else}}The zone says it has no {{.Type}} record.{{end}}
-      {{if eq .DNSSEC "insecure"}}It is unsigned, so that can't be proved either way.{{end}}
+      {{if .Answer}}
+      {{$addr := or (eq .Type "A") (eq .Type "AAAA")}}
+      <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">{{range $i, $v := .Answer}}{{if $i}}<br>{{end}}{{if $addr}}<a href="{{toolURL "ip"}}/?ip={{$v}}" title="Look up {{$v}} in IP Tools" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{$v}}<span class="sr-only"> in IP Tools</span></a>{{else}}{{$v}}{{end}}{{end}}</div>
+      {{else if .CNAME}}
+      <div class="mt-3 font-mono text-sm wrap-anywhere text-strong">alias → {{.CNAME}}</div>
+      <a href="/trace?name={{.CNAME}}{{if ne .Type "A"}}&amp;type={{.Type}}{{end}}" class="mt-1 inline-block text-xs link-brand">Trace where it points</a>
+      {{else if and .AnswerRcode (ne .DNSSEC "indeterminate")}}
+      <div class="mt-3 text-sm text-muted">
+        {{if eq .AnswerRcode "NXDOMAIN"}}The zone says this name does not exist.{{else}}The zone says it has no {{.Type}} record.{{end}}
+        {{if eq .DNSSEC "insecure"}}It is unsigned, so that can't be proved either way.{{end}}
+      </div>
+      {{end}}
+
+      <p class="mt-3 text-xs text-faint tabular-nums">
+        {{len .Hops}} hop{{if ne (len .Hops) 1}}s{{end}} from {{.RootServer}}
+        {{/* Queries, not packets: a query retried over TCP counts once. */}}
+        · {{.Queries}} quer{{if eq .Queries 1}}y{{else}}ies{{end}}
+        · {{.QueryMS}}&nbsp;ms
+        {{if .Truncated}}· the walk stopped at its own ceiling{{end}}
+      </p>
+    </div>
+
+    <div class="card">
+      <h2 class="eyebrow">chain of trust</h2>
+      <p class="mb-3 text-xs text-faint">
+        One row per parent → child link, checked here. A parent vouches for a child by publishing a DS record: the
+        digest of one of the child's keys. That key must then have signed the child's own key set.
+      </p>
+      <ul class="flex flex-col divide-y divide-line">
+        {{range .Chain}}
+        <li class="py-3 first:pt-0 last:pb-0">
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="font-mono text-sm text-strong">{{if eq .Zone "."}}. (root){{else}}{{.Zone}}{{end}}</span>
+            <span class="text-xs
+                  {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if or (eq .Status "indeterminate") .KeysWithoutDS}}text-warn-ink{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else if .KeysWithoutDS}}keys, but no DS{{else if eq .Status "secure"}}verified{{else if eq .Status "insecure"}}unsigned{{else if eq .Status "bogus"}}broken{{else}}{{.Status}}{{end}}</span>
+            <span class="text-xs text-faint">vouched for by {{if eq .Parent "."}}. (root){{else if eq .Parent "IANA trust anchor"}}the IANA trust anchor{{else}}{{.Parent}}{{end}}</span>
+          </div>
+          <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>
+          {{if .Unanswered}}
+          <p class="mt-1 font-mono text-xs text-faint">{{range $i, $s := .Unanswered}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</p>
+          {{end}}
+          {{if .DSKeyTags}}
+          <p class="mt-1 font-mono text-xs text-faint">
+            DS {{range $i, $t := .DSKeyTags}}{{if $i}}, {{end}}{{$t}}{{end}}
+            {{if .KeyTags}}· DNSKEY {{range $i, $t := .KeyTags}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}
+            {{if .MatchedTag}}· matched {{.MatchedTag}}{{end}}
+          </p>
+          {{end}}
+        </li>
+        {{end}}
+      </ul>
+    </div>
+
+    {{if .Notes}}
+    <div class="card">
+      <h2 class="eyebrow">findings</h2>
+      {{template "dns/notes" .Notes}}
     </div>
     {{end}}
-
-    <p class="mt-3 text-xs text-faint tabular-nums">
-      {{len .Hops}} hop{{if ne (len .Hops) 1}}s{{end}} from {{.RootServer}}
-      {{/* Queries, not packets: a query retried over TCP counts once. */}}
-      · {{.Queries}} quer{{if eq .Queries 1}}y{{else}}ies{{end}}
-      · {{.QueryMS}}&nbsp;ms
-      {{if .Truncated}}· the walk stopped at its own ceiling{{end}}
-    </p>
   </div>
 
-  <div class="card sm:col-span-2">
-    <h2 class="eyebrow">the walk</h2>
-    <p class="mb-4 text-xs text-faint">
-      Each rung is one zone cut, asked directly with recursion off. No resolver and no cache stands in between.
-    </p>
-    <ol class="text-sm">
-      {{range .Hops}}
-      <li class="relative border-l border-line-strong/40 pb-6 pl-6 last:border-transparent last:pb-0">
-        <span class="absolute left-[-5px] top-1.5 inline-block h-2.5 w-2.5 rounded-full
-              {{if .Error}}bg-danger{{else if .Authoritative}}bg-strong{{else}}bg-faint{{end}}"></span>
+  <div class="grid gap-4 content-start">
+    <div class="card">
+      <h2 class="eyebrow">the walk</h2>
+      <p class="mb-4 text-xs text-faint">
+        Each rung is one zone cut, asked directly with recursion off. No resolver and no cache stands in between.
+      </p>
+      <ol class="text-sm">
+        {{range .Hops}}
+        <li class="relative border-l border-line-strong/40 pb-6 pl-6 last:border-transparent last:pb-0">
+          <span class="absolute left-[-5px] top-1.5 inline-block h-2.5 w-2.5 rounded-full
+                {{if .Error}}bg-danger{{else if .Authoritative}}bg-strong{{else}}bg-faint{{end}}"></span>
 
-        <div class="flex flex-wrap items-baseline gap-x-2">
-          <span class="font-mono text-sm text-strong">{{if eq .Zone "."}}. (root){{else}}{{.Zone}}{{end}}</span>
-          {{if .Authoritative}}<span class="text-xs text-muted">authoritative answer</span>
-          {{else if .Referral}}<span class="text-xs text-muted">referral</span>{{end}}
-          {{if .Rcode}}<span class="font-mono text-xs text-faint">{{.Rcode}}</span>{{end}}
-        </div>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="font-mono text-sm text-strong">{{if eq .Zone "."}}. (root){{else}}{{.Zone}}{{end}}</span>
+            {{if .Authoritative}}<span class="text-xs text-muted">authoritative answer</span>
+            {{else if .Referral}}<span class="text-xs text-muted">referral</span>{{end}}
+            {{if .Rcode}}<span class="font-mono text-xs text-faint">{{.Rcode}}</span>{{end}}
+          </div>
 
-        {{if .ZoneCut}}
-        <div class="mt-1 text-xs text-muted">
-          answered out of <span class="font-mono text-strong">{{.ZoneCut}}</span>, a zone of its own on the same nameservers.
-          No referral was sent, so the cut only shows in the signature.
-        </div>
-        {{end}}
+          {{if .ZoneCut}}
+          <div class="mt-1 text-xs text-muted">
+            answered out of <span class="font-mono text-strong">{{.ZoneCut}}</span>, a zone of its own on the same nameservers.
+            No referral was sent, so the cut only shows in the signature.
+          </div>
+          {{end}}
 
-        {{if .Server}}
-        <div class="mt-1 text-xs text-muted">
-          asked <span class="font-mono text-strong">{{.Server}}</span>
-          {{if .ServerIP}}<span class="font-mono text-faint">({{.ServerIP}})</span>{{end}}
-          · <span class="tabular-nums">{{.RTTMS}}&nbsp;ms</span>
-        </div>
-        {{end}}
+          {{if .Server}}
+          <div class="mt-1 text-xs text-muted">
+            asked <span class="font-mono text-strong">{{.Server}}</span>
+            {{if .ServerIP}}<span class="font-mono text-faint">({{.ServerIP}})</span>{{end}}
+            · <span class="tabular-nums">{{.RTTMS}}&nbsp;ms</span>
+          </div>
+          {{end}}
 
-        {{if .Referral}}
-        <div class="mt-1 text-xs text-muted">
-          delegates <span class="font-mono text-strong">{{.Referral}}</span>
-          to {{len .Nameservers}} nameserver{{if ne (len .Nameservers) 1}}s{{end}}{{if .Glue}}, with {{len .Glue}} glue address{{if ne (len .Glue) 1}}es{{end}}{{end}}
-        </div>
-        {{if .Nameservers}}
-        <div class="mt-1 font-mono text-xs text-faint">{{range $i, $n := .Nameservers}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$n}}</span>{{end}}</div>
-        {{end}}
-        {{end}}
+          {{if .Referral}}
+          <div class="mt-1 text-xs text-muted">
+            delegates <span class="font-mono text-strong">{{.Referral}}</span>
+            to {{len .Nameservers}} nameserver{{if ne (len .Nameservers) 1}}s{{end}}{{if .Glue}}, with {{len .Glue}} glue address{{if ne (len .Glue) 1}}es{{end}}{{end}}
+          </div>
+          {{if .Nameservers}}
+          <div class="mt-1 font-mono text-xs text-faint">{{range $i, $n := .Nameservers}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$n}}</span>{{end}}</div>
+          {{end}}
+          {{end}}
 
-        {{/* The findings card explains it; the hop only marks where. */}}
-        {{if .GlueMissing}}<div class="mt-1 text-xs text-warn-ink">no glue for an in-zone nameserver: an extra detour</div>{{end}}
-        {{if .SideLookups}}
-        <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</div>
-        {{end}}
+          {{/* The findings card explains it; the hop only marks where. */}}
+          {{if .GlueMissing}}<div class="mt-1 text-xs text-warn-ink">no glue for an in-zone nameserver: an extra detour</div>{{end}}
+          {{if .SideLookups}}
+          <div class="mt-1 font-mono text-xs text-faint">detour: {{range $i, $s := .SideLookups}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</div>
+          {{end}}
 
-        {{if .Skipped}}
-        <div class="mt-1 text-xs text-faint">tried first: {{range $i, $s := .Skipped}}{{if $i}}; {{end}}{{$s}}{{end}}</div>
+          {{if .Skipped}}
+          <div class="mt-1 text-xs text-faint">tried first: {{range $i, $s := .Skipped}}{{if $i}}; {{end}}{{$s}}{{end}}</div>
+          {{end}}
+          {{if .Error}}
+          <div class="mt-1 text-xs text-danger">{{.Error}}</div>
+          {{end}}
+        </li>
         {{end}}
-        {{if .Error}}
-        <div class="mt-1 text-xs text-danger">{{.Error}}</div>
-        {{end}}
-      </li>
-      {{end}}
-    </ol>
-  </div>
-
-  {{/* Columns only with a second card to fill them: a lone card would strand the right column. */}}
-  <div class="sm:col-span-2 {{if .Notes}}sm:columns-2{{end}} gap-4">
-
-  <div class="card mb-4 break-inside-avoid">
-    <h2 class="eyebrow">chain of trust</h2>
-    <p class="mb-3 text-xs text-faint">
-      One row per parent → child link, checked here. A parent vouches for a child by publishing a DS record: the
-      digest of one of the child's keys. That key must then have signed the child's own key set.
-    </p>
-    <ul class="flex flex-col divide-y divide-line">
-      {{range .Chain}}
-      <li class="py-3 first:pt-0 last:pb-0">
-        <div class="flex flex-wrap items-baseline gap-x-2">
-          <span class="font-mono text-sm text-strong">{{if eq .Zone "."}}. (root){{else}}{{.Zone}}{{end}}</span>
-          <span class="text-xs
-                {{if eq .Status "secure"}}text-ok{{else if eq .Status "bogus"}}text-danger{{else if or (eq .Status "indeterminate") .KeysWithoutDS}}text-warn-ink{{else}}text-muted{{end}}">{{if eq .Status "indeterminate"}}not checked{{else if .KeysWithoutDS}}keys, but no DS{{else if eq .Status "secure"}}verified{{else if eq .Status "insecure"}}unsigned{{else if eq .Status "bogus"}}broken{{else}}{{.Status}}{{end}}</span>
-          <span class="text-xs text-faint">vouched for by {{if eq .Parent "."}}. (root){{else if eq .Parent "IANA trust anchor"}}the IANA trust anchor{{else}}{{.Parent}}{{end}}</span>
-        </div>
-        <p class="mt-1 text-xs {{if eq .Status "bogus"}}text-strong{{else}}text-muted{{end}}">{{.Detail}}</p>
-        {{if .Unanswered}}
-        <p class="mt-1 font-mono text-xs text-faint">{{range $i, $s := .Unanswered}}{{if $i}} · {{end}}<span class="inline-block max-w-full">{{$s}}</span>{{end}}</p>
-        {{end}}
-        {{if .DSKeyTags}}
-        <p class="mt-1 font-mono text-xs text-faint">
-          DS {{range $i, $t := .DSKeyTags}}{{if $i}}, {{end}}{{$t}}{{end}}
-          {{if .KeyTags}}· DNSKEY {{range $i, $t := .KeyTags}}{{if $i}}, {{end}}{{$t}}{{end}}{{end}}
-          {{if .MatchedTag}}· matched {{.MatchedTag}}{{end}}
-        </p>
-        {{end}}
-      </li>
-      {{end}}
-    </ul>
-  </div>
-
-  {{if .Notes}}
-  <div class="card mb-4 break-inside-avoid">
-    <h2 class="eyebrow">findings</h2>
-    {{template "dns/notes" .Notes}}
+      </ol>
+    </div>
   </div>
   {{end}}
-
-  </div>
-{{end}}
 {{end}}
