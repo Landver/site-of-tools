@@ -144,8 +144,8 @@
 {{end}}
 
 <div class="mt-6 flex flex-wrap gap-2 text-xs">
-  <a href="/?u={{.URL}}" class="btn-action">Inspect URL</a>
-  <a href="/clean?u={{.URL}}" class="btn-action">Clean trackers</a>
+  <a href="/?u={{.URL | urlquery}}" class="btn-action">Inspect URL</a>
+  <a href="/clean?u={{.URL | urlquery}}" class="btn-action">Clean trackers</a>
   <a href="/clean/rules" class="btn-action">See rules</a>
 </div>
 

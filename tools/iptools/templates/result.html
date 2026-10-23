@@ -55,7 +55,7 @@
     <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
       <span class="text-xs font-mono text-faint">Pivots:</span>
       <div class="flex flex-wrap gap-1.5">
-        <a href="{{toolURL "dns"}}/?name={{if $.Self}}example.com{{else}}{{$.Query}}{{end}}" class="btn-action">Reverse DNS ↗</a>
+        <a href="{{toolURL "dns"}}/?name={{if $.Self}}{{.IP}}{{else}}{{$.Query}}{{end}}" class="btn-action">Reverse DNS ↗</a>
         <a href="{{toolURL "botcheck"}}" class="btn-action">Bot Check ↗</a>
       </div>
     </div>

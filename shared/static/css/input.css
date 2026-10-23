@@ -179,7 +179,7 @@
     @apply grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4;
   }
   .telemetry-card {
-    @apply rounded-lg border border-line bg-surface p-3 flex flex-col justify-between;
+    @apply rounded-lg border border-line bg-surface p-3 flex flex-col justify-between min-w-0;
   }
 
   /* Blog body: goldmark emits bare tags, so all styling hangs off this wrapper. */
