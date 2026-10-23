@@ -22,6 +22,33 @@
   {{end}}
 
     {{if .Found}}
+    <div class="sm:col-span-2 telemetry-strip">
+      <div class="telemetry-card">
+        <div class="eyebrow text-faint mb-1">Target Name</div>
+        <div class="font-mono font-medium text-strong text-sm truncate">{{$.Query}}</div>
+        <div class="mt-1 text-xs text-ok font-mono">{{if .Reversed}}● PTR Reverse{{else}}● Forward Zone{{end}}</div>
+      </div>
+      <div class="telemetry-card">
+        <div class="eyebrow text-faint mb-1">Discovered Types</div>
+        <div class="font-mono font-bold text-strong text-sm">{{len .Found}} record types</div>
+        <div class="mt-1 text-xs text-faint font-mono">{{.ResolverName}}</div>
+      </div>
+      <div class="telemetry-card">
+        <div class="eyebrow text-faint mb-1">Authoritative Host</div>
+        <div class="font-mono font-bold text-strong text-sm truncate">{{if .Provider}}{{.Provider}}{{else}}Standard Authority{{end}}</div>
+        <div class="mt-1 text-xs text-faint font-mono">Zone DNS Provider</div>
+      </div>
+      <div class="telemetry-card">
+        <div class="eyebrow text-faint mb-1">Validation Status</div>
+        <div>
+          {{if .Bogus}}<span class="badge badge-danger">DNSSEC BOGUS</span>
+          {{else if .NXDomain}}<span class="badge badge-warn">NXDOMAIN</span>
+          {{else}}<span class="badge badge-ok">RESOLVED</span>{{end}}
+        </div>
+        <div class="mt-1 text-xs text-faint font-mono">RFC 1035 Lookup</div>
+      </div>
+    </div>
+
     <div class="card sm:col-span-2">
       <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id="records-h" class="eyebrow">{{if .Reversed}}reverse lookup{{else}}records{{end}}</h2>

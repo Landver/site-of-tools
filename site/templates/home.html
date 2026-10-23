@@ -11,22 +11,48 @@
       <p class="mt-3 text-base leading-relaxed text-muted max-w-2xl">
         Fast, zero-tracking web utilities: bot detection heuristics, client-side cryptography, parallel DNS, and IP analysis. Single Go binary, no tracking.
       </p>
+
+      <div class="mt-6 telemetry-strip">
+        <div class="telemetry-card">
+          <div class="eyebrow text-faint mb-1">Architecture</div>
+          <div class="font-mono font-bold text-strong text-sm">Single Go Binary</div>
+          <div class="mt-1 text-xs text-ok font-mono">● Zero External Deps</div>
+        </div>
+        <div class="telemetry-card">
+          <div class="eyebrow text-faint mb-1">Privacy Posture</div>
+          <div><span class="badge badge-ok">ZERO TRACKING</span></div>
+          <div class="mt-1 text-xs text-faint font-mono">No cookies · No tracking</div>
+        </div>
+        <div class="telemetry-card">
+          <div class="eyebrow text-faint mb-1">Engine &amp; WASM</div>
+          <div class="font-mono font-bold text-strong text-sm">Client-Side First</div>
+          <div class="mt-1 text-xs text-faint font-mono">Secrets stay in browser</div>
+        </div>
+        <div class="telemetry-card">
+          <div class="eyebrow text-faint mb-1">AI Protocol</div>
+          <div><span class="badge badge-brand">MCP ENABLED</span></div>
+          <div class="mt-1 text-xs text-faint font-mono">Model Context Protocol</div>
+        </div>
+      </div>
     </section>
 
     <section class="mt-10">
       <div class="flex items-center justify-between mb-4">
         <h2 class="eyebrow mb-0">Tools suite</h2>
-        <span class="text-xs font-mono text-faint">{{len .Tools}} tools</span>
+        <span class="text-xs font-mono text-faint">{{len .Tools}} tools active</span>
       </div>
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {{range .Tools}}
         <a href="{{.URL}}"
            class="card block transition hover:border-brand">
-          <div class="font-medium text-strong">{{.Name}}</div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-medium text-strong text-base">{{.Name}}</span>
+            <span class="badge badge-neutral">Online</span>
+          </div>
           <div class="mt-2 text-xs leading-relaxed text-muted line-clamp-3">{{.Desc}}</div>
           <div class="mt-4 pt-3 border-t border-line flex items-center justify-between text-xs font-mono text-faint">
             <span class="truncate">{{.URL}}</span>
-            <span class="text-brand-ink">→</span>
+            <span class="text-brand-ink">Launch ↗</span>
           </div>
         </a>
         {{end}}
