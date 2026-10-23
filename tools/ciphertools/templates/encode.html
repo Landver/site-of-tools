@@ -103,9 +103,9 @@
 
 {{define "cipher/encode-result"}}
 {{with .Result}}
-<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-  <span><span class="text-strong">{{.Bytes}}</span> bytes</span>
-  <span>Read as <span class="text-strong">{{.ReadAs}}</span></span>
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <span class="badge badge-neutral"><span class="text-strong">{{.Bytes}}</span> bytes</span>
+  <span class="badge badge-neutral">Read as <span class="text-strong">{{.ReadAs}}</span></span>
 </div>
 {{template "cipher/warnings" .Warnings}}
 <div class="mt-4 overflow-x-auto">

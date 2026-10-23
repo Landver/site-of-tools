@@ -110,24 +110,26 @@
     its own certificate won't appear, and none of this sends a packet at the domain.
   </p>
   {{if .Names}}
-  <table aria-labelledby="ct-h" class="w-full text-sm">
-    <thead>
-      <tr class="text-left text-faint">
-        <th scope="col" class="pb-2 pr-4 font-normal">Name</th>
-        <th scope="col" class="pb-2 pr-4 font-normal whitespace-nowrap">Valid since</th>
-        <th scope="col" class="pb-2 text-right font-normal">Certs</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{range .Names}}
-      <tr class="border-t border-line">
-        <td class="py-1.5 pr-4 font-mono wrap-anywhere text-strong"><a href="/?name={{.Name}}" title="Look up {{.Name}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Name}}</a></td>
-        <td class="py-1.5 pr-4 text-xs text-muted tabular-nums whitespace-nowrap">{{.FirstSeen}}</td>
-        <td class="py-1.5 text-right text-xs text-muted tabular-nums">{{.Certs}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table>
+  <div class="overflow-x-auto">
+    <table aria-labelledby="ct-h" class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-faint">
+          <th scope="col" class="pb-2 pr-4 font-normal">Name</th>
+          <th scope="col" class="pb-2 pr-4 font-normal whitespace-nowrap">Valid since</th>
+          <th scope="col" class="pb-2 text-right font-normal">Certs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Names}}
+        <tr class="border-t border-line">
+          <td class="py-1.5 pr-4 font-mono wrap-anywhere text-strong"><a href="/?name={{.Name}}" title="Look up {{.Name}}" class="underline decoration-line-strong underline-offset-4 hover:text-brand-ink hover:decoration-brand">{{.Name}}</a></td>
+          <td class="py-1.5 pr-4 text-xs text-muted tabular-nums whitespace-nowrap">{{.FirstSeen}}</td>
+          <td class="py-1.5 text-right text-xs text-muted tabular-nums">{{.Certs}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
   {{else}}
   <p class="text-sm text-muted">No certificates found for subdomains of this name.</p>
   {{end}}

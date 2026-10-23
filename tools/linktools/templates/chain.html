@@ -3,6 +3,40 @@
 {{define "link/chain"}}
 {{with .Result}}
 
+<div class="telemetry-strip">
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Resolution</div>
+    <div>
+      {{if and .Final (lt .FinalStatus 400)}}<span class="badge badge-ok">RESOLVED</span>
+      {{else if .Final}}<span class="badge badge-warn">HTTP {{.FinalStatus}}</span>
+      {{else}}<span class="badge badge-danger">INCOMPLETE</span>{{end}}
+    </div>
+    <div class="mt-1 text-xs text-faint font-mono">{{if .Final}}Reached target{{else}}Loop or block{{end}}</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Hops Count</div>
+    <div class="font-mono font-bold text-strong text-sm">{{len .Hops}} hop{{if ne (len .Hops) 1}}s{{end}}</div>
+    <div class="mt-1 text-xs text-faint font-mono">Redirect depth</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Latency</div>
+    <div class="font-mono font-bold text-strong text-sm">{{.Elapsed}} ms</div>
+    <div class="mt-1 text-xs text-faint font-mono">Total roundtrip</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Pivots</div>
+    <div class="flex flex-wrap gap-1">
+      {{if .Final}}
+      <a href="/?u={{.Final | urlquery}}" class="btn-action">Inspect ↗</a>
+      <a href="/clean?u={{.Final | urlquery}}" class="btn-action">Clean ↗</a>
+      {{else}}
+      <span class="text-xs text-faint">No target</span>
+      {{end}}
+    </div>
+    <div class="mt-1 text-xs text-faint font-mono">Final destination</div>
+  </div>
+</div>
+
 <section class="rounded-lg border {{if and .Final (lt .FinalStatus 400)}}border-line{{else}}border-warn{{end}} bg-surface p-4"
          data-announce="{{if .Final}}Final destination: {{.Final}}{{if ge .FinalStatus 400}}, which answers {{.FinalStatus}} {{.FinalReason}}{{end}}{{else}}No final destination; see the findings.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -19,8 +53,8 @@
     <p class="mt-2 text-xs text-muted">{{if ge .FinalStatus 400}}Where the chain ended: an error page, not the page the link promised.{{else}}Where the chain ended. Not a verdict on whether it's safe.{{end}}</p>
     {{/* Clean too: redirectors add tracking parameters on the way through. */}}
     <div class="mt-3 flex flex-wrap gap-2 text-xs">
-      <a href="/?u={{.Final}}" class="btn-action">Inspect URL</a>
-      <a href="/clean?u={{.Final}}" class="btn-action">Clean trackers</a>
+      <a href="/?u={{.Final | urlquery}}" class="btn-action">Inspect URL</a>
+      <a href="/clean?u={{.Final | urlquery}}" class="btn-action">Clean trackers</a>
     </div>
   {{else}}
     <p class="mt-2 text-sm text-muted">

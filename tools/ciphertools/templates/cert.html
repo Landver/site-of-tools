@@ -11,7 +11,7 @@
     <div class="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       <div class="lg:col-span-5 space-y-4">
         <form method="post" action="/cert" enctype="multipart/form-data" data-cipher="cert" data-live
-              data-target="#cert-result"
+              data-target="#cert-result" x-data
               class="space-y-3 rounded-lg data-dragging:outline-2 data-dragging:outline-offset-4 data-dragging:outline-dashed data-dragging:outline-brand">
           <label class="block text-sm text-muted">Certificate, chain or CSR
             <textarea name="cert" rows="6" autofocus autocomplete="off" spellcheck="false"
@@ -19,10 +19,13 @@
                       class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "cert"}}</textarea>
           </label>
           <div>
-            <label class="block text-sm text-muted">Or upload file (.pem, .crt, .cer, .der, .csr):
-              <input type="file" name="cert_file"
-                     class="mt-1 block w-full text-xs text-muted file:mr-2 file:cursor-pointer file:rounded file:border file:border-line file:bg-surface file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-strong hover:file:border-brand">
-            </label>
+            <span class="block text-sm text-muted">Or pick a file (.pem, .crt, .cer, .der, .csr):</span>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <input type="file" name="cert_file" x-ref="file" aria-label="Certificate file"
+                     class="min-w-0 text-xs text-muted file:mr-2 file:cursor-pointer file:rounded file:border file:border-line file:bg-surface file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-strong hover:file:border-brand">
+              <button type="button" class="btn-copy" x-cloak
+                      x-on:click="$refs.file.value = ''; $refs.file.dispatchEvent(new Event('change', { bubbles: true }))">Clear</button>
+            </div>
             <p class="mt-1 text-xs text-faint">Read in this tab, never uploaded; a picked file is read instead of the text. (With JavaScript off it is uploaded with the form.)</p>
           </div>
           <label class="block text-sm text-muted">Key to match <span class="text-faint">(optional: PEM, JWK or OpenSSH)</span>
@@ -76,10 +79,10 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
 </div>
 {{end}}
 
-<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-  <span>Read as <span class="text-strong">{{.ReadAs}}</span></span>
-  {{if .Certs}}<span><span class="text-strong">{{len .Certs}}</span> certificate{{if gt (len .Certs) 1}}s{{end}}</span>{{end}}
-  {{if .CSRs}}<span><span class="text-strong">{{len .CSRs}}</span> request{{if gt (len .CSRs) 1}}s{{end}}</span>{{end}}
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <span class="badge badge-neutral">Read as <span class="text-strong">{{.ReadAs}}</span></span>
+  {{if .Certs}}<span class="badge badge-neutral"><span class="text-strong">{{len .Certs}}</span> certificate{{if gt (len .Certs) 1}}s{{end}}</span>{{end}}
+  {{if .CSRs}}<span class="badge badge-neutral"><span class="text-strong">{{len .CSRs}}</span> request{{if gt (len .CSRs) 1}}s{{end}}</span>{{end}}
 </div>
 {{template "cipher/warnings" .Warnings}}
 
@@ -95,7 +98,7 @@ openssl pkey -in key.pem -pubout | openssl sha256           # lines print the sa
   <ul class="mt-3 space-y-1 text-sm">
     {{range .Links}}
     <li class="{{if and .Issued (eq .Signature "valid")}}text-ok{{else if .Issued}}text-warn-ink{{else}}text-danger{{end}}">
-      <span class="font-mono">{{.Child}} → {{.Issuer}}</span>
+      <span class="font-mono break-all">{{.Child}} → {{.Issuer}}</span>
       <span class="text-body">{{.Detail}}</span>
     </li>
     {{end}}

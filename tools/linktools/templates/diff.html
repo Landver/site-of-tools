@@ -103,6 +103,7 @@
     <div class="flex flex-wrap gap-1">
       <a href="/?u={{.A | urlquery}}" class="btn-action">Inspect A</a>
       <a href="/?u={{.B | urlquery}}" class="btn-action">Inspect B</a>
+      <a href="/diff?a={{.B | urlquery}}&amp;b={{.A | urlquery}}" class="btn-action">Swap ⇄</a>
     </div>
     <div class="mt-1 text-xs text-faint font-mono">Direct tool jump</div>
   </div>
@@ -180,7 +181,7 @@
       <tbody class="divide-y divide-line">
         {{range .Params}}
         <tr class="align-top">
-          <td class="px-3 py-2 font-mono text-strong">{{.Key}}</td>
+          <td class="px-3 py-2 font-mono text-strong break-all">{{.Key}}</td>
           <td class="px-3 py-2">
             {{/* One literal class string per branch — never assembled. */}}
             {{if eq .Kind "added"}}

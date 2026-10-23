@@ -183,6 +183,7 @@
   <section class="min-w-0">
     <h2 class="eyebrow">Header</h2>
     <pre class="mt-2 overflow-x-auto rounded-lg border border-line bg-surface p-3 font-mono text-xs text-strong">{{.HeaderJSON}}</pre>
+    <button type="button" class="btn-copy mt-2" data-copy="{{.HeaderJSON}}">Copy Header</button>
     <dl class="spec mt-3">
       {{range .HeaderRows}}<dt class="font-mono">{{.Name}}</dt><dd><span class="break-all font-mono text-strong">{{.Value}}</span>{{if .Meaning}}<span class="block text-xs text-muted">{{.Meaning}}</span>{{end}}</dd>{{end}}
     </dl>

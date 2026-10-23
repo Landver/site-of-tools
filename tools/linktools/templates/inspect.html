@@ -16,11 +16,11 @@
   {{if .Linkable}}
   <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-line w-full sm:pt-0 sm:border-t-0 sm:w-auto sm:ml-auto">
     <a href="{{.Input}}" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"
-       class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">Open &#8599;</a>
-    <a href="/clean?u={{.Input}}"
-       class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">Clean trackers</a>
-    <a href="/curl?u={{.Input}}"
-       class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">cURL command</a>
+       class="btn-action">Open &#8599;</a>
+    <a href="/clean?u={{.Input | urlquery}}"
+       class="btn-action">Clean trackers</a>
+    <a href="/curl?u={{.Input | urlquery}}"
+       class="btn-action">cURL command</a>
   </div>
   {{end}}
 </div>

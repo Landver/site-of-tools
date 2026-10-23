@@ -172,7 +172,7 @@
           {{if .Cached}}<span class="text-strong">instant</span> <span class="text-faint">— every answer came from this site's cache, so nothing was sent to the resolver</span>
           {{else}}{{.QueryMS}}&nbsp;ms{{if gt .Asked 1}} <span class="text-faint">(all types, in parallel)</span>{{end}}{{end}}
         </dd>
-        {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted">{{.NSID}}</dd>{{end}}
+        {{if .NSID}}<dt>Resolver node</dt> <dd class="font-mono text-muted break-all">{{.NSID}}</dd>{{end}}
       </dl>
       {{if .Reversed}}
       <p class="mt-3 text-xs text-faint">
@@ -180,6 +180,15 @@
         <span class="font-mono text-muted">{{$.Query}}</span>? <a href="{{toolURL "ip"}}/?ip={{$.Query}}" class="link-brand">Look it up in IP Tools</a>
       </p>
       {{end}}
+      <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
+        <span class="text-xs font-mono text-faint">Pivots:</span>
+        <div class="flex flex-wrap gap-1.5">
+          <a href="/consistency?name={{$.Query}}" class="btn-action">Consistency ↗</a>
+          <a href="/trace?name={{$.Query}}" class="btn-action">Trace DNSSEC ↗</a>
+          <a href="/email?name={{$.Query}}" class="btn-action">Email Auth ↗</a>
+          <a href="/domain?name={{$.Query}}" class="btn-action">Domain ↗</a>
+        </div>
+      </div>
     </div>
     </div>
 

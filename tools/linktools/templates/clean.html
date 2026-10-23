@@ -95,6 +95,36 @@
 {{define "link/cleaned"}}
 {{with .Result}}
 
+<div class="telemetry-strip">
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Status</div>
+    <div>
+      {{if .Removed}}<span class="badge badge-ok">CLEANED</span>
+      {{else if .Unwrapped}}<span class="badge badge-brand">UNWRAPPED</span>
+      {{else}}<span class="badge badge-neutral">UNCHANGED</span>{{end}}
+    </div>
+    <div class="mt-1 text-xs text-faint font-mono">{{if .Removed}}{{len .Removed}} removed{{else}}No trackers{{end}}</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Trackers Removed</div>
+    <div class="font-mono font-bold text-strong text-sm">{{len .Removed}} param{{if ne (len .Removed) 1}}s{{end}}</div>
+    <div class="mt-1 text-xs text-faint font-mono">{{if .Unwrapped}}Unwrapped from {{.Wrapper}}{{else}}Known rules{{end}}</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Findings</div>
+    <div class="font-mono font-bold text-strong text-sm">{{len .Notes}} note{{if ne (len .Notes) 1}}s{{end}}</div>
+    <div class="mt-1 text-xs text-faint font-mono">Structural audit</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Pivots</div>
+    <div class="flex flex-wrap gap-1">
+      <a href="/?u={{.Output | urlquery}}" class="btn-action">Inspect ↗</a>
+      {{if .Removed}}<a href="/diff?a={{.Input | urlquery}}&amp;b={{.Output | urlquery}}" class="btn-action">Diff ↗</a>{{end}}
+    </div>
+    <div class="mt-1 text-xs text-faint font-mono">Next steps</div>
+  </div>
+</div>
+
 <section class="rounded-lg border {{if .Removed}}border-ok{{else}}border-line{{end}} bg-surface p-4"
          data-announce="{{if .Removed}}Clean URL ready, {{len .Removed}} removed.{{else if .Unwrapped}}Unwrapped from {{.Wrapper}}.{{else}}Nothing removed.{{end}}">
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

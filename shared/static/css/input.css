@@ -176,7 +176,7 @@
 
   /* Telemetry strip & cards for instant 0.2s diagnostic assessment. */
   .telemetry-strip {
-    @apply grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4;
+    @apply grid grid-cols-2 gap-3 md:grid-cols-4 mb-4;
   }
   .telemetry-card {
     @apply rounded-lg border border-line bg-surface p-3 flex flex-col justify-between min-w-0;
