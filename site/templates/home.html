@@ -45,14 +45,11 @@
         {{range .Tools}}
         <a href="{{.URL}}"
            class="card block transition hover:border-brand">
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-medium text-strong text-base">{{.Name}}</span>
-            <span class="badge badge-neutral">Online</span>
-          </div>
+          <div class="font-medium text-strong text-base">{{.Name}}</div>
           <div class="mt-2 text-xs leading-relaxed text-muted line-clamp-3">{{.Desc}}</div>
           <div class="mt-4 pt-3 border-t border-line flex items-center justify-between text-xs font-mono text-faint">
             <span class="truncate">{{.URL}}</span>
-            <span class="text-brand-ink">Launch ↗</span>
+            <span class="text-brand-ink">→</span>
           </div>
         </a>
         {{end}}
