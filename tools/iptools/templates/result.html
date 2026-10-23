@@ -11,13 +11,13 @@
   <div class="order-0 basis-full w-full telemetry-strip">
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Target Address</div>
-      <div class="font-mono font-medium text-strong text-sm truncate">{{if $.Self}}Your IP{{else}}{{$.Query}}{{end}}</div>
-      <div class="mt-1 text-xs text-faint font-mono truncate">{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</div>
+      <div class="font-mono font-medium text-strong text-sm break-all leading-snug">{{if $.Self}}Your IP{{else}}{{$.Query}}{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono break-words leading-tight">{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</div>
     </div>
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Network / ASN</div>
-      <div class="font-mono font-bold text-strong text-sm truncate">{{if .ASN}}{{.ASN}}{{else}}—{{end}}</div>
-      <div class="mt-1 text-xs text-faint font-mono truncate">{{if .ASName}}{{.ASName}}{{else}}BGP Network{{end}}</div>
+      <div class="font-mono font-bold text-strong text-sm break-all leading-snug">{{if .ASN}}{{.ASN}}{{else}}—{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono break-words leading-tight">{{if .ASName}}{{.ASName}}{{else}}BGP Network{{end}}</div>
     </div>
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Threat &amp; Proxy</div>

@@ -63,11 +63,11 @@
       {{end}}
 
       <div class="mt-4 pt-3 border-t border-line grid grid-cols-2 gap-2 text-xs">
-        <div class="rounded border border-line bg-canvas p-2">
+        <div class="rounded border border-line bg-canvas p-2 flex flex-col justify-between">
           <div class="text-faint font-mono text-[10px] uppercase">Environment</div>
-          <div class="font-mono text-strong truncate mt-0.5">{{with .Report.ClientPayload}}{{with .Environment}}{{.}}{{else}}Standard Browser{{end}}{{else}}Server Request{{end}}</div>
+          <div class="font-mono text-strong text-xs leading-snug break-words mt-0.5">{{with .Report.ClientPayload}}{{with .Environment}}{{.}}{{else}}Standard Browser{{end}}{{else}}Server Request{{end}}</div>
         </div>
-        <div class="rounded border border-line bg-canvas p-2">
+        <div class="rounded border border-line bg-canvas p-2 flex flex-col justify-between">
           <div class="text-faint font-mono text-[10px] uppercase">Authenticity</div>
           <div class="mt-0.5">
             <span class="badge {{if eq .Report.Verdict "human"}}badge-ok{{else if eq .Report.Verdict "suspicious"}}badge-warn{{else if eq .Report.Verdict "good-bot"}}badge-brand{{else}}badge-danger{{end}}">
