@@ -144,9 +144,9 @@
 {{end}}
 
 <div class="mt-6 flex flex-wrap gap-2 text-xs">
-  <a href="/?u={{.URL}}" class="inline-flex items-center rounded border border-line bg-canvas px-2.5 py-1 font-medium text-strong hover:border-brand hover:text-brand-ink transition">Inspect URL</a>
-  <a href="/clean?u={{.URL}}" class="inline-flex items-center rounded border border-line bg-canvas px-2.5 py-1 font-medium text-strong hover:border-brand hover:text-brand-ink transition">Clean trackers</a>
-  <a href="/clean/rules" class="inline-flex items-center rounded border border-line bg-canvas px-2.5 py-1 font-medium text-strong hover:border-brand hover:text-brand-ink transition">See rules</a>
+  <a href="/?u={{.URL}}" class="btn-action">Inspect URL</a>
+  <a href="/clean?u={{.URL}}" class="btn-action">Clean trackers</a>
+  <a href="/clean/rules" class="btn-action">See rules</a>
 </div>
 
 {{else}}

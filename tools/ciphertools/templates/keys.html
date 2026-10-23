@@ -131,9 +131,10 @@ ssh-keygen -lf id_ed25519.pub                          # OpenSSH SHA256: fingerp
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h3 class="text-base font-semibold text-strong">{{.Name}} {{if .Private}}private key{{else if ne .Kind "secret"}}public key{{end}}</h3>
-      <div class="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-        <span>From <span class="text-strong">{{.Source}}</span></span>
-        {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
+      <div class="mt-1 flex flex-wrap items-center gap-2">
+        <span class="badge badge-neutral">Source: {{.Source}}</span>
+        {{if .Alg}}<span class="badge badge-brand">alg: {{.Alg}}</span>{{end}}
+        {{if .Private}}<span class="badge badge-warn">Private key</span>{{else}}<span class="badge badge-ok">Public key</span>{{end}}
       </div>
     </div>
     <div class="inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-xs font-medium" role="group" aria-label="Key format" x-cloak>

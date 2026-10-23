@@ -9,32 +9,34 @@
     </p>
     {{template "cipher/engine" .}}
 
-    <form method="post" action="/identify" data-cipher="identify" data-live data-target="#identify-result" class="mt-6 space-y-3">
-      <label class="block text-sm text-muted">Input
-        <textarea name="text" rows="6" autofocus autocomplete="off" spellcheck="false"
-                  placeholder="eyJhbGciOi…, -----BEGIN CERTIFICATE-----, $2b$12$…, 5f4dcc3b5aa765d61d8327deb882cf99, ssh-ed25519 AAAA…"
-                  class="field mt-1 w-full font-mono text-base sm:text-xs">
+    <div class="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div class="lg:col-span-5 space-y-4">
+        <form method="post" action="/identify" data-cipher="identify" data-live data-target="#identify-result" class="space-y-3">
+          <label class="block text-sm text-muted">Input
+            <textarea name="text" rows="6" autofocus autocomplete="off" spellcheck="false"
+                      placeholder="eyJhbGciOi…, -----BEGIN CERTIFICATE-----, $2b$12$…, 5f4dcc3b5aa765d61d8327deb882cf99, ssh-ed25519 AAAA…"
+                      class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
-      </label>
-      <button type="submit" class="btn-primary">Identify</button>
-    </form>
-    <details class="mt-4 text-sm">
-      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
-      <div class="mt-3 text-muted">
-        {{template "cipher/engine-terminal"}}curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
-  curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
-        <p class="mt-1 text-xs text-muted">
-          POST only, up to 1 MiB. The answer is <span class="font-mono">candidates</span>, ranked, each with
-          <span class="font-mono">name</span>, <span class="font-mono">confidence</span> (high, medium, low),
-          <span class="font-mono">why</span>, and where they apply <span class="font-mono">page</span> and
-          <span class="font-mono">hashcat</span>. The API runs on this server, so the input travels; this page
-          doesn't send it anywhere.
-        </p>
-        {{template "partials/mcp-hint" "cipher"}}
+          </label>
+          <button type="submit" class="btn-primary">Identify</button>
+        </form>
+
+        <details class="card text-sm cursor-pointer">
+          <summary class="font-mono text-xs uppercase tracking-wider text-brand-ink hover:text-strong">Using this from the terminal</summary>
+          <div class="mt-3 space-y-2 border-t border-line pt-3 font-mono text-xs text-muted">
+            {{template "cipher/engine-terminal"}}curl {{.Base}}/identify -d text=5f4dcc3b5aa765d61d8327deb882cf99
+      curl {{.Base}}/identify --data-urlencode text@cert.pem</pre>
+            <p class="font-sans text-xs text-muted">POST only, up to 1 MiB. The API runs on this server; this page computes in WebAssembly.</p>
+            {{template "partials/mcp-hint" "cipher"}}
+          </div>
+        </details>
       </div>
-    </details>
-    <div id="identify-result" class="mt-8" aria-live="polite">
-      {{if eq .Op "identify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/identify-result" .}}{{end}}{{end}}
+
+      <div class="lg:col-span-7 min-w-0">
+        <div id="identify-result" aria-live="polite">
+          {{if eq .Op "identify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/identify-result" .}}{{end}}{{end}}
+        </div>
+      </div>
     </div>
 {{template "cipher/engine-close" .}}
 {{end}}
@@ -42,16 +44,16 @@
 {{/* dot = the render map; .Result = *ciphertools.IdentifyResult */}}
 {{define "cipher/identify-result"}}
 {{with .Result}}
-<p class="text-sm text-muted">
-  {{.Bytes}} bytes{{if gt .Lines 1}} on {{.Lines}} lines{{end}}.
-  {{len .Candidates}} reading{{if ne (len .Candidates) 1}}s{{end}}, most likely first. The button takes the value to the page that reads it.
-</p>
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <span class="badge badge-neutral">{{.Bytes}} bytes{{if gt .Lines 1}} ({{.Lines}} lines){{end}}</span>
+  <span class="badge badge-brand">{{len .Candidates}} candidate{{if ne (len .Candidates) 1}}s{{end}}</span>
+</div>
 <ol class="mt-4 space-y-3">
   {{range .Candidates}}
   <li class="rounded-lg border border-line bg-surface px-4 py-3">
     <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <span class="font-semibold text-strong">{{.Name}}</span>
-      <span class="text-xs font-semibold {{if eq .Confidence "high"}}text-ok{{else if eq .Confidence "medium"}}text-warn-ink{{else}}text-faint{{end}}">{{.Confidence}} confidence</span>
+      <span class="badge {{if eq .Confidence "high"}}badge-ok{{else if eq .Confidence "medium"}}badge-warn{{else}}badge-neutral{{end}}">{{.Confidence}} confidence</span>
     </div>
     <p class="mt-1 text-sm text-body">{{.Why}}</p>
     {{if .Hashcat}}<p class="mt-1 text-xs text-muted">hashcat <span class="font-mono text-strong">-m {{.Hashcat}}</span></p>{{end}}

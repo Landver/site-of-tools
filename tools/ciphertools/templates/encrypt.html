@@ -150,12 +150,12 @@
   <p class="mt-1 text-xs text-muted">{{.Bytes}} bytes, hex</p>
 </div>
 {{end}}
-<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-  <span class="font-semibold text-strong">{{.Algorithm}}</span>
-  <span>{{if eq .Mode "encrypt"}}Encrypted{{else}}Decrypted{{end}}</span>
-  <span>Key <span class="text-strong">{{.KeyBytes}} bytes</span></span>
-  <span>{{.NonceName}} <span class="text-strong">{{if eq .NonceFrom "random"}}random{{else if eq .NonceFrom "supplied"}}supplied{{else if eq .NonceFrom "blob"}}read from the data{{else}}from its field{{end}}</span></span>
-  {{if .AADBytes}}<span>AAD <span class="text-strong">{{.AADBytes}} bytes</span></span>{{end}}
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <span class="badge badge-brand">{{.Algorithm}}</span>
+  <span class="badge badge-ok">{{if eq .Mode "encrypt"}}Encrypted{{else}}Decrypted{{end}}</span>
+  <span class="badge badge-neutral">Key: {{.KeyBytes}} bytes</span>
+  <span class="badge badge-neutral">{{.NonceName}}: {{if eq .NonceFrom "random"}}random{{else if eq .NonceFrom "supplied"}}supplied{{else if eq .NonceFrom "blob"}}from blob{{else}}from field{{end}}</span>
+  {{if .AADBytes}}<span class="badge badge-neutral">AAD: {{.AADBytes}} bytes</span>{{end}}
 </div>
 <p class="mt-2 text-xs text-muted">Layout: <span class="font-mono text-strong">{{.Layout}}</span></p>
 {{template "cipher/warnings" .Warnings}}

@@ -80,6 +80,34 @@
 {{define "link/diffed"}}
 {{with .Result}}
 
+<div class="telemetry-strip">
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Comparison Verdict</div>
+    <div>
+      {{if .Identical}}<span class="badge badge-ok">IDENTICAL</span>{{else}}<span class="badge badge-warn">DIFFERENT</span>{{end}}
+    </div>
+    <div class="mt-1 text-xs text-faint font-mono">Structural Diff</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Component Drift</div>
+    <div class="font-mono font-bold text-strong text-sm">{{len .Fields}} parts</div>
+    <div class="mt-1 text-xs text-faint font-mono">Outside query string</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Findings</div>
+    <div class="font-mono font-bold text-strong text-sm">{{len .Notes}} note{{if ne (len .Notes) 1}}s{{end}}</div>
+    <div class="mt-1 text-xs text-faint font-mono">RFC heuristics</div>
+  </div>
+  <div class="telemetry-card">
+    <div class="eyebrow text-faint mb-1">Pivots</div>
+    <div class="flex flex-wrap gap-1">
+      <a href="/?u={{.A}}" class="btn-action">Inspect A</a>
+      <a href="/?u={{.B}}" class="btn-action">Inspect B</a>
+    </div>
+    <div class="mt-1 text-xs text-faint font-mono">Direct tool jump</div>
+  </div>
+</div>
+
 <div class="rounded-lg border {{if .Identical}}border-ok{{else}}border-line{{end}} bg-surface px-4 py-3"
      data-announce="{{.Summary}}">
   <h2 class="text-sm font-semibold text-strong sm:text-base">{{.Summary}}</h2>

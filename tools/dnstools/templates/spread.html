@@ -2,6 +2,33 @@
 {{define "dns/spread"}}
   {{with .Spread}}
 
+  <div class="sm:col-span-2 telemetry-strip">
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Target Name</div>
+      <div class="font-mono font-medium text-strong text-sm truncate">{{$.Query}}</div>
+      <div class="mt-1 text-xs text-ok font-mono">{{.Type}} consistency</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Authority Posture</div>
+      <div>
+        {{if and (gt .AuthAnswered 1) (not .AuthConsistent)}}<span class="badge badge-warn">DISAGREE</span>
+        {{else if .Consistent}}<span class="badge badge-ok">IN STEP</span>
+        {{else}}<span class="badge badge-neutral">PROPAGATING</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .Rotation}}Answers rotate{{else}}Zone status{{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Answered NS</div>
+      <div class="font-mono font-bold text-strong text-sm">{{.Answered}} / {{.Asked}} servers</div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .SerialsAgree}}Serials match{{else}}Zone versions vary{{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Query Latency</div>
+      <div class="font-mono font-bold text-strong text-sm">{{.QueryMS}} ms</div>
+      <div class="mt-1 text-xs text-faint font-mono">Parallel NS check</div>
+    </div>
+  </div>
+
   <div class="grid gap-4 content-start">
   {{/* No percentage: GeoDNS legitimately differs. Each branch claims only what its inputs prove. */}}
   <div class="card">
@@ -56,6 +83,15 @@
       {{if .StaleFor}}· a cached copy can survive up to {{.StaleFor}} longer{{end}}
       · {{.QueryMS}}&nbsp;ms
     </p>
+
+    <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
+      <span class="text-xs font-mono text-faint">Pivots:</span>
+      <div class="flex flex-wrap gap-1.5">
+        <a href="/trace?name={{$.Query}}" class="btn-action">Trace DNSSEC ↗</a>
+        <a href="/email?name={{$.Query}}" class="btn-action">Email Auth ↗</a>
+        <a href="/?name={{$.Query}}" class="btn-action">Lookup All ↗</a>
+      </div>
+    </div>
   </div>
 
   <div class="card">

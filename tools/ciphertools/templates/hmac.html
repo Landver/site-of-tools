@@ -9,63 +9,63 @@
     {{template "cipher/engine" .}}
 
     {{$keyEnc := .Form.Get "key_enc"}}
-    <form method="post" action="/hmac" data-cipher="hmac" data-live data-target="#hmac-result" class="mt-6 space-y-3">
-      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <label class="block text-sm text-muted">Message
-          <textarea name="text" rows="4" autofocus autocomplete="off" spellcheck="false"
-                    placeholder="{&quot;action&quot;:&quot;opened&quot;, …} (the raw request body)"
-                    class="field mt-1 w-full font-mono text-base sm:text-xs">
+    <div class="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div class="lg:col-span-5 space-y-4">
+        <form method="post" action="/hmac" data-cipher="hmac" data-live data-target="#hmac-result" class="space-y-3">
+          <div class="grid gap-3 sm:grid-cols-[1fr_10rem]">
+            <label class="block text-sm text-muted">Message
+              <textarea name="text" rows="4" autofocus autocomplete="off" spellcheck="false"
+                        placeholder="{&quot;action&quot;:&quot;opened&quot;, …}"
+                        class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
-        </label>
-        <label class="block text-sm text-muted">Message is
-          <select name="enc" class="field mt-1 w-full">{{template "cipher/engine-enc-options" (.Form.Get "enc")}}</select>
-        </label>
+            </label>
+            <label class="block text-sm text-muted">Message is
+              <select name="enc" class="field mt-1 w-full">{{template "cipher/engine-enc-options" (.Form.Get "enc")}}</select>
+            </label>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-[1fr_10rem]">
+            <label class="block text-sm text-muted">Key
+              <input name="key" value="{{.Form.Get "key"}}" autocomplete="off" spellcheck="false"
+                     placeholder="webhook secret" class="field mt-1 w-full font-mono text-base sm:text-xs">
+            </label>
+            <label class="block text-sm text-muted">Key is
+              <select name="key_enc" class="field mt-1 w-full">
+                <option value="auto">Detect</option>
+                <option value="utf8" {{if eq $keyEnc "utf8"}}selected{{end}}>UTF-8 text</option>
+                <option value="hex" {{if eq $keyEnc "hex"}}selected{{end}}>hex</option>
+                <option value="base64" {{if eq $keyEnc "base64"}}selected{{end}}>base64</option>
+                <option value="base64url" {{if eq $keyEnc "base64url"}}selected{{end}}>base64url</option>
+              </select>
+            </label>
+          </div>
+          <label class="block text-sm text-muted">Expected signature <span class="text-faint">(optional)</span>
+            <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
+                   placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-base sm:text-xs">
+          </label>
+          <details class="text-xs text-muted">
+            <summary class="cursor-pointer hover:text-strong">Checking a GitHub, Stripe or Slack webhook?</summary>
+            <p class="mt-1 text-faint">
+              They sign the raw request body with HMAC-SHA256. GitHub's <span class="font-mono">sha256=</span> prefix is removed for you. Stripe signs <span class="font-mono">timestamp.body</span> and Slack <span class="font-mono">v0:timestamp:body</span>.
+            </p>
+          </details>
+          <button type="submit" class="btn-primary">Compute</button>
+        </form>
+
+        <details class="card text-sm cursor-pointer">
+          <summary class="font-mono text-xs uppercase tracking-wider text-brand-ink hover:text-strong">Using this from the terminal</summary>
+          <div class="mt-3 space-y-2 border-t border-line pt-3 font-mono text-xs text-muted">
+            {{template "cipher/engine-terminal"}}curl {{.Base}}/hmac --data-urlencode text@body.json -d key=secret -d expected=sha256=…</pre>
+            <p class="font-sans text-xs text-muted">POST only. The API runs on this server; this page computes in WebAssembly.</p>
+            {{template "partials/mcp-hint" "cipher"}}
+          </div>
+        </details>
       </div>
-      <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <label class="block text-sm text-muted">Key
-          <input name="key" value="{{.Form.Get "key"}}" autocomplete="off" spellcheck="false"
-                 placeholder="the webhook secret" class="field mt-1 w-full font-mono text-base sm:text-xs">
-        </label>
-        <label class="block text-sm text-muted">Key is
-          <select name="key_enc" class="field mt-1 w-full">
-            <option value="auto">Detect: try each</option>
-            <option value="utf8" {{if eq $keyEnc "utf8"}}selected{{end}}>UTF-8 text</option>
-            <option value="hex" {{if eq $keyEnc "hex"}}selected{{end}}>hex</option>
-            <option value="base64" {{if eq $keyEnc "base64"}}selected{{end}}>base64</option>
-            <option value="base64url" {{if eq $keyEnc "base64url"}}selected{{end}}>base64url</option>
-          </select>
-        </label>
+
+      <div class="lg:col-span-7 min-w-0">
+        <div id="hmac-result" aria-live="polite">
+          {{if eq .Op "hmac"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/hmac-result" .}}{{end}}{{end}}
+        </div>
       </div>
-      <label class="block text-sm text-muted">Expected signature <span class="text-faint">(optional)</span>
-        <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
-               placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-base sm:text-xs">
-      </label>
-      <details class="text-xs text-muted">
-        <summary class="cursor-pointer hover:text-strong">Checking a GitHub, Stripe or Slack webhook?</summary>
-        <p class="mt-1 text-faint">
-          They sign the raw request body with HMAC-SHA256. Paste the body exactly as it arrived: parsed and
-          re-serialised JSON has different bytes and will not match. GitHub's <span class="font-mono">sha256=</span>
-          prefix is removed for you. Stripe signs <span class="font-mono">timestamp.body</span> and Slack
-          <span class="font-mono">v0:timestamp:body</span>, so put that string in the message.
-        </p>
-      </details>
-      <button type="submit" class="btn-primary">Compute</button>
-    </form>
-    <details class="mt-4 text-sm">
-      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
-      <div class="mt-3 text-muted">
-        {{template "cipher/engine-terminal"}}curl {{.Base}}/hmac --data-urlencode text@body.json -d key=secret -d expected=sha256=…</pre>
-        <p class="mt-1 text-xs text-muted">
-          POST only. Fields: <span class="font-mono">text</span>, <span class="font-mono">enc</span>,
-          <span class="font-mono">key</span>, <span class="font-mono">key_enc</span> (utf8, hex, base64, base64url),
-          <span class="font-mono">expected</span>. <span class="font-mono">--data-urlencode text@file</span> sends the
-          file byte for byte. The API runs on this server, so the key travels; this page doesn't send it anywhere.
-        </p>
-        {{template "partials/mcp-hint" "cipher"}}
-      </div>
-    </details>
-    <div id="hmac-result" class="mt-8" aria-live="polite">
-      {{if eq .Op "hmac"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/hmac-result" .}}{{end}}{{end}}
     </div>
 {{template "cipher/engine-close" .}}
 {{end}}
@@ -73,9 +73,9 @@
 {{define "cipher/hmac-result"}}
 {{with .Result}}
 {{with .Compare}}{{template "cipher/compare" .}}{{end}}
-<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-  <span>Message <span class="text-strong">{{.MessageBytes}} bytes</span>, {{.MessageReadAs}}</span>
-  <span>Key <span class="text-strong">{{.KeyBytes}} bytes</span>, {{.KeyReadAs}}</span>
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <span class="badge badge-neutral">Message: {{.MessageBytes}} bytes ({{.MessageReadAs}})</span>
+  <span class="badge badge-neutral">Key: {{.KeyBytes}} bytes ({{.KeyReadAs}})</span>
 </div>
 {{template "cipher/warnings" .Warnings}}
 {{template "cipher/digests" .MACs}}

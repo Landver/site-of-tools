@@ -132,9 +132,9 @@
 
 {{define "cipher/random-result"}}
 {{with .Result}}
-<div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-  <span>{{.Detail}}</span>
-  <span>Entropy <span class="text-strong">{{.Entropy}}</span> each</span>
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <span class="badge badge-neutral">{{.Detail}}</span>
+  <span class="badge badge-ok">Entropy: {{.Entropy}}</span>
 </div>
 {{template "cipher/warnings" .Warnings}}
 <ul class="mt-4 space-y-2">
