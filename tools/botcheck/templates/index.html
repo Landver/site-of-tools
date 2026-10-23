@@ -26,6 +26,22 @@
         <p class="text-sm text-faint">Reading your browser signals…</p>
       </div>
     </div>
+
+    <details class="mt-8 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 space-y-3 text-muted">
+        <p>Every view also speaks JSON — browsers get the page, everything else gets JSON.</p>
+        <div class="space-y-2 font-mono text-xs">
+          <p><span class="text-faint"># server-only score of your request (no JS signals)</span><br>
+             <span class="text-strong">curl https://botcheck.corpberry.com</span></p>
+          <p><span class="text-faint"># score a fingerprint you collected yourself</span><br>
+             <span class="text-strong">curl -X POST https://botcheck.corpberry.com/check \</span><br>
+             <span class="text-strong">&nbsp;&nbsp;-H 'Content-Type: application/json' -d '{"webdriver":true}'</span></p>
+        </div>
+        <p>The POST /check JSON response echoes your fingerprint back as <span class="font-mono text-strong">clientPayload</span> — the same raw dump the page shows under "raw fingerprint" — so you can diff exactly what was scored.</p>
+        {{template "partials/mcp-hint" "botcheck"}}
+      </div>
+    </details>
   </main>
 
   {{template "partials/footer" .}}
