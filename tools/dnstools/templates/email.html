@@ -15,6 +15,37 @@
   </div>
   {{else}}
 
+  <div class="sm:col-span-2 telemetry-strip">
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Target</div>
+      <div class="font-mono font-medium text-strong text-sm truncate">{{$.Query}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">DNS Email Auth</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">DMARC Policy</div>
+      <div>
+        {{with .DMARC}}<span class="badge {{if eq .Policy "reject"}}badge-ok{{else if eq .Policy "quarantine"}}badge-warn{{else}}badge-warn{{end}}">p={{.Policy}}</span>{{else}}<span class="badge badge-danger">MISSING</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .DMARC}}RFC 7489{{else}}No DMARC TXT{{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">SPF Record</div>
+      <div>
+        {{with .SPF}}<span class="badge {{if gt .Lookups .Limit}}badge-danger{{else if ge .Lookups 8}}badge-warn{{else}}badge-ok{{end}}">{{.Lookups}}/{{.Limit}} lookups</span>{{else}}<span class="badge badge-danger">MISSING</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .SPF}}RFC 7208{{else}}No SPF TXT{{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Audit Score</div>
+      <div class="flex flex-wrap gap-1">
+        {{if $.Fail}}<span class="badge badge-danger">{{$.Fail}} fail</span>{{end}}
+        {{if $.Warn}}<span class="badge badge-warn">{{$.Warn}} improve</span>{{end}}
+        {{if $.OK}}<span class="badge badge-ok">{{$.OK}} ok</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if not (or $.Fail $.Warn $.OK)}}Evaluated{{else}}Status summary{{end}}</div>
+    </div>
+  </div>
+
   <div class="grid gap-4 content-start">
     <div class="card">
       <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -26,6 +57,14 @@
         </div>
       </div>
       {{template "dns/notes" .Notes}}
+      <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
+        <span class="text-xs font-mono text-faint">Pivots:</span>
+        <div class="flex flex-wrap gap-1.5">
+          <a href="/trace?name={{$.Query}}" class="btn-action">Trace DNSSEC ↗</a>
+          <a href="/?name={{$.Query}}" class="btn-action">Lookup All ↗</a>
+          <a href="{{toolURL "ip"}}/?ip={{$.Query}}" class="btn-action">IP Tools ↗</a>
+        </div>
+      </div>
     </div>
 
     {{with .SPF}}

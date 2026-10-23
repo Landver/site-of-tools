@@ -8,6 +8,39 @@
 {{else if .Result}}
   {{/* No wrapper: #result is display:contents, so these cards are flow items of ip/index. */}}
   {{with .Result}}
+  <div class="order-0 basis-full w-full telemetry-strip">
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Target Address</div>
+      <div class="font-mono font-medium text-strong text-sm truncate">{{if $.Self}}Your IP{{else}}{{$.Query}}{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">{{.Country}}{{if .CountryCode}} ({{.CountryCode}}){{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Network / ASN</div>
+      <div class="font-mono font-bold text-strong text-sm truncate">{{if .ASN}}{{.ASN}}{{else}}—{{end}}</div>
+      <div class="mt-1 text-xs text-faint truncate">{{if .ASName}}{{.ASName}}{{else}}BGP Network{{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Threat &amp; Proxy</div>
+      <div>
+        {{with .Proxy}}
+          {{if .IsProxy}}<span class="badge badge-danger">PROXY{{if .ProxyType}} · {{.ProxyType}}{{end}}</span>
+          {{else}}<span class="badge badge-ok">CLEAN</span>{{end}}
+        {{else}}<span class="badge badge-neutral">UNRATED</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{with .Proxy}}{{if .Threat}}{{.Threat}}{{else}}No threat detected{{end}}{{else}}IP2Location{{end}}</div>
+    </div>
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Reputation</div>
+      <div>
+        {{with .Blocklist}}
+          {{if .Listed}}<span class="badge badge-danger">LISTED</span>
+          {{else}}<span class="badge badge-ok">CLEAR</span>{{end}}
+        {{else}}<span class="badge badge-neutral">UNCHECKED</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">Abuse / threat feeds</div>
+    </div>
+  </div>
+
   <div class="card order-1">
     <div class="eyebrow">{{if $.Self}}your location{{else}}location{{end}}</div>
     <dl class="spec">
@@ -19,6 +52,13 @@
       <dt>Coords</dt>    <dd>{{.Latitude}}, {{.Longitude}}</dd>
       <dt>ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
     </dl>
+    <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
+      <span class="text-xs font-mono text-faint">Pivots:</span>
+      <div class="flex flex-wrap gap-1.5">
+        <a href="{{toolURL "dns"}}/?name={{if $.Self}}example.com{{else}}{{$.Query}}{{end}}" class="btn-action">Reverse DNS ↗</a>
+        <a href="{{toolURL "botcheck"}}" class="btn-action">Bot Check ↗</a>
+      </div>
+    </div>
   </div>
   {{if or .Proxy .Blocklist}}
   <div class="card order-4">

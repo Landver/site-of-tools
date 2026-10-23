@@ -166,11 +166,11 @@
 {{end}}
 
 <div class="mt-6 flex flex-wrap items-center gap-2">
-  <a href="/?u={{.Output}}" class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">Inspect</a>
+  <a href="/?u={{.Output}}" class="btn-action">Inspect</a>
   {{/* After unwrapping, compare against the link inside, not the wrapper. */}}
-  {{if .Unwrapped}}{{if ne .Output .Unwrapped}}<a href="/diff?a={{.Unwrapped}}&amp;b={{.Output}}" class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">Compare with unwrapped</a>{{end}}
-  {{else if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">Compare with original</a>{{end}}
-  <a href="/clean/rules" class="inline-flex items-center gap-1 rounded border border-line bg-canvas px-2.5 py-1 text-xs font-medium text-strong hover:border-brand hover:text-brand-ink transition">Rules</a>
+  {{if .Unwrapped}}{{if ne .Output .Unwrapped}}<a href="/diff?a={{.Unwrapped}}&amp;b={{.Output}}" class="btn-action">Compare with unwrapped</a>{{end}}
+  {{else if ne .Output .Input}}<a href="/diff?a={{.Input}}&amp;b={{.Output}}" class="btn-action">Compare with original</a>{{end}}
+  <a href="/clean/rules" class="btn-action">Rules</a>
 </div>
 
 {{else}}

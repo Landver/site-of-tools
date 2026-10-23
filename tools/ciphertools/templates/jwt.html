@@ -166,12 +166,12 @@
 </div>
 {{end}}
 
-<div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
-  <span>Type <span class="font-mono text-strong">{{.Kind}}</span></span>
-  {{if .Alg}}<span>alg <span class="font-mono text-strong">{{.Alg}}</span></span>{{end}}
-  {{if .SigBytes}}<span>Signature <span class="text-strong">{{.SigBytes}} bytes</span></span>{{end}}
+<div class="mt-3 flex flex-wrap items-center gap-2">
+  <span class="badge badge-neutral">Type: {{.Kind}}</span>
+  {{if .Alg}}<span class="badge badge-brand">alg: {{.Alg}}</span>{{end}}
+  {{if .SigBytes}}<span class="badge badge-neutral">{{.SigBytes}} bytes</span>{{end}}
   {{with .Validity}}
-  <span class="{{if eq .State "valid"}}text-ok{{else if eq .State "no-expiry"}}text-warn-ink{{else}}text-danger{{end}}">{{.Detail}}</span>
+  <span class="badge {{if eq .State "valid"}}badge-ok{{else if eq .State "no-expiry"}}badge-warn{{else}}badge-danger{{end}}">{{.Detail}}</span>
   {{end}}
 </div>
 

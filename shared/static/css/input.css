@@ -149,6 +149,39 @@
     @apply text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink;
   }
 
+  /* Badges: semantic status indicators across all tools. */
+  .badge {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-mono font-medium;
+  }
+  .badge-ok {
+    @apply border border-ok/30 bg-ok/10 text-ok;
+  }
+  .badge-warn {
+    @apply border border-warn/30 bg-warn/10 text-warn-ink;
+  }
+  .badge-danger {
+    @apply border border-danger/30 bg-danger/10 text-danger;
+  }
+  .badge-neutral {
+    @apply border border-line bg-surface text-muted;
+  }
+  .badge-brand {
+    @apply border border-brand/30 bg-brand/10 text-brand-ink;
+  }
+
+  /* Action chips: contextual navigation and pivots between tools. */
+  .btn-action {
+    @apply inline-flex items-center gap-1 rounded border border-line bg-surface px-2.5 py-1 text-xs font-mono font-medium text-strong transition hover:border-brand hover:text-brand-ink;
+  }
+
+  /* Telemetry strip & cards for instant 0.2s diagnostic assessment. */
+  .telemetry-strip {
+    @apply grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4;
+  }
+  .telemetry-card {
+    @apply rounded-lg border border-line bg-surface p-3 flex flex-col justify-between;
+  }
+
   /* Blog body: goldmark emits bare tags, so all styling hangs off this wrapper. */
   .post-body {
     @apply mt-8 leading-relaxed text-body;
