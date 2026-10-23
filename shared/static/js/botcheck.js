@@ -358,11 +358,14 @@
   // Go checks vendor vs renderer (G07) and GPU family vs the UA's OS (G08); "" = not supplied.
   const webglGPU = () => safe(() => {
     const c = document.createElement("canvas");
-    const gl = c.getContext("webgl") || c.getContext("experimental-webgl");
-    const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+    const gl = c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl");
+    if (!gl) return { webglVendor: "disabled", webglRenderer: "software (WebGL unavailable)" };
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const v = (ext && gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)) || gl.getParameter(gl.VENDOR) || "";
+    const r = (ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || "";
     return {
-      webglVendor: ext ? (gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || "") : "",
-      webglRenderer: ext ? (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "") : "",
+      webglVendor: v,
+      webglRenderer: r,
     };
   }, { webglVendor: "", webglRenderer: "" });
 
@@ -448,9 +451,10 @@
         "self.onmessage=()=>{let c=false;const e=new Error();" +
         "try{Object.defineProperty(e,'stack',{get(){c=true;return 'x';}});}catch(_){}" +
         "try{console.debug(e);}catch(_){}" +
-        "let g='';try{const cv=new OffscreenCanvas(1,1);const gl=cv.getContext('webgl');" +
-        "const x=gl&&gl.getExtension('WEBGL_debug_renderer_info');" +
-        "g=x?(gl.getParameter(x.UNMASKED_RENDERER_WEBGL)||''):'';}catch(_){}" +
+        "let g='';try{const cv=new OffscreenCanvas(1,1);const gl=cv.getContext('webgl2')||cv.getContext('webgl');" +
+        "if(gl){const x=gl.getExtension('WEBGL_debug_renderer_info');" +
+        "g=(x&&gl.getParameter(x.UNMASKED_RENDERER_WEBGL))||gl.getParameter(gl.RENDERER)||'';}" +
+        "else{g='software (WebGL unavailable)';}}catch(_){}" +
         "self.postMessage({ua:navigator.userAgent,cdp:c," +
         "languages:[...(navigator.languages||[])],cores:navigator.hardwareConcurrency||0," +
         "platform:(navigator.userAgentData&&navigator.userAgentData.platform)||'',webgl:g});};";

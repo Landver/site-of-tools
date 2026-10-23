@@ -433,7 +433,11 @@ func normPlatform(p string) string {
 
 func isSoftwareRenderer(r string) bool {
 	r = strings.ToLower(r)
-	for _, m := range []string{"swiftshader", "llvmpipe", "mesa offscreen", "software", "microsoft basic render"} {
+	for _, m := range []string{
+		"swiftshader", "llvmpipe", "lavapipe", "swrast", "softpipe", "virgl",
+		"mesa offscreen", "software", "microsoft basic render",
+		"svga3d", "vmware", "virtualbox", "vbox", "qemu",
+	} {
 		if strings.Contains(r, m) {
 			return true
 		}

@@ -311,6 +311,46 @@ func TestHeadlessChromeScoresBot(t *testing.T) {
 	}
 }
 
+func TestSoftwareRendererVarieties(t *testing.T) {
+	renderers := []string{
+		"Google SwiftShader",
+		"llvmpipe (LLVM 15.0.6, 256 bits)",
+		"Mesa / Vulkan software rasterizer (lavapipe)",
+		"Mesa DRI swrast (Software Rasterizer)",
+		"softpipe",
+		"virgl (Mesa DRI)",
+		"SVGA3D; build: RELEASE;",
+		"VMware SVGA",
+		"VirtualBox Graphics Adapter",
+		"QEMU Virtual Video",
+		"software (WebGL unavailable)",
+	}
+	for _, rend := range renderers {
+		s := cleanChrome()
+		s.WebGLRenderer = rend
+		r := botcheck.Evaluate(s)
+		if !check(t, r, "software_renderer").Triggered {
+			t.Errorf("renderer %q should trigger software_renderer", rend)
+		}
+	}
+
+	cleanRenderers := []string{
+		"ANGLE (Apple, Apple M1, OpenGL 4.1)",
+		"NVIDIA GeForce RTX 3080",
+		"AMD Radeon RX 6600",
+		"Intel Iris Xe Graphics",
+		"WebKit WebGL",
+	}
+	for _, rend := range cleanRenderers {
+		s := cleanChrome()
+		s.WebGLRenderer = rend
+		r := botcheck.Evaluate(s)
+		if check(t, r, "software_renderer").Triggered {
+			t.Errorf("real GPU renderer %q must not trigger software_renderer", rend)
+		}
+	}
+}
+
 func TestStealthSpoofScoresBot(t *testing.T) {
 	// Spoofed UA, tz disagreeing with the IP and a datacenter egress: 3 consistency signals.
 	s := cleanChrome()
