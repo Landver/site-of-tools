@@ -164,19 +164,18 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 	}
 
 	// Parse directives map for Edge CDN
-	edgeMap := make(map[string]string)
+	cdnMap := make(map[string]string)
 	for _, d := range cdnDirs {
-		edgeMap[d.Name] = d.Value
+		cdnMap[d.Name] = d.Value
 	}
 	for _, d := range cfDirs {
-		if _, ok := edgeMap[d.Name]; !ok {
-			edgeMap[d.Name] = d.Value
+		if _, ok := cdnMap[d.Name]; !ok {
+			cdnMap[d.Name] = d.Value
 		}
 	}
+	surrogateMap := make(map[string]string)
 	for _, d := range surrogateDirs {
-		if _, ok := edgeMap[d.Name]; !ok {
-			edgeMap[d.Name] = d.Value
-		}
+		surrogateMap[d.Name] = d.Value
 	}
 
 	ttl := TTLSummary{}
@@ -236,12 +235,12 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 	// Priority 2: s-maxage in Cache-Control
 	// Priority 3: Surrogate-Control max-age
 	// Priority 4: Browser max-age
-	if edgeNoStore, ok := edgeMap["no-store"]; ok || (ttl.NoStore && len(edgeMap) == 0) {
-		_ = edgeNoStore
+	if cdnNoStore, ok := cdnMap["no-store"]; ok || (ttl.NoStore && len(cdnMap) == 0 && len(surrogateMap) == 0) {
+		_ = cdnNoStore
 		ttl.EdgeTTLSeconds = 0
 		ttl.EdgeTTLHuman = "0s (no-store)"
-	} else if edgeMaStr, ok := edgeMap["max-age"]; ok {
-		if ma, err := strconv.Atoi(edgeMaStr); err == nil && ma >= 0 {
+	} else if cdnMaStr, ok := cdnMap["max-age"]; ok {
+		if ma, err := strconv.Atoi(cdnMaStr); err == nil && ma >= 0 {
 			ttl.EdgeTTLSeconds = ma
 			ttl.EdgeTTLHuman = formatDuration(ma) + " (via CDN-Cache-Control)"
 		}
@@ -250,7 +249,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 			ttl.EdgeTTLSeconds = sma
 			ttl.EdgeTTLHuman = formatDuration(sma) + " (via s-maxage)"
 		}
-	} else if surrMaStr, ok := edgeMap["max-age"]; ok {
+	} else if surrMaStr, ok := surrogateMap["max-age"]; ok {
 		if ma, err := strconv.Atoi(surrMaStr); err == nil && ma >= 0 {
 			ttl.EdgeTTLSeconds = ma
 			ttl.EdgeTTLHuman = formatDuration(ma) + " (via Surrogate-Control)"
@@ -265,7 +264,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 		if swr, err := strconv.Atoi(swrStr); err == nil {
 			ttl.StaleWhileReval = swr
 		}
-	} else if swrStr, ok := edgeMap["stale-while-revalidate"]; ok {
+	} else if swrStr, ok := cdnMap["stale-while-revalidate"]; ok {
 		if swr, err := strconv.Atoi(swrStr); err == nil {
 			ttl.StaleWhileReval = swr
 		}
@@ -275,7 +274,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 		if sie, err := strconv.Atoi(sieStr); err == nil {
 			ttl.StaleIfError = sie
 		}
-	} else if sieStr, ok := edgeMap["stale-if-error"]; ok {
+	} else if sieStr, ok := cdnMap["stale-if-error"]; ok {
 		if sie, err := strconv.Atoi(sieStr); err == nil {
 			ttl.StaleIfError = sie
 		}

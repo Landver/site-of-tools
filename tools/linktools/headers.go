@@ -73,22 +73,44 @@ func HeaderCategory(name string) string {
 }
 
 func countFindings(report *HeadersReport) {
-	allFindings := append([]HeaderNote(nil), report.Cache.Findings...)
-	allFindings = append(allFindings, report.Security.Findings...)
-
-	report.TotalFindings = len(allFindings)
-	for _, f := range allFindings {
-		switch f.Severity {
-		case SevFail:
-			report.FailCount++
-		case SevWarn:
-			report.WarnCount++
-		case SevOK:
-			report.OKCount++
-		case SevInfo:
-			report.InfoCount++
+	report.TotalFindings = len(report.Cache.Findings) + len(report.Security.Findings)
+	tally := func(notes []HeaderNote) {
+		for _, f := range notes {
+			switch f.Severity {
+			case SevFail:
+				report.FailCount++
+			case SevWarn:
+				report.WarnCount++
+			case SevOK:
+				report.OKCount++
+			case SevInfo:
+				report.InfoCount++
+			}
 		}
 	}
+	tally(report.Cache.Findings)
+	tally(report.Security.Findings)
+}
+
+func buildHeaderRows(headers http.Header) []HeaderRow {
+	var rows []HeaderRow
+	for k, vv := range headers {
+		cat := HeaderCategory(k)
+		for _, v := range vv {
+			rows = append(rows, HeaderRow{
+				Name:     k,
+				Value:    v,
+				Category: cat,
+			})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Category != rows[j].Category {
+			return categoryOrder(rows[i].Category) < categoryOrder(rows[j].Category)
+		}
+		return rows[i].Name < rows[j].Name
+	})
+	return rows
 }
 
 // ProbeHeaders dials out to a remote URL using the SSRF-guarded HTTP client.
@@ -128,23 +150,7 @@ func (t *Tracer) ProbeHeaders(ctx context.Context, raw string, persona string) (
 	// Drain up to 1KB to cleanly close connection
 	_, _ = io.CopyN(io.Discard, resp.Body, 1024)
 
-	var rows []HeaderRow
-	for k, vv := range resp.Header {
-		cat := HeaderCategory(k)
-		for _, v := range vv {
-			rows = append(rows, HeaderRow{
-				Name:     k,
-				Value:    v,
-				Category: cat,
-			})
-		}
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Category != rows[j].Category {
-			return categoryOrder(rows[i].Category) < categoryOrder(rows[j].Category)
-		}
-		return rows[i].Name < rows[j].Name
-	})
+	rows := buildHeaderRows(resp.Header)
 
 	cacheAudit := AnalyzeCache(resp.StatusCode, resp.Header)
 	secAudit := AnalyzeSecurity(resp.Header)
@@ -275,23 +281,7 @@ func ParseRawHeaders(raw string) (*HeadersReport, error) {
 		return nil, errors.New("could not find any valid 'Header-Name: Value' lines in pasted text")
 	}
 
-	var rows []HeaderRow
-	for k, vv := range headers {
-		cat := HeaderCategory(k)
-		for _, v := range vv {
-			rows = append(rows, HeaderRow{
-				Name:     k,
-				Value:    v,
-				Category: cat,
-			})
-		}
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Category != rows[j].Category {
-			return categoryOrder(rows[i].Category) < categoryOrder(rows[j].Category)
-		}
-		return rows[i].Name < rows[j].Name
-	})
+	rows := buildHeaderRows(headers)
 
 	cacheAudit := AnalyzeCache(statusCode, headers)
 	secAudit := AnalyzeSecurity(headers)

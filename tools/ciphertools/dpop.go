@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/url"
@@ -110,8 +112,7 @@ type DPoPGenerateResult struct {
 	PublicJWKJSON string      `json:"public_jwk_json"`
 	JWKThumbprint string      `json:"jwk_thumbprint"`
 	Curl          string      `json:"curl"`
-	Key           string      `json:"key"` // Private key in PEM/JWK format for reuse
-	Parts         []JWTPart   `json:"-"`
+	Key           string      `json:"key"` // Private key in PEM format for reuse
 }
 
 // DPoPVerifyResult holds the outcome of a DPoP verification.
@@ -171,6 +172,10 @@ func runDPoPGenerate(in Input) (any, error) {
 			return nil, fmt.Errorf("generating key: %w", err)
 		}
 		signingPrivKey = Key{Kind: KindEC, Private: priv, Public: &priv.PublicKey}
+		sec1, err := x509.MarshalECPrivateKey(priv)
+		if err == nil {
+			generatedPrivatePEM = string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: sec1}))
+		}
 		alg = "ES256"
 		spec = jwsAlgs["ES256"]
 	} else {
@@ -277,18 +282,11 @@ func runDPoPGenerate(in Input) (any, error) {
 	}
 	curlBuilder.WriteString(fmt.Sprintf("  \"%s\"", normalizedHTU))
 
-	parts := []JWTPart{
-		{Label: "Header", Value: b64url.EncodeToString(headerBytes)},
-		{Label: "Payload", Value: b64url.EncodeToString(payloadBytes)},
-		{Label: "Signature", Value: b64url.EncodeToString(sig)},
-	}
-
 	return &DPoPGenerateResult{
 		Token:         token,
 		HTM:           htm,
 		HTU:           normalizedHTU,
 		Alg:           alg,
-		Parts:         parts,
 		HeaderJSON:    string(headerPretty),
 		PayloadJSON:   string(payloadPretty),
 		PublicJWKJSON: string(pubJWKPretty),
@@ -402,6 +400,7 @@ func runDPoPVerify(in Input) (any, error) {
 	var rawJWK map[string]any
 	var pubJWK JWK
 	var thumbprint string
+	var parsedKey Key
 	jwkPassed := false
 	var jwkDetail string
 
@@ -418,8 +417,9 @@ func runDPoPVerify(in Input) (any, error) {
 		if err != nil || len(parsedKeys) == 0 || parsedKeys[0].Public == nil {
 			jwkDetail = "Failed to parse public key from embedded JWK"
 		} else {
+			parsedKey = parsedKeys[0]
 			jwkPassed = true
-			jwkDetail = fmt.Sprintf("Valid %s embedded public key (%s)", pubJWK.Kty, keyName(parsedKeys[0].Public))
+			jwkDetail = fmt.Sprintf("Valid %s embedded public key (%s)", pubJWK.Kty, keyName(parsedKey.Public))
 			thumbprint, _ = JWKThumbprint(pubJWK)
 		}
 	}
@@ -436,9 +436,8 @@ func runDPoPVerify(in Input) (any, error) {
 	sigPassed := false
 	var sigDetail string
 	if jwkPassed && algPassed {
-		parsedKeys, _ := ParseKeys(string(header.JWK))
 		signedPayload := []byte(parts[0] + "." + parts[1])
-		if verifyJWS(spec, parsedKeys[0], signedPayload, sigBytes) {
+		if verifyJWS(spec, parsedKey, signedPayload, sigBytes) {
 			sigPassed = true
 			sigDetail = "Cryptographic signature is valid for embedded public key."
 		} else {

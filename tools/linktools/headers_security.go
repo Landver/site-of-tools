@@ -418,10 +418,13 @@ func parseCookieAudit(raw string) CookieReport {
 
 func isAuthCookieName(name string) bool {
 	n := strings.ToLower(name)
-	for _, term := range []string{"sess", "auth", "token", "jwt", "id", "sid", "csrf", "xsrf", "login"} {
+	for _, term := range []string{"sess", "auth", "token", "jwt", "sid", "csrf", "xsrf", "login"} {
 		if strings.Contains(n, term) {
 			return true
 		}
+	}
+	if n == "id" || strings.HasSuffix(n, "_id") || strings.HasSuffix(n, "-id") || strings.HasPrefix(n, "id_") || strings.Contains(n, "userid") || strings.Contains(n, "sessionid") {
+		return true
 	}
 	return false
 }

@@ -17,26 +17,22 @@ type ARCSummary struct {
 	FinalCV        string     `json:"final_chain_validation"` // "pass", "fail", "none"
 	Hops           []ARCHop   `json:"hops"`
 	Findings       []ARCNote  `json:"findings"`
-	SPFOverridden  bool       `json:"spf_overridden_by_arc"`
-	DKIMOverridden bool       `json:"dkim_overridden_by_arc"`
-	RawHopCount    int        `json:"raw_hop_count"`
 }
 
 // ARCHop represents a single hop (instance i) in the ARC chain.
 type ARCHop struct {
-	Index         int               `json:"index"` // i=1, 2, ...
-	Domain        string            `json:"domain"`
-	Selector      string            `json:"selector"`
-	Algorithm     string            `json:"algorithm"`
-	CV            string            `json:"chain_validation"` // "none", "pass", "fail"
-	AuthResults   string            `json:"auth_results"`
-	SPFResult     string            `json:"spf_result,omitempty"`
-	DKIMResult    string            `json:"dkim_result,omitempty"`
-	DMARCResult   string            `json:"dmarc_result,omitempty"`
-	SealPresent   bool              `json:"seal_present"`
-	SigPresent    bool              `json:"signature_present"`
-	ResultsPresent bool             `json:"results_present"`
-	Tags          map[string]string `json:"tags,omitempty"`
+	Index          int    `json:"index"` // i=1, 2, ...
+	Domain         string `json:"domain"`
+	Selector       string `json:"selector"`
+	Algorithm      string `json:"algorithm"`
+	CV             string `json:"chain_validation"` // "none", "pass", "fail"
+	AuthResults    string `json:"auth_results"`
+	SPFResult      string `json:"spf_result,omitempty"`
+	DKIMResult     string `json:"dkim_result,omitempty"`
+	DMARCResult    string `json:"dmarc_result,omitempty"`
+	SealPresent    bool   `json:"seal_present"`
+	SigPresent     bool   `json:"signature_present"`
+	ResultsPresent bool   `json:"results_present"`
 }
 
 // ARCNote represents a finding or observation about the ARC chain.
@@ -48,7 +44,23 @@ type ARCNote struct {
 
 var (
 	reTag = regexp.MustCompile(`([a-zA-Z0-9_-]+)\s*=\s*([^;]+)`)
+
+	reAuthVerdicts = map[string]*regexp.Regexp{
+		"spf":   regexp.MustCompile(`\bspf\s*=\s*([a-zA-Z0-9_-]+)`),
+		"dkim":  regexp.MustCompile(`\bdkim\s*=\s*([a-zA-Z0-9_-]+)`),
+		"dmarc": regexp.MustCompile(`\bdmarc\s*=\s*([a-zA-Z0-9_-]+)`),
+	}
 )
+
+func extractAuthVerdict(val, proto string) string {
+	if re, ok := reAuthVerdicts[proto]; ok {
+		lower := strings.ToLower(val)
+		if m := re.FindStringSubmatch(lower); len(m) > 1 {
+			return m[1]
+		}
+	}
+	return ""
+}
 
 func parseTags(val string) map[string]string {
 	tags := make(map[string]string)
@@ -238,13 +250,4 @@ func getOrCreateHop(m map[int]*ARCHop, i int) *ARCHop {
 	h := &ARCHop{Index: i}
 	m[i] = h
 	return h
-}
-
-func extractAuthVerdict(val, proto string) string {
-	lower := strings.ToLower(val)
-	re := regexp.MustCompile(fmt.Sprintf(`\b%s\s*=\s*([a-zA-Z0-9_-]+)`, proto))
-	if m := re.FindStringSubmatch(lower); len(m) > 1 {
-		return m[1]
-	}
-	return ""
 }

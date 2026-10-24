@@ -1,6 +1,7 @@
 package mcptools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -79,13 +80,13 @@ func (t mailTools) dmarcParse(_ context.Context, _ *mcp.CallToolRequest, a mailD
 		if err != nil {
 			return nil, errors.New("invalid base64 payload: " + err.Error())
 		}
-		r = strings.NewReader(string(dec))
+		r = bytes.NewReader(dec)
 	} else if a.XML != "" {
 		s := strings.TrimSpace(a.XML)
 		// Check if it's base64 encoded
 		if !strings.HasPrefix(s, "<") {
 			if dec, err := base64.StdEncoding.DecodeString(s); err == nil {
-				r = strings.NewReader(string(dec))
+				r = bytes.NewReader(dec)
 			} else {
 				r = strings.NewReader(s)
 			}

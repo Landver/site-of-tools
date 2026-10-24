@@ -22,7 +22,7 @@ curl {{.Base}}/pkce/verify -d code_verifier=your_verifier -d code_challenge=your
       {{template "cipher/engine-tab" "verify"}}
     </div>
 
-    <section x-show="tab === 'generate'" class="mt-4">
+    <section id="panel-generate" role="tabpanel" aria-labelledby="tab-generate" x-show="tab === 'generate'" class="mt-4">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div class="lg:col-span-5">
           <form method="post" action="/pkce/generate" data-cipher="pkce-generate" data-live data-target="#pkce-gen-result" class="space-y-3">
@@ -42,13 +42,13 @@ curl {{.Base}}/pkce/verify -d code_verifier=your_verifier -d code_challenge=your
             <button type="submit" class="btn-primary">Generate PKCE Pair</button>
           </form>
         </div>
-        <div id="pkce-gen-result" class="lg:col-span-7">
+        <div id="pkce-gen-result" class="lg:col-span-7 min-w-0" aria-live="polite">
           {{if eq .Op "pkce-generate"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/pkce-generated" .Result}}{{end}}{{end}}
         </div>
       </div>
     </section>
 
-    <section x-show="tab === 'verify'" class="mt-4">
+    <section id="panel-verify" role="tabpanel" aria-labelledby="tab-verify" x-show="tab === 'verify'" class="mt-4">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div class="lg:col-span-5">
           <form method="post" action="/pkce/verify" data-cipher="pkce-verify" data-live data-target="#pkce-ver-result" class="space-y-3">
@@ -72,7 +72,7 @@ curl {{.Base}}/pkce/verify -d code_verifier=your_verifier -d code_challenge=your
             <button type="submit" class="btn-primary">Verify Challenge</button>
           </form>
         </div>
-        <div id="pkce-ver-result" class="lg:col-span-7">
+        <div id="pkce-ver-result" class="lg:col-span-7 min-w-0" aria-live="polite">
           {{if eq .Op "pkce-verify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/pkce-verified" .Result}}{{end}}{{end}}
         </div>
       </div>
@@ -83,26 +83,31 @@ curl {{.Base}}/pkce/verify -d code_verifier=your_verifier -d code_challenge=your
 {{define "cipher/pkce-generated"}}
 <div class="space-y-4">
   <div class="rounded-lg border border-line bg-surface p-4">
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <span class="text-xs font-semibold uppercase tracking-wider text-muted">code_verifier</span>
       <span class="text-xs text-muted">~{{.EntropyBits}} bits entropy</span>
     </div>
     <div class="mt-2 flex items-center justify-between gap-2 rounded bg-canvas p-2 border border-line">
-      <code class="font-mono text-xs text-strong break-all select-all">{{.CodeVerifier}}</code>
+      <code class="font-mono text-xs text-strong break-all select-all min-w-0 flex-1">{{.CodeVerifier}}</code>
+      <button type="button" class="btn-copy" data-copy="{{.CodeVerifier}}">Copy</button>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-line bg-surface p-4">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">code_challenge ({{.Method}})</span>
+    </div>
+    <div class="mt-2 flex items-center justify-between gap-2 rounded bg-canvas p-2 border border-line">
+      <code class="font-mono text-xs text-strong break-all select-all min-w-0 flex-1">{{.CodeChallenge}}</code>
+      <button type="button" class="btn-copy" data-copy="{{.CodeChallenge}}">Copy</button>
     </div>
   </div>
 
   <div class="rounded-lg border border-line bg-surface p-4">
     <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold uppercase tracking-wider text-muted">code_challenge ({{.Method}})</span>
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">Sample OAuth Authorization URL</span>
+      <button type="button" class="btn-copy" data-copy="{{.ExampleURL}}">Copy</button>
     </div>
-    <div class="mt-2 flex items-center justify-between gap-2 rounded bg-canvas p-2 border border-line">
-      <code class="font-mono text-xs text-strong break-all select-all">{{.CodeChallenge}}</code>
-    </div>
-  </div>
-
-  <div class="rounded-lg border border-line bg-surface p-4">
-    <span class="text-xs font-semibold uppercase tracking-wider text-muted">Sample OAuth Authorization URL</span>
     <div class="mt-2 rounded bg-canvas p-2 border border-line overflow-x-auto">
       <code class="font-mono text-xs text-brand-ink break-all">{{.ExampleURL}}</code>
     </div>
@@ -123,7 +128,10 @@ curl {{.Base}}/pkce/verify -d code_verifier=your_verifier -d code_challenge=your
   </div>
 
   <div class="rounded-lg border border-line bg-surface p-4">
-    <span class="text-xs font-semibold uppercase tracking-wider text-muted">Calculated Challenge ({{.Method}})</span>
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">Calculated Challenge ({{.Method}})</span>
+      <button type="button" class="btn-copy" data-copy="{{.CalculatedChallenge}}">Copy</button>
+    </div>
     <div class="mt-2 rounded bg-canvas p-2 border border-line overflow-x-auto">
       <code class="font-mono text-xs text-strong break-all select-all">{{.CalculatedChallenge}}</code>
     </div>

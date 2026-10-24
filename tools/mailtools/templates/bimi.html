@@ -18,7 +18,7 @@
             hx-post="/bimi" hx-target="#result" hx-swap="innerHTML" hx-encoding="multipart/form-data"
             class="space-y-4">
 
-        <div class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface">
+        <div class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">
           <svg class="mx-auto h-10 w-10 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
@@ -58,16 +58,16 @@
 <div class="space-y-6" x-data="{ bg: 'light' }">
 
   {{/* Status Banner */}}
-  <div class="rounded-lg border {{if .Compliant}}border-ok/40 bg-ok/10 text-ok{{else}}border-danger/40 bg-danger/10 text-danger{{end}} p-4">
+  <div class="rounded-lg border {{if .Compliant}}border-ok/40 bg-ok/10{{else}}border-danger/40 bg-danger/10{{end}} p-4">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <span class="font-bold text-sm">
+        <span class="font-bold text-sm {{if .Compliant}}text-ok{{else}}text-danger{{end}}">
           {{if .Compliant}}✓ BIMI SVG Tiny P/S Compliant{{else}}✕ Non-Compliant BIMI Logo ({{.FailCount}} Issues Found){{end}}
         </span>
       </div>
-      <div class="text-xs font-mono">Size: {{.FileSize}} bytes</div>
+      <div class="text-xs font-mono text-muted">Size: {{.FileSize}} bytes</div>
     </div>
-    <p class="mt-1 text-xs">
+    <p class="mt-1 text-xs text-muted">
       {{if .Compliant}}
         This logo strictly meets RFC standards and BIMI guidelines. Ready for Gmail, Apple Mail, and Yahoo Mail.
       {{else}}
@@ -82,10 +82,10 @@
       <div class="flex items-center justify-between">
         <h2 class="text-sm font-semibold text-strong">Inbox Avatar Simulation</h2>
         <div class="inline-flex gap-1 rounded border border-line p-0.5 text-xs">
-          <button type="button" @click="bg = 'light'" :class="bg === 'light' ? 'bg-brand text-white' : 'text-muted'"
-                  class="rounded px-2 py-0.5">Light</button>
-          <button type="button" @click="bg = 'dark'" :class="bg === 'dark' ? 'bg-brand text-white' : 'text-muted'"
-                  class="rounded px-2 py-0.5">Dark</button>
+          <button type="button" :aria-pressed="bg === 'light'" @click="bg = 'light'" :class="bg === 'light' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+                  class="rounded px-2.5 py-1 transition">Light</button>
+          <button type="button" :aria-pressed="bg === 'dark'" @click="bg = 'dark'" :class="bg === 'dark' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+                  class="rounded px-2.5 py-1 transition">Dark</button>
         </div>
       </div>
       <p class="mt-1 text-xs text-muted">Simulates Gmail &amp; Apple Mail circular clipping and theme contrast.</p>
@@ -93,8 +93,8 @@
       <div class="mt-4 flex flex-col items-center justify-center p-6 rounded-lg border border-line transition"
            :class="bg === 'light' ? 'bg-white' : 'bg-zinc-900'">
         <div class="relative h-28 w-28 overflow-hidden rounded-full border border-line/40 shadow-sm flex items-center justify-center p-2">
-          {{/* Render sanitized SVG inline */}}
-          <div class="h-full w-full flex items-center justify-center">
+          {{/* Render sanitized SVG inline with object containment */}}
+          <div class="h-full w-full flex items-center justify-center [&>svg]:max-h-full [&>svg]:max-w-full [&>svg]:h-auto [&>svg]:w-auto [&>svg]:object-contain">
             {{.SanitizedSVG}}
           </div>
         </div>

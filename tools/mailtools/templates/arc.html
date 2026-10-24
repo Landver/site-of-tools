@@ -90,15 +90,16 @@
   {{/* Hop Timeline */}}
   <section class="rounded-lg border border-line bg-surface p-4">
     <h2 class="text-sm font-semibold text-strong">ARC Hop-by-Hop Authentication Sequence</h2>
+    {{if .Hops}}
     <div class="mt-4 space-y-4">
       {{range .Hops}}
       <div class="relative pl-6 before:absolute before:left-2 before:top-2 before:bottom-0 before:w-0.5 before:bg-line last:before:hidden">
         <div class="absolute left-0 top-1.5 h-4 w-4 rounded-full border-2 border-brand bg-canvas"></div>
         <div class="rounded-lg border border-line p-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <span class="font-mono font-bold text-sm text-strong">Hop i={{.Index}}</span>
-              <span class="badge badge-neutral text-xs">{{.Domain}}</span>
+              <span class="badge badge-neutral text-xs break-all">{{.Domain}}</span>
             </div>
             <div class="flex gap-1 text-xs">
               <span class="badge {{if eq .CV "pass"}}badge-ok{{else if eq .CV "none"}}badge-neutral{{else}}badge-danger{{end}}">
@@ -123,6 +124,9 @@
       </div>
       {{end}}
     </div>
+    {{else}}
+    <p class="mt-2 text-xs text-muted">No ARC authentication hops (ARC-Seal / ARC-Message-Signature / ARC-Authentication-Results) detected in the provided headers.</p>
+    {{end}}
   </section>
 
 </div>

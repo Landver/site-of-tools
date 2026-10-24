@@ -142,7 +142,7 @@ func runPKCEVerify(in Input) (any, error) {
 
 	for i := 0; i < len(verifier); i++ {
 		c := verifier[i]
-		if !strings.ContainsRune(pkceCharset, rune(c)) {
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~') {
 			return &PKCEVerifyResult{
 				Valid:  false,
 				Status: "invalid",
@@ -184,15 +184,23 @@ func runPKCEVerify(in Input) (any, error) {
 }
 
 func generateRandomVerifier(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
+	// pkceCharset has 66 characters. The largest multiple of 66 <= 256 is 198 (66 * 3).
+	// Rejection sampling (discarding bytes >= 198) guarantees completely uniform distribution
+	// with zero modulo bias across the RFC 7636 unreserved character set.
+	const maxByte = 198
+	const charsetLen = byte(len(pkceCharset))
 	var sb strings.Builder
 	sb.Grow(length)
-	charsetLen := byte(len(pkceCharset))
-	for _, b := range bytes {
-		sb.WriteByte(pkceCharset[b%charsetLen])
+	buf := make([]byte, length)
+	for sb.Len() < length {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		for _, b := range buf {
+			if b < maxByte && sb.Len() < length {
+				sb.WriteByte(pkceCharset[b%charsetLen])
+			}
+		}
 	}
 	return sb.String(), nil
 }

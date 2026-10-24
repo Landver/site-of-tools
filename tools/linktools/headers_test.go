@@ -258,3 +258,96 @@ func TestProbeHeadersLiveAndETag(t *testing.T) {
 		t.Errorf("ETag simulation status: want 304, got %d", report.ETagSimulation.StatusCode)
 	}
 }
+
+func TestCacheDirectives_BoundaryAndConflictingHeaders(t *testing.T) {
+	// 1. Extreme and negative max-age
+	h := make(http.Header)
+	h.Set("Cache-Control", "public, max-age=-3600")
+	res := AnalyzeCache(http.StatusOK, h)
+	if res.TTL.BrowserTTLSeconds != 0 {
+		t.Errorf("negative max-age should result in 0 TTL, got %d", res.TTL.BrowserTTLSeconds)
+	}
+
+	// 2. Conflicting headers: public max-age=3600 combined with no-store
+	hConflict := make(http.Header)
+	hConflict.Set("Cache-Control", "public, max-age=3600, no-store")
+	resConflict := AnalyzeCache(http.StatusOK, hConflict)
+	if resConflict.TTL.BrowserTTLSeconds != 0 || !resConflict.TTL.NoStore {
+		t.Errorf("no-store must strictly override max-age, got TTL %d", resConflict.TTL.BrowserTTLSeconds)
+	}
+
+	// 3. Age header exceeding max-age (remaining seconds must be 0, not negative)
+	hAge := make(http.Header)
+	hAge.Set("Cache-Control", "public, max-age=300")
+	hAge.Set("Age", "500")
+	resAge := AnalyzeCache(http.StatusOK, hAge)
+	if resAge.TTL.RemainingSeconds != 0 {
+		t.Errorf("remaining seconds when Age > max-age: want 0, got %d", resAge.TTL.RemainingSeconds)
+	}
+
+	// 4. RFC 9213 Precedence: CDN-Cache-Control overrides s-maxage and max-age
+	hCDN := make(http.Header)
+	hCDN.Set("Cache-Control", "public, max-age=60, s-maxage=300")
+	hCDN.Set("CDN-Cache-Control", "max-age=86400")
+	resCDN := AnalyzeCache(http.StatusOK, hCDN)
+	if resCDN.TTL.BrowserTTLSeconds != 60 {
+		t.Errorf("browser TTL: want 60, got %d", resCDN.TTL.BrowserTTLSeconds)
+	}
+	if resCDN.TTL.EdgeTTLSeconds != 86400 {
+		t.Errorf("edge TTL: want 86400, got %d", resCDN.TTL.EdgeTTLSeconds)
+	}
+
+	// 5. Completely empty headers (Heuristic Caching)
+	resEmpty := AnalyzeCache(http.StatusOK, make(http.Header))
+	if !resEmpty.TTL.Heuristic || resEmpty.TTL.BrowserTTLSeconds != 0 {
+		t.Errorf("empty headers must trigger heuristic caching notice")
+	}
+}
+
+func TestSecurityAudit_CookiesAndCORSBoundary(t *testing.T) {
+	// 1. __Host- cookie violations: Path != "/" and missing Secure
+	hCookie := make(http.Header)
+	hCookie.Add("Set-Cookie", "__Host-sub=token1; Secure; Path=/app")       // Path must be /
+	hCookie.Add("Set-Cookie", "__Secure-tok=token2; Path=/app")             // Missing Secure
+	hCookie.Add("Set-Cookie", "malformed_cookie_without_equals; Secure")    // No =
+	hCookie.Add("Set-Cookie", "session=xyz123; Secure; SameSite=Lax")       // Missing HttpOnly on auth name
+	sec := AnalyzeSecurity(hCookie)
+
+	if len(sec.Cookies) != 4 {
+		t.Fatalf("expected 4 cookies parsed, got %d", len(sec.Cookies))
+	}
+	if sec.Cookies[0].PrefixValid {
+		t.Errorf("__Host- with Path=/app must fail PrefixValid")
+	}
+	if sec.Cookies[1].PrefixValid {
+		t.Errorf("__Secure- without Secure must fail PrefixValid")
+	}
+
+	foundHttpOnlyWarn := false
+	for _, n := range sec.Findings {
+		if strings.Contains(n.Title, `Sensitive cookie "session" missing HttpOnly`) {
+			foundHttpOnlyWarn = true
+			break
+		}
+	}
+	if !foundHttpOnlyWarn {
+		t.Errorf("expected warning for auth cookie missing HttpOnly")
+	}
+
+	// 2. CORS without Vary: Origin on cacheable response
+	hCORS := make(http.Header)
+	hCORS.Set("Access-Control-Allow-Origin", "*")
+	hCORS.Set("Cache-Control", "public, max-age=600")
+	cacheCORS := AnalyzeCache(http.StatusOK, hCORS)
+
+	foundCORS := false
+	for _, n := range cacheCORS.Findings {
+		if strings.Contains(n.Title, "Cache Poisoning Risk: CORS header without Vary: Origin") {
+			foundCORS = true
+			break
+		}
+	}
+	if !foundCORS {
+		t.Errorf("expected Cache Poisoning warning for CORS without Vary: Origin")
+	}
+}

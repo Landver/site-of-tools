@@ -303,3 +303,140 @@ func TestMailToolsHTTPRoutes(t *testing.T) {
 		t.Errorf("fixed svg missing tiny-ps: %s", fixRes.SVG)
 	}
 }
+
+func TestDMARC_CorruptArchivesAndAggregation(t *testing.T) {
+	// 1. Truncated Gzip archive (starts with gzip magic 0x1f, 0x8b but corrupted payload)
+	corruptGz := bytes.NewReader([]byte{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00})
+	_, err := mailtools.ParseDMARCReport(corruptGz)
+	if err == nil {
+		t.Errorf("expected error for truncated gzip archive, got nil")
+	}
+
+	// 2. Empty XML feedback
+	emptyXML := strings.NewReader(`<?xml version="1.0"?><feedback></feedback>`)
+	repEmpty, err := mailtools.ParseDMARCReport(emptyXML)
+	if err != nil {
+		t.Fatalf("ParseDMARCReport on empty feedback failed: %v", err)
+	}
+	if repEmpty.TotalMessages != 0 || len(repEmpty.Sources) != 0 {
+		t.Errorf("expected 0 messages and 0 sources, got: %+v", repEmpty)
+	}
+
+	// 3. Duplicate IP Aggregation: multiple <record> blocks with the same source_ip
+	dupXML := `<?xml version="1.0" encoding="UTF-8"?>
+<feedback>
+  <report_metadata><org_name>test.org</org_name></report_metadata>
+  <policy_published><domain>corpberry.com</domain><p>reject</p></policy_published>
+  <record>
+    <row><source_ip>209.85.220.41</source_ip><count>5</count>
+      <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>corpberry.com</header_from></identifiers>
+  </record>
+  <record>
+    <row><source_ip>209.85.220.41</source_ip><count>10</count>
+      <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>corpberry.com</header_from></identifiers>
+  </record>
+</feedback>`
+
+	repDup, err := mailtools.ParseDMARCReport(strings.NewReader(dupXML))
+	if err != nil {
+		t.Fatalf("ParseDMARCReport failed: %v", err)
+	}
+	if repDup.TotalMessages != 15 {
+		t.Errorf("TotalMessages: want 15, got %d", repDup.TotalMessages)
+	}
+	// The 2 records must be aggregated into exactly 1 source entry
+	if len(repDup.Sources) != 1 {
+		t.Fatalf("expected 1 aggregated source, got %d", len(repDup.Sources))
+	}
+	if repDup.Sources[0].Count != 15 || repDup.Sources[0].PassCount != 15 {
+		t.Errorf("aggregated source count mismatch: %+v", repDup.Sources[0])
+	}
+}
+
+func TestBIMI_SecurityAndBoundaryViolations(t *testing.T) {
+	// 1. Strict 32 KB size boundary limit
+	exactSizeSVG := `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">`
+	padding := strings.Repeat("<!-- pad -->", (32768-len(exactSizeSVG)-6)/12)
+	exactSizeSVG += padding + "</svg>"
+
+	valExact, err := mailtools.ValidateBIMI(exactSizeSVG)
+	if err != nil {
+		t.Fatalf("ValidateBIMI failed: %v", err)
+	}
+	for _, f := range valExact.Findings {
+		if strings.Contains(f.Rule, "File Size Limit") && f.Severity == "fail" {
+			t.Errorf("expected 32KB SVG to pass size limit, but failed")
+		}
+	}
+
+	// 32,769 bytes -> fails size rule
+	oversizedSVG := exactSizeSVG[:len(exactSizeSVG)-6] + "x" + "</svg>"
+	valOver, err := mailtools.ValidateBIMI(oversizedSVG)
+	if err != nil {
+		t.Fatalf("ValidateBIMI oversized failed: %v", err)
+	}
+	foundSizeFail := false
+	for _, f := range valOver.Findings {
+		if strings.Contains(f.Rule, "File Size Limit") && f.Severity == "fail" {
+			foundSizeFail = true
+			break
+		}
+	}
+	if !foundSizeFail {
+		t.Errorf("expected 32,769 byte SVG to fail size limit")
+	}
+
+	// 2. Forbidden elements: iframe, canvas, foreignObject
+	forbiddenTags := []string{
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><iframe src="https://evil.com"/></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><canvas id="c"/></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject>text</foreignObject></svg>`,
+	}
+	for _, raw := range forbiddenTags {
+		v, err := mailtools.ValidateBIMI(raw)
+		if err != nil {
+			t.Fatalf("ValidateBIMI failed: %v", err)
+		}
+		if v.Compliant {
+			t.Errorf("expected forbidden tag in SVG to be non-compliant: %s", raw)
+		}
+	}
+
+	// 3. Non-XML content
+	_, errNonXML := mailtools.ValidateBIMI("<html><body>Not an SVG</body></html>")
+	if errNonXML == nil {
+		t.Errorf("expected error for non-SVG XML root, got nil")
+	}
+}
+
+func TestARC_SequenceGapsAndIncompleteHops(t *testing.T) {
+	// 1. Missing intermediate hop (sequence gap: i=1, then i=3 missing i=2)
+	brokenSeq := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none; b=abc
+ARC-Message-Signature: i=1; a=rsa-sha256; d=origin.example; s=arc; b=abc
+ARC-Authentication-Results: i=1; mx.origin.example; spf=pass
+ARC-Seal: i=3; a=rsa-sha256; d=hop3.example; s=arc; cv=pass; b=def
+ARC-Message-Signature: i=3; a=rsa-sha256; d=hop3.example; s=arc; b=def
+ARC-Authentication-Results: i=3; mx.hop3.example; spf=pass`
+
+	arcSeq, err := mailtools.AnalyzeARC(brokenSeq)
+	if err != nil {
+		t.Fatalf("AnalyzeARC failed: %v", err)
+	}
+	if arcSeq.ChainValid {
+		t.Errorf("expected chain with missing hop i=2 to be invalid")
+	}
+
+	// 2. Incomplete hop (hop i=1 has ARC-Seal only, missing Message-Signature and Auth-Results)
+	incompleteHop := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none; b=abc`
+	arcInc, err := mailtools.AnalyzeARC(incompleteHop)
+	if err != nil {
+		t.Fatalf("AnalyzeARC failed: %v", err)
+	}
+	if arcInc.ChainValid {
+		t.Errorf("expected incomplete hop to be invalid")
+	}
+}

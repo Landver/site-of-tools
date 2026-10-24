@@ -39,12 +39,15 @@ type BIMIValidation struct {
 }
 
 var (
-	reScriptTag   = regexp.MustCompile(`(?i)<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>`)
-	reForeignObj  = regexp.MustCompile(`(?i)<\s*foreignObject[^>]*>[\s\S]*?<\s*/\s*foreignObject\s*>`)
+	reScriptTag    = regexp.MustCompile(`(?i)<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>`)
+	reForeignObj   = regexp.MustCompile(`(?i)<\s*foreignObject[^>]*>[\s\S]*?<\s*/\s*foreignObject\s*>`)
 	reEventHandler = regexp.MustCompile(`(?i)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
 	reJSURI        = regexp.MustCompile(`(?i)(href|xlink:href)\s*=\s*["']\s*javascript:[^"']*["']`)
 	reExternalURL  = regexp.MustCompile(`(?i)url\s*\(\s*["']?https?://[^"')]+["']?\s*\)`)
 	reImportCSS    = regexp.MustCompile(`(?i)@import\s+[^;]+;`)
+	reViewBox      = regexp.MustCompile(`(?i)viewBox\s*=\s*["']([^"']+)["']`)
+	reWidth        = regexp.MustCompile(`(?i)\bwidth\s*=\s*["']?([0-9.]+)(?:px)?["']?`)
+	reHeight       = regexp.MustCompile(`(?i)\bheight\s*=\s*["']?([0-9.]+)(?:px)?["']?`)
 )
 
 // ValidateBIMI audits raw SVG text against the strict BIMI SVG Tiny P/S profile.
@@ -290,12 +293,8 @@ func AutoFixBIMI(raw string) (string, error) {
 		return "", errors.New("empty SVG")
 	}
 
-	// 1. Strip dangerous tags and attributes
-	s = reScriptTag.ReplaceAllString(s, "")
-	s = reForeignObj.ReplaceAllString(s, "")
-	s = reEventHandler.ReplaceAllString(s, "")
-	s = reJSURI.ReplaceAllString(s, "")
-	s = reImportCSS.ReplaceAllString(s, "")
+	// 1. Strip dangerous tags, event handlers, and external imports
+	s = reImportCSS.ReplaceAllString(sanitizeForPreview(s), "")
 
 	// 2. Parse root <svg ...> tag
 	rootStart := strings.Index(s, "<svg")
@@ -313,15 +312,11 @@ func AutoFixBIMI(raw string) (string, error) {
 
 	// Extract or synthesize viewBox
 	viewBox := ""
-	reVB := regexp.MustCompile(`(?i)viewBox\s*=\s*["']([^"']+)["']`)
-	if m := reVB.FindStringSubmatch(rootTag); len(m) > 1 {
+	if m := reViewBox.FindStringSubmatch(rootTag); len(m) > 1 {
 		viewBox = m[1]
 	}
 
 	// If viewBox missing or not square, check width & height
-	reWidth := regexp.MustCompile(`(?i)\bwidth\s*=\s*["']?([0-9.]+)(?:px)?["']?`)
-	reHeight := regexp.MustCompile(`(?i)\bheight\s*=\s*["']?([0-9.]+)(?:px)?["']?`)
-
 	var wVal, hVal float64
 	if m := reWidth.FindStringSubmatch(rootTag); len(m) > 1 {
 		wVal, _ = strconv.ParseFloat(m[1], 64)

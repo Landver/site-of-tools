@@ -13,10 +13,12 @@
       Cross-Origin Isolation (COOP &amp; COEP), Permissions-Policy, cookie security attributes, and ETag revalidation.
     </p>
 
-    <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist">
-      <button type="button" @click="tab = 'url'" :class="tab === 'url' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+    <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
+      <button type="button" role="tab" id="tab-url" aria-controls="panel-url" :aria-selected="tab === 'url'"
+              @click="tab = 'url'" :class="tab === 'url' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5 transition">Fetch Live URL</button>
-      <button type="button" @click="tab = 'paste'" :class="tab === 'paste' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+      <button type="button" role="tab" id="tab-paste" aria-controls="panel-paste" :aria-selected="tab === 'paste'"
+              @click="tab = 'paste'" :class="tab === 'paste' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
               class="rounded-md px-3 py-1.5 transition">Paste Headers</button>
     </div>
 
@@ -27,7 +29,7 @@
     {{end}}
 
     {{/* Mode 1: Fetch Live URL */}}
-    <div x-show="tab === 'url'" class="mt-4">
+    <div id="panel-url" role="tabpanel" aria-labelledby="tab-url" x-show="tab === 'url'" class="mt-4">
       <form action="/headers" hx-get="/headers" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
             hx-trigger="submit, change from:find select" hx-sync="this:queue last"
             class="flex flex-wrap gap-2">
@@ -49,7 +51,7 @@
     </div>
 
     {{/* Mode 2: Paste Raw Headers */}}
-    <div x-show="tab === 'paste'" class="mt-4">
+    <div id="panel-paste" role="tabpanel" aria-labelledby="tab-paste" x-show="tab === 'paste'" class="mt-4">
       <form action="/headers" method="post" hx-post="/headers" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
             class="space-y-3">
         <label class="block text-sm text-muted">
@@ -240,7 +242,7 @@
       {{range .Security.Cookies}}
         <div class="py-2 text-xs">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="font-mono font-bold text-strong">{{.Name}}</span>
+            <span class="font-mono font-bold text-strong break-all">{{.Name}}</span>
             <div class="flex flex-wrap gap-1">
               {{if .Secure}}<span class="badge badge-ok">Secure</span>{{else}}<span class="badge badge-danger">Insecure</span>{{end}}
               {{if .HttpOnly}}<span class="badge badge-ok">HttpOnly</span>{{else}}<span class="badge badge-warn">No HttpOnly</span>{{end}}
@@ -267,9 +269,9 @@
       <table class="w-full text-left text-xs font-mono">
         <thead>
           <tr class="border-b border-line text-faint">
-            <th class="py-2 pr-3 font-semibold">Category</th>
-            <th class="py-2 pr-3 font-semibold">Header</th>
-            <th class="py-2 font-semibold">Value</th>
+            <th scope="col" class="py-2 pr-3 font-semibold">Category</th>
+            <th scope="col" class="py-2 pr-3 font-semibold">Header</th>
+            <th scope="col" class="py-2 font-semibold">Value</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-line">

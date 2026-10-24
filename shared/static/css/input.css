@@ -163,6 +163,9 @@
   .badge-danger {
     @apply border border-danger/30 bg-danger/10 text-danger;
   }
+  .badge-info {
+    @apply border border-info/30 bg-info/10 text-info;
+  }
   .badge-neutral {
     @apply border border-line bg-surface text-muted;
   }

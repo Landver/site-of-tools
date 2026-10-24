@@ -22,7 +22,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
       {{template "cipher/engine-tab" "verify"}}
     </div>
 
-    <section x-show="tab === 'generate'" class="mt-4">
+    <section id="panel-generate" role="tabpanel" aria-labelledby="tab-generate" x-show="tab === 'generate'" class="mt-4">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div class="lg:col-span-5">
           <form method="post" action="/dpop/generate" data-cipher="dpop-generate" data-live data-target="#dpop-gen-result" class="space-y-3">
@@ -78,13 +78,13 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
             <button type="submit" class="btn-primary">Generate DPoP Proof</button>
           </form>
         </div>
-        <div id="dpop-gen-result" class="lg:col-span-7">
+        <div id="dpop-gen-result" class="lg:col-span-7 min-w-0" aria-live="polite">
           {{if eq .Op "dpop-generate"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/dpop-generated" .Result}}{{end}}{{end}}
         </div>
       </div>
     </section>
 
-    <section x-show="tab === 'verify'" class="mt-4">
+    <section id="panel-verify" role="tabpanel" aria-labelledby="tab-verify" x-show="tab === 'verify'" class="mt-4">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div class="lg:col-span-5">
           <form method="post" action="/dpop/verify" data-cipher="dpop-verify" data-live data-target="#dpop-ver-result" class="space-y-3">
@@ -127,7 +127,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
             <button type="submit" class="btn-primary">Verify DPoP Proof</button>
           </form>
         </div>
-        <div id="dpop-ver-result" class="lg:col-span-7">
+        <div id="dpop-ver-result" class="lg:col-span-7 min-w-0" aria-live="polite">
           {{if eq .Op "dpop-verify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/dpop-verified" .Result}}{{end}}{{end}}
         </div>
       </div>
@@ -138,12 +138,13 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
 {{define "cipher/dpop-generated"}}
 <div class="space-y-4">
   <div class="rounded-lg border border-line bg-surface p-4">
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <span class="text-xs font-semibold uppercase tracking-wider text-muted">Signed DPoP Proof JWT</span>
       <span class="text-xs text-muted">JWK Thumbprint (<code class="font-mono text-brand-ink">{{.JWKThumbprint}}</code>)</span>
     </div>
-    <div class="mt-2 rounded bg-canvas p-3 border border-line">
-      <code class="font-mono text-xs text-strong break-all select-all">{{.Token}}</code>
+    <div class="mt-2 flex items-start gap-2 rounded bg-canvas p-3 border border-line">
+      <code class="font-mono text-xs text-strong break-all select-all flex-1">{{.Token}}</code>
+      <button type="button" class="btn-copy" data-copy="{{.Token}}">Copy</button>
     </div>
   </div>
 
@@ -159,7 +160,10 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
   </div>
 
   <div class="rounded-lg border border-line bg-surface p-4">
-    <span class="text-xs font-semibold uppercase tracking-wider text-muted">Ready-to-use cURL Request</span>
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">Ready-to-use cURL Request</span>
+      <button type="button" class="btn-copy" data-copy="{{.Curl}}">Copy</button>
+    </div>
     <pre class="mt-2 overflow-x-auto rounded bg-canvas p-3 border border-line font-mono text-xs text-strong">{{.Curl}}</pre>
   </div>
 </div>

@@ -306,3 +306,37 @@ func TestLinkParity(t *testing.T) {
 		}
 	}
 }
+
+func TestMCP_LinkHeadersInspect(t *testing.T) {
+	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
+
+	rawHeaders := "HTTP/2 200 OK\n" +
+		"content-type: text/html\n" +
+		"cache-control: public, max-age=3600, s-maxage=7200\n" +
+		"cdn-cache-control: max-age=86400\n" +
+		"cross-origin-opener-policy: same-origin\n" +
+		"cross-origin-embedder-policy: require-corp\n" +
+		"set-cookie: __Host-id=secret123; Secure; Path=/\n"
+
+	// 1. Inspection of pasted raw headers
+	res := object(t, call(t, cs, "link_headers_inspect", map[string]any{"headers": rawHeaders}))
+	if fmt.Sprint(res["status_code"]) != "200" {
+		t.Errorf("status code: want 200, got %v", res["status_code"])
+	}
+	cache := res["cache"].(map[string]any)
+	ttl := cache["ttl"].(map[string]any)
+	if fmt.Sprint(ttl["browser_ttl_seconds"]) != "3600" || fmt.Sprint(ttl["edge_ttl_seconds"]) != "86400" {
+		t.Errorf("TTL mismatch: browser=%v, edge=%v", ttl["browser_ttl_seconds"], ttl["edge_ttl_seconds"])
+	}
+	sec := res["security"].(map[string]any)
+	iso := sec["isolation"].(map[string]any)
+	if iso["isolated"] != true {
+		t.Errorf("expected cross-origin isolated: true")
+	}
+
+	// 2. Missing both url and headers
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{}), "provide either url or headers")
+
+	// 3. Passing curl command instead of URL triggers wrongTool detection
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "curl https://example.com"}), "Take it apart with link_curl_parse")
+}

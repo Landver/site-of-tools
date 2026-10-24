@@ -214,7 +214,7 @@ func (h *handler) arc(c *echo.Context) error {
 func (h *handler) arcParse(c *echo.Context) error {
 	headers := strings.TrimSpace(c.FormValue("headers"))
 	if headers == "" {
-		body, _ := io.ReadAll(c.Request().Body)
+		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, 1<<20)) // 1 MB limit against memory exhaustion
 		headers = strings.TrimSpace(string(body))
 	}
 	if headers == "" {
