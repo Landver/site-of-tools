@@ -436,12 +436,17 @@ func runDPoPVerify(in Input) (any, error) {
 	sigPassed := false
 	var sigDetail string
 	if jwkPassed && algPassed {
-		signedPayload := []byte(parts[0] + "." + parts[1])
-		if verifyJWS(spec, parsedKey, signedPayload, sigBytes) {
-			sigPassed = true
-			sigDetail = "Cryptographic signature is valid for embedded public key."
+		if !jwtKeyFits(spec, parsedKey) {
+			sigDetail = fmt.Sprintf("Embedded JWK (%s) does not match algorithm %s (requires %s).",
+				keyName(parsedKey.Public), header.Alg, algNeeds(spec))
 		} else {
-			sigDetail = "Signature verification failed: proof has been altered or signed with a different key."
+			signedPayload := []byte(parts[0] + "." + parts[1])
+			if verifyJWS(spec, parsedKey, signedPayload, sigBytes) {
+				sigPassed = true
+				sigDetail = "Cryptographic signature is valid for embedded public key."
+			} else {
+				sigDetail = "Signature verification failed: proof has been altered or signed with a different key."
+			}
 		}
 	} else {
 		sigDetail = "Skipped because algorithm or JWK is invalid."

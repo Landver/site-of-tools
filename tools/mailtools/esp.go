@@ -1,7 +1,7 @@
 package mailtools
 
 import (
-	"net"
+	"net/netip"
 	"strings"
 )
 
@@ -82,8 +82,8 @@ func IdentifyESP(ipStr, ptr string) ESPInfo {
 	}
 
 	// Check if IP is private or loopback
-	if parsed := net.ParseIP(ipStr); parsed != nil {
-		if parsed.IsLoopback() || parsed.IsPrivate() {
+	if addr, err := netip.ParseAddr(ipStr); err == nil {
+		if addr.IsLoopback() || addr.IsPrivate() {
 			return ESPInfo{Name: "Internal / Private IP", Category: "self-hosted", Icon: "Private"}
 		}
 	}

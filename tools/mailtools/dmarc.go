@@ -131,6 +131,7 @@ type DMARCRecord struct {
 
 // ParseDMARCReport decompresses (if gzip) and parses a DMARC aggregate XML report.
 func ParseDMARCReport(r io.Reader) (*DMARCReport, error) {
+	r = io.LimitReader(r, maxDMARCPayload)
 	// Read header bytes to check for gzip magic: 0x1f, 0x8b
 	headerBuf := make([]byte, 2)
 	n, err := io.ReadFull(r, headerBuf)

@@ -22,7 +22,9 @@
   {{if .Author}}<meta name="author" content="{{.Author}}">{{end}}
   {{if .Published}}<meta property="article:published_time" content="{{.Published}}">
   <meta property="article:modified_time" content="{{.Published}}">{{end}}
-  {{if .Canonical}}<link rel="canonical" href="{{.Canonical}}">{{end}}
+  {{if .Canonical}}<link rel="canonical" href="{{.Canonical}}">
+  <meta property="og:url" content="{{.Canonical}}">{{end}}
+  <meta name="robots" content="{{or .Robots "index, follow"}}">
   {{/* schema.org BlogPosting, set by the blog post handler only. */}}
   {{if .JSONLD}}<script type="application/ld+json">{{.JSONLD}}</script>{{end}}
   {{if .Feed}}<link rel="alternate" type="application/atom+xml" title="corpberry.com blog" href="{{.Feed}}">{{end}}

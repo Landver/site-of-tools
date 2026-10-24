@@ -479,17 +479,28 @@ func verifyJWS(spec jwsAlg, k Key, input, sig []byte) bool {
 		mac, _ := signJWS(spec, k, input)
 		return hmac.Equal(mac, sig)
 	case KindRSA:
-		pub := k.Public.(*rsa.PublicKey)
+		pub, ok := k.Public.(*rsa.PublicKey)
+		if !ok || pub == nil {
+			return false
+		}
 		if spec.pss {
 			return rsa.VerifyPSS(pub, spec.hash, digest(spec.hash, input), sig, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) == nil
 		}
 		return rsa.VerifyPKCS1v15(pub, spec.hash, digest(spec.hash, input), sig) == nil
 	case KindEC:
+		pub, ok := k.Public.(*ecdsa.PublicKey)
+		if !ok || pub == nil {
+			return false
+		}
 		// Raw r‖s, not DER (RFC 7518 §3.4).
-		return len(sig) == 2*spec.size() && ecdsa.Verify(k.Public.(*ecdsa.PublicKey), digest(spec.hash, input),
+		return len(sig) == 2*spec.size() && ecdsa.Verify(pub, digest(spec.hash, input),
 			new(big.Int).SetBytes(sig[:spec.size()]), new(big.Int).SetBytes(sig[spec.size():]))
 	}
-	return ed25519.Verify(k.Public.(ed25519.PublicKey), input, sig)
+	pub, ok := k.Public.(ed25519.PublicKey)
+	if !ok || len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+	return ed25519.Verify(pub, input, sig)
 }
 
 func signJWS(spec jwsAlg, k Key, input []byte) ([]byte, error) {

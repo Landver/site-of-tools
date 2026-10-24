@@ -277,6 +277,10 @@ func ParseRawHeaders(raw string) (*HeadersReport, error) {
 		headers.Add(key, val)
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading headers: %w", err)
+	}
+
 	if len(headers) == 0 {
 		return nil, errors.New("could not find any valid 'Header-Name: Value' lines in pasted text")
 	}

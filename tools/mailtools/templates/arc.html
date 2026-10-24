@@ -127,6 +127,9 @@
     {{else}}
     <p class="mt-2 text-xs text-muted">No ARC authentication hops (ARC-Seal / ARC-Message-Signature / ARC-Authentication-Results) detected in the provided headers.</p>
     {{end}}
+    <div class="mt-4 pt-3 border-t border-line text-xs text-muted">
+      Diagnosing forwarded email deliverability? <a href="{{toolURL "dns"}}/email" class="text-brand hover:underline">Verify SPF, DKIM &amp; DMARC DNS records in DNS Tools &rarr;</a>
+    </div>
   </section>
 
 </div>

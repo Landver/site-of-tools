@@ -107,6 +107,9 @@
       Report period: <span class="font-mono">{{.BeginTime}}</span> to <span class="font-mono">{{.EndTime}}</span> &middot; Report ID: <span class="font-mono">{{.ReportID}}</span>
     </p>
     {{end}}
+    <div class="mt-3 pt-2 border-t border-line text-xs text-muted">
+      Need to update or test your domain's DMARC DNS record? <a href="{{toolURL "dns"}}/email?name={{.Domain}}" class="text-brand hover:underline">Audit SPF, DKIM &amp; DMARC records in DNS Tools &rarr;</a>
+    </div>
   </section>
 
   {{/* Senders / Sources Table */}}

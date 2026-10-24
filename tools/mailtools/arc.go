@@ -103,6 +103,10 @@ func AnalyzeARC(rawHeaders string) (*ARCSummary, error) {
 		unfolded = append(unfolded, current.String())
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading ARC headers: %w", err)
+	}
+
 	hopMap := make(map[int]*ARCHop)
 
 	for _, line := range unfolded {

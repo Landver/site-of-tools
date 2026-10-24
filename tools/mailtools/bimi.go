@@ -41,7 +41,7 @@ type BIMIValidation struct {
 var (
 	reScriptTag    = regexp.MustCompile(`(?i)<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>`)
 	reForeignObj   = regexp.MustCompile(`(?i)<\s*foreignObject[^>]*>[\s\S]*?<\s*/\s*foreignObject\s*>`)
-	reEventHandler = regexp.MustCompile(`(?i)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
+	reEventHandler = regexp.MustCompile(`(?i)(?:[\s/]+)on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
 	reJSURI        = regexp.MustCompile(`(?i)(href|xlink:href)\s*=\s*["']\s*javascript:[^"']*["']`)
 	reExternalURL  = regexp.MustCompile(`(?i)url\s*\(\s*["']?https?://[^"')]+["']?\s*\)`)
 	reImportCSS    = regexp.MustCompile(`(?i)@import\s+[^;]+;`)
@@ -165,10 +165,12 @@ func ValidateBIMI(rawSVG string) (*BIMIValidation, error) {
 	// Rule 5: viewBox and 1:1 Aspect Ratio
 	if val.ViewBox != "" {
 		vbParts := strings.Fields(val.ViewBox)
+		parsed := false
 		if len(vbParts) == 4 {
 			w, errW := strconv.ParseFloat(vbParts[2], 64)
 			h, errH := strconv.ParseFloat(vbParts[3], 64)
 			if errW == nil && errH == nil && w > 0 && h > 0 {
+				parsed = true
 				val.AspectRatio = fmt.Sprintf("%.0f:%.0f", w, h)
 				if w == h {
 					val.SquareAspect = true
@@ -186,6 +188,14 @@ func ValidateBIMI(rawSVG string) (*BIMIValidation, error) {
 					})
 				}
 			}
+		}
+		if !parsed {
+			val.Findings = append(val.Findings, BIMIFinding{
+				Severity: "fail",
+				Rule:     "Square Aspect Ratio (1:1)",
+				Detail:   fmt.Sprintf("Invalid or non-positive viewBox %q. Must specify 4 positive numeric values (min-x min-y width height).", val.ViewBox),
+				Fixable:  true,
+			})
 		}
 	} else {
 		val.Findings = append(val.Findings, BIMIFinding{
@@ -269,9 +279,11 @@ func ValidateBIMI(rawSVG string) (*BIMIValidation, error) {
 	val.SanitizedSVG = sanitizeForPreview(rawStr)
 
 	// Produce Auto-Fixed SVG if needed
-	fixed, err := AutoFixBIMI(rawStr)
-	if err == nil {
-		val.AutoFixedSVG = fixed
+	if val.CanAutoFix && !val.Compliant {
+		fixed, err := AutoFixBIMI(rawStr)
+		if err == nil {
+			val.AutoFixedSVG = fixed
+		}
 	}
 
 	return val, nil
@@ -279,10 +291,17 @@ func ValidateBIMI(rawSVG string) (*BIMIValidation, error) {
 
 // sanitizeForPreview neutralizes XSS risks before rendering in an HTML preview.
 func sanitizeForPreview(raw string) string {
-	s := reScriptTag.ReplaceAllString(raw, "")
-	s = reForeignObj.ReplaceAllString(s, "")
-	s = reEventHandler.ReplaceAllString(s, "")
-	s = reJSURI.ReplaceAllString(s, "")
+	s := raw
+	for {
+		prev := s
+		s = reScriptTag.ReplaceAllString(s, "")
+		s = reForeignObj.ReplaceAllString(s, "")
+		s = reEventHandler.ReplaceAllString(s, "")
+		s = reJSURI.ReplaceAllString(s, "")
+		if s == prev {
+			break
+		}
+	}
 	return s
 }
 

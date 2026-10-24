@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/url"
 	"strings"
 )
 
@@ -86,15 +85,10 @@ func runPKCEGenerate(in Input) (any, error) {
 	// 66 possible chars: log2(66) ~= 6.044 bits of entropy per character
 	entropy := int(math.Floor(float64(length) * 6.044))
 
-	params := url.Values{}
-	params.Set("response_type", "code")
-	params.Set("client_id", "example-client")
-	params.Set("redirect_uri", "https://app.example.com/callback")
-	params.Set("scope", "openid profile email")
-	params.Set("code_challenge", challenge)
-	params.Set("code_challenge_method", method)
-
-	exampleURL := "https://auth.example.com/oauth/authorize?" + params.Encode()
+	exampleURL := fmt.Sprintf(
+		"https://auth.example.com/oauth/authorize?client_id=example-client&code_challenge=%s&code_challenge_method=%s&redirect_uri=https%%3A%%2F%%2Fapp.example.com%%2Fcallback&response_type=code&scope=openid+profile+email",
+		challenge, method,
+	)
 
 	return &PKCEGenerateResult{
 		CodeVerifier:  verifier,

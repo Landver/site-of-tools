@@ -18,7 +18,7 @@ const (
 	inspectDesc  = "Take a URL apart: every query parameter decoded and kept in order, repeated keys shown as repeats, comma-lists split and counted, double-encoded values peeled layer by layer, and the fragment parsed instead of thrown away. Nothing is fetched. Free, open source, JSON API included."
 	cleanDesc    = "Remove tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
 	traceDesc    = "Follow a link hop by hop without opening it: every redirect with its status, timing and cookies, and an honest answer when the chain continues somewhere an HTTP client cannot follow. Ask as Googlebot, Slackbot or a browser."
-	headersDesc  = "Inspect modern HTTP caching (RFC 9111 & RFC 9213 CDN-Cache-Control), Cross-Origin Isolation (COOP & COEP), Permissions-Policy, cookie security attributes, and ETag revalidation."
+	headersDesc  = "Analyze HTTP response headers for RFC 9111 caching, dual browser/CDN TTL, security posture (CSP, HSTS, COOP/COEP), cookie prefixes, and ETag revalidation."
 	shortDesc    = "Short links on a domain I own. Not a public shortener: creating one needs a key, deliberately and permanently."
 	diffDesc     = "Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved. The tool for 'why does staging behave differently from production'."
 	encodingDesc = "What percent-encoding actually reserves, and why the same characters mean different things in a path, a query and a fragment. Including the '+' that is a space in one and a literal plus in the other."
@@ -110,10 +110,14 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 
 // vm builds the view-model keys every page needs.
 func (h *handler) vm(active, heading, desc, query string) map[string]any {
+	canonical := h.base
+	if active != "" && active != "index" && active != "/" {
+		canonical = h.base + "/" + strings.TrimPrefix(active, "/")
+	}
 	return map[string]any{
 		"Active": active, "Title": heading + " — Link Tools", "Desc": desc,
 		"Heading": heading, "Query": query, "Base": h.base,
-		"Examples": examples[active],
+		"Examples": examples[active], "Canonical": canonical,
 	}
 }
 
@@ -317,7 +321,7 @@ func (h *handler) headersRoute(c *echo.Context) error {
 		raw = strings.TrimSpace(c.QueryParam("url"))
 	}
 	persona := strings.TrimSpace(c.QueryParam("ua"))
-	vm := h.vm("headers", "HTTP Caching & Security Headers", headersDesc, raw)
+	vm := h.vm("headers", "HTTP Caching & Security Headers Analyzer", headersDesc, raw)
 	vm["Personas"], vm["Persona"] = Personas(), persona
 	vm["Disabled"] = h.trace == nil
 	vm["PastedHeaders"] = pasted
@@ -344,10 +348,11 @@ func (h *handler) headersRoute(c *echo.Context) error {
 	if h.trace == nil {
 		return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
 	}
-	if !h.lim.FetchCap.TryAcquire(c.RealIP(), 1) {
+	clientIP := c.RealIP()
+	if !h.lim.FetchCap.TryAcquire(clientIP, 1) {
 		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/headers")
 	}
-	defer h.lim.FetchCap.Release(c.RealIP(), 1)
+	defer h.lim.FetchCap.Release(clientIP, 1)
 
 	res, err := h.trace.ProbeHeaders(c.Request().Context(), raw, persona)
 	if err != nil {

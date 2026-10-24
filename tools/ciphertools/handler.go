@@ -65,11 +65,11 @@ var pages = []page{
 		Title: "Hash, token, key and encoding identifier with hashcat modes — Cipher Tools",
 		Desc:  "Paste a string to see what it could be: hash types with hashcat modes, JWT, JWE, PEM keys and certificates, SSH keys, bcrypt and Argon2 hashes, UUIDs, otpauth:// URIs, base64, hex or base32. Ranked candidates, each linked to the page that reads it."},
 	{Key: "dpop", Path: "/dpop", Label: "DPoP", Tip: "RFC 9449 DPoP proof JWT generator and verifier",
-		Title: "RFC 9449 DPoP proof generator and verifier — Cipher Tools",
-		Desc:  "Generate and verify OAuth 2.0 / 2.1 RFC 9449 DPoP proof JWTs: inspect embedded public JWKs, compute RFC 7638 jkt thumbprints, verify ath access token hashes, and test HTTP method and URI bindings. Cryptography runs in your browser."},
+		Title: "RFC 9449 DPoP Proof Generator & Verifier — Cipher Tools",
+		Desc:  "Inspect, decode, and generate RFC 9449 DPoP proof JWTs for OAuth 2.0 token binding. Zero-knowledge verification in browser WebAssembly with pure Go."},
 	{Key: "pkce", Path: "/pkce", Label: "PKCE", Tip: "RFC 7636 PKCE code_verifier and code_challenge (S256)",
-		Title: "PKCE code_verifier and code_challenge generator and verifier — Cipher Tools",
-		Desc:  "Generate cryptographic PKCE code_verifier and S256 code_challenge for OAuth 2.1 and OpenID Connect. Verify challenges in your browser with zero network transmission."},
+		Title: "PKCE Generator & Verifier (RFC 7636) — Cipher Tools",
+		Desc:  "Generate cryptographically secure PKCE code_verifier and code_challenge pairs (RFC 7636) with SHA-256 (S256). Verify authorization code bindings."},
 }
 
 const (
@@ -186,9 +186,13 @@ func (en *engine) read(info fs.FileInfo, gz bool) ([]byte, error) {
 }
 
 func (h *handler) vm(p page) map[string]any {
+	canonical := h.base
+	if p.Path != "/" {
+		canonical = h.base + p.Path
+	}
 	// Op is always set: templates compare it with eq, and eq on a missing key is an error, not false.
 	return map[string]any{"Active": p.Key, "Title": p.Title, "Desc": p.Desc, "Heading": p.Title, "Pages": pages,
-		"Base": h.base, "Form": url.Values{}, "Op": "", "Algs": SignAlgs}
+		"Base": h.base, "Form": url.Values{}, "Op": "", "Algs": SignAlgs, "Canonical": canonical}
 }
 
 func (h *handler) op(op Op) echo.HandlerFunc {

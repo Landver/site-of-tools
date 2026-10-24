@@ -20,7 +20,7 @@ func Tools(cfg platform.Config) []platform.Tool {
 		},
 		{
 			Name: "Cipher Tools",
-			Desc: "Decode, verify and sign JWTs; hash text or files with every common algorithm at once; HMACs, password hashes, keys and certificates. It all runs in your browser, so nothing you paste leaves the page.",
+			Desc: "Decode, verify and sign JWTs; DPoP (RFC 9449) and PKCE (RFC 7636) generators; hash text or files; HMACs, passwords, keys and certificates. Zero-knowledge in browser WebAssembly.",
 			URL:  cfg.URL("cipher"),
 		},
 		{
@@ -35,7 +35,7 @@ func Tools(cfg platform.Config) []platform.Tool {
 		},
 		{
 			Name: "Link Tools",
-			Desc: "Take a URL apart: every query parameter decoded, ordered and typed, with repeated keys, comma-lists and nested encodings made readable; then remove its tracking parameters, follow where it redirects, or compare it with another.",
+			Desc: "Take a URL apart, clean tracking tags, and trace redirects hop-by-hop. Analyze HTTP response headers for RFC 9111 caching, dual browser/CDN TTL, and security posture (CSP, HSTS, COOP/COEP).",
 			URL:  cfg.URL("link"),
 		},
 		{
@@ -61,7 +61,7 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) (*Blog, error) {
 	e.GET("/", func(c *echo.Context) error {
 		data := map[string]any{
 			"Title": "Stas — corpberry.com",
-			"Desc":  "Open-source web tools by Stas: Bot check (transparent bot-detection self-test), IP Tools (lookup, reputation, subnet calculator), DNS Tools (records, propagation, email auth) and Link Tools (URL inspection, tracker removal, redirect tracing). One Go binary, no tracking.",
+			"Desc":  "Open-source web tools by Stas: Bot check, IP Tools, DNS Tools, Link Tools (URL inspection, tracker removal, HTTP headers cache/security), Mail Tools (DMARC XML/gzip, BIMI SVG, ARC traces), and Cipher Tools (JWT, DPoP, PKCE). One Go binary, no tracking.",
 			"Tools": Tools(cfg),
 		}
 		// No htmx fragment on apex -> same template for page + fragment.

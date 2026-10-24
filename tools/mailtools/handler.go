@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	dmarcDesc = "Zero-knowledge DMARC aggregate report (RUA XML.GZ) visualizer and alignment auditor. Sensitive email telemetry stays entirely inside your browser."
-	bimiDesc  = "Validate Brand Indicators for Message Identification (BIMI) SVG Tiny P/S logos and auto-fix formatting errors for Gmail and Apple Mail."
-	arcDesc   = "Analyze Authenticated Received Chain (RFC 8617) headers to diagnose forwarding breakages and verify SPF/DKIM survivability."
+	dmarcDesc = "Parse and visualize DMARC aggregate XML and gzip reports (RUA) directly in your browser. Inspect SPF/DKIM alignment, IP sources, ESPs, and policy disposition."
+	bimiDesc  = "Audit SVG logos against BIMI Tiny P/S requirements. Validate square aspect ratio, sanitize malicious vectors, and auto-convert to compliant Tiny 1.2 SVGs."
+	arcDesc   = "Trace and validate Authenticated Received Chain (RFC 8617) headers. Audit multi-hop email forwarding, ARC seals, signatures, and authentication states."
 )
 
 // Limits sets per-IP request bounds for mailtools routes.
@@ -60,12 +60,17 @@ func Register(e *echo.Echo, base string, lim *Limits) {
 }
 
 func (h *handler) vm(active, heading, desc string) map[string]any {
+	canonical := h.base
+	if active != "" && active != "index" && active != "/" {
+		canonical = h.base + "/" + strings.TrimPrefix(active, "/")
+	}
 	return map[string]any{
-		"Active":  active,
-		"Title":   heading + " — Mail Tools",
-		"Desc":    desc,
-		"Heading": heading,
-		"Base":    h.base,
+		"Active":    active,
+		"Title":     heading + " — Mail Tools",
+		"Desc":      desc,
+		"Heading":   heading,
+		"Base":      h.base,
+		"Canonical": canonical,
 	}
 }
 
@@ -74,7 +79,7 @@ func (h *handler) index(c *echo.Context) error {
 }
 
 func (h *handler) dmarc(c *echo.Context) error {
-	vm := h.vm("dmarc", "DMARC Report Visualizer", dmarcDesc)
+	vm := h.vm("dmarc", "DMARC Report Visualizer & XML Analyzer", dmarcDesc)
 
 	if c.Request().Method == http.MethodGet {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/dmarc", "mail/dmarc-result")
@@ -120,8 +125,8 @@ func (h *handler) dmarcParse(c *echo.Context) error {
 	} else {
 		pasted := strings.TrimSpace(c.FormValue("xml"))
 		if pasted == "" {
-			// Try reading raw request body
-			r = c.Request().Body
+			// Try reading raw request body (bounded against unbounded memory allocation)
+			r = io.LimitReader(c.Request().Body, maxDMARCPayload)
 		} else {
 			r = strings.NewReader(pasted)
 		}
@@ -135,7 +140,7 @@ func (h *handler) dmarcParse(c *echo.Context) error {
 }
 
 func (h *handler) bimi(c *echo.Context) error {
-	vm := h.vm("bimi", "BIMI SVG Validator & Auto-Fixer", bimiDesc)
+	vm := h.vm("bimi", "BIMI SVG Tiny P/S Validator & Auto-Fixer", bimiDesc)
 
 	if c.Request().Method == http.MethodGet {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/bimi", "mail/bimi-result")
@@ -190,7 +195,7 @@ func (h *handler) bimiFix(c *echo.Context) error {
 }
 
 func (h *handler) arc(c *echo.Context) error {
-	vm := h.vm("arc", "ARC Header Trace Analyzer", arcDesc)
+	vm := h.vm("arc", "ARC Header Trace & Forwarding Analyzer", arcDesc)
 
 	if c.Request().Method == http.MethodGet {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/arc", "mail/arc-result")
