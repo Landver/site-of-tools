@@ -15,6 +15,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 	"github.com/Landver/site-of-tools/tools/mcptools"
 )
 
@@ -39,6 +40,8 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 	linktools.Register(apps["link"], linktools.NewService(), nil, nil, cfg.URL("link"), nil)
 	apps["cipher"] = app()
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), fstest.MapFS{}, nil)
+	apps["mail"] = app()
+	mailtools.Register(apps["mail"], cfg.URL("mail"), nil)
 
 	routes := map[mcptools.Route]bool{}
 	for host, e := range apps {
@@ -95,7 +98,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 			t.Errorf("%s is served but no REST route maps to it", name)
 		}
 	}
-	if mapped != 41 {
-		t.Errorf("%d routes map to tools, want 41 (README §1 plus POST /curl)", mapped)
+	if mapped != 53 {
+		t.Errorf("%d routes map to tools, want 53", mapped)
 	}
 }

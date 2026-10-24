@@ -64,6 +64,12 @@ var pages = []page{
 	{Key: "identify", Path: "/identify", Label: "Identify", Tip: "What is this string? Hashes, tokens, keys, encodings",
 		Title: "Hash, token, key and encoding identifier with hashcat modes — Cipher Tools",
 		Desc:  "Paste a string to see what it could be: hash types with hashcat modes, JWT, JWE, PEM keys and certificates, SSH keys, bcrypt and Argon2 hashes, UUIDs, otpauth:// URIs, base64, hex or base32. Ranked candidates, each linked to the page that reads it."},
+	{Key: "dpop", Path: "/dpop", Label: "DPoP", Tip: "RFC 9449 DPoP proof JWT generator and verifier",
+		Title: "RFC 9449 DPoP proof generator and verifier — Cipher Tools",
+		Desc:  "Generate and verify OAuth 2.0 / 2.1 RFC 9449 DPoP proof JWTs: inspect embedded public JWKs, compute RFC 7638 jkt thumbprints, verify ath access token hashes, and test HTTP method and URI bindings. Cryptography runs in your browser."},
+	{Key: "pkce", Path: "/pkce", Label: "PKCE", Tip: "RFC 7636 PKCE code_verifier and code_challenge (S256)",
+		Title: "PKCE code_verifier and code_challenge generator and verifier — Cipher Tools",
+		Desc:  "Generate cryptographic PKCE code_verifier and S256 code_challenge for OAuth 2.1 and OpenID Connect. Verify challenges in your browser with zero network transmission."},
 }
 
 const (

@@ -75,6 +75,110 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
+    "description": "Generate an RFC 9449 Demonstrating Proof-of-Possession (DPoP) JWT proof binding an HTTP request (htm, htu) to an asymmetric key pair (ES256, RS256 or EdDSA). If no key is provided, an ephemeral P-256 key is generated and the private key returned. ath access token hash and server nonce can be included. Example: htm GET, htu https://api.example.com/resource, alg ES256. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "default": "ES256",
+          "description": "The asymmetric signing algorithm for the DPoP proof (ES256 is the default for RFC 9449).",
+          "enum": [
+            "ES256",
+            "RS256",
+            "EdDSA"
+          ],
+          "type": "string"
+        },
+        "ath": {
+          "description": "Optional access token string to calculate ath from, or a precomputed base64url SHA-256 access token hash.",
+          "type": "string"
+        },
+        "htm": {
+          "description": "The HTTP request method (e.g. GET, POST, PUT, DELETE, PATCH).",
+          "type": "string"
+        },
+        "htu": {
+          "description": "The target HTTP request URI without query parameters or fragment (e.g. https://api.example.com/resource).",
+          "type": "string"
+        },
+        "key": {
+          "description": "An optional private key as PEM or JWK; if omitted, a fresh ephemeral ECDSA P-256 key pair is generated.",
+          "type": "string"
+        },
+        "nonce": {
+          "description": "An optional server-provided DPoP nonce challenge string from a DPoP-Nonce response header.",
+          "type": "string"
+        },
+        "now": {
+          "description": "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "htm",
+        "htu"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_dpop_generate",
+    "title": "Generate RFC 9449 DPoP proof"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Validate and verify an RFC 9449 DPoP proof JWT: verifies typ=dpop+jwt header, embedded public JWK (ensuring no private key 'd' is leaked), signature validity, iat freshness within allowed skew leeway, htm HTTP method, htu HTTP URI, and optional access_token ath binding hash. Example: token eyJhbGciOiJFUzI1NiIsInR5cCI6ImRwb3Arand0IiwiandrIjp7...}, htm GET, htu https://api.example.com/resource. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "access_token": {
+          "description": "The optional raw access token presented with the request, to verify against the ath claim.",
+          "type": "string"
+        },
+        "htm": {
+          "description": "The expected HTTP request method that the proof was issued for (e.g. GET, POST).",
+          "type": "string"
+        },
+        "htu": {
+          "description": "The expected target HTTP request URI without query parameters or fragment.",
+          "type": "string"
+        },
+        "leeway": {
+          "default": 60,
+          "description": "Clock skew in seconds allowed when checking the iat creation timestamp.",
+          "maximum": 86400,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now": {
+          "description": "Unix time in seconds to use as the current time, e.g. 1700000000; omit it for the real clock.",
+          "type": "integer"
+        },
+        "token": {
+          "description": "The DPoP proof JWT string to verify (header.payload.signature).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "htm",
+        "htu"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_dpop_verify",
+    "title": "Verify RFC 9449 DPoP proof JWT"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
     "description": "Show the same bytes as UTF-8 text, hex, base64, base64url and base32: text is read per from (utf8 by default), and the base64 variant it was in is named. A character that isn't valid in the encoding is pointed at by its offset. Use it to see what a base64 or hex value holds, or to re-encode bytes. Example: text aGVsbG8gd29ybGQ=, from base64. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
     "inputSchema": {
       "additionalProperties": false,
@@ -671,6 +775,77 @@
     },
     "name": "cipher_password_verify",
     "title": "Check a password hash"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Generate a high-entropy RFC 7636 PKCE code_verifier (43-128 chars, default 64) and its code_challenge using S256 (SHA-256 base64url unpadded) or plain, along with an example authorization request URL. Example: length 64, method S256. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "length": {
+          "default": 64,
+          "description": "The length of the code verifier in characters, between 43 and 128 (default 64).",
+          "maximum": 128,
+          "minimum": 43,
+          "type": "integer"
+        },
+        "method": {
+          "default": "S256",
+          "description": "The transformation method: S256 (SHA-256 base64url-unpadded, strongly recommended) or plain.",
+          "enum": [
+            "S256",
+            "plain"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "cipher_pkce_generate",
+    "title": "Generate PKCE verifier and challenge"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Verify whether a code_verifier matches the expected code_challenge using transformation method S256 or plain according to RFC 7636. Example: code_verifier dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk, code_challenge E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM, method S256. Inputs and outputs pass through corpberry.com and the user's AI provider, so use test material only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "code_challenge": {
+          "description": "The expected code_challenge string to verify against the code_verifier.",
+          "type": "string"
+        },
+        "code_verifier": {
+          "description": "The high-entropy cryptographic code_verifier string (43 to 128 characters).",
+          "type": "string"
+        },
+        "method": {
+          "default": "S256",
+          "description": "The transformation method: S256 (SHA-256 base64url-unpadded, strongly recommended) or plain.",
+          "enum": [
+            "S256",
+            "plain"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "code_verifier",
+        "code_challenge"
+      ],
+      "type": "object"
+    },
+    "name": "cipher_pkce_verify",
+    "title": "Verify PKCE challenge against verifier"
   },
   {
     "annotations": {

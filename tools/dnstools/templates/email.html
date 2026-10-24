@@ -97,7 +97,15 @@
         <dd class="font-mono {{if eq .Policy "none"}}text-warn-ink{{else}}text-ok{{end}}">p={{.Policy}}</dd>
         {{if .SubPolicy}}<dt>Subdomains</dt> <dd class="font-mono">sp={{.SubPolicy}}</dd>{{end}}
         {{if .Percent}}<dt>Applies to</dt> <dd class="tabular-nums">{{.Percent}}% of mail</dd>{{end}}
-        {{if .Aggregate}}<dt>Reports to</dt> <dd class="wrap-anywhere">{{.Aggregate}}</dd>{{end}}
+        {{if .Aggregate}}
+        <dt>Reports to</dt>
+        <dd class="wrap-anywhere">
+          {{.Aggregate}}
+          <span class="block mt-1">
+            <a href="{{toolURL "mail"}}/dmarc" class="text-xs text-brand hover:underline font-sans">Visualize DMARC XML.GZ reports &rarr;</a>
+          </span>
+        </dd>
+        {{end}}
       </dl>
     </div>
     {{end}}
@@ -123,7 +131,12 @@
         <dt>TLS-RPT</dt>
         <dd>{{if .TLSRPT}}<span class="font-mono text-xs wrap-anywhere">{{.TLSRPT}}</span>{{else}}<span class="text-faint">not published</span>{{end}}</dd>
         <dt>BIMI</dt>
-        <dd>{{if .BIMI}}<span class="font-mono text-xs wrap-anywhere">{{.BIMI}}</span>{{else}}<span class="text-faint">not published</span>{{end}}</dd>
+        <dd>
+          {{if .BIMI}}<span class="font-mono text-xs wrap-anywhere">{{.BIMI}}</span>{{else}}<span class="text-faint">not published</span>{{end}}
+          <span class="block mt-1">
+            <a href="{{toolURL "mail"}}/bimi" class="text-xs text-brand hover:underline font-sans">Validate &amp; auto-fix BIMI SVG logo &rarr;</a>
+          </span>
+        </dd>
       </dl>
     </div>
 

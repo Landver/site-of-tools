@@ -49,6 +49,7 @@ func TestPubliclyRoutable(t *testing.T) {
 		{"192.88.99.1", "6to4 relay anycast"},
 		{"100::1", "discard-only"},
 		{"2001:db8::1", "documentation"},
+		{"168.63.129.16", "Azure wireserver / host agent"},
 	}
 	for _, c := range blocked {
 		addr, err := netip.ParseAddr(c.addr)

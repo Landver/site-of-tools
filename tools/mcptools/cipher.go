@@ -79,6 +79,14 @@ var cipherTools = map[string]cipherTool{
 		"Say what a string could be: a hash type with its hashcat mode, a JWT or JWE, a PEM key or certificate, an SSH key, a bcrypt or Argon2 hash, " +
 			"a UUID, an otpauth:// URI, a webhook signature, or base64, hex or base32 data. " +
 			"candidates are ranked by confidence, each with the reason and the cipher.corpberry.com page that reads it. Example: text 5d41402abc4b2a76b9719d911017c592."},
+	"pkce-generate": {"cipher_pkce_generate", "Generate PKCE verifier and challenge",
+		"Generate a high-entropy RFC 7636 PKCE code_verifier (43-128 chars, default 64) and its code_challenge using S256 (SHA-256 base64url unpadded) or plain, along with an example authorization request URL. Example: length 64, method S256."},
+	"pkce-verify": {"cipher_pkce_verify", "Verify PKCE challenge against verifier",
+		"Verify whether a code_verifier matches the expected code_challenge using transformation method S256 or plain according to RFC 7636. Example: code_verifier dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk, code_challenge E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM, method S256."},
+	"dpop-generate": {"cipher_dpop_generate", "Generate RFC 9449 DPoP proof",
+		"Generate an RFC 9449 Demonstrating Proof-of-Possession (DPoP) JWT proof binding an HTTP request (htm, htu) to an asymmetric key pair (ES256, RS256 or EdDSA). If no key is provided, an ephemeral P-256 key is generated and the private key returned. ath access token hash and server nonce can be included. Example: htm GET, htu https://api.example.com/resource, alg ES256."},
+	"dpop-verify": {"cipher_dpop_verify", "Verify RFC 9449 DPoP proof JWT",
+		"Validate and verify an RFC 9449 DPoP proof JWT: verifies typ=dpop+jwt header, embedded public JWK (ensuring no private key 'd' is leaked), signature validity, iat freshness within allowed skew leeway, htm HTTP method, htu HTTP URI, and optional access_token ath binding hash. Example: token eyJhbGciOiJFUzI1NiIsInR5cCI6ImRwb3Arand0IiwiandrIjp7...}, htm GET, htu https://api.example.com/resource."},
 }
 
 const maxSafeInt = 1<<53 - 1

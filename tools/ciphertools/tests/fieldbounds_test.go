@@ -20,6 +20,12 @@ func fieldInputs(t *testing.T) func(op, field string) url.Values {
 	argon2 := url.Values{"algo": {"argon2id"}, "argon2_m": {"32"}, "argon2_t": {"1"}, "argon2_p": {"1"}}
 	scrypt := url.Values{"algo": {"scrypt"}, "scrypt_n": {"1024"}, "scrypt_r": {"1"}, "scrypt_p": {"1"}}
 	password, uuid := url.Values{"kind": {"password"}}, url.Values{"kind": {"uuid"}}
+	dpopGen, _ := ciphertools.Lookup("dpop-generate")
+	dpopOut, _ := dpopGen.Run(ciphertools.Input{Fields: url.Values{"htm": {"GET"}, "htu": {"https://api.example.com/resource"}}})
+	dpopTok := ""
+	if dpopOut != nil {
+		dpopTok = dpopOut.(*ciphertools.DPoPGenerateResult).Token
+	}
 	base := map[string]url.Values{
 		"jwt-decode":      {"token": {jwtioToken}, "key": {"your-256-bit-secret"}},
 		"jwt-sign":        {"key": {"0123456789abcdef0123456789abcdef"}},
@@ -36,6 +42,10 @@ func fieldInputs(t *testing.T) func(op, field string) url.Values {
 		"encode":          {"text": {"abc"}},
 		"basic":           {"user": {"u"}, "password": {"p"}},
 		"identify":        {"text": {"abc"}},
+		"pkce-generate":   {"length": {"64"}, "method": {"S256"}},
+		"pkce-verify":     {"code_verifier": {"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"}, "code_challenge": {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"}, "method": {"S256"}},
+		"dpop-generate":   {"htm": {"GET"}, "htu": {"https://api.example.com/resource"}, "alg": {"ES256"}},
+		"dpop-verify":     {"token": {dpopTok}, "htm": {"GET"}, "htu": {"https://api.example.com/resource"}},
 	}
 	branch := map[string]url.Values{
 		"password-hash algo": {"argon2_m": {"32"}, "argon2_t": {"1"}, "argon2_p": {"1"},

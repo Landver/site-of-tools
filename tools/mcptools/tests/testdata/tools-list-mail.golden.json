@@ -1,0 +1,102 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Analyze RFC 8617 Authenticated Received Chain (ARC) headers: verifies hop sequence (i=1, 2, ...), cv validation states, and reports whether mailing list / forwarding preserved message authenticity.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "description": "the raw forwarded email headers containing ARC-Seal, ARC-Message-Signature, and ARC-Authentication-Results",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "headers"
+      ],
+      "type": "object"
+    },
+    "name": "mail_arc_analyze",
+    "title": "Analyze ARC Authentication Chain"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Auto-fix an SVG logo into compliant BIMI SVG Tiny P/S: updates version 1.2, baseProfile, square viewBox, and strips dangerous scripts, foreignObjects, and inline event handlers.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "svg": {
+          "description": "the raw SVG logo markup",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "svg"
+      ],
+      "type": "object"
+    },
+    "name": "mail_bimi_autofix",
+    "title": "Auto-Fix BIMI SVG Logo"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Validate an SVG logo against strict BIMI SVG Tiny P/S standards (version 1.2, baseProfile tiny-ps, square 1:1 aspect ratio, <= 32 KB, no scripts or event handlers) for Gmail and Apple Mail.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "svg": {
+          "description": "the raw SVG logo markup",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "svg"
+      ],
+      "type": "object"
+    },
+    "name": "mail_bimi_validate",
+    "title": "Validate BIMI SVG Logo"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Parse and aggregate an RFC 7489 DMARC XML (or .xml.gz) report: message counts, pass rate %, SPF/DKIM alignment, and sending IPs classified by ESP (Google, Microsoft 365, Amazon SES, SendGrid, etc.).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "base64": {
+          "description": "base64-encoded .xml or .xml.gz report payload",
+          "type": "string"
+        },
+        "xml": {
+          "description": "the raw DMARC XML text, or base64-encoded XML or gzip payload",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "mail_dmarc_parse",
+    "title": "Parse DMARC Aggregate Report"
+  }
+]

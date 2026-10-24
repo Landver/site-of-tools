@@ -1,0 +1,305 @@
+package tests
+
+import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/labstack/echo/v5"
+
+	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/shared"
+	"github.com/Landver/site-of-tools/tools/mailtools"
+)
+
+func newMailApp(t *testing.T) *echo.Echo {
+	t.Helper()
+	r := platform.NewRenderer(false, nil,
+		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
+		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
+	)
+	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
+	mailtools.Register(e, "https://mail.example", nil)
+	return e
+}
+
+func TestDMARCXMLParsingAndGzip(t *testing.T) {
+	xmlSample := `<?xml version="1.0" encoding="UTF-8" ?>
+<feedback>
+  <report_metadata>
+    <org_name>google.com</org_name>
+    <email>noreply-dmarc-support@google.com</email>
+    <report_id>987654321</report_id>
+    <date_range>
+      <begin>1672531200</begin>
+      <end>1672617600</end>
+    </date_range>
+  </report_metadata>
+  <policy_published>
+    <domain>example.com</domain>
+    <adkim>r</adkim>
+    <aspf>r</aspf>
+    <p>reject</p>
+    <sp>reject</sp>
+    <pct>100</pct>
+  </policy_published>
+  <record>
+    <row>
+      <source_ip>209.85.220.41</source_ip>
+      <count>10</count>
+      <policy_evaluated>
+        <disposition>none</disposition>
+        <dkim>pass</dkim>
+        <spf>pass</spf>
+      </policy_evaluated>
+    </row>
+    <identifiers>
+      <header_from>example.com</header_from>
+      <envelope_from>example.com</envelope_from>
+    </identifiers>
+    <auth_results>
+      <dkim>
+        <domain>example.com</domain>
+        <result>pass</result>
+        <selector>20230601</selector>
+      </dkim>
+      <spf>
+        <domain>example.com</domain>
+        <result>pass</result>
+        <scope>mfrom</scope>
+      </spf>
+    </auth_results>
+  </record>
+  <record>
+    <row>
+      <source_ip>198.51.100.99</source_ip>
+      <count>2</count>
+      <policy_evaluated>
+        <disposition>reject</disposition>
+        <dkim>fail</dkim>
+        <spf>fail</spf>
+      </policy_evaluated>
+    </row>
+    <identifiers>
+      <header_from>example.com</header_from>
+    </identifiers>
+    <auth_results>
+      <spf>
+        <domain>spoofed.net</domain>
+        <result>fail</result>
+      </spf>
+    </auth_results>
+  </record>
+</feedback>`
+
+	// 1. Test parsing plain XML
+	rep, err := mailtools.ParseDMARCReport(strings.NewReader(xmlSample))
+	if err != nil {
+		t.Fatalf("ParseDMARCReport plain XML failed: %v", err)
+	}
+	if rep.OrgName != "google.com" {
+		t.Errorf("OrgName: want google.com, got %q", rep.OrgName)
+	}
+	if rep.Domain != "example.com" {
+		t.Errorf("Domain: want example.com, got %q", rep.Domain)
+	}
+	if rep.TotalMessages != 12 {
+		t.Errorf("TotalMessages: want 12, got %d", rep.TotalMessages)
+	}
+	if rep.PassCount != 10 {
+		t.Errorf("PassCount: want 10, got %d", rep.PassCount)
+	}
+	if rep.RejectCnt != 2 {
+		t.Errorf("RejectCnt: want 2, got %d", rep.RejectCnt)
+	}
+	if len(rep.Sources) != 2 {
+		t.Fatalf("Sources: want 2, got %d", len(rep.Sources))
+	}
+
+	// 2. Test parsing gzip compressed XML (.xml.gz)
+	var gzBuf bytes.Buffer
+	gw := gzip.NewWriter(&gzBuf)
+	if _, err := gw.Write([]byte(xmlSample)); err != nil {
+		t.Fatalf("writing gzip: %v", err)
+	}
+	gw.Close()
+
+	repGz, err := mailtools.ParseDMARCReport(&gzBuf)
+	if err != nil {
+		t.Fatalf("ParseDMARCReport gzip failed: %v", err)
+	}
+	if repGz.TotalMessages != 12 || repGz.PassCount != 10 {
+		t.Errorf("gzip parsed report mismatch: %+v", repGz)
+	}
+}
+
+func TestBIMIValidationAndAutoFix(t *testing.T) {
+	validSVG := `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">
+  <title>Valid BIMI Logo</title>
+  <circle cx="50" cy="50" r="45" fill="#b83266"/>
+</svg>`
+
+	val, err := mailtools.ValidateBIMI(validSVG)
+	if err != nil {
+		t.Fatalf("ValidateBIMI failed: %v", err)
+	}
+	if !val.Compliant {
+		t.Errorf("expected compliant logo, got findings: %+v", val.Findings)
+	}
+	if val.FailCount != 0 {
+		t.Errorf("expected 0 fails, got %d", val.FailCount)
+	}
+
+	// Non-compliant SVG with scripts, event handlers, and missing baseProfile
+	badSVG := `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" onload="alert(1)">
+  <script>evil()</script>
+  <rect width="200" height="100" fill="blue"/>
+</svg>`
+
+	badVal, err := mailtools.ValidateBIMI(badSVG)
+	if err != nil {
+		t.Fatalf("ValidateBIMI badSVG failed: %v", err)
+	}
+	if badVal.Compliant {
+		t.Errorf("expected non-compliant, got compliant")
+	}
+	if badVal.FailCount == 0 {
+		t.Errorf("expected fails, got 0")
+	}
+	if !badVal.CanAutoFix {
+		t.Errorf("expected CanAutoFix to be true")
+	}
+
+	// Auto-Fix
+	fixed, err := mailtools.AutoFixBIMI(badSVG)
+	if err != nil {
+		t.Fatalf("AutoFixBIMI failed: %v", err)
+	}
+	if strings.Contains(fixed, "<script>") || strings.Contains(fixed, "alert(1)") {
+		t.Errorf("AutoFixBIMI did not strip scripts/handlers:\n%s", fixed)
+	}
+	if !strings.Contains(fixed, `version="1.2"`) || !strings.Contains(fixed, `baseProfile="tiny-ps"`) {
+		t.Errorf("AutoFixBIMI missing version or baseProfile:\n%s", fixed)
+	}
+	if !strings.Contains(fixed, `viewBox="0 0 200 200"`) {
+		t.Errorf("AutoFixBIMI failed to synthesize square viewBox:\n%s", fixed)
+	}
+
+	// Validate fixed output
+	fixedVal, err := mailtools.ValidateBIMI(fixed)
+	if err != nil {
+		t.Fatalf("ValidateBIMI on fixed output failed: %v", err)
+	}
+	if !fixedVal.Compliant {
+		t.Errorf("fixed output is still not compliant: %+v", fixedVal.Findings)
+	}
+}
+
+func TestARCChainAnalysis(t *testing.T) {
+	validARC := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none;
+ b=abcd1234
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=origin.example; s=arc;
+ bh=hash123; h=from:to:subject; b=sig123
+ARC-Authentication-Results: i=1; mx.origin.example;
+ dkim=pass header.i=@origin.example;
+ spf=pass (mx.origin.example: domain of sender@origin.example designates 203.0.113.1 as permitted sender)
+ARC-Seal: i=2; a=rsa-sha256; d=list.example; s=arc; cv=pass;
+ b=efgh5678
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=list.example; s=arc;
+ bh=hash456; h=from:to:subject; b=sig456
+ARC-Authentication-Results: i=2; mx.list.example;
+ arc=pass (as.1.origin.example=pass ams.1.origin.example=pass);
+ dkim=pass header.i=@origin.example`
+
+	arc, err := mailtools.AnalyzeARC(validARC)
+	if err != nil {
+		t.Fatalf("AnalyzeARC failed: %v", err)
+	}
+	if !arc.ChainValid {
+		t.Errorf("expected valid chain, got: %+v", arc.Findings)
+	}
+	if arc.ChainLength != 2 {
+		t.Errorf("chain length: want 2, got %d", arc.ChainLength)
+	}
+	if arc.FinalCV != "pass" {
+		t.Errorf("final cv: want pass, got %s", arc.FinalCV)
+	}
+
+	// Broken ARC chain: i=1 with cv=pass (invalid)
+	brokenARC := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=pass;
+ b=abcd1234
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=origin.example; s=arc;
+ bh=hash123; h=from:to:subject; b=sig123
+ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
+
+	badArc, err := mailtools.AnalyzeARC(brokenARC)
+	if err != nil {
+		t.Fatalf("AnalyzeARC on brokenARC failed: %v", err)
+	}
+	if badArc.ChainValid {
+		t.Errorf("expected broken chain for i=1 cv=pass, but marked valid")
+	}
+}
+
+func TestMailToolsHTTPRoutes(t *testing.T) {
+	e := newMailApp(t)
+
+	// 1. GET / redirects to /dmarc
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMovedPermanently {
+		t.Errorf("GET /: want 301, got %d", rec.Code)
+	}
+
+	// 2. GET /dmarc HTML
+	req = httptest.NewRequest(http.MethodGet, "/dmarc", nil)
+	req.Header.Set("Accept", "text/html")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /dmarc: want 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
+		t.Error("GET /dmarc browser response missing <!DOCTYPE html>")
+	}
+
+	// 3. GET /dmarc HTMX fragment
+	req = httptest.NewRequest(http.MethodGet, "/dmarc", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("HX-Request", "true")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /dmarc htmx: want 200, got %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
+		t.Error("GET /dmarc htmx fragment should not contain <!DOCTYPE html>")
+	}
+
+	// 4. POST /bimi/fix
+	form := url.Values{"svg": {`<svg width="100" height="100"><circle cx="50" cy="50" r="40"/></svg>`}}
+	req = httptest.NewRequest(http.MethodPost, "/bimi/fix", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST /bimi/fix: want 200, got %d (body %s)", rec.Code, rec.Body)
+	}
+	var fixRes struct {
+		SVG string `json:"svg"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &fixRes); err != nil {
+		t.Fatalf("not json: %v", err)
+	}
+	if !strings.Contains(fixRes.SVG, `baseProfile="tiny-ps"`) {
+		t.Errorf("fixed svg missing tiny-ps: %s", fixRes.SVG)
+	}
+}

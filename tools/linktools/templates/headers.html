@@ -1,0 +1,294 @@
+{{define "link/headers"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body x-data="{ tab: '{{if .PastedHeaders}}paste{{else}}url{{end}}' }">
+  {{template "link/skip" .}}
+  {{template "partials/header" .}}
+  <main class="page-main" hx-history-elt>
+    {{template "link/nav" .}}
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Inspect modern HTTP caching (RFC 9111 &amp; RFC 9213 <span class="font-mono">CDN-Cache-Control</span>),
+      Cross-Origin Isolation (COOP &amp; COEP), Permissions-Policy, cookie security attributes, and ETag revalidation.
+    </p>
+
+    <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist">
+      <button type="button" @click="tab = 'url'" :class="tab === 'url' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5 transition">Fetch Live URL</button>
+      <button type="button" @click="tab = 'paste'" :class="tab === 'paste' ? 'bg-brand text-white' : 'text-muted hover:text-strong'"
+              class="rounded-md px-3 py-1.5 transition">Paste Headers</button>
+    </div>
+
+    {{if .Disabled}}
+      <div class="mt-6 alert-error">
+        Network fetching is switched off on this server. You can still paste raw response headers to analyze them.
+      </div>
+    {{end}}
+
+    {{/* Mode 1: Fetch Live URL */}}
+    <div x-show="tab === 'url'" class="mt-4">
+      <form action="/headers" hx-get="/headers" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
+            hx-trigger="submit, change from:find select" hx-sync="this:queue last"
+            class="flex flex-wrap gap-2">
+        <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+               aria-label="URL to analyze headers" placeholder="https://example.com"
+               class="field min-w-0 basis-full sm:basis-0">
+        <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
+          <span class="shrink-0">Ask as</span>
+          <select name="ua" class="field min-w-0 flex-1">
+            {{$p := .Persona}}
+            {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+        </label>
+        <button type="submit" class="btn-primary" {{if .Disabled}}disabled{{end}}>
+          <span class="in-[.htmx-request]:hidden">Analyze Headers</span>
+          <span class="hidden in-[.htmx-request]:inline" role="status">Probing…</span>
+        </button>
+      </form>
+    </div>
+
+    {{/* Mode 2: Paste Raw Headers */}}
+    <div x-show="tab === 'paste'" class="mt-4">
+      <form action="/headers" method="post" hx-post="/headers" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
+            class="space-y-3">
+        <label class="block text-sm text-muted">
+          Pasted HTTP Response Headers (from curl -I or browser DevTools Network tab)
+          <textarea name="headers" rows="6" spellcheck="false"
+                    placeholder="HTTP/2 200&#10;content-type: text/html; charset=UTF-8&#10;cache-control: public, max-age=3600, s-maxage=86400&#10;cdn-cache-control: max-age=604800&#10;etag: &quot;33a64df551425fcc55e4d42a148795d9f25f89d4&quot;&#10;strict-transport-security: max-age=31536000; includeSubDomains"
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{.PastedHeaders}}</textarea>
+        </label>
+        <button type="submit" class="btn-primary">Analyze Pasted Headers</button>
+      </form>
+    </div>
+
+    {{template "link/examples" .}}
+
+    <p id="result-status" class="sr-only" role="status"></p>
+    <div id="result" class="mt-6" data-result>
+      {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/headers-result" .}}{{end}}
+    </div>
+  </main>
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "link/headers-result"}}
+{{with .Result}}
+<div class="space-y-6">
+
+  {{/* Telemetry summary strip */}}
+  <div class="telemetry-strip">
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Status Code</div>
+      <div>
+        {{if lt .StatusCode 300}}<span class="badge badge-ok">{{.StatusCode}} {{.StatusText}}</span>
+        {{else if lt .StatusCode 400}}<span class="badge badge-warn">{{.StatusCode}} {{.StatusText}}</span>
+        {{else}}<span class="badge badge-danger">{{.StatusCode}} {{.StatusText}}</span>{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .IsLiveURL}}{{.LatencyMS}} ms roundtrip{{else}}Pasted headers{{end}}</div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Browser Freshness (TTL)</div>
+      <div class="font-mono font-bold text-strong text-sm">{{.Cache.TTL.BrowserTTLHuman}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">
+        {{if .Cache.TTL.NoStore}}no-store
+        {{else if .Cache.TTL.NoCache}}no-cache
+        {{else if .Cache.TTL.Heuristic}}Heuristic calculation
+        {{else}}max-age directive{{end}}
+      </div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Edge CDN Freshness (TTL)</div>
+      <div class="font-mono font-bold text-strong text-sm">{{.Cache.TTL.EdgeTTLHuman}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">RFC 9213 / s-maxage</div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Browser Isolation</div>
+      <div>
+        {{if .Security.Isolation.Isolated}}
+          <span class="badge badge-ok">ISOLATED</span>
+        {{else}}
+          <span class="badge badge-warn">NOT ISOLATED</span>
+        {{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .Security.Isolation.Isolated}}SharedArrayBuffer enabled{{else}}COOP/COEP absent{{end}}</div>
+    </div>
+  </div>
+
+  {{/* Findings & Anti-Patterns */}}
+  {{if .TotalFindings}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-strong">Audit Findings &amp; Anti-Patterns</h2>
+      <div class="flex gap-2 text-xs">
+        {{if .FailCount}}<span class="badge badge-danger">{{.FailCount}} Critical</span>{{end}}
+        {{if .WarnCount}}<span class="badge badge-warn">{{.WarnCount}} Warnings</span>{{end}}
+        {{if .OKCount}}<span class="badge badge-ok">{{.OKCount}} Passed</span>{{end}}
+        {{if .InfoCount}}<span class="badge badge-info">{{.InfoCount}} Info</span>{{end}}
+      </div>
+    </div>
+
+    <div class="mt-3 divide-y divide-line">
+      {{range .Cache.Findings}}
+        <div class="py-2.5">
+          <div class="flex items-center gap-2">
+            {{if eq .Severity "fail"}}<span class="badge badge-danger">FAIL</span>
+            {{else if eq .Severity "warn"}}<span class="badge badge-warn">WARN</span>
+            {{else if eq .Severity "ok"}}<span class="badge badge-ok">OK</span>
+            {{else}}<span class="badge badge-info">INFO</span>{{end}}
+            <span class="text-xs uppercase font-mono text-muted">[{{.Category}}]</span>
+            <span class="text-sm font-medium text-strong">{{.Title}}</span>
+          </div>
+          <p class="mt-1 text-xs text-muted">{{.Detail}}</p>
+          {{if .RFC}}<p class="mt-0.5 text-xs font-mono text-faint">Reference: {{.RFC}}</p>{{end}}
+        </div>
+      {{end}}
+
+      {{range .Security.Findings}}
+        <div class="py-2.5">
+          <div class="flex items-center gap-2">
+            {{if eq .Severity "fail"}}<span class="badge badge-danger">FAIL</span>
+            {{else if eq .Severity "warn"}}<span class="badge badge-warn">WARN</span>
+            {{else if eq .Severity "ok"}}<span class="badge badge-ok">OK</span>
+            {{else}}<span class="badge badge-info">INFO</span>{{end}}
+            <span class="text-xs uppercase font-mono text-muted">[{{.Category}}]</span>
+            <span class="text-sm font-medium text-strong">{{.Title}}</span>
+          </div>
+          <p class="mt-1 text-xs text-muted">{{.Detail}}</p>
+          {{if .RFC}}<p class="mt-0.5 text-xs font-mono text-faint">Reference: {{.RFC}}</p>{{end}}
+        </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  {{/* Dual TTL Architecture Diagram */}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <h2 class="text-sm font-semibold text-strong">Dual Freshness Lifetime (RFC 9111 &amp; RFC 9213)</h2>
+    <p class="mt-1 text-xs text-muted">
+      How modern web architecture caches responses independently at the client browser and the edge CDN tier.
+    </p>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      <div class="rounded-lg border border-line p-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-muted">Tier 1: End-User Browser</span>
+          <span class="badge badge-info">{{.Cache.TTL.BrowserTTLHuman}}</span>
+        </div>
+        <div class="mt-2 text-xs space-y-1">
+          <div class="flex justify-between text-muted"><span>Directive:</span> <span class="font-mono text-strong">{{if .Cache.TTL.NoStore}}no-store{{else if .Cache.TTL.NoCache}}no-cache{{else if .Cache.TTL.Heuristic}}Heuristic{{else}}max-age={{.Cache.TTL.BrowserTTLSeconds}}{{end}}</span></div>
+          <div class="flex justify-between text-muted"><span>Must Revalidate:</span> <span class="font-mono text-strong">{{if .Cache.TTL.MustRevalidate}}Yes{{else}}No{{end}}</span></div>
+          <div class="flex justify-between text-muted"><span>Immutable:</span> <span class="font-mono text-strong">{{if .Cache.TTL.Immutable}}Yes{{else}}No{{end}}</span></div>
+          {{if .Cache.AgeSeconds}}<div class="flex justify-between text-muted"><span>Current Age:</span> <span class="font-mono text-strong">{{.Cache.AgeSeconds}}s</span></div>{{end}}
+        </div>
+      </div>
+
+      <div class="rounded-lg border border-line p-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-muted">Tier 2: Edge CDN Cache</span>
+          <span class="badge badge-info">{{.Cache.TTL.EdgeTTLHuman}}</span>
+        </div>
+        <div class="mt-2 text-xs space-y-1">
+          <div class="flex justify-between text-muted"><span>Directive:</span> <span class="font-mono text-strong">CDN-Cache-Control / s-maxage</span></div>
+          <div class="flex justify-between text-muted"><span>Stale-While-Revalidate:</span> <span class="font-mono text-strong">{{if .Cache.TTL.StaleWhileReval}}{{.Cache.TTL.StaleWhileReval}}s{{else}}None{{end}}</span></div>
+          <div class="flex justify-between text-muted"><span>Stale-If-Error:</span> <span class="font-mono text-strong">{{if .Cache.TTL.StaleIfError}}{{.Cache.TTL.StaleIfError}}s{{else}}None{{end}}</span></div>
+          <div class="flex justify-between text-muted"><span>Cacheability:</span> <span class="font-mono text-strong">{{if .Cache.TTL.Public}}public{{else if .Cache.TTL.Private}}private{{else if .Cache.TTL.NoStore}}no-store{{else}}unspecified{{end}}</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {{/* ETag Conditional Revalidation Simulator */}}
+  {{if .ETagSimulation}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-strong">ETag Revalidation Simulator (RFC 9110 §13.1.2)</h2>
+      {{if .ETagSimulation.Revalidated}}
+        <span class="badge badge-ok">304 NOT MODIFIED</span>
+      {{else}}
+        <span class="badge badge-warn">HTTP {{.ETagSimulation.StatusCode}}</span>
+      {{end}}
+    </div>
+    <p class="mt-1 text-xs text-muted">{{.ETagSimulation.Detail}}</p>
+    <div class="mt-3 grid gap-2 sm:grid-cols-3 text-xs">
+      <div class="rounded border border-line p-2">
+        <span class="text-faint block">Sent Header:</span>
+        <span class="font-mono font-medium text-strong break-all">If-None-Match: {{.ETagSimulation.SentETag}}</span>
+      </div>
+      <div class="rounded border border-line p-2">
+        <span class="text-faint block">Status Received:</span>
+        <span class="font-mono font-medium text-strong">{{.ETagSimulation.StatusCode}} {{.ETagSimulation.StatusText}}</span>
+      </div>
+      <div class="rounded border border-line p-2">
+        <span class="text-faint block">Payload Transmitted:</span>
+        <span class="font-mono font-medium text-strong">{{.ETagSimulation.BytesReceived}} bytes</span>
+      </div>
+    </div>
+  </section>
+  {{end}}
+
+  {{/* Cookies Audit */}}
+  {{if .Security.Cookies}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <h2 class="text-sm font-semibold text-strong">Set-Cookie Audit (RFC 6265bis)</h2>
+    <div class="mt-3 divide-y divide-line">
+      {{range .Security.Cookies}}
+        <div class="py-2 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="font-mono font-bold text-strong">{{.Name}}</span>
+            <div class="flex flex-wrap gap-1">
+              {{if .Secure}}<span class="badge badge-ok">Secure</span>{{else}}<span class="badge badge-danger">Insecure</span>{{end}}
+              {{if .HttpOnly}}<span class="badge badge-ok">HttpOnly</span>{{else}}<span class="badge badge-warn">No HttpOnly</span>{{end}}
+              {{if .SameSite}}<span class="badge badge-info">SameSite={{.SameSite}}</span>{{end}}
+              {{if .Partitioned}}<span class="badge badge-ok">Partitioned (CHIPS)</span>{{end}}
+            </div>
+          </div>
+          {{if not .PrefixValid}}
+            <p class="mt-1 text-xs text-danger font-medium">{{.PrefixError}}</p>
+          {{end}}
+        </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  {{/* Complete Headers Table */}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-strong">All Response Headers ({{len .Headers}})</h2>
+      <span class="text-xs text-faint">Categorized</span>
+    </div>
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full text-left text-xs font-mono">
+        <thead>
+          <tr class="border-b border-line text-faint">
+            <th class="py-2 pr-3 font-semibold">Category</th>
+            <th class="py-2 pr-3 font-semibold">Header</th>
+            <th class="py-2 font-semibold">Value</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line">
+          {{range .Headers}}
+          <tr class="hover:bg-canvas">
+            <td class="py-2 pr-3 align-top">
+              <span class="badge text-[10px] {{if eq .Category "caching"}}badge-info{{else if eq .Category "security"}}badge-ok{{else if eq .Category "cookies"}}badge-warn{{else if eq .Category "cors"}}badge-info{{else}}badge-neutral{{end}}">
+                {{.Category}}
+              </span>
+            </td>
+            <td class="py-2 pr-3 align-top font-semibold text-strong whitespace-nowrap">{{.Name}}</td>
+            <td class="py-2 align-top text-muted break-all">{{.Value}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+{{end}}
+{{end}}

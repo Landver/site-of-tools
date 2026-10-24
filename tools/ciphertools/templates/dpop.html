@@ -1,0 +1,213 @@
+{{define "cipher/dpop"}}
+{{template "cipher/engine-open" .}}
+    <h1 class="text-2xl font-semibold text-strong">DPoP proof generator and verifier (RFC 9449)</h1>
+    <p class="mt-2 text-sm text-muted">
+      Generate and verify Demonstrating Proof-of-Possession (DPoP) JWTs for OAuth 2.1, FAPI 2.0 and the Bluesky AT Protocol. Proofs bind sender requests to an asymmetric key pair. Private keys and tokens never leave your browser.
+    </p>
+    {{template "cipher/engine" .}}
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
+      <div class="mt-3 text-muted">
+        {{template "cipher/engine-terminal"}}curl {{.Base}}/dpop/generate -d htm=GET -d htu=https://api.example.com/user -d alg=ES256
+curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example.com/user</pre>
+        <p class="mt-1 text-xs text-muted">
+          POST only, JSON API. Computes RFC 7638 <span class="font-mono">jkt</span> thumbprints, binds <span class="font-mono">htm</span>/<span class="font-mono">htu</span>, and validates access token hashes (<span class="font-mono">ath</span>).
+        </p>
+        {{template "partials/mcp-hint" "cipher"}}
+      </div>
+    </details>
+
+    <div class="mt-6 inline-flex gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium" role="tablist" x-cloak>
+      {{template "cipher/engine-tab" "generate"}}
+      {{template "cipher/engine-tab" "verify"}}
+    </div>
+
+    <section x-show="tab === 'generate'" class="mt-4">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div class="lg:col-span-5">
+          <form method="post" action="/dpop/generate" data-cipher="dpop-generate" data-live data-target="#dpop-gen-result" class="space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <label class="block text-sm text-muted">HTTP Method (htm)
+                <select name="htm" class="field mt-1 w-full font-mono text-base sm:text-sm">
+                  <option value="GET" {{if eq (.Form.Get "htm") "GET"}}selected{{end}}>GET</option>
+                  <option value="POST" {{if eq (.Form.Get "htm") "POST"}}selected{{end}}>POST</option>
+                  <option value="PUT" {{if eq (.Form.Get "htm") "PUT"}}selected{{end}}>PUT</option>
+                  <option value="DELETE" {{if eq (.Form.Get "htm") "DELETE"}}selected{{end}}>DELETE</option>
+                  <option value="PATCH" {{if eq (.Form.Get "htm") "PATCH"}}selected{{end}}>PATCH</option>
+                </select>
+              </label>
+              <label class="block text-sm text-muted">Algorithm (alg)
+                <select name="alg" class="field mt-1 w-full font-mono text-base sm:text-sm">
+                  <option value="ES256" {{if or (eq (.Form.Get "alg") "ES256") (eq (.Form.Get "alg") "")}}selected{{end}}>ES256 (ECDSA P-256)</option>
+                  <option value="RS256" {{if eq (.Form.Get "alg") "RS256"}}selected{{end}}>RS256 (RSA 2048)</option>
+                  <option value="EdDSA" {{if eq (.Form.Get "alg") "EdDSA"}}selected{{end}}>EdDSA (Ed25519)</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="block text-sm text-muted">Target HTTP URI (htu)
+              <input type="text" name="htu" autocomplete="off" spellcheck="false"
+                     placeholder="https://api.example.com/resource"
+                     value="{{with .Form.Get "htu"}}{{.}}{{else}}https://api.example.com/resource{{end}}"
+                     class="field mt-1 w-full font-mono text-base sm:text-xs">
+              <span class="mt-1 block text-xs text-faint">Must NOT contain query parameters or fragment.</span>
+            </label>
+
+            <label class="block text-sm text-muted">Access token or ath hash <span class="text-faint">(optional)</span>
+              <input type="text" name="ath" autocomplete="off" spellcheck="false"
+                     placeholder="Bearer token to hash, or precomputed ath..."
+                     value="{{.Form.Get "ath"}}"
+                     class="field mt-1 w-full font-mono text-base sm:text-xs">
+              <span class="mt-1 block text-xs text-faint">Computes base64url(sha256(access_token)).</span>
+            </label>
+
+            <label class="block text-sm text-muted">Server nonce <span class="text-faint">(optional)</span>
+              <input type="text" name="nonce" autocomplete="off" spellcheck="false"
+                     placeholder="DPoP-Nonce returned by server..."
+                     value="{{.Form.Get "nonce"}}"
+                     class="field mt-1 w-full font-mono text-base sm:text-xs">
+            </label>
+
+            <label class="block text-sm text-muted">Private key <span class="text-faint">(optional PEM or JWK)</span>
+              <textarea name="key" rows="2" autocomplete="off" spellcheck="false"
+                        placeholder="Leave empty to generate an ephemeral key pair"
+                        class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "key"}}</textarea>
+              <span class="mt-1 block text-xs text-faint">Private keys stay in your browser.</span>
+            </label>
+
+            <button type="submit" class="btn-primary">Generate DPoP Proof</button>
+          </form>
+        </div>
+        <div id="dpop-gen-result" class="lg:col-span-7">
+          {{if eq .Op "dpop-generate"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/dpop-generated" .Result}}{{end}}{{end}}
+        </div>
+      </div>
+    </section>
+
+    <section x-show="tab === 'verify'" class="mt-4">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div class="lg:col-span-5">
+          <form method="post" action="/dpop/verify" data-cipher="dpop-verify" data-live data-target="#dpop-ver-result" class="space-y-3">
+            <label class="block text-sm text-muted">DPoP Proof JWT
+              <textarea name="token" rows="4" autofocus autocomplete="off" spellcheck="false"
+                        placeholder="eyJhbGciOiJFUzI1NiIsInR5cCI6ImRwb3Arand0IiwiandrIjp7...}.eyJ..."
+                        class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "token"}}</textarea>
+            </label>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+              <label class="block text-sm text-muted">Expected Method
+                <select name="htm" class="field mt-1 w-full font-mono text-base sm:text-sm">
+                  <option value="GET" {{if eq (.Form.Get "htm") "GET"}}selected{{end}}>GET</option>
+                  <option value="POST" {{if eq (.Form.Get "htm") "POST"}}selected{{end}}>POST</option>
+                  <option value="PUT" {{if eq (.Form.Get "htm") "PUT"}}selected{{end}}>PUT</option>
+                  <option value="DELETE" {{if eq (.Form.Get "htm") "DELETE"}}selected{{end}}>DELETE</option>
+                  <option value="PATCH" {{if eq (.Form.Get "htm") "PATCH"}}selected{{end}}>PATCH</option>
+                </select>
+              </label>
+              <label class="block text-sm text-muted">Allowed Skew (leeway)
+                <input type="number" name="leeway" min="0" max="86400" value="{{with .Form.Get "leeway"}}{{.}}{{else}}60{{end}}"
+                       class="field mt-1 w-full font-mono text-base sm:text-xs">
+              </label>
+            </div>
+
+            <label class="block text-sm text-muted">Expected Target URI (htu)
+              <input type="text" name="htu" autocomplete="off" spellcheck="false"
+                     placeholder="https://api.example.com/resource"
+                     value="{{.Form.Get "htu"}}"
+                     class="field mt-1 w-full font-mono text-base sm:text-xs">
+            </label>
+
+            <label class="block text-sm text-muted">Presented Access Token <span class="text-faint">(optional)</span>
+              <input type="text" name="access_token" autocomplete="off" spellcheck="false"
+                     placeholder="Raw access token to compare with ath claim..."
+                     value="{{.Form.Get "access_token"}}"
+                     class="field mt-1 w-full font-mono text-base sm:text-xs">
+            </label>
+
+            <button type="submit" class="btn-primary">Verify DPoP Proof</button>
+          </form>
+        </div>
+        <div id="dpop-ver-result" class="lg:col-span-7">
+          {{if eq .Op "dpop-verify"}}{{if .Error}}{{template "cipher/error" .}}{{else}}{{template "cipher/dpop-verified" .Result}}{{end}}{{end}}
+        </div>
+      </div>
+    </section>
+{{template "cipher/engine-close" .}}
+{{end}}
+
+{{define "cipher/dpop-generated"}}
+<div class="space-y-4">
+  <div class="rounded-lg border border-line bg-surface p-4">
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">Signed DPoP Proof JWT</span>
+      <span class="text-xs text-muted">JWK Thumbprint (<code class="font-mono text-brand-ink">{{.JWKThumbprint}}</code>)</span>
+    </div>
+    <div class="mt-2 rounded bg-canvas p-3 border border-line">
+      <code class="font-mono text-xs text-strong break-all select-all">{{.Token}}</code>
+    </div>
+  </div>
+
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div class="rounded-lg border border-line bg-surface p-4">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">JOSE Header (with public jwk)</span>
+      <pre class="mt-2 overflow-x-auto rounded bg-canvas p-2 border border-line font-mono text-xs text-muted">{{.HeaderJSON}}</pre>
+    </div>
+    <div class="rounded-lg border border-line bg-surface p-4">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">JWT Payload</span>
+      <pre class="mt-2 overflow-x-auto rounded bg-canvas p-2 border border-line font-mono text-xs text-muted">{{.PayloadJSON}}</pre>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-line bg-surface p-4">
+    <span class="text-xs font-semibold uppercase tracking-wider text-muted">Ready-to-use cURL Request</span>
+    <pre class="mt-2 overflow-x-auto rounded bg-canvas p-3 border border-line font-mono text-xs text-strong">{{.Curl}}</pre>
+  </div>
+</div>
+{{end}}
+
+{{define "cipher/dpop-verified"}}
+<div class="space-y-4">
+  <div class="rounded-lg border {{if .Valid}}border-ok/30 bg-ok/5{{else}}border-danger/30 bg-danger/5{{end}} p-4">
+    <div class="flex items-center gap-2">
+      <span class="inline-flex h-3 w-3 rounded-full {{if .Valid}}bg-ok{{else}}bg-danger{{end}}"></span>
+      <span class="font-semibold text-sm {{if .Valid}}text-ok{{else}}text-danger{{end}}">
+        {{if .Valid}}Valid DPoP Proof (RFC 9449 Compliant){{else}}DPoP Verification Failed{{end}}
+      </span>
+    </div>
+    <p class="mt-2 text-xs text-muted">{{.Summary}}</p>
+    {{if .JWKThumbprint}}
+    <div class="mt-2 pt-2 border-t border-line/50 text-xs text-muted">
+      Key Thumbprint (jkt): <code class="font-mono text-strong">{{.JWKThumbprint}}</code>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="rounded-lg border border-line bg-surface p-4">
+    <span class="text-xs font-semibold uppercase tracking-wider text-muted">RFC 9449 Compliance Checks</span>
+    <div class="mt-3 divide-y divide-line/60 text-xs">
+      {{range .Checks}}
+      <div class="py-2 flex items-start justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold {{if .Passed}}text-ok{{else}}text-danger{{end}}">{{if .Passed}}✓{{else}}✗{{end}}</span>
+          <span class="font-medium text-strong">{{.Name}}</span>
+        </div>
+        <span class="text-right text-muted font-mono text-xs">{{.Detail}}</span>
+      </div>
+      {{end}}
+    </div>
+  </div>
+
+  {{if .PayloadJSON}}
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div class="rounded-lg border border-line bg-surface p-4">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">Header</span>
+      <pre class="mt-2 overflow-x-auto rounded bg-canvas p-2 border border-line font-mono text-xs text-muted">{{.HeaderJSON}}</pre>
+    </div>
+    <div class="rounded-lg border border-line bg-surface p-4">
+      <span class="text-xs font-semibold uppercase tracking-wider text-muted">Payload</span>
+      <pre class="mt-2 overflow-x-auto rounded bg-canvas p-2 border border-line font-mono text-xs text-muted">{{.PayloadJSON}}</pre>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}

@@ -22,6 +22,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 // Deps are the REST routes' own values, Limits included; a nil one drops its tools.
@@ -43,6 +44,7 @@ type Deps struct {
 	LinkLimits   *linktools.Limits
 	CipherLimits *ciphertools.Limits
 	BotLimits    *botcheck.Limits
+	MailLimits   *mailtools.Limits
 
 	RequestLog *platform.RequestLog
 	ToolURL    func(sub string) string
@@ -79,7 +81,7 @@ func newHandler(d Deps, base string, log *slog.Logger) *handler {
 		d.Geo = nil
 	}
 	m := &calls{reqlog: d.RequestLog, log: log}
-	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), siteSpecs(d))
+	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), mailSpecs(d), siteSpecs(d))
 	eps := buildEndpoints(public, ownerSpecs(d, log), m, base)
 	sdk := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		if ep := eps[r.PathValue("toolset")]; ep != nil {

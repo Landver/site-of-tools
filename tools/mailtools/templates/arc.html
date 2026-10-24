@@ -1,0 +1,130 @@
+{{define "mail/arc"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "mail/skip" .}}
+  {{template "partials/header" .}}
+  <main class="page-main" hx-history-elt>
+    {{template "mail/nav" .}}
+    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <p class="mt-2 text-sm text-muted">
+      Inspect Authenticated Received Chain (<span class="font-mono">RFC 8617 ARC</span>) headers.
+      Analyze how email forwarding and mailing lists (like Google Groups or Listserv) affect SPF and DKIM signatures, and verify whether the ARC seal chain intactly preserves message authenticity.
+    </p>
+
+    <div class="mt-6">
+      <form action="/arc" method="post" hx-post="/arc" hx-target="#result" hx-swap="innerHTML" class="space-y-3">
+        <label class="block text-sm text-muted">
+          Pasted Email Headers (from "Show Original" in Gmail or "View Message Details" in Outlook)
+          <textarea name="headers" rows="7" spellcheck="false"
+                    placeholder="ARC-Seal: i=1; a=rsa-sha256; d=example.com; s=arc; cv=none;&#10;ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=example.com;&#10;ARC-Authentication-Results: i=1; mx.example.com; dkim=pass (ok); spf=pass"
+                    class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Headers}}</textarea>
+        </label>
+        <button type="submit" class="btn-primary">Analyze ARC Chain</button>
+      </form>
+    </div>
+
+    <div id="result" class="mt-8" data-result>
+      {{if .Error}}{{template "mail/error" .}}{{else}}{{template "mail/arc-result" .}}{{end}}
+    </div>
+  </main>
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "mail/arc-result"}}
+{{with .Result}}
+<div class="space-y-6">
+
+  {{/* Telemetry strip */}}
+  <div class="telemetry-strip">
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Chain Status</div>
+      <div>
+        {{if .ChainValid}}
+          <span class="badge badge-ok">VALID CHAIN</span>
+        {{else}}
+          <span class="badge badge-danger">BROKEN CHAIN</span>
+        {{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .ChainValid}}All hops verified{{else}}Signature or sequence error{{end}}</div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Chain Length</div>
+      <div class="font-mono font-bold text-strong text-sm">{{.ChainLength}} hop{{if ne .ChainLength 1}}s{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">ARC intermediaries</div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="eyebrow text-faint mb-1">Final Validation (cv)</div>
+      <div class="font-mono font-bold {{if eq .FinalCV "pass"}}text-ok{{else if eq .FinalCV "none"}}text-muted{{else}}text-danger{{end}} text-sm">
+        {{if .FinalCV}}cv={{.FinalCV}}{{else}}N/A{{end}}
+      </div>
+      <div class="mt-1 text-xs text-faint font-mono">Terminal hop status</div>
+    </div>
+  </div>
+
+  {{/* Findings */}}
+  {{if .Findings}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <h2 class="text-sm font-semibold text-strong">Chain Observations</h2>
+    <div class="mt-2 divide-y divide-line text-xs">
+      {{range .Findings}}
+      <div class="py-2">
+        <div class="flex items-center gap-2">
+          {{if eq .Severity "ok"}}<span class="badge badge-ok">OK</span>
+          {{else if eq .Severity "warn"}}<span class="badge badge-warn">WARN</span>
+          {{else}}<span class="badge badge-danger">FAIL</span>{{end}}
+          <span class="font-medium text-strong">{{.Title}}</span>
+        </div>
+        <p class="mt-1 text-muted">{{.Detail}}</p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  {{/* Hop Timeline */}}
+  <section class="rounded-lg border border-line bg-surface p-4">
+    <h2 class="text-sm font-semibold text-strong">ARC Hop-by-Hop Authentication Sequence</h2>
+    <div class="mt-4 space-y-4">
+      {{range .Hops}}
+      <div class="relative pl-6 before:absolute before:left-2 before:top-2 before:bottom-0 before:w-0.5 before:bg-line last:before:hidden">
+        <div class="absolute left-0 top-1.5 h-4 w-4 rounded-full border-2 border-brand bg-canvas"></div>
+        <div class="rounded-lg border border-line p-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="font-mono font-bold text-sm text-strong">Hop i={{.Index}}</span>
+              <span class="badge badge-neutral text-xs">{{.Domain}}</span>
+            </div>
+            <div class="flex gap-1 text-xs">
+              <span class="badge {{if eq .CV "pass"}}badge-ok{{else if eq .CV "none"}}badge-neutral{{else}}badge-danger{{end}}">
+                cv={{.CV}}
+              </span>
+              {{if .Algorithm}}<span class="badge badge-neutral">{{.Algorithm}}</span>{{end}}
+            </div>
+          </div>
+
+          {{if .AuthResults}}
+          <div class="mt-3 rounded border border-line bg-canvas p-2 text-xs">
+            <span class="text-faint block font-mono">Evaluated Auth Results:</span>
+            <div class="mt-1 flex flex-wrap gap-2">
+              {{if .SPFResult}}<span class="badge {{if eq .SPFResult "pass"}}badge-ok{{else}}badge-warn{{end}} text-[10px]">SPF: {{.SPFResult}}</span>{{end}}
+              {{if .DKIMResult}}<span class="badge {{if eq .DKIMResult "pass"}}badge-ok{{else}}badge-warn{{end}} text-[10px]">DKIM: {{.DKIMResult}}</span>{{end}}
+              {{if .DMARCResult}}<span class="badge {{if eq .DMARCResult "pass"}}badge-ok{{else}}badge-warn{{end}} text-[10px]">DMARC: {{.DMARCResult}}</span>{{end}}
+            </div>
+            <p class="mt-1 font-mono text-[10px] text-muted break-all">{{.AuthResults}}</p>
+          </div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+
+</div>
+{{end}}
+{{end}}

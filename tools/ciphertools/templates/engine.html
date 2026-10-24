@@ -9,6 +9,8 @@
   {{$kind := ""}}{{if eq .Op "random"}}{{$kind = .Form.Get "kind"}}{{end}}
   <main class="page-main"
     {{- if eq .Active "jwt"}} x-data="{ tab: '{{if eq .Op "jwt-sign"}}sign{{else}}decode{{end}}' }"
+    {{- else if eq .Active "dpop"}} x-data="{ tab: '{{if eq .Op "dpop-verify"}}verify{{else}}generate{{end}}' }"
+    {{- else if eq .Active "pkce"}} x-data="{ tab: '{{if eq .Op "pkce-verify"}}verify{{else}}generate{{end}}' }"
     {{- else if eq .Active "random"}} x-data="{ tab: '{{if eq $kind "password"}}password{{else if eq $kind "uuid"}}uuid{{else}}token{{end}}' }"{{end}}>
     {{template "cipher/nav" .}}
 {{end}}
@@ -54,7 +56,7 @@
 {{define "cipher/engine-tab"}}
 <button type="button" role="tab" @click="tab = '{{.}}'" :aria-selected="tab === '{{.}}'"
         :class="tab === '{{.}}' ? 'bg-canvas text-strong shadow-sm ring-1 ring-line' : 'text-muted hover:text-strong'"
-        class="rounded-md px-3 py-1.5">{{if eq . "decode"}}Decode &amp; verify{{else if eq . "sign"}}Sign a new token{{else if eq . "uuid"}}UUID{{else if eq . "password"}}Password{{else}}Token{{end}}</button>
+        class="rounded-md px-3 py-1.5">{{if eq . "decode"}}Decode &amp; verify{{else if eq . "sign"}}Sign a new token{{else if eq . "uuid"}}UUID{{else if eq . "password"}}Password{{else if eq . "generate"}}Generate{{else if eq . "verify"}}Verify{{else}}Token{{end}}</button>
 {{end}}
 
 {{/* dot = the submitted encoding. */}}

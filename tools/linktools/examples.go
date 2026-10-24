@@ -38,6 +38,10 @@ var examples = map[string][]Example{
 		ex("http to https", "/trace", "u", "http://github.com/"),
 		ex("Asked as Googlebot", "/trace", "u", "http://google.com/", "ua", "googlebot"),
 	},
+	"headers": {
+		ex("CDN Cache with RFC 9213", "/headers", "u", "https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"),
+		ex("Asked as Googlebot", "/headers", "u", "https://example.com/", "ua", "googlebot"),
+	},
 	"diff": {
 		ex("Staging vs production", "/diff",
 			"a", "https://example.com/search?q=shoes&page=2&sort=price",

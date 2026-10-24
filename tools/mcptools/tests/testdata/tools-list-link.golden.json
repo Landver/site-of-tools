@@ -6,7 +6,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Remove tracking parameters from a URL and name the rule behind each removal, without fetching anything. By default it first unwraps redirect wrappers such as Outlook Safe Links, Google redirects and urldefense to the real destination; affiliate tags stay unless strip_affiliate is true. output is byte for byte the input when nothing was removed. To ask why a parameter is or isn't removed, use link_tracking_rules. Example: url https://example.com/?utm_source=news\u0026fbclid=abc\u0026id=7.",
+    "description": "Remove tracking parameters from a URL and name the rule behind each removal, without fetching anything. By default it first unwraps redirect wrappers such as Outlook Safe Links, Google redirects and urldefense to the real destination; affiliate tags stay unless strip_affiliate is true. output is byte for byte the input when nothing was removed. To ask why a parameter is or isn't removed, use link_tracking_rules. Example: url https://example.com/?utm_source=news&fbclid=abc&id=7.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -44,7 +44,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Turn a URL into a curl command, single-quoted so it is safe to paste into a shell. persona adds that client's User-Agent (left out, curl sends its own), follow_redirects adds -L and show_headers adds -i. For taking a command apart, use link_curl_parse. Example: url https://example.com/search?q=a\u0026page=2.",
+    "description": "Turn a URL into a curl command, single-quoted so it is safe to paste into a shell. persona adds that client's User-Agent (left out, curl sends its own), follow_redirects adds -L and show_headers adds -i. For taking a command apart, use link_curl_parse. Example: url https://example.com/search?q=a&page=2.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -116,7 +116,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved, with differences of spelling rather than meaning (host case, a default port, escape case) marked cosmetic. identical is true when the two mean the same thing. Use it to find why one link behaves differently from another. Example: url_a https://example.com/?a=1\u0026b=2, url_b https://example.com/?b=2\u0026a=3.",
+    "description": "Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved, with differences of spelling rather than meaning (host case, a default port, escape case) marked cosmetic. identical is true when the two mean the same thing. Use it to find why one link behaves differently from another. Example: url_a https://example.com/?a=1&b=2, url_b https://example.com/?b=2&a=3.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -172,11 +172,50 @@
   {
     "annotations": {
       "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Audit modern HTTP caching (RFC 9111 & RFC 9213 CDN-Cache-Control dual TTL), Cross-Origin Isolation (COOP & COEP for SharedArrayBuffer), Permissions-Policy, cookie security attributes (RFC 6265bis), and ETag conditional revalidation from a live URL or pasted headers. Example: url https://web.dev/.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "description": "pasted raw HTTP response headers (from curl or DevTools)",
+          "type": "string"
+        },
+        "persona": {
+          "description": "the User-Agent to present as when fetching live URL",
+          "enum": [
+            "browser",
+            "googlebot",
+            "bingbot",
+            "twitterbot",
+            "slackbot",
+            "facebook",
+            "gptbot",
+            "curl"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "the URL to probe live headers from via the guarded client",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "link_headers_inspect",
+    "title": "Inspect HTTP Caching and Security Headers"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Take a URL apart without fetching it: scheme, host (Unicode and punycode), port, path segments, and every query and fragment parameter in order, decoded layer by layer (percent, base64, JSON, JWT), with repeated keys kept and each tracker's rule named. notes flag what a reader would miss, such as a dangerous scheme, credentials before the host or an ambiguous +. To remove the trackers use link_clean; to compare two URLs, link_diff. Example: url https://example.com/p?utm_source=x\u0026id=7.",
+    "description": "Take a URL apart without fetching it: scheme, host (Unicode and punycode), port, path segments, and every query and fragment parameter in order, decoded layer by layer (percent, base64, JSON, JWT), with repeated keys kept and each tracker's rule named. notes flag what a reader would miss, such as a dangerous scheme, credentials before the host or an ambiguous +. To remove the trackers use link_clean; to compare two URLs, link_diff. Example: url https://example.com/p?utm_source=x&id=7.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

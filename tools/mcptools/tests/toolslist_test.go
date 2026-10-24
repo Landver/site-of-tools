@@ -42,7 +42,7 @@ func listTools(t *testing.T, cs *mcp.ClientSession) *mcp.ListToolsResult {
 
 var endpoints = []struct{ path, scope string }{
 	{"/mcp", "public"}, {"/mcp/ip", "public"}, {"/mcp/dns", "public"}, {"/mcp/link", "public"},
-	{"/mcp/cipher", "public"}, {"/mcp/botcheck", "public"}, {"/mcp/site", "public"}, {"/mcp/owner", "private"},
+	{"/mcp/cipher", "public"}, {"/mcp/botcheck", "public"}, {"/mcp/mail", "public"}, {"/mcp/site", "public"}, {"/mcp/owner", "private"},
 }
 
 // TestToolsListGolden pins each toolset's tools/list; /mcp must list their union.

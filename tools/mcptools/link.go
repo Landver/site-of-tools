@@ -72,6 +72,12 @@ type linkResolveArgs struct {
 	Code string `json:"code" jsonschema:"a short link's code, or its whole short URL"`
 }
 
+type linkHeadersArgs struct {
+	URL     string `json:"url,omitempty" jsonschema:"the URL to probe live headers from via the guarded client"`
+	Headers string `json:"headers,omitempty" jsonschema:"pasted raw HTTP response headers (from curl or DevTools)"`
+	Persona string `json:"persona,omitempty" jsonschema:"the User-Agent to present as when fetching live URL"`
+}
+
 const extractRows = 30
 
 type linkTools struct {
@@ -176,6 +182,22 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			cap:      lim.FetchCap,
 			add:      handle(t.redirectChain),
 		})
+		specs = append(specs, toolSpec{
+			toolset: "link",
+			tool: &mcp.Tool{
+				Name:  "link_headers_inspect",
+				Title: "Inspect HTTP Caching and Security Headers",
+				Description: "Audit modern HTTP caching (RFC 9111 & RFC 9213 CDN-Cache-Control dual TTL), " +
+					"Cross-Origin Isolation (COOP & COEP for SharedArrayBuffer), Permissions-Policy, cookie security attributes (RFC 6265bis), " +
+					"and ETag conditional revalidation from a live URL or pasted headers. Example: url https://web.dev/.",
+				InputSchema: inputSchema[linkHeadersArgs](oneOf("persona", personas)),
+				Annotations: acts(false, false, true),
+			},
+			deadline: fetchDeadline,
+			limiter:  lim.Fetch,
+			cap:      lim.FetchCap,
+			add:      handle(t.headersInspect),
+		})
 	}
 	if t.short != nil {
 		specs = append(specs, toolSpec{
@@ -249,6 +271,22 @@ func (t linkTools) redirectChain(ctx context.Context, _ *mcp.CallToolRequest, a 
 		return nil, err
 	}
 	return t.trace.Trace(ctx, a.URL, a.Persona)
+}
+
+func (t linkTools) headersInspect(ctx context.Context, _ *mcp.CallToolRequest, a linkHeadersArgs) (any, error) {
+	if a.Headers != "" {
+		return linktools.ParseRawHeaders(a.Headers)
+	}
+	if a.URL != "" {
+		if err := wrongTool(a.URL); err != nil {
+			return nil, err
+		}
+		if t.trace == nil {
+			return nil, errors.New("live header probing is disabled on this server")
+		}
+		return t.trace.ProbeHeaders(ctx, a.URL, a.Persona)
+	}
+	return nil, errors.New("provide either url or headers")
 }
 
 func (t linkTools) curlParse(_ context.Context, _ *mcp.CallToolRequest, a linkCurlParseArgs) (any, error) {

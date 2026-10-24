@@ -18,6 +18,9 @@ var redactedParams = map[string]bool{
 // dnsParams: the DNS tool's own query keys.
 var dnsParams = map[string]bool{"name": true, "type": true, "resolver": true}
 
+// linkParams: the link tool's own non-URL query keys.
+var linkParams = map[string]bool{"ua": true}
+
 // redactedName: a DNS ?name= with a path, query, fragment or @ is a pasted URL or email address.
 func redactedName(key, rawValue string) bool {
 	if strings.ToLower(key) != "name" {
@@ -65,9 +68,12 @@ func RedactURI(uri string) string {
 		lk := strings.ToLower(key)
 		switch {
 		case redactedParams[lk]:
+			if lk == "u" || lk == "a" || lk == "b" || lk == "curl" {
+				pastedURL = true
+			}
 		case redactedName(key, pair[len(rawKey)+1:]):
 			pastedURL = true
-		case pastedURL && !dnsParams[lk]:
+		case pastedURL && !dnsParams[lk] && !linkParams[lk]:
 		default:
 			continue
 		}

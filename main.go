@@ -25,6 +25,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 	"github.com/Landver/site-of-tools/tools/mcptools"
 )
 
@@ -112,12 +113,13 @@ func run() error {
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
 		platform.TemplateSource{Embed: ciphertools.Templates, DevDir: "tools/ciphertools/templates"},
+		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
 		platform.TemplateSource{Embed: mcptools.Templates, DevDir: "tools/mcptools/templates"},
 	)
 
 	apps := map[string]*echo.Echo{}
 	ownHosts := []string{cfg.MongoURI}
-	for _, sub := range []string{"", "ip", "botcheck", "dns", "link", "cipher", "mcp"} {
+	for _, sub := range []string{"", "ip", "botcheck", "dns", "link", "cipher", "mail", "mcp"} {
 		apps[sub] = platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
 		ownHosts = append(ownHosts, cfg.VHost(sub))
 	}
@@ -127,7 +129,7 @@ func run() error {
 	webGuard := platform.NewEgressGuard([]string{"80", "443"}, ownHosts)
 
 	ipLim, dnsLim, linkLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits()
-	cipherLim, botLim := ciphertools.NewLimits(), botcheck.NewLimits()
+	cipherLim, botLim, mailLim := ciphertools.NewLimits(), botcheck.NewLimits(), mailtools.NewLimits()
 	ipCheck, dnsCheck := iptools.CheckerFrom(blocklist), dnstools.BlockCheckerFrom(blocklist)
 
 	// A malformed blog post fails boot here rather than serving a broken page.
@@ -173,11 +175,13 @@ func run() error {
 	// The pages compute in the browser (wasm), so pasted secrets never reach us; POSTs are the JSON API.
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), staticFS, cipherLim)
 
+	mailtools.Register(apps["mail"], cfg.URL("mail"), mailLim)
+
 	mcptools.Register(apps["mcp"], mcptools.Deps{
 		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck, DNSBlocklist: dnsCheck,
 		DNS: dnsSvc, Domain: domainClient, Blog: blog,
 		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
-		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim,
+		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,
 		RequestLog: reqlog, ToolURL: cfg.URL,
 	}, cfg.URL("mcp"))
 
@@ -187,6 +191,7 @@ func run() error {
 	platform.RegisterSEO(apps["dns"], cfg.URL("dns"), dnstools.SitemapPages)
 	platform.RegisterSEO(apps["link"], cfg.URL("link"), linktools.SitemapPages)
 	platform.RegisterSEO(apps["cipher"], cfg.URL("cipher"), ciphertools.SitemapPages)
+	platform.RegisterSEO(apps["mail"], cfg.URL("mail"), mailtools.SitemapPages)
 	platform.RegisterSEO(apps["mcp"], cfg.URL("mcp"), mcptools.SitemapPages)
 
 	hosts := make(map[string]*echo.Echo, len(apps))

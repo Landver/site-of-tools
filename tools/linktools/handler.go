@@ -18,6 +18,7 @@ const (
 	inspectDesc  = "Take a URL apart: every query parameter decoded and kept in order, repeated keys shown as repeats, comma-lists split and counted, double-encoded values peeled layer by layer, and the fragment parsed instead of thrown away. Nothing is fetched. Free, open source, JSON API included."
 	cleanDesc    = "Remove tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
 	traceDesc    = "Follow a link hop by hop without opening it: every redirect with its status, timing and cookies, and an honest answer when the chain continues somewhere an HTTP client cannot follow. Ask as Googlebot, Slackbot or a browser."
+	headersDesc  = "Inspect modern HTTP caching (RFC 9111 & RFC 9213 CDN-Cache-Control), Cross-Origin Isolation (COOP & COEP), Permissions-Policy, cookie security attributes, and ETag revalidation."
 	shortDesc    = "Short links on a domain I own. Not a public shortener: creating one needs a key, deliberately and permanently."
 	diffDesc     = "Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved. The tool for 'why does staging behave differently from production'."
 	encodingDesc = "What percent-encoding actually reserves, and why the same characters mean different things in a path, a query and a fragment. Including the '+' that is a space in one and a literal plus in the other."
@@ -88,6 +89,10 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/trace", h.traceRoute, platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
 		return strings.TrimSpace(c.QueryParam("u")) == ""
 	}, limited))
+	e.GET("/headers", h.headersRoute, platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
+		return strings.TrimSpace(c.QueryParam("u")) == ""
+	}, limited))
+	e.POST("/headers", h.headersRoute, pure)
 
 	// The key-gated console reads the corpus, so both /short routes get the strict limiter (doc 06 §4).
 	e.GET("/short", h.shortConsole, keyed)
@@ -303,6 +308,56 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	}
 	vm["Result"] = ch
 	return platform.Reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
+}
+
+func (h *handler) headersRoute(c *echo.Context) error {
+	raw := strings.TrimSpace(c.QueryParam("u"))
+	pasted := strings.TrimSpace(c.FormValue("headers"))
+	if raw == "" && c.Request().Method == http.MethodGet {
+		raw = strings.TrimSpace(c.QueryParam("url"))
+	}
+	persona := strings.TrimSpace(c.QueryParam("ua"))
+	vm := h.vm("headers", "HTTP Caching & Security Headers", headersDesc, raw)
+	vm["Personas"], vm["Persona"] = Personas(), persona
+	vm["Disabled"] = h.trace == nil
+	vm["PastedHeaders"] = pasted
+
+	if raw == "" && pasted == "" {
+		if platform.WantsJSON(c) {
+			return apiError(c, http.StatusBadRequest, "no URL or headers provided; pass ?u= or POST headers=")
+		}
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/headers", "link/headers-result")
+	}
+
+	if pasted != "" {
+		res, err := ParseRawHeaders(pasted)
+		if err != nil {
+			return h.badRequest(c, vm, err, "link/headers")
+		}
+		vm["Result"] = res
+		return platform.Reply(c, http.StatusOK, res, vm, "link/headers", "link/headers-result")
+	}
+
+	if done, err := h.wrongTool(c, vm, raw, "link/headers"); done {
+		return err
+	}
+	if h.trace == nil {
+		return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
+	}
+	if !h.lim.FetchCap.TryAcquire(c.RealIP(), 1) {
+		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/headers")
+	}
+	defer h.lim.FetchCap.Release(c.RealIP(), 1)
+
+	res, err := h.trace.ProbeHeaders(c.Request().Context(), raw, persona)
+	if err != nil {
+		if errors.Is(err, ErrDisabled) {
+			return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
+		}
+		return h.badRequest(c, vm, err, "link/headers")
+	}
+	vm["Result"] = res
+	return platform.Reply(c, http.StatusOK, res, vm, "link/headers", "link/headers-result")
 }
 
 // shortOff answers 503 before any credential is read: no key can work, and a 401 would say otherwise.
@@ -669,7 +724,7 @@ func limited(c *echo.Context) error {
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
 		{Path: "/"}, {Path: "/clean"}, {Path: "/clean/rules"}, {Path: "/trace"},
-		{Path: "/diff"}, {Path: "/extract"}, {Path: "/utm"}, {Path: "/curl"},
-		{Path: "/encode"}, {Path: "/encoding"},
+		{Path: "/headers"}, {Path: "/diff"}, {Path: "/extract"}, {Path: "/utm"},
+		{Path: "/curl"}, {Path: "/encode"}, {Path: "/encoding"},
 	}, nil
 }

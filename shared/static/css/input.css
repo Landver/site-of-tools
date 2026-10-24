@@ -9,6 +9,7 @@
 @source "../../../tools/dnstools/templates/**/*.html";
 @source "../../../tools/linktools/templates/**/*.html";
 @source "../../../tools/ciphertools/templates/**/*.html";
+@source "../../../tools/mailtools/templates/**/*.html";
 @source "../../../tools/mcptools/templates/**/*.html";
 
 /* data-theme, not the OS query, so the toggle can override; only the sun/moon icon swap uses it. */

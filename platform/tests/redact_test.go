@@ -21,6 +21,7 @@ func TestRedactURI(t *testing.T) {
 		mustNot  string
 	}{
 		{"inspect", "/?u=https%3A%2F%2Fapp.example.com%2Freset%3Ftoken%3DSECRET", "SECRET"},
+		{"inspect unencoded", "/?u=https://app.example.com/reset?token=SECRET&extra=123", "SECRET"},
 		{"diff a", "/diff?a=https%3A%2F%2Fx%2F%3Fk%3DSECRET&b=https%3A%2F%2Fy", "SECRET"},
 		{"curl", "/curl?curl=curl%20-H%20%27Authorization%3A%20SECRET%27%20https%3A%2F%2Fx", "SECRET"},
 		{"extract", "/extract?text=see%20https%3A%2F%2Fx%3Ft%3DSECRET", "SECRET"},

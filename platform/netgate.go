@@ -34,6 +34,7 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("192.88.99.0/24"), // 6to4 relay anycast
 	netip.MustParsePrefix("100::/64"),       // discard-only
 	netip.MustParsePrefix("2001:db8::/32"),  // documentation
+	netip.MustParsePrefix("168.63.129.16/32"), // Azure wireserver / host agent
 }
 
 // PubliclyRoutable is the deny-by-default SSRF address check; unmapping judges ::ffff:127.0.0.1 as IPv4.

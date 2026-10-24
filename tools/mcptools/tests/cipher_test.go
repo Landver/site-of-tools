@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -51,6 +52,15 @@ var testCert = sync.OnceValues(func() (string, string) {
 	sum := sha256.Sum256(der)
 	return "-----BEGIN CERTIFICATE-----\n" + base64.StdEncoding.EncodeToString(der) + "\n-----END CERTIFICATE-----\n",
 		strings.ReplaceAll(fmt.Sprintf("% X", sum[:]), " ", ":")
+})
+
+var testDPoPToken = sync.OnceValue(func() string {
+	gen, _ := ciphertools.Lookup("dpop-generate")
+	res, _ := gen.Run(ciphertools.Input{Fields: url.Values{"htm": {"GET"}, "htu": {"https://api.example.com/resource"}}})
+	if res != nil {
+		return res.(*ciphertools.DPoPGenerateResult).Token
+	}
+	return ""
 })
 
 type cipherCase struct {
@@ -103,6 +113,15 @@ func cipherCases() []cipherCase {
 			want: map[string]any{"mode": "build", "token": "QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}},
 		{tool: "cipher_identify", args: map[string]any{"text": "5d41402abc4b2a76b9719d911017c592"},
 			want: map[string]any{"candidates.0.name": "MD5 digest", "candidates.0.hashcat": "0"}},
+		{tool: "cipher_pkce_generate", args: map[string]any{"length": 64, "method": "S256"},
+			want: map[string]any{"method": "S256"}, random: true},
+		{tool: "cipher_pkce_verify", args: map[string]any{"code_verifier": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+			"code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "method": "S256"},
+			want: map[string]any{"valid": true, "method": "S256"}},
+		{tool: "cipher_dpop_generate", args: map[string]any{"htm": "GET", "htu": "https://api.example.com/resource", "alg": "ES256"},
+			want: map[string]any{"htm": "GET", "htu": "https://api.example.com/resource", "alg": "ES256"}, random: true},
+		{tool: "cipher_dpop_verify", args: map[string]any{"token": testDPoPToken(), "htm": "GET", "htu": "https://api.example.com/resource"},
+			want: map[string]any{"valid": true, "status": "valid", "htm": "GET"}},
 	}
 }
 

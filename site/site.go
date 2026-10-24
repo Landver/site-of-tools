@@ -39,6 +39,11 @@ func Tools(cfg platform.Config) []platform.Tool {
 			URL:  cfg.URL("link"),
 		},
 		{
+			Name: "Mail Tools",
+			Desc: "Zero-knowledge DMARC aggregate report (RUA XML.GZ) visualizer, BIMI SVG Tiny P/S validator and auto-fixer, and ARC authentication trace analyzer.",
+			URL:  cfg.URL("mail"),
+		},
+		{
 			Name: "MCP server",
 			Desc: "Every tool here, for AI agents: connect Claude, ChatGPT, Cursor, VS Code, Codex or Gemini by URL and they call the tools directly, free and with no key.",
 			URL:  cfg.URL("mcp"),
