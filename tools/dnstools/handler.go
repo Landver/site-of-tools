@@ -97,7 +97,7 @@ func view(c *echo.Context, active, title, desc string) (string, map[string]any) 
 	raw := c.QueryParam("name")
 	name := NormalizeName(raw)
 	vm := map[string]any{
-		"Active": active, "Title": title, "Desc": desc, "Nav": navPages,
+		"Active": active, "Title": title, "Desc": desc, "Nav": navPages, "Subdomain": "dns",
 		"Query": name, "Unicode": UnicodeName(name), "OOB": platform.IsHTMX(c),
 	}
 	if needDomain(name) == nil {

@@ -117,7 +117,7 @@ func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	return map[string]any{
 		"Active": active, "Title": heading + " — Link Tools", "Desc": desc,
 		"Heading": heading, "Query": query, "Base": h.base,
-		"Examples": examples[active], "Canonical": canonical,
+		"Examples": examples[active], "Canonical": canonical, "Subdomain": "link",
 	}
 }
 

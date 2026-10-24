@@ -5,7 +5,7 @@
 <body>
   {{template "partials/header" .}}
 
-  <main class="page-main max-w-2xl">
+  <main id="main" tabindex="-1" class="page-main max-w-2xl">
     <article>
       <p><a href="/blog" class="font-mono text-sm text-faint hover:text-brand-ink">← all posts</a></p>
       <h1 class="mt-4 text-3xl font-bold tracking-tight text-strong">{{.Post.Title}}</h1>

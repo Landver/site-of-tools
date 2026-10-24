@@ -261,6 +261,8 @@ func (h *handler) landing(c *echo.Context) error {
 		"Toolsets":  eps[1:],
 		"Example":   example,
 		"Setup":     setup(eps[0].URL, example.URL),
+		"Subdomain": "mcp",
+		"Active":    "gateway",
 	}
 	return platform.Reply(c, http.StatusOK, h.catalog, vm, "mcp/index", "mcp/index")
 }

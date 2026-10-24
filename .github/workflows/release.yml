@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release version tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Resolve Version Tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Tailwind Standalone CLI
+        run: |
+          TAILWIND_VERSION="v4.3.2"
+          curl -fsSL -o ./shared/tailwindcss "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64"
+          chmod +x ./shared/tailwindcss
+
+      - name: Build CSS Stylesheet
+        run: ./shared/tailwindcss -i shared/static/css/input.css -o shared/static/css/styles.css --minify
+
+      - name: Build In-Browser WASM Engine
+        run: |
+          mkdir -p shared/static/wasm
+          GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o shared/static/wasm/cipher.wasm ./tools/ciphertools/wasm
+          cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" shared/static/wasm/wasm_exec.js
+
+      - name: Cross-compile Multi-Platform Binaries
+        env:
+          VERSION: ${{ steps.vars.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/bin dist/archives
+
+          build_target() {
+            local os=$1
+            local arch=$2
+            local ext=""
+            if [ "$os" = "windows" ]; then
+              ext=".exe"
+            fi
+
+            local bin_name="site-of-tools${ext}"
+            local target_dir="dist/bin/${os}-${arch}"
+            mkdir -p "$target_dir"
+
+            echo "==> Building ${os}/${arch}..."
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build \
+              -trimpath \
+              -ldflags="-s -w -X main.Version=${VERSION}" \
+              -o "${target_dir}/${bin_name}" .
+
+            # Create archive with binary and license
+            cp LICENSE README.md "$target_dir/"
+            
+            cd "$target_dir"
+            if [ "$os" = "windows" ]; then
+              zip -9 "../../archives/site-of-tools-${VERSION}-${os}-${arch}.zip" "${bin_name}" LICENSE README.md
+            else
+              tar -czf "../../archives/site-of-tools-${VERSION}-${os}-${arch}.tar.gz" "${bin_name}" LICENSE README.md
+            fi
+            cd ../../..
+          }
+
+          build_target linux amd64
+          build_target linux arm64
+          build_target darwin amd64
+          build_target darwin arm64
+          build_target windows amd64
+
+      - name: Generate Checksums
+        run: |
+          cd dist/archives
+          sha256sum * > checksums.txt
+          echo "Generated Checksums:"
+          cat checksums.txt
+          cd ../..
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: Release ${{ steps.vars.outputs.tag }}
+          files: |
+            dist/archives/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

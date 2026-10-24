@@ -29,6 +29,9 @@ import (
 	"github.com/Landver/site-of-tools/tools/mcptools"
 )
 
+// Version is the application version, set at build time via -ldflags="-X main.Version=...".
+var Version = "dev"
+
 func main() {
 	// The defers live in run so the drains fire on every exit path, and a bind failure still exits 1.
 	if err := run(); err != nil {
@@ -39,6 +42,7 @@ func main() {
 
 func run() error {
 	cfg := platform.Load()
+	log.Printf("site-of-tools %s starting (env=%s, base=%s)", Version, cfg.Env, cfg.BaseDomain)
 
 	// Unset or unreachable Mongo is non-fatal: mdb.DB() is nil and every repo built on it no-ops.
 	mongoCtx, cancelMongo := context.WithTimeout(context.Background(), 12*time.Second)
@@ -99,10 +103,11 @@ func run() error {
 	}
 
 	navFuncs := template.FuncMap{
-		"apexURL":  func() string { return cfg.URL("") },
-		"navTools": func() []platform.Tool { return site.Tools(cfg) },
-		"toolURL":  cfg.URL,
-		"asset":    asset,
+		"apexURL":    func() string { return cfg.URL("") },
+		"navTools":   func() []platform.Tool { return site.Tools(cfg) },
+		"navCatalog": func() []platform.ToolSection { return platform.Catalog(cfg) },
+		"toolURL":    cfg.URL,
+		"asset":      asset,
 	}
 
 	renderer := platform.NewRenderer(cfg.IsDev(), navFuncs,

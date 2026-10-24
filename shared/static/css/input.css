@@ -65,6 +65,28 @@
 }
 
 @layer base {
+  /* Scale: comfortable 110% by default, compact 100% when data-scale="compact". */
+  html {
+    font-size: 110%;
+  }
+  html[data-scale="compact"] {
+    font-size: 100%;
+  }
+
+  /* Desktop sidebar initial collapsed state (zero FOUC / instant before JS loads) */
+  @media (min-width: 768px) {
+    html[data-sidebar-collapsed="true"] #app-sidebar:not([data-hover="true"]) {
+      margin-left: -20rem;
+      pointer-events: none;
+      visibility: hidden;
+    }
+  }
+  @media (min-width: 1024px) {
+    html[data-sidebar-collapsed="true"] #app-sidebar:not([data-hover="true"]) {
+      margin-left: -350px;
+    }
+  }
+
   /* Every page shares this flex-column body, so the footer's mt-auto pins it to the bottom. */
   body {
     @apply bg-canvas text-body min-h-screen flex flex-col antialiased;

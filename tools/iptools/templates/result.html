@@ -8,6 +8,28 @@
 {{else if .Result}}
   {{/* No wrapper: #result is display:contents, so these cards are flow items of ip/index. */}}
   {{with .Result}}
+  <script>
+    (function() {
+      try {
+        var entry = {
+          ip: {{.IP}},
+          country: {{.Country}},
+          countryCode: {{.CountryCode}},
+          city: {{.City}},
+          asn: {{.ASN}},
+          asName: {{.ASName}},
+          time: new Date().toISOString()
+        };
+        if (!entry.ip) return;
+        var raw = localStorage.getItem("ip_history");
+        var list = raw ? JSON.parse(raw) : [];
+        list = list.filter(function(x) { return x.ip !== entry.ip; });
+        list.unshift(entry);
+        if (list.length > 50) list = list.slice(0, 50);
+        localStorage.setItem("ip_history", JSON.stringify(list));
+      } catch (e) {}
+    })();
+  </script>
   <div class="order-0 basis-full w-full telemetry-strip">
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Target Address</div>

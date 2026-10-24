@@ -71,6 +71,7 @@ func (h *handler) vm(active, heading, desc string) map[string]any {
 		"Heading":   heading,
 		"Base":      h.base,
 		"Canonical": canonical,
+		"Subdomain": "mail",
 	}
 }
 

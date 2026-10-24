@@ -5,24 +5,53 @@
 <body>
   {{template "partials/header" .}}
 
-  <main class="page-main">
-    {{template "ip/nav" .}}
-    <h1 class="text-2xl font-semibold text-strong">Lookup history</h1>
-    <p class="mt-2 text-sm text-muted">
-      The most recent IP lookups run from this page. Click any address to run it again.
-    </p>
+  <main id="main" tabindex="-1" class="page-main"
+        x-data="{
+          items: [],
+          init() {
+            try {
+              const raw = localStorage.getItem('ip_history');
+              if (raw) {
+                this.items = JSON.parse(raw);
+              }
+            } catch (e) {
+              // localStorage unavailable or restricted (e.g. file:// or strict privacy settings)
+            }
+          },
+          clear() {
+            try {
+              localStorage.removeItem('ip_history');
+              this.items = [];
+            } catch (e) {}
+          },
+          formatDate(iso) {
+            if (!iso) return '—';
+            try {
+              const d = new Date(iso);
+              return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+              return iso;
+            }
+          }
+        }">
+    <div class="flex flex-wrap items-baseline justify-between gap-3 mb-2">
+      <div>
+        <h1 class="text-2xl font-semibold text-strong">Lookup history</h1>
+        <p class="mt-2 text-sm text-muted">
+          Recent IP lookups stored privately in your browser. Never sent to or stored on our servers.
+        </p>
+      </div>
+      <div x-show="items.length > 0" x-cloak>
+        <button type="button" @click="clear()" class="btn-secondary text-xs py-1.5 px-3">
+          Clear history
+        </button>
+      </div>
+    </div>
 
     {{if .Error}}
       <div class="alert-error mt-6">{{.Error}}</div>
-    {{else if not .Enabled}}
-      <div class="card mt-6 text-sm text-muted">
-        History is off. No storage is configured for this tool right now.
-      </div>
-    {{else if not .Entries}}
-      <div class="card mt-6 text-sm text-muted">
-        No lookups recorded yet. Look one up and it will show here.
-      </div>
-    {{else}}
+    {{else if .Entries}}
+      {{/* Server-side entries fallback (e.g. for testing / SSR) */}}
       <div class="mt-6 overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
@@ -46,6 +75,44 @@
             {{end}}
           </tbody>
         </table>
+      </div>
+    {{else}}
+      {{/* Client-side localStorage table */}}
+      <div x-show="items.length > 0" x-cloak class="mt-6 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-faint border-b border-line">
+              <th class="py-2 pr-4 font-medium">IP</th>
+              <th class="py-2 pr-4 font-medium">Location</th>
+              <th class="py-2 pr-4 font-medium">Network</th>
+              <th class="py-2 font-medium whitespace-nowrap">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="item in items" :key="item.ip">
+              <tr class="border-b border-line/60">
+                <td class="py-2 pr-4 font-mono">
+                  <a :href="'/?ip=' + encodeURIComponent(item.ip)" class="link-brand" x-text="item.ip"></a>
+                </td>
+                <td class="py-2 pr-4 text-muted">
+                  <span x-text="[item.city, item.country].filter(Boolean).join(', ')"></span>
+                  <span x-show="item.countryCode" class="text-faint" x-text="' (' + item.countryCode + ')'"></span>
+                </td>
+                <td class="py-2 pr-4 text-muted" x-text="[item.asn, item.asName].filter(Boolean).join(' — ') || '—'"></td>
+                <td class="py-2 text-faint whitespace-nowrap" x-text="formatDate(item.time)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="items.length === 0" class="card mt-6 text-sm text-muted">
+        {{if not .Enabled}}
+        <p class="font-medium text-strong mb-1">Server-side tracking is disabled for privacy.</p>
+        <p class="text-faint">History is off on the server. Your lookups are stored only in this browser (localStorage). Look one up and it will show here.</p>
+        {{else}}
+        No lookups recorded in your browser yet. Look one up and it will show here.
+        {{end}}
       </div>
     {{end}}
   </main>

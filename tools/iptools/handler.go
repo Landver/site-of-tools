@@ -82,16 +82,16 @@ func (h *handler) limited(c *echo.Context) error {
 
 func lookupVM(query string) map[string]any {
 	return map[string]any{"Title": "IP Tools", "Desc": lookupDesc, "Active": "lookup", "Query": query,
-		"Attribution": true, "SpamhausAttribution": true}
+		"Attribution": true, "SpamhausAttribution": true, "Subdomain": "ip"}
 }
 
 func cidrVM(query string) map[string]any {
-	return map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": query}
+	return map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": query, "Subdomain": "ip"}
 }
 
 func (h *handler) historyVM() map[string]any {
 	return map[string]any{"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
-		"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true}
+		"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true, "Subdomain": "ip"}
 }
 
 // No routable IP: browsers get the empty page, htmx an empty fragment (never the full page), JSON a 400.
@@ -174,10 +174,8 @@ func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.lookup(c, ip)
 	wantsJSON := platform.WantsJSON(c)
 
-	// Only browser lookups of another IP reach /history; the IPv6 self-probe asks for JSON, so it's out.
-	if err == nil && !self && !wantsJSON {
-		h.hist.Record(res)
-	}
+	// Lookups are stored in client-side localStorage for user privacy (no MongoDB recording).
+	_ = self
 
 	code := http.StatusOK
 	if err != nil {

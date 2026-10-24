@@ -22,8 +22,9 @@ type Tool struct {
 
 // navBaseFuncs are fallbacks so any renderer parses with nil funcs (tests); main.go overrides them.
 var navBaseFuncs = template.FuncMap{
-	"apexURL":  func() string { return "/" },
-	"navTools": func() []Tool { return nil },
+	"apexURL":    func() string { return "/" },
+	"navTools":   func() []Tool { return nil },
+	"navCatalog": func() []ToolSection { return defaultCatalog },
 	// Origin of a sibling tool, for links that hand off to it.
 	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	"asset":   StaticURL,

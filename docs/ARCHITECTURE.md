@@ -1,9 +1,8 @@
 # Architecture — corpberry.com (`site-of-tools`)
 
-`corpberry.com` = Stas's playground: a portfolio landing plus small self-built
-tools. **One Go server** serves the apex site and every *simple* tool; projects
-that need a real SPA get their own subdomain and stack elsewhere. Practical, not
-exhaustive: change something → edit this doc.
+`corpberry.com` (`site-of-tools`) is an open-source web utility and diagnostics suite.
+**One Go server** serves the apex site and every tool subdomain, routing by Host header.
+Practical, not exhaustive: change something → edit this doc.
 
 ## 1. Stack (pinned)
 

@@ -173,8 +173,9 @@ func renderError(t *template.Template, err error) string {
 // FragmentTemplates parses the templates alone (wasm, tests): fragments never reach the shells, so stub funcs do.
 func FragmentTemplates() (*template.Template, error) {
 	return template.New("").Funcs(template.FuncMap{
-		"asset":    func(string) string { return "" },
-		"apexURL":  func() string { return "" },
-		"navTools": func() []struct{} { return nil },
+		"asset":      func(string) string { return "" },
+		"apexURL":    func() string { return "" },
+		"navTools":   func() []struct{} { return nil },
+		"navCatalog": func() []struct{} { return nil },
 	}).ParseFS(Templates, "templates/*.html")
 }

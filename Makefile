@@ -82,7 +82,12 @@ test:
 
 # styles.css is generated and embedded: without css first, a fresh clone ships a missing stylesheet.
 build: css wasm
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/server .
+	CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=$(shell git describe --tags --always 2>/dev/null || echo dev)" -o bin/server .
+
+release-local: css wasm
+	@mkdir -p dist
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=$(shell git describe --tags --always 2>/dev/null || echo dev)" -o dist/site-of-tools .
+	@echo "Built static binary: dist/site-of-tools"
 
 docker:
 	docker compose up -d --build

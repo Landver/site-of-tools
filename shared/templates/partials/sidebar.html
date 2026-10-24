@@ -1,0 +1,218 @@
+{{define "partials/sidebar"}}
+{{$currSub := .Subdomain}}
+{{$currActive := .Active}}
+
+<div x-data="{
+  sidebarOpen: false,
+  sidebarCollapsed: (typeof window !== 'undefined' && window.isSidebarCollapsed) ? window.isSidebarCollapsed() : false,
+  sidebarHover: false,
+  hoverTimer: null,
+  q: '',
+  openSections: {
+    {{if $currSub}}'{{$currSub}}': true{{end}}
+  },
+  toggleSection(id) {
+    this.openSections[id] = !this.openSections[id];
+  },
+  isSectionOpen(id) {
+    if (this.q.trim().length > 0) return true;
+    return !!this.openSections[id];
+  },
+  toggleCollapse() {
+    if (window.innerWidth < 768) {
+      this.sidebarOpen = !this.sidebarOpen;
+    } else {
+      this.sidebarCollapsed = !this.sidebarCollapsed;
+      this.sidebarHover = false;
+      if (window.setSidebarCollapsed) {
+        window.setSidebarCollapsed(this.sidebarCollapsed);
+      }
+    }
+  },
+  openHover() {
+    clearTimeout(this.hoverTimer);
+    if (this.sidebarCollapsed && window.innerWidth >= 768) {
+      this.sidebarHover = true;
+    }
+  },
+  closeHover() {
+    this.hoverTimer = setTimeout(() => {
+      this.sidebarHover = false;
+    }, 250);
+  },
+  cancelCloseHover() {
+    clearTimeout(this.hoverTimer);
+  },
+  matches(el) {
+    if (!this.q.trim()) return true;
+    const tokens = this.q.toLowerCase().trim().split(/\s+/);
+    const hay = ((el.dataset.name || '') + ' ' + (el.dataset.tags || '') + ' ' + (el.dataset.desc || '')).toLowerCase();
+    return tokens.every(t => hay.includes(t));
+  },
+  isTagMatch(tag) {
+    if (!this.q.trim()) return false;
+    return tag.toLowerCase().includes(this.q.toLowerCase().trim());
+  },
+  hasVisibleTools(secEl) {
+    if (!this.q.trim()) return true;
+    return Array.from(secEl.querySelectorAll('[data-tool-item]')).some(el => this.matches(el));
+  }
+}"
+@toggle-sidebar.window="toggleCollapse()"
+@keydown.escape.window="if (sidebarOpen) { sidebarOpen = false; document.getElementById('sidebar-toggle')?.focus(); }"
+@keydown.window="if ((($event.ctrlKey || $event.metaKey) && $event.key.toLowerCase() === 'b')) { $event.preventDefault(); toggleCollapse(); }"
+x-effect="document.body.classList.toggle('overflow-hidden', sidebarOpen && window.innerWidth < 768)"
+class="contents">
+
+  <!-- DESKTOP EDGE HOVER TRIGGER (reveals sidebar when mouse reaches left edge) -->
+  <div x-show="sidebarCollapsed && !sidebarHover"
+       @mouseenter="openHover()"
+       class="hidden md:block fixed left-0 top-14 bottom-0 w-4 z-40 cursor-pointer"
+       aria-hidden="true"></div>
+
+  <!-- MOBILE BACKDROP -->
+  <div x-show="sidebarOpen" x-cloak
+       @click="sidebarOpen = false"
+       x-transition:enter="transition-opacity ease-linear duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition-opacity ease-linear duration-200"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs md:hidden"
+       aria-hidden="true"></div>
+
+  <!-- SIDEBAR CONTAINER: supports desktop collapse, hover-reveal and mobile drawer -->
+  <aside id="app-sidebar"
+         aria-label="Tool directory"
+         :data-hover="sidebarHover.toString()"
+         @mouseenter="cancelCloseHover()"
+         @mouseleave="if (sidebarCollapsed) closeHover()"
+         :class="{
+           'translate-x-0': sidebarOpen,
+           '-translate-x-full md:translate-x-0': !sidebarOpen,
+           'md:-ml-80 lg:-ml-[350px] md:pointer-events-none md:invisible': sidebarCollapsed && !sidebarHover,
+           'md:fixed md:top-14 md:bottom-0 md:left-0 md:z-50 md:shadow-2xl md:translate-x-0 md:ml-0 md:pointer-events-auto md:visible': sidebarCollapsed && sidebarHover
+         }"
+         :inert="(!sidebarOpen && window.innerWidth < 768) || (sidebarCollapsed && !sidebarHover && window.innerWidth >= 768)"
+         class="fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-3rem)] shrink-0 border-r border-line bg-canvas transition-all duration-200 ease-in-out md:h-[calc(100vh-3.5rem)] md:sticky md:top-14 lg:w-[350px] flex flex-col">
+
+    <!-- SEARCH & CONTROLS -->
+    <div class="p-3 border-b border-line flex items-center gap-2">
+      <div class="relative flex-1">
+        <svg class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        <input type="text" x-model="q"
+               placeholder="Search tools &amp; tags..."
+               aria-label="Filter tools and tags"
+               class="w-full rounded-md border border-line-strong bg-surface py-1.5 pl-8 pr-8 text-xs text-strong placeholder-faint focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+        <button type="button" x-show="q" x-cloak @click="q = ''"
+                aria-label="Clear search"
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-xs text-faint hover:text-strong rounded">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+        </button>
+      </div>
+
+      <!-- Close Drawer Button on Mobile -->
+      <button type="button" @click="sidebarOpen = false" aria-label="Close sidebar"
+              class="md:hidden p-1.5 text-muted hover:text-strong rounded-md hover:bg-surface">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- NAVIGATION CATALOG -->
+    <nav aria-label="Tools" class="flex-1 overflow-y-auto p-2.5 space-y-3 [scrollbar-gutter:stable]">
+      {{range navCatalog}}
+      {{$sec := .}}
+      {{$isCurrentSec := eq $sec.Subdomain $currSub}}
+      
+      <div class="category-block"
+           x-data="{ visible: true }"
+           x-show="!q.trim() || visible"
+           x-effect="visible = !q.trim() || hasVisibleTools($el)">
+        
+        <!-- SECTION HEADER ACCORDION (No subdomain prefix, just clean header & chevron) -->
+        <button type="button"
+                @click="toggleSection('{{$sec.ID}}')"
+                :aria-expanded="isSectionOpen('{{$sec.ID}}').toString()"
+                aria-controls="section-{{$sec.ID}}"
+                class="w-full flex items-center justify-between px-2.5 py-2 rounded-md text-xs font-mono font-semibold uppercase tracking-wider transition hover:bg-surface text-muted hover:text-strong focus-visible:outline-2 focus-visible:outline-brand">
+          <span class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full {{if $isCurrentSec}}bg-brand{{else}}bg-line-strong{{end}}" aria-hidden="true"></span>
+            <span>{{$sec.Name}}</span>
+            <span class="text-[11px] font-normal text-faint font-sans">({{len $sec.Tools}})</span>
+          </span>
+          <svg class="h-3.5 w-3.5 text-faint transition-transform duration-150 shrink-0" :class="isSectionOpen('{{$sec.ID}}') ? 'rotate-180' : ''" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+
+        <!-- TOOLS LIST WITH ENTER/LEAVE TRANSITIONS -->
+        <div id="section-{{$sec.ID}}"
+             x-show="isSectionOpen('{{$sec.ID}}')"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0 -translate-y-1"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-100"
+             x-transition:leave-start="opacity-100 translate-y-0"
+             x-transition:leave-end="opacity-0 -translate-y-1"
+             class="mt-1 space-y-1.5 pl-1 pr-0.5">
+          {{range $sec.Tools}}
+          {{$tool := .}}
+          {{$isActive := and $isCurrentSec (eq $tool.Key $currActive)}}
+          
+          <a {{if $isCurrentSec}}href="{{$tool.Path}}"{{else}}href="{{toolURL $sec.Subdomain}}{{$tool.Path}}"{{end}}
+             data-tool-item
+             x-show="matches($el)"
+             data-name="{{$tool.Name}}"
+             data-desc="{{$tool.ShortDesc}}"
+             data-tags="{{range $tool.Tech}}{{.}} {{end}}"
+             title="{{$tool.ShortDesc}}"
+             {{if $isActive}}aria-current="page"{{end}}
+             class="group block w-full rounded-md px-2.5 py-2 transition text-left border focus-visible:outline-2 focus-visible:outline-brand {{if $isActive}}border-brand/40 bg-brand/10 text-strong shadow-xs{{else}}border-transparent bg-canvas hover:border-line hover:bg-surface text-body{{end}}">
+            
+            <!-- TOOL NAME & STATUS DOT -->
+            <div class="flex items-baseline justify-between gap-1">
+              <span class="text-sm font-medium {{if $isActive}}text-brand-ink font-semibold{{else}}text-strong group-hover:text-brand-ink{{end}}">
+                {{$tool.Name}}
+              </span>
+              {{if $isActive}}
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true"></span>
+              {{end}}
+            </div>
+
+            <!-- SHORT DESCRIPTION (Comfortable readable font size) -->
+            <p class="mt-0.5 text-xs text-muted leading-relaxed">
+              {{$tool.ShortDesc}}
+            </p>
+
+            <!-- KEY BADGES: ONLY SHOWN WHEN SEARCHING -->
+            <div x-show="q.trim()" x-cloak class="mt-1.5 flex items-center gap-1 overflow-hidden whitespace-nowrap">
+              {{range $tool.Badges}}
+              <span class="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 font-mono text-[10px] leading-tight transition-colors border {{if $isActive}}bg-brand/15 border-brand/40 text-brand-ink font-medium{{else}}bg-surface border-line text-muted group-hover:border-line-strong{{end}}"
+                    :class="isTagMatch('{{.}}') && '!border-brand !bg-brand/25 !text-brand-ink !font-bold ring-1 ring-brand/30'">
+                {{.}}
+              </span>
+              {{end}}
+            </div>
+          </a>
+          {{end}}
+        </div>
+
+      </div>
+      {{end}}
+    </nav>
+
+    <!-- SIDEBAR FOOTER WITH SAFE AREA INSET -->
+    <div class="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-line flex items-center justify-between text-[11px] text-faint">
+      <span class="flex items-center gap-1.5" title="No Ads · No 3rd-Party Analytics · No Tracking Cookies">
+        <span class="h-2 w-2 rounded-full bg-ok" aria-hidden="true"></span>
+        <span class="truncate">No Ads · No 3rd-Party Analytics</span>
+      </span>
+      <a href="{{apexURL}}/blog" class="hover:text-strong underline underline-offset-2 shrink-0 ml-2">Blog &rarr;</a>
+    </div>
+
+  </aside>
+</div>
+{{end}}

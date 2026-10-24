@@ -1,13 +1,5 @@
 {{define "mail/nav"}}
-<nav aria-label="Mail Tools sections"
-     class="mb-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium sm:mb-8">
-  <a href="/dmarc" title="Zero-knowledge DMARC report visualizer"{{if eq .Active "dmarc"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "dmarc"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">DMARC Visualizer</a>
-  <a href="/bimi" title="BIMI SVG Tiny P/S validator and auto-fixer"{{if eq .Active "bimi"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "bimi"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">BIMI Logo</a>
-  <a href="/arc" title="Authenticated Received Chain analyzer"{{if eq .Active "arc"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "arc"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">ARC Trace</a>
-</nav>
+{{/* Horizontal tabs retired: navigation is in partials/sidebar */}}
 <p id="content" class="eyebrow" tabindex="-1">Mail Tools</p>
 {{end}}
 

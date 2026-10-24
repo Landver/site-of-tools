@@ -1,7 +1,7 @@
 # CLAUDE.md — working agreement for `site-of-tools`
 
-`corpberry.com`: Stas's portfolio + small self-built tools. **One Go binary**
-serves the apex site and every tool, dispatching by subdomain. Design:
+`corpberry.com` (`site-of-tools`): Open-source web utilities & diagnostics suite. **One Go binary**
+serves the apex site and every tool subdomain, dispatching by subdomain. Design:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); edge/container:
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Owner = Python/FastAPI dev, new to
 Go + this frontend stack: prefer the simple idiomatic path, explain Go choices.

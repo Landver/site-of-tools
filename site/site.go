@@ -61,7 +61,7 @@ func Register(e *echo.Echo, cfg platform.Config, blogFS fs.FS) (*Blog, error) {
 	e.GET("/", func(c *echo.Context) error {
 		data := map[string]any{
 			"Title": "Stas — corpberry.com",
-			"Desc":  "Open-source web tools by Stas: Bot check, IP Tools, DNS Tools, Link Tools (URL inspection, tracker removal, HTTP headers cache/security), Mail Tools (DMARC XML/gzip, BIMI SVG, ARC traces), and Cipher Tools (JWT, DPoP, PKCE). One Go binary, no tracking.",
+			"Desc":  "Open-source web tools by Stas: Bot check, IP Tools, DNS Tools, Link Tools, Mail Tools, and Cipher Tools. One Go binary. No Ads · No 3rd-Party Analytics · No Tracking Cookies.",
 			"Tools": Tools(cfg),
 		}
 		// No htmx fragment on apex -> same template for page + fragment.

@@ -1,15 +1,17 @@
 {{define "partials/footer"}}
-<footer class="border-t border-line mt-auto">
-  <div class="w-full px-6 py-6 text-xs text-faint flex flex-col gap-1">
-    <span>© 2026 corpberry.com</span>
-    {{/* One flag per source: a credit is owed only on a page that shows that source's data. */}}
-    {{if .Attribution}}{{template "partials/credit" "ip2location"}}{{end}}
-    {{if .SpamhausAttribution}}{{template "partials/credit" "spamhaus"}}{{end}}
-    {{if .ShodanAttribution}}{{template "partials/credit" "shodan"}}{{end}}
-    {{if .CertsAttribution}}{{template "partials/credit" "crtsh"}}{{end}}
-    {{if .RDAPAttribution}}{{template "partials/credit" "rdap"}}{{end}}
+  <footer class="border-t border-line mt-auto">
+    <div class="w-full px-6 py-6 text-xs text-faint flex flex-col gap-1">
+      <span>© 2026 corpberry.com</span>
+      {{/* One flag per source: a credit is owed only on a page that shows that source's data. */}}
+      {{if .Attribution}}{{template "partials/credit" "ip2location"}}{{end}}
+      {{if .SpamhausAttribution}}{{template "partials/credit" "spamhaus"}}{{end}}
+      {{if .ShodanAttribution}}{{template "partials/credit" "shodan"}}{{end}}
+      {{if .CertsAttribution}}{{template "partials/credit" "crtsh"}}{{end}}
+      {{if .RDAPAttribution}}{{template "partials/credit" "rdap"}}{{end}}
+    </div>
+  </footer>
   </div>
-</footer>
+</div>
 {{end}}
 
 {{define "partials/credit"}}{{with credit .}}

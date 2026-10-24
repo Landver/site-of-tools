@@ -19,6 +19,7 @@ shared/static/wasm/
 
 # build output & fetched binaries (see `make tools`)
 /bin/
+dist/
 /shared/tailwindcss
 *.exe
 # downloaded Go toolchain tarball (install to /usr/local, don't commit)

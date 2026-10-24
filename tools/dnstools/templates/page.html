@@ -185,7 +185,7 @@
 {{/* Links carry ?name= (.NavName); after an htmx swap the nav returns out of band (dns/frag). */}}
 {{define "dns/nav"}}
 <nav id="dns-nav" aria-label="DNS Tools sections" {{if .OOB}}hx-swap-oob="true"{{end}}
-     class="mb-8 inline-flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+     class="hidden">
   {{range .Nav}}
   <a href="{{.Path}}{{with $.NavName}}?name={{.}}{{end}}" title="{{.Hint}}" {{if eq .Key $.Active}}aria-current="page"{{end}}
      class="rounded-md px-3 py-1.5 transition {{if eq .Key $.Active}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">{{.Label}}</a>

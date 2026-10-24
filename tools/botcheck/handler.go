@@ -93,6 +93,8 @@ func (h *handler) index(c *echo.Context) error {
 		"Desc":                "Open-source bot-detection self-test: see which of 68 signals give your browser away. Client fingerprint, HTTP headers, and IP reputation, cross-checked. Every signal shown, nothing blocked.",
 		"Attribution":         true,
 		"SpamhausAttribution": true,
+		"Subdomain":           "botcheck",
+		"Active":              "botcheck",
 	})
 }
 

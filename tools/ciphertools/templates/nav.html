@@ -1,10 +1,8 @@
-{{/* .Pages is handler.go's pages, in nav order; .Active the current page's key. */}}
 {{define "cipher/nav"}}
-<nav aria-label="Cipher Tools sections"
-     class="mb-8 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium">
+<nav aria-label="Cipher Tools sections" class="hidden">
   {{range .Pages}}
   <a href="{{.Path}}" title="{{.Tip}}"
-     class="rounded-md px-3 py-1.5 transition {{if eq .Key $.Active}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}"{{if eq .Key $.Active}} aria-current="page"{{end}}>{{.Label}}</a>
+     class="{{if eq .Key $.Active}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}"{{if eq .Key $.Active}} aria-current="page"{{end}}>{{.Label}}</a>
   {{end}}
 </nav>
 {{end}}

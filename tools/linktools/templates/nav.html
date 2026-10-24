@@ -1,34 +1,9 @@
-{{/* Every tool is top-level; flex-wrap reflows narrow screens. .Active is the key handler.go sets. */}}
 {{define "link/nav"}}
-<nav aria-label="Link Tools sections"
-     class="mb-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-1 text-sm font-medium sm:mb-8">
-  <a href="/" title="Take a URL apart"{{if eq .Active "inspect"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "inspect"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Inspect</a>
-  <a href="/clean" title="Remove tracking parameters and unwrap mail-gateway links"{{if eq .Active "clean"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "clean"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Clean</a>
-  <a href="/trace" title="Follow a redirect chain hop by hop"{{if eq .Active "trace"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "trace"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Trace</a>
-  <a href="/headers" title="Inspect modern HTTP caching (RFC 9111/9213) and security headers"{{if eq .Active "headers"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "headers"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Headers</a>
-  <a href="/diff" title="Compare two URLs parameter by parameter"{{if eq .Active "diff"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "diff"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Diff</a>
-  <a href="/extract" title="Pull every link out of pasted text"{{if eq .Active "extract"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "extract"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Extract</a>
-  <a href="/utm" title="Build a campaign-tagged URL"{{if eq .Active "utm"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "utm"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">UTM</a>
-  <a href="/curl" title="Turn a URL into a curl command, or take one apart"{{if eq .Active "curl"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "curl"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">curl</a>
-  <a href="/encode" title="Percent, base64 and entity encoding, both directions"{{if eq .Active "encode"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "encode"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Encode</a>
-  <a href="/encoding" title="What percent-encoding reserves, and where it differs"{{if eq .Active "encoding"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "encoding"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Reference</a>
-  <a href="/short" title="Short links on this domain (API key needed)"{{if eq .Active "short"}} aria-current="page"{{end}}
-     class="rounded-md px-2 py-1.5 transition sm:px-3 {{if eq .Active "short"}}bg-brand text-white{{else}}text-muted hover:text-strong{{end}}">Short</a>
-</nav>
+{{/* Horizontal tabs retired; navigation is in partials/sidebar */}}
 <p id="content" class="eyebrow" tabindex="-1">Link Tools</p>
 {{end}}
 
-{{/* First in the tab order, so keyboard users skip the header and the ten tabs. */}}
+{{/* First in the tab order, so keyboard users skip the header and the sidebar. */}}
 {{define "link/skip"}}
 <a href="#content"
    class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-canvas focus:px-3 focus:py-2 focus:text-sm focus:text-strong focus:ring-2 focus:ring-brand">Skip to the tool</a>

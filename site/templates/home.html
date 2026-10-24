@@ -5,11 +5,11 @@
 <body>
   {{template "partials/header" .}}
 
-  <main class="page-main">
+  <main id="main" tabindex="-1" class="page-main">
     <section>
       <h1 class="text-3xl font-bold tracking-tight text-strong sm:text-4xl">Web tools &amp; diagnostic utilities</h1>
       <p class="mt-3 text-base leading-relaxed text-muted max-w-2xl">
-        Fast, zero-tracking web utilities: bot detection heuristics, client-side cryptography, parallel DNS, and IP analysis. Single Go binary, no tracking.
+        Fast, privacy-first web utilities: bot detection heuristics, client-side cryptography, parallel DNS, and IP analysis. Single Go binary. No ads, no 3rd-party analytics.
       </p>
 
       <div class="mt-6 telemetry-strip">
@@ -20,8 +20,8 @@
         </div>
         <div class="telemetry-card">
           <div class="eyebrow text-faint mb-1">Privacy Posture</div>
-          <div><span class="badge badge-ok">ZERO TRACKING</span></div>
-          <div class="mt-1 text-xs text-faint font-mono">No cookies · No tracking</div>
+          <div><span class="badge badge-ok">NO ADS / NO ANALYTICS</span></div>
+          <div class="mt-1 text-xs text-faint font-mono">No Ads · No 3rd-Party Analytics · No Tracking Cookies</div>
         </div>
         <div class="telemetry-card">
           <div class="eyebrow text-faint mb-1">Engine &amp; WASM</div>
@@ -59,16 +59,15 @@
     </section>
 
     <section class="mt-12 card">
-      <h2 class="eyebrow">About &amp; contact</h2>
+      <h2 class="eyebrow">Open source &amp; self-hosting</h2>
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
         <p class="text-muted leading-relaxed max-w-xl">
-          Built by <strong class="font-medium text-strong">Stas</strong> — software developer (backend, DevOps, AI integration).
-          Everything here runs on a single Go binary with zero analytics or tracking cookies.
+          site-of-tools is fully open source under the MIT license. Run the entire suite locally with a single self-contained Go binary or via Docker. No ads, no 3rd-party analytics, zero external dependencies.
         </p>
         <div class="flex items-center gap-4 font-mono shrink-0">
-          <a href="https://github.com/Landver" target="_blank" rel="noopener" class="link-brand">github</a>
-          <a href="https://www.linkedin.com/in/stanislav-navarici/" target="_blank" rel="noopener" class="link-brand">linkedin</a>
-          <a href="mailto:goodforeve1@gmail.com" class="link-brand">email</a>
+          <a href="https://github.com/Landver/site-of-tools" target="_blank" rel="noopener" class="link-brand">github repo</a>
+          <a href="https://github.com/Landver/site-of-tools/releases" target="_blank" rel="noopener" class="link-brand">releases</a>
+          <a href="https://mcp.corpberry.com" class="link-brand">mcp server</a>
         </div>
       </div>
     </section>

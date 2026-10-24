@@ -192,7 +192,7 @@ func (h *handler) vm(p page) map[string]any {
 	}
 	// Op is always set: templates compare it with eq, and eq on a missing key is an error, not false.
 	return map[string]any{"Active": p.Key, "Title": p.Title, "Desc": p.Desc, "Heading": p.Title, "Pages": pages,
-		"Base": h.base, "Form": url.Values{}, "Op": "", "Algs": SignAlgs, "Canonical": canonical}
+		"Base": h.base, "Form": url.Values{}, "Op": "", "Algs": SignAlgs, "Canonical": canonical, "Subdomain": "cipher"}
 }
 
 func (h *handler) op(op Op) echo.HandlerFunc {

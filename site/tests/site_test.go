@@ -146,10 +146,14 @@ func TestThemeScriptCookieSharedDarkDefault(t *testing.T) {
 	}
 	// Validated cookie read, dark by default, written on the parent Domain so subdomains share it.
 	for _, want := range []string{
-		`readTheme() || "dark"`, // no cookie → dark
-		`theme=(dark|light)`,    // cookie read validates value
-		`"; Domain="`,           // parent-domain scope
-		"window.toggleTheme",    // header button hook preserved
+		`readTheme() || "dark"`,       // no cookie → dark
+		`theme=(dark|light)`,          // cookie read validates value
+		`scale=(comfortable|compact)`, // scale cookie validation
+		`"; Domain="`,                 // parent-domain scope
+		"window.toggleTheme",          // header button hook preserved
+		"window.toggleScale",          // header scale toggle hook preserved
+		"window.isSidebarCollapsed",   // sidebar collapse query preserved
+		"window.setSidebarCollapsed",  // sidebar collapse setter preserved
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("theme script should contain %q, got:\n%s", want, body)

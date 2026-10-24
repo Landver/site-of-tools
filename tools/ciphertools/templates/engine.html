@@ -7,7 +7,7 @@
   {{template "partials/header" .}}
 
   {{$kind := ""}}{{if eq .Op "random"}}{{$kind = .Form.Get "kind"}}{{end}}
-  <main class="page-main"
+  <main id="main" tabindex="-1" class="page-main"
     {{- if eq .Active "jwt"}} x-data="{ tab: '{{if eq .Op "jwt-sign"}}sign{{else}}decode{{end}}' }"
     {{- else if eq .Active "dpop"}} x-data="{ tab: '{{if eq .Op "dpop-verify"}}verify{{else}}generate{{end}}' }"
     {{- else if eq .Active "pkce"}} x-data="{ tab: '{{if eq .Op "pkce-verify"}}verify{{else}}generate{{end}}' }"
