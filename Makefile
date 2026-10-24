@@ -67,6 +67,7 @@ WASM_DIR := shared/static/wasm
 wasm:
 	@mkdir -p $(WASM_DIR)
 	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o $(WASM_DIR)/cipher.wasm ./tools/ciphertools/wasm
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o $(WASM_DIR)/mail.wasm ./tools/mailtools/wasm
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" $(WASM_DIR)/wasm_exec.js
 
 dev: css wasm
@@ -78,7 +79,7 @@ run:
 # The wasm main package is js-only, so plain `go test ./...` never compiles it.
 test:
 	go test ./... -race
-	GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
+	GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm ./tools/mailtools ./tools/mailtools/wasm
 
 # styles.css is generated and embedded: without css first, a fresh clone ships a missing stylesheet.
 build: css wasm

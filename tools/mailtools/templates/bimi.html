@@ -7,26 +7,34 @@
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
-    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <div class="mt-1 flex flex-wrap items-baseline gap-2.5">
+      <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+      <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
+        100% Client-Side WASM
+      </span>
+    </div>
     <p class="mt-2 text-sm text-muted">
       Validate and auto-fix Brand Indicators for Message Identification (<span class="font-mono">BIMI</span>) SVG logos.
-      Verifies strict <span class="font-mono">SVG Tiny P/S</span> compliance (version 1.2, 1:1 square aspect ratio, &le; 32 KB, no scripts) required by Gmail and Apple Mail.
+      Runs directly in your browser via WebAssembly. Verifies strict <span class="font-mono">SVG Tiny P/S</span> compliance (version 1.2, 1:1 square aspect ratio, &le; 32 KB, no scripts) required by Gmail and Apple Mail without sending files to any server.
     </p>
+
+    {{template "mail/engine" .}}
 
     <div class="mt-6">
       <form action="/bimi" method="post" enctype="multipart/form-data"
+            data-mail="bimi" data-target="#result"
             hx-post="/bimi" hx-target="#result" hx-swap="innerHTML" hx-encoding="multipart/form-data"
             class="space-y-4">
 
-        <div class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">
+        <div data-dropzone class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">
           <svg class="mx-auto h-10 w-10 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
           <div class="mt-2 text-sm font-medium text-strong">
             <label class="cursor-pointer text-brand hover:underline">
               <span>Choose an SVG logo</span>
-              <input type="file" name="svg_file" accept=".svg,image/svg+xml" class="sr-only"
-                     @change="$el.form.requestSubmit()">
+              <input type="file" name="svg_file" accept=".svg,image/svg+xml" class="sr-only">
             </label>
             <span class="text-muted"> or drag and drop</span>
           </div>
@@ -103,14 +111,26 @@
 
       {{/* Auto-Fix Action */}}
       {{if .CanAutoFix}}
-      <div class="mt-4 pt-4 border-t border-line">
-        <form action="/bimi/fix" method="post">
-          <input type="hidden" name="svg" value="{{if .AutoFixedSVG}}{{.AutoFixedSVG}}{{else}}{{$.RawSVG}}{{end}}">
-          <button type="submit" class="btn-primary w-full">
-            Download Auto-Fixed SVG Tiny P/S
-          </button>
-        </form>
-        <span class="mt-1 block text-center text-xs text-faint">Fixes version 1.2, baseProfile, square viewBox, and strips scripts.</span>
+      <div class="mt-4 pt-4 border-t border-line" x-data="{
+        downloadSVG() {
+          const content = this.$refs.svgcontent?.value;
+          if (!content) return;
+          const blob = new Blob([content], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'bimi-tiny-ps.svg';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      }">
+        <textarea x-ref="svgcontent" class="hidden">{{if .AutoFixedSVG}}{{.AutoFixedSVG}}{{else}}{{$.RawSVG}}{{end}}</textarea>
+        <button type="button" @click="downloadSVG()" class="btn-primary w-full">
+          Download Auto-Fixed SVG Tiny P/S
+        </button>
+        <span class="mt-1 block text-center text-xs text-faint">Fixes version 1.2, baseProfile, square viewBox, and strips scripts entirely in your browser.</span>
       </div>
       {{end}}
     </div>

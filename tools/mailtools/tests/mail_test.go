@@ -440,3 +440,49 @@ ARC-Authentication-Results: i=3; mx.hop3.example; spf=pass`
 		t.Errorf("expected incomplete hop to be invalid")
 	}
 }
+
+func TestWASMFragmentRendering(t *testing.T) {
+	tmpl, err := mailtools.FragmentTemplates()
+	if err != nil {
+		t.Fatalf("FragmentTemplates() error: %v", err)
+	}
+
+	// 1. DMARC Render
+	xml := `<feedback>
+		<report_metadata><org_name>google.com</org_name><date_range><begin>1000</begin><end>2000</end></date_range></report_metadata>
+		<policy_published><domain>test.com</domain><p>none</p></policy_published>
+		<record>
+			<row><source_ip>1.2.3.4</source_ip><count>5</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row>
+			<identifiers><header_from>test.com</header_from></identifiers>
+		</record>
+	</feedback>`
+	dmarcHTML, err := mailtools.RenderDMARC(tmpl, strings.NewReader(xml))
+	if err != nil {
+		t.Fatalf("RenderDMARC error: %v", err)
+	}
+	if !strings.Contains(dmarcHTML, "Total Messages") || !strings.Contains(dmarcHTML, "test.com") {
+		t.Errorf("RenderDMARC missing expected tokens in HTML: %s", dmarcHTML)
+	}
+
+	// 2. BIMI Render
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>`
+	bimiHTML, err := mailtools.RenderBIMI(tmpl, svg)
+	if err != nil {
+		t.Fatalf("RenderBIMI error: %v", err)
+	}
+	if !strings.Contains(bimiHTML, "BIMI Specification Checklist") {
+		t.Errorf("RenderBIMI missing expected tokens in HTML: %s", bimiHTML)
+	}
+
+	// 3. ARC Render
+	arcHeaders := `ARC-Seal: i=1; a=rsa-sha256; d=example.com; s=arc; cv=none; b=abc
+ARC-Message-Signature: i=1; a=rsa-sha256; d=example.com; s=arc; b=abc
+ARC-Authentication-Results: i=1; mx.example.com; spf=pass`
+	arcHTML, err := mailtools.RenderARC(tmpl, arcHeaders)
+	if err != nil {
+		t.Fatalf("RenderARC error: %v", err)
+	}
+	if !strings.Contains(arcHTML, "Chain Status") || !strings.Contains(arcHTML, "VALID CHAIN") {
+		t.Errorf("RenderARC missing expected tokens in HTML: %s", arcHTML)
+	}
+}

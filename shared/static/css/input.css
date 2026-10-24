@@ -73,17 +73,25 @@
     font-size: 100%;
   }
 
-  /* Desktop sidebar initial collapsed state (zero FOUC / instant before JS loads) */
+  /* Desktop sidebar initial collapsed state (floating overlay, zero CLS/layout shift) */
   @media (min-width: 768px) {
+    html[data-sidebar-collapsed="true"] #app-sidebar {
+      position: fixed;
+      top: 3.5rem;
+      bottom: 0;
+      left: 0;
+      z-index: 50;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
     html[data-sidebar-collapsed="true"] #app-sidebar:not([data-hover="true"]) {
-      margin-left: -20rem;
+      transform: translateX(-100%);
       pointer-events: none;
       visibility: hidden;
     }
-  }
-  @media (min-width: 1024px) {
-    html[data-sidebar-collapsed="true"] #app-sidebar:not([data-hover="true"]) {
-      margin-left: -350px;
+    html[data-sidebar-collapsed="true"] #app-sidebar[data-hover="true"] {
+      transform: translateX(0);
+      pointer-events: auto;
+      visibility: visible;
     }
   }
 

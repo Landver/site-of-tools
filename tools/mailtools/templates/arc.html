@@ -7,14 +7,24 @@
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
-    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <div class="mt-1 flex flex-wrap items-baseline gap-2.5">
+      <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+      <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
+        100% Client-Side WASM
+      </span>
+    </div>
     <p class="mt-2 text-sm text-muted">
-      Inspect Authenticated Received Chain (<span class="font-mono">RFC 8617 ARC</span>) headers.
-      Analyze how email forwarding and mailing lists (like Google Groups or Listserv) affect SPF and DKIM signatures, and verify whether the ARC seal chain intactly preserves message authenticity.
+      Inspect Authenticated Received Chain (<span class="font-mono">RFC 8617 ARC</span>) headers directly in your browser.
+      Analyzed locally via WebAssembly without sending sensitive email headers or internal routing hops over the network.
     </p>
 
+    {{template "mail/engine" .}}
+
     <div class="mt-6">
-      <form action="/arc" method="post" hx-post="/arc" hx-target="#result" hx-swap="innerHTML" class="space-y-3">
+      <form action="/arc" method="post"
+            data-mail="arc" data-target="#result"
+            hx-post="/arc" hx-target="#result" hx-swap="innerHTML" class="space-y-3">
         <label class="block text-sm text-muted">
           Pasted Email Headers (from "Show Original" in Gmail or "View Message Details" in Outlook)
           <textarea name="headers" rows="7" spellcheck="false"

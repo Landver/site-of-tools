@@ -32,7 +32,7 @@ var defaultCatalog = []ToolSection{
 			Name:      "Cipher Tools",
 			Subdomain: "cipher",
 			Badge:     "13 tools",
-			Desc:      "In-browser WebAssembly cryptography, hash digests, tokens and encryption",
+			Desc:      "100% in-browser WebAssembly cryptography. Plaintext and keys never leave your device.",
 			Tools: []ToolItem{
 				{
 					Key:       "encrypt",
@@ -475,7 +475,7 @@ var defaultCatalog = []ToolSection{
 			Name:      "Mail Tools",
 			Subdomain: "mail",
 			Badge:     "3 tools",
-			Desc:      "Email deliverability and security: DMARC reports, BIMI SVG logos and ARC traces",
+			Desc:      "100% in-browser WebAssembly email deliverability & security: DMARC, BIMI and ARC diagnostics",
 			Tools: []ToolItem{
 				{
 					Key:       "dmarc",

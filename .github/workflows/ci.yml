@@ -34,8 +34,9 @@ jobs:
       # js-only main: the steps above never compile it, and only a build catches wasm link failures.
       - name: wasm engine
         run: |
-          GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
+          GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm ./tools/mailtools ./tools/mailtools/wasm
           GOOS=js GOARCH=wasm go build -o /dev/null ./tools/ciphertools/wasm
+          GOOS=js GOARCH=wasm go build -o /dev/null ./tools/mailtools/wasm
 
       # DB tests skip without the BINs (never committed), so this is green without assets.
       - name: go test (race)

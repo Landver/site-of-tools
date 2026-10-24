@@ -31,10 +31,11 @@
      data-worker="{{asset "js/cipher-worker.js"}}"
      data-wasm="{{asset "wasm/cipher.wasm"}}"
      data-wasm-exec="{{asset "wasm/wasm_exec.js"}}"
-     class="mt-4 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted">
-  <span data-state="loading">Loading the in-browser engine…</span>
-  <span data-state="ready" hidden><span class="font-semibold text-ok">Runs in your browser.</span>
-    Nothing you type or pick here is sent anywhere; the same Go code that answers from the terminal is running in this tab.</span>
+     class="mt-4 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted flex flex-wrap items-center gap-2">
+  <span class="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider bg-ok/15 text-ok border border-ok/30">Client-Side WASM</span>
+  <span data-state="loading">Loading in-browser engine…</span>
+  <span data-state="ready" hidden><strong class="font-medium text-strong">100% Client-Side:</strong>
+    Runs entirely in your browser via WebAssembly. Plaintext, passwords, and private keys never leave your device.</span>
   <span data-state="failed" hidden class="text-danger">The in-browser engine didn't load, so nothing ran and
     nothing was sent. Reload to try again.</span>
 </div>

@@ -25,6 +25,7 @@ RUN tailwindcss -i shared/static/css/input.css -o shared/static/css/styles.css -
 # wasm_exec.js must come from the same toolchain that built cipher.wasm.
 RUN mkdir -p shared/static/wasm \
     && GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o shared/static/wasm/cipher.wasm ./tools/ciphertools/wasm \
+    && GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o shared/static/wasm/mail.wasm ./tools/mailtools/wasm \
     && cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" shared/static/wasm/wasm_exec.js
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app .
 

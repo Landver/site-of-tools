@@ -13,24 +13,24 @@ A high-performance, privacy-first web utility and diagnostic suite. **36 special
 
 ## Highlights
 
-- ⚡ **Single Standalone Binary**: HTML templates, CSS, and client-side WASM are embedded directly into one binary (`embed.FS`). No Node.js runtime, no complex microservices.
-- 🔒 **Privacy-First (No Ads / No 3rd-Party Analytics)**: No third-party analytics scripts, no advertising trackers, no marketing cookies. Private lookups stored locally in your browser.
-- 🔐 **Client-Side WASM Cryptography**: For Cipher tools, keys and plaintexts never touch the server. All cryptography executes in browser memory via compiled WebAssembly.
-- 🤖 **Native MCP Server**: Every tool is exposed over the Model Context Protocol (Streamable HTTP / JSON-RPC), allowing Claude Code, Cursor, ChatGPT, and AI agents to invoke any diagnostic directly.
-- 🔄 **Dual Interface (HTML + JSON API)**: Every single route serves responsive HTML for humans and structured JSON for machines (`Accept: application/json` or CLI scripts).
-- 🧭 **Collapsible Sidebar Navigation**: Instant fuzzy search across titles, descriptions, and deep technical tags (`data-tags`). Collapsible sidebar (`Ctrl+B`) with synchronized state across subdomains.
+- **Single Standalone Binary**: HTML templates, CSS, and client-side WASM are embedded directly into one binary (`embed.FS`). No Node.js runtime, no complex microservices.
+- **Privacy-First (No Ads / No 3rd-Party Analytics)**: No third-party analytics scripts, no advertising trackers, no marketing cookies. Private lookups stored locally in your browser.
+- **Client-Side WASM Engines**: For Cipher and Mail tools, secrets, keys, email reports, and headers never touch the server. All cryptography, DMARC parsing, and SVG validation execute in browser memory via compiled WebAssembly.
+- **Native MCP Server**: Every tool is exposed over the Model Context Protocol (Streamable HTTP / JSON-RPC), allowing Claude Code, Cursor, ChatGPT, and AI agents to invoke any diagnostic directly.
+- **Dual Interface (HTML + JSON API)**: Every single route serves responsive HTML for humans and structured JSON for machines (`Accept: application/json` or CLI scripts).
+- **Collapsible Sidebar Navigation**: Instant fuzzy search across titles, descriptions, and deep technical tags (`data-tags`). Collapsible sidebar (`Ctrl+B`) with synchronized state across subdomains.
 
 ---
 
 ## Tools Suite (36 Tools across 7 Subdomains)
 
-### 🤖 [Bot Check](https://botcheck.corpberry.com) (`botcheck.corpberry.com`)
+### [Bot Check](https://botcheck.corpberry.com) (`botcheck.corpberry.com`)
 A transparent browser automation and bot-detection self-test:
 - **68 Heuristic Signals**: Evaluates client-side navigator properties, CDP runtime tells, WebGL parameters, automation flags, HTTP headers, and IP reputation.
 - **Scoring & Verdict**: Scores browsers 0–100 (human / suspicious / automated / verified good-bot).
 - **Transparency**: Explains exactly what triggered each flag, caveats, and false-positive risks.
 
-### 🔐 [Cipher Tools](https://cipher.corpberry.com) (`cipher.corpberry.com`)
+### [Cipher Tools](https://cipher.corpberry.com) (`cipher.corpberry.com`)
 13 in-browser cryptographic tools powered by WebAssembly (secrets never leave your machine):
 - **JWT Decoder, Verifier & Signer**: Inspect headers/payloads, verify RSA/ECDSA/EdDSA/HMAC signatures, test JWK/JWKS.
 - **Password Hasher & Verifier**: Benchmark and generate hashes with Argon2id, bcrypt, scrypt, and PBKDF2.
@@ -46,7 +46,7 @@ A transparent browser automation and bot-detection self-test:
 - **PKCE Generator**: RFC 7636 code verifiers and SHA-256 code challenge pairs.
 - **Encrypt & Decrypt**: Authenticated symmetric encryption (AES-256-GCM, ChaCha20-Poly1305).
 
-### 🌐 [DNS Tools](https://dns.corpberry.com) (`dns.corpberry.com`)
+### [DNS Tools](https://dns.corpberry.com) (`dns.corpberry.com`)
 Parallel global DNS inspection and security auditing:
 - **Global Propagation Checker**: Query 28+ authoritative public resolvers worldwide in real-time.
 - **Root DNSSEC Trace**: Visual iteration walk from the ICANN DNS root servers down to authoritative zone cuts.
@@ -54,13 +54,13 @@ Parallel global DNS inspection and security auditing:
 - **Email Auth DNS**: One-stop auditing for SPF records, DMARC policies, DKIM keys, BIMI, and MTA-STS.
 - **Core Record Lookup**: Multi-type parallel queries (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, CAA).
 
-### 🌍 [IP Tools](https://ip.corpberry.com) (`ip.corpberry.com`)
+### [IP Tools](https://ip.corpberry.com) (`ip.corpberry.com`)
 Network diagnostics and IP intelligence:
 - **IP Lookup & Threat Intel**: Geolocation (IP2Location LITE), ASN network owner, proxy/VPN detection, and Spamhaus DROP check.
 - **Subnet Calculator**: IPv4 & IPv6 CIDR calculations, usable host ranges, netmasks, and wildcard masks.
 - **Lookup History**: Local audit log of previous queries.
 
-### 🔗 [Link Tools](https://link.corpberry.com) (`link.corpberry.com`)
+### [Link Tools](https://link.corpberry.com) (`link.corpberry.com`)
 11 utilities for link hygiene, redirection tracing, and cache debugging:
 - **Clean Trackers**: Strips marketing parameters (`utm_*`, `fbclid`, `gclid`) and unwraps Outlook Safelinks.
 - **Redirect Tracer**: Follows HTTP redirect chains, measures per-hop latency, and checks HSTS upgrade policies.
@@ -73,13 +73,13 @@ Network diagnostics and IP intelligence:
 - **RFC 3986 Reference**: Quick reference of reserved, unreserved, and sub-delimiter characters.
 - **Link Shortener**: Lightweight self-hosted short links with automatic TTL expiration.
 
-### ✉️ [Mail Tools](https://mail.corpberry.com) (`mail.corpberry.com`)
-Email deliverability and forensic diagnostics:
+### [Mail Tools](https://mail.corpberry.com) (`mail.corpberry.com`)
+Email deliverability and forensic diagnostics powered by WebAssembly (reports and headers never leave your machine):
 - **DMARC Aggregate Reports (RUA)**: Ingests and visualizes XML/GZ aggregate deliverability reports.
 - **BIMI SVG Validator**: Validates SVG Tiny P/S compliance, checks dimensions/security, and provides auto-fix downloads.
 - **ARC Trace Analyzer**: RFC 8617 Authenticated Received Chain header validator and seal verifier.
 
-### 🤖 [MCP Server](https://mcp.corpberry.com) (`mcp.corpberry.com`)
+### [MCP Server](https://mcp.corpberry.com) (`mcp.corpberry.com`)
 Model Context Protocol endpoint exposing the entire toolset to AI workflows:
 - Supports **Claude Code**, **Cursor**, **ChatGPT**, **Codex**, and **Gemini**.
 - Streamable HTTP transport (`/mcp` for all tools, or dedicated per-toolset subpaths).

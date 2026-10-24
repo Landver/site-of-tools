@@ -7,26 +7,34 @@
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
-    <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
+    <div class="mt-1 flex flex-wrap items-baseline gap-2.5">
+      <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+      <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
+        100% Client-Side WASM
+      </span>
+    </div>
     <p class="mt-2 text-sm text-muted">
       Visualize DMARC aggregate reports (<span class="font-mono">.xml</span> and <span class="font-mono">.xml.gz</span>) sent by Google, Microsoft 365, Yahoo and Apple.
-      Inspect SPF &amp; DKIM alignment by email sender without exposing private email logs to external marketing platforms.
+      Analyzed directly in your browser via WebAssembly. Private email logs and server IPs never leave your device.
     </p>
+
+    {{template "mail/engine" .}}
 
     <div class="mt-6">
       <form action="/dmarc" method="post" enctype="multipart/form-data"
+            data-mail="dmarc" data-target="#result"
             hx-post="/dmarc" hx-target="#result" hx-swap="innerHTML" hx-encoding="multipart/form-data"
             class="space-y-4">
 
-        <div class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">
+        <div data-dropzone class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">
           <svg class="mx-auto h-10 w-10 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
           <div class="mt-2 text-sm font-medium text-strong">
             <label class="cursor-pointer text-brand hover:underline">
               <span>Choose a DMARC report</span>
-              <input type="file" name="report_file" accept=".xml,.gz,.xml.gz" class="sr-only"
-                     @change="$el.form.requestSubmit()">
+              <input type="file" name="report_file" accept=".xml,.gz,.xml.gz" class="sr-only">
             </label>
             <span class="text-muted"> or drag and drop</span>
           </div>

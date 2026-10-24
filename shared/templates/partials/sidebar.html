@@ -90,12 +90,14 @@ class="contents">
          @mouseleave="if (sidebarCollapsed) closeHover()"
          :class="{
            'translate-x-0': sidebarOpen,
-           '-translate-x-full md:translate-x-0': !sidebarOpen,
-           'md:-ml-80 lg:-ml-[350px] md:pointer-events-none md:invisible': sidebarCollapsed && !sidebarHover,
-           'md:fixed md:top-14 md:bottom-0 md:left-0 md:z-50 md:shadow-2xl md:translate-x-0 md:ml-0 md:pointer-events-auto md:visible': sidebarCollapsed && sidebarHover
+           '-translate-x-full': !sidebarOpen && !sidebarCollapsed,
+           'md:translate-x-0 md:sticky md:top-14 md:z-20 md:shadow-none': !sidebarCollapsed,
+           'md:fixed md:top-14 md:bottom-0 md:left-0 md:z-50 md:shadow-2xl': sidebarCollapsed,
+           'md:-translate-x-full md:pointer-events-none md:invisible': sidebarCollapsed && !sidebarHover,
+           'md:translate-x-0 md:pointer-events-auto md:visible': sidebarCollapsed && sidebarHover
          }"
          :inert="(!sidebarOpen && window.innerWidth < 768) || (sidebarCollapsed && !sidebarHover && window.innerWidth >= 768)"
-         class="fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-3rem)] shrink-0 border-r border-line bg-canvas transition-all duration-200 ease-in-out md:h-[calc(100vh-3.5rem)] md:sticky md:top-14 lg:w-[350px] flex flex-col">
+         class="fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-3rem)] shrink-0 border-r border-line bg-canvas transition-all duration-200 ease-in-out md:h-[calc(100vh-3.5rem)] lg:w-[350px] flex flex-col">
 
     <!-- SEARCH & CONTROLS -->
     <div class="p-3 border-b border-line flex items-center gap-2">
