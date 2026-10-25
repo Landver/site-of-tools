@@ -83,6 +83,8 @@
       {{if .Error}}{{template "link/error" .}}{{else}}{{template "link/headers-result" .}}{{end}}
     </div>
   </main>
+  {{template "partials/htmx-errors" .}}
+  {{template "link/live" .}}
   {{template "partials/footer" .}}
 </body>
 </html>
