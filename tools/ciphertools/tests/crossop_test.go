@@ -24,10 +24,13 @@ func TestEnumFieldsReadLoosely(t *testing.T) {
 		op, field, ok, want string
 		base                url.Values
 	}{
-		{"random", "kind", " UUID ", `kind: want token, password or uuid, got "bogus"`, nil},
-		{"random", "format", "ALNUM", `format: want hex, base64url, base64 or alnum, got "bogus"`, nil},
-		{"totp", "mode", "\tHOTP\n", `mode: want totp or hotp, got "bogus"`, url.Values{"secret": {"JBSWY3DPEHPK3PXP"}}},
-		{"encrypt", "algo", " AES-CBC ", `algo: want aes-gcm, chacha20-poly1305 or aes-cbc, got "bogus"`, url.Values{"text": {"hi"}}},
+		{"random", "kind", " UUID ", `kind: want token, password or uuid, got "BOGUS"`, nil},
+		{"random", "format", "ALNUM", `format: want hex, base64url, base64 or alnum, got "BOGUS"`, nil},
+		{"totp", "mode", "\tHOTP\n", `mode: want totp or hotp, got "BOGUS"`, url.Values{"secret": {"JBSWY3DPEHPK3PXP"}}},
+		{"encrypt", "algo", " AES-CBC ", `algo: want aes-gcm, chacha20-poly1305 or aes-cbc, got "BOGUS"`, url.Values{"text": {"hi"}}},
+		{"pkce-generate", "method", "s256", `method: want S256 or plain, got "BOGUS"`, nil},
+		{"pkce-verify", "method", "PLAIN", `method: want S256 or plain, got "BOGUS"`,
+			url.Values{"code_verifier": {strings.Repeat("a", 43)}, "code_challenge": {"x"}}},
 	} {
 		for _, v := range []string{c.ok, " BOGUS "} {
 			f := url.Values{c.field: {v}}
