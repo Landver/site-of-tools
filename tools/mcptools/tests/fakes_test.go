@@ -200,7 +200,7 @@ func (f *fakeDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace,
 
 type netGeo map[string]*iptools.Result
 
-func (g netGeo) Lookup(ip string) (*iptools.Result, error) {
+func (g netGeo) Lookup(_ context.Context, ip string) (*iptools.Result, error) {
 	if r, ok := g[ip]; ok {
 		c := *r
 		return &c, nil

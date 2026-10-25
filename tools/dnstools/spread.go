@@ -552,7 +552,7 @@ func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *
 	}
 	sp.addDelegationHealth(func(ip string) string {
 		if geo != nil {
-			if g, err := geo.Lookup(ip); err == nil && g != nil {
+			if g, err := geo.Lookup(ctx, ip); err == nil && g != nil {
 				return g.ASN
 			}
 		}

@@ -82,7 +82,7 @@ func listedBy(count int, sources ...string) fakeChecker {
 
 type restCase struct {
 	name    string
-	svc     botcheck.Looker
+	svc     iptools.Looker
 	chk     iptools.Checker
 	hdr     map[string]string
 	payload string // POST /check only
@@ -108,7 +108,7 @@ var (
 	kddi       = &iptools.Result{Timezone: "+09:00", ASN: "2516", ASName: "KDDI CORPORATION"}
 	awsDC      = &iptools.Result{Timezone: "+09:00", ASN: "16509", ASName: "Amazon.com, Inc.", Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "DCH", Provider: "Amazon"}}
 	moscowVPN  = &iptools.Result{Timezone: "+03:00", ASN: "9009", ASName: "M247 Europe SRL", Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "VPN", Provider: "NordVPN"}}
-	placeholds = &iptools.Result{Timezone: "-", ASN: "-", Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "PUB"}}
+	unknownGeo = &iptools.Result{Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "PUB"}}
 	torExit    = &iptools.Result{Timezone: "+01:00", ASN: "60729", Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "TOR"}}
 	appleNet   = &iptools.Result{Timezone: "-07:00", ASN: "714", ASName: "Apple Inc."}
 )
@@ -118,7 +118,7 @@ func serverOnlyCases() []restCase {
 		{name: "browser_datacenter", svc: fakeLooker{res: awsDC}, hdr: browserHeaders()},
 		{name: "curl_no_geo", svc: fakeLooker{err: iptools.ErrUnavailable}, hdr: map[string]string{"Accept": "*/*", "User-Agent": "curl/8.7.1"}},
 		{name: "applebot_verified", svc: fakeLooker{res: appleNet}, hdr: map[string]string{"Accept": "application/json", "User-Agent": applebotUA}},
-		{name: "bare_browser_ua_placeholders", svc: fakeLooker{res: placeholds}, hdr: map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA}},
+		{name: "bare_browser_ua_unknown_geo", svc: fakeLooker{res: unknownGeo}, hdr: map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA}},
 		{name: "electron_tor", svc: fakeLooker{res: torExit}, hdr: with(browserHeaders(), "User-Agent", electronUA)},
 		{name: "ipsum_at_floor", svc: fakeLooker{res: kddi}, chk: listedBy(3, "ipsum"), hdr: browserHeaders()},
 		{name: "ipsum_below_floor", svc: fakeLooker{res: kddi}, chk: listedBy(2, "ipsum"), hdr: browserHeaders()},

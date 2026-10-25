@@ -6,9 +6,8 @@ switched by sub-nav:
 - **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; bare visit
   also inspects *your own* connection (see [Endpoints](#endpoints)).
 - **Subnet calculator** (`/cidr`) — pure CIDR math, no databases.
-- **Lookup history** (`/history`) — most recent user-run lookups, backed by
-  MongoDB (see [Lookup history](#lookup-history)); degrades to empty page when
-  Mongo off.
+- **Lookup history** (`/history`) — recent lookups from this browser, kept in
+  its `localStorage`; the server stores none (see [Lookup history](#lookup-history)).
 
 Tool's design + reference doc. Layered request pattern from
 [ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
@@ -22,7 +21,7 @@ server-side IP layer from.
 - `cidr.go` — subnet-calculator **domain** (pure CIDR math, no databases).
 - `handler.go` — **transport**: `Register` + query-param parsing, then
   `platform.Respond`.
-- `templates/` — `index.html`, `result.html`, `cidr.html`, `nav.html`.
+- `templates/` — `index.html`, `result.html`, `cidr.html`, `history.html`, `nav.html`.
 - `assets/` — `.BIN` databases (gitignored, bind-mounted read-only in prod).
 - `download-assets.sh` — fetches databases (run via `make assets`).
 
@@ -66,7 +65,7 @@ type Service struct{ db4, db6, asn4, asn6 *ip2location.DB; proxy *ip2proxy.DB }
 
 func OpenService(db11v4, db11v6, asnv4, asnv6, px12 string) (*Service, error) { /* px12 optional */ }
 
-func (s *Service) Lookup(ipStr string) (*Result, error) {
+func (s *Service) Lookup(ctx context.Context, ipStr string) (*Result, error) {
     if s == nil { return nil, ErrUnavailable }          // DBs never loaded
     p := net.ParseIP(ipStr)
     if p == nil { return nil, fmt.Errorf("%q is not a valid IP address", ipStr) }
@@ -83,8 +82,8 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 `Result` = plain struct transport layer renders as HTML or JSON. Missing DBs
 non-fatal: `OpenService` returns `ErrUnavailable`, server still boots, tool
 shows friendly message. Handler depends on small `Looker` interface
-(`Lookup(string) (*Result, error)`) so tests inject a fake — no BINs needed.
-LITE data can return placeholder `"-"` for some fields; guard on display.
+(`Lookup(ctx, ip string) (*Result, error)`) so tests inject a fake — no BINs
+needed. `Lookup` maps LITE's `"-"` placeholder to `""`, so consumers never re-clean.
 
 ## Fields exposed
 
@@ -107,7 +106,7 @@ browsers & htmx get HTML, everyone else JSON. Lookups **query-param only**
 | `GET /?ip=…` (htmx) | HTML **fragment**, result card only (`hx-target="#result"`) |
 | `GET /` or `GET /?ip=…` (JSON) | Geolocation + ASN + proxy for that IP |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
-| `GET /history` | Most recent user-run lookups (HTML page, or `{"lookups":[…]}` JSON) |
+| `GET /history` | Page listing this browser's past lookups from `localStorage` (no JSON: the server keeps none) |
 
 So this just works:
 ```
@@ -147,22 +146,21 @@ live probe. Full feasibility/ToS/limits writeup:
 [`reports/shodan-internetdb-feasibility.md`](reports/shodan-internetdb-feasibility.md).
 
 - **Client** (`shodan.go`, `Shodan` type): keyless GET, no account. Same nil-safe
-  shape as `History`/`BlockList` — nil `*Shodan` (blank `SHODAN_INTERNETDB_URL`)
+  shape as `BlockList` — nil `*Shodan` (blank `SHODAN_INTERNETDB_URL`)
   makes `Lookup` a no-op. Config: `SHODAN_INTERNETDB_URL` (default live
   endpoint; blank disables).
-- **Wiring** mirrors G37 blocklist enrichment: `handler.show` populates
-  `Result.Shodan` for LOOKED-UP ip (public addresses only — private/loopback
-  have no InternetDB data), best-effort. `Lookup` returns the enrichment; **never
-  set by domain `Lookup`** (geo/ASN path), so transport-layer concern like
-  `Blocklist`.
+- **Wiring**: `Service.WithShodan` returns a copy whose `Lookup` also asks
+  InternetDB (public addresses only), under the request's ctx, so a hang-up
+  cancels it. `main.go` hands that copy to ip, botcheck and MCP, and the plain
+  service to DNS, whose per-record enrichment must not spend the shared budget.
 - **Three states**, like blocklist row: `Result.Shodan == nil` = not checked
   (disabled / private IP / API error → card omitted, never implies "clean");
   `Found == false` = checked, Shodan has no record (HTTP 404 → "no open ports on
   record"); `Found == true` = ports + hostnames/CPEs/tags/CVEs.
 - **Called server-side, live per request, payload never stored** — deliberately:
   Shodan's terms restrict redistributing/caching their Content, & 5-day
-  Cloudflare cache upstream makes repeat lookups cheap. Do **not** extend the
-  Mongo lookup history to persist InternetDB responses.
+  Cloudflare cache upstream makes repeat lookups cheap. Do **not** persist
+  InternetDB responses.
 - **Attribution** (required by Shodan's ToS): shared footer carries a
   © Shodan credit — like IP2Location LITE & Spamhaus credits — gated on a
   Shodan-specific `.ShodanAttribution` flag `handler.show` sets when a lookup
@@ -175,26 +173,10 @@ live probe. Full feasibility/ToS/limits writeup:
 
 ## Lookup history
 
-`GET /history` lists most recent lookups run from tool. First MongoDB-backed
-feature here, application of rule #5: persistence lives *below* domain in a
-repository (`history.go`, `History` type), not in handler.
-
-- **Storage.** One document per lookup in `ip_lookups` collection: queried IP,
-  its country/city/ASN, `created_at`. TTL index (via
-  `platform.EnsureTTLIndex`, 90 days) self-prunes, so never grows unbounded;
-  same index serves newest-first sort — no second index.
-- **What gets recorded.** Only *user-initiated web* lookups: successful,
-  explicit `?ip=` query from browser UI. Deliberately excludes visitor's own
-  auto-lookup (bare `/` visit & IPv6 self-probe, which requests JSON) &
-  CLI/JSON callers — so `/history` shows what people chose to look up, not
-  everyone's own address.
-- **Off the request path.** `Record` writes in background goroutine, so
-  recording never adds latency to (or can fail) lookup visitor waits on.
-- **Degrades to nothing.** With Mongo disabled repository = `nil`;
-  `/history` renders empty "history is off" state, JSON returns
-  `{"lookups":[]}` — same nil-safe contract as absent geo database.
-- **Replay.** Each row's IP links back to `/?ip=…`, past lookup re-runs in one
-  click.
+`GET /history` renders a page that reads this browser's `localStorage`
+(`ip_history`, newest 50, written by the result card's script). The server
+stores no lookups, so the route has no JSON form, queries nothing and is not
+rate-limited; every client gets the page. Each row's IP links back to `/?ip=…`.
 
 Engine-level **request log** (`platform.RequestLog`, `platform/requestlog.go`)
 is separate, cross-cutting corpus of *every* request (all subdomains); not
@@ -202,11 +184,9 @@ part of this tool. See [ARCHITECTURE §10](../../../docs/ARCHITECTURE.md#10-out-
 
 ## Abuse protection
 
-None in v1. Rate limiting deferred w/ other stateful concerns: **MongoDB now
-wired** (shared client in `platform/`, now used by this tool for lookup
-history), so build-it call rather than blocked one — public endpoint, revisit
-rate limiting when worth it. `IPExtractor` already wired, so both request logs
-& request-log corpus show real client IP.
+Per-client limits in `iptools.Limits`, shared with the `ip_*` MCP tools:
+lookups 2/s (burst 10), `/cidr` 10/s (burst 50), at most 8 lookups in flight.
+`IPExtractor` is wired, so limits and the request log see the real client IP.
 
 ## Attribution (required)
 
@@ -227,8 +207,7 @@ credit covers both.
 
 - Map proxy-type codes (VPN/TOR/DCH/PUB/WEB/SES/RES) to friendly labels.
 - Map view of lat/lon; bulk lookup; ASN → prefix listing; range → minimal CIDRs.
-- Rate limiting on public endpoint, now that storage wired.
 
 *(Done since v1: proxy/VPN detection, IPv6 check, connection inspector,
-subnet/CIDR calculator, Mongo-backed lookup history, Shodan InternetDB
+subnet/CIDR calculator, browser-side lookup history, Shodan InternetDB
 open-port card.)*

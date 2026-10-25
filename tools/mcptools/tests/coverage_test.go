@@ -31,7 +31,7 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 		t.Fatal(err)
 	}
 	apps["ip"] = app()
-	iptools.Register(apps["ip"], nil, nil, nil, nil)
+	iptools.Register(apps["ip"], nil, nil, nil)
 	apps["botcheck"] = app()
 	botcheck.Register(apps["botcheck"], nil, nil, nil, nil)
 	apps["dns"] = app()

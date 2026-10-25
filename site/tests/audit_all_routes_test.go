@@ -65,9 +65,8 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 
 	// 2. IP Tools
 	geo, _ := iptools.OpenService("", "", "", "", "")
-	dnsGeo := geo.Offline()
 	ipLim := iptools.NewLimits()
-	iptools.Register(apps["ip"], geo, nil, nil, ipLim)
+	iptools.Register(apps["ip"], geo, nil, ipLim)
 
 	// 3. Botcheck
 	botLim := botcheck.NewLimits()
@@ -77,7 +76,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	dnsLim := dnstools.NewLimits()
 	dnsSvc := dnstools.NewService(time.Second)
 	domainClient := dnstools.NewDomainClient("", "", time.Second)
-	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsLim)
+	dnstools.Register(apps["dns"], dnsSvc, geo, domainClient, dnsLim)
 
 	// 5. Link Tools
 	linkLim := linktools.NewLimits()
@@ -96,7 +95,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 
 	// 8. MCP Tools
 	mcptools.Register(apps["mcp"], mcptools.Deps{
-		Geo: geo, DNSGeo: dnsGeo, Blog: blog,
+		Geo: geo, DNSGeo: geo, Blog: blog,
 		DNS: dnsSvc, Domain: domainClient,
 		Link: linkSvc, Tracer: tracer, Short: shortener,
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,

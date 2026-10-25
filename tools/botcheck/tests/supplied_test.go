@@ -125,16 +125,16 @@ func TestAddHTTPSignals(t *testing.T) {
 
 func TestAddIPSignals(t *testing.T) {
 	const ip = "203.0.113.9"
-	geo := &iptools.Result{IP: ip, Timezone: "-", ASN: "-", Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "TOR"}}
+	geo := &iptools.Result{IP: ip, Proxy: &iptools.Proxy{IsProxy: true, ProxyType: "TOR"}}
 	cases := []struct {
 		name    string
-		svc     botcheck.Looker
+		svc     iptools.Looker
 		chk     iptools.Checker
 		want    botcheck.Signals
 		wantRes *iptools.Result
 	}{
 		{
-			name: "ipsum only is not deliberate; placeholders cleaned",
+			name: "ipsum only is not deliberate; unknown timezone and ASN stay empty",
 			svc:  fakeLooker{res: geo}, chk: listedBy(4, "ipsum"),
 			want: botcheck.Signals{
 				IPSupplied: true, EgressIP: ip, IsProxy: true, IsTor: true,

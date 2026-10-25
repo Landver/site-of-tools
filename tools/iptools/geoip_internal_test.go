@@ -5,15 +5,15 @@ import (
 	"time"
 )
 
-// White-box: without the BINs Lookup can't run, so the detached Shodan client is visible only inside.
-func TestOfflineDetachesShodanOnly(t *testing.T) {
+// White-box: without the BINs Lookup can't run, so the attached Shodan client is visible only inside.
+func TestWithShodanReturnsACopy(t *testing.T) {
 	sh := NewShodan("http://127.0.0.1:1", time.Second)
-	s := (&Service{}).WithShodan(sh)
-	off := s.Offline()
-	if off == s || off.shodan != nil {
-		t.Errorf("Offline() = %p with shodan %v, want a copy without Shodan", off, off.shodan)
+	s := &Service{}
+	online := s.WithShodan(sh)
+	if online == s || online.shodan != sh {
+		t.Errorf("WithShodan() = %p with shodan %v, want a copy carrying Shodan", online, online.shodan)
 	}
-	if s.shodan != sh {
-		t.Error("Offline() detached Shodan from the original service")
+	if s.shodan != nil {
+		t.Error("WithShodan() attached Shodan to the original service")
 	}
 }

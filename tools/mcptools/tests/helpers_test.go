@@ -61,7 +61,7 @@ type fakeGeo struct {
 	asked []string
 }
 
-func (f *fakeGeo) Lookup(ip string) (*iptools.Result, error) {
+func (f *fakeGeo) Lookup(_ context.Context, ip string) (*iptools.Result, error) {
 	f.mu.Lock()
 	f.asked = append(f.asked, ip)
 	f.mu.Unlock()
@@ -193,7 +193,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	)
 	app := func() *echo.Echo { return platform.NewApp(renderer, fstest.MapFS{}, false, nil) }
 	hosts := map[string]*echo.Echo{ipHost: app()}
-	iptools.Register(hosts[ipHost], o.geo, nil, o.chk, o.ipLim)
+	iptools.Register(hosts[ipHost], o.geo, o.chk, o.ipLim)
 	if o.dns != nil {
 		hosts[dnsHost] = app()
 		dnstools.Register(hosts[dnsHost], o.dns, dnsGeo, o.dom, o.dnsLim)

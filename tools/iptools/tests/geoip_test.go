@@ -2,6 +2,7 @@
 package tests
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ import (
 
 func TestLookupNilService(t *testing.T) {
 	var s *iptools.Service
-	if _, err := s.Lookup("8.8.8.8"); !errors.Is(err, iptools.ErrUnavailable) {
+	if _, err := s.Lookup(context.Background(), "8.8.8.8"); !errors.Is(err, iptools.ErrUnavailable) {
 		t.Errorf("nil service Lookup: got %v, want ErrUnavailable", err)
 	}
 }
@@ -25,7 +26,7 @@ func TestLookupNilService(t *testing.T) {
 func TestLookupBadIP(t *testing.T) {
 	// A non-nil Service validates the IP before touching a DB handle.
 	s := &iptools.Service{}
-	if _, err := s.Lookup("not-an-ip"); err == nil {
+	if _, err := s.Lookup(context.Background(), "not-an-ip"); err == nil {
 		t.Fatal("expected an error for a malformed IP")
 	}
 }
@@ -49,7 +50,7 @@ func resolveDB(p string) string {
 // Skips unless IP2LOCATION_* resolve to real BINs, which are gitignored, so CI stays green.
 func TestLookupIntegration(t *testing.T) {
 	svc, px12 := integrationService(t)
-	got, err := svc.Lookup("8.8.8.8")
+	got, err := svc.Lookup(context.Background(), "8.8.8.8")
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
@@ -86,8 +87,8 @@ func integrationService(t *testing.T) (svc *iptools.Service, px12 string) {
 	return svc, px12
 }
 
-// DNS enrichment looks up records through Offline(), which must leave the shared Shodan budget alone.
-func TestOfflineLookupMakesNoShodanCall(t *testing.T) {
+// DNS enrichment uses the plain service, which must leave the shared Shodan budget alone; ctx bounds the call.
+func TestWithShodanLeavesPlainServiceOffline(t *testing.T) {
 	svc, _ := integrationService(t)
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -95,14 +96,20 @@ func TestOfflineLookupMakesNoShodanCall(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
-	svc.WithShodan(iptools.NewShodan(srv.URL, time.Second))
+	online := svc.WithShodan(iptools.NewShodan(srv.URL, time.Second))
 
-	got, err := svc.Offline().Lookup("8.8.8.8")
+	got, err := svc.Lookup(context.Background(), "8.8.8.8")
 	if err != nil || got.ASN != "15169" || got.Shodan != nil || hits.Load() != 0 {
-		t.Fatalf("offline lookup = %+v, %v after %d InternetDB calls; want ASN 15169 and no call", got, err, hits.Load())
+		t.Fatalf("plain lookup = %+v, %v after %d InternetDB calls; want ASN 15169 and no call", got, err, hits.Load())
 	}
-	got, err = svc.Lookup("8.8.8.8")
+	got, err = online.Lookup(context.Background(), "8.8.8.8")
 	if err != nil || got.Shodan == nil || hits.Load() != 1 {
 		t.Errorf("online lookup = %+v, %v after %d InternetDB calls; want one", got, err, hits.Load())
+	}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err = online.Lookup(gone, "8.8.8.8")
+	if err != nil || got.ASN != "15169" || got.Shodan != nil || hits.Load() != 1 {
+		t.Errorf("lookup after a hang-up = %+v, %v after %d InternetDB calls; want geo only, no new call", got, err, hits.Load())
 	}
 }

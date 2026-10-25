@@ -7,10 +7,6 @@ import (
 	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
-type Looker interface {
-	Lookup(ip string) (*iptools.Result, error)
-}
-
 type HTTPSignals struct {
 	UserAgent       string `json:"user_agent,omitempty" jsonschema:"User-Agent"`
 	Accept          string `json:"accept,omitempty" jsonschema:"Accept"`
@@ -34,7 +30,7 @@ func AddHTTPSignals(sig *Signals, h HTTPSignals) {
 }
 
 // AddIPSignals fills sig's IP half, returning the lookup or nil; zero sig.Now skips the tz checks.
-func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc Looker, chk iptools.Checker) *iptools.Result {
+func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc iptools.Looker, chk iptools.Checker) *iptools.Result {
 	sig.IPSupplied = true
 	sig.EgressIP = ip
 	// Any source but the ipsum feed is a deliberate ban; the scorer needn't know iptools' sources.
@@ -50,12 +46,12 @@ func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc Looker, chk 
 	if svc == nil {
 		return nil
 	}
-	res, err := svc.Lookup(ip)
+	res, err := svc.Lookup(ctx, ip)
 	if err != nil || res == nil {
 		return nil
 	}
-	sig.IPTimezone = cleanPlaceholder(res.Timezone)
-	sig.ASN = cleanPlaceholder(res.ASN)
+	sig.IPTimezone = res.Timezone
+	sig.ASN = res.ASN
 	if p := res.Proxy; p != nil && p.IsProxy {
 		sig.IsProxy = true
 		switch p.ProxyType {
@@ -68,12 +64,4 @@ func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc Looker, chk 
 		}
 	}
 	return res
-}
-
-// cleanPlaceholder: IP2Location's "-" is unknown, which must not trip the tz check.
-func cleanPlaceholder(s string) string {
-	if s == "-" {
-		return ""
-	}
-	return s
 }

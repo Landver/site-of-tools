@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,10 +24,10 @@ type fakeLooker struct {
 	err error
 }
 
-func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
+func (f fakeLooker) Lookup(context.Context, string) (*iptools.Result, error) { return f.res, f.err }
 
 // newTestApp uses the embedded templates, so it works from any cwd; the corpus is nil (Mongo off).
-func newTestApp(svc botcheck.Looker) *echo.Echo {
+func newTestApp(svc iptools.Looker) *echo.Echo {
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: botcheck.Templates, DevDir: "tools/botcheck/templates"},
@@ -228,9 +229,9 @@ func TestIndexCurlGetsServerOnlyScore(t *testing.T) {
 	}
 }
 
-func TestPlaceholderTimezoneCleanedThroughHandler(t *testing.T) {
-	// IP2Location's "-" placeholder timezone must be cleaned, or a real browser trips tz_mismatch.
-	looker := fakeLooker{res: &iptools.Result{CountryCode: "-", Timezone: "-"}}
+func TestUnknownTimezoneThroughHandler(t *testing.T) {
+	// iptools reports IP2Location's "-" placeholder as "": unknown must not trip tz_mismatch on a real browser.
+	looker := fakeLooker{res: &iptools.Result{}}
 	body := `{"browserTZ":"Europe/Moscow","navMainUA":"` + chromeMacUA + `"}`
 	rec := post(newTestApp(looker), "/check", body, map[string]string{"Accept": "application/json", "User-Agent": chromeMacUA})
 	var rep botcheck.Report
@@ -239,7 +240,7 @@ func TestPlaceholderTimezoneCleanedThroughHandler(t *testing.T) {
 	}
 	for _, c := range rep.Checks {
 		if c.ID == "tz_mismatch" && c.Triggered {
-			t.Errorf("tz_mismatch fired against a '-' placeholder timezone:\n%s", rec.Body.String())
+			t.Errorf("tz_mismatch fired against an unknown timezone:\n%s", rec.Body.String())
 		}
 	}
 }

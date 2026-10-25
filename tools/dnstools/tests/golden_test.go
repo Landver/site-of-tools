@@ -117,7 +117,7 @@ func (f *goldenDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trac
 
 type goldenGeo map[string]*iptools.Result
 
-func (g goldenGeo) Lookup(ip string) (*iptools.Result, error) {
+func (g goldenGeo) Lookup(_ context.Context, ip string) (*iptools.Result, error) {
 	if r, ok := g[ip]; ok {
 		return r, nil
 	}

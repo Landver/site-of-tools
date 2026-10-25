@@ -11,7 +11,7 @@ import (
 )
 
 type handler struct {
-	svc       Looker
+	svc       iptools.Looker
 	corpus    *Corpus         // nil-safe: Mongo disabled → fingerprint corpus no-ops
 	blocklist iptools.Checker // nil when Mongo off → ip_blocklisted silent
 	lim       *Limits
@@ -28,7 +28,7 @@ func NewLimits() *Limits {
 }
 
 // Register wires botcheck.corpberry.com routes onto e.
-func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
+func Register(e *echo.Echo, svc iptools.Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}

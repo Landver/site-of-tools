@@ -49,7 +49,7 @@ func run() error {
 	mdb, mErr := platform.OpenMongo(mongoCtx, cfg.MongoURI, cfg.MongoDatabase)
 	cancelMongo()
 	if mErr != nil {
-		log.Printf("mongo: disabled (%v); lookup history + request log will no-op", mErr)
+		log.Printf("mongo: disabled (%v); the request log and every store will no-op", mErr)
 	}
 	// LIFO: reqlog and the hit batcher (below) drain before the client closes.
 	defer mdb.Close(context.Background())
@@ -57,7 +57,6 @@ func run() error {
 	// Index creation is bounded and best-effort; a nil db yields disabled stores.
 	idxCtx, cancelIdx := context.WithTimeout(context.Background(), 10*time.Second)
 	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
-	lookupHistory := iptools.NewHistory(idxCtx, mdb.DB())
 	corpus := botcheck.NewCorpus(mdb.DB())
 	// Fed by the daily syncs below; read by botcheck's ip_blocklisted rule and the IP tool.
 	blocklist := iptools.NewBlockList(mdb.DB())
@@ -154,18 +153,16 @@ func run() error {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
 	// Shodan's terms: fetched live per request, never stored. Blank SHODAN_INTERNETDB_URL disables it.
-	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
-	geo.WithShodan(shodan)
-	// DNS shows no open ports, so it must not spend the Shodan budget per record.
-	dnsGeo := geo.Offline()
-	iptools.Register(apps["ip"], geo, lookupHistory, ipCheck, ipLim)
+	// DNS keeps the plain geo: it shows no open ports, so it must not spend the Shodan budget per record.
+	shodanGeo := geo.WithShodan(iptools.NewShodan(cfg.ShodanURL, 4*time.Second))
+	iptools.Register(apps["ip"], shodanGeo, ipCheck, ipLim)
 
-	botcheck.Register(apps["botcheck"], geo, corpus, ipCheck, botLim)
+	botcheck.Register(apps["botcheck"], shodanGeo, corpus, ipCheck, botLim)
 
 	// A blank RDAP/CT URL disables that half; the page says so rather than claim no registration.
 	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
 	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
-	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsLim)
+	dnstools.Register(apps["dns"], dnsSvc, geo, domainClient, dnsLim)
 
 	// Only /trace dials out (via the egress gate); platform.RedactURI keeps ?u= out of the request log.
 	linkSvc := linktools.NewService()
@@ -188,7 +185,7 @@ func run() error {
 	mailtools.Register(apps["mail"], cfg.URL("mail"), httpsGuard, mailStore, cfg.SpamhausDQSKey, mailLim)
 
 	mcptools.Register(apps["mcp"], mcptools.Deps{
-		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck,
+		Geo: shodanGeo, DNSGeo: geo, Blocklist: ipCheck,
 		DNS: dnsSvc, Domain: domainClient, Blog: blog,
 		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,

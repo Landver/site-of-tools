@@ -40,7 +40,7 @@ func (f *fakeLooker) LookupSet(_ context.Context, name, resolver string, types [
 // fakeGeo stands in for iptools' geo service.
 type fakeGeo struct{ res *iptools.Result }
 
-func (f *fakeGeo) Lookup(string) (*iptools.Result, error) { return f.res, nil }
+func (f *fakeGeo) Lookup(context.Context, string) (*iptools.Result, error) { return f.res, nil }
 
 // newApp serves the tool without RDAP/CT or the reputation card, with limits of its own.
 func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {

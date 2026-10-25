@@ -98,9 +98,9 @@ func TestRoutable(t *testing.T) {
 	}
 }
 
-func TestOfflineNilService(t *testing.T) {
+func TestWithShodanNilService(t *testing.T) {
 	var s *iptools.Service
-	if s.Offline() != nil {
-		t.Error("nil Service.Offline() != nil")
+	if s.WithShodan(iptools.NewShodan("http://127.0.0.1:1", 0)) != nil {
+		t.Error("nil Service.WithShodan() != nil")
 	}
 }
