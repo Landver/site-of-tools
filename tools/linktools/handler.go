@@ -15,7 +15,7 @@ import (
 
 // Page descriptions, surfaced as the meta and og descriptions via the "Desc" view-model key.
 const (
-	inspectDesc  = "Take a URL apart: every query parameter decoded and kept in order, repeated keys shown as repeats, comma-lists split and counted, double-encoded values peeled layer by layer, and the fragment parsed instead of thrown away. Nothing is fetched. Free, open source, JSON API included."
+	inspectDesc  = "Inspect URL components, decode nested parameters, and strip tracking tags (UTM, SafeLinks, fbclid) in one unified report. Free, open source, JSON API included."
 	cleanDesc    = "Remove tracking parameters from a URL and see exactly which rule removed what. Unwraps Safe Links, urldefense and the other mail-gateway wrappers with no network request at all. Free, open source, JSON API included."
 	traceDesc    = "Follow a link hop by hop without opening it: every redirect with its status, timing and cookies, and an honest answer when the chain continues somewhere an HTTP client cannot follow. Ask as Googlebot, Slackbot or a browser."
 	headersDesc  = "Analyze HTTP response headers for RFC 9111 caching, dual browser/CDN TTL, security posture (CSP, HSTS, COOP/COEP), cookie prefixes, and ETag revalidation."
@@ -169,7 +169,13 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 
 func (h *handler) inspect(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	vm := h.vm("inspect", "Inspect a URL", inspectDesc, raw)
+	opt := CleanOptions{
+		Sort:           c.QueryParam("sort") == "true",
+		StripAffiliate: c.QueryParam("affiliate") == "true",
+		Unwrap:         c.QueryParam("unwrap") != "false",
+	}
+	vm := h.vm("inspect", "URL Inspector & Sanitizer", inspectDesc, raw)
+	vm["Sort"], vm["Affiliate"], vm["Unwrap"] = opt.Sort, opt.StripAffiliate, opt.Unwrap
 
 	if done, err := h.needURL(c, raw, vm, "link/index", "link/inspect",
 		"?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1"); done {
@@ -183,6 +189,12 @@ func (h *handler) inspect(c *echo.Context) error {
 	if err != nil {
 		return h.badRequest(c, vm, err, "link/index")
 	}
+
+	if cleaned, cleanErr := h.svc.Clean(raw, opt); cleanErr == nil {
+		vm["Cleaned"] = cleaned
+		vm["Groups"] = groupRemovals(cleaned.Removed)
+	}
+
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/index", "link/inspect")
 }

@@ -3,6 +3,50 @@
 {{define "link/inspect"}}
 {{with .Result}}
 
+{{/* Sanitization & Clean URL Hero Block */}}
+{{if $.Cleaned}}
+<div class="mb-4 rounded-lg border {{if $.Cleaned.Removed}}border-ok/40 bg-ok/5{{else if $.Cleaned.Unwrapped}}border-brand/40 bg-brand/5{{else}}border-line bg-surface{{end}} p-4 space-y-3">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      {{if $.Cleaned.Removed}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-ok/10 text-ok border border-ok/30">
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          Sanitized ({{len $.Cleaned.Removed}} Tracking {{if eq (len $.Cleaned.Removed) 1}}Parameter{{else}}Parameters{{end}} Stripped)
+        </span>
+      {{else if $.Cleaned.Unwrapped}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-brand/10 text-brand-ink border border-brand/30">
+          Unwrapped from {{$.Cleaned.Wrapper}}
+        </span>
+      {{else}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-surface text-muted border border-line">
+          Clean URL (No Tracking Parameters Detected)
+        </span>
+      {{end}}
+    </div>
+    {{if $.Cleaned.Removed}}
+      <div class="flex flex-wrap gap-1 text-[11px]">
+        {{range $.Cleaned.Removed}}
+          <span class="rounded bg-danger/10 text-danger border border-danger/20 px-1.5 py-0.5 font-mono" title="{{.Why}}">-{{.Key}}</span>
+        {{end}}
+      </div>
+    {{end}}
+  </div>
+
+  <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+    <div class="relative flex-1 min-w-0">
+      <input type="text" readonly value="{{$.Cleaned.Output}}"
+             class="field w-full font-mono text-xs text-strong bg-canvas pr-16 select-all"
+             aria-label="Clean URL output">
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <button type="button" class="btn-primary text-xs" data-copy="{{$.Cleaned.Output}}">Copy Clean Link</button>
+      <a href="{{$.Cleaned.Output}}" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"
+         class="btn-action text-xs">Open &#8599;</a>
+    </div>
+  </div>
+</div>
+{{end}}
+
 {{/* Summary strip, before the table: what shape the input was parsed as. */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="Parsed: {{len .Params}} {{if eq (len .Params) 1}}parameter{{else}}parameters{{end}}{{if .Notes}}, {{len .Notes}} {{if eq (len .Notes) 1}}finding{{else}}findings{{end}}{{end}}.">
@@ -17,10 +61,12 @@
   <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-line w-full sm:pt-0 sm:border-t-0 sm:w-auto sm:ml-auto">
     <a href="{{.Input}}" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer"
        class="btn-action">Open &#8599;</a>
-    <a href="/clean?u={{.Input | urlquery}}"
-       class="btn-action">Clean trackers</a>
+    <a href="/trace?u={{.Input | urlquery}}"
+       class="btn-action">Trace redirects &#8599;</a>
+    <a href="/headers?u={{.Input | urlquery}}"
+       class="btn-action">Headers &amp; cache &#8599;</a>
     <a href="/curl?u={{.Input | urlquery}}"
-       class="btn-action">cURL command</a>
+       class="btn-action">cURL command &#8599;</a>
   </div>
   {{end}}
 </div>
@@ -71,8 +117,9 @@
           <td class="px-3 py-2">
             {{/* Only a long value may break anywhere; a short word stays whole. */}}
             <span class="{{if gt (len .Key) 20}}wrap-anywhere{{else}}break-words{{end}} font-mono text-strong">{{.Key}}</span>
-            {{if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn-ink">repeat</span>{{end}}
-            {{if .Tracking}}<span class="ml-1 whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs text-danger">tracker</span>{{end}}
+            {{if .Tracking}}<span class="ml-1 whitespace-nowrap rounded bg-danger/10 px-1.5 py-0.5 text-xs font-medium text-danger" title="Tracking rule: {{.Tracking}}">tracker ({{.Tracking}})</span>
+            {{else if .Repeat}}<span class="ml-1 whitespace-nowrap rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn-ink">repeat</span>
+            {{else}}<span class="ml-1 whitespace-nowrap rounded bg-surface border border-line px-1.5 py-0.5 text-[10px] text-faint">app param</span>{{end}}
           </td>
           <td class="px-3 py-2">
             {{if .Valueless}}

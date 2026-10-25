@@ -48,8 +48,7 @@
         <p>
           This bites hardest with base64, where <code class="font-mono">+</code> is part of the alphabet: a
           decoder that applies form rules to a base64 value destroys it silently.
-          <a href="/encoding" class="link-inline">The reference page</a> has the worked
-          example.
+          See the reference section below for worked examples and reserved character charts.
         </p>
         <p>
           The value is converted on this server and nothing is fetched. Don't paste live credentials into any
@@ -57,6 +56,75 @@
         </p>
       </div>
     </details>
+
+    <section id="reference" class="mt-10 border-t border-line pt-8 space-y-6">
+      <div>
+        <h2 class="text-xl font-semibold text-strong">RFC 3986 URL Encoding &amp; Reserved Characters Reference</h2>
+        <p class="mt-1 text-sm text-muted">
+          The same character does not mean the same thing in a path, a query and a fragment.
+          That is the source of most URL bugs, and it is why this tool decodes each position with different rules.
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-line bg-surface p-4 space-y-3">
+        <h3 class="text-base font-semibold text-strong">The one that catches everyone: <code class="font-mono">+</code></h3>
+        <div class="relative overflow-x-auto rounded border border-line" tabindex="0" role="region" aria-label="How + decodes, by position">
+          <table class="w-full text-left text-sm font-mono">
+            <thead class="bg-canvas text-xs uppercase tracking-wide text-muted font-sans">
+              <tr><th class="px-3 py-2 font-medium">Position</th><th class="px-3 py-2 font-medium">Input</th><th class="px-3 py-2 font-medium">Decodes to</th></tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              <tr><td class="px-3 py-2 font-sans text-xs">Query</td><td class="px-3 py-2">a+b</td><td class="px-3 py-2 text-strong">a b (space)</td></tr>
+              <tr><td class="px-3 py-2 font-sans text-xs">Path</td><td class="px-3 py-2">a+b</td><td class="px-3 py-2 text-strong">a+b (literal plus)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">
+          In a query string <code class="font-mono">+</code> means a space, because queries inherit <code class="font-mono">application/x-www-form-urlencoded</code> from HTML forms. In a path it is an ordinary character, so <code class="font-mono">/a+b/</code> is a directory literally called <code class="font-mono">a+b</code>.
+          Furthermore, <code class="font-mono">+</code> is a valid character in standard base64, so a parser that form-decodes a base64 value silently destroys it.
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-line bg-surface p-4 space-y-3">
+        <h3 class="text-base font-semibold text-strong">Reserved Characters (RFC 3986 §2.2)</h3>
+        <p class="text-xs text-muted">These delimit parts of a URL. Encode them when they are data rather than syntax structure.</p>
+        <div class="relative overflow-x-auto rounded border border-line" tabindex="0" role="region" aria-label="Reserved characters">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-canvas uppercase tracking-wide text-muted font-sans">
+              <tr>
+                <th class="px-3 py-2 font-medium">Char</th>
+                <th class="px-3 py-2 font-medium">Percent-Encoded</th>
+                <th class="px-3 py-2 font-medium font-sans">Structural Meaning in RFC 3986</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              <tr><td class="px-3 py-2 text-strong">:</td><td class="px-3 py-2">%3A</td><td class="px-3 py-2 font-sans text-muted">Ends the scheme; separates host from port</td></tr>
+              <tr><td class="px-3 py-2 text-strong">/</td><td class="px-3 py-2">%2F</td><td class="px-3 py-2 font-sans text-muted">Path separator. Inside a segment, %2F is a literal slash, not a separator</td></tr>
+              <tr><td class="px-3 py-2 text-strong">?</td><td class="px-3 py-2">%3F</td><td class="px-3 py-2 font-sans text-muted">Starts the query string</td></tr>
+              <tr><td class="px-3 py-2 text-strong">#</td><td class="px-3 py-2">%23</td><td class="px-3 py-2 font-sans text-muted">Starts the fragment. Never sent over HTTP to the server</td></tr>
+              <tr><td class="px-3 py-2 text-strong">[ ]</td><td class="px-3 py-2">%5B %5D</td><td class="px-3 py-2 font-sans text-muted">Wrap an IPv6 literal host</td></tr>
+              <tr><td class="px-3 py-2 text-strong">@</td><td class="px-3 py-2">%40</td><td class="px-3 py-2 font-sans text-muted">Ends userinfo. Everything before it is username:password, not host</td></tr>
+              <tr><td class="px-3 py-2 text-strong">&amp;</td><td class="px-3 py-2">%26</td><td class="px-3 py-2 font-sans text-muted">Separates query parameter pairs</td></tr>
+              <tr><td class="px-3 py-2 text-strong">=</td><td class="px-3 py-2">%3D</td><td class="px-3 py-2 font-sans text-muted">Separates a query key from its value</td></tr>
+              <tr><td class="px-3 py-2 text-strong">;</td><td class="px-3 py-2">%3B</td><td class="px-3 py-2 font-sans text-muted">Legacy query parameter separator; matrix parameter separator</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2 text-xs">
+        <div class="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+          <h4 class="font-semibold text-strong text-sm">Unreserved Characters (RFC 3986 §2.3)</h4>
+          <p class="font-mono text-muted">A-Z  a-z  0-9  -  .  _  ~</p>
+          <p class="text-muted leading-relaxed">Never need encoding anywhere in a URL. Normalizing percent-encoded unreserved octets (e.g. %41 → A) is safe and RFC-compliant.</p>
+        </div>
+        <div class="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+          <h4 class="font-semibold text-strong text-sm">Double Encoding Trap</h4>
+          <p class="font-mono text-muted">%2520 → %20 → (space)</p>
+          <p class="text-muted leading-relaxed">Happens when a URL is encoded by one layer and then re-encoded by another. Each pass turns <code class="font-mono">%</code> into <code class="font-mono">%25</code>.</p>
+        </div>
+      </div>
+    </section>
 
     <details class="mt-2 text-sm">
       <summary class="cursor-pointer text-faint hover:text-muted">Using this from the terminal</summary>
