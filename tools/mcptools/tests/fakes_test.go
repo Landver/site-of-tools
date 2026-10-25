@@ -198,30 +198,6 @@ func (f *fakeDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace,
 	}, nil
 }
 
-func (f *fakeDNS) EmailAuth(_ context.Context, domain string) (*dnstools.EmailAuth, error) {
-	if err := f.check(domain); err != nil {
-		return nil, err
-	}
-	return &dnstools.EmailAuth{
-		Domain: domain,
-		SPF:    &dnstools.SPFResult{Record: "v=spf1 mx -all", Lookups: 1, Limit: 10, All: "-all"},
-		DMARC:  &dnstools.DMARCResult{Record: "v=DMARC1; p=reject", Name: "_dmarc." + domain, Policy: "reject"},
-		HasMX:  true, MXCount: 1,
-		MailHosts: []dnstools.MailHost{{Host: "mail.example.com", IP: "192.0.2.25", PTR: "mail.example.com", FCrDNS: true}},
-		Notes:     []dnstools.Note{{Level: "warn", Text: "No DKIM key at the common selectors."}, {Level: "ok", Text: "SPF ends in -all."}},
-		QueryMS:   40,
-	}, nil
-}
-
-func (f *fakeDNS) MXReputation(_ context.Context, domain string, _ dnstools.BlockChecker) (*dnstools.MXReputation, error) {
-	return &dnstools.MXReputation{
-		Domain:  domain,
-		Hosts:   []dnstools.MXRepHost{{Host: "mail.example.com", Preference: 10, Addrs: []dnstools.MXRepAddr{{IP: "192.0.2.25"}}}},
-		MXCount: 1, Checked: 1, Feeds: []string{"spamhaus-drop"}, Corpus: "spamhaus-drop, synced daily",
-		Notes: []dnstools.Note{{Level: "ok", Text: "No mail server is listed."}}, QueryMS: 3,
-	}, nil
-}
-
 type netGeo map[string]*iptools.Result
 
 func (g netGeo) Lookup(ip string) (*iptools.Result, error) {

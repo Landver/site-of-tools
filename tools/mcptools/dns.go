@@ -33,30 +33,23 @@ type dnsDomainArgs struct {
 	Detailed bool   `json:"detailed,omitempty" jsonschema:"list up to 200 names with their certificate dates and counts, not the first 50 names"`
 }
 
-type dnsEmailArgs struct {
-	Name string `json:"name" jsonschema:"the mail domain, e.g. example.com; a pasted email address is cut to its domain"`
-}
-
 const certNames = 50
 
 type dnsTools struct {
-	svc  dnstools.Looker
-	spr  dnstools.Spreader
-	ecs  dnstools.ECSer
-	tra  dnstools.Tracer
-	mail dnstools.Mailer
-	rep  dnstools.Reputer
-	geo  iptools.Looker
-	dom  *dnstools.DomainClient
-	bl   dnstools.BlockChecker
+	svc dnstools.Looker
+	spr dnstools.Spreader
+	ecs dnstools.ECSer
+	tra dnstools.Tracer
+	geo iptools.Looker
+	dom *dnstools.DomainClient
 }
 
 func dnsSpecs(d Deps) []toolSpec {
 	if d.DNS == nil {
 		return nil
 	}
-	t := dnsTools{svc: d.DNS, geo: d.DNSGeo, dom: d.Domain, bl: d.DNSBlocklist}
-	t.spr, t.ecs, t.tra, t.mail, t.rep = dnstools.Checks(d.DNS)
+	t := dnsTools{svc: d.DNS, geo: d.DNSGeo, dom: d.Domain}
+	t.spr, t.ecs, t.tra = dnstools.Checks(d.DNS)
 	lim := d.DNSLimits
 	resolvers := make([]string, len(dnstools.Resolvers))
 	for i, r := range dnstools.Resolvers {
@@ -134,20 +127,6 @@ func dnsSpecs(d Deps) []toolSpec {
 		limiter: lim.Lookup,
 		cap:     lim.DomainCap,
 		add:     handle(t.domain),
-	})
-	spec(t.mail != nil, toolSpec{
-		tool: &mcp.Tool{
-			Name:  "dns_email_auth",
-			Title: "Email authentication",
-			Description: "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), " +
-				"DMARC policy strength, DKIM keys at common selectors, MTA-STS with its policy fetched over HTTPS, TLS-RPT and BIMI, " +
-				"plus each mail server's reverse DNS and whether a blocklist lists it. " +
-				"notes carry the findings, worst first. Example: name example.com. " + thirdParty,
-			InputSchema: inputSchema[dnsEmailArgs](minLength("name", 1)),
-		},
-		limiter: lim.Lookup,
-		cap:     lim.LookupCap,
-		add:     handle(t.email),
 	})
 	return specs
 }
@@ -230,18 +209,5 @@ func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomai
 		}
 	}
 	out["attribution"] = credits(platform.CreditCrtSh, platform.CreditRDAP)
-	return out, nil
-}
-
-func (t dnsTools) email(ctx context.Context, _ *mcp.CallToolRequest, a dnsEmailArgs) (any, error) {
-	res, err := dnstools.EmailReport(ctx, t.mail, t.rep, t.bl, a.Name)
-	if err != nil {
-		return nil, err
-	}
-	out, err := object(res)
-	if err != nil {
-		return nil, err
-	}
-	out["attribution"] = credits(platform.CreditSpamhaus)
 	return out, nil
 }

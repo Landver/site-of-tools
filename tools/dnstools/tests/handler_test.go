@@ -342,7 +342,7 @@ func TestSitemapPages(t *testing.T) {
 	for _, p := range pages {
 		paths = append(paths, p.Path)
 	}
-	want := []string{"/", "/consistency", "/trace", "/domain", "/email"}
+	want := []string{"/", "/consistency", "/trace", "/domain"}
 	if diff := cmp.Diff(want, paths); diff != "" {
 		t.Errorf("sitemap pages differ (-want +got):\n%s", diff)
 	}

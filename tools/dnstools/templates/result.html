@@ -185,7 +185,7 @@
         <div class="flex flex-wrap gap-1.5">
           <a href="/consistency?name={{$.Query}}" class="btn-action">Consistency ↗</a>
           <a href="/trace?name={{$.Query}}" class="btn-action">Trace DNSSEC ↗</a>
-          <a href="/email?name={{$.Query}}" class="btn-action">Email Auth ↗</a>
+          <a href="{{toolURL "mail"}}/?domain={{$.Query}}" class="btn-action">Email Intelligence ↗</a>
           <a href="/domain?name={{$.Query}}" class="btn-action">Domain ↗</a>
         </div>
       </div>

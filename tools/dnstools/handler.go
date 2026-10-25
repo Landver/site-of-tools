@@ -17,8 +17,6 @@ import (
 
 // Page descriptions, rendered as <meta name="description"> and og:description via the "Desc" key.
 const (
-	emailDesc = "Check a domain's email authentication: SPF (including the 10-lookup limit that silently breaks it), DMARC policy strength, DKIM keys at common selectors, MTA-STS policy fetched over HTTPS not just its DNS pointer, TLS-RPT and BIMI. Free, open source, JSON API included."
-
 	domainDesc = "Who registered this domain, when it expires, what its registry lock status actually means, and every subdomain Certificate Transparency has seen under it. Registration via RDAP, subdomains via CT logs: both public, both free, and neither sends a packet at the domain itself."
 
 	consistencyDesc = "Is your DNS change live yet? Asks every one of the zone's own authoritative nameservers directly, with recursion off, and compares them against the public resolvers. Shows which servers disagree, whether their SOA serials match, and how long the cached copies have left."
@@ -39,11 +37,8 @@ type Tracer interface {
 type handler struct {
 	svc   Looker
 	spr   Spreader
-	mail  Mailer
 	tra   Tracer
 	ecs   ECSer
-	rep   Reputer
-	block BlockChecker // the shared blocklist corpus, which dnstools never opens itself
 	dom   *DomainClient
 	geo   iptools.Looker // iptools' open IP2Location handles, in-process: no HTTP hop
 	lim   *Limits
@@ -68,19 +63,18 @@ func NewLimits() *Limits {
 }
 
 // Register wires dns.corpberry.com's routes onto e; all take ?name= (and ?type=, ?resolver=).
-func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, bl BlockChecker, lim *Limits) {
+func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, _ BlockChecker, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
-	h := &handler{svc: svc, geo: geo, dom: dom, block: bl, lim: lim}
-	h.spr, h.ecs, h.tra, h.mail, h.rep = Checks(svc)
+	h := &handler{svc: svc, geo: geo, dom: dom, lim: lim}
+	h.spr, h.ecs, h.tra = Checks(svc)
 	lookup := platform.RateLimit(lim.Lookup, bare, limited)
 	walk := platform.RateLimit(lim.Walk, bare, limited)
 	e.GET("/", h.index, lookup)
 	e.GET("/consistency", h.consistency, walk)
 	e.GET("/trace", h.trace, walk)
 	e.GET("/domain", h.domain, lookup)
-	e.GET("/email", h.email, lookup)
 }
 
 // navPages is the sub-nav, in order; Key is the page's "Active".
@@ -89,7 +83,6 @@ var navPages = []struct{ Key, Path, Label, Hint string }{
 	{"consistency", "/consistency", "Consistency", "Is a DNS change live yet? The zone's own nameservers against the public resolvers"},
 	{"trace", "/trace", "Trace", "Walk the delegation down from the root and check the DNSSEC chain"},
 	{"domain", "/domain", "Domain", "Who registered it, when it expires, and its subdomains"},
-	{"email", "/email", "Email", "SPF, DMARC, DKIM, MTA-STS and inbound mail-server blocklists"},
 }
 
 // view starts a page's view model from ?name=, and returns the name as read.
@@ -168,21 +161,6 @@ func sentence(s string) string {
 		s += "."
 	}
 	return s
-}
-
-// email serves the SPF / DMARC / DKIM / MTA-STS / BIMI check.
-func (h *handler) email(c *echo.Context) error {
-	name, vm := view(c, "email", "Email DNS", emailDesc)
-	// Credits are page-scoped: the footer sits outside the htmx target.
-	vm["SpamhausAttribution"] = true
-	return serve(c, name, vm, h.lim.LookupCap, func(ctx context.Context) error {
-		res, err := EmailReport(ctx, h.mail, h.rep, h.block, c.QueryParam("name"))
-		if err == nil {
-			vm["Email"] = res
-			vm["OK"], vm["Warn"], vm["Fail"] = res.Score()
-		}
-		return answered(c, name, res, err, vm)
-	})
 }
 
 // domain serves registration (RDAP) and CT subdomains; each half degrades on its own.
@@ -273,6 +251,6 @@ func statusFor(err error) int {
 // SitemapPages: this tool's indexable URLs, for platform.RegisterSEO.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
-		{Path: "/"}, {Path: "/consistency"}, {Path: "/trace"}, {Path: "/domain"}, {Path: "/email"},
+		{Path: "/"}, {Path: "/consistency"}, {Path: "/trace"}, {Path: "/domain"},
 	}, nil
 }

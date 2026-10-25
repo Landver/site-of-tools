@@ -128,27 +128,13 @@ func TestDomainReportErr(t *testing.T) {
 	}
 }
 
-func TestEmailReportAddsReputationWhenWired(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	svc := &goldenDNS{}
-
-	res, err := dnstools.EmailReport(ctx, svc, svc, &repCorpus{}, " Example.com ")
-	if err != nil || res.Domain != "example.com" || res.MXRep == nil || res.MXRep.Domain != "example.com" {
-		t.Fatalf("report %+v err %v, want the normalised domain with its reputation", res, err)
-	}
-	for name, rep := range map[string]dnstools.Reputer{"no reputer": nil, "reputation failed": &goldenDNS{repErr: dnstools.ErrNoBlocklist}} {
-		if res, err := dnstools.EmailReport(ctx, svc, rep, &repCorpus{}, "example.com"); err != nil || res.MXRep != nil {
-			t.Errorf("%s: MXRep %v err %v, want the report without the card", name, res.MXRep, err)
+// notesAt returns the text of every note at this level.
+func notesAt(notes []dnstools.Note, level string) []string {
+	var out []string
+	for _, n := range notes {
+		if n.Level == level {
+			out = append(out, n.Text)
 		}
 	}
-	if res, err := dnstools.EmailReport(ctx, svc, svc, nil, "example.com"); err != nil || res.MXRep != nil {
-		t.Errorf("no corpus: MXRep %v err %v, want the report without the card", res.MXRep, err)
-	}
-	if _, err := dnstools.EmailReport(ctx, nil, svc, &repCorpus{}, "example.com"); !errors.Is(err, dnstools.ErrDisabled) {
-		t.Errorf("no mailer: err = %v, want ErrDisabled", err)
-	}
-	if _, err := dnstools.EmailReport(ctx, &goldenDNS{mailErr: dnstools.ErrNeedDomain}, svc, &repCorpus{}, "1.1.1.1"); !errors.Is(err, dnstools.ErrNeedDomain) {
-		t.Errorf("err = %v, want the check's own", err)
-	}
+	return out
 }

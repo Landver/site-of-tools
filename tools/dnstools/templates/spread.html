@@ -88,7 +88,7 @@
       <span class="text-xs font-mono text-faint">Pivots:</span>
       <div class="flex flex-wrap gap-1.5">
         <a href="/trace?name={{$.Query}}" class="btn-action">Trace DNSSEC ↗</a>
-        <a href="/email?name={{$.Query}}" class="btn-action">Email Auth ↗</a>
+        <a href="{{toolURL "mail"}}/?domain={{$.Query}}" class="btn-action">Email Intelligence ↗</a>
         <a href="/?name={{$.Query}}" class="btn-action">Lookup All ↗</a>
       </div>
     </div>

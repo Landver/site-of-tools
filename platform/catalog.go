@@ -266,8 +266,8 @@ var defaultCatalog = []ToolSection{
 			ID:        "dns",
 			Name:      "DNS Tools",
 			Subdomain: "dns",
-			Badge:     "5 tools",
-			Desc:      "Parallel DNS lookup, consistency propagation, DNSSEC trace and email records",
+			Badge:     "4 tools",
+			Desc:      "Parallel DNS lookup, consistency propagation, DNSSEC root trace and domain RDAP",
 			Tools: []ToolItem{
 				{
 					Key:       "lookup",
@@ -316,18 +316,6 @@ var defaultCatalog = []ToolSection{
 					Tech: []string{
 						"RDAP (RFC 7484)", "WHOIS Registrar & Dates", "Expiry Tracking",
 						"Nameservers", "Domain Status Codes", "crt.sh Certificate Transparency", "Subdomain Discovery (up to 200)",
-					},
-				},
-				{
-					Key:       "email",
-					Name:      "Email Auth DNS",
-					Path:      "/email",
-					Subdomain: "dns",
-					ShortDesc: "SPF, DKIM, DMARC, MTA-STS & MX Mail Security Validator",
-					Badges:    []string{"SPF", "DMARC", "DKIM"},
-					Tech: []string{
-						"SPF Record Syntax", "10 DNS Lookup Limit Check", "DMARC Policy (none/quarantine/reject)",
-						"DKIM Selectors", "MTA-STS (RFC 8461)", "TLS Reporting (TLSRPT)", "MX Mailhost Reachability", "ZEN IP Blocklist Check",
 					},
 				},
 			},
@@ -463,6 +451,7 @@ var defaultCatalog = []ToolSection{
 					Tech: []string{
 						"Disposable & Burner Detection", "Free vs Corporate Classifier",
 						"Proofpoint, Microsoft Defender, Google SEGs", "Direct-to-MX Bypass Detection",
+						"Deep SPF 10-Lookup Tree Expansion", "DKIM Selectors Discovery", "MTA-STS & TLSRPT (RFC 8461/8460)",
 						"BIMI & VMC Verification", "15+ DNSBL Multi-Blacklist Audit", "SPF / DMARC Deliverability Scoring",
 					},
 				},

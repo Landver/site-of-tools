@@ -177,8 +177,7 @@
 {{if eq .Active "lookup"}}{{template "dns/result" .}}
 {{else if eq .Active "consistency"}}{{template "dns/spread" .}}
 {{else if eq .Active "trace"}}{{template "dns/tracewalk" .}}
-{{else if eq .Active "domain"}}{{template "dns/domaininfo" .}}
-{{else}}{{template "dns/emailauth" .}}{{end}}
+{{else if eq .Active "domain"}}{{template "dns/domaininfo" .}}{{end}}
 {{end}}
 {{end}}
 

@@ -10,7 +10,6 @@ var required = map[string]map[string]any{
 	"dns_consistency":     {"name": "example.com"},
 	"dns_trace":           {"name": "example.com"},
 	"dns_domain_info":     {"name": "example.com"},
-	"dns_email_auth":      {"name": "example.com"},
 	"link_inspect":        {"url": "https://example.com/?a=1"},
 	"link_clean":          {"url": "https://example.com/?utm_source=x&a=1"},
 	"link_tracking_rules": {},

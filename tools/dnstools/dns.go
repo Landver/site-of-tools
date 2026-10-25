@@ -267,13 +267,11 @@ type Looker interface {
 }
 
 // Checks returns the checks svc also serves; a test fake implements only some.
-func Checks(svc Looker) (Spreader, ECSer, Tracer, Mailer, Reputer) {
+func Checks(svc Looker) (Spreader, ECSer, Tracer) {
 	spr, _ := svc.(Spreader)
 	ecs, _ := svc.(ECSer)
 	tra, _ := svc.(Tracer)
-	mail, _ := svc.(Mailer)
-	rep, _ := svc.(Reputer)
-	return spr, ecs, tra, mail, rep
+	return spr, ecs, tra
 }
 
 // LookupSet queries types concurrently (none = FanoutTypes); a failing type never sinks the rest.

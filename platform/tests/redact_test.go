@@ -26,9 +26,9 @@ func TestRedactURI(t *testing.T) {
 		{"curl", "/curl?curl=curl%20-H%20%27Authorization%3A%20SECRET%27%20https%3A%2F%2Fx", "SECRET"},
 		{"extract", "/extract?text=see%20https%3A%2F%2Fx%3Ft%3DSECRET", "SECRET"},
 		{"encode", "/encode?v=eyJhbGciOiJIUzI1NiJ9.SECRET.sig", "SECRET"},
-		// A pasted URL or email in the DNS box.
-		{"dns pasted url", "/email?name=https%3A%2F%2Fapp.example.com%2Freset%3Ftoken%3DSECRET", "SECRET"},
-		{"dns pasted email", "/email?name=SECRET%40example.com", "SECRET"},
+		// A pasted URL or email in the DNS / Mail box.
+		{"dns pasted url", "/?name=https%3A%2F%2Fapp.example.com%2Freset%3Ftoken%3DSECRET", "SECRET"},
+		{"dns pasted email", "/?name=SECRET%40example.com", "SECRET"},
 	}
 	for _, c := range cases {
 		got := platform.RedactURI(c.in)
@@ -154,7 +154,7 @@ func TestRedactURIKeepsAPlainDNSName(t *testing.T) {
 
 // An unencoded pasted URL's tail ("&token=…") is redacted; DNS params stay.
 func TestRedactURIDropsAnUnencodedURLsTail(t *testing.T) {
-	got := platform.RedactURI("/email?name=https://app.example.com/reset?a=b&token=SECRET&type=MX")
+	got := platform.RedactURI("/?name=https://app.example.com/reset?a=b&token=SECRET&type=MX")
 	if strings.Contains(got, "SECRET") {
 		t.Errorf("RedactURI kept the pasted URL's tail: %q", got)
 	}

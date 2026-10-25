@@ -13,7 +13,7 @@ func TestBarePagesAreNotRateLimited(t *testing.T) {
 	e := newApp(t, &fakeLooker{set: sampleSet()}, nil)
 
 	for i := range 40 {
-		if rec := from(e, "/email", "203.0.113.20:1234", map[string]string{"Accept": "text/html"}); rec.Code != http.StatusOK {
+		if rec := from(e, "/domain", "203.0.113.20:1234", map[string]string{"Accept": "text/html"}); rec.Code != http.StatusOK {
 			t.Fatalf("bare page load %d: status %d, want 200", i+1, rec.Code)
 		}
 	}
@@ -48,7 +48,7 @@ func TestFragmentCarriesNavTitleAndCleanURL(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`hx-swap-oob="true"`, `href="/email?name=example.com"`,
+		`hx-swap-oob="true"`, `href="/domain?name=example.com"`,
 		"<title>example.com · DNS Tools</title>",
 		`id="dns-status" hx-swap-oob="innerHTML"`,
 		"taken from what you entered",

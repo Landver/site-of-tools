@@ -3,22 +3,12 @@ package mailtools
 import (
 	"context"
 	"errors"
-	"net"
-	"strings"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/Landver/site-of-tools/platform"
 )
-
-// EmailAuthSummary holds published DMARC and SPF policies.
-type EmailAuthSummary struct {
-	HasSPF      bool   `json:"has_spf"`
-	SPFRecord   string `json:"spf_record,omitempty"`
-	HasDMARC    bool   `json:"has_dmarc"`
-	DMARCRecord string `json:"dmarc_record,omitempty"`
-	DMARCPolicy string `json:"dmarc_policy,omitempty"` // reject, quarantine, none, missing
-}
 
 // DomainHealthReport is the aggregated audit of an email domain's infrastructure and reputation.
 type DomainHealthReport struct {
@@ -54,7 +44,7 @@ func AuditDomainHealth(ctx context.Context, input string, guard *platform.Egress
 	var gwAudit *GatewayAudit
 	var bimiAudit *BIMIAudit
 	var dnsblReport *DNSBLReport
-	var authSummary EmailAuthSummary
+	var authSummary *EmailAuthSummary
 
 	wg.Add(4)
 
@@ -80,38 +70,10 @@ func AuditDomainHealth(ctx context.Context, input string, guard *platform.Egress
 		dnsblReport, _ = CachedDNSBLAudit(ctx, store, domain, dqsKey)
 	}()
 
-	// SPF & DMARC Audit
+	// Deep Email Authentication (SPF, DMARC, DKIM, MTA-STS)
 	go func() {
 		defer wg.Done()
-		r := &net.Resolver{}
-		// Check DMARC
-		if txts, err := r.LookupTXT(ctx, "_dmarc."+domain); err == nil {
-			for _, txt := range txts {
-				trimmed := strings.TrimSpace(txt)
-				if strings.HasPrefix(trimmed, "v=DMARC1") {
-					authSummary.HasDMARC = true
-					authSummary.DMARCRecord = trimmed
-					for _, part := range strings.Split(trimmed, ";") {
-						part = strings.TrimSpace(part)
-						if strings.HasPrefix(part, "p=") {
-							authSummary.DMARCPolicy = strings.ToLower(strings.TrimPrefix(part, "p="))
-						}
-					}
-					break
-				}
-			}
-		}
-		// Check SPF
-		if txts, err := r.LookupTXT(ctx, domain); err == nil {
-			for _, txt := range txts {
-				trimmed := strings.TrimSpace(txt)
-				if strings.HasPrefix(trimmed, "v=spf1") {
-					authSummary.HasSPF = true
-					authSummary.SPFRecord = trimmed
-					break
-				}
-			}
-		}
+		authSummary = AuditEmailAuth(ctx, domain, guard)
 	}()
 
 	wg.Wait()
@@ -119,7 +81,7 @@ func AuditDomainHealth(ctx context.Context, input string, guard *platform.Egress
 	report.Gateway = gwAudit
 	report.BIMI = bimiAudit
 	report.DNSBL = dnsblReport
-	report.Auth = &authSummary
+	report.Auth = authSummary
 
 	// Calculate overall health score (0-100)
 	score := 100
@@ -153,10 +115,39 @@ func AuditDomainHealth(ctx context.Context, input string, guard *platform.Egress
 		} else if report.Auth.DMARCPolicy == "none" {
 			score -= 5
 			report.Recommendations = append(report.Recommendations, "DMARC policy is currently set to p=none (monitoring only). Upgrade to p=quarantine or p=reject to actively block unauthorized mail.")
+		} else if report.Auth.DMARC != nil && len(report.Auth.DMARC.Extra) > 0 {
+			score -= 20
+			report.Recommendations = append(report.Recommendations, "Multiple DMARC records found: RFC 7489 specifies that receivers must ignore all records, leaving your domain completely unprotected.")
 		}
+
 		if !report.Auth.HasSPF {
 			score -= 10
 			report.Recommendations = append(report.Recommendations, "No SPF record found on domain: publish v=spf1 to authorize sending IP addresses.")
+		} else if report.Auth.SPF != nil {
+			if report.Auth.SPF.Lookups > 10 {
+				score -= 25
+				report.Recommendations = append(report.Recommendations, fmt.Sprintf("SPF Permerror: Record requires %d DNS lookups, exceeding the RFC 7208 limit of 10. Major mail receivers will reject your emails.", report.Auth.SPF.Lookups))
+			} else if report.Auth.SPF.Lookups >= 8 {
+				report.Recommendations = append(report.Recommendations, fmt.Sprintf("SPF Warning: Record requires %d of 10 allowed DNS lookups. Future includes risk causing SPF permerrors.", report.Auth.SPF.Lookups))
+			}
+			if len(report.Auth.SPF.Extra) > 0 {
+				score -= 20
+				report.Recommendations = append(report.Recommendations, "Multiple SPF records found: RFC 7208 forbids multiple v=spf1 records and causes an immediate SPF Permerror.")
+			}
+			if report.Auth.SPF.Loop {
+				score -= 20
+				report.Recommendations = append(report.Recommendations, "SPF Include Loop detected: recursive includes circle back to an already visited domain, causing authentication failure.")
+			}
+			if report.Auth.SPF.All == "+all" {
+				score -= 15
+				report.Recommendations = append(report.Recommendations, "SPF uses dangerous '+all' mechanism: authorizes anyone on the internet to send email on behalf of your domain.")
+			}
+		}
+
+		if report.Auth.MTASTS != nil && report.Auth.MTASTS.RecordFound && report.Auth.MTASTS.Mode == "enforce" {
+			// Good hygiene
+		} else {
+			report.Recommendations = append(report.Recommendations, "Consider configuring MTA-STS (RFC 8461) to prevent SMTP downgrade and man-in-the-middle attacks.")
 		}
 	}
 

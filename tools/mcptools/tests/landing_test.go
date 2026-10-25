@@ -68,8 +68,8 @@ func TestLandingJSON(t *testing.T) {
 			t.Errorf("%s tools (-want +got):\n%s", path, diff)
 		}
 	}
-	if n := len(tools["/mcp/cipher"]); n != 19 || len(tools["/mcp"]) != 49 {
-		t.Errorf("%d cipher tools and %d in all, want 19 and the catalog's 49", n, len(tools["/mcp"]))
+	if n := len(tools["/mcp/cipher"]); n != 19 || len(tools["/mcp"]) != 48 {
+		t.Errorf("%d cipher tools and %d in all, want 19 and the catalog's 48", n, len(tools["/mcp"]))
 	}
 }
 

@@ -21,8 +21,6 @@ type goldenDNS struct {
 	spreadErr error
 	ecsErr    error
 	traceErr  error
-	mailErr   error
-	repErr    error
 }
 
 func goldenRecords(t string) []dnstools.Record {
@@ -114,37 +112,6 @@ func (f *goldenDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trac
 		Chain: []dnstools.TraceLink{}, DNSSEC: "insecure",
 		Verdict:    dnstools.Note{Level: "info", Text: "This name is not signed."},
 		RootServer: "a.root-servers.net", Answer: []string{"192.0.2.10"}, Notes: []dnstools.Note{}, QueryMS: 30,
-	}, nil
-}
-
-func (f *goldenDNS) EmailAuth(_ context.Context, domain string) (*dnstools.EmailAuth, error) {
-	if f.mailErr != nil {
-		return nil, f.mailErr
-	}
-	return &dnstools.EmailAuth{
-		Domain: domain,
-		SPF:    &dnstools.SPFResult{Record: "v=spf1 mx -all", Lookups: 1, Limit: 10, All: "-all"},
-		DMARC:  &dnstools.DMARCResult{Record: "v=DMARC1; p=reject", Name: "_dmarc." + domain, Policy: "reject"},
-		HasMX:  true, MXCount: 1,
-		MailHosts: []dnstools.MailHost{{Host: "mail.example.com", IP: "192.0.2.25", PTR: "mail.example.com", FCrDNS: true}},
-		Notes: []dnstools.Note{
-			{Level: "ok", Text: "SPF ends in -all."},
-			{Level: "warn", Text: "No DKIM key at the common selectors."},
-		},
-		QueryMS: 40,
-	}, nil
-}
-
-func (f *goldenDNS) MXReputation(_ context.Context, domain string, _ dnstools.BlockChecker) (*dnstools.MXReputation, error) {
-	if f.repErr != nil {
-		return nil, f.repErr
-	}
-	return &dnstools.MXReputation{
-		Domain: domain,
-		Hosts: []dnstools.MXRepHost{{Host: "mail.example.com", Preference: 10,
-			Addrs: []dnstools.MXRepAddr{{IP: "192.0.2.25"}}}},
-		MXCount: 1, Checked: 1, Feeds: []string{"ipsum"}, Corpus: "ipsum, synced daily",
-		Notes: []dnstools.Note{{Level: "ok", Text: "No mail server is listed."}}, QueryMS: 3,
 	}, nil
 }
 
@@ -268,17 +235,5 @@ func TestGoldenDomainJSON(t *testing.T) {
 		{name: "ip", target: "/domain?name=1.1.1.1", svc: &goldenDNS{}, dom: ok},
 		{name: "bad_name", target: "/domain?name=a..b", svc: &goldenDNS{}, dom: ok},
 		{name: "no_name", target: "/domain", svc: &goldenDNS{}, dom: ok},
-	})
-}
-
-func TestGoldenEmailJSON(t *testing.T) {
-	t.Parallel()
-	runDNSGolden(t, "dns_email", []dnsCase{
-		{name: "with_reputation", target: "/email?name=Example.com", svc: &goldenDNS{}, bl: &repCorpus{}},
-		{name: "reputation_failed", target: "/email?name=example.com", svc: &goldenDNS{repErr: dnstools.ErrNoBlocklist}, bl: &repCorpus{}},
-		{name: "no_corpus", target: "/email?name=example.com", svc: &goldenDNS{}},
-		{name: "error", target: "/email?name=192.0.2.1", svc: &goldenDNS{mailErr: dnstools.ErrNeedDomain}, bl: &repCorpus{}},
-		{name: "unavailable", target: "/email?name=example.com", svc: &fakeLooker{}},
-		{name: "no_name", target: "/email", svc: &goldenDNS{}},
 	})
 }

@@ -120,7 +120,6 @@ var coverage = map[Route]Decision{
 	{"dns", get, "/consistency"}: served("dns_consistency"),
 	{"dns", get, "/trace"}:       served("dns_trace"),
 	{"dns", get, "/domain"}:      served("dns_domain_info"),
-	{"dns", get, "/email"}:       served("dns_email_auth"),
 
 	{"link", get, "/"}:                  served("link_inspect"),
 	{"link", get, "/clean"}:             served("link_clean"),

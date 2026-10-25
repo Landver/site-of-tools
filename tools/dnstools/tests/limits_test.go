@@ -101,7 +101,7 @@ func TestFullCapAnswersBusyWithoutQueueing(t *testing.T) {
 	}
 	e := limitsApp(lim)
 
-	for _, target := range []string{"/trace?name=example.com", "/consistency?name=example.com", "/?name=example.com", "/email?name=example.com", "/domain?name=example.com"} {
+	for _, target := range []string{"/trace?name=example.com", "/consistency?name=example.com", "/?name=example.com", "/domain?name=example.com"} {
 		rec := within(t, func() *httptest.ResponseRecorder { return from(e, target, "203.0.113.32:1234", nil) })
 		var body map[string]string
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusServiceUnavailable || body["error"] != platform.BusyMessage {

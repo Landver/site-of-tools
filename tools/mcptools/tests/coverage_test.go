@@ -98,7 +98,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 			t.Errorf("%s is served but no REST route maps to it", name)
 		}
 	}
-	if mapped != 62 {
-		t.Errorf("%d routes map to tools, want 62", mapped)
+	if mapped != 61 {
+		t.Errorf("%d routes map to tools, want 61", mapped)
 	}
 }

@@ -179,18 +179,6 @@ func TestDNSDomainInfo(t *testing.T) {
 	failsWith(t, call(t, cs, "dns_domain_info", map[string]any{"name": "1.1.1.1"}), dnstools.ErrNeedDomain.Error())
 }
 
-func TestDNSEmailAuth(t *testing.T) {
-	cs := newStack(t, stackOpts{}).client(t, "/mcp/dns", nil, nil)
-	got := object(t, call(t, cs, "dns_email_auth", map[string]any{"name": "postmaster@Example.com"}))
-	if got["domain"] != "example.com" || got["mx_reputation"] == nil || got["spf"] == nil {
-		t.Errorf("email = %v, want example.com with SPF and the mail servers' reputation", got)
-	}
-	if diff := cmp.Diff([]string{"The Spamhaus Project"}, sources(t, got)); diff != "" {
-		t.Errorf("attribution (-want +got):\n%s", diff)
-	}
-	failsWith(t, call(t, cs, "dns_email_auth", map[string]any{"name": "192.0.2.1"}), dnstools.ErrNeedDomain.Error())
-}
-
 func TestDNSToolsNeedTheirDependencies(t *testing.T) {
 	s := newStack(t, stackOpts{bare: true, dns: lookOnly{&fakeDNS{}}})
 	if diff := cmp.Diff([]string{"dns_lookup"}, toolNames(t, s.client(t, "/mcp/dns", nil, nil))); diff != "" {
@@ -252,7 +240,6 @@ func TestDNSParity(t *testing.T) {
 		{"dns_trace", map[string]any{"name": "www.example.com", "type": "AAAA"}, "/trace?name=www.example.com&type=AAAA", nil},
 		{"dns_domain_info", map[string]any{"name": "www.example.com"}, "/domain?name=www.example.com", firstCertNames},
 		{"dns_domain_info", map[string]any{"name": "example.com", "detailed": true}, "/domain?name=example.com", nil},
-		{"dns_email_auth", map[string]any{"name": "example.com"}, "/email?name=example.com", nil},
 	}
 	for _, tc := range cases {
 		// A stack each, or the RDAP client's request budget runs out.

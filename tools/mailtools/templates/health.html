@@ -215,12 +215,12 @@
       {{end}}
     </div>
 
-    <!-- Panel 3: Email Authentication (SPF & DMARC) -->
+    <!-- Panel 3: Email Authentication (SPF, DMARC, DKIM & MTA-STS) -->
     <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
       <div class="flex items-center justify-between border-b border-line pb-2">
         <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
           <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-          3. Email Authentication (SPF &amp; DMARC)
+          3. Email Authentication &amp; Identity (SPF, DMARC, DKIM)
         </h3>
         {{if and .Auth .Auth.HasDMARC}}
           <span class="rounded px-2 py-0.5 text-xs font-semibold {{if or (eq .Auth.DMARCPolicy "reject") (eq .Auth.DMARCPolicy "quarantine")}}bg-ok/10 text-ok{{else}}bg-warn/10 text-warn{{end}}">
@@ -230,32 +230,150 @@
           <span class="rounded bg-danger/10 px-2 py-0.5 text-xs font-semibold text-danger">No DMARC</span>
         {{end}}
       </div>
-      <div class="text-xs space-y-2">
-        <div class="p-2 rounded border border-line bg-surface space-y-1">
+      <div class="text-xs space-y-2.5">
+        <!-- DMARC Subcard -->
+        <div class="p-2.5 rounded border border-line bg-surface space-y-1.5">
           <div class="flex justify-between items-center">
-            <span class="font-medium text-strong">DMARC Policy (RFC 7489)</span>
+            <span class="font-semibold text-strong flex items-center gap-1.5">
+              DMARC Policy (RFC 7489)
+              {{if and .Auth .Auth.DMARC .Auth.DMARC.Inherited}}
+                <span class="rounded bg-brand/10 text-brand px-1.5 py-0.2 text-[10px] font-normal">Apex Inherited</span>
+              {{end}}
+            </span>
             {{if and .Auth .Auth.HasDMARC}}
               <span class="font-mono text-[11px] font-semibold {{if or (eq .Auth.DMARCPolicy "reject") (eq .Auth.DMARCPolicy "quarantine")}}text-ok{{else}}text-warn{{end}}">p={{.Auth.DMARCPolicy}}</span>
             {{else}}
               <span class="text-danger font-medium text-[11px]">Missing</span>
             {{end}}
           </div>
-          {{if and .Auth .Auth.DMARCRecord}}
-            <div class="font-mono text-[10px] text-faint truncate" title="{{.Auth.DMARCRecord}}">{{.Auth.DMARCRecord}}</div>
+          {{if and .Auth .Auth.DMARC}}
+            {{if .Auth.DMARC.Extra}}
+              <div class="rounded bg-danger/10 p-2 text-[11px] text-danger font-medium">⚠️ RFC 7489 Permerror: Multiple DMARC records published! Mail receivers discard all records.</div>
+            {{end}}
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 py-1 text-[11px] border-y border-line/50">
+              <div><span class="text-faint">Policy:</span> <span class="font-mono text-strong">{{if .Auth.DMARC.Policy}}{{.Auth.DMARC.Policy}}{{else}}—{{end}}</span></div>
+              <div><span class="text-faint">Subdomain:</span> <span class="font-mono text-strong">{{if .Auth.DMARC.SubPolicy}}{{.Auth.DMARC.SubPolicy}}{{else}}same{{end}}</span></div>
+              <div><span class="text-faint">Coverage:</span> <span class="font-mono text-strong">{{if .Auth.DMARC.Percent}}{{.Auth.DMARC.Percent}}%{{else}}100%{{end}}</span></div>
+              <div><span class="text-faint">Reports:</span> <span class="font-mono text-strong">{{if .Auth.DMARC.Aggregate}}Configured{{else}}None{{end}}</span></div>
+            </div>
+            {{if .Auth.DMARCRecord}}
+              <div class="font-mono text-[10px] text-faint truncate" title="{{.Auth.DMARCRecord}}">{{.Auth.DMARCRecord}}</div>
+            {{end}}
           {{end}}
         </div>
 
-        <div class="p-2 rounded border border-line bg-surface space-y-1">
+        <!-- SPF Subcard -->
+        <div class="p-2.5 rounded border border-line bg-surface space-y-1.5">
           <div class="flex justify-between items-center">
-            <span class="font-medium text-strong">Sender Policy Framework (SPF)</span>
-            {{if and .Auth .Auth.HasSPF}}
+            <span class="font-semibold text-strong">Sender Policy Framework (SPF)</span>
+            {{if and .Auth .Auth.HasSPF .Auth.SPF}}
+              <span class="font-mono text-[11px] font-semibold {{if le .Auth.SPF.Lookups 7}}text-ok{{else if le .Auth.SPF.Lookups 10}}text-warn{{else}}text-danger{{end}}">
+                {{.Auth.SPF.Lookups}} / 10 DNS Lookups
+              </span>
+            {{else if and .Auth .Auth.HasSPF}}
               <span class="font-mono text-[11px] font-semibold text-ok">Active</span>
             {{else}}
               <span class="text-warn font-medium text-[11px]">Missing</span>
             {{end}}
           </div>
-          {{if and .Auth .Auth.SPFRecord}}
-            <div class="font-mono text-[10px] text-faint truncate" title="{{.Auth.SPFRecord}}">{{.Auth.SPFRecord}}</div>
+          {{if and .Auth .Auth.SPF}}
+            {{if gt .Auth.SPF.Lookups 10}}
+              <div class="rounded bg-danger/10 p-2 text-[11px] text-danger font-medium">🚨 Permerror (RFC 7208 §4.6.4): Record exceeds 10 DNS lookups limit ({{.Auth.SPF.Lookups}} lookups). Receivers will reject mail!</div>
+            {{else if ge .Auth.SPF.Lookups 8}}
+              <div class="rounded bg-warn/10 p-2 text-[11px] text-warn font-medium">⚠️ Warning: Close to RFC 7208 lookup limit ({{.Auth.SPF.Lookups}} of 10 used). Future includes risk causing permerrors.</div>
+            {{end}}
+            {{if .Auth.SPF.Loop}}
+              <div class="rounded bg-danger/10 p-2 text-[11px] text-danger font-medium">🚨 Include Loop Detected: Recursive includes circle back to an already visited domain.</div>
+            {{end}}
+            {{if .Auth.SPF.Extra}}
+              <div class="rounded bg-danger/10 p-2 text-[11px] text-danger font-medium">🚨 Permerror: Multiple v=spf1 records found on domain.</div>
+            {{end}}
+            {{if .Auth.SPF.Chain}}
+              <div class="py-1">
+                <div class="text-faint text-[10px] mb-1">Expanded Include Chain ({{len .Auth.SPF.Chain}} domains):</div>
+                <div class="flex flex-wrap gap-1">
+                  {{range .Auth.SPF.Chain}}
+                    <span class="rounded bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-muted border border-line">{{.}}</span>
+                  {{end}}
+                </div>
+              </div>
+            {{end}}
+            <div class="flex items-center gap-2 py-0.5">
+              <span class="text-faint">All-fallback:</span>
+              <span class="font-mono text-[11px] font-semibold {{if eq .Auth.SPF.All "-all"}}text-ok{{else if eq .Auth.SPF.All "~all"}}text-brand{{else}}text-danger{{end}}">
+                {{if .Auth.SPF.All}}{{.Auth.SPF.All}}{{else}}not set{{end}}
+              </span>
+            </div>
+            {{if .Auth.SPFRecord}}
+              <div class="font-mono text-[10px] text-faint truncate" title="{{.Auth.SPFRecord}}">{{.Auth.SPFRecord}}</div>
+            {{end}}
+          {{end}}
+        </div>
+
+        <!-- DKIM Subcard -->
+        <div class="p-2.5 rounded border border-line bg-surface space-y-1">
+          <div class="flex justify-between items-center">
+            <span class="font-semibold text-strong">DKIM Selector Discovery</span>
+            {{if and .Auth .Auth.DKIM}}
+              {{if .Auth.DKIM.FoundSelectors}}
+                <span class="text-ok font-medium text-[11px]">{{len .Auth.DKIM.FoundSelectors}} Key(s) Found</span>
+              {{else if .Auth.DKIM.Wildcard}}
+                <span class="text-warn font-medium text-[11px]">Wildcard Active</span>
+              {{else}}
+                <span class="text-faint text-[11px]">No Common Keys</span>
+              {{end}}
+            {{else}}
+              <span class="text-faint text-[11px]">—</span>
+            {{end}}
+          </div>
+          {{if and .Auth .Auth.DKIM}}
+            {{if .Auth.DKIM.FoundSelectors}}
+              <div class="flex flex-wrap gap-1 pt-1">
+                {{range .Auth.DKIM.FoundSelectors}}
+                  <span class="rounded bg-ok/10 text-ok px-1.5 py-0.5 font-mono text-[10px] border border-ok/20 flex items-center gap-1">
+                    <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    {{.Selector}}
+                  </span>
+                {{end}}
+              </div>
+            {{else if .Auth.DKIM.Wildcard}}
+              <p class="text-[11px] text-warn">Wildcard TXT detected on <code>*._domainkey.{{.Domain}}</code>.</p>
+            {{else}}
+              <p class="text-[11px] text-faint">No public selectors discovered across Google, M365, Mailgun, SendGrid, Mandrill, Zoho.</p>
+            {{end}}
+          {{end}}
+        </div>
+
+        <!-- MTA-STS & TLSRPT Subcard -->
+        <div class="p-2.5 rounded border border-line bg-surface space-y-1">
+          <div class="flex justify-between items-center">
+            <span class="font-semibold text-strong">MTA-STS &amp; TLSRPT (RFC 8461/8460)</span>
+            {{if and .Auth .Auth.MTASTS}}
+              {{if .Auth.MTASTS.PolicyFound}}
+                <span class="font-mono text-[11px] font-semibold {{if eq .Auth.MTASTS.Mode "enforce"}}text-ok{{else}}text-warn{{end}}">
+                  mode: {{.Auth.MTASTS.Mode}}
+                </span>
+              {{else if .Auth.MTASTS.RecordFound}}
+                <span class="text-warn text-[11px]">DNS Published</span>
+              {{else}}
+                <span class="text-faint text-[11px]">Not Configured</span>
+              {{end}}
+            {{else}}
+              <span class="text-faint text-[11px]">Not Configured</span>
+            {{end}}
+          </div>
+          {{if and .Auth .Auth.MTASTS}}
+            {{if .Auth.MTASTS.PolicyFound}}
+              <div class="text-[11px] text-faint">
+                Max-Age: <span class="text-strong font-mono">{{.Auth.MTASTS.MaxAge}}s</span>
+                {{if .Auth.MTASTS.MXPatterns}}
+                  · Allowed MX: <span class="font-mono text-muted">{{range .Auth.MTASTS.MXPatterns}}{{.}} {{end}}</span>
+                {{end}}
+              </div>
+            {{end}}
+            {{if .Auth.MTASTS.TLSRPT}}
+              <div class="text-[10px] font-mono text-faint truncate pt-0.5" title="{{.Auth.MTASTS.TLSRPT}}">TLSRPT: {{.Auth.MTASTS.TLSRPT}}</div>
+            {{end}}
           {{end}}
         </div>
       </div>

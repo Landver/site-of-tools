@@ -145,7 +145,6 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 		{"dns", "/"},
 		{"dns", "/propagation"},
 		{"dns", "/trace"},
-		{"dns", "/email"},
 		{"dns", "/whois"},
 		{"dns", "/sec"},
 		{"dns", "/ecs"},
