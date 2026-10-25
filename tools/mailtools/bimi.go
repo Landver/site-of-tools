@@ -1,21 +1,27 @@
 package mailtools
 
 import (
-	"bytes"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
-const maxBIMIFileSize = 32 * 1024 // 32 KB strict BIMI size limit
+const (
+	maxBIMIFileSize = 32 * 1024
+	svgNS           = "http://www.w3.org/2000/svg"
+)
 
-// BIMIFinding models an issue or validation pass for BIMI compliance.
+// BIMIFinding is the outcome of one BIMI rule.
 type BIMIFinding struct {
-	Severity string `json:"severity"` // "fail", "warn", "ok", "info"
+	Severity string `json:"severity"` // "ok", "fail"
 	Rule     string `json:"rule"`
 	Detail   string `json:"detail"`
 	Fixable  bool   `json:"fixable"`
@@ -23,356 +29,240 @@ type BIMIFinding struct {
 
 // BIMIValidation holds the validation audit result for an SVG logo.
 type BIMIValidation struct {
-	Compliant      bool          `json:"compliant"`
-	FileSize       int           `json:"file_size"`
-	Version        string        `json:"version,omitempty"`
-	BaseProfile    string        `json:"base_profile,omitempty"`
-	ViewBox        string        `json:"viewbox,omitempty"`
-	AspectRatio    string        `json:"aspect_ratio,omitempty"`
-	SquareAspect   bool          `json:"square_aspect"`
-	Findings       []BIMIFinding `json:"findings"`
-	FailCount      int           `json:"fail_count"`
-	WarnCount      int           `json:"warn_count"`
-	SanitizedSVG   string        `json:"sanitized_svg,omitempty"`
-	AutoFixedSVG   string        `json:"auto_fixed_svg,omitempty"`
-	CanAutoFix     bool          `json:"can_auto_fix"`
+	Compliant    bool          `json:"compliant"`
+	FileSize     int           `json:"file_size"`
+	Version      string        `json:"version,omitempty"`
+	BaseProfile  string        `json:"base_profile,omitempty"`
+	ViewBox      string        `json:"viewbox,omitempty"`
+	AspectRatio  string        `json:"aspect_ratio,omitempty"`
+	SquareAspect bool          `json:"square_aspect"`
+	Findings     []BIMIFinding `json:"findings"`
+	FailCount    int           `json:"fail_count"`
+	AutoFixedSVG string        `json:"auto_fixed_svg,omitempty"` // set when a fixable rule failed
+	// PreviewBase64 feeds an <img> data: URI, where the logo's scripts never run.
+	PreviewBase64 string `json:"-"`
 }
 
+// SVG Tiny P/S forbids scripting and embedded content.
+var bimiForbidden = []string{"script", "foreignObject", "iframe", "canvas", "audio", "video", "object", "embed"}
+
 var (
-	reScriptTag    = regexp.MustCompile(`(?i)<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>`)
-	reForeignObj   = regexp.MustCompile(`(?i)<\s*foreignObject[^>]*>[\s\S]*?<\s*/\s*foreignObject\s*>`)
-	reEventHandler = regexp.MustCompile(`(?i)(?:[\s/]+)on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
-	reJSURI        = regexp.MustCompile(`(?i)(href|xlink:href)\s*=\s*["']\s*javascript:[^"']*["']`)
-	reExternalURL  = regexp.MustCompile(`(?i)url\s*\(\s*["']?https?://[^"')]+["']?\s*\)`)
-	reImportCSS    = regexp.MustCompile(`(?i)@import\s+[^;]+;`)
-	reViewBox      = regexp.MustCompile(`(?i)viewBox\s*=\s*["']([^"']+)["']`)
-	reWidth        = regexp.MustCompile(`(?i)\bwidth\s*=\s*["']?([0-9.]+)(?:px)?["']?`)
-	reHeight       = regexp.MustCompile(`(?i)\bheight\s*=\s*["']?([0-9.]+)(?:px)?["']?`)
+	reNetworkURL = regexp.MustCompile(`(?i)^\s*(https?:)?//`)
+	reCSSFetch   = regexp.MustCompile(`(?i)@import|url\s*\(\s*["']?\s*(https?:)?//`)
 )
 
 // ValidateBIMI audits raw SVG text against the strict BIMI SVG Tiny P/S profile.
 func ValidateBIMI(rawSVG string) (*BIMIValidation, error) {
-	rawBytes := []byte(strings.TrimSpace(rawSVG))
-	if len(rawBytes) == 0 {
+	doc, err := parseSVG(rawSVG)
+	if err != nil {
+		return nil, err
+	}
+	v := &BIMIValidation{
+		FileSize:      len(doc.src),
+		Version:       doc.attr("version"),
+		BaseProfile:   doc.attr("baseProfile"),
+		ViewBox:       doc.attr("viewBox"),
+		PreviewBase64: base64.StdEncoding.EncodeToString([]byte(doc.src)),
+	}
+	if box, ok := parseViewBox(v.ViewBox); ok {
+		v.AspectRatio = fmt.Sprintf("%g:%g", box[2], box[3])
+		v.SquareAspect = box[2] == box[3]
+	}
+
+	forbidden := "SVG Tiny P/S forbids scripts, <foreignObject> and embedded media."
+	if len(doc.forbidden) > 0 {
+		forbidden = fmt.Sprintf("Found <%s>. %s", strings.Join(doc.forbidden, ">, <"), forbidden)
+	}
+
+	v.check("File Size Limit (<= 32 KB)", v.FileSize <= maxBIMIFileSize, false,
+		fmt.Sprintf("SVG is %d bytes; BIMI allows at most 32,768.", v.FileSize))
+	v.check("SVG Namespace", doc.attr("xmlns") == svgNS, true,
+		fmt.Sprintf("Root declares xmlns=%q; BIMI requires %q.", doc.attr("xmlns"), svgNS))
+	v.check("SVG Version 1.2", v.Version == "1.2", true,
+		fmt.Sprintf(`Root declares version=%q; BIMI requires "1.2".`, v.Version))
+	v.check("SVG Profile Tiny P/S", strings.EqualFold(v.BaseProfile, "tiny-ps"), true,
+		fmt.Sprintf(`Root declares baseProfile=%q; BIMI requires "tiny-ps".`, v.BaseProfile))
+	v.check("Square Aspect Ratio (1:1)", v.SquareAspect, true,
+		fmt.Sprintf("Root declares viewBox=%q; BIMI requires min-x min-y width height with equal, positive width and height.", v.ViewBox))
+	v.check("No Scripts or Embedded Content", len(doc.forbidden) == 0, false, forbidden)
+	v.check("No Inline Event Handlers", !doc.handlers, false,
+		"Event attributes such as onload or onclick are prohibited.")
+	v.check("No JavaScript URIs", !doc.jsURI, false,
+		"javascript: URIs are prohibited.")
+	v.check("No External Network Resources", !doc.external, false,
+		"Remote links, stylesheets, fonts and @import are not allowed.")
+
+	v.Compliant = v.FailCount == 0
+	if slices.ContainsFunc(v.Findings, func(f BIMIFinding) bool { return f.Fixable }) {
+		v.AutoFixedSVG = doc.fixed()
+	}
+	return v, nil
+}
+
+func (v *BIMIValidation) check(rule string, pass, fixable bool, detail string) {
+	f := BIMIFinding{Severity: "ok", Rule: rule, Detail: detail}
+	if !pass {
+		f.Severity, f.Fixable = "fail", fixable
+		v.FailCount++
+	}
+	v.Findings = append(v.Findings, f)
+}
+
+// AutoFixBIMI sets the root attributes BIMI requires (namespace, version 1.2, baseProfile
+// tiny-ps, a square viewBox) and keeps everything else as written, so content violations
+// such as scripts are left for the author to remove.
+func AutoFixBIMI(rawSVG string) (string, error) {
+	doc, err := parseSVG(rawSVG)
+	if err != nil {
+		return "", err
+	}
+	return doc.fixed(), nil
+}
+
+// svgDoc is what one decoder pass learns about an SVG document.
+type svgDoc struct {
+	src                       string
+	root                      xml.StartElement // prefixes as written
+	rootStart, rootEnd        int64            // byte span of the root start tag in src
+	forbidden                 []string
+	handlers, jsURI, external bool
+}
+
+func parseSVG(rawSVG string) (*svgDoc, error) {
+	doc := &svgDoc{src: strings.TrimSpace(rawSVG)}
+	if doc.src == "" {
 		return nil, errors.New("empty SVG content")
 	}
-
-	val := &BIMIValidation{
-		FileSize: len(rawBytes),
-	}
-
-	// Rule 1: File size limit (32 KB)
-	if len(rawBytes) > maxBIMIFileSize {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "File Size Limit (<= 32 KB)",
-			Detail:   fmt.Sprintf("SVG file size is %d bytes, exceeding the 32 KB (32,768 bytes) BIMI limit.", len(rawBytes)),
-			Fixable:  false,
-		})
-	} else {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "ok",
-			Rule:     "File Size Limit (<= 32 KB)",
-			Detail:   fmt.Sprintf("SVG file size is %d bytes (within 32 KB limit).", len(rawBytes)),
-		})
-	}
-
-	// Rule 2: XML Well-formedness
-	decoder := xml.NewDecoder(bytes.NewReader(rawBytes))
-	var rootToken *xml.StartElement
-	hasScript := false
-	hasForeign := false
-	hasForbiddenTag := false
-	var forbiddenTagName string
-
+	dec := xml.NewDecoder(strings.NewReader(doc.src))
 	for {
-		tok, err := decoder.Token()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("malformed XML: %w", err)
-		}
-		switch elem := tok.(type) {
-		case xml.StartElement:
-			name := strings.ToLower(elem.Name.Local)
-			if rootToken == nil {
-				e := elem.Copy()
-				rootToken = &e
-				if name != "svg" {
-					return nil, fmt.Errorf("root element is <%s>, expected <svg>", elem.Name.Local)
-				}
-			}
-			if name == "script" {
-				hasScript = true
-			}
-			if name == "foreignobject" {
-				hasForeign = true
-			}
-			if name == "iframe" || name == "canvas" || name == "audio" || name == "video" || name == "object" || name == "embed" {
-				hasForbiddenTag = true
-				forbiddenTagName = name
-			}
-		}
-	}
-
-	if rootToken == nil {
-		return nil, errors.New("no XML root element found")
-	}
-
-	// Parse root element attributes
-	attrMap := make(map[string]string)
-	for _, attr := range rootToken.Attr {
-		attrMap[strings.ToLower(attr.Name.Local)] = attr.Value
-	}
-
-	val.Version = attrMap["version"]
-	val.BaseProfile = attrMap["baseprofile"]
-	val.ViewBox = attrMap["viewbox"]
-
-	// Rule 3: version="1.2"
-	if val.Version == "1.2" {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "ok",
-			Rule:     "SVG Version 1.2",
-			Detail:   "Root specifies version=\"1.2\" as required by BIMI.",
-		})
-	} else {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "SVG Version 1.2",
-			Detail:   fmt.Sprintf("Root specifies version=%q, but BIMI mandates version=\"1.2\".", val.Version),
-			Fixable:  true,
-		})
-	}
-
-	// Rule 4: baseProfile="tiny-ps"
-	if strings.EqualFold(val.BaseProfile, "tiny-ps") {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "ok",
-			Rule:     "SVG Profile Tiny P/S",
-			Detail:   "Root specifies baseProfile=\"tiny-ps\".",
-		})
-	} else {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "SVG Profile Tiny P/S",
-			Detail:   fmt.Sprintf("Root specifies baseProfile=%q, but BIMI mandates baseProfile=\"tiny-ps\".", val.BaseProfile),
-			Fixable:  true,
-		})
-	}
-
-	// Rule 5: viewBox and 1:1 Aspect Ratio
-	if val.ViewBox != "" {
-		vbParts := strings.Fields(val.ViewBox)
-		parsed := false
-		if len(vbParts) == 4 {
-			w, errW := strconv.ParseFloat(vbParts[2], 64)
-			h, errH := strconv.ParseFloat(vbParts[3], 64)
-			if errW == nil && errH == nil && w > 0 && h > 0 {
-				parsed = true
-				val.AspectRatio = fmt.Sprintf("%.0f:%.0f", w, h)
-				if w == h {
-					val.SquareAspect = true
-					val.Findings = append(val.Findings, BIMIFinding{
-						Severity: "ok",
-						Rule:     "Square Aspect Ratio (1:1)",
-						Detail:   fmt.Sprintf("viewBox dimensions are square (%.0f x %.0f).", w, h),
-					})
-				} else {
-					val.Findings = append(val.Findings, BIMIFinding{
-						Severity: "fail",
-						Rule:     "Square Aspect Ratio (1:1)",
-						Detail:   fmt.Sprintf("viewBox dimensions are not 1:1 square (width=%.0f, height=%.0f). Mail clients require 1:1 square logos.", w, h),
-						Fixable:  true,
-					})
-				}
-			}
-		}
-		if !parsed {
-			val.Findings = append(val.Findings, BIMIFinding{
-				Severity: "fail",
-				Rule:     "Square Aspect Ratio (1:1)",
-				Detail:   fmt.Sprintf("Invalid or non-positive viewBox %q. Must specify 4 positive numeric values (min-x min-y width height).", val.ViewBox),
-				Fixable:  true,
-			})
-		}
-	} else {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "viewBox Attribute",
-			Detail:   "Missing viewBox attribute on root <svg> element.",
-			Fixable:  true,
-		})
-	}
-
-	// Rule 6: Prohibited tags
-	if hasScript {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "No Executable Scripts",
-			Detail:   "<script> elements are strictly forbidden in BIMI logos for security.",
-			Fixable:  true,
-		})
-	}
-	if hasForeign {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "No foreignObject",
-			Detail:   "<foreignObject> is prohibited in SVG Tiny P/S.",
-			Fixable:  true,
-		})
-	}
-	if hasForbiddenTag {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     fmt.Sprintf("Forbidden <%s> element", forbiddenTagName),
-			Detail:   fmt.Sprintf("<%s> tags are not permitted in SVG Tiny P/S.", forbiddenTagName),
-			Fixable:  true,
-		})
-	}
-
-	// Rule 7: Event handlers & javascript: URIs
-	rawStr := string(rawBytes)
-	if reEventHandler.MatchString(rawStr) {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "No Inline Event Handlers",
-			Detail:   "Inline event attributes (onclick, onload, etc.) are strictly prohibited.",
-			Fixable:  true,
-		})
-	}
-	if reJSURI.MatchString(rawStr) {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "No JavaScript URIs",
-			Detail:   "javascript: pseudo-protocols in links are strictly prohibited.",
-			Fixable:  true,
-		})
-	}
-	if reExternalURL.MatchString(rawStr) || reImportCSS.MatchString(rawStr) {
-		val.Findings = append(val.Findings, BIMIFinding{
-			Severity: "fail",
-			Rule:     "No External Network Resources",
-			Detail:   "External stylesheets, web fonts, or @import URLs are not allowed.",
-			Fixable:  true,
-		})
-	}
-
-	// Summarize counts
-	val.Compliant = true
-	canFix := false
-	for _, f := range val.Findings {
-		if f.Severity == "fail" {
-			val.FailCount++
-			val.Compliant = false
-			if f.Fixable {
-				canFix = true
-			}
-		} else if f.Severity == "warn" {
-			val.WarnCount++
-		}
-	}
-	val.CanAutoFix = canFix
-
-	// Produce safe sanitized preview SVG (stripping scripts and event handlers)
-	val.SanitizedSVG = sanitizeForPreview(rawStr)
-
-	// Produce Auto-Fixed SVG if needed
-	if val.CanAutoFix && !val.Compliant {
-		fixed, err := AutoFixBIMI(rawStr)
-		if err == nil {
-			val.AutoFixedSVG = fixed
-		}
-	}
-
-	return val, nil
-}
-
-// sanitizeForPreview neutralizes XSS risks before rendering in an HTML preview.
-func sanitizeForPreview(raw string) string {
-	s := raw
-	for {
-		prev := s
-		s = reScriptTag.ReplaceAllString(s, "")
-		s = reForeignObj.ReplaceAllString(s, "")
-		s = reEventHandler.ReplaceAllString(s, "")
-		s = reJSURI.ReplaceAllString(s, "")
-		if s == prev {
+		start := dec.InputOffset()
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
 			break
 		}
+		if err != nil {
+			return nil, fmt.Errorf("malformed XML: %w", err)
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if doc.rootEnd == 0 {
+				if t.Name.Local != "svg" {
+					return nil, fmt.Errorf("root element is <%s>, expected <svg>", t.Name.Local)
+				}
+				doc.rootStart, doc.rootEnd = start, dec.InputOffset()
+			}
+			doc.scan(t)
+		case xml.CharData:
+			doc.external = doc.external || reCSSFetch.Match(t)
+		}
 	}
-	return s
+	if doc.rootEnd == 0 {
+		return nil, errors.New("no XML root element found")
+	}
+	// Token resolves prefixes to namespace URLs; the raw root tag keeps them as written.
+	root, err := xml.NewDecoder(strings.NewReader(doc.src[doc.rootStart:doc.rootEnd])).RawToken()
+	if err != nil {
+		return nil, fmt.Errorf("malformed XML: %w", err)
+	}
+	doc.root = root.(xml.StartElement)
+	return doc, nil
 }
 
-// AutoFixBIMI cleans and formats raw SVG into fully-compliant BIMI SVG Tiny P/S.
-func AutoFixBIMI(raw string) (string, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return "", errors.New("empty SVG")
+func (d *svgDoc) scan(el xml.StartElement) {
+	for _, name := range bimiForbidden {
+		if strings.EqualFold(el.Name.Local, name) && !slices.Contains(d.forbidden, name) {
+			d.forbidden = append(d.forbidden, name)
+		}
 	}
-
-	// 1. Strip dangerous tags, event handlers, and external imports
-	s = reImportCSS.ReplaceAllString(sanitizeForPreview(s), "")
-
-	// 2. Parse root <svg ...> tag
-	rootStart := strings.Index(s, "<svg")
-	if rootStart < 0 {
-		return "", errors.New("no <svg> opening tag")
+	for _, a := range el.Attr {
+		d.handlers = d.handlers || strings.HasPrefix(strings.ToLower(a.Name.Local), "on")
+		d.jsURI = d.jsURI || strings.HasPrefix(strings.ToLower(strings.TrimSpace(a.Value)), "javascript:")
+		d.external = d.external || reCSSFetch.MatchString(a.Value) ||
+			a.Name.Local == "href" && reNetworkURL.MatchString(a.Value)
 	}
-	rootEnd := strings.IndexByte(s[rootStart:], '>')
-	if rootEnd < 0 {
-		return "", errors.New("unclosed <svg> tag")
-	}
-	rootEnd += rootStart
+}
 
-	rootTag := s[rootStart : rootEnd+1]
-	body := s[rootEnd+1:]
-
-	// Extract or synthesize viewBox
-	viewBox := ""
-	if m := reViewBox.FindStringSubmatch(rootTag); len(m) > 1 {
-		viewBox = m[1]
+func (d *svgDoc) attr(name string) string {
+	for _, a := range d.root.Attr {
+		if qualified(a.Name) == name {
+			return a.Value
+		}
 	}
+	return ""
+}
 
-	// If viewBox missing or not square, check width & height
-	var wVal, hVal float64
-	if m := reWidth.FindStringSubmatch(rootTag); len(m) > 1 {
-		wVal, _ = strconv.ParseFloat(m[1], 64)
+func qualified(n xml.Name) string {
+	if n.Space == "" {
+		return n.Local
 	}
-	if m := reHeight.FindStringSubmatch(rootTag); len(m) > 1 {
-		hVal, _ = strconv.ParseFloat(m[1], 64)
-	}
+	return n.Space + ":" + n.Local
+}
 
-	if viewBox == "" {
-		if wVal > 0 && hVal > 0 {
-			maxDim := max(wVal, hVal)
-			viewBox = fmt.Sprintf("0 0 %.0f %.0f", maxDim, maxDim)
+// fixed rewrites only the root start tag; the prolog and body stay byte-for-byte.
+func (d *svgDoc) fixed() string {
+	attrs := slices.Clone(d.root.Attr)
+	for _, want := range []xml.Attr{
+		{Name: xml.Name{Local: "xmlns"}, Value: svgNS},
+		{Name: xml.Name{Local: "version"}, Value: "1.2"},
+		{Name: xml.Name{Local: "baseProfile"}, Value: "tiny-ps"},
+		{Name: xml.Name{Local: "viewBox"}, Value: d.squareViewBox()},
+	} {
+		if i := slices.IndexFunc(attrs, func(a xml.Attr) bool { return a.Name == want.Name }); i >= 0 {
+			attrs[i].Value = want.Value
 		} else {
-			viewBox = "0 0 512 512"
+			attrs = append(attrs, want)
 		}
+	}
+
+	var b strings.Builder
+	b.WriteString(d.src[:d.rootStart])
+	b.WriteString("<" + qualified(d.root.Name))
+	for _, a := range attrs {
+		b.WriteString(" " + qualified(a.Name) + `="`)
+		xml.EscapeText(&b, []byte(a.Value))
+		b.WriteByte('"')
+	}
+	if strings.HasSuffix(d.src[:d.rootEnd], "/>") {
+		b.WriteString("/>")
 	} else {
-		// Make sure viewBox is square
-		parts := strings.Fields(viewBox)
-		if len(parts) == 4 {
-			w, errW := strconv.ParseFloat(parts[2], 64)
-			h, errH := strconv.ParseFloat(parts[3], 64)
-			if errW == nil && errH == nil && w != h {
-				maxDim := max(w, h)
-				viewBox = fmt.Sprintf("%s %s %.0f %.0f", parts[0], parts[1], maxDim, maxDim)
-			}
+		b.WriteByte('>')
+	}
+	b.WriteString(d.src[d.rootEnd:])
+	return b.String()
+}
+
+// squareViewBox grows the short side of the viewBox around its centre. Without a usable
+// viewBox it starts from width and height, and failing those from 512x512.
+func (d *svgDoc) squareViewBox() string {
+	box, ok := parseViewBox(d.attr("viewBox"))
+	if !ok {
+		w, wok := parseFinite(strings.TrimSuffix(strings.TrimSpace(d.attr("width")), "px"))
+		h, hok := parseFinite(strings.TrimSuffix(strings.TrimSpace(d.attr("height")), "px"))
+		if !wok || !hok || w <= 0 || h <= 0 {
+			w, h = 512, 512
+		}
+		box = [4]float64{0, 0, w, h}
+	}
+	side := max(box[2], box[3])
+	return fmt.Sprintf("%g %g %g %g", box[0]-(side-box[2])/2, box[1]-(side-box[3])/2, side, side)
+}
+
+// parseViewBox reads "min-x min-y width height", separated by spaces and/or commas;
+// ok needs finite numbers and a positive width and height.
+func parseViewBox(s string) (box [4]float64, ok bool) {
+	fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || unicode.IsSpace(r) })
+	if len(fields) != 4 {
+		return box, false
+	}
+	for i, f := range fields {
+		if box[i], ok = parseFinite(f); !ok {
+			return box, false
 		}
 	}
+	return box, box[2] > 0 && box[3] > 0
+}
 
-	// Reconstruct compliant root <svg>
-	cleanRoot := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="%s">`, viewBox)
-
-	res := cleanRoot + body
-
-	// Basic XML declaration if missing
-	if !strings.HasPrefix(res, "<?xml") {
-		res = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + res
-	}
-
-	return res, nil
+func parseFinite(s string) (float64, bool) {
+	v, err := strconv.ParseFloat(s, 64)
+	return v, err == nil && !math.IsInf(v, 0) && !math.IsNaN(v)
 }

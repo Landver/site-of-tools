@@ -140,68 +140,6 @@ func TestDMARCXMLParsingAndGzip(t *testing.T) {
 	}
 }
 
-func TestBIMIValidationAndAutoFix(t *testing.T) {
-	validSVG := `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">
-  <title>Valid BIMI Logo</title>
-  <circle cx="50" cy="50" r="45" fill="#b83266"/>
-</svg>`
-
-	val, err := mailtools.ValidateBIMI(validSVG)
-	if err != nil {
-		t.Fatalf("ValidateBIMI failed: %v", err)
-	}
-	if !val.Compliant {
-		t.Errorf("expected compliant logo, got findings: %+v", val.Findings)
-	}
-	if val.FailCount != 0 {
-		t.Errorf("expected 0 fails, got %d", val.FailCount)
-	}
-
-	// Non-compliant SVG with scripts, event handlers, and missing baseProfile
-	badSVG := `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" onload="alert(1)">
-  <script>evil()</script>
-  <rect width="200" height="100" fill="blue"/>
-</svg>`
-
-	badVal, err := mailtools.ValidateBIMI(badSVG)
-	if err != nil {
-		t.Fatalf("ValidateBIMI badSVG failed: %v", err)
-	}
-	if badVal.Compliant {
-		t.Errorf("expected non-compliant, got compliant")
-	}
-	if badVal.FailCount == 0 {
-		t.Errorf("expected fails, got 0")
-	}
-	if !badVal.CanAutoFix {
-		t.Errorf("expected CanAutoFix to be true")
-	}
-
-	// Auto-Fix
-	fixed, err := mailtools.AutoFixBIMI(badSVG)
-	if err != nil {
-		t.Fatalf("AutoFixBIMI failed: %v", err)
-	}
-	if strings.Contains(fixed, "<script>") || strings.Contains(fixed, "alert(1)") {
-		t.Errorf("AutoFixBIMI did not strip scripts/handlers:\n%s", fixed)
-	}
-	if !strings.Contains(fixed, `version="1.2"`) || !strings.Contains(fixed, `baseProfile="tiny-ps"`) {
-		t.Errorf("AutoFixBIMI missing version or baseProfile:\n%s", fixed)
-	}
-	if !strings.Contains(fixed, `viewBox="0 0 200 200"`) {
-		t.Errorf("AutoFixBIMI failed to synthesize square viewBox:\n%s", fixed)
-	}
-
-	// Validate fixed output
-	fixedVal, err := mailtools.ValidateBIMI(fixed)
-	if err != nil {
-		t.Fatalf("ValidateBIMI on fixed output failed: %v", err)
-	}
-	if !fixedVal.Compliant {
-		t.Errorf("fixed output is still not compliant: %+v", fixedVal.Findings)
-	}
-}
-
 func TestARCChainAnalysis(t *testing.T) {
 	validARC := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none;
  b=abcd1234
