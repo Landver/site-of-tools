@@ -196,8 +196,6 @@
   {{if eq .Kind "url"}}<a href="/?u={{.Input}}" class="text-brand-ink hover:underline">Inspect it as a URL</a>{{else}}<a href="/" class="text-brand-ink hover:underline">Inspect a whole URL</a>{{end}}
 </p>
 
-{{else}}
-{{template "link/examples" .Examples}}
 {{end}}
 {{end}}
 

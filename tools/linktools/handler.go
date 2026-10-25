@@ -117,7 +117,7 @@ func (h *handler) vm(active, heading, desc, query string) map[string]any {
 	return map[string]any{
 		"Active": active, "Title": heading + " — Link Tools", "Desc": desc,
 		"Heading": heading, "Query": query, "Base": h.base,
-		"Examples": examples[active], "Canonical": canonical, "Subdomain": "link",
+		"Canonical": canonical, "Subdomain": "link",
 	}
 }
 
@@ -525,18 +525,6 @@ func (h *handler) curl(c *echo.Context) error {
 	}
 	vm := h.vm("curl", "Take apart or build a curl command", curlDesc, raw)
 	vm["Cmd"] = cmd
-	var paste, build []Example
-	for _, e := range examples["curl"] {
-		if strings.Contains(e.Href, "?curl=") {
-			paste = append(paste, e)
-		} else {
-			build = append(build, e)
-		}
-	}
-	vm["Examples"], vm["BuildExamples"], vm["EmptyExamples"] = paste, build, build
-	if c.Request().Method == http.MethodPost {
-		vm["EmptyExamples"] = paste
-	}
 	// Set before the empty-input branch: the bare page renders the "Ask as" select too.
 	vm["Personas"], vm["Persona"] = Personas(), c.QueryParam("ua")
 
