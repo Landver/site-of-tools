@@ -67,7 +67,7 @@ func (t ipTools) score(ctx context.Context, _ *mcp.CallToolRequest, a botScoreAr
 	if len(a.Fingerprint) == 0 && a.HTTP == nil && ip == "" {
 		return nil, errNothingToScore
 	}
-	sig := botcheck.Signals{Now: time.Now(), CorpusSkipped: true}
+	sig := botcheck.Signals{Now: time.Now()}
 	if len(a.Fingerprint) > 0 {
 		if err := collectorPayload(a.Fingerprint, &sig); err != nil {
 			return nil, err

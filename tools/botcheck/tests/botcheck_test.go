@@ -26,6 +26,7 @@ func cleanChrome() botcheck.Signals {
 		ClientCollected:  true,
 		HeadersSupplied:  true,
 		IPSupplied:       true,
+		CorpusConsulted:  true,
 		CollectorV:       4, // current payload version (v4 env section present)
 		NativeToStringOK: true,
 		HasChromeObject:  true,

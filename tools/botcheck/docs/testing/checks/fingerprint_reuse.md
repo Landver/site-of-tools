@@ -18,7 +18,7 @@ Same stable browser fingerprint (UA, screen, GPU, timezone, …) arrived from ma
 
 ## Go scorer coverage
 
-`tests/corpus_test.go`: `TestFingerprintReuseRule`, `TestFingerprintReuseSuppressedForGoodBot`, `TestCheckNilCorpusLeavesRuleSilent`, `TestCorpusLiveViaHandler`.
+`tests/corpus_test.go`: `TestFingerprintReuseRule`, `TestFingerprintReuseSuppressedForGoodBot`, `TestCheckNilCorpusSkipsCorpusRules`, `TestCorpusLiveViaHandler`.
 
 ---
 
