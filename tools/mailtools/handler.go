@@ -60,11 +60,15 @@ func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Sto
 
 	pure := platform.RateLimit(lim.Pure, nil, limited)
 	heavy := platform.RateLimit(lim.Heavy, nil, limited)
+	skipEmpty := func(c *echo.Context) bool {
+		return formOrQuery(c, "domain", "target", "input", "q") == ""
+	}
+	heavyAudit := platform.RateLimit(lim.Heavy, skipEmpty, limited)
 
-	e.GET("/", h.health, pure)
-	e.GET("/health", h.health, pure)
-	e.POST("/", h.health, heavy)
-	e.POST("/health", h.health, heavy)
+	e.GET("/", h.health, heavyAudit)
+	e.GET("/health", h.health, heavyAudit)
+	e.POST("/", h.health, heavyAudit)
+	e.POST("/health", h.health, heavyAudit)
 
 	e.GET("/disposable", h.disposable, pure)
 	e.POST("/disposable", h.disposable, pure)
@@ -72,8 +76,8 @@ func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Sto
 	e.GET("/classifier", h.classifier, pure)
 	e.POST("/classifier", h.classifier, pure)
 
-	e.GET("/blacklist", h.blacklist, pure)
-	e.POST("/blacklist", h.blacklist, heavy)
+	e.GET("/blacklist", h.blacklist, heavyAudit)
+	e.POST("/blacklist", h.blacklist, heavyAudit)
 
 	e.GET("/dmarc", h.dmarc, pure)
 	e.POST("/dmarc", h.dmarc, heavy)
@@ -128,6 +132,7 @@ func (h *handler) health(c *echo.Context) error {
 		return h.badRequest(c, vm, errors.New("please provide a domain name or email address"), "mail/health")
 	}
 
+	vm["Domain"] = target
 	report, err := AuditDomainHealth(c.Request().Context(), target, h.guard, h.store, h.dqsKey)
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/health")
@@ -150,6 +155,7 @@ func (h *handler) classifyRoute(c *echo.Context, route, heading, desc, emptyErr 
 		return h.badRequest(c, vm, errors.New(emptyErr), tmpl)
 	}
 
+	vm["Input"] = input
 	res := ActiveClassifier().Classify(input)
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, tmpl, frag)
@@ -172,6 +178,8 @@ func (h *handler) blacklist(c *echo.Context) error {
 		}
 		return h.badRequest(c, vm, errors.New("please provide an IP address or hostname to audit"), "mail/blacklist")
 	}
+
+	vm["Target"] = target
 
 	rep, err := CachedDNSBLAudit(c.Request().Context(), h.store, target, h.dqsKey)
 	if err != nil {

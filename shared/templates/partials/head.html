@@ -178,10 +178,81 @@
         }
 
         if (populated && btn.getAttribute("data-submit") !== "false" && form) {
+          syncQueryToUrl(form);
           if (typeof form.requestSubmit === "function") form.requestSubmit(btn);
           else form.submit();
         }
       });
+
+      function syncQueryToUrl(form) {
+        if (!form || form.hasAttribute("data-cipher") || form.querySelector("input[type=password]")) return;
+        var inps = form.querySelectorAll("input[type=text], input[type=search], input[type=url], input:not([type]), select");
+        var params = new URLSearchParams(window.location.search);
+        var changed = false;
+        for (var i = 0; i < inps.length; i++) {
+          var inp = inps[i];
+          if (!inp.name) continue;
+          var val = inp.value ? inp.value.trim() : "";
+          if (val !== "" && val.length < 512 && val.indexOf("\n") === -1) {
+            if (params.get(inp.name) !== val) {
+              params.set(inp.name, val);
+              changed = true;
+            }
+          } else if (params.has(inp.name)) {
+            params.delete(inp.name);
+            changed = true;
+          }
+        }
+        if (changed) {
+          var qs = params.toString();
+          var newUrl = window.location.pathname + (qs ? "?" + qs : "");
+          window.history.replaceState(null, "", newUrl);
+        }
+      }
+
+      document.addEventListener("submit", function (evt) {
+        var form = evt.target;
+        if (form && form.tagName === "FORM") syncQueryToUrl(form);
+      });
+
+      document.addEventListener("htmx:configRequest", function (evt) {
+        var form = evt.detail.elt ? (evt.detail.elt.closest ? evt.detail.elt.closest("form") : null) : null;
+        if (form) syncQueryToUrl(form);
+      });
+
+      function restoreFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var autoSubmit = false;
+        var targetForm = null;
+        params.forEach(function (val, key) {
+          if (!val) return;
+          var inps = document.querySelectorAll("form:not([data-cipher]) [name='" + key + "']");
+          for (var i = 0; i < inps.length; i++) {
+            var inp = inps[i];
+            if (inp && inp.type !== "password" && inp.value !== val) {
+              inp.value = val;
+              var pd = inp.closest("details");
+              if (pd) pd.open = true;
+              targetForm = inp.closest("form");
+              autoSubmit = true;
+            }
+          }
+        });
+        if (autoSubmit && targetForm) {
+          var resBox = document.querySelector("#result");
+          if (resBox && !resBox.children.length && !resBox.textContent.trim()) {
+            if (typeof targetForm.requestSubmit === "function") targetForm.requestSubmit();
+            else targetForm.submit();
+          }
+        }
+      }
+
+      window.addEventListener("popstate", restoreFromUrl);
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", restoreFromUrl);
+      } else {
+        restoreFromUrl();
+      }
     })();
   </script>
   <link rel="stylesheet" href="{{asset "css/styles.css"}}">

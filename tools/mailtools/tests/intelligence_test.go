@@ -468,6 +468,18 @@ func TestHTTPHandlers_RoutesAndEdgeCases(t *testing.T) {
 		t.Errorf("POST /?domain=stripe.com: want 200, got %d", rec.Code)
 	}
 
+	// Valid GET /?domain=stripe.com
+	rec = exec(http.MethodGet, "/?domain=stripe.com", nil, "", "application/json", "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /?domain=stripe.com: want 200, got %d", rec.Code)
+	}
+
+	// Valid GET /health?domain=google.com via HTMX
+	rec = exec(http.MethodGet, "/health?domain=google.com", nil, "", "text/html", "true")
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /health?domain=google.com HTMX: want 200, got %d", rec.Code)
+	}
+
 	// Valid POST /health via HTMX
 	form := url.Values{"domain": {"google.com"}}
 	rec = exec(http.MethodPost, "/health", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", "text/html", "true")

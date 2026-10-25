@@ -19,12 +19,12 @@
     </p>
 
     <div class="mt-6">
-      <form action="/classifier" method="post"
-            hx-post="/classifier" hx-target="#result" hx-swap="innerHTML" hx-indicator="#class-spinner"
+      <form action="/classifier" method="get"
+            hx-get="/classifier" hx-target="#result" hx-swap="innerHTML" hx-indicator="#class-spinner"
             class="space-y-4">
         <div class="flex flex-col sm:flex-row gap-2">
           <div class="relative flex-1">
-            <input type="text" name="input" value="{{if .Result}}{{.Result.Domain}}{{end}}"
+            <input type="text" name="input" value="{{if .Result}}{{.Result.Domain}}{{else if .Input}}{{.Input}}{{end}}"
                    placeholder="e.g. john@uber.com or alex@gmail.com" required
                    class="field w-full text-base sm:text-sm pl-9">
             <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor">
