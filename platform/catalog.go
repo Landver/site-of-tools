@@ -1,7 +1,5 @@
 package platform
 
-import "fmt"
-
 // ToolItem represents an individual tool inside a section.
 type ToolItem struct {
 	Key       string   `json:"key"`
@@ -18,16 +16,7 @@ type ToolSection struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`
 	Subdomain string     `json:"subdomain"`
-	Desc      string     `json:"desc"`
 	Tools     []ToolItem `json:"tools"`
-}
-
-// Badge counts the section's tools, so it can't drift from the list.
-func (s ToolSection) Badge() string {
-	if len(s.Tools) == 1 {
-		return "1 tool"
-	}
-	return fmt.Sprintf("%d tools", len(s.Tools))
 }
 
 // Catalog returns the complete taxonomy of tools, categories, and technical tags.
@@ -40,7 +29,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "cipher",
 		Name:      "Cipher Tools",
 		Subdomain: "cipher",
-		Desc:      "100% in-browser WebAssembly cryptography. Plaintext and keys never leave your device.",
 		Tools: []ToolItem{
 			{
 				Key:       "encrypt",
@@ -206,7 +194,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "ip",
 		Name:      "IP Tools",
 		Subdomain: "ip",
-		Desc:      "IP geolocation, network ASN, proxy/VPN threat detection and subnet math",
 		Tools: []ToolItem{
 			{
 				Key:       "lookup",
@@ -250,7 +237,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "botcheck",
 		Name:      "Bot Check",
 		Subdomain: "botcheck",
-		Desc:      "Transparent browser fingerprinting and automated bot detection audit",
 		Tools: []ToolItem{
 			{
 				Key:       "botcheck",
@@ -272,7 +258,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "dns",
 		Name:      "DNS Tools",
 		Subdomain: "dns",
-		Desc:      "Parallel DNS lookup, consistency propagation, DNSSEC root trace and domain RDAP",
 		Tools: []ToolItem{
 			{
 				Key:       "lookup",
@@ -329,7 +314,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "link",
 		Name:      "Link Tools",
 		Subdomain: "link",
-		Desc:      "URL inspection, tracker stripping, redirect tracing and HTTP caching headers",
 		Tools: []ToolItem{
 			{
 				Key:       "inspect",
@@ -442,7 +426,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "mail",
 		Name:      "Mail Tools",
 		Subdomain: "mail",
-		Desc:      "Enterprise email deliverability, security architecture, SEG identification, and sender reputation intelligence.",
 		Tools: []ToolItem{
 			{
 				Key:       "health",
@@ -502,7 +485,6 @@ var defaultCatalog = []ToolSection{
 		ID:        "mcp",
 		Name:      "MCP Server",
 		Subdomain: "mcp",
-		Desc:      "Model Context Protocol endpoints for Claude, Cursor, and AI agents",
 		Tools: []ToolItem{
 			{
 				Key:       "gateway",
