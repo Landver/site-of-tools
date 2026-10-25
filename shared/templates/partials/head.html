@@ -123,6 +123,18 @@
           el.removeAttribute("data-sidebar-collapsed");
         }
       };
+
+      document.addEventListener("click", function (e) {
+        var btn = e.target.closest("button[data-sample]");
+        if (!btn) return;
+        var form = btn.closest("form");
+        if (!form) return;
+        var inp = form.querySelector("input[name=domain], input[name=input], input[name=target], input[type=text], input:not([type])");
+        if (!inp) return;
+        inp.value = btn.getAttribute("data-sample") || btn.textContent.trim();
+        if (typeof form.requestSubmit === "function") form.requestSubmit();
+        else form.submit();
+      });
     })();
   </script>
   <link rel="stylesheet" href="{{asset "css/styles.css"}}">

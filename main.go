@@ -140,7 +140,7 @@ func run() error {
 
 	ipLim, dnsLim, linkLim := iptools.NewLimits(), dnstools.NewLimits(), linktools.NewLimits()
 	cipherLim, botLim, mailLim := ciphertools.NewLimits(), botcheck.NewLimits(), mailtools.NewLimits()
-	ipCheck, dnsCheck := iptools.CheckerFrom(blocklist), dnstools.BlockCheckerFrom(blocklist)
+	ipCheck := iptools.CheckerFrom(blocklist)
 
 	// A malformed blog post fails boot here rather than serving a broken page.
 	blog, err := site.Register(apps[""], cfg, platform.SubFS(site.Posts, "posts", "site/posts", cfg.IsDev()))
@@ -165,7 +165,7 @@ func run() error {
 	// A blank RDAP/CT URL disables that half; the page says so rather than claim no registration.
 	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
 	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
-	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsCheck, dnsLim)
+	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsLim)
 
 	// Only /trace dials out (via the egress gate); platform.RedactURI keeps ?u= out of the request log.
 	linkSvc := linktools.NewService()
@@ -188,7 +188,7 @@ func run() error {
 	mailtools.Register(apps["mail"], cfg.URL("mail"), httpsGuard, mailStore, cfg.SpamhausDQSKey, mailLim)
 
 	mcptools.Register(apps["mcp"], mcptools.Deps{
-		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck, DNSBlocklist: dnsCheck,
+		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck,
 		DNS: dnsSvc, Domain: domainClient, Blog: blog,
 		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,

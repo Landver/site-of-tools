@@ -35,7 +35,7 @@
   <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
     <div class="relative flex-1 min-w-0">
       <input type="text" readonly value="{{$.Cleaned.Output}}"
-             class="field w-full font-mono text-xs text-strong bg-canvas pr-16 select-all"
+             class="field w-full font-mono text-xs text-strong bg-canvas select-all"
              aria-label="Clean URL output">
     </div>
     <div class="flex items-center gap-2 shrink-0">
@@ -81,7 +81,7 @@
 {{end}}
 
 {{with .Absolute}}
-<p class="mt-4 text-sm"><a href="/?u={{.}}" class="text-brand-ink hover:underline">Inspect <span class="font-mono">{{.}}</span> instead</a></p>
+<p class="mt-4 text-sm"><a href="/?u={{. | urlquery}}" class="text-brand-ink hover:underline">Inspect <span class="font-mono">{{.}}</span> instead</a></p>
 {{end}}
 
 {{if .Unwrapped}}
@@ -92,7 +92,7 @@
     <p class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong">{{.Unwrapped}}</p>
     <button type="button" class="btn-copy" data-copy="{{.Unwrapped}}">Copy</button>
   </div>
-  <a href="/?u={{.Unwrapped}}" class="mt-2 inline-block text-sm text-brand-ink hover:underline">Inspect the real destination</a>
+  <a href="/?u={{.Unwrapped | urlquery}}" class="mt-2 inline-block text-sm text-brand-ink hover:underline">Inspect the real destination</a>
 </section>
 {{end}}
 
@@ -147,9 +147,9 @@
             <span class="mt-1 block text-xs">
               {{if .Layers}}<span class="text-muted">Decodes to</span> <span class="wrap-anywhere font-mono text-strong">{{.Nested}}</span><br>{{end}}
               <span class="mt-1 flex flex-wrap gap-1">
-                <a href="/?u={{.Nested}}" class="btn-action">Inspect</a>
-                <a href="/clean?u={{.Nested}}" class="btn-action">Clean</a>
-                <a href="/trace?u={{.Nested}}" class="btn-action">Trace</a>
+                <a href="/?u={{.Nested | urlquery}}" class="btn-action">Inspect</a>
+                <a href="/clean?u={{.Nested | urlquery}}" class="btn-action">Clean</a>
+                <a href="/trace?u={{.Nested | urlquery}}" class="btn-action">Trace</a>
               </span>
             </span>
             {{end}}

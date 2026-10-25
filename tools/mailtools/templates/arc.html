@@ -3,7 +3,6 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  {{template "mail/skip" .}}
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
@@ -24,7 +23,7 @@
     <div class="mt-6">
       <form action="/arc" method="post"
             data-mail="arc" data-target="#result"
-            hx-post="/arc" hx-target="#result" hx-swap="innerHTML" class="space-y-3">
+            class="space-y-3">
         <label class="block text-sm text-muted">
           Pasted Email Headers (from "Show Original" in Gmail or "View Message Details" in Outlook)
           <textarea name="headers" rows="7" spellcheck="false"

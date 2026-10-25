@@ -63,7 +63,7 @@ func NewLimits() *Limits {
 }
 
 // Register wires dns.corpberry.com's routes onto e; all take ?name= (and ?type=, ?resolver=).
-func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, _ BlockChecker, lim *Limits) {
+func Register(e *echo.Echo, svc Looker, geo iptools.Looker, dom *DomainClient, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}

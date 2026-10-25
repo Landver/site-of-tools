@@ -61,8 +61,8 @@ func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Sto
 	pure := platform.RateLimit(lim.Pure, nil, limited)
 	heavy := platform.RateLimit(lim.Heavy, nil, limited)
 
-	e.GET("/", h.index, pure)
-	e.GET("/health", h.index, pure)
+	e.GET("/", h.health, pure)
+	e.GET("/health", h.health, pure)
 	e.POST("/", h.health, heavy)
 	e.POST("/health", h.health, heavy)
 
@@ -104,38 +104,27 @@ func (h *handler) vm(active, heading, desc string) map[string]any {
 	}
 }
 
-func (h *handler) index(c *echo.Context) error {
-	target := strings.TrimSpace(c.QueryParam("domain"))
-	if target == "" {
-		target = strings.TrimSpace(c.QueryParam("input"))
+func formOrQuery(c *echo.Context, keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(c.FormValue(k)); v != "" {
+			return v
+		}
 	}
-	vm := h.vm("health", "Domain & Email Intelligence Audit", healthDesc)
-	if target == "" {
-		return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
+	for _, k := range keys {
+		if v := strings.TrimSpace(c.QueryParam(k)); v != "" {
+			return v
+		}
 	}
-
-	report, err := AuditDomainHealth(c.Request().Context(), target, h.guard, h.store, h.dqsKey)
-	if err != nil {
-		return h.badRequest(c, vm, err, "mail/health")
-	}
-
-	vm["Result"] = report
-	return platform.Reply(c, http.StatusOK, report, vm, "mail/health", "mail/health-result")
+	return ""
 }
 
 func (h *handler) health(c *echo.Context) error {
 	vm := h.vm("health", "Domain & Email Intelligence Audit", healthDesc)
-	target := strings.TrimSpace(c.FormValue("domain"))
+	target := formOrQuery(c, "domain", "input")
 	if target == "" {
-		target = strings.TrimSpace(c.FormValue("input"))
-	}
-	if target == "" {
-		target = strings.TrimSpace(c.QueryParam("domain"))
-	}
-	if target == "" {
-		target = strings.TrimSpace(c.QueryParam("input"))
-	}
-	if target == "" {
+		if c.Request().Method == http.MethodGet {
+			return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
+		}
 		return h.badRequest(c, vm, errors.New("please provide a domain name or email address"), "mail/health")
 	}
 
@@ -148,80 +137,35 @@ func (h *handler) health(c *echo.Context) error {
 	return platform.Reply(c, http.StatusOK, report, vm, "mail/health", "mail/health-result")
 }
 
-func (h *handler) disposable(c *echo.Context) error {
-	vm := h.vm("disposable", "Disposable Email & Burner Domain Checker", disposableDesc)
+func (h *handler) classifyRoute(c *echo.Context, route, heading, desc, emptyErr string) error {
+	vm := h.vm(route, heading, desc)
+	tmpl := "mail/" + route
+	frag := tmpl + "-result"
 
-	if c.Request().Method == http.MethodGet {
-		input := strings.TrimSpace(c.QueryParam("input"))
-		if input == "" {
-			input = strings.TrimSpace(c.QueryParam("domain"))
-		}
-		if input == "" {
-			return platform.Reply(c, http.StatusOK, nil, vm, "mail/disposable", "mail/disposable-result")
-		}
-		res := ActiveClassifier().Classify(input)
-		vm["Result"] = res
-		return platform.Reply(c, http.StatusOK, res, vm, "mail/disposable", "mail/disposable-result")
-	}
-
-	input := strings.TrimSpace(c.FormValue("input"))
+	input := formOrQuery(c, "input", "domain")
 	if input == "" {
-		input = strings.TrimSpace(c.FormValue("domain"))
-	}
-	if input == "" {
-		return h.badRequest(c, vm, errors.New("please provide an email or domain to verify"), "mail/disposable")
+		if c.Request().Method == http.MethodGet {
+			return platform.Reply(c, http.StatusOK, nil, vm, tmpl, frag)
+		}
+		return h.badRequest(c, vm, errors.New(emptyErr), tmpl)
 	}
 
 	res := ActiveClassifier().Classify(input)
 	vm["Result"] = res
-	return platform.Reply(c, http.StatusOK, res, vm, "mail/disposable", "mail/disposable-result")
+	return platform.Reply(c, http.StatusOK, res, vm, tmpl, frag)
+}
+
+func (h *handler) disposable(c *echo.Context) error {
+	return h.classifyRoute(c, "disposable", "Disposable Email & Burner Domain Checker", disposableDesc, "please provide an email or domain to verify")
 }
 
 func (h *handler) classifier(c *echo.Context) error {
-	vm := h.vm("classifier", "Free Webmail vs Corporate Domain Classifier", classifierDesc)
-
-	if c.Request().Method == http.MethodGet {
-		input := strings.TrimSpace(c.QueryParam("input"))
-		if input == "" {
-			input = strings.TrimSpace(c.QueryParam("domain"))
-		}
-		if input == "" {
-			return platform.Reply(c, http.StatusOK, nil, vm, "mail/classifier", "mail/classifier-result")
-		}
-		res := ActiveClassifier().Classify(input)
-		vm["Result"] = res
-		return platform.Reply(c, http.StatusOK, res, vm, "mail/classifier", "mail/classifier-result")
-	}
-
-	input := strings.TrimSpace(c.FormValue("input"))
-	if input == "" {
-		input = strings.TrimSpace(c.FormValue("domain"))
-	}
-	if input == "" {
-		return h.badRequest(c, vm, errors.New("please provide an email or domain to classify"), "mail/classifier")
-	}
-
-	res := ActiveClassifier().Classify(input)
-	vm["Result"] = res
-	return platform.Reply(c, http.StatusOK, res, vm, "mail/classifier", "mail/classifier-result")
+	return h.classifyRoute(c, "classifier", "Free Webmail vs Corporate Domain Classifier", classifierDesc, "please provide an email or domain to classify")
 }
 
 func (h *handler) blacklist(c *echo.Context) error {
 	vm := h.vm("blacklist", "Real-Time Multi-DNSBL Reputation Checker", blacklistDesc)
-
-	target := strings.TrimSpace(c.FormValue("target"))
-	if target == "" {
-		target = strings.TrimSpace(c.FormValue("domain"))
-	}
-	if target == "" {
-		target = strings.TrimSpace(c.QueryParam("target"))
-	}
-	if target == "" {
-		target = strings.TrimSpace(c.QueryParam("domain"))
-	}
-	if target == "" {
-		target = strings.TrimSpace(c.QueryParam("ip"))
-	}
+	target := formOrQuery(c, "target", "domain", "ip", "input")
 	if target == "" {
 		if c.Request().Method == http.MethodGet {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/blacklist", "mail/blacklist-result")

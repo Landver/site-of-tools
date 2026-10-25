@@ -3,7 +3,6 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  {{template "mail/skip" .}}
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
@@ -20,7 +19,7 @@
     </p>
 
     <div class="mt-6">
-      <form action="/" method="post"
+      <form action="/health" method="post"
             hx-post="/health" hx-target="#result" hx-swap="innerHTML" hx-indicator="#health-spinner"
             class="space-y-4">
         <div class="flex flex-col sm:flex-row gap-2">
@@ -40,10 +39,10 @@
 
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span class="text-faint">Try sample:</span>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=domain]'); inp.value = 'stripe.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">stripe.com</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=domain]'); inp.value = 'gmail.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">gmail.com</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=domain]'); inp.value = 'mailinator.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">mailinator.com</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=domain]'); inp.value = 'github.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">github.com</button>
+          <button type="button" data-sample="stripe.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">stripe.com</button>
+          <button type="button" data-sample="gmail.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">gmail.com</button>
+          <button type="button" data-sample="mailinator.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">mailinator.com</button>
+          <button type="button" data-sample="github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">github.com</button>
         </div>
       </form>
     </div>
@@ -237,7 +236,7 @@
             <span class="font-semibold text-strong flex items-center gap-1.5">
               DMARC Policy (RFC 7489)
               {{if and .Auth .Auth.DMARC .Auth.DMARC.Inherited}}
-                <span class="rounded bg-brand/10 text-brand px-1.5 py-0.2 text-[10px] font-normal">Apex Inherited</span>
+                <span class="rounded bg-brand/10 text-brand px-1.5 py-0.5 text-[10px] font-normal">Apex Inherited</span>
               {{end}}
             </span>
             {{if and .Auth .Auth.HasDMARC}}
@@ -415,9 +414,12 @@
                   <span class="text-danger font-medium">Validation Issues</span>
                 {{end}}
               </div>
-              <div class="text-faint text-[11px]">Issuer: <span class="text-strong">{{.BIMI.VMCIssuer}}</span></div>
-              <div class="text-faint text-[11px]">Organization: <span class="text-strong">{{.BIMI.VMCSubjectOrg}}</span></div>
-              <div class="text-faint text-[11px]">Expires: <span class="text-strong">{{.BIMI.VMCExpiresAt.Format "2006-01-02"}}</span> ({{.BIMI.VMCDaysLeft}} days)</div>
+              {{if .BIMI.VMCIssuer}}<div class="text-faint text-[11px]">Issuer: <span class="text-strong">{{.BIMI.VMCIssuer}}</span></div>{{end}}
+              {{if .BIMI.VMCSubjectOrg}}<div class="text-faint text-[11px]">Organization: <span class="text-strong">{{.BIMI.VMCSubjectOrg}}</span></div>{{end}}
+              {{if not .BIMI.VMCExpiresAt.IsZero}}<div class="text-faint text-[11px]">Expires: <span class="text-strong">{{.BIMI.VMCExpiresAt.Format "2006-01-02"}}</span> ({{.BIMI.VMCDaysLeft}} days)</div>{{end}}
+              {{range .BIMI.Errors}}
+                <div class="text-danger text-[11px] font-mono">⚠️ {{.}}</div>
+              {{end}}
             </div>
           {{else}}
             <div class="rounded bg-warn/10 p-2 text-xs text-warn">

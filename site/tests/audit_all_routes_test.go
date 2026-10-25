@@ -77,7 +77,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	dnsLim := dnstools.NewLimits()
 	dnsSvc := dnstools.NewService(time.Second)
 	domainClient := dnstools.NewDomainClient("", "", time.Second)
-	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, nil, dnsLim)
+	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsLim)
 
 	// 5. Link Tools
 	linkLim := linktools.NewLimits()
@@ -120,43 +120,35 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 		// Apex
 		{"", "/"},
 		{"", "/blog"},
+		{"", "/blog/first-post"},
 		{"", "/sitemap.xml"},
 		{"", "/robots.txt"},
 
 		// IP
 		{"ip", "/"},
-		{"ip", "/blocklist"},
-		{"ip", "/myip"},
-		{"ip", "/asn"},
+		{"ip", "/cidr"},
 		{"ip", "/history"},
 		{"ip", "/sitemap.xml"},
 		{"ip", "/robots.txt"},
 
 		// Botcheck
 		{"botcheck", "/"},
-		{"botcheck", "/blocklist"},
-		{"botcheck", "/useragent"},
-		{"botcheck", "/corpus"},
-		{"botcheck", "/report"},
+		{"botcheck", "/botcheck-sw.js"},
 		{"botcheck", "/sitemap.xml"},
 		{"botcheck", "/robots.txt"},
 
 		// DNS
 		{"dns", "/"},
-		{"dns", "/propagation"},
+		{"dns", "/consistency"},
 		{"dns", "/trace"},
-		{"dns", "/whois"},
-		{"dns", "/sec"},
-		{"dns", "/ecs"},
-		{"dns", "/subdomains"},
-		{"dns", "/reputation"},
-		{"dns", "/credits"},
+		{"dns", "/domain"},
 		{"dns", "/sitemap.xml"},
 		{"dns", "/robots.txt"},
 
 		// Link
 		{"link", "/"},
 		{"link", "/clean"},
+		{"link", "/clean/rules"},
 		{"link", "/trace"},
 		{"link", "/headers"},
 		{"link", "/diff"},
@@ -165,17 +157,23 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 		{"link", "/utm"},
 		{"link", "/encode"},
 		{"link", "/short"},
+		{"link", "/encoding"},
+		{"link", "/extension/privacy"},
 		{"link", "/sitemap.xml"},
 		{"link", "/robots.txt"},
 
 		// Cipher
 		{"cipher", "/"},
 		{"cipher", "/hash"},
-		{"cipher", "/symmetric"},
-		{"cipher", "/asymmetric"},
-		{"cipher", "/encoding"},
+		{"cipher", "/hmac"},
+		{"cipher", "/password"},
+		{"cipher", "/encrypt"},
+		{"cipher", "/keys"},
 		{"cipher", "/cert"},
-		{"cipher", "/jwt"},
+		{"cipher", "/totp"},
+		{"cipher", "/random"},
+		{"cipher", "/encode"},
+		{"cipher", "/identify"},
 		{"cipher", "/dpop"},
 		{"cipher", "/pkce"},
 		{"cipher", "/sitemap.xml"},
@@ -225,6 +223,9 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 		rec := httptest.NewRecorder()
 		app.ServeHTTP(rec, req)
 
+		if rec.Code == http.StatusNotFound {
+			t.Errorf("ROUTE NOT FOUND (404) on [%s] %s", tc.Subdomain, tc.Path)
+		}
 		if rec.Code == http.StatusInternalServerError {
 			t.Errorf("CRITICAL 500 ERROR on [%s] %s: status=%d, body=%s", tc.Subdomain, tc.Path, rec.Code, rec.Body.String())
 		}

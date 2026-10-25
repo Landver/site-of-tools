@@ -110,17 +110,7 @@ func AuditBIMI(ctx context.Context, domain string, guard *platform.EgressGuard) 
 }
 
 func parseBIMITags(raw string) map[string]string {
-	tags := make(map[string]string)
-	parts := strings.Split(raw, ";")
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if eq := strings.Index(p, "="); eq != -1 {
-			k := strings.TrimSpace(p[:eq])
-			v := strings.TrimSpace(p[eq+1:])
-			tags[k] = v
-		}
-	}
-	return tags
+	return parseAuthTags(raw)
 }
 
 // vmcHTTPClient is an internal seam for testing without network.
@@ -193,7 +183,9 @@ func validateVMCChain(ctx context.Context, audit *BIMIAudit, guard *platform.Egr
 		}
 		if block.Type == "CERTIFICATE" {
 			cert, err := x509.ParseCertificate(block.Bytes)
-			if err == nil {
+			if err != nil {
+				audit.Errors = append(audit.Errors, fmt.Sprintf("Malformed X.509 certificate in PEM chain: %v", err))
+			} else {
 				certs = append(certs, cert)
 			}
 		}

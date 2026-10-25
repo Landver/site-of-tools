@@ -2,8 +2,7 @@
 <!DOCTYPE html>
 <html lang="en">
 {{template "partials/head" .}}
-<body x-data="{ mode: 'file' }">
-  {{template "mail/skip" .}}
+<body>
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
@@ -24,7 +23,6 @@
     <div class="mt-6">
       <form action="/dmarc" method="post" enctype="multipart/form-data"
             data-mail="dmarc" data-target="#result"
-            hx-post="/dmarc" hx-target="#result" hx-swap="innerHTML" hx-encoding="multipart/form-data"
             class="space-y-4">
 
         <div data-dropzone class="rounded-lg border-2 border-dashed border-line p-6 text-center hover:border-line-strong transition bg-surface focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">

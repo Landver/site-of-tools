@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -245,7 +244,6 @@ type ResultSet struct {
 type Service struct {
 	udp   *dns.Client
 	tcp   *dns.Client
-	http  *http.Client // fetches MTA-STS policy files, which live behind HTTPS
 	cache *cache
 	guard *platform.EgressGuard
 	// inflight collapses concurrent identical questions into one upstream query.
@@ -256,7 +254,6 @@ func NewService(timeout time.Duration) *Service {
 	return &Service{
 		udp:   &dns.Client{Timeout: timeout},
 		tcp:   &dns.Client{Net: "tcp", Timeout: timeout},
-		http:  policyClient(timeout, platform.NewEgressGuard([]string{"443"}, nil)),
 		cache: newCache(),
 	}
 }

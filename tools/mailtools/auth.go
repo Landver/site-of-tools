@@ -140,22 +140,25 @@ func AuditEmailAuth(ctx context.Context, domain string, guard *platform.EgressGu
 	return summary
 }
 
-// checkSPF resolves SPF records recursively, tracking the 10-lookup limit (RFC 7208 §4.6.4).
-func checkSPF(ctx context.Context, domain string) *SPFAnalysis {
-	r := &net.Resolver{}
+func lookupTXTWithPrefix(ctx context.Context, r *net.Resolver, domain, prefix string) []string {
 	txts, err := r.LookupTXT(ctx, domain)
 	if err != nil {
 		return nil
 	}
-
-	var spfRecs []string
+	var matches []string
 	for _, txt := range txts {
-		trimmed := strings.TrimSpace(txt)
-		if strings.HasPrefix(trimmed, "v=spf1") {
-			spfRecs = append(spfRecs, trimmed)
+		tr := strings.TrimSpace(txt)
+		if strings.HasPrefix(tr, prefix) {
+			matches = append(matches, tr)
 		}
 	}
+	return matches
+}
 
+// checkSPF resolves SPF records recursively, tracking the 10-lookup limit (RFC 7208 §4.6.4).
+func checkSPF(ctx context.Context, domain string) *SPFAnalysis {
+	r := &net.Resolver{}
+	spfRecs := lookupTXTWithPrefix(ctx, r, domain, "v=spf1")
 	if len(spfRecs) == 0 {
 		return nil
 	}
@@ -207,16 +210,7 @@ func checkSPF(ctx context.Context, domain string) *SPFAnalysis {
 					continue
 				}
 
-				subTxts, subErr := r.LookupTXT(ctx, target)
-				var subRecs []string
-				if subErr == nil {
-					for _, st := range subTxts {
-						stTrim := strings.TrimSpace(st)
-						if strings.HasPrefix(stTrim, "v=spf1") {
-							subRecs = append(subRecs, stTrim)
-						}
-					}
-				}
+				subRecs := lookupTXTWithPrefix(ctx, r, target, "v=spf1")
 				if len(subRecs) == 0 {
 					res.Voids = append(res.Voids, target)
 				} else {
@@ -294,49 +288,45 @@ func checkDMARC(ctx context.Context, domain string) *DMARCAnalysis {
 
 	for range 4 {
 		at := "_dmarc." + name
-		txts, err := r.LookupTXT(ctx, at)
-		if err == nil {
-			var recs []string
-			for _, txt := range txts {
-				tr := strings.TrimSpace(txt)
-				if strings.HasPrefix(tr, "v=DMARC1") {
-					recs = append(recs, tr)
-				}
+		recs := lookupTXTWithPrefix(ctx, r, at, "v=DMARC1")
+		if len(recs) > 0 {
+			tags := parseAuthTags(recs[0])
+			res := &DMARCAnalysis{
+				Record:    recs[0],
+				Inherited: name != domain,
+				Policy:    strings.ToLower(tags["p"]),
+				SubPolicy: strings.ToLower(tags["sp"]),
+				Percent:   tags["pct"],
+				Aggregate: tags["rua"],
+				Forensic:  tags["ruf"],
 			}
-			if len(recs) > 0 {
-				tags := parseAuthTags(recs[0])
-				res := &DMARCAnalysis{
-					Record:    recs[0],
-					Inherited: name != domain,
-					Policy:    strings.ToLower(tags["p"]),
-					SubPolicy: strings.ToLower(tags["sp"]),
-					Percent:   tags["pct"],
-					Aggregate: tags["rua"],
-					Forensic:  tags["ruf"],
-				}
-				if len(recs) > 1 {
-					res.Extra = recs[1:]
-					res.Status = "fail"
-					res.StatusMsg = "Multiple DMARC records published (RFC 7489 Permerror: receivers ignore all)"
-					return res
-				}
-
-				switch res.Policy {
-				case "reject":
-					res.Status = "pass"
-					res.StatusMsg = "Strict Reject policy (p=reject): unauthorized mail is blocked"
-				case "quarantine":
-					res.Status = "pass"
-					res.StatusMsg = "Quarantine policy (p=quarantine): unauthorized mail is routed to spam"
-				case "none":
-					res.Status = "warn"
-					res.StatusMsg = "Monitoring only (p=none): unauthorized senders are not blocked"
-				default:
-					res.Status = "warn"
-					res.StatusMsg = fmt.Sprintf("DMARC policy: %s", res.Policy)
-				}
+			if len(recs) > 1 {
+				res.Extra = recs[1:]
+				res.Status = "fail"
+				res.StatusMsg = "Multiple DMARC records published (RFC 7489 Permerror: receivers ignore all)"
 				return res
 			}
+
+			if res.Policy == "" {
+				res.Status = "fail"
+				res.StatusMsg = "Syntax error: DMARC record missing mandatory 'p' tag (RFC 7489 §6.3)"
+				return res
+			}
+			switch res.Policy {
+			case "reject":
+				res.Status = "pass"
+				res.StatusMsg = "Strict Reject policy (p=reject): unauthorized mail is blocked"
+			case "quarantine":
+				res.Status = "pass"
+				res.StatusMsg = "Quarantine policy (p=quarantine): unauthorized mail is routed to spam"
+			case "none":
+				res.Status = "warn"
+				res.StatusMsg = "Monitoring only (p=none): unauthorized senders are not blocked"
+			default:
+				res.Status = "fail"
+				res.StatusMsg = fmt.Sprintf("Invalid DMARC policy %q: must be reject, quarantine, or none", res.Policy)
+			}
+			return res
 		}
 
 		_, parent, ok := strings.Cut(name, ".")
@@ -364,6 +354,18 @@ func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
 	r := &net.Resolver{}
 	analysis := &DKIMAnalysis{}
 
+	// Probe synthetic canary selector to detect wildcard DNS (*._domainkey)
+	canary := fmt.Sprintf("probe-wildcard-%d._domainkey.%s", time.Now().UnixNano()%10000, domain)
+	if txts, err := r.LookupTXT(ctx, canary); err == nil {
+		for _, txt := range txts {
+			tr := strings.TrimSpace(txt)
+			if strings.Contains(tr, "p=") || strings.HasPrefix(tr, "v=DKIM1") {
+				analysis.Wildcard = true
+				break
+			}
+		}
+	}
+
 	recs := make([]string, len(commonDKIMSelectors))
 	var wg sync.WaitGroup
 	wg.Add(len(commonDKIMSelectors))
@@ -386,45 +388,34 @@ func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
 	}
 	wg.Wait()
 
-	for i, rec := range recs {
-		if rec == "" {
-			continue
-		}
-		tags := parseAuthTags(rec)
-		if tags["p"] != "" {
-			analysis.FoundSelectors = append(analysis.FoundSelectors, DKIMSelectorInfo{
-				Selector: commonDKIMSelectors[i],
-				Record:   rec,
-				Status:   "active",
-			})
-		} else {
-			analysis.Revoked = append(analysis.Revoked, commonDKIMSelectors[i])
-		}
-	}
-
-	if len(recs) > 1 && recs[0] != "" {
-		allSame := true
-		for _, rec := range recs {
-			if rec != recs[0] {
-				allSame = false
-				break
+	if !analysis.Wildcard {
+		for i, rec := range recs {
+			if rec == "" {
+				continue
+			}
+			tags := parseAuthTags(rec)
+			if tags["p"] != "" {
+				analysis.FoundSelectors = append(analysis.FoundSelectors, DKIMSelectorInfo{
+					Selector: commonDKIMSelectors[i],
+					Record:   rec,
+					Status:   "active",
+				})
+			} else {
+				analysis.Revoked = append(analysis.Revoked, commonDKIMSelectors[i])
 			}
 		}
-		if allSame {
-			analysis.Wildcard = true
-		}
 	}
 
-	if len(analysis.FoundSelectors) > 0 {
+	if analysis.Wildcard {
+		analysis.Status = "warn"
+		analysis.StatusMsg = "Wildcard DKIM record detected (*._domainkey): all selectors resolve to wildcard key"
+	} else if len(analysis.FoundSelectors) > 0 {
 		analysis.Status = "pass"
 		names := make([]string, len(analysis.FoundSelectors))
 		for i, sel := range analysis.FoundSelectors {
 			names[i] = sel.Selector
 		}
 		analysis.StatusMsg = fmt.Sprintf("%d active selector(s) discovered (%s)", len(analysis.FoundSelectors), strings.Join(names, ", "))
-	} else if analysis.Wildcard {
-		analysis.Status = "warn"
-		analysis.StatusMsg = "Wildcard DKIM record detected (*._domainkey)"
 	} else {
 		analysis.Status = "info"
 		analysis.StatusMsg = "No common public selectors discovered"
@@ -438,28 +429,12 @@ func checkMTASTS(ctx context.Context, domain string, guard *platform.EgressGuard
 	r := &net.Resolver{}
 	res := &MTASTSAnalysis{}
 
-	txts, err := r.LookupTXT(ctx, "_mta-sts."+domain)
-	if err == nil {
-		for _, txt := range txts {
-			tr := strings.TrimSpace(txt)
-			if strings.HasPrefix(tr, "v=STSv1") {
-				res.RecordFound = true
-				res.Record = tr
-				break
-			}
-		}
+	if recs := lookupTXTWithPrefix(ctx, r, "_mta-sts."+domain, "v=STSv1"); len(recs) > 0 {
+		res.RecordFound = true
+		res.Record = recs[0]
 	}
-
-	// Also check TLSRPT record
-	tlsTxts, tlsErr := r.LookupTXT(ctx, "_smtp._tls."+domain)
-	if tlsErr == nil {
-		for _, txt := range tlsTxts {
-			tr := strings.TrimSpace(txt)
-			if strings.HasPrefix(tr, "v=TLSRPTv1") {
-				res.TLSRPT = tr
-				break
-			}
-		}
+	if recs := lookupTXTWithPrefix(ctx, r, "_smtp._tls."+domain, "v=TLSRPTv1"); len(recs) > 0 {
+		res.TLSRPT = recs[0]
 	}
 
 	if !res.RecordFound {
@@ -468,12 +443,17 @@ func checkMTASTS(ctx context.Context, domain string, guard *platform.EgressGuard
 		return res
 	}
 
-	// Fetch policy over HTTPS
+	// Fetch policy over HTTPS (RFC 8461 forbids HTTP redirects to prevent downgrade/SSRF)
 	policyURL := fmt.Sprintf("https://mta-sts.%s/.well-known/mta-sts.txt", domain)
 	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	if guard != nil {
 		client.Transport = guard.Transport(3 * time.Second)
 	}
@@ -486,22 +466,7 @@ func checkMTASTS(ctx context.Context, domain string, guard *platform.EgressGuard
 			if resp.StatusCode == http.StatusOK {
 				bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
 				res.PolicyFound = true
-				for _, line := range strings.Split(string(bodyBytes), "\n") {
-					line = strings.TrimSpace(line)
-					if k, v, ok := strings.Cut(line, ":"); ok {
-						val := strings.TrimSpace(v)
-						switch strings.ToLower(strings.TrimSpace(k)) {
-						case "mode":
-							res.Mode = strings.ToLower(val)
-						case "max_age":
-							var age int
-							fmt.Sscanf(val, "%d", &age)
-							res.MaxAge = age
-						case "mx":
-							res.MXPatterns = append(res.MXPatterns, val)
-						}
-					}
-				}
+				ParseMTASTSPolicy(string(bodyBytes), res)
 			} else {
 				res.PolicyError = fmt.Sprintf("HTTP %d from policy file", resp.StatusCode)
 			}
@@ -527,4 +492,24 @@ func checkMTASTS(ctx context.Context, domain string, guard *platform.EgressGuard
 	}
 
 	return res
+}
+
+// ParseMTASTSPolicy parses RFC 8461 key-value pairs into the analysis result.
+func ParseMTASTSPolicy(body string, res *MTASTSAnalysis) {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if k, v, ok := strings.Cut(line, ":"); ok {
+			val := strings.TrimSpace(v)
+			switch strings.ToLower(strings.TrimSpace(k)) {
+			case "mode":
+				res.Mode = strings.ToLower(val)
+			case "max_age":
+				var age int
+				fmt.Sscanf(val, "%d", &age)
+				res.MaxAge = age
+			case "mx":
+				res.MXPatterns = append(res.MXPatterns, val)
+			}
+		}
+	}
 }

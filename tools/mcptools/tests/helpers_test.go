@@ -196,7 +196,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	iptools.Register(hosts[ipHost], o.geo, nil, o.chk, o.ipLim)
 	if o.dns != nil {
 		hosts[dnsHost] = app()
-		dnstools.Register(hosts[dnsHost], o.dns, dnsGeo, o.dom, fakeBlock{}, o.dnsLim)
+		dnstools.Register(hosts[dnsHost], o.dns, dnsGeo, o.dom, o.dnsLim)
 	}
 	if o.link != nil {
 		hosts[linkHost] = app()
@@ -220,7 +220,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	}
 	mcptools.Register(mcpApp, mcptools.Deps{
 		Geo: o.geo, Blocklist: o.chk, IPLimits: o.ipLim,
-		DNS: o.dns, DNSGeo: dnsGeo, DNSBlocklist: fakeBlock{}, Domain: o.dom, DNSLimits: o.dnsLim,
+		DNS: o.dns, DNSGeo: dnsGeo, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
 		CipherLimits: o.cipherLim, BotLimits: o.botLim, Blog: blog,
 		ToolURL: func(sub string) string {

@@ -3,7 +3,6 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  {{template "link/skip" .}}
   {{template "partials/header" .}}
 
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
@@ -16,7 +15,7 @@
 
     {{/* GET, so results are shareable URLs; replace-url, as push-url adds a history step per pause. */}}
     <form action="/" hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
-          hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
+          hx-trigger="submit, input delay:300ms, change from:input[type=checkbox]" hx-sync="this:replace"
           class="mt-6">
       <div class="flex flex-wrap gap-2">
         <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"

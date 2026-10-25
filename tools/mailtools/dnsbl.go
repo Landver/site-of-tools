@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -168,7 +169,7 @@ func CachedDNSBLAudit(ctx context.Context, store *Store, target, dqsKey string) 
 // QueryDNSBLAudits performs parallel DNSBL checks for an IP or domain target.
 func QueryDNSBLAudits(ctx context.Context, target string, dqsKey string) (*DNSBLReport, error) {
 	start := time.Now()
-	target = strings.TrimSpace(strings.ToLower(target))
+	target = strings.Trim(strings.TrimSpace(strings.ToLower(target)), "[]")
 	if target == "" {
 		return nil, errors.New("target domain or IP address is required")
 	}
@@ -227,6 +228,38 @@ func QueryDNSBLAudits(ctx context.Context, target string, dqsKey string) (*DNSBL
 	return report, nil
 }
 
+var (
+	uriblBits = []struct {
+		mask int
+		name string
+	}{
+		{2, "Black (Spam)"},
+		{4, "Grey (Suspicious)"},
+		{8, "Red (Malware)"},
+	}
+	surblBits = []struct {
+		mask int
+		name string
+	}{
+		{2, "SpamCop"},
+		{4, "Web Spam"},
+		{8, "Phishing"},
+		{16, "Malware"},
+		{32, "Click Tracker"},
+		{64, "Abuse"},
+		{128, "Cracked"},
+	}
+)
+
+func lastOctet(ipStr string) int {
+	if idx := strings.LastIndex(ipStr, "."); idx != -1 {
+		if n, err := strconv.Atoi(ipStr[idx+1:]); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
 func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip net.IP, zone DNSBLZone, dqsKey string) DNSBLResult {
 	start := time.Now()
 	res := DNSBLResult{
@@ -252,7 +285,7 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 		if v4 := ip.To4(); v4 != nil {
 			queryName = fmt.Sprintf("%d.%d.%d.%d.%s.", v4[3], v4[2], v4[1], v4[0], lookupHost)
 		} else {
-			// IPv6 reverse nibbles omitted for brevity or handled if needed
+			res.LatencyMS = time.Since(start).Milliseconds()
 			res.Category = "IPv6 querying not supported by legacy zone"
 			return res
 		}
@@ -277,6 +310,14 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 	res.LatencyMS = time.Since(start).Milliseconds()
 
 	if err != nil || in == nil {
+		res.Category = "DNS Timeout / Network Error"
+		res.IsWarning = true
+		return res
+	}
+
+	if in.Rcode == dns.RcodeServerFailure || in.Rcode == dns.RcodeRefused {
+		res.Category = "DNS Server Failure / Refused"
+		res.IsWarning = true
 		return res
 	}
 
@@ -317,19 +358,12 @@ func parseReturnCode(res *DNSBLResult, code string) {
 			res.Category = "URIBL Notice: Public resolver query refused by zone operator"
 			return
 		}
-		parts := strings.Split(code, ".")
-		if len(parts) == 4 {
-			var octet int
-			fmt.Sscanf(parts[3], "%d", &octet)
+		if octet := lastOctet(code); octet > 0 {
 			var flags []string
-			if octet&2 != 0 {
-				flags = append(flags, "Black (Spam)")
-			}
-			if octet&4 != 0 {
-				flags = append(flags, "Grey (Suspicious)")
-			}
-			if octet&8 != 0 {
-				flags = append(flags, "Red (Malware)")
+			for _, b := range uriblBits {
+				if octet&b.mask != 0 {
+					flags = append(flags, b.name)
+				}
 			}
 			if len(flags) > 0 {
 				res.Listed = true
@@ -351,41 +385,20 @@ func parseReturnCode(res *DNSBLResult, code string) {
 			res.Category = "SURBL Notice: Public resolver query blocked by zone operator"
 			return
 		}
-		parts := strings.Split(code, ".")
-		if len(parts) == 4 {
-			var octet int
-			fmt.Sscanf(parts[3], "%d", &octet)
-			if octet >= 2 {
-				res.Listed = true
-				var types []string
-				if octet&2 != 0 {
-					types = append(types, "SpamCop")
+		if octet := lastOctet(code); octet >= 2 {
+			res.Listed = true
+			var types []string
+			for _, b := range surblBits {
+				if octet&b.mask != 0 {
+					types = append(types, b.name)
 				}
-				if octet&4 != 0 {
-					types = append(types, "Web Spam")
-				}
-				if octet&8 != 0 {
-					types = append(types, "Phishing")
-				}
-				if octet&16 != 0 {
-					types = append(types, "Malware")
-				}
-				if octet&32 != 0 {
-					types = append(types, "Click Tracker")
-				}
-				if octet&64 != 0 {
-					types = append(types, "Abuse")
-				}
-				if octet&128 != 0 {
-					types = append(types, "Cracked")
-				}
-				if len(types) > 0 {
-					res.Category = "Listed in SURBL: " + strings.Join(types, ", ")
-				} else {
-					res.Category = "Listed in SURBL Multi"
-				}
-				return
 			}
+			if len(types) > 0 {
+				res.Category = "Listed in SURBL: " + strings.Join(types, ", ")
+			} else {
+				res.Category = "Listed in SURBL Multi"
+			}
+			return
 		}
 		res.Listed = false
 		res.Category = "Clean / Not Listed"

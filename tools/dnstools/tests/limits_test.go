@@ -16,7 +16,7 @@ import (
 
 // limitsApp is one door onto lim, as main.go hands one Limits to REST and MCP.
 func limitsApp(lim *dnstools.Limits) *echo.Echo {
-	return registerApp(&goldenDNS{}, nil, nil, nil, lim)
+	return registerApp(&goldenDNS{}, nil, nil, lim)
 }
 
 // within fails the test if f waits: a full cap must refuse, never queue.
@@ -73,7 +73,7 @@ func TestDomainReportsHaveTheirOwnCap(t *testing.T) {
 	t.Parallel()
 	lim := dnstools.NewLimits()
 	dom, _ := canned(t, rdapBody(time.Now().AddDate(1, 0, 0)), http.StatusOK, "[]", http.StatusOK)
-	e := registerApp(&goldenDNS{}, nil, dom, nil, lim)
+	e := registerApp(&goldenDNS{}, nil, dom, lim)
 	const holder, client = "198.51.100.250", "203.0.113.35:1234"
 
 	lim.LookupCap.TryAcquire(holder, 8)

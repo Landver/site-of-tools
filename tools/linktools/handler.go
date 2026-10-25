@@ -167,13 +167,17 @@ func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string
 	return true, h.fail(c, vm, http.StatusBadRequest, msg, page)
 }
 
-func (h *handler) inspect(c *echo.Context) error {
-	raw := strings.TrimSpace(c.QueryParam("u"))
-	opt := CleanOptions{
+func parseCleanOptions(c *echo.Context) CleanOptions {
+	return CleanOptions{
 		Sort:           c.QueryParam("sort") == "true",
 		StripAffiliate: c.QueryParam("affiliate") == "true",
 		Unwrap:         c.QueryParam("unwrap") != "false",
 	}
+}
+
+func (h *handler) inspect(c *echo.Context) error {
+	raw := strings.TrimSpace(c.QueryParam("u"))
+	opt := parseCleanOptions(c)
 	vm := h.vm("inspect", "URL Inspector & Sanitizer", inspectDesc, raw)
 	vm["Sort"], vm["Affiliate"], vm["Unwrap"] = opt.Sort, opt.StripAffiliate, opt.Unwrap
 
@@ -201,11 +205,7 @@ func (h *handler) inspect(c *echo.Context) error {
 
 func (h *handler) clean(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	opt := CleanOptions{
-		Sort:           c.QueryParam("sort") == "true",
-		StripAffiliate: c.QueryParam("affiliate") == "true",
-		Unwrap:         c.QueryParam("unwrap") != "false", // on by default: it is the whole point
-	}
+	opt := parseCleanOptions(c)
 	vm := h.vm("clean", "Clean a URL", cleanDesc, raw)
 	vm["Sort"], vm["Affiliate"], vm["Unwrap"] = opt.Sort, opt.StripAffiliate, opt.Unwrap
 

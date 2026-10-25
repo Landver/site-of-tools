@@ -3,9 +3,8 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body x-data="{ tab: '{{if .PastedHeaders}}paste{{else}}url{{end}}' }">
-  {{template "link/skip" .}}
   {{template "partials/header" .}}
-  <main class="page-main" hx-history-elt>
+  <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "link/nav" .}}
     <h1 class="mt-1 text-2xl font-semibold text-strong">{{.Heading}}</h1>
     <p class="mt-2 text-sm text-muted">
@@ -52,7 +51,7 @@
 
     {{/* Mode 2: Paste Raw Headers */}}
     <div id="panel-paste" role="tabpanel" aria-labelledby="tab-paste" x-show="tab === 'paste'" class="mt-4">
-      <form action="/headers" method="post" hx-post="/headers" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
+      <form action="/headers" method="post" hx-post="/headers" hx-target="#result" hx-swap="innerHTML"
             class="space-y-3">
         <label class="block text-sm text-muted">
           Pasted HTTP Response Headers (from curl -I or browser DevTools Network tab)

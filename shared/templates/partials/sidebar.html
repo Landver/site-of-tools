@@ -53,18 +53,20 @@
     },
     {{end}}
   },
+  get queryTokens() {
+    const s = this.q.toLowerCase().trim();
+    return s ? s.split(/\s+/) : [];
+  },
   isToolMatch(secId, key) {
-    if (!this.q.trim()) return true;
+    const tokens = this.queryTokens;
+    if (tokens.length === 0) return true;
     const hay = this.toolsBySec[secId]?.[key];
-    if (!hay) return false;
-    const tokens = this.q.toLowerCase().trim().split(/\s+/);
-    return tokens.every(tok => hay.includes(tok));
+    return !!hay && tokens.every(tok => hay.includes(tok));
   },
   isSectionVisible(secId) {
-    if (!this.q.trim()) return true;
+    if (this.queryTokens.length === 0) return true;
     const sec = this.toolsBySec[secId];
-    if (!sec) return false;
-    return Object.keys(sec).some(key => this.isToolMatch(secId, key));
+    return !!sec && Object.keys(sec).some(key => this.isToolMatch(secId, key));
   },
   isTagMatch(tag) {
     if (!this.q.trim()) return false;
@@ -176,12 +178,8 @@ class="contents">
           {{$isActive := and $isCurrentSec (eq $tool.Key $currActive)}}
           
           <a {{if $isCurrentSec}}href="{{$tool.Path}}"{{else}}href="{{toolURL $sec.Subdomain}}{{$tool.Path}}"{{end}}
-             data-tool-item
              @click="if (window.innerWidth < 768) sidebarOpen = false"
              x-show="isToolMatch('{{$sec.ID}}', '{{$tool.Key}}')"
-             data-name="{{$tool.Name}}"
-             data-desc="{{$tool.ShortDesc}}"
-             data-tags="{{range $tool.Tech}}{{.}} {{end}}"
              title="{{$tool.ShortDesc}}"
              {{if $isActive}}aria-current="page"{{end}}
              class="group block w-full rounded-md px-2.5 py-2 transition text-left border focus-visible:outline-2 focus-visible:outline-brand {{if $isActive}}border-brand/40 bg-brand/10 text-strong shadow-xs{{else}}border-transparent bg-canvas hover:border-line hover:bg-surface text-body{{end}}">

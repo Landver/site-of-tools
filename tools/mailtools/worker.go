@@ -1,12 +1,11 @@
 package mailtools
 
 import (
-	"bufio"
 	"context"
 	"io"
 	"log"
 	"net/http"
-	"strings"
+	"slices"
 	"time"
 )
 
@@ -81,18 +80,7 @@ func syncDisposableDomains(ctx context.Context, store *Store) {
 		return
 	}
 
-	scanner := bufio.NewScanner(io.LimitReader(resp.Body, 10*1024*1024))
-	var validDomains []string
-	for scanner.Scan() {
-		l := strings.TrimSpace(scanner.Text())
-		if l != "" && !strings.HasPrefix(l, "#") {
-			validDomains = append(validDomains, l)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("[mailtools.worker] failed reading response stream: %v", err)
-		return
-	}
+	validDomains := readLines(io.LimitReader(resp.Body, 10*1024*1024))
 
 	// Whitelist Shield & Sanity Checks:
 	// 1. Must contain at least 5,000 domains.
@@ -101,31 +89,23 @@ func syncDisposableDomains(ctx context.Context, store *Store) {
 		return
 	}
 
-	// 2. Whitelist Shield: sanitize and strip whitelisted domains from disposable blocklist
-	sanitized := make([]string, 0, len(validDomains))
-	for _, d := range validDomains {
+	// 2. Whitelist Shield: sanitize and strip whitelisted domains from disposable blocklist in-place
+	validDomains = slices.DeleteFunc(validDomains, func(d string) bool {
 		if current.IsWhitelisted(d) {
 			log.Printf("[mailtools.worker] skipped whitelisted domain from update: %s", d)
-			continue
+			return true
 		}
-		sanitized = append(sanitized, d)
-	}
-	validDomains = sanitized
+		return false
+	})
 
 	// Prevent cold-boot clobbering
-	if len(current.FreemailDomains()) == 0 || len(current.WhitelistDomains()) == 0 {
+	if len(current.freemailExact) == 0 || len(current.whitelist) == 0 {
 		_ = InitFromEmbedded()
 		current = ActiveClassifier()
 	}
 
 	// Atomic hot-swap with preserved freemail, wildcards and whitelists
-	newClassifier := NewDomainClassifier(
-		validDomains,
-		current.WildcardPatterns(),
-		current.FreemailDomains(),
-		current.WhitelistDomains(),
-	)
-	SetGlobalClassifier(newClassifier)
+	SetGlobalClassifier(current.WithDisposable(validDomains))
 
 	etag := resp.Header.Get("ETag")
 	if store != nil {

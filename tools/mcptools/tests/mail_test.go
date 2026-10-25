@@ -109,3 +109,26 @@ ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
 		t.Errorf("expected broken chain to be marked invalid")
 	}
 }
+
+func TestMCP_MailCheckDisposable(t *testing.T) {
+	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
+
+	resDisp := object(t, call(t, cs, "mail_check_disposable", map[string]any{"domain": "test@mailinator.com"}))
+	if resDisp["is_disposable"] != true || resDisp["type"] != "disposable" {
+		t.Errorf("expected is_disposable: true for mailinator.com, got: %+v", resDisp)
+	}
+
+	resCorp := object(t, call(t, cs, "mail_check_disposable", map[string]any{"domain": "stripe.com"}))
+	if resCorp["is_disposable"] == true || resCorp["type"] != "corporate" {
+		t.Errorf("expected is_disposable: false for stripe.com, got: %+v", resCorp)
+	}
+}
+
+func TestMCP_MailClassifyDomain(t *testing.T) {
+	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
+
+	resFree := object(t, call(t, cs, "mail_classify_domain", map[string]any{"domain": "alex@gmail.com"}))
+	if resFree["is_freemail"] != true || resFree["type"] != "freemail" {
+		t.Errorf("expected is_freemail: true for gmail.com, got: %+v", resFree)
+	}
+}

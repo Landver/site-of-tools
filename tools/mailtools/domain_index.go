@@ -30,10 +30,11 @@ type DomainClassification struct {
 
 // DomainClassifier is an immutable, read-optimized in-memory index.
 type DomainClassifier struct {
-	disposableExact    map[string]struct{}
-	disposableWildcard []string
-	freemailExact      map[string]struct{}
-	whitelist          map[string]struct{}
+	disposableExact       map[string]struct{}
+	disposableWildcardSet map[string]struct{}
+	disposableWildcard    []string
+	freemailExact         map[string]struct{}
+	whitelist             map[string]struct{}
 }
 
 // Global active classifier reference for zero-lock reads.
@@ -71,9 +72,10 @@ func ActiveClassifier() *DomainClassifier {
 // NewDomainClassifier constructs an index from slice collections.
 func NewDomainClassifier(disposable, wildcards, freemail, whitelist []string) *DomainClassifier {
 	c := &DomainClassifier{
-		disposableExact: make(map[string]struct{}, len(disposable)),
-		freemailExact:   make(map[string]struct{}, len(freemail)),
-		whitelist:       make(map[string]struct{}, len(whitelist)),
+		disposableExact:       make(map[string]struct{}, len(disposable)),
+		disposableWildcardSet: make(map[string]struct{}, len(wildcards)),
+		freemailExact:         make(map[string]struct{}, len(freemail)),
+		whitelist:             make(map[string]struct{}, len(whitelist)),
 	}
 
 	for _, w := range whitelist {
@@ -97,6 +99,7 @@ func NewDomainClassifier(disposable, wildcards, freemail, whitelist []string) *D
 		w = cleanDomain(w)
 		if w != "" {
 			c.disposableWildcard = append(c.disposableWildcard, w)
+			c.disposableWildcardSet[w] = struct{}{}
 		}
 	}
 
@@ -108,6 +111,26 @@ func NewDomainClassifier(disposable, wildcards, freemail, whitelist []string) *D
 	}
 
 	return c
+}
+
+// WithDisposable returns a new DomainClassifier sharing freemail/whitelist maps with updated disposable domains.
+func (c *DomainClassifier) WithDisposable(disposable []string) *DomainClassifier {
+	next := &DomainClassifier{
+		disposableExact:       make(map[string]struct{}, len(disposable)),
+		disposableWildcardSet: c.disposableWildcardSet,
+		disposableWildcard:    c.disposableWildcard,
+		freemailExact:         c.freemailExact,
+		whitelist:             c.whitelist,
+	}
+	for _, d := range disposable {
+		d = cleanDomain(d)
+		if d != "" {
+			if _, ok := next.whitelist[d]; !ok {
+				next.disposableExact[d] = struct{}{}
+			}
+		}
+	}
+	return next
 }
 
 // InitFromEmbedded loads the embedded seed data into the global classifier.
@@ -148,6 +171,7 @@ func InitFromEmbedded() error {
 // ExtractDomain normalizes an email address or domain string to lowercase domain.
 func ExtractDomain(input string) string {
 	input = strings.TrimSpace(strings.ToLower(input))
+	input = strings.Trim(input, "[]")
 	if at := strings.LastIndex(input, "@"); at != -1 {
 		input = input[at+1:]
 	}
@@ -157,8 +181,11 @@ func ExtractDomain(input string) string {
 	if slash := strings.Index(input, "/"); slash != -1 {
 		input = input[:slash]
 	}
-	if colon := strings.Index(input, ":"); colon != -1 {
-		input = input[:colon]
+	// Only strip port if it's host:port, NOT an IPv6 address
+	if strings.Count(input, ":") == 1 {
+		if colon := strings.Index(input, ":"); colon != -1 {
+			input = input[:colon]
+		}
 	}
 	return cleanDomain(input)
 }
@@ -211,10 +238,14 @@ func (c *DomainClassifier) IsDisposable(domain string) (bool, string) {
 		}
 	}
 
-	// Wildcard checks
-	for _, w := range c.disposableWildcard {
-		if domain == w || strings.HasSuffix(domain, "."+w) {
-			return true, "matches wildcard pattern *." + w
+	// Wildcard checks: O(1) set lookup on root domain and parent subdomains
+	if _, ok := c.disposableWildcardSet[domain]; ok {
+		return true, "matches wildcard pattern *." + domain
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		parent := strings.Join(parts[i:], ".")
+		if _, ok := c.disposableWildcardSet[parent]; ok {
+			return true, "matches wildcard pattern *." + parent
 		}
 	}
 

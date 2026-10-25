@@ -3,7 +3,6 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  {{template "mail/skip" .}}
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
@@ -40,9 +39,9 @@
 
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span class="text-faint">Try sample:</span>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=input]'); inp.value = 'john@uber.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">uber.com</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=input]'); inp.value = 'alex@proton.me'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">proton.me</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=input]'); inp.value = 'user@yahoo.co.jp'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">yahoo.co.jp</button>
+          <button type="button" data-sample="john@uber.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">uber.com</button>
+          <button type="button" data-sample="alex@proton.me" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">proton.me</button>
+          <button type="button" data-sample="user@yahoo.co.jp" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">yahoo.co.jp</button>
         </div>
       </form>
     </div>

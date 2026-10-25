@@ -30,7 +30,6 @@ type Deps struct {
 	Geo          iptools.Looker // with Shodan
 	DNSGeo       iptools.Looker // the same without Shodan
 	Blocklist    iptools.Checker
-	DNSBlocklist dnstools.BlockChecker
 	DNS          dnstools.Looker
 	Domain       *dnstools.DomainClient
 	Link         *linktools.Service

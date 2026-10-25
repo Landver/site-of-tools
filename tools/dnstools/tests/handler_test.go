@@ -45,17 +45,17 @@ func (f *fakeGeo) Lookup(string) (*iptools.Result, error) { return f.res, nil }
 // newApp serves the tool without RDAP/CT or the reputation card, with limits of its own.
 func newApp(t *testing.T, svc dnstools.Looker, geo iptools.Looker) *echo.Echo {
 	t.Helper()
-	return registerApp(svc, geo, nil, nil, nil)
+	return registerApp(svc, geo, nil, nil)
 }
 
 // registerApp renders from the embedded templates, so tests do not depend on the cwd.
-func registerApp(svc dnstools.Looker, geo iptools.Looker, dom *dnstools.DomainClient, bl dnstools.BlockChecker, lim *dnstools.Limits) *echo.Echo {
+func registerApp(svc dnstools.Looker, geo iptools.Looker, dom *dnstools.DomainClient, lim *dnstools.Limits) *echo.Echo {
 	e := echo.New()
 	e.Renderer = platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 	)
-	dnstools.Register(e, svc, geo, dom, bl, lim)
+	dnstools.Register(e, svc, geo, dom, lim)
 	return e
 }
 

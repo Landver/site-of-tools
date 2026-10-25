@@ -160,7 +160,6 @@ type dnsCase struct {
 	svc    dnstools.Looker
 	geo    iptools.Looker
 	dom    *dnstools.DomainClient
-	bl     dnstools.BlockChecker
 	scrub  string
 }
 
@@ -168,7 +167,7 @@ func runDNSGolden(t *testing.T, file string, cases []dnsCase) {
 	t.Helper()
 	got := map[string]goldentest.Response{}
 	for _, tc := range cases {
-		rec := do(t, registerApp(tc.svc, tc.geo, tc.dom, tc.bl, nil), tc.target, nil)
+		rec := do(t, registerApp(tc.svc, tc.geo, tc.dom, nil), tc.target, nil)
 		body := rec.Body.String()
 		if tc.scrub != "" {
 			body = strings.ReplaceAll(body, tc.scrub, "upstream.test")

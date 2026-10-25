@@ -124,9 +124,12 @@ func DetectGateway(ctx context.Context, domain string) (*GatewayAudit, error) {
 		return audit, nil
 	}
 
-	// Sort MX by preference (lowest preference number = highest priority)
+	// Sort MX by preference (lowest preference number = highest priority), with host tie-breaker
 	slices.SortFunc(netMXs, func(a, b *net.MX) int {
-		return cmp.Compare(a.Pref, b.Pref)
+		if c := cmp.Compare(a.Pref, b.Pref); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Host, b.Host)
 	})
 
 	for _, m := range netMXs {
@@ -164,22 +167,28 @@ func DetectGateway(ctx context.Context, domain string) (*GatewayAudit, error) {
 	}
 
 	// Redundancy: multiple MX records OR a distributed cloud gateway (M365, Google, Proofpoint, Mimecast)
-	audit.HasRedundancy = len(audit.MXRecords) > 1 || primaryVendor == VendorMicrosoft || primaryVendor == VendorGoogle || primaryVendor == VendorProofpoint || primaryVendor == VendorMimecast
+	audit.HasRedundancy = len(audit.MXRecords) > 1 || isDistributedGateway(primaryVendor)
 
 	// Direct-to-MX Bypass Vulnerability Detection:
 	// If primary MX is protected by a commercial SEG (e.g. Proofpoint) but a backup/fallback MX
 	// points directly to self-hosted server or a different unhardened provider.
 	if primaryVendor != VendorGeneric && primaryVendor != VendorNullMX {
-		for _, bv := range backupVendors {
-			if bv != primaryVendor {
-				audit.HasDirectMXRisk = true
-				audit.DirectMXWarning = "Mixed MX providers detected: backup MX may allow attackers to bypass primary security gateway (" + string(primaryVendor) + ") via direct-to-MX routing."
-				break
-			}
+		if slices.ContainsFunc(backupVendors, func(bv GatewayVendor) bool { return bv != primaryVendor }) {
+			audit.HasDirectMXRisk = true
+			audit.DirectMXWarning = "Mixed MX providers detected: backup MX may allow attackers to bypass primary security gateway (" + string(primaryVendor) + ") via direct-to-MX routing."
 		}
 	}
 
 	return audit, nil
+}
+
+func isDistributedGateway(v GatewayVendor) bool {
+	switch v {
+	case VendorMicrosoft, VendorGoogle, VendorProofpoint, VendorMimecast:
+		return true
+	default:
+		return false
+	}
 }
 
 func matchVendor(host string) (GatewayVendor, []string) {

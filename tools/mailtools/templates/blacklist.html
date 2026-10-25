@@ -3,7 +3,6 @@
 <html lang="en">
 {{template "partials/head" .}}
 <body>
-  {{template "mail/skip" .}}
   {{template "partials/header" .}}
   <main id="main" tabindex="-1" class="page-main" hx-history-elt>
     {{template "mail/nav" .}}
@@ -40,9 +39,9 @@
 
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span class="text-faint">Try sample:</span>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=target]'); inp.value = '127.0.0.2'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">127.0.0.2 (Test IP)</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=target]'); inp.value = '8.8.8.8'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">8.8.8.8 (Google DNS)</button>
-          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=target]'); inp.value = 'stripe.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">stripe.com (Domain)</button>
+          <button type="button" data-sample="127.0.0.2" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">127.0.0.2 (Test IP)</button>
+          <button type="button" data-sample="8.8.8.8" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">8.8.8.8 (Google DNS)</button>
+          <button type="button" data-sample="stripe.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">stripe.com (Domain)</button>
         </div>
       </form>
     </div>
@@ -105,7 +104,7 @@
                   LISTED: {{.Category}}
                 </span>
               {{else if .IsWarning}}
-                <span class="inline-flex items-center gap-1 rounded bg-warn/10 px-2 py-0.5 text-warn">
+                <span class="badge badge-warn">
                   {{.Category}}
                 </span>
               {{else}}

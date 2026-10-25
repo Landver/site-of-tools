@@ -2,8 +2,6 @@ package tests
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -63,15 +61,17 @@ func TestAuditDomainHealthEnriched(t *testing.T) {
 }
 
 func TestMTASTSPolicyParsing(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("version: STSv1\nmode: enforce\nmx: mail.example.com\nmx: *.example.com\nmax_age: 604800\n"))
-	}))
-	defer srv.Close()
+	rawPolicy := "version: STSv1\nmode: ENFORCE\nmx: mail.example.com\nmx: *.example.com\nmax_age: 604800\n"
+	var res mailtools.MTASTSAnalysis
+	mailtools.ParseMTASTSPolicy(rawPolicy, &res)
 
-	// Test that policy format parses cleanly
-	if srv.URL == "" {
-		t.Fatal("server failed to start")
+	if res.Mode != "enforce" {
+		t.Errorf("Mode: want enforce, got %q", res.Mode)
+	}
+	if res.MaxAge != 604800 {
+		t.Errorf("MaxAge: want 604800, got %d", res.MaxAge)
+	}
+	if len(res.MXPatterns) != 2 || res.MXPatterns[0] != "mail.example.com" || res.MXPatterns[1] != "*.example.com" {
+		t.Errorf("MXPatterns unexpected: %+v", res.MXPatterns)
 	}
 }

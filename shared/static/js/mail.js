@@ -23,7 +23,18 @@
         pending.delete(m.id);
       }
     };
-    worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
+    worker.onerror = (e) => {
+      const err = new Error(e.message || "worker failed");
+      reject(err);
+      for (const [id, res] of pending) {
+        res('<div class="alert-error" role="alert">Worker error: ' + (e.message || "engine stopped") + '</div>');
+      }
+      pending.clear();
+      for (const f of document.querySelectorAll("form[data-mail]")) {
+        const btn = f.querySelector("button[type=submit]");
+        if (btn) btn.disabled = false;
+      }
+    };
     worker.postMessage({ type: "init", wasm: box.dataset.wasm, wasmExec: box.dataset.wasmExec });
   });
 
@@ -62,6 +73,9 @@
     if (button) button.disabled = false;
     if (latest.get(form) === id) {
       target.innerHTML = html;
+      if (window.Alpine && window.Alpine.initTree) {
+        window.Alpine.initTree(target);
+      }
       if (window.innerWidth < 768 && target.getBoundingClientRect().top > window.innerHeight) {
         target.scrollIntoView({ behavior: "smooth" });
       }
@@ -99,4 +113,35 @@
       }
     });
   }
+
+  // Delegated click handler for "Try sample" chips across all mail forms
+  document.addEventListener("click", (e) => {
+    const sampleBtn = e.target.closest("[data-sample]");
+    if (sampleBtn) {
+      const form = sampleBtn.closest("form");
+      if (!form) return;
+      const input = form.querySelector("input[name=domain], input[name=input], input[name=target]");
+      if (!input) return;
+      input.value = sampleBtn.dataset.sample;
+      if (form.requestSubmit) form.requestSubmit();
+      else form.submit();
+      return;
+    }
+
+    // Delegated click handler for BIMI auto-fixed SVG download
+    const dlBtn = e.target.closest("[data-download-bimi]");
+    if (dlBtn) {
+      const content = document.querySelector("#bimi-svg-content")?.value;
+      if (!content) return;
+      const blob = new Blob([content], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "bimi-tiny-ps.svg";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  });
 })();
