@@ -24,6 +24,7 @@ type DNSBLCacheEntry struct {
 	Target       string        `bson:"target" json:"target"`
 	Results      []DNSBLResult `bson:"results" json:"results"`
 	ListedCount  int           `bson:"listed_count" json:"listed_count"`
+	WarningCount int           `bson:"warning_count" json:"warning_count"`
 	TotalChecked int           `bson:"total_checked" json:"total_checked"`
 	CreatedAt    time.Time     `bson:"created_at" json:"created_at"`
 }
@@ -74,7 +75,7 @@ func (s *Store) GetDNSBLCache(ctx context.Context, target string) (*DNSBLCacheEn
 }
 
 // SaveDNSBLCache stores DNSBL query results in MongoDB with auto-expiring TTL.
-func (s *Store) SaveDNSBLCache(ctx context.Context, target string, results []DNSBLResult, listed, total int) {
+func (s *Store) SaveDNSBLCache(ctx context.Context, target string, results []DNSBLResult, listed, warnings, total int) {
 	if s == nil || s.dnsblColl == nil {
 		return
 	}
@@ -83,6 +84,7 @@ func (s *Store) SaveDNSBLCache(ctx context.Context, target string, results []DNS
 		"target":        target,
 		"results":       results,
 		"listed_count":  listed,
+		"warning_count": warnings,
 		"total_checked": total,
 		"created_at":    time.Now().UTC(),
 	}}

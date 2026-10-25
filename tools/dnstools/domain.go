@@ -132,13 +132,16 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient
 
 // WithEgressGuard sends every dial off the configured hosts through g. Nil-safe.
 func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
-	if d != nil {
+	if d != nil && g != nil {
 		d.client = d.httpClient(d.client.Timeout, g)
 	}
 	return d
 }
 
 func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
+	if g == nil {
+		g = platform.NewEgressGuard([]string{"80", "443"}, nil)
+	}
 	base := map[string]bool{}
 	for _, raw := range []string{d.rdapURL, d.ctURL} {
 		if u, err := url.Parse(raw); err == nil && u.Host != "" {

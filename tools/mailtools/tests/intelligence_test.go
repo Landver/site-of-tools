@@ -393,7 +393,7 @@ func TestStore_NilSafety(t *testing.T) {
 	}
 
 	// Must not panic
-	s.SaveDNSBLCache(ctx, "target.com", nil, 0, 0)
+	s.SaveDNSBLCache(ctx, "target.com", nil, 0, 0, 0)
 
 	meta, err := s.GetSyncMeta(ctx, "disposable")
 	if meta != nil || err != nil {

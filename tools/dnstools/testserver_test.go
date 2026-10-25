@@ -83,14 +83,6 @@ func zoneKey(name, qtype string) string {
 	return strings.ToLower(dns.Fqdn(name)) + "|" + strings.ToUpper(qtype)
 }
 
-func spfZone(records map[string]string) testZone {
-	z := testZone{}
-	for name, txt := range records {
-		z[zoneKey(name, "TXT")] = []string{dns.Fqdn(name) + ` 300 IN TXT "` + txt + `"`}
-	}
-	return z
-}
-
 // serveZone serves z on loopback: key is for LookupSet, addr for internals that take one (lookup, checkSPF, repRun).
 func serveZone(t *testing.T, z testZone) (key, addr string) {
 	t.Helper()

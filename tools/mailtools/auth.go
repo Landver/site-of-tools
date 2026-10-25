@@ -145,10 +145,11 @@ func lookupTXTWithPrefix(ctx context.Context, r *net.Resolver, domain, prefix st
 	if err != nil {
 		return nil
 	}
+	pfxLower := strings.ToLower(prefix)
 	var matches []string
 	for _, txt := range txts {
 		tr := strings.TrimSpace(txt)
-		if strings.HasPrefix(tr, prefix) {
+		if strings.HasPrefix(strings.ToLower(tr), pfxLower) {
 			matches = append(matches, tr)
 		}
 	}
@@ -264,8 +265,17 @@ func checkSPF(ctx context.Context, domain string) *SPFAnalysis {
 		res.Status = "pass"
 		res.StatusMsg = fmt.Sprintf("Soft fail (~all) with %d of 10 DNS lookups used", res.Lookups)
 	default:
-		res.Status = "pass"
-		res.StatusMsg = fmt.Sprintf("%d of 10 DNS lookups used", res.Lookups)
+		hasRedirect := slices.ContainsFunc(strings.Fields(res.Record), func(tok string) bool {
+			name, _ := spfTerm(tok)
+			return name == "redirect"
+		})
+		if !hasRedirect {
+			res.Status = "warn"
+			res.StatusMsg = "No terminal all mechanism (+all/-all/~all) or redirect published"
+		} else {
+			res.Status = "pass"
+			res.StatusMsg = fmt.Sprintf("%d of 10 DNS lookups used (delegated via redirect)", res.Lookups)
+		}
 	}
 
 	return res
@@ -312,19 +322,35 @@ func checkDMARC(ctx context.Context, domain string) *DMARCAnalysis {
 				res.StatusMsg = "Syntax error: DMARC record missing mandatory 'p' tag (RFC 7489 §6.3)"
 				return res
 			}
-			switch res.Policy {
+			effectivePolicy := res.Policy
+			if res.Inherited && res.SubPolicy != "" {
+				effectivePolicy = res.SubPolicy
+			}
+			switch effectivePolicy {
 			case "reject":
 				res.Status = "pass"
-				res.StatusMsg = "Strict Reject policy (p=reject): unauthorized mail is blocked"
+				if res.Inherited && res.SubPolicy != "" {
+					res.StatusMsg = "Strict Reject subdomain policy (sp=reject): unauthorized mail is blocked"
+				} else {
+					res.StatusMsg = "Strict Reject policy (p=reject): unauthorized mail is blocked"
+				}
 			case "quarantine":
 				res.Status = "pass"
-				res.StatusMsg = "Quarantine policy (p=quarantine): unauthorized mail is routed to spam"
+				if res.Inherited && res.SubPolicy != "" {
+					res.StatusMsg = "Quarantine subdomain policy (sp=quarantine): unauthorized mail is routed to spam"
+				} else {
+					res.StatusMsg = "Quarantine policy (p=quarantine): unauthorized mail is routed to spam"
+				}
 			case "none":
 				res.Status = "warn"
-				res.StatusMsg = "Monitoring only (p=none): unauthorized senders are not blocked"
+				if res.Inherited && res.SubPolicy != "" {
+					res.StatusMsg = "Monitoring only (sp=none): unauthorized senders are not blocked"
+				} else {
+					res.StatusMsg = "Monitoring only (p=none): unauthorized senders are not blocked"
+				}
 			default:
 				res.Status = "fail"
-				res.StatusMsg = fmt.Sprintf("Invalid DMARC policy %q: must be reject, quarantine, or none", res.Policy)
+				res.StatusMsg = fmt.Sprintf("Invalid DMARC policy %q: must be reject, quarantine, or none", effectivePolicy)
 			}
 			return res
 		}

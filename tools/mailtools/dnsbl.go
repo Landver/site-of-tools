@@ -96,6 +96,7 @@ func CachedDNSBLAudit(ctx context.Context, store *Store, target, dqsKey string) 
 				IsIP:         net.ParseIP(target) != nil,
 				TotalChecked: cached.TotalChecked,
 				ListedCount:  cached.ListedCount,
+				WarningCount: cached.WarningCount,
 				Results:      cached.Results,
 			}, nil
 		}
@@ -107,7 +108,7 @@ func CachedDNSBLAudit(ctx context.Context, store *Store, target, dqsKey string) 
 	}
 
 	if store != nil {
-		store.SaveDNSBLCache(ctx, target, res.Results, res.ListedCount, res.TotalChecked)
+		store.SaveDNSBLCache(ctx, target, res.Results, res.ListedCount, res.WarningCount, res.TotalChecked)
 	}
 	return res, nil
 }
@@ -289,7 +290,7 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 	var err error
 	for _, srv := range systemResolvers {
 		in, _, err = client.ExchangeContext(ctx, m, srv)
-		if err == nil && in != nil {
+		if err == nil && in != nil && in.Rcode != dns.RcodeServerFailure && in.Rcode != dns.RcodeRefused {
 			break
 		}
 	}
@@ -399,6 +400,23 @@ func parseReturnCode(res *DNSBLResult, code string) {
 	if strings.Contains(res.Zone, "dronebl.org") && (code == "127.0.0.1" || code == "127.0.0.2") {
 		res.Listed = true
 		res.Category = "Listed in DroneBL: Compromised botnet or open proxy"
+		return
+	}
+
+	if strings.Contains(res.Zone, "rep.mailspike.net") {
+		switch code {
+		case "127.0.0.10", "127.0.0.11", "127.0.0.12", "127.0.0.13", "127.0.0.14":
+			res.Listed = true
+			res.Category = "Listed in Mailspike: Bad sender reputation (L1-L5)"
+		case "127.0.0.15", "127.0.0.16":
+			res.IsWarning = true
+			res.Category = "Mailspike Notice: Neutral / suspicious sender reputation"
+		case "127.0.0.17", "127.0.0.18", "127.0.0.19", "127.0.0.20":
+			res.Listed = false
+			res.Category = "Clean: High sender reputation (H1-H5 in Mailspike)"
+		default:
+			res.Category = "Clean / Not Listed"
+		}
 		return
 	}
 

@@ -138,6 +138,7 @@
 
         var form = btn.closest("form") || (btn.getAttribute("data-form") ? document.querySelector(btn.getAttribute("data-form")) : null);
         var hasMulti = false;
+        var populated = false;
 
         for (var i = 0; i < btn.attributes.length; i++) {
           var attr = btn.attributes[i];
@@ -146,6 +147,7 @@
             var f = form || document;
             var targetInp = f.querySelector("[name='" + attr.name.substring("data-sample-".length) + "']");
             if (targetInp) {
+              populated = true;
               var pd = targetInp.closest("details");
               if (pd) pd.open = true;
               targetInp.value = attr.value;
@@ -160,10 +162,11 @@
           var inp = selector ? ((form ? form.querySelector(selector) : null) || document.querySelector(selector)) : null;
           if (!inp && form) {
             inp = form.querySelector(
-              "input[name=domain], input[name=name], input[name=ip], input[name=cidr], input[name=u], input[name=input], input[name=target], input[name=q], textarea[name=xml], textarea[name=curl], textarea[name=headers], textarea[name=token], textarea[name=cert], textarea[name=text], textarea[name=key], textarea[name=sample], textarea, input[type=text], input:not([type])"
+              "input[name=domain], input[name=name], input[name=ip], input[name=cidr], input[name=u], input[name=input], input[name=target], input[name=q], input[name=password], input[name=passphrase], input[name=url], textarea[name=xml], textarea[name=curl], textarea[name=headers], textarea[name=token], textarea[name=cert], textarea[name=text], textarea[name=key], textarea[name=sample], textarea, input[type=text], input[type=password], input[type=url], input:not([type])"
             );
           }
           if (inp) {
+            populated = true;
             var parentDetails = inp.closest("details");
             if (parentDetails) parentDetails.open = true;
             var val = btn.getAttribute("data-sample");
@@ -174,8 +177,8 @@
           }
         }
 
-        if (btn.getAttribute("data-submit") !== "false" && form) {
-          if (typeof form.requestSubmit === "function") form.requestSubmit();
+        if (populated && btn.getAttribute("data-submit") !== "false" && form) {
+          if (typeof form.requestSubmit === "function") form.requestSubmit(btn);
           else form.submit();
         }
       });

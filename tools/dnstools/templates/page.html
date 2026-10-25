@@ -28,13 +28,10 @@
       Follows the delegation from a root server down to the zone that owns the name, asking each server
       directly with recursion off, and checks the DNSSEC chain itself against the IANA root keys rather
       than trusting a resolver's AD bit. Every hop is shown, with its server, glue and timing.
-      {{else if eq $a "domain"}}
+      {{else}}
       Two things DNS can't tell you: which registrar holds this name and when it expires (RDAP), and which
       subdomains have had public certificates (Certificate Transparency). Both are public, and neither sends
       a packet at the domain.
-      {{else}}
-      SPF, DMARC, DKIM, MTA-STS, TLS-RPT and BIMI for a domain, plus whether its inbound mail servers are on
-      a blocklist. SPF is checked against its 10-lookup limit: over it, SPF fails for every message, silently.
       {{end}}
     </p>
 
@@ -83,14 +80,10 @@
           <button type="button" data-sample="cloudflare.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">cloudflare.com</button>
           <button type="button" data-sample="verisign.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">verisign.com</button>
           <button type="button" data-sample="nlnetlabs.nl" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">nlnetlabs.nl</button>
-        {{else if eq $a "domain"}}
+        {{else}}
           <button type="button" data-sample="github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">github.com</button>
           <button type="button" data-sample="openai.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">openai.com</button>
           <button type="button" data-sample="apple.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">apple.com</button>
-        {{else}}
-          <button type="button" data-sample="github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">github.com</button>
-          <button type="button" data-sample="stripe.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">stripe.com</button>
-          <button type="button" data-sample="google.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">google.com</button>
         {{end}}
       </div>
     </form>
