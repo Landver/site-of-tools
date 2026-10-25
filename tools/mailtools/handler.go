@@ -53,16 +53,18 @@ func Register(e *echo.Echo, base string, svc *Service, lim *Limits) {
 	h := &handler{base: base, svc: svc, lim: lim}
 
 	pure := platform.RateLimit(lim.Pure, nil, limited)
-	skipEmpty := func(c *echo.Context) bool {
-		return formOrQuery(c, "domain", "target", "input", "q") == ""
+	// An audit spends the heavy budget only when the route has an input to run on.
+	audit := func(keys []string) []echo.MiddlewareFunc {
+		empty := func(c *echo.Context) bool { return formOrQuery(c, keys...) == "" }
+		return []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, empty, limited), capped(lim.HeavyCap, empty)}
 	}
-	audit := []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, skipEmpty, limited), capped(lim.HeavyCap, skipEmpty)}
+	health, blacklist := audit(healthKeys), audit(blacklistKeys)
 	parse := []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, nil, limited), capped(lim.HeavyCap, nil)}
 
-	e.GET("/", h.health, audit...)
-	e.GET("/health", h.health, audit...)
-	e.POST("/", h.health, audit...)
-	e.POST("/health", h.health, audit...)
+	e.GET("/", h.health, health...)
+	e.GET("/health", h.health, health...)
+	e.POST("/", h.health, health...)
+	e.POST("/health", h.health, health...)
 
 	e.GET("/disposable", h.disposable, pure)
 	e.POST("/disposable", h.disposable, pure)
@@ -70,8 +72,8 @@ func Register(e *echo.Echo, base string, svc *Service, lim *Limits) {
 	e.GET("/classifier", h.classifier, pure)
 	e.POST("/classifier", h.classifier, pure)
 
-	e.GET("/blacklist", h.blacklist, audit...)
-	e.POST("/blacklist", h.blacklist, audit...)
+	e.GET("/blacklist", h.blacklist, blacklist...)
+	e.POST("/blacklist", h.blacklist, blacklist...)
 
 	e.GET("/dmarc", h.dmarc, pure)
 	e.POST("/dmarc", h.dmarc, parse...)
@@ -102,14 +104,16 @@ func (h *handler) vm(active, heading, desc string) map[string]any {
 	}
 }
 
+// The inputs each audit reads, which also decide whether a request spends the heavy budget.
+var (
+	healthKeys    = []string{"domain", "input"}
+	blacklistKeys = []string{"target", "domain", "ip", "input"}
+)
+
+// formOrQuery is the first of keys the request carries; FormValue reads the body, then the query.
 func formOrQuery(c *echo.Context, keys ...string) string {
 	for _, k := range keys {
 		if v := strings.TrimSpace(c.FormValue(k)); v != "" {
-			return v
-		}
-	}
-	for _, k := range keys {
-		if v := strings.TrimSpace(c.QueryParam(k)); v != "" {
 			return v
 		}
 	}
@@ -118,7 +122,7 @@ func formOrQuery(c *echo.Context, keys ...string) string {
 
 func (h *handler) health(c *echo.Context) error {
 	vm := h.vm("health", "Domain & Email Intelligence Audit", healthDesc)
-	target := formOrQuery(c, "domain", "input")
+	target := formOrQuery(c, healthKeys...)
 	if target == "" {
 		if c.Request().Method == http.MethodGet {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
@@ -165,7 +169,7 @@ func (h *handler) classifier(c *echo.Context) error {
 
 func (h *handler) blacklist(c *echo.Context) error {
 	vm := h.vm("blacklist", "Real-Time Multi-DNSBL Reputation Checker", blacklistDesc)
-	target := formOrQuery(c, "target", "domain", "ip", "input")
+	target := formOrQuery(c, blacklistKeys...)
 	if target == "" {
 		if c.Request().Method == http.MethodGet {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/blacklist", "mail/blacklist-result")

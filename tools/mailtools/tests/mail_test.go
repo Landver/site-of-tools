@@ -526,6 +526,8 @@ func TestHeavyCap(t *testing.T) {
 		{http.MethodGet, "/blacklist", http.StatusOK},
 		{http.MethodGet, "/health?domain=example.com", http.StatusServiceUnavailable},
 		{http.MethodGet, "/blacklist?target=127.0.0.2", http.StatusServiceUnavailable},
+		{http.MethodGet, "/blacklist?ip=127.0.0.2", http.StatusServiceUnavailable},
+		{http.MethodGet, "/?input=example.com", http.StatusServiceUnavailable},
 		{http.MethodPost, "/dmarc", http.StatusServiceUnavailable},
 		{http.MethodPost, "/dmarc/parse", http.StatusServiceUnavailable},
 	} {
