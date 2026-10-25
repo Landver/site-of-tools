@@ -323,7 +323,7 @@ func (t linkTools) resolve(ctx context.Context, a linkResolveArgs) (any, error) 
 	if err != nil {
 		return nil, publicError(t.log, "link_short_resolve", err)
 	}
-	return map[string]string{"code": l.Code, "short": t.short.ShortURL(l.Code), "target": l.Target}, nil
+	return map[string]string{"code": l.Code, "short": l.Short, "target": l.Target}, nil
 }
 
 // publicError logs a store failure's detail, which can name hosts, and hides it.

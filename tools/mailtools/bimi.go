@@ -16,6 +16,7 @@ import (
 
 const (
 	maxBIMIFileSize = 32 * 1024
+	maxBIMIInput    = 2 * maxBIMIFileSize // room to report an oversized logo, not to parse anything
 	svgNS           = "http://www.w3.org/2000/svg"
 )
 
@@ -129,6 +130,9 @@ type svgDoc struct {
 }
 
 func parseSVG(rawSVG string) (*svgDoc, error) {
+	if len(rawSVG) > maxBIMIInput {
+		return nil, fmt.Errorf("SVG exceeds %d KB", maxBIMIInput>>10)
+	}
 	doc := &svgDoc{src: strings.TrimSpace(rawSVG)}
 	if doc.src == "" {
 		return nil, errors.New("empty SVG content")

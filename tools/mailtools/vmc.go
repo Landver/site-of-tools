@@ -3,10 +3,12 @@ package mailtools
 import (
 	"context"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -84,7 +86,6 @@ func (s *Service) validateVMC(ctx context.Context, audit *BIMIAudit, vmcURL *url
 		return
 	}
 
-	// Parse PEM blocks
 	var certs []*x509.Certificate
 	data := body
 	for {
@@ -118,7 +119,6 @@ func (s *Service) validateVMC(ctx context.Context, audit *BIMIAudit, vmcURL *url
 	audit.VMCExpiresAt = leaf.NotAfter
 	audit.VMCDaysLeft = int(time.Until(leaf.NotAfter).Hours() / 24)
 
-	// Expiry check
 	now := time.Now()
 	if now.Before(leaf.NotBefore) {
 		audit.Errors = append(audit.Errors, fmt.Sprintf("VMC is not valid yet (NotBefore: %s)", leaf.NotBefore.Format("2006-01-02")))
@@ -128,38 +128,21 @@ func (s *Service) validateVMC(ctx context.Context, audit *BIMIAudit, vmcURL *url
 		audit.Warnings = append(audit.Warnings, fmt.Sprintf("VMC certificate expires in %d days", audit.VMCDaysLeft))
 	}
 
-	// Issuer check against approved MVAs
-	issuerLower := strings.ToLower(leaf.Issuer.CommonName + " " + strings.Join(leaf.Issuer.Organization, " "))
-	isApprovedMVA := false
-	for _, app := range approvedMVAPatterns {
-		if strings.Contains(issuerLower, app) {
-			isApprovedMVA = true
-			break
-		}
-	}
-	if !isApprovedMVA {
+	issuer := strings.ToLower(leaf.Issuer.CommonName + " " + strings.Join(leaf.Issuer.Organization, " "))
+	if !slices.ContainsFunc(approvedMVAPatterns, func(p string) bool { return strings.Contains(issuer, p) }) {
 		audit.Warnings = append(audit.Warnings, fmt.Sprintf("Issuer '%s' is not recognized as a BIMI Group accredited Mark Verifying Authority (DigiCert, GlobalSign, SSL.com)", leaf.Issuer.CommonName))
 	}
 
-	// SAN check: does certificate match the domain using RFC-compliant verification?
 	if err := leaf.VerifyHostname(audit.Domain); err == nil {
 		audit.SANMatch = true
 	} else {
 		audit.Errors = append(audit.Errors, fmt.Sprintf("Domain '%s' does not match Subject Alternative Names in VMC (%s): %v", audit.Domain, strings.Join(leaf.DNSNames, ", "), err))
 	}
 
-	// Check RFC 3709 logotype extension
-	for _, ext := range leaf.Extensions {
-		if ext.Id.Equal(oidLogotype) {
-			audit.HasLogotypeExt = true
-			break
-		}
-	}
+	audit.HasLogotypeExt = slices.ContainsFunc(leaf.Extensions, func(e pkix.Extension) bool { return e.Id.Equal(oidLogotype) })
 	if !audit.HasLogotypeExt {
 		audit.Warnings = append(audit.Warnings, "Certificate is missing RFC 3709 embedded logotype extension (id-pe-logotype)")
 	}
 
-	if len(audit.Errors) == 0 {
-		audit.VMCValid = true
-	}
+	audit.VMCValid = len(audit.Errors) == 0
 }

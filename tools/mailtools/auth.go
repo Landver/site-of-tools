@@ -311,12 +311,14 @@ func parseTXTTags(rec string) map[string]string {
 	return tags
 }
 
-// checkDKIM probes common selectors in parallel and detects wildcard DNS configurations.
+// checkDKIM probes common selectors in parallel, unless a wildcard answers for every one of them.
 func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
-	analysis := &DKIMAnalysis{}
 	// A key at a made-up selector means *._domainkey answers for every name.
 	canary := fmt.Sprintf("probe-wildcard-%d._domainkey.%s", time.Now().UnixNano()%10000, domain)
-	analysis.Wildcard = dkimKey(ctx, canary) != ""
+	if dkimKey(ctx, canary) != "" {
+		return &DKIMAnalysis{Wildcard: true, Status: "warn",
+			StatusMsg: "Wildcard DKIM record detected (*._domainkey): all selectors resolve to wildcard key"}
+	}
 
 	recs := make([]string, len(commonDKIMSelectors))
 	var wg sync.WaitGroup
@@ -325,38 +327,22 @@ func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
 	}
 	wg.Wait()
 
-	if !analysis.Wildcard {
-		for i, rec := range recs {
-			if rec == "" {
-				continue
-			}
-			if parseTXTTags(rec)["p"] != "" {
-				analysis.FoundSelectors = append(analysis.FoundSelectors, DKIMSelectorInfo{
-					Selector: commonDKIMSelectors[i],
-					Record:   rec,
-					Status:   "active",
-				})
-			} else {
-				analysis.Revoked = append(analysis.Revoked, commonDKIMSelectors[i])
-			}
+	analysis := &DKIMAnalysis{Status: "info", StatusMsg: "No common public selectors discovered"}
+	var names []string
+	for i, rec := range recs {
+		switch {
+		case rec == "":
+		case parseTXTTags(rec)["p"] == "":
+			analysis.Revoked = append(analysis.Revoked, commonDKIMSelectors[i])
+		default:
+			analysis.FoundSelectors = append(analysis.FoundSelectors, DKIMSelectorInfo{Selector: commonDKIMSelectors[i], Record: rec, Status: "active"})
+			names = append(names, commonDKIMSelectors[i])
 		}
 	}
-
-	if analysis.Wildcard {
-		analysis.Status = "warn"
-		analysis.StatusMsg = "Wildcard DKIM record detected (*._domainkey): all selectors resolve to wildcard key"
-	} else if len(analysis.FoundSelectors) > 0 {
+	if len(names) > 0 {
 		analysis.Status = "pass"
-		names := make([]string, len(analysis.FoundSelectors))
-		for i, sel := range analysis.FoundSelectors {
-			names[i] = sel.Selector
-		}
-		analysis.StatusMsg = fmt.Sprintf("%d active selector(s) discovered (%s)", len(analysis.FoundSelectors), strings.Join(names, ", "))
-	} else {
-		analysis.Status = "info"
-		analysis.StatusMsg = "No common public selectors discovered"
+		analysis.StatusMsg = fmt.Sprintf("%d active selector(s) discovered (%s)", len(names), strings.Join(names, ", "))
 	}
-
 	return analysis
 }
 

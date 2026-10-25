@@ -23,11 +23,8 @@ type Service struct {
 	http   *http.Client
 }
 
-// NewService needs the egress guard: every fetch a caller's domain points at goes through it.
+// NewService fetches what a caller's domain points at through guard; a nil guard refuses every fetch.
 func NewService(guard *platform.EgressGuard, store *Store, dqsKey string) *Service {
-	if guard == nil {
-		panic("mailtools.NewService: guard is nil")
-	}
 	return &Service{guard: guard, store: store, dqsKey: dqsKey, http: &http.Client{
 		Timeout:   fetchTimeout,
 		Transport: guard.Transport(fetchTimeout),

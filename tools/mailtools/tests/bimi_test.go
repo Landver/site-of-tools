@@ -171,7 +171,8 @@ func TestValidateBIMI_ContentRules(t *testing.T) {
 }
 
 func TestValidateBIMI_Errors(t *testing.T) {
-	for _, in := range []string{"", "  \n", "<svg><g></svg>", "<not-svg/>", "<!-- only a comment -->"} {
+	oversized := `<svg xmlns="http://www.w3.org/2000/svg">` + strings.Repeat(" ", 64<<10) + `</svg>`
+	for _, in := range []string{"", "  \n", "<svg><g></svg>", "<not-svg/>", "<!-- only a comment -->", oversized} {
 		if _, err := mailtools.ValidateBIMI(in); err == nil {
 			t.Errorf("ValidateBIMI(%q): want error", in)
 		}

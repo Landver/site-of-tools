@@ -51,8 +51,6 @@ type ARCNote struct {
 }
 
 var (
-	reTag = regexp.MustCompile(`([a-zA-Z0-9_-]+)\s*=\s*([^;]+)`)
-
 	reAuthVerdicts = map[string]*regexp.Regexp{
 		"spf":   regexp.MustCompile(`\bspf\s*=\s*([a-zA-Z0-9_-]+)`),
 		"dkim":  regexp.MustCompile(`\bdkim\s*=\s*([a-zA-Z0-9_-]+)`),
@@ -74,15 +72,6 @@ func extractAuthVerdict(val, proto string) string {
 	return ""
 }
 
-func parseTags(val string) map[string]string {
-	tags := make(map[string]string)
-	for _, m := range reTag.FindAllStringSubmatch(val, -1) {
-		k := strings.ToLower(strings.TrimSpace(m[1]))
-		tags[k] = strings.Trim(strings.TrimSpace(m[2]), "\"")
-	}
-	return tags
-}
-
 // AnalyzeARC parses raw email headers and checks the structure of their ARC chain.
 func AnalyzeARC(rawHeaders string) (*ARCSummary, error) {
 	if len(rawHeaders) > maxARCInput {
@@ -101,7 +90,7 @@ func AnalyzeARC(rawHeaders string) (*ARCSummary, error) {
 			continue
 		}
 		val = strings.TrimSpace(val)
-		tags := parseTags(val)
+		tags := parseTXTTags(val)
 		i, _ := strconv.Atoi(tags["i"])
 		if i <= 0 {
 			continue

@@ -12,13 +12,11 @@ const (
 	canonicalDisposableURL = "https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf"
 	// A short download is a truncated or hijacked list; the canonical one holds over 5,000 domains.
 	minDisposableDomains = 5000
+	syncInterval         = 24 * time.Hour
 )
 
-// StartSyncWorker refreshes the disposable list a minute after boot, then every interval (default a day).
-func StartSyncWorker(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = 24 * time.Hour
-	}
+// StartSyncWorker refreshes the disposable list a minute after boot, then daily.
+func StartSyncWorker(ctx context.Context) {
 	go func() {
 		wait := time.NewTimer(time.Minute)
 		defer wait.Stop()
@@ -28,7 +26,7 @@ func StartSyncWorker(ctx context.Context, interval time.Duration) {
 				return
 			case <-wait.C:
 				syncDisposableDomains(ctx)
-				wait.Reset(interval)
+				wait.Reset(syncInterval)
 			}
 		}
 	}()

@@ -41,12 +41,9 @@ type dmarcDateRangeXML struct {
 
 type dmarcPolicyPubXML struct {
 	Domain string `xml:"domain"`
-	ADKIM  string `xml:"adkim"`
-	ASPF   string `xml:"aspf"`
 	P      string `xml:"p"`
 	SP     string `xml:"sp"`
 	Pct    *int   `xml:"pct"`
-	Fo     string `xml:"fo"`
 }
 
 type dmarcRecordXML struct {
@@ -69,7 +66,6 @@ type dmarcPolicyEvalXML struct {
 
 type dmarcIdentifiersXML struct {
 	HeaderFrom   string `xml:"header_from"`
-	EnvelopeTo   string `xml:"envelope_to"`
 	EnvelopeFrom string `xml:"envelope_from"`
 }
 
@@ -235,17 +231,15 @@ func (raw *dmarcFeedbackXML) report() *DMARCReport {
 	sources := map[string]*DMARCSourceSummary{}
 	providers := map[string]*DMARCProviderSummary{}
 	for _, r := range rep.Records {
-		s, seen := sources[r.SourceIP]
-		if !seen {
-			s = &DMARCSourceSummary{SourceIP: r.SourceIP, ESP: r.ESP, Disposition: r.Disposition}
-			sources[r.SourceIP] = s
-		}
 		p := providers[r.ESP.Name]
 		if p == nil {
 			p = &DMARCProviderSummary{ESP: r.ESP}
 			providers[r.ESP.Name] = p
 		}
-		if !seen {
+		s := sources[r.SourceIP]
+		if s == nil {
+			s = &DMARCSourceSummary{SourceIP: r.SourceIP, ESP: r.ESP, Disposition: r.Disposition}
+			sources[r.SourceIP] = s
 			p.Sources++
 		}
 

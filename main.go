@@ -91,7 +91,7 @@ func run() error {
 	syncs.Add(2)
 	go func() { defer syncs.Done(); iptools.RunIPsumSync(ctx, blocklist) }()
 	go func() { defer syncs.Done(); iptools.RunSpamhausDROPSync(ctx, blocklist) }()
-	mailtools.StartSyncWorker(ctx, 24*time.Hour)
+	mailtools.StartSyncWorker(ctx)
 	// Bounded: a sync that ignores its context must not hold the process open.
 	defer waitBounded(&syncs, 5*time.Second)
 

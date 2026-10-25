@@ -15,13 +15,11 @@ import (
 
 var systemResolvers = func() []string {
 	if cfg, err := dns.ClientConfigFromFile("/etc/resolv.conf"); err == nil && len(cfg.Servers) > 0 {
-		var servers []string
-		for _, s := range cfg.Servers {
-			servers = append(servers, net.JoinHostPort(s, cfg.Port))
+		servers := make([]string, len(cfg.Servers))
+		for i, s := range cfg.Servers {
+			servers[i] = net.JoinHostPort(s, cfg.Port)
 		}
-		if len(servers) > 0 {
-			return servers
-		}
+		return servers
 	}
 	return []string{"1.1.1.1:53", "8.8.8.8:53"}
 }()

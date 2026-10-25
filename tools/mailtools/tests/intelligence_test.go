@@ -367,7 +367,7 @@ func TestSyncWorker_CanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 	// Must start and exit without blocking or panicking
-	mailtools.StartSyncWorker(ctx, 0)
+	mailtools.StartSyncWorker(ctx)
 }
 
 // An IPv6 target is refused in one clear error, before any query.

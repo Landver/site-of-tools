@@ -110,11 +110,6 @@ var vendorSignatures = []vendorSignature{
 	},
 }
 
-var genericSignature = vendorSignature{
-	vendor:   VendorGeneric,
-	features: []string{"Standard SMTP / TLS Encryption", "Basic MTA Protocol Compliance"},
-}
-
 // DetectGateway resolves and audits the Secure Email Gateway for a domain.
 func DetectGateway(ctx context.Context, domain string) (*GatewayAudit, error) {
 	domain = ExtractDomain(domain)
@@ -171,5 +166,5 @@ func matchVendor(host string) vendorSignature {
 			}
 		}
 	}
-	return genericSignature
+	return vendorSignature{vendor: VendorGeneric}
 }

@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -73,9 +74,9 @@ func TestMatchVendor_AllSignatures(t *testing.T) {
 		{"mx.hornetsecurity.com", VendorHornet, "Advanced Threat Protection (ATP)"},
 		{"relay.antispameurope.com", VendorHornet, "Spear Phishing Protection"},
 
-		// Self-Hosted / Generic fallback
-		{"mail.customdatacenter.net", VendorGeneric, "Standard SMTP / TLS Encryption"},
-		{"", VendorGeneric, "Standard SMTP / TLS Encryption"},
+		// Self-hosted: no gateway, so no gateway features to claim.
+		{"mail.customdatacenter.net", VendorGeneric, ""},
+		{"", VendorGeneric, ""},
 	}
 
 	for _, tc := range cases {
@@ -83,14 +84,11 @@ func TestMatchVendor_AllSignatures(t *testing.T) {
 		if sig.vendor != tc.wantVendor {
 			t.Errorf("matchVendor(%q).vendor = %v, want %v", tc.host, sig.vendor, tc.wantVendor)
 		}
-		found := false
-		for _, f := range sig.features {
-			if strings.Contains(f, tc.wantFeature) {
-				found = true
-				break
+		if tc.wantFeature == "" {
+			if len(sig.features) > 0 {
+				t.Errorf("matchVendor(%q) features = %v, want none", tc.host, sig.features)
 			}
-		}
-		if !found {
+		} else if !slices.ContainsFunc(sig.features, func(f string) bool { return strings.Contains(f, tc.wantFeature) }) {
 			t.Errorf("matchVendor(%q) missing feature %q in %+v", tc.host, tc.wantFeature, sig.features)
 		}
 	}

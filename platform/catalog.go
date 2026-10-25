@@ -472,11 +472,11 @@ var defaultCatalog = []ToolSection{
 				Path:      "/arc",
 				Subdomain: "mail",
 				ShortDesc: "Authenticated Received Chain (ARC) Header Analyzer",
-				Badges:    []string{"RFC 8617", "Seals"},
+				Badges:    []string{"RFC 8617", "Structure"},
 				Tech: []string{
 					"RFC 8617 (ARC)", "Authenticated Received Chain", "ARC-Seal (AS)",
 					"ARC-Message-Signature (AMS)", "ARC-Authentication-Results (AAR)",
-					"Multi-Hop Forwarding Audit", "Sequence Validation (i=1..N)", "Seal Integrity Check",
+					"Multi-Hop Forwarding Audit", "Sequence Validation (i=1..N)", "Structure Check (signatures not verified)",
 				},
 			},
 		},

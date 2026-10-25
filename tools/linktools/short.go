@@ -147,7 +147,7 @@ func (s *Shortener) Code(input string) (string, bool) {
 		input = "https://" + input
 	}
 	u, err := url.Parse(input)
-	if err != nil || s == nil {
+	if err != nil {
 		return "", false
 	}
 	base, err := url.Parse(s.baseURL)
@@ -295,6 +295,7 @@ func (s *Shortener) Resolve(ctx context.Context, code string) (*Link, error) {
 	if u, err := url.Parse(l.Target); err != nil || !linkableSchemes[strings.ToLower(u.Scheme)] {
 		return nil, fmt.Errorf("%w: stored target is not an http(s) URL", ErrLinkNotFound)
 	}
+	l.Short = s.ShortURL(l.Code)
 	return l, nil
 }
 

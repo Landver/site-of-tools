@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	maxBIMIPayload = 64 * 1024
-
 	healthDesc     = "All-in-one email deliverability, SEG gateway identification, disposable detection & blacklist audit."
 	disposableDesc = "Detect over 10,000+ throwaway, burner, and temporary email domains powered by the canonical disposable-email-domains database."
 	classifierDesc = "Classify email domains into corporate business accounts versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton)."
@@ -261,7 +259,7 @@ func (h *handler) bimi(c *echo.Context) error {
 			return h.badRequest(c, vm, err, "mail/bimi")
 		}
 		defer f.Close()
-		svgData, err = io.ReadAll(io.LimitReader(f, maxBIMIPayload))
+		svgData, err = io.ReadAll(io.LimitReader(f, maxBIMIInput+1))
 		if err != nil {
 			return h.badRequest(c, vm, err, "mail/bimi")
 		}
