@@ -51,10 +51,33 @@ const (
 	ToolExtract = "extract"
 )
 
-const (
-	CurlNotURL = "That looks like a curl command, not a URL."
-	TextNotURL = "That looks like text with links in it, not one URL."
-)
+// MisplacedError is input plainly not one URL; Tool names the tool it belongs to.
+type MisplacedError struct {
+	Tool  string
+	Input string
+}
+
+func (e *MisplacedError) Error() string {
+	if e.Tool == ToolCurl {
+		return "That looks like a curl command, not a URL."
+	}
+	return "That looks like text with links in it, not one URL."
+}
+
+// readURL is every URL tool's entry guard: trimmed, present, bounded, and plainly one URL.
+func readURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	switch {
+	case raw == "":
+		return "", errors.New("no URL given")
+	case len(raw) > maxInput:
+		return "", fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
+	}
+	if tool := WrongTool(raw); tool != "" {
+		return "", &MisplacedError{Tool: tool, Input: raw}
+	}
+	return raw, nil
+}
 
 // WrongTool names the page for input that is plainly not one URL, else "". It must never refuse a
 // URL: markup needs a quoted href (links use ?href=), text needs words before or a link after.
@@ -84,14 +107,15 @@ var laterLink = regexp.MustCompile(`[ \t\r\n][A-Za-z][A-Za-z0-9+.-]*://`)
 
 // Parse never fetches. Not url.ParseQuery: its map loses order, and it drops a pair with a bad escape.
 func (s *Service) Parse(raw string) (*Inspection, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, fmt.Errorf("no URL given")
+	raw, err := readURL(raw)
+	if err != nil {
+		return nil, err
 	}
-	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
-	}
+	return s.inspect(raw)
+}
 
+// inspect is Parse past readURL's vetting, for a URL already known to be one, such as a curl command's.
+func (s *Service) inspect(raw string) (*Inspection, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))

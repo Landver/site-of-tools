@@ -3,6 +3,9 @@ package tests
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -218,19 +221,19 @@ func TestFragmentParams(t *testing.T) {
 	}
 }
 
-// Decoding is not verifying, and the page must never imply otherwise.
+// Decoding is not verifying, and the page must never imply otherwise; the decoded value stays clean JSON.
 func TestJWTNeverClaimsVerification(t *testing.T) {
 	const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.sig"
 	p := findParam(t, parse(t, "https://example.com/?t="+jwt), "t", 0)
-	if len(p.Layers) == 0 {
-		t.Fatal("JWT not decoded")
+	if len(p.Layers) == 0 || p.Layers[0].Method != "jwt-payload" {
+		t.Fatalf("JWT not decoded: %+v", p.Layers)
 	}
-	joined := ""
-	for _, l := range p.Layers {
-		joined += l.Value
+	if !json.Valid([]byte(p.Layers[0].Value)) {
+		t.Errorf("the decoded JWT is not clean JSON: %q", p.Layers[0].Value)
 	}
-	if !strings.Contains(joined, "not verified") {
-		t.Error("decoded JWT does not state that the signature was not verified")
+	page := request(t, newLinkApp(t, nil, nil), http.MethodGet, "/?u="+url.QueryEscape("https://example.com/?t="+jwt), asHTML)
+	if !strings.Contains(page.Body.String(), "signature not verified") {
+		t.Error("the page shows a decoded JWT without saying the signature was not verified")
 	}
 }
 

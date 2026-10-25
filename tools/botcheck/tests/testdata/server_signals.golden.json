@@ -60,7 +60,7 @@
     "status": 200,
     "verdict": "good-bot"
   },
-  "bare_browser_ua_placeholders": {
+  "bare_browser_ua_unknown_geo": {
     "bot": null,
     "coverage": {
       "hard": {

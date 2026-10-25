@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -103,7 +104,14 @@ func (rl *RequestLog) Close(ctx context.Context) error {
 	return nil
 }
 
-// ShouldRecord skips static assets and /mcp, whose messages mcptools records itself.
-func ShouldRecord(path string) bool {
-	return !strings.HasPrefix(path, "/static/") && path != "/mcp" && !strings.HasPrefix(path, "/mcp/")
+// ShouldRecord skips static assets and the /mcp POSTs the SDK answered, whose messages mcptools records
+// itself; a refusal before the SDK, or a GET (the landing page), reaches no message hook, so it's ours.
+func ShouldRecord(method, path string, status int) bool {
+	switch {
+	case strings.HasPrefix(path, "/static/"):
+		return false
+	case path == "/mcp" || strings.HasPrefix(path, "/mcp/"):
+		return method == http.MethodGet || status >= http.StatusBadRequest
+	}
+	return true
 }

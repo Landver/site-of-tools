@@ -18,7 +18,7 @@ Same egress IP presented many different browser fingerprints within a few minute
 
 ## Go scorer coverage
 
-`tests/corpus_test.go`: `TestFingerprintChurnRule`, `TestNilCorpusIsSafe`, `TestCheckNilCorpusLeavesRuleSilent`, `TestCorpusChurnLiveRoundTrip`, `TestCorpusChurnLiveViaHandler`; `tests/botcheck_test.go`: `TestEveryRuleCanFire`.
+`tests/corpus_test.go`: `TestFingerprintChurnRule`, `TestNilCorpusIsSafe`, `TestCheckNilCorpusSkipsCorpusRules`, `TestCorpusChurnLiveRoundTrip`, `TestCorpusChurnLiveViaHandler`; `tests/botcheck_test.go`: `TestEveryRuleCanFire`.
 
 ---
 

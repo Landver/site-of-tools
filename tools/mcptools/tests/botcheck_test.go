@@ -134,7 +134,7 @@ func TestBotcheckScoreSkipsWhatWasNotSupplied(t *testing.T) {
 	}
 }
 
-// TestBotcheckScoreCorpusRulesAreNotEvaluated: the corpus rules skip, where REST evaluates.
+// TestBotcheckScoreCorpusRulesAreNotEvaluated: the corpus rules skip, where REST with Mongo on evaluates.
 func TestBotcheckScoreCorpusRulesAreNotEvaluated(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/botcheck", nil, nil)
 	got := object(t, call(t, cs, "botcheck_score", map[string]any{"fingerprint": payload(t, nil),
@@ -210,24 +210,11 @@ func TestBotcheckScoreAttribution(t *testing.T) {
 	}
 }
 
-// corpusProjection: no echo of the payload, and the corpus rules skipped.
-func corpusProjection(t *testing.T, body map[string]any) {
-	t.Helper()
-	delete(body, "clientPayload")
-	cov := body["coverage"].(map[string]any)
-	for _, row := range rows(t, body, "checks") {
-		if id := row["id"]; id != "fingerprint_reuse" && id != "ip_fingerprint_churn" {
-			continue
-		}
-		row["skipped"] = true
-		tier := cov[row["tier"].(string)].(map[string]any)
-		ev, _ := tier["evaluated"].(json.Number).Int64()
-		sk, _ := tier["skipped"].(json.Number).Int64()
-		tier["evaluated"], tier["skipped"] = num(int(ev-1)), num(int(sk+1))
-	}
-}
+// withoutPayload: MCP never echoes the fingerprint back.
+func withoutPayload(_ *testing.T, body map[string]any) { delete(body, "clientPayload") }
 
-// TestBotcheckParity: detailed is the REST report projected; concise only the fired checks.
+// TestBotcheckParity: detailed is the REST report projected; concise only the fired checks. The stack's REST
+// app has no corpus, so its corpus rules skip exactly as MCP's do.
 func TestBotcheckParity(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	cs := s.client(t, "/mcp", nil, nil)
@@ -243,7 +230,7 @@ func TestBotcheckParity(t *testing.T) {
 		project func(*testing.T, map[string]any)
 	}{
 		{"server signals", map[string]any{"http": httpArg(chromeHTTP), "ip": ip}, http.MethodGet, "/", "", nil},
-		{"fingerprint", map[string]any{"fingerprint": fp, "http": httpArg(chromeHTTP), "ip": ip}, http.MethodPost, "/check", string(body), corpusProjection},
+		{"fingerprint", map[string]any{"fingerprint": fp, "http": httpArg(chromeHTTP), "ip": ip}, http.MethodPost, "/check", string(body), withoutPayload},
 	} {
 		hdr := restHeaders(chromeHTTP, ip)
 		if tc.body != "" {

@@ -11,4 +11,3 @@ var Templates embed.FS
 //
 //go:embed data/*
 var Data embed.FS
-

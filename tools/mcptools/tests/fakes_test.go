@@ -19,6 +19,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 // fakeDNS serves every check from data built per call; heavy adds sixty TXT records.
@@ -177,7 +178,9 @@ func (f *fakeDNS) ECS(_ context.Context, name, qtype string) (*dnstools.ECS, err
 	}, nil
 }
 
+// Trace reads the raw name, as Service.Trace does.
 func (f *fakeDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace, error) {
+	name = dnstools.NormalizeName(name)
 	if err := f.check(name); err != nil {
 		return nil, err
 	}
@@ -200,7 +203,7 @@ func (f *fakeDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace,
 
 type netGeo map[string]*iptools.Result
 
-func (g netGeo) Lookup(ip string) (*iptools.Result, error) {
+func (g netGeo) Lookup(_ context.Context, ip string) (*iptools.Result, error) {
 	if r, ok := g[ip]; ok {
 		c := *r
 		return &c, nil
@@ -259,7 +262,7 @@ func (u upstream) client(t *testing.T) *dnstools.DomainClient {
 		_ = json.NewEncoder(w).Encode(rows)
 	}))
 	t.Cleanup(srv.Close)
-	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second)
+	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second, nil)
 }
 
 var ownHosts = []string{mcpHost, ipHost, dnsHost, linkHost, "mcp.localhost:8080", "mcp.corpberry.com", "link.corpberry.com"}
@@ -290,4 +293,10 @@ func roomyCipher() *ciphertools.Limits {
 
 func roomyBot() *botcheck.Limits {
 	return &botcheck.Limits{Check: platform.NewLimiter(100, 1000), CheckCap: platform.NewCap(8)}
+}
+
+func roomyMail() *mailtools.Limits {
+	l := mailtools.NewLimits()
+	l.Pure, l.Heavy = platform.NewLimiter(100, 1000), platform.NewLimiter(100, 1000)
+	return l
 }

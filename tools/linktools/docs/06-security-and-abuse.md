@@ -194,8 +194,8 @@ the store: full address for IPv4, **`/64` prefix for IPv6**. This is a
 **Unresolved. Blocks Phase 0.**
 
 `platform/requestlog.go` persists the request URI for every non-static request
-(`ShouldRecord` skips only `/static/`), TTL **30 days** — not 90; 90 is
-`iptools`' lookup history, a different collection. On this host the URI *is* the
+(`ShouldRecord` skips only `/static/` and answered `/mcp` POSTs), TTL **30 days**.
+On this host the URI *is* the
 user's input:
 
 ```

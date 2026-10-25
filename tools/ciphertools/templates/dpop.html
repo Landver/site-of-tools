@@ -25,7 +25,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
     <section id="panel-generate" role="tabpanel" aria-labelledby="tab-generate" x-show="tab === 'generate'" class="mt-4">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div class="lg:col-span-5">
-          <form method="post" action="/dpop/generate" data-cipher="dpop-generate" data-live data-target="#dpop-gen-result" class="space-y-3">
+          <form method="post" action="/dpop/generate" data-cipher="dpop-generate" data-target="#dpop-gen-result" class="space-y-3">
             <div class="grid gap-3 sm:grid-cols-2">
               <label class="block text-sm text-muted">HTTP Method (htm)
                 <select name="htm" class="field mt-1 w-full font-mono text-base sm:text-sm">
@@ -59,12 +59,12 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
               <button type="button" data-sample="https://identity.corpberry.com/oauth/token" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">identity.corpberry.com</button>
             </div>
 
-            <label class="block text-sm text-muted">Access token or ath hash <span class="text-faint">(optional)</span>
-              <input type="text" name="ath" autocomplete="off" spellcheck="false"
-                     placeholder="Bearer token to hash, or precomputed ath..."
-                     value="{{.Form.Get "ath"}}"
+            <label class="block text-sm text-muted">Access token <span class="text-faint">(optional)</span>
+              <input type="text" name="access_token" autocomplete="off" spellcheck="false"
+                     placeholder="The access token the request carries..."
+                     value="{{.Form.Get "access_token"}}"
                      class="field mt-1 w-full font-mono text-base sm:text-xs">
-              <span class="mt-1 block text-xs text-faint">Computes base64url(sha256(access_token)).</span>
+              <span class="mt-1 block text-xs text-faint">The proof carries its hash as ath, base64url(sha256(access_token)).</span>
             </label>
 
             <label class="block text-sm text-muted">Server nonce <span class="text-faint">(optional)</span>
@@ -76,7 +76,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
 
             <label class="block text-sm text-muted">Private key <span class="text-faint">(optional PEM or JWK)</span>
               <textarea name="key" rows="2" autocomplete="off" spellcheck="false"
-                        placeholder="Leave empty to generate an ephemeral key pair"
+                        placeholder="Leave empty to generate a key pair for the algorithm"
                         class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "key"}}</textarea>
               <span class="mt-1 block text-xs text-faint">Private keys stay in your browser.</span>
             </label>
@@ -96,7 +96,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
           <form method="post" action="/dpop/verify" data-cipher="dpop-verify" data-live data-target="#dpop-ver-result" class="space-y-3">
             <label class="block text-sm text-muted">DPoP Proof JWT
               <textarea name="token" rows="4" autofocus autocomplete="off" spellcheck="false"
-                        placeholder="eyJhbGciOiJFUzI1NiIsInR5cCI6ImRwb3Arand0IiwiandrIjp7...}.eyJ..."
+                        placeholder="eyJ0eXAiOiJkcG9wK2p3dCIs...eyJqdGkiOi..."
                         class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "token"}}</textarea>
             </label>
 
@@ -181,7 +181,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
     <div class="flex items-center gap-2">
       <span class="inline-flex h-3 w-3 rounded-full {{if .Valid}}bg-ok{{else}}bg-danger{{end}}"></span>
       <span class="font-semibold text-sm {{if .Valid}}text-ok{{else}}text-danger{{end}}">
-        {{if .Valid}}Valid DPoP Proof (RFC 9449 Compliant){{else}}DPoP Verification Failed{{end}}
+        {{if .Valid}}Every check passed{{else}}DPoP Verification Failed{{end}}
       </span>
     </div>
     <p class="mt-2 text-xs text-muted">{{.Summary}}</p>
@@ -193,7 +193,7 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
   </div>
 
   <div class="rounded-lg border border-line bg-surface p-4">
-    <span class="text-xs font-semibold uppercase tracking-wider text-muted">RFC 9449 Compliance Checks</span>
+    <span class="text-xs font-semibold uppercase tracking-wider text-muted">RFC 9449 Checks</span>
     <div class="mt-3 divide-y divide-line/60 text-xs">
       {{range .Checks}}
       <div class="py-2 flex items-start justify-between gap-3">

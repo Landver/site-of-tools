@@ -1,13 +1,13 @@
 package ciphertools
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 // RFC 7636 unreserved characters for PKCE code_verifier: [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"
@@ -62,141 +62,81 @@ func runPKCEGenerate(in Input) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	method := strings.TrimSpace(in.Get("method"))
-	if method == "" {
-		method = "S256"
-	} else if method != "S256" && method != "plain" {
-		return nil, fmt.Errorf("method: want S256 or plain, got %q", method)
-	}
-
-	verifier, err := generateRandomVerifier(length)
+	method, err := enumField(in.Get("method"), pkceMethodField)
 	if err != nil {
-		return nil, fmt.Errorf("generating verifier: %w", err)
+		return nil, err
 	}
-
-	var challenge string
-	if method == "plain" {
-		challenge = verifier
-	} else {
-		sum := sha256.Sum256([]byte(verifier))
-		challenge = b64url.EncodeToString(sum[:])
-	}
-
-	// 66 possible chars: log2(66) ~= 6.044 bits of entropy per character
-	entropy := int(math.Floor(float64(length) * 6.044))
-
-	exampleURL := fmt.Sprintf(
-		"https://auth.example.com/oauth/authorize?client_id=example-client&code_challenge=%s&code_challenge_method=%s&redirect_uri=https%%3A%%2F%%2Fapp.example.com%%2Fcallback&response_type=code&scope=openid+profile+email",
-		challenge, method,
-	)
-
+	verifier := randomPick(pkceCharset, length)
+	challenge := pkceChallenge(verifier, method)
 	return &PKCEGenerateResult{
 		CodeVerifier:  verifier,
 		CodeChallenge: challenge,
 		Method:        method,
-		EntropyBits:   entropy,
-		ExampleURL:    exampleURL,
+		EntropyBits:   int(float64(length) * math.Log2(float64(len(pkceCharset)))),
+		ExampleURL: fmt.Sprintf(
+			"https://auth.example.com/oauth/authorize?client_id=example-client&code_challenge=%s&code_challenge_method=%s&redirect_uri=https%%3A%%2F%%2Fapp.example.com%%2Fcallback&response_type=code&scope=openid+profile+email",
+			challenge, method),
 	}, nil
 }
 
 // PKCEVerifyResult holds the verification check outcome.
 type PKCEVerifyResult struct {
 	Valid               bool   `json:"valid"`
-	Status              string `json:"status"` // "valid", "invalid", "error"
+	Status              string `json:"status"` // "valid" or "invalid"
 	Method              string `json:"method"`
 	CalculatedChallenge string `json:"calculated_challenge"`
 	Detail              string `json:"detail"`
 }
 
 func runPKCEVerify(in Input) (any, error) {
+	method, err := enumField(in.Get("method"), pkceMethodField)
+	if err != nil {
+		return nil, err
+	}
 	verifier := strings.TrimSpace(in.Get("code_verifier"))
 	challenge := strings.TrimSpace(in.Get("code_challenge"))
-	method := strings.TrimSpace(in.Get("method"))
-	if method == "" {
-		method = "S256"
-	} else if method != "S256" && method != "plain" {
-		return nil, fmt.Errorf("method: want S256 or plain, got %q", method)
-	}
-
-	if verifier == "" {
+	switch {
+	case verifier == "":
 		return nil, errors.New("no code_verifier given")
-	}
-	if challenge == "" {
+	case challenge == "":
 		return nil, errors.New("no code_challenge given")
 	}
-
-	if len(verifier) < 43 || len(verifier) > 128 {
-		return &PKCEVerifyResult{
-			Valid:   false,
-			Status:  "invalid",
-			Method:  method,
-			Detail:  fmt.Sprintf("Invalid code_verifier length: %d characters (RFC 7636 requires between 43 and 128 characters)", len(verifier)),
-		}, nil
-	}
-
-	for i := 0; i < len(verifier); i++ {
-		c := verifier[i]
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~') {
-			return &PKCEVerifyResult{
-				Valid:  false,
-				Status: "invalid",
-				Method: method,
-				Detail: fmt.Sprintf("Invalid character %q in code_verifier: RFC 7636 permits only [A-Z], [a-z], [0-9], '-', '.', '_', '~'", c),
-			}, nil
+	r := &PKCEVerifyResult{Method: method}
+	bad := strings.IndexFunc(verifier, func(c rune) bool { return !strings.ContainsRune(pkceCharset, c) })
+	switch {
+	case len(verifier) < *pkceLengthField.Min || len(verifier) > *pkceLengthField.Max:
+		r.Detail = fmt.Sprintf("Invalid code_verifier length: %d characters (RFC 7636 requires between 43 and 128 characters)", len(verifier))
+	case bad >= 0:
+		c, _ := utf8.DecodeRuneInString(verifier[bad:])
+		r.Detail = fmt.Sprintf("Invalid character %q in code_verifier: RFC 7636 permits only [A-Z], [a-z], [0-9], '-', '.', '_', '~'", c)
+	default:
+		r.CalculatedChallenge = pkceChallenge(verifier, method)
+		r.Valid = subtle.ConstantTimeCompare([]byte(r.CalculatedChallenge), []byte(challenge)) == 1
+		switch {
+		case !r.Valid:
+			r.Detail = "Challenge mismatch: the calculated challenge does not match the provided challenge string."
+		case method == "plain":
+			r.Detail = "Challenge matches code_verifier (plain method). Note: OAuth 2.1 deprecates plain; S256 should be used instead."
+		default:
+			r.Detail = "Challenge successfully verified: matches base64url(sha256(code_verifier))."
 		}
 	}
-
-	var expected string
-	if method == "plain" {
-		expected = verifier
-	} else {
-		sum := sha256.Sum256([]byte(verifier))
-		expected = b64url.EncodeToString(sum[:])
-	}
-
-	// Constant-time compare to prevent side-channel timing leaks
-	valid := subtle.ConstantTimeCompare([]byte(expected), []byte(challenge)) == 1
-
-	var detail string
-	if valid {
-		if method == "plain" {
-			detail = "Challenge matches code_verifier (plain method). Note: OAuth 2.1 deprecates plain; S256 should be used instead."
-		} else {
-			detail = "Challenge successfully verified: matches base64url(sha256(code_verifier))."
-		}
-	} else {
-		detail = "Challenge mismatch: the calculated challenge does not match the provided challenge string."
-	}
-
-	return &PKCEVerifyResult{
-		Valid:               valid,
-		Status:              ifElse(valid, "valid", "invalid"),
-		Method:              method,
-		CalculatedChallenge: expected,
-		Detail:              detail,
-	}, nil
+	r.Status = ifElse(r.Valid, "valid", "invalid")
+	return r, nil
 }
 
-func generateRandomVerifier(length int) (string, error) {
-	// pkceCharset has 66 characters. The largest multiple of 66 <= 256 is 198 (66 * 3).
-	// Rejection sampling (discarding bytes >= 198) guarantees completely uniform distribution
-	// with zero modulo bias across the RFC 7636 unreserved character set.
-	const maxByte = 198
-	const charsetLen = byte(len(pkceCharset))
-	var sb strings.Builder
-	sb.Grow(length)
-	buf := make([]byte, length)
-	for sb.Len() < length {
-		if _, err := rand.Read(buf); err != nil {
-			return "", err
-		}
-		for _, b := range buf {
-			if b < maxByte && sb.Len() < length {
-				sb.WriteByte(pkceCharset[b%charsetLen])
-			}
-		}
+// pkceChallenge is RFC 7636 §4.2's code_challenge of verifier under method.
+func pkceChallenge(verifier, method string) string {
+	if method == "plain" {
+		return verifier
 	}
-	return sb.String(), nil
+	return s256(verifier)
+}
+
+// s256 is unpadded base64url(SHA-256(s)): PKCE's S256 challenge and DPoP's ath alike.
+func s256(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return b64url.EncodeToString(sum[:])
 }
 
 func ifElse[T any](cond bool, a, b T) T {

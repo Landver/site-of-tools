@@ -34,71 +34,77 @@ type MXRecord struct {
 
 // GatewayAudit contains the fingerprint and routing security analysis for a domain's MX records.
 type GatewayAudit struct {
-	Domain             string        `json:"domain"`
-	Vendor             GatewayVendor `json:"vendor"`
-	Confidence         string        `json:"confidence"` // High, Medium, Low
-	MXRecords          []MXRecord    `json:"mx_records"`
-	HasRedundancy      bool          `json:"has_redundancy"`
-	HasDirectMXRisk    bool          `json:"has_direct_mx_risk"`
-	DirectMXWarning    string        `json:"direct_mx_warning,omitempty"`
-	IsNullMX           bool          `json:"is_null_mx"`
-	SecurityFeatures   []string      `json:"security_features,omitempty"`
+	Domain           string        `json:"domain"`
+	Vendor           GatewayVendor `json:"vendor"`
+	Confidence       string        `json:"confidence"` // High, Medium, Low
+	MXRecords        []MXRecord    `json:"mx_records"`
+	HasRedundancy    bool          `json:"has_redundancy"`
+	HasDirectMXRisk  bool          `json:"has_direct_mx_risk"`
+	DirectMXWarning  string        `json:"direct_mx_warning,omitempty"`
+	IsNullMX         bool          `json:"is_null_mx"`
+	SecurityFeatures []string      `json:"security_features,omitempty"`
 }
 
 type vendorSignature struct {
 	vendor   GatewayVendor
 	patterns []string
 	features []string
+	// distributed: one MX name fronts a fleet, so a single record is still redundant.
+	distributed bool
 }
 
 var vendorSignatures = []vendorSignature{
 	{
-		vendor: VendorProofpoint,
-		patterns: []string{"pphosted.com", "pph-", "proofpoint.com"},
-		features: []string{"Targeted Attack Protection (TAP)", "Attachment Sandboxing", "URL Defense", "DMARC Inbound Enforcement"},
+		vendor:      VendorProofpoint,
+		patterns:    []string{"pphosted.com", "pph-", "proofpoint.com"},
+		features:    []string{"Targeted Attack Protection (TAP)", "Attachment Sandboxing", "URL Defense", "DMARC Inbound Enforcement"},
+		distributed: true,
 	},
 	{
-		vendor: VendorMimecast,
-		patterns: []string{"mimecast.com", "mimecast-offence.com"},
-		features: []string{"Targeted Threat Protection (TTP)", "Attachment Protect", "URL Protect", "Impersonation Protect"},
+		vendor:      VendorMimecast,
+		patterns:    []string{"mimecast.com", "mimecast-offence.com"},
+		features:    []string{"Targeted Threat Protection (TTP)", "Attachment Protect", "URL Protect", "Impersonation Protect"},
+		distributed: true,
 	},
 	{
-		vendor: VendorMicrosoft,
-		patterns: []string{"mail.protection.outlook.com"},
-		features: []string{"Exchange Online Protection (EOP)", "Defender for Office 365", "Safe Links", "Safe Attachments", "Anti-Phishing"},
+		vendor:      VendorMicrosoft,
+		patterns:    []string{"mail.protection.outlook.com"},
+		features:    []string{"Exchange Online Protection (EOP)", "Defender for Office 365", "Safe Links", "Safe Attachments", "Anti-Phishing"},
+		distributed: true,
 	},
 	{
-		vendor: VendorGoogle,
-		patterns: []string{"smtp.google.com", "aspmx.l.google.com", "googlemail.com", "aspmx2.googlemail.com", "aspmx3.googlemail.com", ".google.com"},
-		features: []string{"Google Workspace Anti-Spam", "DKIM/DMARC Verification", "Phishing & Malware Protection", "ARC Authentication"},
+		vendor:      VendorGoogle,
+		patterns:    []string{"smtp.google.com", "aspmx.l.google.com", "googlemail.com", "aspmx2.googlemail.com", "aspmx3.googlemail.com", ".google.com"},
+		features:    []string{"Google Workspace Anti-Spam", "DKIM/DMARC Verification", "Phishing & Malware Protection", "ARC Authentication"},
+		distributed: true,
 	},
 	{
-		vendor: VendorCisco,
+		vendor:   VendorCisco,
 		patterns: []string{"iphmx.com", "ironport.com"},
 		features: []string{"Cisco Talos Threat Intelligence", "Outbreak Filters", "Advanced Malware Protection (AMP)", "SpamCop Telemetry"},
 	},
 	{
-		vendor: VendorBarracuda,
+		vendor:   VendorBarracuda,
 		patterns: []string{"barracudanetworks.com", "barracuda.com", "ess.barracuda.com"},
 		features: []string{"Barracuda Real-Time Reputation (BRBL)", "Spam & Virus Firewall", "Email Threat Scanner", "Link Protection"},
 	},
 	{
-		vendor: VendorSophos,
+		vendor:   VendorSophos,
 		patterns: []string{"hydra.sophos.com", "sophos.com"},
 		features: []string{"SophosLabs Telemetry", "Deep Learning AI Malware Detection", "Time-of-Click URL Protection"},
 	},
 	{
-		vendor: VendorTrendMicro,
+		vendor:   VendorTrendMicro,
 		patterns: []string{"trendmicro.com", "tmes.trendmicro.com"},
 		features: []string{"Trend Micro Smart Protection Network", "Pre-execution Machine Learning", "Predictive Machine Learning"},
 	},
 	{
-		vendor: VendorFortinet,
+		vendor:   VendorFortinet,
 		patterns: []string{"fortimail.com"},
 		features: []string{"FortiGuard Antispam", "FortiSandbox Integration", "Outbreak Prevention"},
 	},
 	{
-		vendor: VendorHornet,
+		vendor:   VendorHornet,
 		patterns: []string{"hornetsecurity.com", "antispameurope.com"},
 		features: []string{"Advanced Threat Protection (ATP)", "Spear Phishing Protection", "Spam & Malware Filter"},
 	},
@@ -107,97 +113,58 @@ var vendorSignatures = []vendorSignature{
 // DetectGateway resolves and audits the Secure Email Gateway for a domain.
 func DetectGateway(ctx context.Context, domain string) (*GatewayAudit, error) {
 	domain = ExtractDomain(domain)
-	audit := &GatewayAudit{
-		Domain: domain,
-		Vendor: VendorGeneric,
-		Confidence: "Low",
-	}
+	mx, err := lookupMX(ctx, domain)
+	return gatewayAudit(domain, mx), err
+}
 
-	r := &net.Resolver{}
-	netMXs, err := r.LookupMX(ctx, domain)
+// lookupMX returns a domain's MX records by preference, then host, lowercased and without the root dot.
+func lookupMX(ctx context.Context, domain string) ([]MXRecord, error) {
+	found, err := net.DefaultResolver.LookupMX(ctx, domain)
 	if err != nil {
-		// If domain has no MX, check if fallback to A record exists or error out
-		return audit, err
+		return nil, err
 	}
-
-	if len(netMXs) == 0 {
-		return audit, nil
+	mx := make([]MXRecord, len(found))
+	for i, m := range found {
+		mx[i] = MXRecord{Host: strings.TrimSuffix(strings.ToLower(m.Host), "."), Pref: m.Pref}
 	}
-
-	// Sort MX by preference (lowest preference number = highest priority), with host tie-breaker
-	slices.SortFunc(netMXs, func(a, b *net.MX) int {
-		if c := cmp.Compare(a.Pref, b.Pref); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Host, b.Host)
+	slices.SortFunc(mx, func(a, b MXRecord) int {
+		return cmp.Or(cmp.Compare(a.Pref, b.Pref), strings.Compare(a.Host, b.Host))
 	})
-
-	for _, m := range netMXs {
-		host := strings.TrimSuffix(strings.ToLower(m.Host), ".")
-		audit.MXRecords = append(audit.MXRecords, MXRecord{
-			Host: host,
-			Pref: m.Pref,
-		})
-	}
-
-	// RFC 7505 Null MX Check: "0 ."
-	if len(audit.MXRecords) == 1 && (audit.MXRecords[0].Host == "" || audit.MXRecords[0].Host == ".") && audit.MXRecords[0].Pref == 0 {
-		audit.Vendor = VendorNullMX
-		audit.Confidence = "High"
-		audit.IsNullMX = true
-		return audit, nil
-	}
-
-	// Fingerprint primary and backup gateways
-	var primaryVendor GatewayVendor
-	var backupVendors []GatewayVendor
-
-	for i, mx := range audit.MXRecords {
-		v, features := matchVendor(mx.Host)
-		if i == 0 {
-			primaryVendor = v
-			if v != VendorGeneric {
-				audit.Vendor = v
-				audit.Confidence = "High"
-				audit.SecurityFeatures = features
-			}
-		} else {
-			backupVendors = append(backupVendors, v)
-		}
-	}
-
-	// Redundancy: multiple MX records OR a distributed cloud gateway (M365, Google, Proofpoint, Mimecast)
-	audit.HasRedundancy = len(audit.MXRecords) > 1 || isDistributedGateway(primaryVendor)
-
-	// Direct-to-MX Bypass Vulnerability Detection:
-	// If primary MX is protected by a commercial SEG (e.g. Proofpoint) but a backup/fallback MX
-	// points directly to self-hosted server or a different unhardened provider.
-	if primaryVendor != VendorGeneric && primaryVendor != VendorNullMX {
-		if slices.ContainsFunc(backupVendors, func(bv GatewayVendor) bool { return bv != primaryVendor }) {
-			audit.HasDirectMXRisk = true
-			audit.DirectMXWarning = "Mixed MX providers detected: backup MX may allow attackers to bypass primary security gateway (" + string(primaryVendor) + ") via direct-to-MX routing."
-		}
-	}
-
-	return audit, nil
+	return mx, nil
 }
 
-func isDistributedGateway(v GatewayVendor) bool {
-	switch v {
-	case VendorMicrosoft, VendorGoogle, VendorProofpoint, VendorMimecast:
-		return true
-	default:
-		return false
+func gatewayAudit(domain string, mx []MXRecord) *GatewayAudit {
+	audit := &GatewayAudit{Domain: domain, Vendor: VendorGeneric, Confidence: "Low", MXRecords: mx}
+	if len(mx) == 0 {
+		return audit
 	}
+	// RFC 7505 null MX: the single record "0 .", whose host is empty once the root dot is gone.
+	if len(mx) == 1 && mx[0].Host == "" && mx[0].Pref == 0 {
+		audit.Vendor, audit.Confidence, audit.IsNullMX = VendorNullMX, "High", true
+		return audit
+	}
+
+	primary := matchVendor(mx[0].Host)
+	audit.HasRedundancy = len(mx) > 1 || primary.distributed
+	if primary.vendor == VendorGeneric {
+		return audit
+	}
+	audit.Vendor, audit.Confidence, audit.SecurityFeatures = primary.vendor, "High", slices.Clone(primary.features)
+	// A backup MX on another provider lets mail reach the domain without passing the primary gateway.
+	if slices.ContainsFunc(mx[1:], func(m MXRecord) bool { return matchVendor(m.Host).vendor != primary.vendor }) {
+		audit.HasDirectMXRisk = true
+		audit.DirectMXWarning = "Mixed MX providers detected: backup MX may allow attackers to bypass primary security gateway (" + string(primary.vendor) + ") via direct-to-MX routing."
+	}
+	return audit
 }
 
-func matchVendor(host string) (GatewayVendor, []string) {
+func matchVendor(host string) vendorSignature {
 	for _, sig := range vendorSignatures {
 		for _, pat := range sig.patterns {
 			if strings.Contains(host, pat) {
-				return sig.vendor, append([]string(nil), sig.features...)
+				return sig
 			}
 		}
 	}
-	return VendorGeneric, []string{"Standard SMTP / TLS Encryption", "Basic MTA Protocol Compliance"}
+	return vendorSignature{vendor: VendorGeneric}
 }

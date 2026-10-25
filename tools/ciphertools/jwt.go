@@ -167,10 +167,10 @@ func runJWTDecode(in Input) (any, error) {
 // cleanToken drops what a copy from a header, log or terminal drags along; a JWT's alphabet has none of it.
 func cleanToken(s string) string {
 	s = strings.TrimSpace(s)
-	for _, p := range []string{"Authorization:", "authorization:"} {
+	for _, p := range []string{"Authorization:", "authorization:", "DPoP:", "dpop:"} {
 		s = strings.TrimSpace(strings.TrimPrefix(s, p))
 	}
-	if f := strings.Fields(s); len(f) > 1 && strings.EqualFold(f[0], "bearer") {
+	if f := strings.Fields(s); len(f) > 1 && (strings.EqualFold(f[0], "bearer") || strings.EqualFold(f[0], "dpop")) {
 		s = strings.TrimSpace(s[len(f[0]):])
 	}
 	return strings.Join(strings.Fields(strings.Trim(s, "\"'`")), "")

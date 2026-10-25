@@ -36,7 +36,6 @@ var errNothingToScore = errors.New("Nothing to score: pass fingerprint (the JSON
 func botSpecs(d Deps) []toolSpec {
 	t := ipTools{geo: d.Geo, chk: d.Blocklist}
 	return []toolSpec{{
-		toolset: "botcheck",
 		tool: &mcp.Tool{
 			Name:  "botcheck_score",
 			Title: "Bot check score",
@@ -62,12 +61,12 @@ func anyObject(prop string) func(*jsonschema.Schema) {
 }
 
 // score never reads or writes the corpus: a synthetic payload must not train it.
-func (t ipTools) score(ctx context.Context, _ *mcp.CallToolRequest, a botScoreArgs) (any, error) {
+func (t ipTools) score(ctx context.Context, a botScoreArgs) (any, error) {
 	ip := strings.TrimSpace(a.IP)
 	if len(a.Fingerprint) == 0 && a.HTTP == nil && ip == "" {
 		return nil, errNothingToScore
 	}
-	sig := botcheck.Signals{Now: time.Now(), CorpusSkipped: true}
+	sig := botcheck.Signals{Now: time.Now()}
 	if len(a.Fingerprint) > 0 {
 		if err := collectorPayload(a.Fingerprint, &sig); err != nil {
 			return nil, err

@@ -5,14 +5,16 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
-func TestMCP_MailDMARCParse(t *testing.T) {
-	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-
-	xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
+const dmarcReport = `<?xml version="1.0" encoding="UTF-8"?>
 <feedback>
   <report_metadata><org_name>google.com</org_name><report_id>1001</report_id></report_metadata>
   <policy_published><domain>corpberry.com</domain><p>reject</p></policy_published>
@@ -24,111 +26,115 @@ func TestMCP_MailDMARCParse(t *testing.T) {
   </record>
 </feedback>`
 
-	// 1. Raw XML parameter
-	resRaw := object(t, call(t, cs, "mail_dmarc_parse", map[string]any{"xml": xmlContent}))
-	if resRaw["org_name"] != "google.com" || fmt.Sprint(resRaw["total_messages"]) != "10" {
-		t.Errorf("mail_dmarc_parse raw XML result mismatch: %+v", resRaw)
-	}
-
-	// 2. Base64 encoded XML string inside xml argument
-	b64XML := base64.StdEncoding.EncodeToString([]byte(xmlContent))
-	resB64 := object(t, call(t, cs, "mail_dmarc_parse", map[string]any{"xml": b64XML}))
-	if resB64["domain"] != "corpberry.com" {
-		t.Errorf("mail_dmarc_parse b64 XML mismatch: %+v", resB64)
-	}
-
-	// 3. Base64-encoded gzip archive (.xml.gz) via base64 parameter
-	var gzBuf bytes.Buffer
-	gw := gzip.NewWriter(&gzBuf)
-	gw.Write([]byte(xmlContent))
-	gw.Close()
-	b64Gz := base64.StdEncoding.EncodeToString(gzBuf.Bytes())
-
-	resGz := object(t, call(t, cs, "mail_dmarc_parse", map[string]any{"base64": b64Gz}))
-	if resGz["org_name"] != "google.com" {
-		t.Errorf("mail_dmarc_parse gzip mismatch: %+v", resGz)
-	}
-
-	// 4. Missing both arguments fails
-	failsWith(t, call(t, cs, "mail_dmarc_parse", map[string]any{}), "provide either xml or base64")
-}
-
-func TestMCP_MailBIMIValidateAndAutoFix(t *testing.T) {
-	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-
-	validSVG := `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">
+const (
+	tinySVG = `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">
   <title>Logo</title><circle cx="50" cy="50" r="40" fill="red"/>
 </svg>`
-
-	badSVG := `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" onload="alert(1)">
+	badSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" onload="alert(1)">
   <script>evil()</script><rect width="200" height="100"/>
 </svg>`
+)
 
-	// 1. Validate Compliant
-	resVal := object(t, call(t, cs, "mail_bimi_validate", map[string]any{"svg": validSVG}))
-	if resVal["compliant"] != true {
-		t.Errorf("expected compliant: true, got: %+v", resVal)
-	}
+func base64Of(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 
-	// 2. Validate Non-Compliant
-	resBad := object(t, call(t, cs, "mail_bimi_validate", map[string]any{"svg": badSVG}))
-	if resBad["compliant"] == true {
-		t.Errorf("expected compliant: false for bad SVG")
-	}
+func gzipped(s string) []byte {
+	var b bytes.Buffer
+	w := gzip.NewWriter(&b)
+	w.Write([]byte(s))
+	w.Close()
+	return b.Bytes()
+}
 
-	// 3. Auto-Fix
-	resFix := object(t, call(t, cs, "mail_bimi_autofix", map[string]any{"svg": badSVG}))
-	fixedSVG, ok := resFix["svg"].(string)
-	if !ok || len(fixedSVG) == 0 {
-		t.Fatalf("expected fixed svg string in result, got: %+v", resFix)
+func TestMailParity(t *testing.T) {
+	s := newStack(t, stackOpts{})
+	cs := s.client(t, "/mcp/mail", nil, nil)
+	q := url.QueryEscape
+	cases := []struct {
+		tool                 string
+		args                 map[string]any
+		method, target, form string
+	}{
+		{"mail_dmarc_parse", map[string]any{"xml": dmarcReport, "detailed": true}, http.MethodPost, "/dmarc/parse", "xml=" + q(dmarcReport)},
+		{"mail_bimi_validate", map[string]any{"svg": tinySVG}, http.MethodPost, "/bimi", "svg=" + q(tinySVG)},
+		{"mail_bimi_validate", map[string]any{"svg": badSVG}, http.MethodPost, "/bimi", "svg=" + q(badSVG)},
+		{"mail_classify_domain", map[string]any{"domain": "someone@mailinator.com"}, http.MethodGet, "/disposable?domain=" + q("someone@mailinator.com"), ""},
+		{"mail_classify_domain", map[string]any{"domain": "alex@gmail.com"}, http.MethodGet, "/classifier?domain=" + q("alex@gmail.com"), ""},
 	}
-	if !strings.Contains(fixedSVG, `baseProfile="tiny-ps"`) || strings.Contains(fixedSVG, "<script>") {
-		t.Errorf("auto-fixed SVG did not remediate issues:\n%s", fixedSVG)
+	for _, tc := range cases {
+		got := object(t, call(t, cs, tc.tool, tc.args))
+		want := s.rest(t, mailHost, tc.method, tc.target, tc.form)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("%s %.60v vs REST %s (-rest +mcp):\n%s", tc.tool, tc.args, tc.target, diff)
+		}
 	}
 }
 
-func TestMCP_MailARCAnalyze(t *testing.T) {
+func TestMailResults(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-
-	validARC := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none; b=sig1
-ARC-Message-Signature: i=1; a=rsa-sha256; d=origin.example; s=arc; b=sig2
-ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
-
-	res := object(t, call(t, cs, "mail_arc_analyze", map[string]any{"headers": validARC}))
-	if res["chain_valid"] != true || res["final_chain_validation"] != "none" {
-		t.Errorf("expected valid ARC chain, got: %+v", res)
+	cases := []struct {
+		name, tool string
+		args       map[string]any
+		want       map[string]string
+	}{
+		{"dmarc as xml", "mail_dmarc_parse", map[string]any{"xml": dmarcReport}, map[string]string{"org_name": "google.com", "total_messages": "10"}},
+		{"dmarc xml bytes as base64", "mail_dmarc_parse", map[string]any{"base64": base64Of([]byte(dmarcReport))}, map[string]string{"domain": "corpberry.com"}},
+		{"dmarc gzip as base64", "mail_dmarc_parse", map[string]any{"base64": base64Of(gzipped(dmarcReport))}, map[string]string{"org_name": "google.com"}},
+		{"bimi compliant", "mail_bimi_validate", map[string]any{"svg": tinySVG}, map[string]string{"compliant": "true"}},
+		{"bimi not compliant", "mail_bimi_validate", map[string]any{"svg": badSVG}, map[string]string{"compliant": "false"}},
+		{"disposable", "mail_classify_domain", map[string]any{"domain": "test@mailinator.com"}, map[string]string{"is_disposable": "true", "type": "disposable"}},
+		{"corporate", "mail_classify_domain", map[string]any{"domain": "stripe.com"}, map[string]string{"is_disposable": "false", "type": "corporate"}},
+		{"free webmail", "mail_classify_domain", map[string]any{"domain": "alex@gmail.com"}, map[string]string{"is_freemail": "true", "type": "freemail"}},
+	}
+	for _, tc := range cases {
+		got := object(t, call(t, cs, tc.tool, tc.args))
+		for k, want := range tc.want {
+			if fmt.Sprint(got[k]) != want {
+				t.Errorf("%s: %s = %v, want %s", tc.name, k, got[k], want)
+			}
+		}
 	}
 
-	// Broken ARC (cv=pass on initial hop)
-	brokenARC := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=pass; b=sig1
-ARC-Message-Signature: i=1; a=rsa-sha256; d=origin.example; s=arc; b=sig2
-ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
+	failsWith(t, call(t, cs, "mail_dmarc_parse", map[string]any{}), "provide either xml or base64")
+	failsWith(t, call(t, cs, "mail_dmarc_parse", map[string]any{"xml": base64Of([]byte(dmarcReport))}), "XML")
 
-	resBroken := object(t, call(t, cs, "mail_arc_analyze", map[string]any{"headers": brokenARC}))
-	if resBroken["chain_valid"] == true {
-		t.Errorf("expected broken chain to be marked invalid")
+	fixed := object(t, call(t, cs, "mail_bimi_validate", map[string]any{"svg": badSVG}))["auto_fixed_svg"].(string)
+	if !strings.Contains(fixed, `baseProfile="tiny-ps"`) || !strings.Contains(fixed, `viewBox="0 -50 200 200"`) {
+		t.Errorf("auto_fixed_svg doesn't fix the root:\n%s", fixed)
 	}
 }
 
-func TestMCP_MailCheckDisposable(t *testing.T) {
+func TestDMARCIsConciseByDefault(t *testing.T) {
+	var rows strings.Builder
+	for i := range 40 {
+		fmt.Fprintf(&rows, `<record><row><source_ip>198.51.100.%d</source_ip><count>1</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>corpberry.com</header_from></identifiers></record>`, i)
+	}
+	report := strings.Replace(dmarcReport, "</feedback>", rows.String()+"</feedback>", 1)
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
 
-	resDisp := object(t, call(t, cs, "mail_check_disposable", map[string]any{"domain": "test@mailinator.com"}))
-	if resDisp["is_disposable"] != true || resDisp["type"] != "disposable" {
-		t.Errorf("expected is_disposable: true for mailinator.com, got: %+v", resDisp)
+	concise := object(t, call(t, cs, "mail_dmarc_parse", map[string]any{"xml": report}))
+	if _, ok := concise["records"]; ok || len(concise["sources"].([]any)) != 30 || concise["sources_truncated"] != true {
+		t.Errorf("concise: records present %v, %d sources, truncated %v; want no records, 30 sources, truncated",
+			concise["records"] != nil, len(concise["sources"].([]any)), concise["sources_truncated"])
 	}
-
-	resCorp := object(t, call(t, cs, "mail_check_disposable", map[string]any{"domain": "stripe.com"}))
-	if resCorp["is_disposable"] == true || resCorp["type"] != "corporate" {
-		t.Errorf("expected is_disposable: false for stripe.com, got: %+v", resCorp)
+	detailed := object(t, call(t, cs, "mail_dmarc_parse", map[string]any{"xml": report, "detailed": true}))
+	if len(detailed["records"].([]any)) != 41 || len(detailed["sources"].([]any)) != 41 {
+		t.Errorf("detailed: %d records, %d sources, want 41 of each", len(detailed["records"].([]any)), len(detailed["sources"].([]any)))
 	}
 }
 
-func TestMCP_MailClassifyDomain(t *testing.T) {
-	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-
-	resFree := object(t, call(t, cs, "mail_classify_domain", map[string]any{"domain": "alex@gmail.com"}))
-	if resFree["is_freemail"] != true || resFree["type"] != "freemail" {
-		t.Errorf("expected is_freemail: true for gmail.com, got: %+v", resFree)
+// TestMailNetworkToolsLive: these two query public DNS, so they need the network and skip without it.
+func TestMailNetworkToolsLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("live DNS")
+	}
+	if _, err := net.LookupMX("google.com"); err != nil {
+		t.Skipf("outbound DNS unavailable: %v", err)
+	}
+	cs := newStack(t, stackOpts{mail: mailService()}).client(t, "/mcp", nil, nil)
+	if health := object(t, call(t, cs, "mail_domain_health", map[string]any{"domain": "google.com"})); health["domain"] != "google.com" {
+		t.Errorf("mail_domain_health domain = %v", health["domain"])
+	}
+	if list := object(t, call(t, cs, "mail_check_dnsbl", map[string]any{"target": "127.0.0.2"})); list["target"] != "127.0.0.2" {
+		t.Errorf("mail_check_dnsbl target = %v", list["target"])
 	}
 }

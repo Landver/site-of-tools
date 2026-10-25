@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -111,6 +112,40 @@ func TestHeadersPageRender(t *testing.T) {
 	rec := request(t, e, http.MethodGet, "/headers", asHTML)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /headers HTML status = %d, want 200: body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// GET /headers fetches ?u= and nothing else; POST only parses what was pasted. A refused target is the
+// caller's 400, one that doesn't answer the target's 502.
+func TestHeadersRoutesSplitFetchFromPaste(t *testing.T) {
+	t.Parallel()
+	tracer := linktools.NewTracer(platform.NewEgressGuard([]string{"80", "443"}, []string{"link.example"}), 2*time.Second)
+	e := newLinkApp(t, tracer, nil)
+	for _, tc := range []struct {
+		target string
+		code   int
+	}{
+		{"/headers?" + q("u", "https://link.example/"), http.StatusBadRequest},
+		{"/headers?" + q("u", "http://127.0.0.1/"), http.StatusBadRequest},
+		{"/headers?" + q("u", "curl https://example.com/"), http.StatusBadRequest},
+		{"/headers?" + q("u", "https://nothing-here.invalid/"), http.StatusBadGateway},
+		{"/headers?" + q("url", "https://example.com/"), http.StatusBadRequest},
+		{"/headers?" + q("headers", "cache-control: no-store"), http.StatusBadRequest},
+	} {
+		if rec := request(t, e, http.MethodGet, tc.target, asJSON); rec.Code != tc.code {
+			t.Errorf("GET %s = %d %s, want %d", tc.target, rec.Code, rec.Body, tc.code)
+		}
+	}
+
+	pasted := linkCall(t, e, linkCase{method: http.MethodPost, target: "/headers?" + q("u", "https://example.com/"),
+		body: q("headers", "HTTP/2 404\ncache-control: no-store"), ctype: formType})
+	var report linktools.HeadersReport
+	if err := json.Unmarshal(pasted.Body.Bytes(), &report); err != nil || pasted.Code != http.StatusOK ||
+		report.IsLiveURL || report.StatusCode != http.StatusNotFound {
+		t.Errorf("POST /headers = %d %s, want the pasted 404 parsed and nothing fetched", pasted.Code, pasted.Body)
+	}
+	if rec := linkCall(t, e, linkCase{method: http.MethodPost, target: "/headers"}); rec.Code != http.StatusBadRequest {
+		t.Errorf("POST /headers with nothing pasted = %d, want 400", rec.Code)
 	}
 }
 
@@ -236,7 +271,7 @@ func TestKeylessServerRefusesEveryKeyGatedRoute(t *testing.T) {
 func TestKeylessServerStillRedirects(t *testing.T) {
 	ctx := context.Background()
 	keyed, store := liveShortener(t, ctx)
-	link, err := keyed.Create(ctx, "https://example.com/kept", linktools.CreateOptions{Slug: "made-with-a-key"})
+	link, err := keyed.Create(ctx, linktools.CreateRequest{URL: "https://example.com/kept", Slug: "made-with-a-key"}, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

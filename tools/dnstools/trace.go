@@ -198,11 +198,10 @@ func (w *traceWalk) spend() bool {
 
 // Trace walks name's delegation from the root, validating DNSSEC on the way; qtype defaults to A.
 func (s *Service) Trace(ctx context.Context, name, qtype string) (*Trace, error) {
-	name = strings.TrimSpace(name)
+	name, qtype = NormalizeName(name), walkType(qtype)
 	if name == "" {
 		return nil, ErrEmptyName
 	}
-	qtype = walkType(qtype)
 	// The package allowlist: ANY or AXFR aimed at caller-chosen nameservers would be an amplifier.
 	if !slices.Contains(Types, qtype) {
 		return nil, ErrBadType

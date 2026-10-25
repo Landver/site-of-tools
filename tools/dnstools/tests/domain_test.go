@@ -58,7 +58,7 @@ func canned(t *testing.T, rdap string, rdapCode int, ct string, ctCode int) (*dn
 	}))
 	t.Cleanup(srv.Close)
 	u.host = srv.Listener.Addr().String()
-	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second), u
+	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second, nil), u
 }
 
 func rdapBody(expires time.Time) string {
@@ -150,7 +150,7 @@ func TestRegistrationNamesARegistrarWithNoJCard(t *testing.T) {
 func TestDomainClientDisabled(t *testing.T) {
 	t.Parallel()
 
-	if dc := dnstools.NewDomainClient("", "", time.Second); dc != nil {
+	if dc := dnstools.NewDomainClient("", "", time.Second, nil); dc != nil {
 		t.Errorf("both URLs blank should disable the client, got %+v", dc)
 	}
 	var nilClient *dnstools.DomainClient
@@ -377,11 +377,12 @@ func TestDomainClientBudgetSkipsWithoutAsking(t *testing.T) {
 	}
 }
 
-// Every redirect hop must pass the egress guard; ownOnly hops only the configured guard refuses.
+// Every redirect hop must pass the egress guard; ownOnly hops only the guard denying our hosts refuses.
 func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
 	t.Parallel()
 
 	own := platform.NewEgressGuard([]string{"443"}, []string{"dns.corpberry.com", "93.184.216.34"})
+	plain := platform.NewEgressGuard([]string{"80", "443"}, nil)
 	for _, tc := range []struct {
 		name, location string
 		ownOnly        bool
@@ -399,10 +400,10 @@ func TestRegistrationRefusesUnsafeRedirects(t *testing.T) {
 		srv := httptest.NewServer(http.RedirectHandler(tc.location, http.StatusFound))
 		t.Cleanup(srv.Close)
 		clients := map[string]*dnstools.DomainClient{
-			"configured": dnstools.NewDomainClient(srv.URL, "", 5*time.Second).WithEgressGuard(own),
+			"configured": dnstools.NewDomainClient(srv.URL, "", 5*time.Second, own),
 		}
 		if !tc.ownOnly {
-			clients["default"] = dnstools.NewDomainClient(srv.URL, "", 5*time.Second)
+			clients["plain"] = dnstools.NewDomainClient(srv.URL, "", 5*time.Second, plain)
 		}
 		for name, dc := range clients {
 			_, err := dc.Registration(context.Background(), "example.com")

@@ -21,7 +21,7 @@ func limitsApp(lim *iptools.Limits) *echo.Echo {
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 	)
-	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}, nil, nil, lim)
+	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: "8.8.8.8"}}, nil, lim)
 	return e
 }
 
@@ -53,13 +53,22 @@ func TestEveryRouteIsRateLimited(t *testing.T) {
 		{"/?ip=8.8.8.8", 10, map[string]string{"Accept": "text/html"}, "<html"},
 		{"/?ip=8.8.8.8", 10, map[string]string{"HX-Request": "true"}, `class="alert-error`},
 		{"/cidr?cidr=10.0.0.0/8", 50, map[string]string{"Accept": "text/html"}, "Subnet calculator"},
-		{"/history", 10, map[string]string{"Accept": "text/html"}, "Lookup history"},
 	}
 	for _, tc := range cases {
 		rec := spend(t, limitsApp(nil), tc.target, tc.burst, tc.hdr)
 		if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), tc.want) ||
 			!strings.Contains(rec.Body.String(), "Too many requests") {
 			t.Errorf("%s %v past the burst = %d, want 429 with %q:\n%s", tc.target, tc.hdr, rec.Code, tc.want, rec.Body)
+		}
+	}
+}
+
+// /history queries nothing, so no budget gates it.
+func TestHistoryPageIsNotRateLimited(t *testing.T) {
+	e := limitsApp(nil)
+	for i := range 20 {
+		if rec := do(e, "/history", map[string]string{"Accept": "text/html"}); rec.Code != http.StatusOK {
+			t.Fatalf("/history request %d = %d, want 200: the page queries nothing", i+1, rec.Code)
 		}
 	}
 }

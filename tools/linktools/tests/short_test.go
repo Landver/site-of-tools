@@ -148,7 +148,7 @@ func TestKeylessShortenerAuthorizesNobody(t *testing.T) {
 	}
 	// The domain refuses by itself too, so a caller that skips Authorized still cannot write.
 	ctx := context.Background()
-	if _, err := s.Create(ctx, "https://example.com/", linktools.CreateOptions{}); !errors.Is(err, linktools.ErrDisabled) {
+	if _, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/"}, ""); !errors.Is(err, linktools.ErrDisabled) {
 		t.Errorf("Create with no key configured = %v, want ErrDisabled", err)
 	}
 	if _, err := s.Recent(ctx, 10); !errors.Is(err, linktools.ErrDisabled) {
@@ -165,7 +165,7 @@ func TestNilShortenerIsSafeAndDisabled(t *testing.T) {
 	var s *linktools.Shortener
 	ctx := context.Background()
 
-	if _, err := s.Create(ctx, "https://example.com/", linktools.CreateOptions{}); !errors.Is(err, linktools.ErrDisabled) {
+	if _, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/"}, ""); !errors.Is(err, linktools.ErrDisabled) {
 		t.Errorf("Create on a nil *Shortener = %v, want ErrDisabled", err)
 	}
 	if _, err := s.Resolve(ctx, "abc1234"); !errors.Is(err, linktools.ErrDisabled) {
@@ -212,9 +212,9 @@ func TestAuthorizedOnlyForTheConfiguredKey(t *testing.T) {
 }
 
 // A valid target fails later at the offline insert, so check for ErrInvalidTarget, not any error.
-func createErr(t *testing.T, s *linktools.Shortener, target string, opt linktools.CreateOptions) error {
+func createErr(t *testing.T, s *linktools.Shortener, req linktools.CreateRequest) error {
 	t.Helper()
-	_, err := s.Create(context.Background(), target, opt)
+	_, err := s.Create(context.Background(), req, "")
 	return err
 }
 
@@ -229,7 +229,7 @@ func TestTargetSchemeAllowlist(t *testing.T) {
 		"ftp://example.com/x",
 		"vbscript:msgbox(1)",
 	} {
-		if err := createErr(t, s, target, linktools.CreateOptions{}); !errors.Is(err, linktools.ErrInvalidTarget) {
+		if err := createErr(t, s, linktools.CreateRequest{URL: target}); !errors.Is(err, linktools.ErrInvalidTarget) {
 			t.Errorf("Create(%q) = %v, want ErrInvalidTarget — /s/<code> would hand this to a browser", target, err)
 		}
 	}
@@ -255,7 +255,7 @@ func TestTargetMustBePubliclyRoutable(t *testing.T) {
 		"http://2130706433/", // integer form of 127.0.0.1
 		"http://0x7f000001/", // hex form of the same
 	} {
-		if err := createErr(t, s, target, linktools.CreateOptions{}); !errors.Is(err, linktools.ErrInvalidTarget) {
+		if err := createErr(t, s, linktools.CreateRequest{URL: target}); !errors.Is(err, linktools.ErrInvalidTarget) {
 			t.Errorf("Create(%q) = %v, want ErrInvalidTarget — this alias would point a stranger's browser at their own network", target, err)
 		}
 	}
@@ -279,7 +279,7 @@ func TestTargetPortAndSizeBounds(t *testing.T) {
 		if len(label) > 60 {
 			label = label[:60] + "…"
 		}
-		if err := createErr(t, s, target, linktools.CreateOptions{}); !errors.Is(err, linktools.ErrInvalidTarget) {
+		if err := createErr(t, s, linktools.CreateRequest{URL: target}); !errors.Is(err, linktools.ErrInvalidTarget) {
 			t.Errorf("Create(%q) = %v, want ErrInvalidTarget", label, err)
 		}
 	}
@@ -296,7 +296,7 @@ func TestOrdinaryTargetsPassValidation(t *testing.T) {
 		"https://sub.domain.example.co.uk/a%20b?q=a+b",
 		"https://93.184.216.34/",
 	} {
-		if err := createErr(t, s, target, linktools.CreateOptions{}); errors.Is(err, linktools.ErrInvalidTarget) {
+		if err := createErr(t, s, linktools.CreateRequest{URL: target}); errors.Is(err, linktools.ErrInvalidTarget) {
 			t.Errorf("Create(%q) was refused as an unacceptable target: %v", target, err)
 		}
 	}
@@ -332,7 +332,7 @@ func TestSlugValidation(t *testing.T) {
 		if tc.slug == "" {
 			continue // an empty slug means "generate one"; see the codes tests
 		}
-		err := createErr(t, s, "https://example.com/", linktools.CreateOptions{Slug: tc.slug})
+		err := createErr(t, s, linktools.CreateRequest{URL: "https://example.com/", Slug: tc.slug})
 		if !errors.Is(err, linktools.ErrInvalidSlug) {
 			t.Errorf("slug %q was not refused (%s); got %v", tc.slug, tc.why, err)
 		}
@@ -344,7 +344,7 @@ func TestOrdinarySlugsPassValidation(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t)
 	for _, slug := range []string{"q4-report", "ab", "launch2026", "a-b-c", "abc123", "abc12345"} {
-		err := createErr(t, s, "https://example.com/", linktools.CreateOptions{Slug: slug})
+		err := createErr(t, s, linktools.CreateRequest{URL: "https://example.com/", Slug: slug})
 		if errors.Is(err, linktools.ErrInvalidSlug) {
 			t.Errorf("slug %q was refused: %v", slug, err)
 		}
@@ -354,8 +354,7 @@ func TestOrdinarySlugsPassValidation(t *testing.T) {
 // TestNoteIsBounded: the note is rendered on the operator console (§7/§8).
 func TestNoteIsBounded(t *testing.T) {
 	t.Parallel()
-	err := createErr(t, offlineShortener(t), "https://example.com/",
-		linktools.CreateOptions{Note: strings.Repeat("n", 300)})
+	err := createErr(t, offlineShortener(t), linktools.CreateRequest{URL: "https://example.com/", Note: strings.Repeat("n", 300)})
 	if !errors.Is(err, linktools.ErrInvalidNote) {
 		t.Errorf("a 300-byte note was accepted; the cap is 256 (got %v)", err)
 	}
@@ -365,7 +364,7 @@ func TestNoteIsBounded(t *testing.T) {
 func TestCleanRequestedWithoutACleanerFailsClosed(t *testing.T) {
 	t.Parallel()
 	s := offlineShortener(t) // CleanTarget deliberately left nil
-	err := createErr(t, s, "https://example.com/?utm_source=x", linktools.CreateOptions{Clean: true})
+	err := createErr(t, s, linktools.CreateRequest{URL: "https://example.com/?utm_source=x", Clean: true})
 	if !errors.Is(err, linktools.ErrDisabled) {
 		t.Errorf("Create with Clean and no cleaner = %v, want ErrDisabled; storing an uncleaned target while reporting a cleaned one is the failure this guards", err)
 	}
@@ -375,7 +374,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s, _ := liveShortener(t, ctx)
 
-	link, err := s.Create(ctx, "https://example.com/a?b=1", linktools.CreateOptions{Note: "round trip"})
+	link, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/a?b=1", Note: "round trip"}, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -402,11 +401,11 @@ func TestCustomSlugTakenIsAConflictNotASuffix(t *testing.T) {
 	ctx := context.Background()
 	s, _ := liveShortener(t, ctx)
 
-	first, err := s.Create(ctx, "https://example.com/first", linktools.CreateOptions{Slug: "q4-report"})
+	first, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/first", Slug: "q4-report"}, "")
 	if err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
-	second, err := s.Create(ctx, "https://example.com/second", linktools.CreateOptions{Slug: "q4-report"})
+	second, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/second", Slug: "q4-report"}, "")
 	if !errors.Is(err, linktools.ErrSlugTaken) {
 		t.Fatalf("second Create with the same slug = (%+v, %v), want ErrSlugTaken", second, err)
 	}
@@ -453,7 +452,7 @@ func TestExpiryIsEnforcedInCodeNotByTheReaper(t *testing.T) {
 	}
 
 	// A future TTL must still resolve, or "enforced in code" would just mean "broken".
-	live, err := s.Create(ctx, "https://example.com/live", linktools.CreateOptions{TTL: time.Hour})
+	live, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/live", TTL: "1h"}, "")
 	if err != nil {
 		t.Fatalf("Create with a future TTL: %v", err)
 	}
@@ -470,7 +469,7 @@ func TestRevokedLinkDoesNotResolve(t *testing.T) {
 	ctx := context.Background()
 	s, store := liveShortener(t, ctx)
 
-	link, err := s.Create(ctx, "https://example.com/revoked", linktools.CreateOptions{Slug: "to-revoke"})
+	link, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/revoked", Slug: "to-revoke"}, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -484,7 +483,7 @@ func TestRevokedLinkDoesNotResolve(t *testing.T) {
 		t.Errorf("revoked link = %v, want ErrLinkNotFound", err)
 	}
 	// The slug is NOT free again: re-registering it would be alias takeover.
-	if _, err := s.Create(ctx, "https://evil.tld/", linktools.CreateOptions{Slug: "to-revoke"}); !errors.Is(err, linktools.ErrSlugTaken) {
+	if _, err := s.Create(ctx, linktools.CreateRequest{URL: "https://evil.tld/", Slug: "to-revoke"}, ""); !errors.Is(err, linktools.ErrSlugTaken) {
 		t.Errorf("a revoked slug was reissuable (%v); every copy of the old link would silently change destination", err)
 	}
 }
@@ -496,7 +495,7 @@ func TestNoExistenceOracle(t *testing.T) {
 	s, store := liveShortener(t, ctx)
 
 	expired := insertExpired(t, ctx, store, "gone-expired", "https://example.com/e")
-	revoked, err := s.Create(ctx, "https://example.com/r", linktools.CreateOptions{Slug: "gone-revoked"})
+	revoked, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/r", Slug: "gone-revoked"}, "")
 	if err != nil {
 		t.Fatalf("Create revoked: %v", err)
 	}
@@ -547,7 +546,7 @@ func TestGeneratedCodes(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range jobs {
-				link, err := s.Create(ctx, "https://example.com/gen", linktools.CreateOptions{})
+				link, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/gen"}, "")
 				mu.Lock()
 				switch {
 				case err != nil:
@@ -583,7 +582,7 @@ func TestRecentListsNewestFirst(t *testing.T) {
 	s, _ := liveShortener(t, ctx)
 
 	for _, slug := range []string{"first-one", "second-one", "third-one"} {
-		if _, err := s.Create(ctx, "https://example.com/"+slug, linktools.CreateOptions{Slug: slug}); err != nil {
+		if _, err := s.Create(ctx, linktools.CreateRequest{URL: "https://example.com/" + slug, Slug: slug}, ""); err != nil {
 			t.Fatalf("Create %s: %v", slug, err)
 		}
 		time.Sleep(2 * time.Millisecond) // distinct created_at values

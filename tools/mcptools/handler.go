@@ -27,16 +27,17 @@ import (
 
 // Deps are the REST routes' own values, Limits included; a nil one drops its tools.
 type Deps struct {
-	Geo          iptools.Looker // with Shodan
-	DNSGeo       iptools.Looker // the same without Shodan
-	Blocklist    iptools.Checker
-	DNS          dnstools.Looker
-	Domain       *dnstools.DomainClient
-	Link         *linktools.Service
-	Tracer       *linktools.Tracer
-	Short        *linktools.Shortener
-	Owner        *linktools.Shortener // without a key /mcp/owner is a 404
-	Blog         *site.Blog
+	Geo       iptools.Looker // with Shodan
+	DNSGeo    iptools.Looker // the same without Shodan
+	Blocklist iptools.Checker
+	DNS       dnstools.Looker
+	Domain    *dnstools.DomainClient
+	Link      *linktools.Service
+	Tracer    *linktools.Tracer
+	Short     *linktools.Shortener
+	Owner     *linktools.Shortener // without a key /mcp/owner is a 404
+	Blog      *site.Blog
+	Mail      *mailtools.Service
 
 	IPLimits     *iptools.Limits
 	DNSLimits    *dnstools.Limits
@@ -51,7 +52,7 @@ type Deps struct {
 
 const maxBody = 1 << 20
 
-const landingDesc = "An MCP server for AI agents: corpberry.com's IP, DNS, Link and Cipher Tools, Bot check and blog, " +
+const landingDesc = "An MCP server for AI agents: corpberry.com's IP, DNS, Link, Cipher and Mail Tools, Bot check and blog, " +
 	"with the same results as the web pages and their JSON API. Free, no account, no key."
 
 type handler struct {
@@ -80,8 +81,9 @@ func newHandler(d Deps, base string, log *slog.Logger) *handler {
 		d.Geo = nil
 	}
 	m := &calls{reqlog: d.RequestLog, log: log}
-	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), mailSpecs(d), siteSpecs(d))
-	eps := buildEndpoints(public, ownerSpecs(d, log), m, base)
+	eps := buildEndpoints(slices.Concat(in("ip", ipSpecs(d)), in("dns", dnsSpecs(d)), in("link", linkSpecs(d, log)),
+		in("cipher", cipherSpecs(d)), in("botcheck", botSpecs(d)), in("mail", mailSpecs(d)), in("site", siteSpecs(d)),
+		in(ownerEndpoint, ownerSpecs(d, log))), m, base)
 	sdk := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		if ep := eps[r.PathValue("toolset")]; ep != nil {
 			return ep.server
@@ -115,12 +117,18 @@ func (h *handler) serve(c *echo.Context) error {
 	name := c.Param("toolset")
 	ep := h.endpoints[name]
 	req := c.Request()
-	page := req.Method == http.MethodGet && !platform.WantsJSON(c)
-	// The landing page at /mcp/owner would tell any visitor the endpoint exists.
-	if ep == nil || page && name == ownerEndpoint {
-		return refuseHTTP(c, http.StatusNotFound, "No MCP endpoint at this path. The endpoints are listed at "+h.base+"/")
+	if ep == nil {
+		return h.noEndpoint(c)
 	}
-	if page {
+	if name == ownerEndpoint {
+		// Ahead of every other answer, so only the key's holder learns the endpoint exists.
+		if !h.owner.Authorized(ownerKey(req.Header)) {
+			return h.noEndpoint(c)
+		}
+		// The SDK copies every header into each handler's request; none needs these.
+		req.Header.Del("X-Api-Key")
+		req.Header.Del("Authorization")
+	} else if req.Method == http.MethodGet && !platform.WantsJSON(c) {
 		return h.landing(c)
 	}
 	switch req.Header.Get("Sec-Fetch-Site") {
@@ -131,14 +139,6 @@ func (h *handler) serve(c *echo.Context) error {
 	ip := c.RealIP()
 	if !platform.AllowKey(h.perIP, ip) {
 		return refuseHTTP(c, http.StatusTooManyRequests, platform.LimitedMessage)
-	}
-	if name == ownerEndpoint {
-		if !h.owner.Authorized(ownerKey(req.Header)) {
-			return refuseHTTP(c, http.StatusForbidden, "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer.")
-		}
-		// The SDK copies every header into each handler's request; none needs these.
-		req.Header.Del("X-Api-Key")
-		req.Header.Del("Authorization")
 	}
 
 	if req.Method == http.MethodPost {
@@ -158,6 +158,10 @@ func (h *handler) serve(c *echo.Context) error {
 	who := &caller{ip: ip, host: req.Host, userAgent: req.UserAgent(), http: req.Context()}
 	c.SetRequest(req.WithContext(context.WithValue(req.Context(), callerKey{}, who)))
 	return h.sdk(c)
+}
+
+func (h *handler) noEndpoint(c *echo.Context) error {
+	return refuseHTTP(c, http.StatusNotFound, "No MCP endpoint at this path. The endpoints are listed at "+h.base+"/")
 }
 
 func refuseHTTP(c *echo.Context, code int, msg string) error {
@@ -256,6 +260,7 @@ func (h *handler) landing(c *echo.Context) error {
 	vm := map[string]any{
 		"Title":     "MCP server — corpberry.com",
 		"Desc":      landingDesc,
+		"Canonical": h.base + "/",
 		"Endpoints": eps,
 		"Toolsets":  eps[1:],
 		"Example":   example,

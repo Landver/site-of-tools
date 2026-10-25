@@ -36,7 +36,6 @@ func siteSpecs(d Deps) []toolSpec {
 	}
 	t := siteTools{blog: d.Blog, base: d.ToolURL("")}
 	return []toolSpec{{
-		toolset: "site",
 		tool: &mcp.Tool{
 			Name:  "site_blog",
 			Title: "corpberry.com blog",
@@ -53,7 +52,7 @@ func siteSpecs(d Deps) []toolSpec {
 	}}
 }
 
-func (t siteTools) read(_ context.Context, _ *mcp.CallToolRequest, a siteBlogArgs) (any, error) {
+func (t siteTools) read(_ context.Context, a siteBlogArgs) (any, error) {
 	slug := strings.TrimSpace(a.Slug)
 	if slug == "" {
 		posts, err := t.blog.Posts()

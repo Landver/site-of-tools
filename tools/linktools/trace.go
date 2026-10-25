@@ -93,13 +93,21 @@ var personas = []Persona{
 // Personas returns a copy, so a caller can't reorder or rewrite the table it renders from.
 func Personas() []Persona { return append([]Persona(nil), personas...) }
 
+// lookupPersona is the one lookup curl and Trace share, so both claim the same agent for a key.
+func lookupPersona(key string) (Persona, bool) {
+	key = strings.TrimSpace(key)
+	for _, p := range personas {
+		if strings.EqualFold(p.Key, key) {
+			return p, true
+		}
+	}
+	return Persona{}, false
+}
+
 // personaFor falls back to the default for an unknown key: a bad ?ua= is not worth a 400.
 func personaFor(key string) Persona {
-	key = strings.ToLower(strings.TrimSpace(key))
-	for _, p := range personas {
-		if p.Key == key {
-			return p
-		}
+	if p, ok := lookupPersona(key); ok {
+		return p
 	}
 	return personas[0]
 }
@@ -169,12 +177,9 @@ func (t *Tracer) Trace(ctx context.Context, raw string, persona string) (ch *Cha
 	if t == nil {
 		return nil, ErrDisabled
 	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, fmt.Errorf("no URL given")
-	}
-	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
+	raw, err = readURL(raw)
+	if err != nil {
+		return nil, err
 	}
 	p := personaFor(persona)
 	cur, startNotes, err := parseTarget(raw)
@@ -499,9 +504,9 @@ func clipCause(err error) string {
 func refusalDetail(err error) string {
 	switch {
 	case errors.Is(err, platform.ErrBlockedPort):
-		return "Port " + afterColon(err) + " isn't allowed. Trace only connects to ports 80 and 443."
+		return "Port " + afterColon(err) + " isn't allowed: only ports 80 and 443 are ever contacted."
 	case errors.Is(err, platform.ErrBlockedAddress):
-		return afterColon(err) + " isn't on the public internet (not publicly routable), so Trace won't contact it. Private, loopback and reserved addresses, and this site's own hosts, are always refused."
+		return afterColon(err) + " isn't on the public internet (not publicly routable), so it is never contacted. Private, loopback and reserved addresses, and this site's own hosts, are always refused."
 	}
 	return err.Error()
 }

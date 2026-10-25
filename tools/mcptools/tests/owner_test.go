@@ -67,19 +67,23 @@ func TestOwnerToolErrorsOffline(t *testing.T) {
 		failsWith(t, call(t, cs, tc.tool, tc.args), tc.want)
 	}
 
-	// Optional arguments omitted get as far as the store, which is down.
-	for tool, args := range map[string]map[string]any{
-		"link_short_create": {"url": "https://example.com/"},
-		"link_short_list":   {},
-		"link_short_revoke": {"code": "abc-def"},
+	// Optional arguments omitted get as far as the store, which is down; so does the short URL create returns.
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"link_short_create", map[string]any{"url": "https://example.com/"}},
+		{"link_short_list", map[string]any{}},
+		{"link_short_revoke", map[string]any{"code": "abc-def"}},
+		{"link_short_revoke", map[string]any{"code": linkBase + "/s/abc-def"}},
 	} {
-		res := call(t, cs, tool, args)
+		res := call(t, cs, tc.tool, tc.args)
 		failsWith(t, res, "Something went wrong on our side")
 		if strings.Contains(text(t, res), "127.0.0.1") {
-			t.Errorf("%s answered with the driver's detail: %q", tool, text(t, res))
+			t.Errorf("%s answered with the driver's detail: %q", tc.tool, text(t, res))
 		}
 	}
-	if got := log.String(); strings.Count(got, "mcp: link storage error") != 3 {
+	if got := log.String(); strings.Count(got, "mcp: link storage error") != 4 {
 		t.Errorf("log = %s, want each storage failure logged with its detail", got)
 	}
 }
@@ -149,10 +153,11 @@ func TestShortLinksLive(t *testing.T) {
 	if got := s.do(http.MethodGet, "/s/"+code, "", map[string]string{"Host": linkHost}); got.Code != http.StatusFound {
 		t.Fatalf("REST redirect = %d", got.Code)
 	}
-	if diff := cmp.Diff(map[string]any{"status": "revoked", "code": code}, object(t, call(t, oc, "link_short_revoke", map[string]any{"code": code}))); diff != "" {
+	// Revoked by the short URL create returned, not only its code.
+	if diff := cmp.Diff(map[string]any{"status": "revoked", "code": code}, object(t, call(t, oc, "link_short_revoke", map[string]any{"code": made["short"]}))); diff != "" {
 		t.Errorf("revoke (-want +got):\n%s", diff)
 	}
-	failsWith(t, call(t, pub, "link_short_resolve", map[string]any{"code": code}), "no such link")
+	failsWith(t, call(t, pub, "link_short_resolve", map[string]any{"code": code}), "No such short link.")
 
 	store.Close() // flushes the hit counter
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

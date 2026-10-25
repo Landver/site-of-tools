@@ -15,6 +15,7 @@
     </div>
     <p class="mt-2 text-sm text-muted">
       Inspect Authenticated Received Chain (<span class="font-mono">RFC 8617 ARC</span>) headers directly in your browser.
+      Checks the chain's structure and the <span class="font-mono">cv=</span> and <span class="font-mono">arc=</span> results each hop reports; it does not verify signatures.
       Analyzed locally via WebAssembly without sending sensitive email headers or internal routing hops over the network.
     </p>
 
@@ -56,15 +57,15 @@
   {{/* Telemetry strip */}}
   <div class="telemetry-strip">
     <div class="telemetry-card">
-      <div class="eyebrow text-faint mb-1">Chain Status</div>
+      <div class="eyebrow text-faint mb-1">Chain Structure</div>
       <div>
         {{if .ChainValid}}
-          <span class="badge badge-ok">VALID CHAIN</span>
+          <span class="badge badge-ok">INTACT</span>
         {{else}}
-          <span class="badge badge-danger">BROKEN CHAIN</span>
+          <span class="badge badge-danger">BROKEN</span>
         {{end}}
       </div>
-      <div class="mt-1 text-xs text-faint font-mono">{{if .ChainValid}}All hops verified{{else}}Signature or sequence error{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .ChainValid}}Signatures not verified{{else}}Sequence, header or cv= error{{end}}</div>
     </div>
 
     <div class="telemetry-card">
@@ -74,11 +75,11 @@
     </div>
 
     <div class="telemetry-card">
-      <div class="eyebrow text-faint mb-1">Final Validation (cv)</div>
+      <div class="eyebrow text-faint mb-1">Last Hop cv</div>
       <div class="font-mono font-bold {{if eq .FinalCV "pass"}}text-ok{{else if eq .FinalCV "none"}}text-muted{{else}}text-danger{{end}} text-sm">
         {{if .FinalCV}}cv={{.FinalCV}}{{else}}N/A{{end}}
       </div>
-      <div class="mt-1 text-xs text-faint font-mono">Terminal hop status</div>
+      <div class="mt-1 text-xs text-faint font-mono">Self-reported, not verified</div>
     </div>
   </div>
 
@@ -91,7 +92,7 @@
       <div class="py-2">
         <div class="flex items-center gap-2">
           {{if eq .Severity "ok"}}<span class="badge badge-ok">OK</span>
-          {{else if eq .Severity "warn"}}<span class="badge badge-warn">WARN</span>
+          {{else if eq .Severity "info"}}<span class="badge badge-info">INFO</span>
           {{else}}<span class="badge badge-danger">FAIL</span>{{end}}
           <span class="font-medium text-strong">{{.Title}}</span>
         </div>
@@ -126,11 +127,12 @@
 
           {{if .AuthResults}}
           <div class="mt-3 rounded border border-line bg-canvas p-2 text-xs">
-            <span class="text-faint block font-mono">Evaluated Auth Results:</span>
+            <span class="text-faint block font-mono">Reported Auth Results:</span>
             <div class="mt-1 flex flex-wrap gap-2">
               {{if .SPFResult}}<span class="badge {{if eq .SPFResult "pass"}}badge-ok{{else}}badge-warn{{end}} text-[10px]">SPF: {{.SPFResult}}</span>{{end}}
               {{if .DKIMResult}}<span class="badge {{if eq .DKIMResult "pass"}}badge-ok{{else}}badge-warn{{end}} text-[10px]">DKIM: {{.DKIMResult}}</span>{{end}}
               {{if .DMARCResult}}<span class="badge {{if eq .DMARCResult "pass"}}badge-ok{{else}}badge-warn{{end}} text-[10px]">DMARC: {{.DMARCResult}}</span>{{end}}
+              {{if .ARCResult}}<span class="badge {{if eq .ARCResult "pass"}}badge-ok{{else if eq .ARCResult "fail"}}badge-danger{{else}}badge-warn{{end}} text-[10px]">ARC: {{.ARCResult}}</span>{{end}}
             </div>
             <p class="mt-1 font-mono text-[10px] text-muted break-all">{{.AuthResults}}</p>
           </div>

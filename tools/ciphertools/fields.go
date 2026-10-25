@@ -45,12 +45,13 @@ func checked(v string) bool {
 	return !slices.Contains([]string{"", "0", "false", "off", "no"}, choice(v, ""))
 }
 
-// enumField is choice for f, refusing what f.Enum doesn't list.
+// enumField reads f trimmed and case-insensitively, blank meaning its default, as the Enum spells it.
 func enumField(v string, f Field) (string, error) {
-	if v = choice(v, f.Default); !slices.Contains(f.Enum, v) {
-		return "", fmt.Errorf("%s: want %s or %s, got %q", f.Name, strings.Join(f.Enum[:len(f.Enum)-1], ", "), f.Enum[len(f.Enum)-1], v)
+	v = cmp.Or(strings.TrimSpace(v), f.Default)
+	if i := slices.IndexFunc(f.Enum, func(e string) bool { return strings.EqualFold(e, v) }); i >= 0 {
+		return f.Enum[i], nil
 	}
-	return v, nil
+	return "", fmt.Errorf("%s: want %s or %s, got %q", f.Name, strings.Join(f.Enum[:len(f.Enum)-1], ", "), f.Enum[len(f.Enum)-1], v)
 }
 
 // intField checks the range before any work: for Heavy ops it is what bounds a request.

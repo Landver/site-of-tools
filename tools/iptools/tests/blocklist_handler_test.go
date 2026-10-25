@@ -65,7 +65,7 @@ func TestHandlerEnrichesBlocklistLive(t *testing.T) {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: ip}}, nil, bl, nil)
+	iptools.Register(e, fakeLooker{res: &iptools.Result{IP: ip}}, bl, nil)
 
 	rec := do(e, "/?ip="+ip, map[string]string{"Accept": "application/json"})
 	if rec.Code != http.StatusOK {

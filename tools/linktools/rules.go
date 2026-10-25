@@ -651,21 +651,6 @@ func Rules() RuleCatalog {
 	}
 }
 
-type RuleSummary struct {
-	Version    string `json:"version"`
-	Scope      string `json:"scope"`
-	Tracking   int    `json:"tracking"`
-	NeverStrip int    `json:"never_strip"`
-	Wrappers   int    `json:"wrappers"`
-}
-
-func (c RuleCatalog) Summary() RuleSummary {
-	return RuleSummary{
-		Version: c.Version, Scope: c.Scope,
-		Tracking: len(c.Tracking), NeverStrip: len(c.NeverStrip), Wrappers: len(c.Wrappers),
-	}
-}
-
 type RuleMatches struct {
 	Param      string `json:"param"`
 	Tracking   []Rule `json:"tracking"`

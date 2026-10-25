@@ -47,7 +47,7 @@ var endpoints = []struct{ path, scope string }{
 
 // TestToolsListGolden pins each toolset's tools/list; /mcp must list their union.
 func TestToolsListGolden(t *testing.T) {
-	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	s := newStack(t, stackOpts{owner: offlineOwner(t), mail: mailService()})
 	var all, union []*mcp.Tool
 	for i, ep := range endpoints {
 		// One address per endpoint: every message spends the per-address budget.
@@ -105,7 +105,7 @@ func asJSON(t *testing.T, v any) any {
 
 // TestInstructionsNameOnlyTheirTools: only /mcp tells look-alike tools apart.
 func TestInstructionsNameOnlyTheirTools(t *testing.T) {
-	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	s := newStack(t, stackOpts{owner: offlineOwner(t), mail: mailService()})
 	routing := []string{"link_redirect_chain follows a URL's HTTP redirects", "cipher_encode converts bytes"}
 	for i, ep := range endpoints {
 		cs := s.client(t, ep.path, map[string]string{"CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", 100+i), "X-Api-Key": ownerKey}, nil)

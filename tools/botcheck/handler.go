@@ -1,6 +1,7 @@
 package botcheck
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 )
 
 type handler struct {
-	svc       Looker
-	corpus    *Corpus         // nil-safe: Mongo disabled → fingerprint corpus no-ops
+	svc       iptools.Looker
+	corpus    *Corpus         // nil when Mongo is off, so the corpus rules skip
 	blocklist iptools.Checker // nil when Mongo off → ip_blocklisted silent
 	lim       *Limits
 }
@@ -28,7 +29,7 @@ func NewLimits() *Limits {
 }
 
 // Register wires botcheck.corpberry.com routes onto e.
-func Register(e *echo.Echo, svc Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
+func Register(e *echo.Echo, svc iptools.Looker, corpus *Corpus, blocklist iptools.Checker, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
@@ -113,16 +114,7 @@ func (h *handler) check(c *echo.Context) error {
 	defer h.lim.CheckCap.Release(c.RealIP(), 1)
 	sig.ClientCollected = true
 	connNet := h.addServerSignals(c, &sig)
-	// Best-effort: a disabled corpus or Mongo error leaves the count at 0, which the rule reads as no data.
-	hash := sig.FingerprintHash()
-	_ = h.corpus.Record(c.Request().Context(), hash, c.RealIP())
-	if n, err := h.corpus.DistinctIPs(c.Request().Context(), hash); err == nil {
-		sig.FingerprintIPs = n
-	}
-	// Same best-effort contract for the per-IP churn count.
-	if n, err := h.corpus.DistinctHashesByIP(c.Request().Context(), c.RealIP(), churnWindow); err == nil {
-		sig.FingerprintChurn = n
-	}
+	h.addCorpusSignals(c.Request().Context(), &sig, c.RealIP())
 	report := Evaluate(sig)
 	report.ClientPayload = &sig // G54: echo raw fingerprint for dump + JSON API
 
@@ -139,6 +131,25 @@ func (h *handler) addServerSignals(c *echo.Context, sig *Signals) platform.ConnN
 	sig.Now = time.Now()
 	AddHTTPSignals(sig, requestHeaders(c.Request()))
 	return AddIPSignals(c.Request().Context(), sig, c.RealIP(), h.svc, h.blocklist).ConnNetwork()
+}
+
+// addCorpusSignals records this sighting, then reads both counts; Mongo off or a failed read leaves the
+// corpus unconsulted, so its rules skip rather than pass. A lost sighting only undercounts.
+func (h *handler) addCorpusSignals(ctx context.Context, sig *Signals, ip string) {
+	if h.corpus == nil {
+		return
+	}
+	hash := sig.FingerprintHash()
+	_ = h.corpus.Record(ctx, hash, ip)
+	ips, err := h.corpus.DistinctIPs(ctx, hash)
+	if err != nil {
+		return
+	}
+	churn, err := h.corpus.DistinctHashesByIP(ctx, ip, churnWindow)
+	if err != nil {
+		return
+	}
+	sig.FingerprintIPs, sig.FingerprintChurn, sig.CorpusConsulted = ips, churn, true
 }
 
 func requestHeaders(r *http.Request) HTTPSignals {

@@ -75,8 +75,9 @@ func TestLinkTrackingRules(t *testing.T) {
 	cat := linktools.Rules()
 
 	got := object(t, call(t, cs, "link_tracking_rules", map[string]any{}))
-	if got["version"] != cat.Version || got["tracking"] != num(len(cat.Tracking)) || got["wrappers"] != num(len(cat.Wrappers)) {
-		t.Errorf("no argument = %v, want the version and counts", got)
+	if got["version"] != cat.Version || got["scope"] != cat.Scope || len(rows(t, got, "tracking")) != len(cat.Tracking) ||
+		len(rows(t, got, "never_strip")) != len(cat.NeverStrip) || len(rows(t, got, "wrappers")) != len(cat.Wrappers) || len(cat.Tracking) == 0 {
+		t.Errorf("no argument = version %v, %d tracking rules, want the whole table: %s and all %d", got["version"], len(rows(t, got, "tracking")), cat.Version, len(cat.Tracking))
 	}
 	ref := object(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "REF"}))
 	if ref["param"] != "ref" || len(rows(t, ref, "tracking")) == 0 || len(rows(t, ref, "never_strip")) == 0 {
@@ -85,10 +86,7 @@ func TestLinkTrackingRules(t *testing.T) {
 	if hosts := rows(t, ref, "never_strip")[0]["hosts"]; hosts == nil {
 		t.Errorf("the never-strip entry for ref lists no hosts")
 	}
-	if full := object(t, call(t, cs, "link_tracking_rules", map[string]any{"full": true})); len(rows(t, full, "tracking")) != len(cat.Tracking) {
-		t.Errorf("full = %d tracking rules, want all %d", len(rows(t, full, "tracking")), len(cat.Tracking))
-	}
-	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "full": true}), "not both")
+	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "full": true}), "full")
 }
 
 func TestLinkDiff(t *testing.T) {
@@ -97,7 +95,9 @@ func TestLinkDiff(t *testing.T) {
 	if got["identical"] != false || len(rows(t, got, "params")) == 0 {
 		t.Errorf("diff = %v, want a's change found", got)
 	}
-	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "http://[::1", "url_b": "https://example.com/"}), "URL A is not valid")
+	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "http://[::1", "url_b": "https://example.com/"}), "URL A: not a valid URL")
+	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "https://example.com/", "url_b": "see https://a.example/ and https://b.example/"}),
+		"URL B: That looks like text with links in it, not one URL. Pull them out with link_extract.")
 	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "https://example.com/"}), "url_b")
 }
 
@@ -131,16 +131,6 @@ func TestLinkCurl(t *testing.T) {
 		t.Errorf("parse = %v", got)
 	}
 	failsWith(t, call(t, cs, "link_curl_parse", map[string]any{"command": "curl 'https://example.com/"}), "never closed")
-
-	plain := object(t, call(t, cs, "link_curl_build", map[string]any{"url": "https://example.com/a?b=1&c=2"}))
-	if plain["curl"] != "curl 'https://example.com/a?b=1&c=2'" {
-		t.Errorf("options omitted = %v, want a bare quoted command", plain)
-	}
-	opts := object(t, call(t, cs, "link_curl_build", map[string]any{"url": "https://example.com/", "persona": "googlebot", "follow_redirects": true, "show_headers": true}))
-	if c := opts["curl"].(string); !strings.Contains(c, " -L ") || !strings.Contains(c, " -i ") || !strings.Contains(c, "Googlebot") {
-		t.Errorf("with options = %q, want -L, -i and Googlebot's User-Agent", c)
-	}
-	failsWith(t, call(t, cs, "link_curl_build", map[string]any{"url": "javascript:alert(1)"}), "not a network scheme")
 }
 
 func TestLinkExtract(t *testing.T) {
@@ -163,8 +153,8 @@ func TestLinkExtract(t *testing.T) {
 	}
 
 	full := object(t, call(t, cs, "link_extract", map[string]any{"text": text, "detailed": true}))
-	if rs := rows(t, full, "urls"); len(rs) != 122 || rs[len(rs)-1]["positions"] == nil {
-		t.Errorf("detailed = %d rows, want all 122 with positions", len(rs))
+	if rs := rows(t, full, "urls"); len(rs) != 122 || rs[len(rs)-1]["positions"] != nil {
+		t.Errorf("detailed = %d rows, want all 122 without positions", len(rs))
 	}
 	failsWith(t, call(t, cs, "link_extract", map[string]any{"text": "  \n "}), "no text given")
 }
@@ -213,7 +203,6 @@ func TestLinkWholeStrings(t *testing.T) {
 	for tool, args := range map[string]map[string]any{
 		"link_clean":          {"url": long},
 		"link_utm":            {"url": long, "utm_campaign": "c"},
-		"link_curl_build":     {"url": long},
 		"link_percent_encode": {"value": state},
 		"link_diff":           {"url_a": long, "url_b": "https://example.com/p?state=b"},
 		"link_curl_parse":     {"command": "curl '" + long + "'"},
@@ -230,10 +219,9 @@ func TestLinkWholeStrings(t *testing.T) {
 func TestLinkShortResolveOffline(t *testing.T) {
 	var log syncBuffer
 	cs := newStack(t, stackOpts{log: &log}).client(t, "/mcp/link", nil, nil)
-	for _, code := range []string{"https://bit.ly/abc", "link.test/clean", "http://link.test/x/abc"} {
-		failsWith(t, call(t, cs, "link_short_resolve", map[string]any{"code": code}), "link_redirect_chain")
+	for _, code := range []string{"https://bit.ly/abc", "link.test/clean", "http://link.test/x/abc", "no such!"} {
+		failsWith(t, call(t, cs, "link_short_resolve", map[string]any{"code": code}), "Not a corpberry.com short link")
 	}
-	failsWith(t, call(t, cs, "link_short_resolve", map[string]any{"code": "no such!"}), "no such link")
 	res := call(t, cs, "link_short_resolve", map[string]any{"code": "http://link.test/s/abc-def"})
 	failsWith(t, res, "Something went wrong on our side")
 	if !strings.Contains(log.String(), "mcp: link storage error") || strings.Contains(text(t, res), "127.0.0.1") {
@@ -244,7 +232,7 @@ func TestLinkShortResolveOffline(t *testing.T) {
 func TestLinkToolsNeedTheirDependencies(t *testing.T) {
 	cs := newStack(t, stackOpts{bare: true, link: linktools.NewService()}).client(t, "/mcp/link", nil, nil)
 	for _, name := range toolNames(t, cs) {
-		if name == "link_redirect_chain" || name == "link_short_resolve" {
+		if name == "link_redirect_chain" || name == "link_headers_inspect" || name == "link_short_resolve" {
 			t.Errorf("%s is listed without its tracer or short-link store", name)
 		}
 	}
@@ -253,17 +241,20 @@ func TestLinkToolsNeedTheirDependencies(t *testing.T) {
 	}
 }
 
-// extractConcise is link_extract's concise projection, restated.
-func extractConcise(body map[string]any) {
-	urls := body["urls"].([]any)
-	for _, u := range urls {
+// extractDetailed and extractConcise are link_extract's projections of the REST body, restated.
+func extractDetailed(body map[string]any) {
+	for _, u := range body["urls"].([]any) {
 		delete(u.(map[string]any), "positions")
 	}
-	if len(urls) > 30 {
+}
+
+func extractConcise(body map[string]any) {
+	extractDetailed(body)
+	if urls := body["urls"].([]any); len(urls) > 30 {
 		body["urls"] = urls[:30]
 		notes, _ := body["notes"].([]any)
 		body["notes"] = append(notes, map[string]any{"severity": "info",
-			"title": fmt.Sprintf("The first 30 of %d links", len(urls)), "detail": "Pass detailed: true for all of them, with their positions in the text."})
+			"title": fmt.Sprintf("The first 30 of %d links", len(urls)), "detail": "Pass detailed: true for all of them."})
 	}
 }
 
@@ -274,6 +265,7 @@ func TestLinkParity(t *testing.T) {
 	q := url.QueryEscape
 	letter := newsletter(80)
 	const cmd = "curl -X POST -H 'Accept: application/json' -H 'Cookie: s=1' --data 'a=1' 'https://api.example.com/v1/items?x=1'"
+	const pasted = "HTTP/2 200\ncache-control: public, max-age=3600\nset-cookie: sid=1; Secure\nstrict-transport-security: max-age=31536000"
 	cases := []struct {
 		tool                 string
 		args                 map[string]any
@@ -283,13 +275,13 @@ func TestLinkParity(t *testing.T) {
 		{"link_inspect", map[string]any{"url": "https://Example.com:443/a/../b?utm_source=x&id=7#frag"}, http.MethodGet, "/?u=" + q("https://Example.com:443/a/../b?utm_source=x&id=7#frag"), "", nil},
 		{"link_clean", map[string]any{"url": safeLinks}, http.MethodGet, "/clean?u=" + q(safeLinks), "", nil},
 		{"link_clean", map[string]any{"url": safeLinks, "unwrap": false, "strip_affiliate": true, "sort": true}, http.MethodGet, "/clean?unwrap=false&affiliate=true&sort=true&u=" + q(safeLinks), "", nil},
-		{"link_tracking_rules", map[string]any{"full": true}, http.MethodGet, "/clean/rules", "", nil},
+		{"link_tracking_rules", map[string]any{}, http.MethodGet, "/clean/rules", "", nil},
 		{"link_diff", map[string]any{"url_a": "https://example.com/?a=1&b=2", "url_b": "https://EXAMPLE.com/?b=2&a=3"}, http.MethodGet, "/diff?a=" + q("https://example.com/?a=1&b=2") + "&b=" + q("https://EXAMPLE.com/?b=2&a=3"), "", nil},
 		{"link_redirect_chain", map[string]any{"url": "http://127.0.0.1/admin"}, http.MethodGet, "/trace?u=" + q("http://127.0.0.1/admin"), "", nil},
 		{"link_curl_parse", map[string]any{"command": cmd}, http.MethodPost, "/curl", "curl=" + q(cmd), nil},
-		{"link_curl_build", map[string]any{"url": "https://example.com/?q=a b", "persona": "googlebot", "follow_redirects": true}, http.MethodGet, "/curl?ua=googlebot&follow=true&u=" + q("https://example.com/?q=a b"), "", nil},
 		{"link_extract", map[string]any{"text": letter}, http.MethodPost, "/extract", "text=" + q(letter), extractConcise},
-		{"link_extract", map[string]any{"text": letter, "detailed": true}, http.MethodPost, "/extract", "text=" + q(letter), nil},
+		{"link_extract", map[string]any{"text": letter, "detailed": true}, http.MethodPost, "/extract", "text=" + q(letter), extractDetailed},
+		{"link_headers_parse", map[string]any{"headers": pasted}, http.MethodPost, "/headers", "headers=" + q(pasted), nil},
 		{"link_utm", map[string]any{"url": "https://example.com/?utm_source=old", "utm_source": "News", "utm_campaign": "spring"}, http.MethodGet, "/utm?utm_source=News&utm_campaign=spring&u=" + q("https://example.com/?utm_source=old"), "", nil},
 		{"link_percent_encode", map[string]any{"value": "a b+c/d%2F"}, http.MethodGet, "/encode?v=" + q("a b+c/d%2F"), "", nil},
 	}
@@ -307,9 +299,8 @@ func TestLinkParity(t *testing.T) {
 	}
 }
 
-func TestMCP_LinkHeadersInspect(t *testing.T) {
+func TestLinkHeadersParse(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-
 	rawHeaders := "HTTP/2 200 OK\n" +
 		"content-type: text/html\n" +
 		"cache-control: public, max-age=3600, s-maxage=7200\n" +
@@ -318,25 +309,28 @@ func TestMCP_LinkHeadersInspect(t *testing.T) {
 		"cross-origin-embedder-policy: require-corp\n" +
 		"set-cookie: __Host-id=secret123; Secure; Path=/\n"
 
-	// 1. Inspection of pasted raw headers
-	res := object(t, call(t, cs, "link_headers_inspect", map[string]any{"headers": rawHeaders}))
+	res := object(t, call(t, cs, "link_headers_parse", map[string]any{"headers": rawHeaders}))
 	if fmt.Sprint(res["status_code"]) != "200" {
 		t.Errorf("status code: want 200, got %v", res["status_code"])
 	}
-	cache := res["cache"].(map[string]any)
-	ttl := cache["ttl"].(map[string]any)
+	ttl := res["cache"].(map[string]any)["ttl"].(map[string]any)
 	if fmt.Sprint(ttl["browser_ttl_seconds"]) != "3600" || fmt.Sprint(ttl["edge_ttl_seconds"]) != "86400" {
 		t.Errorf("TTL mismatch: browser=%v, edge=%v", ttl["browser_ttl_seconds"], ttl["edge_ttl_seconds"])
 	}
-	sec := res["security"].(map[string]any)
-	iso := sec["isolation"].(map[string]any)
-	if iso["isolated"] != true {
+	if iso := res["security"].(map[string]any)["isolation"].(map[string]any); iso["isolated"] != true {
 		t.Errorf("expected cross-origin isolated: true")
 	}
+	failsWith(t, call(t, cs, "link_headers_parse", map[string]any{}), "headers")
+}
 
-	// 2. Missing both url and headers
-	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{}), "provide either url or headers")
-
-	// 3. Passing curl command instead of URL triggers wrongTool detection
+// TestLinkHeadersInspect: refusals before any request; linktools' white-box tests drive a real fetch.
+func TestLinkHeadersInspect(t *testing.T) {
+	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
+	for _, u := range []string{"http://mcp.test/mcp", "https://link.corpberry.com/", "http://127.0.0.1/", "http://[::1]/"} {
+		failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": u}), "never contacted")
+	}
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "https://example.com:8443/"}), "only ports 80 and 443")
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{}), "url")
 	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "curl https://example.com"}), "Take it apart with link_curl_parse")
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "https://example.com/", "persona": "nobody"}), "persona")
 }

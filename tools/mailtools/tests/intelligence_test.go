@@ -8,14 +8,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 func TestDisposableAndFreemailClassification(t *testing.T) {
-	_ = mailtools.InitFromEmbedded()
 	classifier := mailtools.ActiveClassifier()
 
 	tests := []struct {
@@ -84,9 +87,9 @@ func TestGatewayDetectionLogic(t *testing.T) {
 func TestDNSBLReturnCodeSemantics(t *testing.T) {
 	// Query local test IP 127.0.0.2 against DNSBL audit logic
 	ctx := context.Background()
-	rep, err := mailtools.QueryDNSBLAudits(ctx, "127.0.0.2", "")
+	rep, err := newService(nil).DNSBL(ctx, "127.0.0.2")
 	if err != nil {
-		t.Fatalf("QueryDNSBLAudits failed: %v", err)
+		t.Fatalf("DNSBL failed: %v", err)
 	}
 
 	if rep.TotalChecked == 0 {
@@ -102,7 +105,7 @@ func TestDNSBLReturnCodeSemantics(t *testing.T) {
 }
 
 func TestEmailIntelligenceHTTPHandlers(t *testing.T) {
-	e := newMailApp(t)
+	e := newMailApp(t, nil)
 
 	// 1. GET /disposable
 	req := httptest.NewRequest(http.MethodGet, "/disposable?input=test@mailinator.com", nil)
@@ -150,8 +153,6 @@ func TestEmailIntelligenceHTTPHandlers(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestDomainClassifier_EdgeCasesAndPrecedence(t *testing.T) {
-	_ = mailtools.InitFromEmbedded()
-
 	// 1. ExtractDomain parsing variants
 	cases := []struct {
 		input string
@@ -182,8 +183,7 @@ func TestDomainClassifier_EdgeCasesAndPrecedence(t *testing.T) {
 
 	// 2. Multi-level Subdomains and Whitelist Immunity over Disposable
 	custom := mailtools.NewDomainClassifier(
-		[]string{"burner.com", "disposable.net", "whitelisted-burner.com"},
-		[]string{"wildcard-temp.org"},
+		[]string{"burner.com", "disposable.net", "whitelisted-burner.com", "*.wildcard-temp.org"},
 		[]string{"freemail.org"},
 		[]string{"whitelisted-burner.com", "trusted-enterprise.com"},
 	)
@@ -226,13 +226,10 @@ func TestDomainClassifier_EdgeCasesAndPrecedence(t *testing.T) {
 		t.Errorf("empty input classification unexpected: %+v", repEmpty)
 	}
 
-	// ActiveClassifier fallback safety when globalClassifier is nil
-	orig := mailtools.ActiveClassifier()
-	mailtools.SetGlobalClassifier(nil) // no-op check
+	// The embedded seed is indexed at package load: no init call comes first.
 	if mailtools.ActiveClassifier() == nil {
 		t.Errorf("ActiveClassifier() must never return nil")
 	}
-	mailtools.SetGlobalClassifier(orig)
 }
 
 // -----------------------------------------------------------------------------
@@ -265,63 +262,6 @@ func TestSitemapPages_Registry(t *testing.T) {
 	for path, found := range expected {
 		if !found {
 			t.Errorf("missing route %s in SitemapPages", path)
-		}
-	}
-}
-
-// -----------------------------------------------------------------------------
-// 3. ESP Identification (All Providers and Edge Cases)
-// -----------------------------------------------------------------------------
-
-func TestIdentifyESP_AllSignatures(t *testing.T) {
-	tests := []struct {
-		ip       string
-		ptr      string
-		wantName string
-		wantCat  string
-	}{
-		{"", "mail-ed1-f41.google.com", "Google Workspace / Gmail", "mailbox"},
-		{"", "smtp.googlemail.com", "Google Workspace / Gmail", "mailbox"},
-		{"", "server.1e100.net", "Google Workspace / Gmail", "mailbox"},
-		{"", "mail-oln040092066001.outbound.protection.outlook.com", "Microsoft 365 / Outlook", "mailbox"},
-		{"", "smtp.microsoft.com", "Microsoft 365 / Outlook", "mailbox"},
-		{"", "mail.hotmail.com", "Microsoft 365 / Outlook", "mailbox"},
-		{"", "a8-27.smtp-out.amazonses.com", "Amazon SES", "esp"},
-		{"", "email.aws.com", "Amazon SES", "esp"},
-		{"", "o1.ptr2934.sendgrid.net", "SendGrid (Twilio)", "esp"},
-		{"", "so254-4.mailgun.org", "Mailgun (Sinch)", "esp"},
-		{"", "mxa.mailgun.net", "Mailgun (Sinch)", "esp"},
-		{"", "pm.postmarkapp.com", "Postmark (ActiveCampaign)", "esp"},
-		{"", "smtp.sendinblue.com", "Brevo", "esp"},
-		{"", "relay.brevo.com", "Brevo", "esp"},
-		{"", "mail1.mcsv.net", "Mailchimp / Mandrill", "esp"},
-		{"", "delivery.mandrillapp.com", "Mailchimp / Mandrill", "esp"},
-		{"", "mail.mailchimp.com", "Mailchimp / Mandrill", "esp"},
-		{"", "mail.protonmail.ch", "Proton Mail", "mailbox"},
-		{"", "mail.proton.me", "Proton Mail", "mailbox"},
-		{"", "smtp.yahoo.com", "Yahoo / AOL", "mailbox"},
-		{"", "mx.yahoodns.net", "Yahoo / AOL", "mailbox"},
-		{"", "mail.aol.com", "Yahoo / AOL", "mailbox"},
-		{"", "mx1.mail.icloud.com", "Apple iCloud Mail", "mailbox"},
-		{"", "relay.apple.com", "Apple iCloud Mail", "mailbox"},
-		{"", "smtp.fastmail.com", "Fastmail", "mailbox"},
-		{"", "out1-smtp.messagingengine.com", "Fastmail", "mailbox"},
-		{"", "mx.zoho.com", "Zoho Mail", "mailbox"},
-		{"", "relay.transmail.net", "Zoho Mail", "mailbox"},
-		// Loopback and RFC1918 Private ranges
-		{"127.0.0.1", "", "Internal / Private IP", "self-hosted"},
-		{"10.0.5.20", "", "Internal / Private IP", "self-hosted"},
-		{"192.168.1.100", "", "Internal / Private IP", "self-hosted"},
-		{"172.16.4.1", "", "Internal / Private IP", "self-hosted"},
-		// Generic custom MTA
-		{"203.0.113.10", "mail.corporategateway.corp", "mail.corporategateway.corp", "self-hosted"},
-		{"203.0.113.11", "", "Unknown Sender", "self-hosted"},
-	}
-
-	for _, tt := range tests {
-		info := mailtools.IdentifyESP(tt.ip, tt.ptr)
-		if info.Name != tt.wantName || info.Category != tt.wantCat {
-			t.Errorf("IdentifyESP(%q, %q) = %+v, want Name=%q Category=%q", tt.ip, tt.ptr, info, tt.wantName, tt.wantCat)
 		}
 	}
 }
@@ -378,30 +318,48 @@ func TestEngine_FragmentRenderingAndErrors(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestStore_NilSafety(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // every DNS query fails at once
 
 	// 1. NewStore with nil DB
-	if store := mailtools.NewStore(ctx, nil); store != nil {
+	store := mailtools.NewStore(ctx, nil)
+	if store != nil {
 		t.Errorf("NewStore(nil) should return nil")
 	}
 
-	// 2. Methods on nil *Store pointer
-	var s *mailtools.Store
-	res, err := s.GetDNSBLCache(ctx, "target.com")
-	if res != nil || err != nil {
-		t.Errorf("nil Store.GetDNSBLCache should return nil, nil: got %v, %v", res, err)
+	// 2. A Service on a nil Store runs every check uncached
+	for range 2 {
+		if rep, err := newService(store).DNSBL(ctx, "target.com"); err != nil || rep == nil {
+			t.Errorf("uncached DNSBL = %v, %v; want a report", rep, err)
+		}
 	}
+}
 
-	// Must not panic
-	s.SaveDNSBLCache(ctx, "target.com", nil, 0, 0, 0)
-
-	meta, err := s.GetSyncMeta(ctx, "disposable")
-	if meta != nil || err != nil {
-		t.Errorf("nil Store.GetSyncMeta should return nil, nil: got %v, %v", meta, err)
+// The cache is keyed by the normalized target and keeps the report as it was answered.
+func TestDNSBL_CacheKeyedByNormalizedTarget(t *testing.T) {
+	uri := os.Getenv("MONGODB_TEST_URI")
+	if uri == "" {
+		t.Skip("MONGODB_TEST_URI not set")
 	}
+	ctx := context.Background()
+	m, err := platform.OpenMongo(ctx, uri, "site-of-tools-test")
+	if err != nil {
+		t.Fatalf("OpenMongo: %v", err)
+	}
+	t.Cleanup(func() { m.Close(ctx) })
+	_ = m.DB().Collection("email_dnsbl_cache").Drop(ctx)
+	svc := newService(mailtools.NewStore(ctx, m.DB()))
 
-	if err := s.SetSyncMeta(ctx, mailtools.SyncMeta{}); err != nil {
-		t.Errorf("nil Store.SetSyncMeta should return nil, got %v", err)
+	first, err := svc.DNSBL(ctx, "  [127.0.0.2] ")
+	if err != nil {
+		t.Fatalf("DNSBL: %v", err)
+	}
+	again, err := svc.DNSBL(ctx, "127.0.0.2")
+	if err != nil {
+		t.Fatalf("DNSBL: %v", err)
+	}
+	if diff := cmp.Diff(first, again); diff != "" {
+		t.Errorf("second call was not served from the cache (-first +again):\n%s", diff)
 	}
 }
 
@@ -409,16 +367,27 @@ func TestSyncWorker_CanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 	// Must start and exit without blocking or panicking
-	mailtools.StartSyncWorker(ctx, nil, 0)
+	mailtools.StartSyncWorker(ctx)
+}
+
+// An IPv6 target is refused in one clear error, before any query.
+func TestDNSBL_IPv6Refused(t *testing.T) {
+	for _, target := range []string{"2001:db8::1", "[2001:db8::25]"} {
+		rep, err := newService(nil).DNSBL(context.Background(), target)
+		if err == nil || !strings.Contains(err.Error(), "IPv6") {
+			t.Errorf("DNSBL(%q) = %+v, %v; want an IPv6 error", target, rep, err)
+		}
+	}
 }
 
 func TestDNSBL_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // canceled before execution
 
-	rep, err := mailtools.QueryDNSBLAudits(ctx, "127.0.0.2", "dqskey")
+	svc := mailtools.NewService(platform.NewEgressGuard([]string{"443"}, nil), nil, "dqskey")
+	rep, err := svc.DNSBL(ctx, "127.0.0.2")
 	if err != nil {
-		t.Fatalf("QueryDNSBLAudits returned error on canceled context: %v", err)
+		t.Fatalf("DNSBL returned error on canceled context: %v", err)
 	}
 	if rep == nil || rep.TotalChecked == 0 {
 		t.Errorf("expected report with zones checked, got: %+v", rep)
@@ -430,7 +399,7 @@ func TestDNSBL_ContextCancellation(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestHTTPHandlers_RoutesAndEdgeCases(t *testing.T) {
-	e := newMailApp(t)
+	e := newMailApp(t, nil)
 
 	// Helper to execute request
 	exec := func(method, target string, body io.Reader, contentType, accept, hx string) *httptest.ResponseRecorder {
@@ -665,7 +634,6 @@ func TestHTTPHandlers_RoutesAndEdgeCases(t *testing.T) {
 }
 
 func BenchmarkDomainClassification(b *testing.B) {
-	_ = mailtools.InitFromEmbedded()
 	classifier := mailtools.ActiveClassifier()
 	samples := []string{
 		"test@mailinator.com",

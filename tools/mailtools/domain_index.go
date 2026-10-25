@@ -2,8 +2,11 @@ package mailtools
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
+	"path"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,142 +33,63 @@ type DomainClassification struct {
 
 // DomainClassifier is an immutable, read-optimized in-memory index.
 type DomainClassifier struct {
-	disposableExact       map[string]struct{}
-	disposableWildcardSet map[string]struct{}
-	disposableWildcard    []string
-	freemailExact         map[string]struct{}
-	whitelist             map[string]struct{}
+	disposable, freemail, whitelist map[string]struct{}
 }
 
-// Global active classifier reference for zero-lock reads.
+type seedLists struct{ wildcards, freemail, whitelist []string }
+
+// Built on first use, so the browser engine, which never classifies, doesn't index 40k domains at load.
+// The daily sync replaces only the disposable list; wildcards, freemail and the whitelist stay the embedded seed.
 var (
-	globalClassifier atomic.Pointer[DomainClassifier]
-	initOnce         sync.Once
+	seeds = sync.OnceValue(func() seedLists {
+		return seedLists{seedList("data/wildcard.json"), seedList("data/freemail.json"), seedList("data/whitelist.txt")}
+	})
+	embedded = sync.OnceValue(func() *DomainClassifier { return classifierWith(seedList("data/disposable.txt")) })
+	synced   atomic.Pointer[DomainClassifier]
 )
 
-// SetGlobalClassifier atomically updates the active domain classifier.
-func SetGlobalClassifier(c *DomainClassifier) {
-	if c != nil {
-		globalClassifier.Store(c)
-	}
-}
-
-// ActiveClassifier returns the current global classifier, lazily initializing from embedded data if needed.
+// ActiveClassifier returns the classifier in use: the embedded seed until the first daily sync lands.
 func ActiveClassifier() *DomainClassifier {
-	c := globalClassifier.Load()
-	if c == nil {
-		initOnce.Do(func() {
-			_ = InitFromEmbedded()
-		})
-		c = globalClassifier.Load()
-		if c == nil {
-			return &DomainClassifier{
-				disposableExact: make(map[string]struct{}),
-				freemailExact:   make(map[string]struct{}),
-				whitelist:       make(map[string]struct{}),
-			}
-		}
+	if c := synced.Load(); c != nil {
+		return c
 	}
-	return c
+	return embedded()
 }
 
-// NewDomainClassifier constructs an index from slice collections.
-func NewDomainClassifier(disposable, wildcards, freemail, whitelist []string) *DomainClassifier {
-	c := &DomainClassifier{
-		disposableExact:       make(map[string]struct{}, len(disposable)),
-		disposableWildcardSet: make(map[string]struct{}, len(wildcards)),
-		freemailExact:         make(map[string]struct{}, len(freemail)),
-		whitelist:             make(map[string]struct{}, len(whitelist)),
-	}
-
-	for _, w := range whitelist {
-		w = cleanDomain(w)
-		if w != "" {
-			c.whitelist[w] = struct{}{}
-		}
-	}
-
-	for _, d := range disposable {
-		d = cleanDomain(d)
-		if d != "" {
-			// Whitelist protection: skip whitelisted domains from disposable blocklist.
-			if _, ok := c.whitelist[d]; !ok {
-				c.disposableExact[d] = struct{}{}
-			}
-		}
-	}
-
-	for _, w := range wildcards {
-		w = cleanDomain(w)
-		if w != "" {
-			c.disposableWildcard = append(c.disposableWildcard, w)
-			c.disposableWildcardSet[w] = struct{}{}
-		}
-	}
-
-	for _, f := range freemail {
-		f = cleanDomain(f)
-		if f != "" {
-			c.freemailExact[f] = struct{}{}
-		}
-	}
-
-	return c
+func classifierWith(disposable []string) *DomainClassifier {
+	s := seeds()
+	return NewDomainClassifier(slices.Concat(disposable, s.wildcards), s.freemail, s.whitelist)
 }
 
-// WithDisposable returns a new DomainClassifier sharing freemail/whitelist maps with updated disposable domains.
-func (c *DomainClassifier) WithDisposable(disposable []string) *DomainClassifier {
-	next := &DomainClassifier{
-		disposableExact:       make(map[string]struct{}, len(disposable)),
-		disposableWildcardSet: c.disposableWildcardSet,
-		disposableWildcard:    c.disposableWildcard,
-		freemailExact:         c.freemailExact,
-		whitelist:             c.whitelist,
-	}
-	for _, d := range disposable {
-		d = cleanDomain(d)
-		if d != "" {
-			if _, ok := next.whitelist[d]; !ok {
-				next.disposableExact[d] = struct{}{}
-			}
-		}
-	}
-	return next
+// NewDomainClassifier indexes the lists; a "*.example.com" wildcard covers what "example.com" does.
+func NewDomainClassifier(disposable, freemail, whitelist []string) *DomainClassifier {
+	return &DomainClassifier{disposable: domainSet(disposable), freemail: domainSet(freemail), whitelist: domainSet(whitelist)}
 }
 
-// InitFromEmbedded loads the embedded seed data into the global classifier.
-func InitFromEmbedded() error {
-	dispFile, err := Data.Open("data/disposable.txt")
+func domainSet(list []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(list))
+	for _, d := range list {
+		if d = cleanDomain(d); d != "" {
+			set[d] = struct{}{}
+		}
+	}
+	return set
+}
+
+// seedList reads an embedded list: a JSON array, or one entry per line.
+func seedList(name string) []string {
+	b, err := Data.ReadFile(name)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	defer dispFile.Close()
-	disposable := readLines(dispFile)
-
-	var wildcards []string
-	wildFile, err := Data.Open("data/wildcard.json")
-	if err == nil {
-		defer wildFile.Close()
-		_ = json.NewDecoder(wildFile).Decode(&wildcards)
+	if path.Ext(name) != ".json" {
+		return readLines(bytes.NewReader(b))
 	}
-
-	var freemail []string
-	freeFile, err := Data.Open("data/freemail.json")
-	if err == nil {
-		defer freeFile.Close()
-		_ = json.NewDecoder(freeFile).Decode(&freemail)
+	var list []string
+	if err := json.Unmarshal(b, &list); err != nil {
+		panic(name + ": " + err.Error())
 	}
-
-	var whitelist []string
-	whiteFile, err := Data.Open("data/whitelist.txt")
-	if err == nil {
-		defer whiteFile.Close()
-		whitelist = readLines(whiteFile)
-	}
-
-	classifier := NewDomainClassifier(disposable, wildcards, freemail, whitelist)
-	SetGlobalClassifier(classifier)
-	return nil
+	return list
 }
 
 // ExtractDomain normalizes an email address or domain string to lowercase domain.
@@ -198,67 +122,46 @@ func cleanDomain(d string) string {
 	return d
 }
 
-// IsWhitelisted checks if domain is in the top-tier enterprise whitelist.
-func (c *DomainClassifier) IsWhitelisted(domain string) bool {
-	domain = cleanDomain(domain)
-	if domain == "" {
-		return false
-	}
-	if _, ok := c.whitelist[domain]; ok {
-		return true
-	}
-	// Check parent domains if subdomain (e.g. sub.corpberry.com -> corpberry.com)
-	parts := strings.Split(domain, ".")
-	for i := 1; i < len(parts)-1; i++ {
-		parent := strings.Join(parts[i:], ".")
-		if _, ok := c.whitelist[parent]; ok {
-			return true
+// firstIn returns the first of domain and its parents that set holds; a bare TLD never matches.
+func firstIn(set map[string]struct{}, domain string) string {
+	for d := domain; ; {
+		if _, ok := set[d]; ok {
+			return d
 		}
+		_, parent, _ := strings.Cut(d, ".")
+		if !strings.Contains(parent, ".") {
+			return ""
+		}
+		d = parent
 	}
-	return false
 }
 
-// IsDisposable checks if a domain matches known disposable domain lists or wildcard suffixes.
+// IsWhitelisted checks if a domain, or a parent of it, is in the enterprise whitelist.
+func (c *DomainClassifier) IsWhitelisted(domain string) bool {
+	domain = cleanDomain(domain)
+	return domain != "" && firstIn(c.whitelist, domain) != ""
+}
+
+// IsDisposable checks a domain and its parents against the disposable list; the whitelist wins.
 func (c *DomainClassifier) IsDisposable(domain string) (bool, string) {
 	domain = cleanDomain(domain)
 	if domain == "" || c.IsWhitelisted(domain) {
 		return false, ""
 	}
-
-	if _, ok := c.disposableExact[domain]; ok {
+	switch firstIn(c.disposable, domain) {
+	case "":
+		return false, ""
+	case domain:
 		return true, "exact match in canonical blocklist"
+	default:
+		return true, "parent domain is in disposable blocklist"
 	}
-
-	// Subdomain check: if e.g. "sub.domain.com" and "domain.com" is disposable
-	parts := strings.Split(domain, ".")
-	for i := 1; i < len(parts)-1; i++ {
-		parent := strings.Join(parts[i:], ".")
-		if _, ok := c.disposableExact[parent]; ok {
-			return true, "parent domain is in disposable blocklist"
-		}
-	}
-
-	// Wildcard checks: O(1) set lookup on root domain and parent subdomains
-	if _, ok := c.disposableWildcardSet[domain]; ok {
-		return true, "matches wildcard pattern *." + domain
-	}
-	for i := 1; i < len(parts)-1; i++ {
-		parent := strings.Join(parts[i:], ".")
-		if _, ok := c.disposableWildcardSet[parent]; ok {
-			return true, "matches wildcard pattern *." + parent
-		}
-	}
-
-	return false, ""
 }
 
 // IsFreemail checks if a domain belongs to a free public webmail provider.
 func (c *DomainClassifier) IsFreemail(domain string) bool {
-	domain = cleanDomain(domain)
-	if _, ok := c.freemailExact[domain]; ok {
-		return true
-	}
-	return false
+	_, ok := c.freemail[cleanDomain(domain)]
+	return ok
 }
 
 // Classify produces a full DomainClassification report.
@@ -269,54 +172,12 @@ func (c *DomainClassifier) Classify(input string) DomainClassification {
 		Type:          DomainTypeCorporate,
 		IsWhitelisted: c.IsWhitelisted(dom),
 	}
-
 	if isDisp, reason := c.IsDisposable(dom); isDisp {
-		res.Type = DomainTypeDisposable
-		res.IsDisposable = true
-		res.MatchReason = reason
-		return res
-	}
-
-	if c.IsFreemail(dom) {
-		res.Type = DomainTypeFreemail
-		res.IsFreemail = true
-		res.MatchReason = "recognized free webmail provider"
-		return res
-	}
-
-	return res
-}
-
-// FreemailDomains returns a copy of all recognized freemail domains.
-func (c *DomainClassifier) FreemailDomains() []string {
-	if c == nil {
-		return nil
-	}
-	res := make([]string, 0, len(c.freemailExact))
-	for d := range c.freemailExact {
-		res = append(res, d)
+		res.Type, res.IsDisposable, res.MatchReason = DomainTypeDisposable, true, reason
+	} else if c.IsFreemail(dom) {
+		res.Type, res.IsFreemail, res.MatchReason = DomainTypeFreemail, true, "recognized free webmail provider"
 	}
 	return res
-}
-
-// WhitelistDomains returns a copy of all whitelisted domains.
-func (c *DomainClassifier) WhitelistDomains() []string {
-	if c == nil {
-		return nil
-	}
-	res := make([]string, 0, len(c.whitelist))
-	for d := range c.whitelist {
-		res = append(res, d)
-	}
-	return res
-}
-
-// WildcardPatterns returns a copy of all disposable wildcard patterns.
-func (c *DomainClassifier) WildcardPatterns() []string {
-	if c == nil {
-		return nil
-	}
-	return append([]string(nil), c.disposableWildcard...)
 }
 
 func readLines(r io.Reader) []string {

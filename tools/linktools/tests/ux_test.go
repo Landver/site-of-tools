@@ -195,7 +195,7 @@ func TestCreateAndRevokeReloadTheList(t *testing.T) {
 		t.Errorf("a JSON create carries HX-Trigger %q; the event is for the console only", got)
 	}
 
-	link, err := short.Create(ctx, "https://example.com/revoke-me", linktools.CreateOptions{})
+	link, err := short.Create(ctx, linktools.CreateRequest{URL: "https://example.com/revoke-me"}, "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -297,6 +297,9 @@ func TestCurlPasteNeverRidesInAURL(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "https://api.example.com/v1/x?id=1") {
 		t.Error("POST /curl did not take the command apart")
+	}
+	if !strings.Contains(rec.Body.String(), `Scheme <span class="font-mono text-strong">https</span>`) {
+		t.Error("POST /curl did not inspect the command's URL")
 	}
 }
 

@@ -10,10 +10,10 @@
 - `scoring.go` — ordered weighted rule set (68 rules: hard tells → consistency
   cross-checks → soft heuristics) + soft-signal combination rule. See
   [scoring-model.md](scoring-model.md).
-- `corpus.go` — Mongo fingerprint corpus (G41/G42 reuse + G43 churn): nil-safe repository (mirrors
-  `iptools/history.go`) recording fingerprint sightings, counting distinct IPs per
+- `corpus.go` — Mongo fingerprint corpus (G41/G42 reuse + G43 churn): nil-safe repository
+  recording fingerprint sightings, counting distinct IPs per
   hash (reuse) & distinct fingerprints per IP within short window (churn).
-  Disabled Mongo -> no-op. See [storage.md](storage.md).
+  Disabled Mongo -> both rules skip. See [storage.md](storage.md).
 - `handler.go` — transport: parses client payload, gathers server signals off
   `*echo.Context`, maps shared `iptools.Service` result into plain `Signals`
   fields, folds fingerprint into Mongo corpus (G41/G42), serves
@@ -56,7 +56,7 @@ Browser                          Go (botcheck.corpberry.com app)
   │                                        4. build botcheck.Signals{client + server}
   │                                        5. fold into the Mongo corpus (Record) and read back
   │                                           the distinct-IP count (DistinctIPs) → FingerprintIPs
-  │                                           (G41/G42; no-ops on a disabled/nil corpus)
+  │                                           (G41/G42; a nil corpus leaves both rules skipped)
   │                                        6. report := botcheck.Evaluate(signals)   ← pure domain
   │                                        7. respond: HTML fragment | JSON
   │  ◀── results-table fragment (browser)  or  JSON (curl/API)

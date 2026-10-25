@@ -54,7 +54,7 @@
       </form>
       <div id="result" class="mt-6" data-result>
         {{if and .Error (not $build)}}{{template "link/error" .}}
-        {{else if .FromCurl}}{{template "link/curled" .}}
+        {{else if .Result}}{{template "link/curled" .}}
         {{else if not .Curl}}{{template "link/examples" .Examples}}{{end}}
       </div>
       </div>
@@ -99,7 +99,7 @@
       <div id="result-build" class="mt-6" data-result>
         {{if and .Error $build}}{{template "link/error" .}}
         {{else if .Curl}}{{template "link/curled" .}}
-        {{else if not .FromCurl}}{{template "link/examples" .BuildExamples}}{{end}}
+        {{else if not .Result}}{{template "link/examples" .BuildExamples}}{{end}}
       </div>
       </div>
     </div>
@@ -199,21 +199,19 @@
 </section>
 {{end}}
 
-{{if .FromCurl}}
+{{with .Result}}
 <section data-announce="Command taken apart: {{len .Headers}} {{if eq (len .Headers) 1}}header{{else}}headers{{end}}.">
   <h2 class="text-sm font-semibold uppercase tracking-wide text-muted">The URL in that command</h2>
   <div class="mt-2 rounded-lg border border-line bg-surface p-4">
     {{/* Measured, never shown: the body is where a copied command keeps its passwords. */}}
-    {{with .Request}}
     {{if .Notes}}<div class="mb-3 rounded-lg border border-line bg-surface px-4 py-2">{{template "link/notes" .Notes}}</div>{{end}}
     <p class="text-xs text-muted">
       <span class="rounded bg-line px-1.5 py-0.5 font-mono font-semibold text-strong">{{.Method}}</span>
       <span class="ml-1">{{.MethodWhy}}{{if .BodyBytes}}, with a {{.BodyBytes}}-byte body (not shown){{end}}</span>
     </p>
-    {{end}}
     <div class="mt-2 flex flex-wrap items-start gap-3">
-      <p id="from-curl" class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.FromCurl}}</p>
-      <button type="button" class="btn-copy" aria-describedby="from-curl" data-copy="{{.FromCurl}}">Copy</button>
+      <p id="from-curl" class="min-w-0 flex-1 wrap-anywhere font-mono text-sm text-strong sm:text-base">{{.URL}}</p>
+      <button type="button" class="btn-copy" aria-describedby="from-curl" data-copy="{{.URL}}">Copy</button>
     </div>
     <p class="mt-2 text-xs text-muted">Shown as text, exactly as it was written in the command. It is taken apart below.</p>
   </div>
@@ -249,13 +247,11 @@
 </section>
 {{end}}
 
-{{/* Inspect's own parse block: .Linkable rides in .Result, so the allowlist check stays in one place. */}}
-{{if .Result}}
-{{/* No heading: the parse brings its own sections at the same rank. */}}
-<div class="mt-6">{{template "link/inspect" .}}</div>
-{{end}}
+{{/* Inspect's own parse block: .Linkable rides in the Inspection, so the allowlist check stays in one place.
+     No heading: the parse brings its own sections at the same rank. */}}
+<div class="mt-6">{{template "link/parsed" .Inspection}}</div>
 {{end}}
 
-{{if not (or .Curl .FromCurl)}}{{template "link/examples" .EmptyExamples}}{{end}}
+{{if not (or .Curl .Result)}}{{template "link/examples" .EmptyExamples}}{{end}}
 
 {{end}}

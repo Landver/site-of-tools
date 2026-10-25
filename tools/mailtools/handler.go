@@ -12,63 +12,57 @@ import (
 )
 
 const (
-	maxBIMIPayload = 64 * 1024
-	maxARCPayload  = 256 * 1024
-
 	healthDesc     = "All-in-one email deliverability, SEG gateway identification, disposable detection & blacklist audit."
 	disposableDesc = "Detect over 10,000+ throwaway, burner, and temporary email domains powered by the canonical disposable-email-domains database."
 	classifierDesc = "Classify email domains into corporate business accounts versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton)."
 	blacklistDesc  = "Concurrent multi-DNSBL reputation audit querying 15+ global authoritative spam blacklists (Spamhaus, Barracuda, SpamCop, Mailspike) in < 800 ms."
 	dmarcDesc      = "Parse and visualize DMARC aggregate XML and gzip reports (RUA) directly in your browser. Inspect SPF/DKIM alignment, IP sources, ESPs, and policy disposition."
 	bimiDesc       = "Audit SVG logos against BIMI Tiny P/S requirements and cryptographically validate Verified Mark Certificates (VMC) from DigiCert, GlobalSign, and SSL.com."
-	arcDesc        = "Trace and validate Authenticated Received Chain (RFC 8617) headers. Audit multi-hop email forwarding, ARC seals, signatures, and authentication states."
+	arcDesc        = "Check Authenticated Received Chain (RFC 8617) header structure and the cv= and arc= results each forwarder reports. Signatures are not verified."
 )
 
-// Limits sets per-IP request bounds for mailtools routes.
+// Limits are shared by REST and MCP.
 type Limits struct {
 	Pure  platform.Limiter
 	Heavy platform.Limiter
+	// HeavyCap bounds heavy work in flight: an audit fans out to dozens of lookups, a report parse can take 100s of MB.
+	HeavyCap *platform.Cap
 }
 
 func NewLimits() *Limits {
 	return &Limits{
-		Pure:  platform.NewLimiter(10, 50),
-		Heavy: platform.NewLimiter(2, 10),
+		Pure:     platform.NewLimiter(10, 50),
+		Heavy:    platform.NewLimiter(2, 10),
+		HeavyCap: platform.NewCap(8),
 	}
 }
 
 type handler struct {
-	base   string
-	guard  *platform.EgressGuard
-	store  *Store
-	dqsKey string
-	lim    *Limits
+	base string
+	svc  *Service
+	lim  *Limits
 }
 
 // Register mounts mailtools routes onto the Echo router.
-func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Store, dqsKey string, lim *Limits) {
+func Register(e *echo.Echo, base string, svc *Service, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
-	h := &handler{
-		base:   base,
-		guard:  guard,
-		store:  store,
-		dqsKey: dqsKey,
-		lim:    lim,
-	}
+	h := &handler{base: base, svc: svc, lim: lim}
 
 	pure := platform.RateLimit(lim.Pure, nil, limited)
-	heavy := platform.RateLimit(lim.Heavy, nil, limited)
-	skipEmpty := func(c *echo.Context) bool {
-		return formOrQuery(c, "domain", "target", "input", "q") == ""
+	// An audit spends the heavy budget only when the route has an input to run on.
+	audit := func(keys []string) []echo.MiddlewareFunc {
+		empty := func(c *echo.Context) bool { return formOrQuery(c, keys...) == "" }
+		return []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, empty, limited), capped(lim.HeavyCap, empty)}
 	}
-	heavyAudit := platform.RateLimit(lim.Heavy, skipEmpty, limited)
+	health, blacklist := audit(healthKeys), audit(blacklistKeys)
+	parse := []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, nil, limited), capped(lim.HeavyCap, nil)}
 
-	e.GET("/", h.health, heavyAudit)
-	e.GET("/health", h.health, heavyAudit)
-	e.POST("/", h.health, heavyAudit)
-	e.POST("/health", h.health, heavyAudit)
+	e.GET("/", h.health, health...)
+	e.GET("/health", h.health, health...)
+	e.POST("/", h.health, health...)
+	e.POST("/health", h.health, health...)
 
 	e.GET("/disposable", h.disposable, pure)
 	e.POST("/disposable", h.disposable, pure)
@@ -76,12 +70,12 @@ func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Sto
 	e.GET("/classifier", h.classifier, pure)
 	e.POST("/classifier", h.classifier, pure)
 
-	e.GET("/blacklist", h.blacklist, heavyAudit)
-	e.POST("/blacklist", h.blacklist, heavyAudit)
+	e.GET("/blacklist", h.blacklist, blacklist...)
+	e.POST("/blacklist", h.blacklist, blacklist...)
 
 	e.GET("/dmarc", h.dmarc, pure)
-	e.POST("/dmarc", h.dmarc, heavy)
-	e.POST("/dmarc/parse", h.dmarcParse, heavy)
+	e.POST("/dmarc", h.dmarc, parse...)
+	e.POST("/dmarc/parse", h.dmarcParse, parse...)
 
 	e.GET("/bimi", h.bimi, pure)
 	e.POST("/bimi", h.bimi, pure)
@@ -108,14 +102,16 @@ func (h *handler) vm(active, heading, desc string) map[string]any {
 	}
 }
 
+// The inputs each audit reads, which also decide whether a request spends the heavy budget.
+var (
+	healthKeys    = []string{"domain", "input"}
+	blacklistKeys = []string{"target", "domain", "ip", "input"}
+)
+
+// formOrQuery is the first of keys the request carries; FormValue reads the body, then the query.
 func formOrQuery(c *echo.Context, keys ...string) string {
 	for _, k := range keys {
 		if v := strings.TrimSpace(c.FormValue(k)); v != "" {
-			return v
-		}
-	}
-	for _, k := range keys {
-		if v := strings.TrimSpace(c.QueryParam(k)); v != "" {
 			return v
 		}
 	}
@@ -124,7 +120,7 @@ func formOrQuery(c *echo.Context, keys ...string) string {
 
 func (h *handler) health(c *echo.Context) error {
 	vm := h.vm("health", "Domain & Email Intelligence Audit", healthDesc)
-	target := formOrQuery(c, "domain", "input")
+	target := formOrQuery(c, healthKeys...)
 	if target == "" {
 		if c.Request().Method == http.MethodGet {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
@@ -133,7 +129,7 @@ func (h *handler) health(c *echo.Context) error {
 	}
 
 	vm["Domain"] = target
-	report, err := AuditDomainHealth(c.Request().Context(), target, h.guard, h.store, h.dqsKey)
+	report, err := h.svc.AuditDomainHealth(c.Request().Context(), target)
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/health")
 	}
@@ -171,7 +167,7 @@ func (h *handler) classifier(c *echo.Context) error {
 
 func (h *handler) blacklist(c *echo.Context) error {
 	vm := h.vm("blacklist", "Real-Time Multi-DNSBL Reputation Checker", blacklistDesc)
-	target := formOrQuery(c, "target", "domain", "ip", "input")
+	target := formOrQuery(c, blacklistKeys...)
 	if target == "" {
 		if c.Request().Method == http.MethodGet {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/blacklist", "mail/blacklist-result")
@@ -180,8 +176,7 @@ func (h *handler) blacklist(c *echo.Context) error {
 	}
 
 	vm["Target"] = target
-
-	rep, err := CachedDNSBLAudit(c.Request().Context(), h.store, target, h.dqsKey)
+	rep, err := h.svc.DNSBL(c.Request().Context(), target)
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/blacklist")
 	}
@@ -236,7 +231,7 @@ func (h *handler) dmarcParse(c *echo.Context) error {
 	} else {
 		pasted := strings.TrimSpace(c.FormValue("xml"))
 		if pasted == "" {
-			r = io.LimitReader(c.Request().Body, maxDMARCPayload)
+			r = c.Request().Body
 		} else {
 			r = strings.NewReader(pasted)
 		}
@@ -264,7 +259,7 @@ func (h *handler) bimi(c *echo.Context) error {
 			return h.badRequest(c, vm, err, "mail/bimi")
 		}
 		defer f.Close()
-		svgData, err = io.ReadAll(io.LimitReader(f, maxBIMIPayload))
+		svgData, err = io.ReadAll(io.LimitReader(f, maxBIMIInput+1))
 		if err != nil {
 			return h.badRequest(c, vm, err, "mail/bimi")
 		}
@@ -293,7 +288,7 @@ func (h *handler) bimiFix(c *echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]string{"svg": fixed, "fixed_svg": fixed})
+	return c.JSON(http.StatusOK, map[string]string{"svg": fixed})
 }
 
 func (h *handler) arc(c *echo.Context) error {
@@ -319,7 +314,7 @@ func (h *handler) arc(c *echo.Context) error {
 func (h *handler) arcParse(c *echo.Context) error {
 	headers := strings.TrimSpace(c.FormValue("headers"))
 	if headers == "" {
-		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, maxARCPayload))
+		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, maxARCInput+1))
 		headers = string(body)
 	}
 	if strings.TrimSpace(headers) == "" {
@@ -339,6 +334,22 @@ func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, tmpl
 
 func limited(c *echo.Context) error {
 	return c.String(http.StatusTooManyRequests, "Rate limit exceeded. Please wait a moment.")
+}
+
+// capped holds a slot while the route runs and answers 503 when none is free; skip lets a bare page view through.
+func capped(slots *platform.Cap, skip func(*echo.Context) bool) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if skip != nil && skip(c) {
+				return next(c)
+			}
+			if !slots.TryAcquire(c.RealIP(), 1) {
+				return c.String(http.StatusServiceUnavailable, platform.BusyMessage)
+			}
+			defer slots.Release(c.RealIP(), 1)
+			return next(c)
+		}
+	}
 }
 
 // SitemapPages lists all public routes for sitemap.xml.

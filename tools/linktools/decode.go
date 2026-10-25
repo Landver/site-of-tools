@@ -109,7 +109,8 @@ func tryBase64(s string) (string, string, bool) {
 	return "", "", false
 }
 
-// jwtPayload pretty-prints header and payload; it never verifies the signature and must not imply it did.
+// jwtPayload pretty-prints header and payload; it never verifies the signature, and every template showing
+// a "jwt-payload" layer says so.
 func jwtPayload(s string) (string, bool) {
 	if !jwtRe.MatchString(s) {
 		return "", false
@@ -128,11 +129,8 @@ func jwtPayload(s string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return string(out) + jwtUnverified, true
+	return string(out), true
 }
-
-// jwtUnverified ends every decoded JWT; Encode's reading trims it.
-const jwtUnverified = "\n\n(signature not verified — this tool only decodes)"
 
 // prettyJSON skips scalars: "1" is valid JSON, and calling a number JSON is noise.
 func prettyJSON(s string) (string, bool) {

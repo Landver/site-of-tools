@@ -324,7 +324,7 @@
   <ol class="mt-2 space-y-1 rounded-lg border border-line bg-surface p-4">
     {{range .Ladder}}
     <li class="text-sm">
-      <span class="text-xs text-muted">{{.Depth}}. {{.Method}}</span>
+      <span class="text-xs text-muted">{{.Depth}}. {{.Method}}{{if eq .Method "jwt-payload"}} (signature not verified: this tool only decodes){{end}}</span>
       <pre class="mt-0.5 whitespace-pre-wrap wrap-anywhere font-mono text-strong">{{.Value}}</pre>
     </li>
     {{end}}

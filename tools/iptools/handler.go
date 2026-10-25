@@ -1,6 +1,7 @@
 package iptools
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,40 +20,38 @@ const (
 
 // Looker is satisfied by *Service (a nil one returns ErrUnavailable) and by test fakes.
 type Looker interface {
-	Lookup(ip string) (*Result, error)
+	Lookup(ctx context.Context, ip string) (*Result, error)
 }
 
 type handler struct {
-	svc  Looker
-	hist *History // nil when Mongo is off; nil-safe
-	chk  Checker  // nil when Mongo is off, so no blocklist row
-	lim  *Limits
+	svc Looker
+	chk Checker // nil when Mongo is off, so no blocklist row
+	lim *Limits
 }
 
 // Limits are built once and shared by REST and MCP, so both spend one budget.
 type Limits struct {
-	Lookup, CIDR, History platform.Limiter
-	LookupCap             *platform.Cap
+	Lookup, CIDR platform.Limiter
+	LookupCap    *platform.Cap
 }
 
 func NewLimits() *Limits {
 	return &Limits{
 		Lookup:    platform.NewLimiter(2, 10),
 		CIDR:      platform.NewLimiter(10, 50),
-		History:   platform.NewLimiter(2, 10),
 		LookupCap: platform.NewCap(8),
 	}
 }
 
 // Register: lookups take ?ip= only, matching /cidr?cidr=; there is no /:ip route.
-func Register(e *echo.Echo, svc Looker, hist *History, chk Checker, lim *Limits) {
+func Register(e *echo.Echo, svc Looker, chk Checker, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
-	h := &handler{svc: svc, hist: hist, chk: chk, lim: lim}
+	h := &handler{svc: svc, chk: chk, lim: lim}
 	e.GET("/", h.index, platform.RateLimit(lim.Lookup, nil, h.limited))
 	e.GET("/cidr", h.cidr, platform.RateLimit(lim.CIDR, nil, h.limited))
-	e.GET("/history", h.history, platform.RateLimit(lim.History, nil, h.limited))
+	e.GET("/history", history)
 }
 
 func (h *handler) limited(c *echo.Context) error {
@@ -66,8 +65,6 @@ func (h *handler) limited(c *echo.Context) error {
 	switch c.Path() {
 	case "/cidr":
 		page, vm = "ip/cidr", cidrVM(strings.TrimSpace(c.QueryParam("cidr")))
-	case "/history":
-		page, vm = "ip/history", h.historyVM()
 	default:
 		page, vm = "ip/index", lookupVM(strings.TrimSpace(c.QueryParam("ip")))
 		if platform.IsHTMX(c) {
@@ -87,11 +84,6 @@ func lookupVM(query string) map[string]any {
 
 func cidrVM(query string) map[string]any {
 	return map[string]any{"Title": "Subnet calculator", "Desc": cidrDesc, "Active": "cidr", "Query": query, "Subdomain": "ip"}
-}
-
-func (h *handler) historyVM() map[string]any {
-	return map[string]any{"Title": "Lookup history", "Desc": historyDesc, "Active": "history",
-		"Enabled": h.hist != nil, "Attribution": true, "SpamhausAttribution": true, "Subdomain": "ip"}
 }
 
 // No routable IP: browsers get the empty page, htmx an empty fragment (never the full page), JSON a 400.
@@ -146,36 +138,16 @@ func (h *handler) cidr(c *echo.Context) error {
 	return c.Render(code, "ip/cidr", vm)
 }
 
-// history's page shows geo/ASN data from the databases, so it carries the IP2Location credit.
-func (h *handler) history(c *echo.Context) error {
-	const limit = 50
-	entries, err := h.hist.Recent(c.Request().Context(), limit)
-	platform.SetNegotiationHeaders(c, http.StatusOK)
-
-	if platform.WantsJSON(c) {
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		if entries == nil {
-			entries = []HistoryEntry{} // render [] not null
-		}
-		return c.JSON(http.StatusOK, map[string]any{"lookups": entries})
-	}
-
-	vm := h.historyVM()
-	vm["Entries"] = entries
-	if err != nil {
-		vm["Error"] = err.Error()
-	}
-	return c.Render(http.StatusOK, "ip/history", vm)
+// history renders past lookups from this browser's localStorage; the server keeps none, so it has no JSON.
+// The rows are database results, so the page carries the IP2Location credit.
+func history(c *echo.Context) error {
+	return c.Render(http.StatusOK, "ip/history", map[string]any{"Title": "Lookup history", "Desc": historyDesc,
+		"Active": "history", "Attribution": true, "SpamhausAttribution": true, "Subdomain": "ip"})
 }
 
 func (h *handler) show(c *echo.Context, ip string, self bool) error {
 	res, err := h.lookup(c, ip)
 	wantsJSON := platform.WantsJSON(c)
-
-	// Lookups are stored in client-side localStorage for user privacy (no MongoDB recording).
-	_ = self
 
 	code := http.StatusOK
 	if err != nil {
@@ -234,15 +206,13 @@ func statusFor(err error) int {
 }
 
 // ConnNetwork is the one Result-to-conn-card mapping, shared with botcheck so the two can't drift.
-// It re-runs clean() so hand-built Results (tests, fakes) map the same way.
 func (r *Result) ConnNetwork() platform.ConnNetwork {
 	if r == nil {
 		return platform.ConnNetwork{}
 	}
-	n := platform.ConnNetwork{ASN: clean(r.ASN), ASName: clean(r.ASName)}
+	n := platform.ConnNetwork{ASN: r.ASN, ASName: r.ASName}
 	if p := r.Proxy; p != nil && p.IsProxy {
-		n.ProxyType = p.ProxyType
-		n.Provider = clean(p.Provider)
+		n.ProxyType, n.Provider = p.ProxyType, p.Provider
 	}
 	return n
 }

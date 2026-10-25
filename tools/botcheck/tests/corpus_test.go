@@ -86,6 +86,14 @@ func TestFingerprintReuseRule(t *testing.T) {
 	if r.Score != 100 {
 		t.Errorf("server-only score = %d, want 100 (corpus rule skipped)", r.Score)
 	}
+
+	// A fingerprint scored without reading the corpus (Mongo off, MCP): skipped, not passed.
+	s = cleanChrome()
+	s.CorpusConsulted = false
+	s.FingerprintIPs = 9
+	if c := check(t, botcheck.Evaluate(s), "fingerprint_reuse"); !c.Skipped || c.Triggered {
+		t.Errorf("unconsulted corpus: fingerprint_reuse = %+v, want skipped and untriggered", c)
+	}
 }
 
 func TestFingerprintReuseSuppressedForGoodBot(t *testing.T) {
@@ -165,10 +173,18 @@ func TestFingerprintChurnRule(t *testing.T) {
 	if c := check(t, botcheck.Evaluate(s), "ip_fingerprint_churn"); !c.Skipped || c.Triggered {
 		t.Errorf("server-only request: ip_fingerprint_churn = %+v, want skipped and untriggered", c)
 	}
+
+	// Corpus not read: skipped, not passed.
+	s = cleanChrome()
+	s.CorpusConsulted = false
+	s.FingerprintChurn = 20
+	if c := check(t, botcheck.Evaluate(s), "ip_fingerprint_churn"); !c.Skipped || c.Triggered {
+		t.Errorf("unconsulted corpus: ip_fingerprint_churn = %+v, want skipped and untriggered", c)
+	}
 }
 
-// With Mongo off the handler still scores; 0 IPs is never evidence and stays out of the JSON.
-func TestCheckNilCorpusLeavesRuleSilent(t *testing.T) {
+// With Mongo off the handler still scores; the corpus rules skip and no count reaches the JSON.
+func TestCheckNilCorpusSkipsCorpusRules(t *testing.T) {
 	rec := post(newTestApp(fakeLooker{}), "/check", cleanClientBody, map[string]string{
 		"Accept": "application/json", "User-Agent": chromeMacUA,
 	})
@@ -183,8 +199,8 @@ func TestCheckNilCorpusLeavesRuleSilent(t *testing.T) {
 		t.Errorf("FingerprintIPs=%d FingerprintChurn=%d, want 0/0 with a nil corpus", rep.FingerprintIPs, rep.FingerprintChurn)
 	}
 	for _, c := range rep.Checks {
-		if (c.ID == "fingerprint_reuse" || c.ID == "ip_fingerprint_churn") && c.Triggered {
-			t.Errorf("%s fired with a nil corpus:\n%s", c.ID, rec.Body.String())
+		if (c.ID == "fingerprint_reuse" || c.ID == "ip_fingerprint_churn") && (c.Triggered || !c.Skipped) {
+			t.Errorf("%s = %+v with a nil corpus, want skipped:\n%s", c.ID, c, rec.Body.String())
 		}
 	}
 	for _, key := range []string{"fingerprintIPs", "fingerprintChurn"} {

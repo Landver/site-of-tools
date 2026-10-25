@@ -19,7 +19,7 @@ type copyLooker struct {
 	err error
 }
 
-func (l copyLooker) Lookup(ip string) (*iptools.Result, error) {
+func (l copyLooker) Lookup(_ context.Context, ip string) (*iptools.Result, error) {
 	if l.err != nil {
 		return nil, l.err
 	}
@@ -48,7 +48,7 @@ var richResult = iptools.Result{
 
 func goldenIPApp(svc iptools.Looker, chk iptools.Checker) *echo.Echo {
 	e := echo.New()
-	iptools.Register(e, svc, nil, chk, nil)
+	iptools.Register(e, svc, chk, nil)
 	return e
 }
 

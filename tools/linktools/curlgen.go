@@ -22,26 +22,12 @@ type CurlOptions struct {
 	Insecure        bool   `json:"insecure"`         // -k; see the note on ToCurl
 }
 
-// curlPersona reuses trace.go's personas so curl and Trace claim the same agent. Unlike personaFor, an
-// unknown key is an error: a generated command would otherwise silently claim to be somebody else.
-func curlPersona(key string) (Persona, bool) {
-	for _, p := range personas {
-		if strings.EqualFold(p.Key, key) {
-			return p, true
-		}
-	}
-	return Persona{}, false
-}
-
 // ToCurl renders a runnable curl command. Every caller-supplied piece is single-quoted, since the URL is
 // attacker-influenced and gets pasted into a shell. -k is emitted only when opt.Insecure asks for it.
 func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", fmt.Errorf("no URL given")
-	}
-	if len(raw) > maxInput {
-		return "", fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
+	raw, err := readURL(raw)
+	if err != nil {
+		return "", err
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -73,7 +59,7 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 		args = append(args, "-k")
 	}
 	if opt.Persona != "" {
-		p, ok := curlPersona(opt.Persona)
+		p, ok := lookupPersona(opt.Persona)
 		if !ok {
 			// A typo quietly sending the wrong user agent would defeat the option.
 			return "", fmt.Errorf("unknown persona %q", opt.Persona)
@@ -88,16 +74,6 @@ func (s *Service) ToCurl(raw string, opt CurlOptions) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
-// FromCurl takes a pasted curl command apart without evaluating it: a shell-shaped tokeniser, not a shell.
-// The URL comes back as written; a missing scheme is left for Parse to note rather than invented here.
-func (s *Service) FromCurl(cmd string) (string, []Header, error) {
-	r, err := s.FromCurlRequest(cmd)
-	if err != nil {
-		return "", nil, err
-	}
-	return r.URL, r.Headers, nil
-}
-
 // CurlRequest is a pasted command taken apart; the body is measured, never echoed: it holds passwords.
 type CurlRequest struct {
 	URL       string   `json:"url"`
@@ -105,33 +81,28 @@ type CurlRequest struct {
 	Method    string   `json:"method"`
 	MethodWhy string   `json:"method_why"`
 	BodyBytes int      `json:"body_bytes,omitempty"`
-	BodyFlag  string   `json:"body_flag,omitempty"` // the first flag that carried a body
 	Notes     []Note   `json:"notes,omitempty"`
+	bodyFlag  string   // the first flag that carried a body, which MethodWhy names
 }
 
+// CurlParse is a pasted command taken apart, with its URL inspected as Parse does.
 type CurlParse struct {
-	BodyBytes  int         `json:"body_bytes,omitempty"`
-	Headers    []Header    `json:"headers"`
+	CurlRequest
 	Inspection *Inspection `json:"inspection"`
-	Method     string      `json:"method"`
-	MethodWhy  string      `json:"method_why"`
-	Notes      []Note      `json:"notes,omitempty"`
-	URL        string      `json:"url"`
 }
 
+// ParseCurl reads a pasted curl command without evaluating it: a shell-shaped tokeniser, not a shell.
+// The URL comes back as written; a missing scheme is left for Parse to note rather than invented here.
 func (s *Service) ParseCurl(cmd string) (*CurlParse, error) {
-	r, err := s.FromCurlRequest(strings.TrimSpace(cmd))
+	r, err := readCurl(strings.TrimSpace(cmd))
 	if err != nil {
 		return nil, err
 	}
-	in, err := s.Parse(r.URL)
+	in, err := s.inspect(r.URL)
 	if err != nil {
 		return nil, err
 	}
-	return &CurlParse{
-		BodyBytes: r.BodyBytes, Headers: r.Headers, Inspection: in,
-		Method: r.Method, MethodWhy: r.MethodWhy, Notes: r.Notes, URL: r.URL,
-	}, nil
+	return &CurlParse{CurlRequest: *r, Inspection: in}, nil
 }
 
 // urlencodeData encodes a --data-urlencode argument as curl does; "@file" is left alone.
@@ -149,9 +120,9 @@ func urlencodeData(v string) string {
 	return esc(v)
 }
 
-// FromCurlRequest is FromCurl with the method and body accounted for.
-func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
-	if strings.TrimSpace(cmd) == "" {
+// readCurl tokenises cmd and accounts for its URL, headers, method and body.
+func readCurl(cmd string) (*CurlRequest, error) {
+	if cmd == "" {
 		return nil, fmt.Errorf("no command given")
 	}
 	if len(cmd) > maxInput {
@@ -252,8 +223,8 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		case "-X", "--request":
 			explicit = strings.ToUpper(val)
 		case "-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--data-urlencode", "-F", "--form", "--form-string", "--json":
-			if r.BodyFlag == "" {
-				r.BodyFlag = name
+			if r.bodyFlag == "" {
+				r.bodyFlag = name
 			}
 			r.BodyBytes += len(val)
 			if name == "--data-urlencode" {
@@ -280,16 +251,16 @@ func (s *Service) FromCurlRequest(cmd string) (*CurlRequest, error) {
 		r.Method, r.MethodWhy = explicit, "set with -X"
 	case head:
 		r.Method, r.MethodWhy = "HEAD", "implied by -I"
-	case get && r.BodyFlag != "":
-		r.Method, r.MethodWhy = "GET", "-G moves the "+r.BodyFlag+" data into the query string"
+	case get && r.bodyFlag != "":
+		r.Method, r.MethodWhy = "GET", "-G moves the "+r.bodyFlag+" data into the query string"
 		sep := "?"
 		if strings.Contains(r.URL, "?") {
 			sep = "&"
 		}
 		r.URL += sep + strings.ReplaceAll(strings.Join(data, "&"), " ", "%20")
 		r.BodyBytes = 0
-	case r.BodyFlag != "":
-		r.Method, r.MethodWhy = "POST", "implied by "+r.BodyFlag
+	case r.bodyFlag != "":
+		r.Method, r.MethodWhy = "POST", "implied by "+r.bodyFlag
 	default:
 		r.Method, r.MethodWhy = "GET", "curl's default"
 	}

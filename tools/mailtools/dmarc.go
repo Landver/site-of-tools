@@ -2,23 +2,29 @@ package mailtools
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 )
 
-const maxDMARCPayload = 10 << 20 // 10 MB limit against decompression bombs
+// A full report row is ~550 bytes of XML, so 2 MB holds ~3,600 of them, far past a
+// typical daily report; the row cap bounds reports made of minimal rows.
+const (
+	maxDMARCPayload = 2 << 20
+	maxDMARCRecords = 5000
+)
 
 // Raw XML structures matching RFC 7489 Appendix C
 type dmarcFeedbackXML struct {
-	XMLName        xml.Name              `xml:"feedback"`
-	Metadata       dmarcReportMetaXML    `xml:"report_metadata"`
-	Policy         dmarcPolicyPubXML     `xml:"policy_published"`
-	Records        []dmarcRecordXML      `xml:"record"`
+	XMLName  xml.Name           `xml:"feedback"`
+	Metadata dmarcReportMetaXML `xml:"report_metadata"`
+	Policy   dmarcPolicyPubXML  `xml:"policy_published"`
+	Records  dmarcRecords       `xml:"record"`
 }
 
 type dmarcReportMetaXML struct {
@@ -35,12 +41,9 @@ type dmarcDateRangeXML struct {
 
 type dmarcPolicyPubXML struct {
 	Domain string `xml:"domain"`
-	ADKIM  string `xml:"adkim"`
-	ASPF   string `xml:"aspf"`
 	P      string `xml:"p"`
 	SP     string `xml:"sp"`
 	Pct    *int   `xml:"pct"`
-	Fo     string `xml:"fo"`
 }
 
 type dmarcRecordXML struct {
@@ -50,9 +53,9 @@ type dmarcRecordXML struct {
 }
 
 type dmarcRowXML struct {
-	SourceIP        string              `xml:"source_ip"`
-	Count           int                 `xml:"count"`
-	PolicyEvaluated dmarcPolicyEvalXML  `xml:"policy_evaluated"`
+	SourceIP        string             `xml:"source_ip"`
+	Count           int                `xml:"count"`
+	PolicyEvaluated dmarcPolicyEvalXML `xml:"policy_evaluated"`
 }
 
 type dmarcPolicyEvalXML struct {
@@ -63,46 +66,49 @@ type dmarcPolicyEvalXML struct {
 
 type dmarcIdentifiersXML struct {
 	HeaderFrom   string `xml:"header_from"`
-	EnvelopeTo   string `xml:"envelope_to"`
 	EnvelopeFrom string `xml:"envelope_from"`
 }
 
 type dmarcAuthResultsXML struct {
-	DKIM []dmarcDKIMAuthXML `xml:"dkim"`
-	SPF  []dmarcSPFAuthXML  `xml:"spf"`
+	DKIM []dmarcAuthXML `xml:"dkim"`
+	SPF  []dmarcAuthXML `xml:"spf"`
 }
 
-type dmarcDKIMAuthXML struct {
-	Domain   string `xml:"domain"`
-	Result   string `xml:"result"`
-	Selector string `xml:"selector"`
-}
-
-type dmarcSPFAuthXML struct {
+type dmarcAuthXML struct {
 	Domain string `xml:"domain"`
 	Result string `xml:"result"`
-	Scope  string `xml:"scope"`
 }
 
-// User-facing structured types for JSON API and HTML templates
+// DMARCReport is a parsed aggregate report. The fields through PassRatePct summarise the
+// whole report, Providers and Sources roll the rows up by ESP and by IP, Records holds every row.
 type DMARCReport struct {
-	OrgName        string               `json:"org_name"`
-	Email          string               `json:"email"`
-	ReportID       string               `json:"report_id"`
-	BeginTime      string               `json:"begin_time"`
-	EndTime        string               `json:"end_time"`
-	Domain         string               `json:"domain"`
-	Policy         string               `json:"policy"`
-	SubdomainPol   string               `json:"subdomain_policy,omitempty"`
-	Percentage     int                  `json:"percentage"`
-	TotalMessages  int                  `json:"total_messages"`
-	PassCount      int                  `json:"pass_count"`
-	FailCount      int                  `json:"fail_count"`
-	QuarantineCnt  int                  `json:"quarantine_count"`
-	RejectCnt      int                  `json:"reject_count"`
-	PassRatePct    float64              `json:"pass_rate_pct"`
-	Sources        []DMARCSourceSummary `json:"sources"`
-	Records        []DMARCRecord        `json:"records"`
+	OrgName       string                 `json:"org_name"`
+	Email         string                 `json:"email"`
+	ReportID      string                 `json:"report_id"`
+	BeginTime     string                 `json:"begin_time"`
+	EndTime       string                 `json:"end_time"`
+	Domain        string                 `json:"domain"`
+	Policy        string                 `json:"policy"`
+	SubdomainPol  string                 `json:"subdomain_policy,omitempty"`
+	Percentage    int                    `json:"percentage"`
+	TotalMessages int                    `json:"total_messages"`
+	PassCount     int                    `json:"pass_count"`
+	FailCount     int                    `json:"fail_count"`
+	QuarantineCnt int                    `json:"quarantine_count"`
+	RejectCnt     int                    `json:"reject_count"`
+	PassRatePct   float64                `json:"pass_rate_pct"`
+	Providers     []DMARCProviderSummary `json:"providers"`
+	Sources       []DMARCSourceSummary   `json:"sources"`
+	Records       []DMARCRecord          `json:"records"`
+}
+
+// DMARCProviderSummary totals the report's messages per ESP.
+type DMARCProviderSummary struct {
+	ESP       ESPInfo `json:"esp"`
+	Sources   int     `json:"sources"`
+	Count     int     `json:"count"`
+	PassCount int     `json:"pass_count"`
+	FailCount int     `json:"fail_count"`
 }
 
 type DMARCSourceSummary struct {
@@ -129,149 +135,157 @@ type DMARCRecord struct {
 	SPFDomains   []string `json:"spf_domains,omitempty"`
 }
 
-// ParseDMARCReport decompresses (if gzip) and parses a DMARC aggregate XML report.
+// ParseDMARCReport decompresses (if gzip) and parses a DMARC aggregate XML report,
+// refusing more than maxDMARCPayload bytes of input or XML and more than maxDMARCRecords rows.
 func ParseDMARCReport(r io.Reader) (*DMARCReport, error) {
-	r = io.LimitReader(r, maxDMARCPayload)
-	// Read header bytes to check for gzip magic: 0x1f, 0x8b
-	headerBuf := make([]byte, 2)
-	n, err := io.ReadFull(r, headerBuf)
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, fmt.Errorf("reading input: %w", err)
+	data, err := readDMARC(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading report: %w", err)
 	}
-
-	var xmlReader io.Reader
-	if n == 2 && headerBuf[0] == 0x1f && headerBuf[1] == 0x8b {
-		// Gzip compressed payload
-		combined := io.MultiReader(bytes.NewReader(headerBuf[:n]), r)
-		gz, err := gzip.NewReader(combined)
+	if bytes.HasPrefix(data, []byte{0x1f, 0x8b}) {
+		gz, err := gzip.NewReader(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decompressing gzip report: %w", err)
 		}
-		defer gz.Close()
-		xmlReader = io.LimitReader(gz, maxDMARCPayload)
-	} else {
-		// Plain XML payload
-		xmlReader = io.LimitReader(io.MultiReader(bytes.NewReader(headerBuf[:n]), r), maxDMARCPayload)
+		if data, err = readDMARC(gz); err != nil {
+			return nil, fmt.Errorf("decompressing gzip report: %w", err)
+		}
 	}
 
-	decoder := xml.NewDecoder(xmlReader)
 	var raw dmarcFeedbackXML
-	if err := decoder.Decode(&raw); err != nil {
+	if err := xml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing DMARC XML report: %w", err)
 	}
+	return raw.report(), nil
+}
 
+func readDMARC(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxDMARCPayload+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDMARCPayload {
+		return nil, fmt.Errorf("report exceeds %d MB", maxDMARCPayload>>20)
+	}
+	return data, nil
+}
+
+// dmarcRecords converts each <record> as it is decoded and stops past maxDMARCRecords.
+type dmarcRecords []DMARCRecord
+
+func (rs *dmarcRecords) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	if len(*rs) == maxDMARCRecords {
+		return fmt.Errorf("report has more than %d records", maxDMARCRecords)
+	}
+	var raw dmarcRecordXML
+	if err := d.DecodeElement(&raw, &start); err != nil {
+		return err
+	}
+	*rs = append(*rs, raw.record())
+	return nil
+}
+
+func (x dmarcRecordXML) record() DMARCRecord {
+	ip := strings.TrimSpace(x.Row.SourceIP)
+	return DMARCRecord{
+		SourceIP:     ip,
+		ESP:          IdentifyESP(ip),
+		Count:        max(x.Row.Count, 1),
+		Disposition:  cmp.Or(x.Row.PolicyEvaluated.Disposition, "none"),
+		DKIMResult:   x.Row.PolicyEvaluated.DKIM,
+		SPFResult:    x.Row.PolicyEvaluated.SPF,
+		HeaderFrom:   x.Identifiers.HeaderFrom,
+		EnvelopeFrom: x.Identifiers.EnvelopeFrom,
+		DKIMDomains:  authDomains(x.AuthResults.DKIM),
+		SPFDomains:   authDomains(x.AuthResults.SPF),
+	}
+}
+
+func authDomains(results []dmarcAuthXML) []string {
+	var out []string
+	for _, a := range results {
+		if a.Domain != "" {
+			out = append(out, fmt.Sprintf("%s (%s)", a.Domain, a.Result))
+		}
+	}
+	return out
+}
+
+func (raw *dmarcFeedbackXML) report() *DMARCReport {
 	rep := &DMARCReport{
-		OrgName:    raw.Metadata.OrgName,
-		Email:      raw.Metadata.Email,
-		ReportID:   raw.Metadata.ReportID,
-		Domain:     raw.Policy.Domain,
+		OrgName:      raw.Metadata.OrgName,
+		Email:        raw.Metadata.Email,
+		ReportID:     raw.Metadata.ReportID,
+		BeginTime:    unixTime(raw.Metadata.DateRange.Begin),
+		EndTime:      unixTime(raw.Metadata.DateRange.End),
+		Domain:       raw.Policy.Domain,
 		Policy:       raw.Policy.P,
 		SubdomainPol: raw.Policy.SP,
 		Percentage:   100,
+		Records:      raw.Records,
 	}
 	if raw.Policy.Pct != nil {
 		rep.Percentage = *raw.Policy.Pct
 	}
 
-	if raw.Metadata.DateRange.Begin > 0 {
-		rep.BeginTime = time.Unix(raw.Metadata.DateRange.Begin, 0).UTC().Format(time.RFC3339)
-	}
-	if raw.Metadata.DateRange.End > 0 {
-		rep.EndTime = time.Unix(raw.Metadata.DateRange.End, 0).UTC().Format(time.RFC3339)
-	}
-
-	sourceMap := make(map[string]*DMARCSourceSummary)
-
-	for _, rec := range raw.Records {
-		cnt := rec.Row.Count
-		if cnt <= 0 {
-			cnt = 1
+	sources := map[string]*DMARCSourceSummary{}
+	providers := map[string]*DMARCProviderSummary{}
+	for _, r := range rep.Records {
+		p := providers[r.ESP.Name]
+		if p == nil {
+			p = &DMARCProviderSummary{ESP: r.ESP}
+			providers[r.ESP.Name] = p
 		}
-		rep.TotalMessages += cnt
-
-		disp := rec.Row.PolicyEvaluated.Disposition
-		if disp == "" {
-			disp = "none"
+		s := sources[r.SourceIP]
+		if s == nil {
+			s = &DMARCSourceSummary{SourceIP: r.SourceIP, ESP: r.ESP, Disposition: r.Disposition}
+			sources[r.SourceIP] = s
+			p.Sources++
 		}
-		switch disp {
+
+		pass := r.DKIMResult == "pass" || r.SPFResult == "pass"
+		tally := func(count, passed, failed *int) {
+			*count += r.Count
+			if pass {
+				*passed += r.Count
+			} else {
+				*failed += r.Count
+			}
+		}
+		tally(&rep.TotalMessages, &rep.PassCount, &rep.FailCount)
+		tally(&s.Count, &s.PassCount, &s.FailCount)
+		tally(&p.Count, &p.PassCount, &p.FailCount)
+		switch r.Disposition {
 		case "quarantine":
-			rep.QuarantineCnt += cnt
+			rep.QuarantineCnt += r.Count
 		case "reject":
-			rep.RejectCnt += cnt
+			rep.RejectCnt += r.Count
 		}
-
-		dkimPass := rec.Row.PolicyEvaluated.DKIM == "pass"
-		spfPass := rec.Row.PolicyEvaluated.SPF == "pass"
-
-		isAligned := dkimPass || spfPass
-		if isAligned {
-			rep.PassCount += cnt
-		} else {
-			rep.FailCount += cnt
-		}
-
-		ipStr := rec.Row.SourceIP
-		esp := IdentifyESP(ipStr, "")
-
-		// Aggregate source summary
-		s, exists := sourceMap[ipStr]
-		if !exists {
-			s = &DMARCSourceSummary{
-				SourceIP:    ipStr,
-				ESP:         esp,
-				Disposition: disp,
-			}
-			sourceMap[ipStr] = s
-		}
-		s.Count += cnt
-		if isAligned {
-			s.PassCount += cnt
-		} else {
-			s.FailCount += cnt
-		}
-		if spfPass {
-			s.SPFPass = true
-		}
-		if dkimPass {
-			s.DKIMPass = true
-		}
-
-		var dkimDoms, spfDoms []string
-		for _, d := range rec.AuthResults.DKIM {
-			if d.Domain != "" {
-				dkimDoms = append(dkimDoms, fmt.Sprintf("%s (%s)", d.Domain, d.Result))
-			}
-		}
-		for _, s := range rec.AuthResults.SPF {
-			if s.Domain != "" {
-				spfDoms = append(spfDoms, fmt.Sprintf("%s (%s)", s.Domain, s.Result))
-			}
-		}
-
-		rep.Records = append(rep.Records, DMARCRecord{
-			SourceIP:     ipStr,
-			ESP:          esp,
-			Count:        cnt,
-			Disposition:  disp,
-			DKIMResult:   rec.Row.PolicyEvaluated.DKIM,
-			SPFResult:    rec.Row.PolicyEvaluated.SPF,
-			HeaderFrom:   rec.Identifiers.HeaderFrom,
-			EnvelopeFrom: rec.Identifiers.EnvelopeFrom,
-			DKIMDomains:  dkimDoms,
-			SPFDomains:   spfDoms,
-		})
+		s.SPFPass = s.SPFPass || r.SPFResult == "pass"
+		s.DKIMPass = s.DKIMPass || r.DKIMResult == "pass"
 	}
-
 	if rep.TotalMessages > 0 {
-		rep.PassRatePct = float64(rep.PassCount) / float64(rep.TotalMessages) * 100.0
+		rep.PassRatePct = float64(rep.PassCount) / float64(rep.TotalMessages) * 100
 	}
 
-	for _, s := range sourceMap {
+	for _, s := range sources {
 		rep.Sources = append(rep.Sources, *s)
 	}
-	sort.Slice(rep.Sources, func(i, j int) bool {
-		return rep.Sources[i].Count > rep.Sources[j].Count
+	slices.SortFunc(rep.Sources, func(a, b DMARCSourceSummary) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), strings.Compare(a.SourceIP, b.SourceIP))
 	})
+	for _, p := range providers {
+		rep.Providers = append(rep.Providers, *p)
+	}
+	slices.SortFunc(rep.Providers, func(a, b DMARCProviderSummary) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), strings.Compare(a.ESP.Name, b.ESP.Name))
+	})
+	return rep
+}
 
-	return rep, nil
+func unixTime(sec int64) string {
+	if sec <= 0 {
+		return ""
+	}
+	return time.Unix(sec, 0).UTC().Format(time.RFC3339)
 }

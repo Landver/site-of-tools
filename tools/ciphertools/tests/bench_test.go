@@ -13,11 +13,11 @@ func BenchmarkDPoPGenerate(b *testing.B) {
 	op, _ := ciphertools.Lookup("dpop-generate")
 	in := ciphertools.Input{
 		Fields: url.Values{
-			"htm":   {"POST"},
-			"htu":   {"https://api.example.com/oauth/token"},
-			"ath":   {"my-secret-access-token-12345"},
-			"nonce": {"srv-nonce-9876"},
-			"now":   {fmt.Sprintf("%d", time.Now().Unix())},
+			"htm":          {"POST"},
+			"htu":          {"https://api.example.com/oauth/token"},
+			"access_token": {"my-secret-access-token-12345"},
+			"nonce":        {"srv-nonce-9876"},
+			"now":          {fmt.Sprintf("%d", time.Now().Unix())},
 		},
 	}
 	b.ReportAllocs()
@@ -36,10 +36,10 @@ func BenchmarkDPoPVerify(b *testing.B) {
 
 	genRes, err := ciphertools.Run(genOp, ciphertools.Input{
 		Fields: url.Values{
-			"htm":   {"POST"},
-			"htu":   {"https://api.example.com/oauth/token"},
-			"ath":   {"my-secret-access-token-12345"},
-			"now":   {fmt.Sprintf("%d", nowUnix)},
+			"htm":          {"POST"},
+			"htu":          {"https://api.example.com/oauth/token"},
+			"access_token": {"my-secret-access-token-12345"},
+			"now":          {fmt.Sprintf("%d", nowUnix)},
 		},
 	})
 	if err != nil {

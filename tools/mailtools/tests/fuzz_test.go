@@ -45,8 +45,13 @@ func FuzzValidateAndAutoFixBIMI(f *testing.F) {
 			t.Fatal("nil validation without error")
 		}
 		fixed, errFix := mailtools.AutoFixBIMI(raw)
+		if (err == nil) != (errFix == nil) {
+			t.Fatalf("ValidateBIMI err %v but AutoFixBIMI err %v", err, errFix)
+		}
 		if errFix == nil {
-			_, _ = mailtools.ValidateBIMI(fixed)
+			if _, err := mailtools.ValidateBIMI(fixed); err != nil {
+				t.Fatalf("fixed SVG no longer parses: %v\n%s", err, fixed)
+			}
 		}
 	})
 }

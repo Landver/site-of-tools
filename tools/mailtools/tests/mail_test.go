@@ -18,16 +18,19 @@ import (
 	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
-func newMailApp(t *testing.T) *echo.Echo {
+func newMailApp(t *testing.T, lim *mailtools.Limits) *echo.Echo {
 	t.Helper()
-	_ = mailtools.InitFromEmbedded()
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	mailtools.Register(e, "https://mail.example", nil, nil, "", nil)
+	mailtools.Register(e, "https://mail.example", newService(nil), lim)
 	return e
+}
+
+func newService(store *mailtools.Store) *mailtools.Service {
+	return mailtools.NewService(platform.NewEgressGuard([]string{"443"}, nil), store, "")
 }
 
 func TestDMARCXMLParsingAndGzip(t *testing.T) {
@@ -140,68 +143,6 @@ func TestDMARCXMLParsingAndGzip(t *testing.T) {
 	}
 }
 
-func TestBIMIValidationAndAutoFix(t *testing.T) {
-	validSVG := `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">
-  <title>Valid BIMI Logo</title>
-  <circle cx="50" cy="50" r="45" fill="#b83266"/>
-</svg>`
-
-	val, err := mailtools.ValidateBIMI(validSVG)
-	if err != nil {
-		t.Fatalf("ValidateBIMI failed: %v", err)
-	}
-	if !val.Compliant {
-		t.Errorf("expected compliant logo, got findings: %+v", val.Findings)
-	}
-	if val.FailCount != 0 {
-		t.Errorf("expected 0 fails, got %d", val.FailCount)
-	}
-
-	// Non-compliant SVG with scripts, event handlers, and missing baseProfile
-	badSVG := `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" onload="alert(1)">
-  <script>evil()</script>
-  <rect width="200" height="100" fill="blue"/>
-</svg>`
-
-	badVal, err := mailtools.ValidateBIMI(badSVG)
-	if err != nil {
-		t.Fatalf("ValidateBIMI badSVG failed: %v", err)
-	}
-	if badVal.Compliant {
-		t.Errorf("expected non-compliant, got compliant")
-	}
-	if badVal.FailCount == 0 {
-		t.Errorf("expected fails, got 0")
-	}
-	if !badVal.CanAutoFix {
-		t.Errorf("expected CanAutoFix to be true")
-	}
-
-	// Auto-Fix
-	fixed, err := mailtools.AutoFixBIMI(badSVG)
-	if err != nil {
-		t.Fatalf("AutoFixBIMI failed: %v", err)
-	}
-	if strings.Contains(fixed, "<script>") || strings.Contains(fixed, "alert(1)") {
-		t.Errorf("AutoFixBIMI did not strip scripts/handlers:\n%s", fixed)
-	}
-	if !strings.Contains(fixed, `version="1.2"`) || !strings.Contains(fixed, `baseProfile="tiny-ps"`) {
-		t.Errorf("AutoFixBIMI missing version or baseProfile:\n%s", fixed)
-	}
-	if !strings.Contains(fixed, `viewBox="0 0 200 200"`) {
-		t.Errorf("AutoFixBIMI failed to synthesize square viewBox:\n%s", fixed)
-	}
-
-	// Validate fixed output
-	fixedVal, err := mailtools.ValidateBIMI(fixed)
-	if err != nil {
-		t.Fatalf("ValidateBIMI on fixed output failed: %v", err)
-	}
-	if !fixedVal.Compliant {
-		t.Errorf("fixed output is still not compliant: %+v", fixedVal.Findings)
-	}
-}
-
 func TestARCChainAnalysis(t *testing.T) {
 	validARC := `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none;
  b=abcd1234
@@ -249,7 +190,7 @@ ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
 }
 
 func TestMailToolsHTTPRoutes(t *testing.T) {
-	e := newMailApp(t)
+	e := newMailApp(t, nil)
 
 	// 1. GET / renders health audit dashboard
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -532,7 +473,84 @@ ARC-Authentication-Results: i=1; mx.example.com; spf=pass`
 	if err != nil {
 		t.Fatalf("RenderARC error: %v", err)
 	}
-	if !strings.Contains(arcHTML, "Chain Status") || !strings.Contains(arcHTML, "VALID CHAIN") {
+	if !strings.Contains(arcHTML, "Chain Structure") || !strings.Contains(arcHTML, "INTACT") {
 		t.Errorf("RenderARC missing expected tokens in HTML: %s", arcHTML)
+	}
+}
+
+// The health card reads each check's status, and the DMARC badge its effective policy.
+func TestHealthResultRendersStatuses(t *testing.T) {
+	tmpl, err := mailtools.FragmentTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := &mailtools.DomainHealthReport{
+		Domain:  "sub.example.com",
+		Gateway: &mailtools.GatewayAudit{Vendor: mailtools.VendorGeneric},
+		Auth: &mailtools.EmailAuthSummary{
+			SPF: &mailtools.SPFAnalysis{Record: "v=spf1 include:a include:b include:c ~all", Lookups: 3, Limit: 10,
+				Status: "fail", StatusMsg: "Too many void lookups: 3 includes publish no SPF record"},
+			DMARC: &mailtools.DMARCAnalysis{Record: "v=DMARC1; p=none; sp=reject", Policy: "none", SubPolicy: "reject",
+				Effective: "reject", Inherited: true, Status: "pass", StatusMsg: "Reject policy (sp=reject)"},
+			DKIM:   &mailtools.DKIMAnalysis{Status: "info"},
+			MTASTS: &mailtools.MTASTSAnalysis{Status: "info"},
+		},
+		BIMI: &mailtools.BIMIAudit{},
+	}
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "mail/health-result", map[string]any{"Result": report}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	html := b.String()
+	for _, want := range []string{"DMARC: reject", "Apex Inherited", "Too many void lookups", "3 / 10 DNS Lookups", "No MX records discovered"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("health card missing %q", want)
+		}
+	}
+	if strings.Contains(html, "DMARC: none") || strings.Contains(html, "No DMARC") {
+		t.Errorf("DMARC badge shows p= instead of the effective sp= policy")
+	}
+}
+
+// A full HeavyCap answers 503 on the heavy routes, while a bare page view takes no slot.
+func TestHeavyCap(t *testing.T) {
+	lim := mailtools.NewLimits()
+	lim.HeavyCap = platform.NewCap(1)
+	lim.HeavyCap.TryAcquire("198.51.100.7", 1) // another client holds the only slot
+	e := newMailApp(t, lim)
+	for _, tc := range []struct {
+		method, target string
+		want           int
+	}{
+		{http.MethodGet, "/", http.StatusOK},
+		{http.MethodGet, "/blacklist", http.StatusOK},
+		{http.MethodGet, "/health?domain=example.com", http.StatusServiceUnavailable},
+		{http.MethodGet, "/blacklist?target=127.0.0.2", http.StatusServiceUnavailable},
+		{http.MethodGet, "/blacklist?ip=127.0.0.2", http.StatusServiceUnavailable},
+		{http.MethodGet, "/?input=example.com", http.StatusServiceUnavailable},
+		{http.MethodPost, "/dmarc", http.StatusServiceUnavailable},
+		{http.MethodPost, "/dmarc/parse", http.StatusServiceUnavailable},
+	} {
+		req := httptest.NewRequest(tc.method, tc.target, nil)
+		req.Header.Set("Accept", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.target, rec.Code, tc.want)
+		}
+	}
+}
+
+// Each server-side mail page names its MCP endpoint, as every tool's terminal section does.
+func TestPagesNameTheMCPEndpoint(t *testing.T) {
+	e := newMailApp(t, nil)
+	for _, path := range []string{"/", "/blacklist", "/disposable", "/classifier"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Accept", "text/html")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "https://mcp.corpberry.com/mcp/mail") {
+			t.Errorf("GET %s = %d, want a page naming https://mcp.corpberry.com/mcp/mail", path, rec.Code)
+		}
 	}
 }

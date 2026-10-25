@@ -33,12 +33,12 @@ of same data:
   bites in a ≥3 soft cluster.
 
 Corpus deliberately minimal & self-pruning: `ts` TTL index expires every
-sighting after 30 days, hash is one-way (raw fingerprint never stored), and —
-like iptools history — disabled Mongo (empty `MONGODB_URI`) turns whole
-thing into no-op: `FingerprintIPs`/`FingerprintChurn` stay 0, both rules stay
-silent, score unchanged. Domain scorer stays pure: both counts arrive as
-plain `Signals` fields, so `Evaluate` still needs no DB, its tests still
-construct `Signals` directly.
+sighting after 30 days, hash is one-way (raw fingerprint never stored), and
+disabled Mongo (empty `MONGODB_URI`) or a failed read leaves
+`Signals.CorpusConsulted` false: both rules show skipped, score unchanged.
+MCP's `botcheck_score` never touches the corpus (a synthetic payload mustn't
+train it), so the same two rules skip there. Domain scorer stays pure: both
+counts arrive as plain `Signals` fields, so `Evaluate` still needs no DB.
 
 ## The shared IP blocklist (G37)
 

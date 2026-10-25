@@ -49,7 +49,7 @@ func run() error {
 	mdb, mErr := platform.OpenMongo(mongoCtx, cfg.MongoURI, cfg.MongoDatabase)
 	cancelMongo()
 	if mErr != nil {
-		log.Printf("mongo: disabled (%v); lookup history + request log will no-op", mErr)
+		log.Printf("mongo: disabled (%v); the request log and every store will no-op", mErr)
 	}
 	// LIFO: reqlog and the hit batcher (below) drain before the client closes.
 	defer mdb.Close(context.Background())
@@ -57,7 +57,6 @@ func run() error {
 	// Index creation is bounded and best-effort; a nil db yields disabled stores.
 	idxCtx, cancelIdx := context.WithTimeout(context.Background(), 10*time.Second)
 	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
-	lookupHistory := iptools.NewHistory(idxCtx, mdb.DB())
 	corpus := botcheck.NewCorpus(mdb.DB())
 	// Fed by the daily syncs below; read by botcheck's ip_blocklisted rule and the IP tool.
 	blocklist := iptools.NewBlockList(mdb.DB())
@@ -73,9 +72,6 @@ func run() error {
 		log.Printf("link tools: unique code index unavailable (%v); short-link creation will refuse writes", err)
 	}
 	mailStore := mailtools.NewStore(idxCtx, mdb.DB())
-	if err := mailtools.InitFromEmbedded(); err != nil {
-		log.Printf("mail tools: failed to load embedded seed data: %v", err)
-	}
 	cancelIdx()
 	// Bounded: with Mongo unreachable each queued entry costs 5s, so a full buffer could take an hour.
 	defer func() {
@@ -95,7 +91,7 @@ func run() error {
 	syncs.Add(2)
 	go func() { defer syncs.Done(); iptools.RunIPsumSync(ctx, blocklist) }()
 	go func() { defer syncs.Done(); iptools.RunSpamhausDROPSync(ctx, blocklist) }()
-	mailtools.StartSyncWorker(ctx, mailStore, 24*time.Hour)
+	mailtools.StartSyncWorker(ctx)
 	// Bounded: a sync that ignores its context must not hold the process open.
 	defer waitBounded(&syncs, 5*time.Second)
 
@@ -110,7 +106,7 @@ func run() error {
 	navFuncs := template.FuncMap{
 		"apexURL":    func() string { return cfg.URL("") },
 		"navTools":   func() []platform.Tool { return site.Tools(cfg) },
-		"navCatalog": func() []platform.ToolSection { return platform.Catalog(cfg) },
+		"navCatalog": platform.Catalog,
 		"toolURL":    cfg.URL,
 		"asset":      asset,
 	}
@@ -154,18 +150,16 @@ func run() error {
 		log.Printf("ip tools: databases not loaded (%v); the tool will show a friendly message", err)
 	}
 	// Shodan's terms: fetched live per request, never stored. Blank SHODAN_INTERNETDB_URL disables it.
-	shodan := iptools.NewShodan(cfg.ShodanURL, 4*time.Second)
-	geo.WithShodan(shodan)
-	// DNS shows no open ports, so it must not spend the Shodan budget per record.
-	dnsGeo := geo.Offline()
-	iptools.Register(apps["ip"], geo, lookupHistory, ipCheck, ipLim)
+	// DNS keeps the plain geo: it shows no open ports, so it must not spend the Shodan budget per record.
+	shodanGeo := geo.WithShodan(iptools.NewShodan(cfg.ShodanURL, 4*time.Second))
+	iptools.Register(apps["ip"], shodanGeo, ipCheck, ipLim)
 
-	botcheck.Register(apps["botcheck"], geo, corpus, ipCheck, botLim)
+	botcheck.Register(apps["botcheck"], shodanGeo, corpus, ipCheck, botLim)
 
 	// A blank RDAP/CT URL disables that half; the page says so rather than claim no registration.
-	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
+	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second, webGuard)
 	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
-	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsLim)
+	dnstools.Register(apps["dns"], dnsSvc, geo, domainClient, dnsLim)
 
 	// Only /trace dials out (via the egress gate); platform.RedactURI keeps ?u= out of the request log.
 	linkSvc := linktools.NewService()
@@ -185,11 +179,12 @@ func run() error {
 	// The pages compute in the browser (wasm), so pasted secrets never reach us; POSTs are the JSON API.
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), staticFS, cipherLim)
 
-	mailtools.Register(apps["mail"], cfg.URL("mail"), httpsGuard, mailStore, cfg.SpamhausDQSKey, mailLim)
+	mailSvc := mailtools.NewService(httpsGuard, mailStore, cfg.SpamhausDQSKey)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), mailSvc, mailLim)
 
 	mcptools.Register(apps["mcp"], mcptools.Deps{
-		Geo: geo, DNSGeo: dnsGeo, Blocklist: ipCheck,
-		DNS: dnsSvc, Domain: domainClient, Blog: blog,
+		Geo: shodanGeo, DNSGeo: geo, Blocklist: ipCheck,
+		DNS: dnsSvc, Domain: domainClient, Blog: blog, Mail: mailSvc,
 		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,
 		RequestLog: reqlog, ToolURL: cfg.URL,

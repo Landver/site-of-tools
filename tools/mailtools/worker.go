@@ -5,116 +5,55 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"slices"
 	"time"
 )
 
-var (
+const (
 	canonicalDisposableURL = "https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf"
+	// A short download is a truncated or hijacked list; the canonical one holds over 5,000 domains.
+	minDisposableDomains = 5000
+	syncInterval         = 24 * time.Hour
 )
 
-// StartSyncWorker initiates the daily background worker to sync datasets.
-func StartSyncWorker(ctx context.Context, store *Store, interval time.Duration) {
-	if interval <= 0 {
-		interval = 24 * time.Hour
-	}
-
+// StartSyncWorker refreshes the disposable list a minute after boot, then daily.
+func StartSyncWorker(ctx context.Context) {
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		// Run initial check after a short boot delay (e.g. 1 minute)
-		bootTimer := time.NewTimer(1 * time.Minute)
-		select {
-		case <-ctx.Done():
-			bootTimer.Stop()
-			return
-		case <-bootTimer.C:
-			syncDisposableDomains(ctx, store)
-		}
-
+		wait := time.NewTimer(time.Minute)
+		defer wait.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				syncDisposableDomains(ctx, store)
+			case <-wait.C:
+				syncDisposableDomains(ctx)
+				wait.Reset(syncInterval)
 			}
 		}
 	}()
 }
 
-func syncDisposableDomains(ctx context.Context, store *Store) {
-	current := ActiveClassifier()
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", canonicalDisposableURL, nil)
+func syncDisposableDomains(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, canonicalDisposableURL, nil)
 	if err != nil {
 		log.Printf("[mailtools.worker] failed to create sync request: %v", err)
 		return
 	}
-
-	// Fetch sync meta from MongoDB if available
-	var lastMeta *SyncMeta
-	if store != nil {
-		lastMeta, _ = store.GetSyncMeta(ctx, "disposable")
-		if lastMeta != nil && lastMeta.Hash != "" {
-			req.Header.Set("If-None-Match", lastMeta.Hash)
-		}
-	}
-
-	resp, err := client.Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		log.Printf("[mailtools.worker] sync request failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotModified {
-		// No changes upstream
-		return
-	}
-
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("[mailtools.worker] sync returned HTTP %d", resp.StatusCode)
 		return
 	}
 
-	validDomains := readLines(io.LimitReader(resp.Body, 10*1024*1024))
-
-	// Whitelist Shield & Sanity Checks:
-	// 1. Must contain at least 5,000 domains.
-	if len(validDomains) < 5000 {
-		log.Printf("[mailtools.worker] rejected update: only %d domains (expected >= 5000)", len(validDomains))
+	domains := readLines(io.LimitReader(resp.Body, 10<<20))
+	if len(domains) < minDisposableDomains {
+		log.Printf("[mailtools.worker] rejected update: only %d domains (expected >= %d)", len(domains), minDisposableDomains)
 		return
 	}
-
-	// 2. Whitelist Shield: sanitize and strip whitelisted domains from disposable blocklist in-place
-	validDomains = slices.DeleteFunc(validDomains, func(d string) bool {
-		if current.IsWhitelisted(d) {
-			log.Printf("[mailtools.worker] skipped whitelisted domain from update: %s", d)
-			return true
-		}
-		return false
-	})
-
-	// Prevent cold-boot clobbering
-	if len(current.freemailExact) == 0 || len(current.whitelist) == 0 {
-		_ = InitFromEmbedded()
-		current = ActiveClassifier()
-	}
-
-	// Atomic hot-swap with preserved freemail, wildcards and whitelists
-	SetGlobalClassifier(current.WithDisposable(validDomains))
-
-	etag := resp.Header.Get("ETag")
-	if store != nil {
-		_ = store.SetSyncMeta(ctx, SyncMeta{
-			Key:       "disposable",
-			Hash:      etag,
-			Count:     len(validDomains),
-			UpdatedAt: time.Now().UTC(),
-		})
-	}
-	log.Printf("[mailtools.worker] successfully synced %d disposable domains (ETag: %s)", len(validDomains), etag)
+	synced.Store(classifierWith(domains))
+	log.Printf("[mailtools.worker] synced %d disposable domains", len(domains))
 }

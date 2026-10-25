@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,7 +24,7 @@ type fakeLooker struct {
 	err error
 }
 
-func (f fakeLooker) Lookup(string) (*iptools.Result, error) { return f.res, f.err }
+func (f fakeLooker) Lookup(context.Context, string) (*iptools.Result, error) { return f.res, f.err }
 
 // newTestApp uses the embedded templates, so tests work from any cwd.
 func newTestApp(svc iptools.Looker) *echo.Echo {
@@ -33,7 +34,7 @@ func newTestApp(svc iptools.Looker) *echo.Echo {
 	)
 	e := echo.New()
 	e.Renderer = r
-	iptools.Register(e, svc, nil, nil, nil) // no History or BlockList
+	iptools.Register(e, svc, nil, nil) // no BlockList
 	return e
 }
 
@@ -263,6 +264,20 @@ func TestConnectionInspectorHidesSecrets(t *testing.T) {
 
 	if strings.Contains(rec.Body.String(), "SUPERSECRETVALUE") {
 		t.Errorf("inspector leaked a Cookie/Authorization value:\n%s", rec.Body.String())
+	}
+}
+
+// The server keeps no history: every client gets the page that reads this browser's localStorage.
+func TestHistoryPage(t *testing.T) {
+	for _, accept := range []string{"text/html", "application/json"} {
+		rec := do(newTestApp(fakeLooker{}), "/history", map[string]string{"Accept": accept})
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK || !strings.Contains(body, "localStorage") || strings.Contains(body, `"lookups"`) {
+			t.Errorf("Accept %s: /history = %d, want 200 and the localStorage page:\n%s", accept, rec.Code, body)
+		}
+		if !strings.Contains(body, "uses the IP2Location LITE database") {
+			t.Errorf("Accept %s: the history page must carry the IP2Location LITE credit", accept)
+		}
 	}
 }
 

@@ -55,21 +55,13 @@ type Service struct {
 	shodan     *Shodan      // optional; nil disables Shodan enrichment
 }
 
-// WithShodan attaches Shodan InternetDB client for open-port and proxy-tag enrichment.
+// WithShodan is a copy of s that adds Shodan's open ports and proxy tags, sharing s's open databases. Nil-safe.
 func (s *Service) WithShodan(sh *Shodan) *Service {
-	if s != nil {
-		s.shodan = sh
-	}
-	return s
-}
-
-// Offline is s without Shodan, sharing its open databases. Nil-safe.
-func (s *Service) Offline() *Service {
 	if s == nil {
 		return nil
 	}
 	c := *s
-	c.shodan = nil
+	c.shodan = sh
 	return &c
 }
 
@@ -124,7 +116,8 @@ func (s *Service) closeAll() {
 	}
 }
 
-func (s *Service) Lookup(ipStr string) (*Result, error) {
+// Lookup's ctx bounds only the Shodan call; the BIN reads are local.
+func (s *Service) Lookup(ctx context.Context, ipStr string) (*Result, error) {
 	if s == nil {
 		return nil, ErrUnavailable
 	}
@@ -162,7 +155,7 @@ func (s *Service) Lookup(ipStr string) (*Result, error) {
 		Proxy:       s.lookupProxy(ipStr),
 	}
 	if s.shodan != nil && Routable(ipStr) {
-		if si, err := s.shodan.Lookup(context.Background(), ipStr); err == nil && si != nil {
+		if si, err := s.shodan.Lookup(ctx, ipStr); err == nil && si != nil {
 			res.Shodan = si
 			FuseShodanProxy(res)
 		}
@@ -175,7 +168,7 @@ func LookupWithReputation(ctx context.Context, svc Looker, chk Checker, ip strin
 	if svc == nil {
 		return nil, ErrUnavailable
 	}
-	res, err := svc.Lookup(ip)
+	res, err := svc.Lookup(ctx, ip)
 	if err != nil || res == nil || chk == nil {
 		return res, err
 	}

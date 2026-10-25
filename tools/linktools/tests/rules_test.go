@@ -45,13 +45,3 @@ func TestCleanAppliesHostScopedRules(t *testing.T) {
 		t.Errorf("github = %s, want ref kept and utm_source gone", got)
 	}
 }
-
-func TestRuleSummaryCountsTheTables(t *testing.T) {
-	t.Parallel()
-	cat := linktools.Rules()
-	want := linktools.RuleSummary{Version: linktools.RulesVersion, Scope: cat.Scope,
-		Tracking: len(cat.Tracking), NeverStrip: len(cat.NeverStrip), Wrappers: len(cat.Wrappers)}
-	if diff := cmp.Diff(want, cat.Summary()); diff != "" || want.Tracking == 0 {
-		t.Errorf("summary (-want +got):\n%s", diff)
-	}
-}

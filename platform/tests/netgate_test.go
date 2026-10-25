@@ -194,6 +194,9 @@ func TestRateLimitKey(t *testing.T) {
 	if got := platform.RateLimitKey("8.8.8.8"); got != "8.8.8.8" {
 		t.Errorf("IPv4 key = %q, want the full address", got)
 	}
+	if got := platform.RateLimitKey("::ffff:8.8.8.8"); got != "8.8.8.8" {
+		t.Errorf("IPv4-mapped key = %q, want the IPv4 address's own bucket", got)
+	}
 	a := platform.RateLimitKey("2001:db8:1:2:aaaa::1")
 	b := platform.RateLimitKey("2001:db8:1:2:bbbb::2")
 	if a != b {
@@ -203,9 +206,10 @@ func TestRateLimitKey(t *testing.T) {
 	if a == c {
 		t.Errorf("addresses in different /64s share a key (%q); that would over-block", a)
 	}
-	// Fail closed: a forged CF-Connecting-IP must not buy a bucket per value.
+	// Fail closed: a forged CF-Connecting-IP must not buy a bucket per value. Callers pass the raw IP, so a
+	// /64 key is junk too.
 	junk := platform.RateLimitKey("not an ip")
-	for _, in := range []string{"", "also junk", "999.1.1.1", "8.8.8.8:53", "10.0.0.0/8", "2001:db8::/48"} {
+	for _, in := range []string{"", "also junk", "999.1.1.1", "8.8.8.8:53", "10.0.0.0/8", "2001:db8::/48", a} {
 		if got := platform.RateLimitKey(in); got != junk {
 			t.Errorf("unparseable %q = %q, want the shared bucket %q", in, got, junk)
 		}
@@ -213,13 +217,6 @@ func TestRateLimitKey(t *testing.T) {
 	for _, valid := range []string{"8.8.8.8", "2001:db8:1:2::1"} {
 		if platform.RateLimitKey(valid) == junk {
 			t.Errorf("%q landed in the shared unparseable bucket", valid)
-		}
-	}
-	// A key fed back in is unchanged: the key and the raw IP spend one bucket.
-	for _, in := range []string{"8.8.8.8", "::ffff:8.8.8.8", "2001:db8:1:2:aaaa::1", "not an ip"} {
-		k := platform.RateLimitKey(in)
-		if again := platform.RateLimitKey(k); again != k {
-			t.Errorf("RateLimitKey(%q) = %q, but RateLimitKey of that = %q", in, k, again)
 		}
 	}
 }

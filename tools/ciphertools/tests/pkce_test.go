@@ -48,6 +48,16 @@ func TestPKCEGenerate_BoundariesAndMethods(t *testing.T) {
 
 	// 6. Invalid method
 	wantErr(t, "pkce-generate", url.Values{"method": {"none"}}, "want S256 or plain")
+
+	// 7. The method in any case reads as RFC 7636 spells it.
+	resLower := opOf[ciphertools.PKCEGenerateResult](t, "pkce-generate", url.Values{"method": {"s256"}}, nil)
+	sum := sha256.Sum256([]byte(resLower.CodeVerifier))
+	if resLower.Method != "S256" || resLower.CodeChallenge != b64urlTest(sum[:]) || !strings.Contains(resLower.ExampleURL, "code_challenge_method=S256") {
+		t.Errorf("method s256: %+v", resLower)
+	}
+	if strings.Trim(resLower.CodeVerifier, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~") != "" || len(resLower.CodeVerifier) != 64 {
+		t.Errorf("default verifier %q: want 64 unreserved characters", resLower.CodeVerifier)
+	}
 }
 
 func TestPKCEVerify_RFC7636Vector(t *testing.T) {
@@ -113,6 +123,11 @@ func TestPKCEVerify_EdgeCasesAndCharsetViolations(t *testing.T) {
 		if resBad.Valid {
 			t.Errorf("expected verifier with illegal characters %q to fail", bad)
 		}
+	}
+	if r := opOf[ciphertools.PKCEVerifyResult](t, "pkce-verify", url.Values{
+		"code_verifier": {strings.Repeat("a", 41) + "🔐"}, "code_challenge": {validChallenge},
+	}, nil); !strings.Contains(r.Detail, `'🔐'`) {
+		t.Errorf("a multi-byte character is named whole: %q", r.Detail)
 	}
 
 	// 4. Challenge mismatch

@@ -99,7 +99,7 @@ makes the stored list disagree with the two URLs beside it.
 
 **`{code: 1}`, unique.** Not covered by `platform.EnsureTTLIndex`; needs its own
 `Indexes().CreateOne(...)` with `options.Index().SetUnique(true)`. **Its error
-must not be swallowed** the way the TTL one is at `iptools/history.go:51`: a
+must not be swallowed** the way a TTL index's may be: a
 missing TTL index only forfeits pruning, a missing unique index forfeits §3's
 correctness.
 
@@ -301,7 +301,7 @@ Content-Type: application/json
    "target":"https://example.com/very/long",
    "original":"https://example.com/very/long?utm_source=x",
    "cleaned":["utm_source"],
-   "expires_at":null,
+   "note":"optional",
    "hits":0,
    "created_at":"2026-09-25T10:04:00Z"}
 ```

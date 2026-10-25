@@ -4,7 +4,7 @@
 [![Go 1.26](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CI/CD](https://github.com/Landver/site-of-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/Landver/site-of-tools/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Landver/site-of-tools?include_prereleases&logo=github)](https://github.com/Landver/site-of-tools/releases)
-[![MCP Enabled](https://img.shields.io/badge/MCP-35%2B%20tools-8A2BE2)](https://mcp.corpberry.com)
+[![MCP Enabled](https://img.shields.io/badge/MCP-40%2B%20tools-8A2BE2)](https://mcp.corpberry.com)
 [![Privacy: No Ads / No Tracking](https://img.shields.io/badge/privacy-no%20ads%20%7C%20no%20analytics-success)](https://corpberry.com)
 
 A high-performance, privacy-first web utility and diagnostic suite. **36 specialized tools across 7 subdomains**, plus a full **Model Context Protocol (MCP)** server for AI agents — all served by a **single standalone Go binary** with zero external runtime dependencies.
@@ -179,7 +179,7 @@ make test                 # Runs full unit test suite with race detector
                      └─────────────────┬─────────────────┘
                                        │ (Optional)
                      ┌─────────────────▼─────────────────┐
-                     │ MongoDB (History / Request Corpus)│
+                     │ MongoDB (Request Log, Corpus)     │
                      │ (Empty URI = Runs Fully Stateless)│
                      └───────────────────────────────────┘
 ```
@@ -187,8 +187,8 @@ make test                 # Runs full unit test suite with race detector
 - **Backend**: Go 1.26, Echo v5
 - **Frontend**: Server-rendered `html/template`, htmx, Alpine.js, Tailwind CSS v4
 - **Client Engine**: In-browser Go WebAssembly (`GOOS=js GOARCH=wasm`)
-- **Protocol**: REST / JSON API + Model Context Protocol (MCP 2025-11-25)
-- **Database**: MongoDB (optional: for IP lookup history and request corpus; runs completely stateless when unset)
+- **Protocol**: REST / JSON API + Model Context Protocol (MCP 2026-07-28)
+- **Database**: MongoDB (optional: the request log, short links, the bot-check corpus and the blocklist cache; runs completely stateless when unset)
 
 ---
 

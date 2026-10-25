@@ -88,7 +88,7 @@ func TestDomainClientGuardsEveryOtherHost(t *testing.T) {
 	base := ln.Addr().String()
 
 	own := platform.NewEgressGuard([]string{"443"}, []string{"93.184.216.34"})
-	dc := NewDomainClient("http://"+base, "", time.Second).WithEgressGuard(own)
+	dc := NewDomainClient("http://"+base, "", time.Second, own)
 	dial := dc.client.Transport.(*http.Transport).DialContext
 
 	conn, err := dial(t.Context(), "tcp", base)

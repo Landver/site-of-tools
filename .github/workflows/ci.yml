@@ -25,6 +25,9 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
+      - name: gofmt
+        run: test -z "$(gofmt -l $(git ls-files '*.go') | tee /dev/stderr)"
+
       - name: go vet
         run: go vet ./...
 

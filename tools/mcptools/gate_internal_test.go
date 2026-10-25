@@ -18,6 +18,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/ciphertools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 // No owner tool echoes its headers, so a probe tool on the owner server shows what a handler gets.
@@ -34,7 +35,7 @@ func TestOwnerHandlerSeesNoKeyButTheCaller(t *testing.T) {
 	}
 	owner := linktools.NewShortener(linktools.NewLinkStore(context.Background(), client.Database("offline")), "k3y", "http://link.test")
 	d := Deps{Owner: owner, IPLimits: iptools.NewLimits(), LinkLimits: linktools.NewLimits(),
-		CipherLimits: ciphertools.NewLimits(), BotLimits: botcheck.NewLimits(), ToolURL: func(string) string { return "" }}
+		CipherLimits: ciphertools.NewLimits(), BotLimits: botcheck.NewLimits(), MailLimits: mailtools.NewLimits(), ToolURL: func(string) string { return "" }}
 	h := newHandler(d, "http://mcp.test", slog.New(slog.DiscardHandler))
 	seen := make(chan probe, 1)
 	mcp.AddTool(h.endpoints[ownerEndpoint].server, &mcp.Tool{Name: "probe"},

@@ -438,7 +438,7 @@ func LookupEnriched(ctx context.Context, svc Looker, geo iptools.Looker, name, q
 			if r.Type != "A" && r.Type != "AAAA" {
 				continue
 			}
-			if g, err := geo.Lookup(r.Value); err == nil && g != nil {
+			if g, err := geo.Lookup(ctx, r.Value); err == nil && g != nil {
 				res.Records[i].ASN, res.Records[i].ASName, res.Records[i].Country = g.ASN, g.ASName, g.Country
 			}
 		}

@@ -92,7 +92,7 @@ func TestDomainInfoRefusesWhatIsNotADomain(t *testing.T) {
 func TestDomainReportErr(t *testing.T) {
 	t.Parallel()
 	_, ctDownHost := goldenUpstream(t, http.StatusInternalServerError, http.StatusInternalServerError)
-	rdapOffCTDown := dnstools.NewDomainClient("", "http://"+ctDownHost, 5*time.Second)
+	rdapOffCTDown := dnstools.NewDomainClient("", "http://"+ctDownHost, 5*time.Second, nil)
 	bothDown, _ := goldenUpstream(t, http.StatusInternalServerError, http.StatusBadGateway)
 	absentCTDown, _ := goldenUpstream(t, http.StatusNotFound, http.StatusInternalServerError)
 	rdapDown, _ := goldenUpstream(t, http.StatusInternalServerError, http.StatusOK)

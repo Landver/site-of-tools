@@ -172,8 +172,8 @@ type Signals struct {
 	FingerprintIPs int `json:"-"`
 	// FingerprintChurn: distinct fingerprints from this IP within churnWindow; 0 = no data, never evidence.
 	FingerprintChurn int `json:"-"`
-	// CorpusSkipped: corpus not consulted (a synthetic payload mustn't train it), so its rules skip.
-	CorpusSkipped bool `json:"-"`
+	// CorpusConsulted: the corpus counts above were read; without it the corpus rules skip.
+	CorpusConsulted bool `json:"-"`
 	// IPBlocklist* are handler-computed (it owns iptools' source names); Count = ipsum feeds listing the IP,
 	// Deliberate = a non-ipsum ban, trusted regardless of Count.
 	IPBlocklistSources    []string `json:"-"`
@@ -331,7 +331,7 @@ func Evaluate(s Signals) Report {
 		skipped := r.needsClient && !s.ClientCollected ||
 			r.needsHeaders && !s.HeadersSupplied ||
 			r.needsIP && !s.IPSupplied ||
-			r.needsCorpus && s.CorpusSkipped
+			r.needsCorpus && !s.CorpusConsulted
 		triggered, detail := false, ""
 		if !skipped {
 			triggered, detail = r.eval(s)

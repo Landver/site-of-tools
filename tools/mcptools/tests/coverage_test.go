@@ -31,7 +31,7 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 		t.Fatal(err)
 	}
 	apps["ip"] = app()
-	iptools.Register(apps["ip"], nil, nil, nil, nil)
+	iptools.Register(apps["ip"], nil, nil, nil)
 	apps["botcheck"] = app()
 	botcheck.Register(apps["botcheck"], nil, nil, nil, nil)
 	apps["dns"] = app()
@@ -41,7 +41,7 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 	apps["cipher"] = app()
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), fstest.MapFS{}, nil)
 	apps["mail"] = app()
-	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil, "", nil)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil)
 
 	routes := map[mcptools.Route]bool{}
 	for host, e := range apps {
@@ -66,7 +66,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 		}
 	}
 
-	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	s := newStack(t, stackOpts{owner: offlineOwner(t), mail: mailService()})
 	listed := map[string]bool{}
 	for _, path := range []string{"/mcp", "/mcp/owner"} {
 		hdr := map[string]string{"CF-Connecting-IP": clientIP, "X-Api-Key": ownerKey}
@@ -98,7 +98,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 			t.Errorf("%s is served but no REST route maps to it", name)
 		}
 	}
-	if mapped != 61 {
-		t.Errorf("%d routes map to tools, want 61", mapped)
+	if mapped != 59 {
+		t.Errorf("%d routes map to tools, want 59", mapped)
 	}
 }

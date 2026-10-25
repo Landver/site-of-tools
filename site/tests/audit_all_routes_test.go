@@ -35,7 +35,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	navFuncs := template.FuncMap{
 		"apexURL":    func() string { return cfg.URL("") },
 		"navTools":   func() []platform.Tool { return site.Tools(cfg) },
-		"navCatalog": func() []platform.ToolSection { return platform.Catalog(cfg) },
+		"navCatalog": platform.Catalog,
 		"toolURL":    cfg.URL,
 		"asset":      platform.StaticURL,
 	}
@@ -65,9 +65,8 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 
 	// 2. IP Tools
 	geo, _ := iptools.OpenService("", "", "", "", "")
-	dnsGeo := geo.Offline()
 	ipLim := iptools.NewLimits()
-	iptools.Register(apps["ip"], geo, nil, nil, ipLim)
+	iptools.Register(apps["ip"], geo, nil, ipLim)
 
 	// 3. Botcheck
 	botLim := botcheck.NewLimits()
@@ -76,8 +75,8 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	// 4. DNS Tools
 	dnsLim := dnstools.NewLimits()
 	dnsSvc := dnstools.NewService(time.Second)
-	domainClient := dnstools.NewDomainClient("", "", time.Second)
-	dnstools.Register(apps["dns"], dnsSvc, dnsGeo, domainClient, dnsLim)
+	domainClient := dnstools.NewDomainClient("", "", time.Second, nil)
+	dnstools.Register(apps["dns"], dnsSvc, geo, domainClient, dnsLim)
 
 	// 5. Link Tools
 	linkLim := linktools.NewLimits()
@@ -92,11 +91,11 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 
 	// 7. Mail Tools
 	mailLim := mailtools.NewLimits()
-	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil, "", mailLim)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, mailLim)
 
 	// 8. MCP Tools
 	mcptools.Register(apps["mcp"], mcptools.Deps{
-		Geo: geo, DNSGeo: dnsGeo, Blog: blog,
+		Geo: geo, DNSGeo: geo, Blog: blog,
 		DNS: dnsSvc, Domain: domainClient,
 		Link: linkSvc, Tracer: tracer, Short: shortener,
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,
@@ -198,7 +197,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	}
 
 	// Also audit EVERY tool path from catalog
-	for _, section := range platform.Catalog(cfg) {
+	for _, section := range platform.Catalog() {
 		for _, tool := range section.Tools {
 			routesToAudit = append(routesToAudit, struct {
 				Subdomain string
