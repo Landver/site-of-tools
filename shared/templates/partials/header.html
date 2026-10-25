@@ -66,17 +66,23 @@
       </a>
 
       <!-- Scale toggle: 110% default (comfortable) <-> 100% (compact). Handler set in head. -->
-      <button type="button" onclick="toggleScale()"
+      <button type="button"
               x-data="{ compact: window.isScaleCompact ? window.isScaleCompact() : false }"
-              @click="compact = !compact"
+              @click="toggleScale(); compact = window.isScaleCompact ? window.isScaleCompact() : !compact"
               :aria-label="compact ? 'Switch to comfortable size (110%)' : 'Switch to compact size (100%)'"
               :title="compact ? 'Text size: Compact 100% (click for 110%)' : 'Text size: Comfortable 110% (click for 100%)'"
               class="p-2 text-muted hover:text-strong rounded-md hover:bg-surface transition">
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/>
-          <path d="M3.304 13h6.392"/>
-          <path d="m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16"/>
-          <path d="M15.697 14h5.606"/>
+          <!-- Large A (110% Comfortable) -->
+          <g :class="!compact ? 'text-brand opacity-100' : 'opacity-40'" class="transition">
+            <path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/>
+            <path d="M3.304 13h6.392"/>
+          </g>
+          <!-- Small A (100% Compact) -->
+          <g :class="compact ? 'text-brand opacity-100' : 'opacity-40'" class="transition">
+            <path d="m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16"/>
+            <path d="M15.697 14h5.606"/>
+          </g>
         </svg>
       </button>
 
