@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -19,12 +20,12 @@ const (
 
 // DomainClassification contains classification details for an email or domain.
 type DomainClassification struct {
-	Domain       string     `json:"domain"`
-	Type         DomainType `json:"type"`
-	IsDisposable bool       `json:"is_disposable"`
-	IsFreemail   bool       `json:"is_freemail"`
-	IsWhitelisted bool      `json:"is_whitelisted"`
-	MatchReason  string     `json:"match_reason,omitempty"`
+	Domain        string     `json:"domain"`
+	Type          DomainType `json:"type"`
+	IsDisposable  bool       `json:"is_disposable"`
+	IsFreemail    bool       `json:"is_freemail"`
+	IsWhitelisted bool       `json:"is_whitelisted"`
+	MatchReason   string     `json:"match_reason,omitempty"`
 }
 
 // DomainClassifier is an immutable, read-optimized in-memory index.
@@ -36,7 +37,10 @@ type DomainClassifier struct {
 }
 
 // Global active classifier reference for zero-lock reads.
-var globalClassifier atomic.Pointer[DomainClassifier]
+var (
+	globalClassifier atomic.Pointer[DomainClassifier]
+	initOnce         sync.Once
+)
 
 // SetGlobalClassifier atomically updates the active domain classifier.
 func SetGlobalClassifier(c *DomainClassifier) {
@@ -45,14 +49,20 @@ func SetGlobalClassifier(c *DomainClassifier) {
 	}
 }
 
-// ActiveClassifier returns the current global classifier, or an empty one if not initialized.
+// ActiveClassifier returns the current global classifier, lazily initializing from embedded data if needed.
 func ActiveClassifier() *DomainClassifier {
 	c := globalClassifier.Load()
 	if c == nil {
-		return &DomainClassifier{
-			disposableExact: make(map[string]struct{}),
-			freemailExact:   make(map[string]struct{}),
-			whitelist:       make(map[string]struct{}),
+		initOnce.Do(func() {
+			_ = InitFromEmbedded()
+		})
+		c = globalClassifier.Load()
+		if c == nil {
+			return &DomainClassifier{
+				disposableExact: make(map[string]struct{}),
+				freemailExact:   make(map[string]struct{}),
+				whitelist:       make(map[string]struct{}),
+			}
 		}
 	}
 	return c

@@ -139,6 +139,61 @@ func TestParseReturnCode_AllSemantics(t *testing.T) {
 			t.Errorf("parseReturnCode(%q).Category = %q, want containing %q", tc.code, res.Category, tc.wantSubstr)
 		}
 	}
+
+	// 2.1 URIBL Multi bitmask & administrative notice tests
+	uriblCases := []struct {
+		code        string
+		wantListed  bool
+		wantWarning bool
+		wantSubstr  string
+	}{
+		{"127.0.0.1", false, true, "URIBL Notice"},
+		{"127.0.0.2", true, false, "Black (Spam)"},
+		{"127.0.0.4", true, false, "Grey (Suspicious)"},
+		{"127.0.0.8", true, false, "Red (Malware)"},
+		{"127.0.0.14", true, false, "Black (Spam) / Grey (Suspicious) / Red (Malware)"},
+		{"127.0.0.0", false, false, "Clean / Not Listed"},
+	}
+	for _, tc := range uriblCases {
+		res := DNSBLResult{Zone: "multi.uribl.com", Category: "Clean / Not Listed"}
+		parseReturnCode(&res, tc.code)
+		if res.Listed != tc.wantListed {
+			t.Errorf("URIBL parseReturnCode(%q).Listed = %v, want %v", tc.code, res.Listed, tc.wantListed)
+		}
+		if res.IsWarning != tc.wantWarning {
+			t.Errorf("URIBL parseReturnCode(%q).IsWarning = %v, want %v", tc.code, res.IsWarning, tc.wantWarning)
+		}
+		if !strings.Contains(res.Category, tc.wantSubstr) {
+			t.Errorf("URIBL parseReturnCode(%q).Category = %q, want containing %q", tc.code, res.Category, tc.wantSubstr)
+		}
+	}
+
+	// 2.2 SURBL Multi bitmask & administrative notice tests
+	surblCases := []struct {
+		code        string
+		wantListed  bool
+		wantWarning bool
+		wantSubstr  string
+	}{
+		{"127.0.0.1", false, true, "SURBL Notice"},
+		{"127.0.0.8", true, false, "Phishing"},
+		{"127.0.0.16", true, false, "Malware"},
+		{"127.0.0.64", true, false, "Abuse"},
+		{"127.0.0.0", false, false, "Clean / Not Listed"},
+	}
+	for _, tc := range surblCases {
+		res := DNSBLResult{Zone: "multi.surbl.org", Category: "Clean / Not Listed"}
+		parseReturnCode(&res, tc.code)
+		if res.Listed != tc.wantListed {
+			t.Errorf("SURBL parseReturnCode(%q).Listed = %v, want %v", tc.code, res.Listed, tc.wantListed)
+		}
+		if res.IsWarning != tc.wantWarning {
+			t.Errorf("SURBL parseReturnCode(%q).IsWarning = %v, want %v", tc.code, res.IsWarning, tc.wantWarning)
+		}
+		if !strings.Contains(res.Category, tc.wantSubstr) {
+			t.Errorf("SURBL parseReturnCode(%q).Category = %q, want containing %q", tc.code, res.Category, tc.wantSubstr)
+		}
+	}
 }
 
 // -----------------------------------------------------------------------------

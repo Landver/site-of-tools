@@ -137,13 +137,6 @@ var domainDNSBLs = []DNSBLZone{
 		DelistURL:   "https://admin.uribl.com/",
 		Description: "Real-time black/grey/red domain reputation used by SpamAssassin",
 	},
-	{
-		Name:        "ZapBL RHSBL",
-		Host:        "rhsbl.zapbl.net",
-		IsDomain:    true,
-		DelistURL:   "http://zapbl.net/",
-		Description: "Domain-level spam and malicious link emission tracker",
-	},
 }
 
 // CachedDNSBLAudit queries cache first, falling back to parallel DNSBL audits and updating MongoDB cache.
@@ -301,22 +294,113 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 }
 
 func parseReturnCode(res *DNSBLResult, code string) {
-	// Spamhaus Special Administrative Signals
+	// 1. Spamhaus Special Administrative Signals
 	if code == "127.255.255.254" {
 		res.Listed = false
 		res.IsWarning = true
-		res.Category = "Spamhaus Open Resolver Notice: Query blocked via public DNS. Use Spamhaus DQS key."
+		res.Category = "Spamhaus Open Resolver Notice: Query blocked via public DNS (requires Spamhaus DQS key)"
 		return
 	}
 	if code == "127.255.255.255" {
 		res.Listed = false
 		res.IsWarning = true
-		res.Category = "Spamhaus Query Limit Exceeded"
+		res.Category = "Spamhaus Query Limit Exceeded: Query volume limit exceeded"
 		return
 	}
 
-	// Generic Listed
+	// 2. URIBL Multi (multi.uribl.com)
+	// Note: 127.0.0.1 is "Query Refused / Blocked" from public resolver; NEVER a listing!
+	if strings.Contains(res.Zone, "uribl.com") {
+		if code == "127.0.0.1" {
+			res.Listed = false
+			res.IsWarning = true
+			res.Category = "URIBL Notice: Public resolver query refused by zone operator"
+			return
+		}
+		parts := strings.Split(code, ".")
+		if len(parts) == 4 {
+			var octet int
+			fmt.Sscanf(parts[3], "%d", &octet)
+			var flags []string
+			if octet&2 != 0 {
+				flags = append(flags, "Black (Spam)")
+			}
+			if octet&4 != 0 {
+				flags = append(flags, "Grey (Suspicious)")
+			}
+			if octet&8 != 0 {
+				flags = append(flags, "Red (Malware)")
+			}
+			if len(flags) > 0 {
+				res.Listed = true
+				res.Category = "Listed in URIBL: " + strings.Join(flags, " / ")
+				return
+			}
+		}
+		res.Listed = false
+		res.Category = "Clean / Not Listed"
+		return
+	}
+
+	// 3. SURBL Multi (multi.surbl.org)
+	// Note: 127.0.0.1 is "Query Blocked" on public resolvers; NEVER a listing!
+	if strings.Contains(res.Zone, "surbl.org") {
+		if code == "127.0.0.1" {
+			res.Listed = false
+			res.IsWarning = true
+			res.Category = "SURBL Notice: Public resolver query blocked by zone operator"
+			return
+		}
+		parts := strings.Split(code, ".")
+		if len(parts) == 4 {
+			var octet int
+			fmt.Sscanf(parts[3], "%d", &octet)
+			if octet >= 2 {
+				res.Listed = true
+				var types []string
+				if octet&2 != 0 {
+					types = append(types, "SpamCop")
+				}
+				if octet&4 != 0 {
+					types = append(types, "Web Spam")
+				}
+				if octet&8 != 0 {
+					types = append(types, "Phishing")
+				}
+				if octet&16 != 0 {
+					types = append(types, "Malware")
+				}
+				if octet&32 != 0 {
+					types = append(types, "Click Tracker")
+				}
+				if octet&64 != 0 {
+					types = append(types, "Abuse")
+				}
+				if octet&128 != 0 {
+					types = append(types, "Cracked")
+				}
+				if len(types) > 0 {
+					res.Category = "Listed in SURBL: " + strings.Join(types, ", ")
+				} else {
+					res.Category = "Listed in SURBL Multi"
+				}
+				return
+			}
+		}
+		res.Listed = false
+		res.Category = "Clean / Not Listed"
+		return
+	}
+
+	// 4. General / IP DNSBL return codes
 	if strings.HasPrefix(code, "127.") {
+		// Generic 127.0.0.1 on a DNSBL is administrative refusal or test loopback, not a listing
+		if code == "127.0.0.1" {
+			res.Listed = false
+			res.IsWarning = true
+			res.Category = "Notice: Query refused or test loopback"
+			return
+		}
 		res.Listed = true
 		switch code {
 		case "127.0.0.2":

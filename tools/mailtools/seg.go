@@ -145,8 +145,6 @@ func DetectGateway(ctx context.Context, domain string) (*GatewayAudit, error) {
 		return audit, nil
 	}
 
-	audit.HasRedundancy = len(audit.MXRecords) > 1
-
 	// Fingerprint primary and backup gateways
 	var primaryVendor GatewayVendor
 	var backupVendors []GatewayVendor
@@ -164,6 +162,9 @@ func DetectGateway(ctx context.Context, domain string) (*GatewayAudit, error) {
 			backupVendors = append(backupVendors, v)
 		}
 	}
+
+	// Redundancy: multiple MX records OR a distributed cloud gateway (M365, Google, Proofpoint, Mimecast)
+	audit.HasRedundancy = len(audit.MXRecords) > 1 || primaryVendor == VendorMicrosoft || primaryVendor == VendorGoogle || primaryVendor == VendorProofpoint || primaryVendor == VendorMimecast
 
 	// Direct-to-MX Bypass Vulnerability Detection:
 	// If primary MX is protected by a commercial SEG (e.g. Proofpoint) but a backup/fallback MX

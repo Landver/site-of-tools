@@ -449,14 +449,14 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         {{range .DNSBL.Results}}
           <div class="flex items-center justify-between text-xs bg-surface p-2 rounded border border-line">
-            <span class="font-medium text-strong truncate mr-2" title="{{.Description}}">{{.Name}}</span>
+            <span class="font-medium text-strong truncate mr-2" title="{{if .Category}}{{.Category}} ({{.Zone}}){{else}}{{.Description}}{{end}}">{{.Name}}</span>
             <div class="flex items-center gap-1.5 shrink-0">
               {{if .Listed}}
-                <a href="{{.DelistURL}}" target="_blank" rel="noopener" class="rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger hover:underline">LISTED ↗</a>
+                <a href="{{.DelistURL}}" target="_blank" rel="noopener" class="rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger hover:underline" title="{{if .Category}}{{.Category}}{{end}}">LISTED ↗</a>
               {{else if .IsWarning}}
-                <span class="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] text-warn font-medium">Notice</span>
+                <span class="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] text-warn font-medium cursor-help" title="{{if .Category}}{{.Category}}{{else}}{{.Description}}{{end}}">Notice</span>
               {{else}}
-                <span class="rounded bg-ok/10 px-1.5 py-0.5 text-[10px] font-semibold text-ok">OK</span>
+                <span class="rounded bg-ok/10 px-1.5 py-0.5 text-[10px] font-semibold text-ok" title="{{if .Category}}{{.Category}}{{else}}Clean / Not Listed{{end}}">OK</span>
               {{end}}
             </div>
           </div>
