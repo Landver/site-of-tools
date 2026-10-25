@@ -2,9 +2,7 @@ package mcptools
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -16,7 +14,7 @@ type shortListArgs struct {
 }
 
 type shortRevokeArgs struct {
-	Code string `json:"code" jsonschema:"the code to revoke"`
+	Code string `json:"code" jsonschema:"the code to revoke, or its whole short URL"`
 }
 
 type ownerTools struct {
@@ -59,8 +57,8 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 			tool: &mcp.Tool{
 				Name:  "link_short_revoke",
 				Title: "Revoke a short link",
-				Description: "Revoke a short link: from now on it answers no such link, for good, and its code is never reissued. " +
-					"Pass the code, the part after /s/, e.g. q4-report.",
+				Description: "Revoke a short link for good: from now on it answers as an unknown link, and its code is never reissued. " +
+					"Pass the code or the whole short URL link_short_create returned, e.g. q4-report.",
 				InputSchema: inputSchema[shortRevokeArgs](minLength("code", 1)),
 				Annotations: acts(true, true, false),
 			},
@@ -74,11 +72,11 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 }
 
 func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a linktools.CreateRequest) (any, error) {
-	created, err := t.owner.CreateFrom(ctx, a, callerFrom(ctx).ip)
+	link, err := t.owner.Create(ctx, a, callerFrom(ctx).ip)
 	if err != nil {
 		return nil, publicError(t.log, "link_short_create", err)
 	}
-	return created, nil
+	return link, nil
 }
 
 func (t ownerTools) list(ctx context.Context, _ *mcp.CallToolRequest, a shortListArgs) (any, error) {
@@ -93,11 +91,11 @@ func (t ownerTools) list(ctx context.Context, _ *mcp.CallToolRequest, a shortLis
 }
 
 func (t ownerTools) revoke(ctx context.Context, _ *mcp.CallToolRequest, a shortRevokeArgs) (any, error) {
-	code := strings.TrimSpace(a.Code)
-	switch err := t.owner.Revoke(ctx, code); {
-	case errors.Is(err, linktools.ErrLinkNotFound):
-		return nil, errors.New("No such short link.")
-	case err != nil:
+	code, ok := t.owner.Code(a.Code)
+	if !ok {
+		return nil, publicError(t.log, "link_short_revoke", linktools.ErrLinkNotFound)
+	}
+	if err := t.owner.Revoke(ctx, code); err != nil {
 		return nil, publicError(t.log, "link_short_revoke", err)
 	}
 	return map[string]string{"status": "revoked", "code": code}, nil

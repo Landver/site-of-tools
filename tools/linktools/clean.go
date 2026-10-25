@@ -47,14 +47,10 @@ type CleanResult struct {
 
 // Clean strips tracking parameters from raw, unwrapping first when asked so the target gets cleaned.
 func (s *Service) Clean(raw string, opt CleanOptions) (*CleanResult, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, fmt.Errorf("no URL given")
+	raw, err := readURL(raw)
+	if err != nil {
+		return nil, err
 	}
-	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
-	}
-
 	res := &CleanResult{Input: raw}
 	work := raw
 

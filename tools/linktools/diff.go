@@ -1,7 +1,6 @@
 package linktools
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -49,24 +48,17 @@ type Diff struct {
 	Notes     []Note        `json:"notes,omitempty"`
 }
 
+// Diff parses both URLs; an error names the side that failed.
 func (s *Service) Diff(a, b string) (*Diff, error) {
-	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
-	if a == "" || b == "" {
-		return nil, errors.New("need two URLs to compare")
-	}
 	ia, err := s.Parse(a)
 	if err != nil {
-		return nil, sideError("A", err)
+		return nil, fmt.Errorf("URL A: %w", err)
 	}
 	ib, err := s.Parse(b)
 	if err != nil {
-		return nil, sideError("B", err)
+		return nil, fmt.Errorf("URL B: %w", err)
 	}
 	return DiffInspections(ia, ib), nil
-}
-
-func sideError(side string, err error) error {
-	return fmt.Errorf("URL %s is not valid: %s", side, strings.TrimPrefix(err.Error(), "not a valid URL: "))
 }
 
 // DiffInspections compares repeated keys by position, never collapsed: ?id=1&id=2 vs ?id=2&id=1 differ.

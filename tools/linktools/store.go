@@ -29,6 +29,7 @@ var (
 // Link is one alias. json:"-" means nothing to a template, so the console must omit CreatedIP itself.
 type Link struct {
 	Code      string     `bson:"code"        json:"code"`
+	Short     string     `bson:"-"           json:"short"` // from ShortURL, which owns the /s/ prefix
 	Target    string     `bson:"target"      json:"target"`
 	Original  string     `bson:"original,omitempty" json:"original,omitempty"` // pre-clean
 	Note      string     `bson:"note,omitempty"     json:"note,omitempty"`     // capped at 256 B

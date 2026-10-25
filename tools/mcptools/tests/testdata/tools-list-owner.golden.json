@@ -71,12 +71,12 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Revoke a short link: from now on it answers no such link, for good, and its code is never reissued. Pass the code, the part after /s/, e.g. q4-report.",
+    "description": "Revoke a short link for good: from now on it answers as an unknown link, and its code is never reissued. Pass the code or the whole short URL link_short_create returned, e.g. q4-report.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "code": {
-          "description": "the code to revoke",
+          "description": "the code to revoke, or its whole short URL",
           "minLength": 1,
           "type": "string"
         }

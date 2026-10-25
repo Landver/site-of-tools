@@ -2,7 +2,17 @@
   "bare_url": {
     "status": 200,
     "body": {
+      "url": "https://example.com/x?y=1",
       "headers": null,
+      "method": "GET",
+      "method_why": "curl's default",
+      "notes": [
+        {
+          "severity": "info",
+          "title": "Only a URL",
+          "detail": "There is no command here, just a URL, so it was read as a bare curl call. To turn it into a command, use Build a command."
+        }
+      ],
       "inspection": {
         "input": "https://example.com/x?y=1",
         "canonical": "https://example.com/x?y=1",
@@ -27,17 +37,7 @@
           }
         ],
         "linkable": true
-      },
-      "method": "GET",
-      "method_why": "curl's default",
-      "notes": [
-        {
-          "severity": "info",
-          "title": "Only a URL",
-          "detail": "There is no command here, just a URL, so it was read as a bare curl call. To turn it into a command, use Build a command."
-        }
-      ],
-      "url": "https://example.com/x?y=1"
+      }
     }
   },
   "build": {
@@ -55,7 +55,10 @@
   "get_flag_moves_body": {
     "status": 200,
     "body": {
+      "url": "https://example.com/search?q=a%20b",
       "headers": null,
+      "method": "GET",
+      "method_why": "-G moves the --data-urlencode data into the query string",
       "inspection": {
         "input": "https://example.com/search?q=a%20b",
         "canonical": "https://example.com/search?q=a%20b",
@@ -80,15 +83,13 @@
           }
         ],
         "linkable": true
-      },
-      "method": "GET",
-      "method_why": "-G moves the --data-urlencode data into the query string",
-      "url": "https://example.com/search?q=a%20b"
+      }
     }
   },
   "get_parse": {
     "status": 200,
     "body": {
+      "url": "https://api.example.com/v1/items?page=2\u0026limit=50",
       "headers": [
         {
           "name": "accept",
@@ -103,6 +104,8 @@
           "value": "Mozilla/5.0"
         }
       ],
+      "method": "GET",
+      "method_why": "curl's default",
       "inspection": {
         "input": "https://api.example.com/v1/items?page=2\u0026limit=50",
         "canonical": "https://api.example.com/v1/items?page=2\u0026limit=50",
@@ -138,10 +141,7 @@
           }
         ],
         "linkable": true
-      },
-      "method": "GET",
-      "method_why": "curl's default",
-      "url": "https://api.example.com/v1/items?page=2\u0026limit=50"
+      }
     }
   },
   "no_input": {
@@ -165,7 +165,7 @@
   "post_parse": {
     "status": 200,
     "body": {
-      "body_bytes": 13,
+      "url": "https://api.example.com/v1/login",
       "headers": [
         {
           "name": "Authorization",
@@ -176,6 +176,9 @@
           "value": "sid=1"
         }
       ],
+      "method": "POST",
+      "method_why": "set with -X",
+      "body_bytes": 13,
       "inspection": {
         "input": "https://api.example.com/v1/login",
         "canonical": "https://api.example.com/v1/login",
@@ -197,10 +200,7 @@
           }
         ],
         "linkable": true
-      },
-      "method": "POST",
-      "method_why": "set with -X",
-      "url": "https://api.example.com/v1/login"
+      }
     }
   },
   "unterminated": {

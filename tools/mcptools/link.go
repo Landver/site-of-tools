@@ -111,14 +111,14 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 				"with repeated keys kept and each tracker's rule named. "+
 				"notes flag what a reader would miss, such as a dangerous scheme, credentials before the host or an ambiguous +. "+
 				"To remove the trackers use link_clean; to compare two URLs, link_diff. Example: url https://example.com/p?utm_source=x&id=7.",
-			inputSchema[linkInspectArgs](minLength("url", 1)), handle(t.inspect))
+			inputSchema[linkInspectArgs](minLength("url", 1)), urlTool(t.inspect))
 		pure("link_clean", "Clean a URL",
 			"Remove tracking parameters from a URL and name the rule behind each removal, without fetching anything. "+
 				"By default it first unwraps redirect wrappers such as Outlook Safe Links, Google redirects and urldefense to the real destination; "+
 				"affiliate tags stay unless strip_affiliate is true. "+
 				"output is byte for byte the input when nothing was removed. "+
 				"To ask why a parameter is or isn't removed, use link_tracking_rules. Example: url https://example.com/?utm_source=news&fbclid=abc&id=7.",
-			inputSchema[linkCleanArgs](minLength("url", 1), defaultTo("unwrap", true)), handle(t.clean))
+			inputSchema[linkCleanArgs](minLength("url", 1), defaultTo("unwrap", true)), urlTool(t.clean))
 		pure("link_tracking_rules", "Tracking rules",
 			"Look up the tracking-parameter rules link_clean applies. "+
 				"param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; "+
@@ -130,7 +130,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 				"identical is true when the two mean the same thing. "+
 				"Use it to find why one link behaves differently from another. "+
 				"Example: url_a https://example.com/?a=1&b=2, url_b https://example.com/?b=2&a=3.",
-			inputSchema[linkDiffArgs](minLength("url_a", 1), minLength("url_b", 1)), handle(t.diff))
+			inputSchema[linkDiffArgs](minLength("url_a", 1), minLength("url_b", 1)), urlTool(t.diff))
 		pure("link_curl_parse", "Take apart a curl command",
 			"Take a curl command apart, including a browser's Copy as cURL: its URL (inspected as link_inspect does), "+
 				"the method and why it is that one, every header in order, and the size of any body, whose content is never echoed. "+
@@ -141,7 +141,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			"Turn a URL into a curl command, single-quoted so it is safe to paste into a shell. "+
 				"persona adds that client's User-Agent (left out, curl sends its own), follow_redirects adds -L and show_headers adds -i. "+
 				"For taking a command apart, use link_curl_parse. Example: url https://example.com/search?q=a&page=2.",
-			inputSchema[linkCurlBuildArgs](minLength("url", 1), oneOf("persona", personas)), handle(t.curlBuild))
+			inputSchema[linkCurlBuildArgs](minLength("url", 1), oneOf("persona", personas)), urlTool(t.curlBuild))
 		pure("link_extract", "Extract links",
 			"Pull every link out of pasted HTML, Markdown or plain text, such as a newsletter before it is sent: "+
 				"deduplicated in the order first seen, counted, with anchor text and flags for links that should stop a send "+
@@ -155,7 +155,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 				"A tag you pass replaces the URL's own, and one you leave out is kept as it is. "+
 				"tags says where each tag came from (set, replaced or kept) and notes flag what trips analytics tools, such as capitals or a +. "+
 				"Example: url https://example.com/landing, utm_source newsletter, utm_medium email.",
-			inputSchema[linkUTMArgs](minLength("url", 1)), handle(t.utm))
+			inputSchema[linkUTMArgs](minLength("url", 1)), urlTool(t.utm))
 		pure("link_percent_encode", "Encode and decode",
 			"Encode one value every way a URL can carry it, and decode it every way it might already be encoded: "+
 				"percent-encoding by query rules (a space becomes +) and by path rules (a space becomes %20) side by side, "+
@@ -180,7 +180,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			deadline: fetchDeadline,
 			limiter:  lim.Fetch,
 			cap:      lim.FetchCap,
-			add:      handle(t.redirectChain),
+			add:      urlTool(t.redirectChain),
 		})
 		specs = append(specs, toolSpec{
 			toolset: "link",
@@ -196,7 +196,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			deadline: fetchDeadline,
 			limiter:  lim.Fetch,
 			cap:      lim.FetchCap,
-			add:      handle(t.headersInspect),
+			add:      urlTool(t.headersInspect),
 		})
 	}
 	if t.short != nil {
@@ -207,7 +207,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 				Title: "Resolve a short link",
 				Description: "Say where one of corpberry.com's own short links leads, without following it or counting a visit. " +
 					"Pass the code or the whole short URL, e.g. " + t.short.ShortURL("q4-report") + ". " +
-					"An expired, revoked or unknown code answers no such link. For any other short link or redirect, use link_redirect_chain.",
+					"An expired, revoked or unknown code gets the same not-found answer. For any other short link or redirect, use link_redirect_chain.",
 				InputSchema: inputSchema[linkResolveArgs](minLength("code", 1)),
 				Annotations: readOnly(false),
 			},
@@ -220,29 +220,29 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 	return specs
 }
 
-func wrongTool(raws ...string) error {
-	for _, raw := range raws {
-		switch linktools.WrongTool(raw) {
-		case linktools.ToolCurl:
-			return errors.New(linktools.CurlNotURL + " Take it apart with link_curl_parse.")
-		case linktools.ToolExtract:
-			return errors.New(linktools.TextNotURL + " Pull them out with link_extract.")
+// siblings name the tool for input that is plainly not one URL, so the model can retry there.
+var siblings = map[string]string{
+	linktools.ToolCurl:    "Take it apart with link_curl_parse.",
+	linktools.ToolExtract: "Pull them out with link_extract.",
+}
+
+// urlTool is handle for a tool taking a URL, adding the sibling tool to a misplaced input's error.
+func urlTool[In any](f func(context.Context, *mcp.CallToolRequest, In) (any, error)) func(*mcp.Server, *mcp.Tool) {
+	return handle(func(ctx context.Context, req *mcp.CallToolRequest, in In) (any, error) {
+		out, err := f(ctx, req, in)
+		var m *linktools.MisplacedError
+		if errors.As(err, &m) {
+			return nil, fmt.Errorf("%w %s", err, siblings[m.Tool])
 		}
-	}
-	return nil
+		return out, err
+	})
 }
 
 func (t linkTools) inspect(_ context.Context, _ *mcp.CallToolRequest, a linkInspectArgs) (any, error) {
-	if err := wrongTool(a.URL); err != nil {
-		return nil, err
-	}
 	return t.svc.Parse(a.URL)
 }
 
 func (t linkTools) clean(_ context.Context, _ *mcp.CallToolRequest, a linkCleanArgs) (any, error) {
-	if err := wrongTool(a.URL); err != nil {
-		return nil, err
-	}
 	return t.svc.Clean(a.URL, linktools.CleanOptions{Unwrap: a.Unwrap, StripAffiliate: a.StripAffiliate, Sort: a.Sort})
 }
 
@@ -255,16 +255,10 @@ func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesA
 }
 
 func (t linkTools) diff(_ context.Context, _ *mcp.CallToolRequest, a linkDiffArgs) (any, error) {
-	if err := wrongTool(a.URLA, a.URLB); err != nil {
-		return nil, err
-	}
 	return t.svc.Diff(a.URLA, a.URLB)
 }
 
 func (t linkTools) redirectChain(ctx context.Context, _ *mcp.CallToolRequest, a linkTraceArgs) (any, error) {
-	if err := wrongTool(a.URL); err != nil {
-		return nil, err
-	}
 	return t.trace.Trace(ctx, a.URL, a.Persona)
 }
 
@@ -273,9 +267,6 @@ func (t linkTools) headersInspect(ctx context.Context, _ *mcp.CallToolRequest, a
 		return linktools.ParseRawHeaders(a.Headers)
 	}
 	if a.URL != "" {
-		if err := wrongTool(a.URL); err != nil {
-			return nil, err
-		}
 		if t.trace == nil {
 			return nil, errors.New("live header probing is disabled on this server")
 		}
@@ -289,9 +280,6 @@ func (t linkTools) curlParse(_ context.Context, _ *mcp.CallToolRequest, a linkCu
 }
 
 func (t linkTools) curlBuild(_ context.Context, _ *mcp.CallToolRequest, a linkCurlBuildArgs) (any, error) {
-	if err := wrongTool(a.URL); err != nil {
-		return nil, err
-	}
 	line, err := t.svc.ToCurl(a.URL, linktools.CurlOptions{
 		Persona: a.Persona, FollowRedirects: a.FollowRedirects, ShowHeaders: a.ShowHeaders,
 	})
@@ -319,9 +307,6 @@ func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtr
 }
 
 func (t linkTools) utm(_ context.Context, _ *mcp.CallToolRequest, a linkUTMArgs) (any, error) {
-	if err := wrongTool(a.URL); err != nil {
-		return nil, err
-	}
 	return t.svc.BuildUTM(a.URL, map[string]string{"utm_source": a.UTMSource, "utm_medium": a.UTMMedium,
 		"utm_campaign": a.UTMCampaign, "utm_term": a.UTMTerm, "utm_content": a.UTMContent})
 }
@@ -331,19 +316,13 @@ func (t linkTools) encode(_ context.Context, _ *mcp.CallToolRequest, a linkEncod
 }
 
 func (t linkTools) resolve(ctx context.Context, _ *mcp.CallToolRequest, a linkResolveArgs) (any, error) {
-	code, ok := linktools.CodeFromShortURL(a.Code, t.short.ShortURL(""))
+	code, ok := t.short.Code(a.Code)
 	if !ok {
-		if strings.ContainsAny(a.Code, "./:") {
-			return nil, fmt.Errorf("Not a corpberry.com short link (%s). To see where any other link leads, use link_redirect_chain.",
-				t.short.ShortURL("<code>"))
-		}
-		return nil, linktools.ErrLinkNotFound
+		return nil, fmt.Errorf("Not a corpberry.com short link (%s). To see where any other link leads, use link_redirect_chain.",
+			t.short.ShortURL("<code>"))
 	}
 	l, err := t.short.Resolve(ctx, code)
-	switch {
-	case errors.Is(err, linktools.ErrLinkNotFound):
-		return nil, linktools.ErrLinkNotFound
-	case err != nil:
+	if err != nil {
 		return nil, publicError(t.log, "link_short_resolve", err)
 	}
 	return map[string]string{"code": l.Code, "short": t.short.ShortURL(l.Code), "target": l.Target}, nil

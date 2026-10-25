@@ -236,7 +236,7 @@ func TestKeylessServerRefusesEveryKeyGatedRoute(t *testing.T) {
 func TestKeylessServerStillRedirects(t *testing.T) {
 	ctx := context.Background()
 	keyed, store := liveShortener(t, ctx)
-	link, err := keyed.Create(ctx, "https://example.com/kept", linktools.CreateOptions{Slug: "made-with-a-key"})
+	link, err := keyed.Create(ctx, linktools.CreateRequest{URL: "https://example.com/kept", Slug: "made-with-a-key"}, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

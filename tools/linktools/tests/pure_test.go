@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -331,14 +332,14 @@ func TestToCurlIsShellSafe(t *testing.T) {
 			continue
 		}
 		assertSingleQuoted(t, line)
-		// Proof the escaping is correct, not just present: FromCurl must read back the original URL.
-		back, _, err := svc.FromCurl(line)
+		// Proof the escaping is correct, not just present: ParseCurl must read back the original URL.
+		back, err := svc.ParseCurl(line)
 		if err != nil {
 			t.Errorf("the generated command does not tokenise back: %v\n%s", err, line)
 			continue
 		}
-		if back != raw {
-			t.Errorf("round trip through the shell quoting changed the URL:\n in: %s\nout: %s\n cmd: %s", raw, back, line)
+		if back.URL != raw {
+			t.Errorf("round trip through the shell quoting changed the URL:\n in: %s\nout: %s\n cmd: %s", raw, back.URL, line)
 		}
 	}
 }
@@ -405,7 +406,7 @@ func headerValue(hs []linktools.Header, name string) (string, bool) {
 }
 
 // The shape people paste: multi-line, backslash continuations, many -H, and bash's $'…' quoting.
-func TestFromCurlReadsChromesCopyAsCurl(t *testing.T) {
+func TestParseCurlReadsChromesCopyAsCurl(t *testing.T) {
 	t.Parallel()
 	const cmd = "curl 'https://example.com/api?a=1&b=2' \\\n" +
 		"  -H 'authority: example.com' \\\n" +
@@ -413,12 +414,13 @@ func TestFromCurlReadsChromesCopyAsCurl(t *testing.T) {
 		"  -H \"accept: */*\" \\\n" +
 		"  -H 'accept-language: en-GB,en;q=0.9' \\\n" +
 		"  --compressed"
-	u, hs, err := linktools.NewService().FromCurl(cmd)
+	r, err := linktools.NewService().ParseCurl(cmd)
 	if err != nil {
-		t.Fatalf("FromCurl errored: %v", err)
+		t.Fatalf("ParseCurl errored: %v", err)
 	}
-	if u != "https://example.com/api?a=1&b=2" {
-		t.Errorf("url = %q; the continuation-escaped first argument is the URL", u)
+	hs := r.Headers
+	if r.URL != "https://example.com/api?a=1&b=2" {
+		t.Errorf("url = %q; the continuation-escaped first argument is the URL", r.URL)
 	}
 	if len(hs) != 4 {
 		t.Fatalf("got %d headers, want 4 — order and repeats are part of what was pasted: %+v", len(hs), hs)
@@ -435,7 +437,7 @@ func TestFromCurlReadsChromesCopyAsCurl(t *testing.T) {
 }
 
 // "-XPOST" carries its value; "-sSLXPOST" is three booleans then -X. Misread, a body becomes the URL.
-func TestFromCurlReadsShortFlagClusters(t *testing.T) {
+func TestParseCurlReadsShortFlagClusters(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
 	for _, tc := range []struct{ cmd, want string }{
@@ -447,25 +449,26 @@ func TestFromCurlReadsShortFlagClusters(t *testing.T) {
 		{"curl -d 'a=1&b=2' https://example.com/post", "https://example.com/post"},
 		{"$ curl https://example.com/prompt", "https://example.com/prompt"},
 	} {
-		u, _, err := svc.FromCurl(tc.cmd)
+		r, err := svc.ParseCurl(tc.cmd)
 		if err != nil {
-			t.Errorf("FromCurl(%q) errored: %v", tc.cmd, err)
+			t.Errorf("ParseCurl(%q) errored: %v", tc.cmd, err)
 			continue
 		}
-		if u != tc.want {
-			t.Errorf("FromCurl(%q) = %q, want %q — a flag argument was mistaken for the URL", tc.cmd, u, tc.want)
+		if r.URL != tc.want {
+			t.Errorf("ParseCurl(%q) = %q, want %q — a flag argument was mistaken for the URL", tc.cmd, r.URL, tc.want)
 		}
 	}
 }
 
 // -A, -e and -b set headers; a reader that only knows -H reports a different request.
-func TestFromCurlLiftsTheFlagsThatAreReallyHeaders(t *testing.T) {
+func TestParseCurlLiftsTheFlagsThatAreReallyHeaders(t *testing.T) {
 	t.Parallel()
-	_, hs, err := linktools.NewService().FromCurl(
+	r, err := linktools.NewService().ParseCurl(
 		"curl -A 'MyAgent/1.0' -e 'https://ref.example/;auto' -b 'k=v' https://example.com/")
 	if err != nil {
-		t.Fatalf("FromCurl errored: %v", err)
+		t.Fatalf("ParseCurl errored: %v", err)
 	}
+	hs := r.Headers
 	for _, want := range []struct{ name, value string }{
 		{"User-Agent", "MyAgent/1.0"},
 		{"Referer", "https://ref.example/"},
@@ -483,17 +486,17 @@ func TestFromCurlLiftsTheFlagsThatAreReallyHeaders(t *testing.T) {
 }
 
 // Untrusted input: no expansion, substitution or execution; a substitution comes back as literal bytes.
-func TestFromCurlEvaluatesNothing(t *testing.T) {
+func TestParseCurlEvaluatesNothing(t *testing.T) {
 	t.Parallel()
-	u, hs, err := linktools.NewService().FromCurl("curl 'https://example.com/?q=$(id)&h=`whoami`&home=$HOME'")
+	r, err := linktools.NewService().ParseCurl("curl 'https://example.com/?q=$(id)&h=`whoami`&home=$HOME'")
 	if err != nil {
-		t.Fatalf("FromCurl errored: %v", err)
+		t.Fatalf("ParseCurl errored: %v", err)
 	}
-	if u != "https://example.com/?q=$(id)&h=`whoami`&home=$HOME" {
-		t.Errorf("url = %q; a substitution or variable was expanded rather than kept literal", u)
+	if r.URL != "https://example.com/?q=$(id)&h=`whoami`&home=$HOME" {
+		t.Errorf("url = %q; a substitution or variable was expanded rather than kept literal", r.URL)
 	}
-	if len(hs) != 0 {
-		t.Errorf("headers invented from a command that had none: %+v", hs)
+	if len(r.Headers) != 0 {
+		t.Errorf("headers invented from a command that had none: %+v", r.Headers)
 	}
 }
 
@@ -907,7 +910,7 @@ func TestCurlCommandSaysHowItSends(t *testing.T) {
 		{`curl -G https://example.com/search -d q=shoes`, "GET", "-G moves the -d data into the query string"},
 		{`curl https://example.com/`, "GET", "curl's default"},
 	} {
-		r, err := svc.FromCurlRequest(tc.cmd)
+		r, err := svc.ParseCurl(tc.cmd)
 		if err != nil {
 			t.Errorf("%s: %v", tc.cmd, err)
 			continue
@@ -916,7 +919,7 @@ func TestCurlCommandSaysHowItSends(t *testing.T) {
 			t.Errorf("%s: %s (%s), want %s (%s)", tc.cmd, r.Method, r.MethodWhy, tc.method, tc.why)
 		}
 	}
-	r, _ := svc.FromCurlRequest(`curl https://a.example/ --data-raw 'password=hunter2'`)
+	r, _ := svc.ParseCurl(`curl https://a.example/ --data-raw 'password=hunter2'`)
 	if r.BodyBytes != len("password=hunter2") {
 		t.Errorf("body measured as %d bytes", r.BodyBytes)
 	}
@@ -957,18 +960,18 @@ func TestParserEdgeCases(t *testing.T) {
 	}
 
 	// The curl tokeniser says what a shell would have done.
-	if _, err := svc.FromCurlRequest(`curl 'https://example.com/`); err == nil {
+	if _, err := svc.ParseCurl(`curl 'https://example.com/`); err == nil {
 		t.Error("an unclosed quote was accepted")
 	}
-	r, err := svc.FromCurlRequest(`curl 'https://example.com/'; rm -rf /`)
+	r, err := svc.ParseCurl(`curl 'https://example.com/'; rm -rf /`)
 	if err != nil || r.URL != "https://example.com/" || !hasNote(r.Notes, linktools.SevWarn, "The command ends at an unquoted ;") {
 		t.Errorf("command with ; = %+v, %v", r, err)
 	}
-	r, _ = svc.FromCurlRequest(`curl "https://example.com/$HOME"`)
+	r, _ = svc.ParseCurl(`curl "https://example.com/$HOME"`)
 	if !hasNote(r.Notes, linktools.SevInfo, "Shell expansion left as written") {
 		t.Errorf("no expansion note: %+v", r.Notes)
 	}
-	r, _ = svc.FromCurlRequest(`curl -u alice:hunter2 https://example.com/`)
+	r, _ = svc.ParseCurl(`curl -u alice:hunter2 https://example.com/`)
 	found := false
 	for _, h := range r.Headers {
 		if h.Name == "Authorization" {
@@ -981,11 +984,11 @@ func TestParserEdgeCases(t *testing.T) {
 	if !found {
 		t.Error("-u produced no Authorization row")
 	}
-	r, _ = svc.FromCurlRequest(`curl -G https://example.com/search --data-urlencode 'q=hello world'`)
+	r, _ = svc.ParseCurl(`curl -G https://example.com/search --data-urlencode 'q=hello world'`)
 	if r.URL != "https://example.com/search?q=hello%20world" {
 		t.Errorf("-G URL = %q, want the data in the query", r.URL)
 	}
-	r, _ = svc.FromCurlRequest(`wget https://example.com/`)
+	r, _ = svc.ParseCurl(`wget https://example.com/`)
 	if !hasNote(r.Notes, linktools.SevWarn, "Not a curl command") {
 		t.Errorf("a wget command was not called out: %+v", r.Notes)
 	}
@@ -1057,13 +1060,20 @@ func TestDiffNamesTheSideThatFailed(t *testing.T) {
 	t.Parallel()
 	svc := linktools.NewService()
 	for _, tc := range []struct{ a, b, prefix string }{
-		{"https://example.com/", "http://[::1", "URL B is not valid: "},
-		{"http://%zz", "https://example.com/", "URL A is not valid: "},
-		{" ", "https://example.com/", "need two URLs"},
+		{"https://example.com/", "http://[::1", "URL B: not a valid URL: "},
+		{"http://%zz", "https://example.com/", "URL A: not a valid URL: "},
+		{" ", "https://example.com/", "URL A: no URL given"},
+		{"https://example.com/", "curl https://example.com/", "URL B: That looks like a curl command"},
 	} {
 		if _, err := svc.Diff(tc.a, tc.b); err == nil || !strings.HasPrefix(err.Error(), tc.prefix) {
 			t.Errorf("Diff(%q, %q) = %v, want %q…", tc.a, tc.b, err, tc.prefix)
 		}
+	}
+	// The side is named by wrapping, so a door can still find what the misplaced input was.
+	var m *linktools.MisplacedError
+	if _, err := svc.Diff("https://example.com/", "curl https://example.com/"); !errors.As(err, &m) ||
+		m.Tool != linktools.ToolCurl || m.Input != "curl https://example.com/" {
+		t.Errorf("Diff with a curl command on side B = %v, want a MisplacedError for the curl page", err)
 	}
 	d, err := svc.Diff(" https://example.com/?a=1 ", "https://example.com/?a=2")
 	if err != nil || d.Identical || d.A != "https://example.com/?a=1" {

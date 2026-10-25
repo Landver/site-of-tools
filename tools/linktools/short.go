@@ -32,35 +32,14 @@ type Shortener struct {
 	CleanTarget func(raw string) (cleaned string, removed []string, err error)
 }
 
-// CreateOptions' zero value makes a permanent, uncleaned alias under a generated code.
-type CreateOptions struct {
-	Slug      string // custom slug; empty = generate a code
-	Note      string
-	TTL       time.Duration // <= 0 means permanent
-	Clean     bool          // strip trackers before storing (needs CleanTarget)
-	CreatedIP string        // forensics only, never rendered or serialised
-}
-
-// CreateRequest's fields are scalars, so a decoded {"slug":{"$ne":null}} can't reach Mongo as an operator.
+// CreateRequest with only URL set makes a permanent, uncleaned link under a generated code. Its fields
+// are scalars, so a decoded {"slug":{"$ne":null}} can't reach Mongo as an operator.
 type CreateRequest struct {
 	URL   string `json:"url" form:"url" jsonschema:"the destination, an http or https URL on a public host"`
 	Slug  string `json:"slug,omitempty" form:"slug" jsonschema:"the code to use, e.g. q4-report"`
 	TTL   string `json:"ttl,omitempty" form:"ttl" jsonschema:"how long the link lives, a Go duration such as 720h; left out, it never expires"`
 	Note  string `json:"note,omitempty" form:"note" jsonschema:"a label for the list, up to 256 bytes"`
 	Clean bool   `json:"clean,omitempty" form:"clean" jsonschema:"strip tracking parameters from url first"`
-}
-
-type Created struct {
-	Cleaned   []string   `json:"cleaned,omitempty"`
-	Code      string     `json:"code"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	Hits      int64      `json:"hits"`
-	Original  string     `json:"original,omitempty"`
-	Short     string     `json:"short"`
-	Target    string     `json:"target"`
-
-	Note string `json:"-"`
 }
 
 const minTTL = time.Minute
@@ -70,8 +49,12 @@ var (
 	errTTLShort  = errors.New("ttl must be at least 1m; leave it out for a link that never expires")
 )
 
-// storageFailure replaces a driver error's text, which can carry connection strings.
-const storageFailure = "Something went wrong on our side. Nothing was changed."
+const (
+	// storageFailure replaces a driver error's text, which can carry connection strings.
+	storageFailure = "Something went wrong on our side. Nothing was changed."
+	// linkNotFound is fixed: ErrLinkNotFound's wrapped reason (revoked, expired) would be an oracle.
+	linkNotFound = "No such short link."
+)
 
 var (
 	// ErrInvalidTarget: a destination we will never redirect to. 400.
@@ -154,54 +137,57 @@ func (s *Shortener) ShortURL(code string) string {
 	return s.baseURL + shortPath + code
 }
 
-// CodeFromShortURL reads a bare code or a short URL on base's host.
-func CodeFromShortURL(s, base string) (code string, ok bool) {
-	s = strings.TrimSpace(s)
-	if c, err := validateCode(s); err == nil {
-		return c, true
+// Code reads a bare code or one of this shortener's short URLs; false means the input is neither.
+func (s *Shortener) Code(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if code, err := validateCode(input); err == nil {
+		return code, true
 	}
-	if !strings.Contains(s, "://") {
-		s = "https://" + s
+	if !strings.Contains(input, "://") {
+		input = "https://" + input
 	}
-	u, err := url.Parse(s)
-	if err != nil {
+	u, err := url.Parse(input)
+	if err != nil || s == nil {
 		return "", false
 	}
-	b, err := url.Parse(strings.TrimSpace(base))
-	if err != nil || !strings.EqualFold(u.Host, b.Host) {
+	base, err := url.Parse(s.baseURL)
+	if err != nil || !strings.EqualFold(u.Host, base.Host) {
 		return "", false
 	}
 	rest, found := strings.CutPrefix(u.Path, shortPath)
 	if !found {
 		return "", false
 	}
-	c, err := validateCode(rest)
-	return c, err == nil
+	code, err := validateCode(rest)
+	return code, err == nil
 }
 
-// Create re-validates after cleaning and sets Original whenever cleaning changed the URL.
-func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions) (*Link, error) {
+// Create validates req, re-validates whatever cleaning returns, and stores the link under req.Slug or a
+// generated code. ip is stored for forensics and never handed back.
+func (s *Shortener) Create(ctx context.Context, req CreateRequest, ip string) (*Link, error) {
 	if !s.HasKey() {
 		return nil, ErrDisabled
 	}
-	note := strings.TrimSpace(opt.Note)
-	if len(note) > maxNoteLen {
-		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrInvalidNote, len(note), maxNoteLen)
-	}
-
-	u, err := validateTarget(target)
+	ttl, err := parseTTL(req.TTL)
 	if err != nil {
 		return nil, err
 	}
-	final, original := u.String(), ""
-	// Reported back, so cleaning is never a silent mutation.
-	var strippedNames []string
+	note := strings.TrimSpace(req.Note)
+	if len(note) > maxNoteLen {
+		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrInvalidNote, len(note), maxNoteLen)
+	}
+	u, err := validateTarget(req.URL)
+	if err != nil {
+		return nil, err
+	}
 
-	if opt.Clean {
+	now := time.Now()
+	l := &Link{Target: u.String(), Note: note, CreatedAt: now, CreatedIP: ip}
+	if req.Clean {
 		if s.CleanTarget == nil {
 			return nil, fmt.Errorf("%w: cleaning was requested but no cleaner is wired", ErrDisabled)
 		}
-		cleaned, removed, err := s.CleanTarget(final)
+		cleaned, removed, err := s.CleanTarget(l.Target)
 		if err != nil {
 			return nil, fmt.Errorf("%w: cleaning failed: %v", ErrInvalidTarget, err)
 		}
@@ -210,84 +196,69 @@ func (s *Shortener) Create(ctx context.Context, target string, opt CreateOptions
 		if err != nil {
 			return nil, err
 		}
-		if cu.String() != final {
-			original, final = final, cu.String()
+		if cu.String() != l.Target {
+			l.Original, l.Target = l.Target, cu.String()
 		}
-		strippedNames = removed
+		l.Cleaned = removed // reported back, so cleaning is never a silent mutation
 	}
-
-	now := time.Now()
-	l := &Link{
-		Target:    final,
-		Original:  original,
-		Cleaned:   strippedNames,
-		Note:      note,
-		CreatedAt: now,
-		CreatedIP: opt.CreatedIP,
-	}
-	if opt.TTL > 0 {
-		exp := now.Add(opt.TTL)
+	if ttl > 0 {
+		exp := now.Add(ttl)
 		l.ExpiresAt = &exp
 	}
-
-	if opt.Slug != "" {
-		slug, err := validateSlug(opt.Slug)
-		if err != nil {
-			return nil, err
-		}
-		l.Code = slug
-		if err := s.store.Insert(ctx, l); err != nil {
-			if errors.Is(err, ErrCodeTaken) {
-				return nil, fmt.Errorf("%w: %s, and codes are never reissued, even after a link is revoked", ErrSlugTaken, slug)
-			}
-			return nil, err
-		}
-		return l, nil
-	}
-
-	// Insert and retry, never check-then-insert: only the unique index can arbitrate the race.
-	for attempt := 0; attempt < maxCodeAttempts; attempt++ {
-		code, err := newCode()
-		if err != nil {
-			return nil, err
-		}
-		l.Code = code
-		err = s.store.Insert(ctx, l)
-		if err == nil {
-			return l, nil
-		}
-		if !errors.Is(err, ErrCodeTaken) {
-			return nil, err
-		}
-	}
-	return nil, fmt.Errorf("no free code after %d attempts", maxCodeAttempts)
-}
-
-func (s *Shortener) CreateFrom(ctx context.Context, req CreateRequest, ip string) (*Created, error) {
-	opt := CreateOptions{Slug: req.Slug, Note: req.Note, Clean: req.Clean, CreatedIP: ip}
-	if req.TTL != "" {
-		d, err := time.ParseDuration(req.TTL)
-		if err != nil {
-			return nil, errTTLFormat
-		}
-		if d < minTTL {
-			return nil, errTTLShort
-		}
-		opt.TTL = d
-	}
-	l, err := s.Create(ctx, req.URL, opt)
-	if err != nil {
+	if err := s.insert(ctx, l, req.Slug); err != nil {
 		return nil, err
 	}
-	return &Created{
-		Cleaned: l.Cleaned, Code: l.Code, CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt,
-		Hits: l.Hits, Original: l.Original, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note,
-	}, nil
+	l.Short, l.CreatedIP = s.ShortURL(l.Code), ""
+	return l, nil
 }
 
-// PublicError maps a create's error to a status and a message safe to show.
+// parseTTL reads a Go duration; "" is a link that never expires.
+func parseTTL(ttl string) (time.Duration, error) {
+	if ttl == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(ttl)
+	switch {
+	case err != nil:
+		return 0, errTTLFormat
+	case d < minTTL:
+		return 0, errTTLShort
+	}
+	return d, nil
+}
+
+// insert stores l under slug, or else under generated codes, inserting and retrying, never
+// checking first: only the unique index can arbitrate the race.
+func (s *Shortener) insert(ctx context.Context, l *Link, slug string) error {
+	if slug != "" {
+		code, err := validateSlug(slug)
+		if err != nil {
+			return err
+		}
+		l.Code = code
+		if err = s.store.Insert(ctx, l); errors.Is(err, ErrCodeTaken) {
+			return fmt.Errorf("%w: %s, and codes are never reissued, even after a link is revoked", ErrSlugTaken, code)
+		}
+		return err
+	}
+	for range maxCodeAttempts {
+		code, err := newCode()
+		if err != nil {
+			return err
+		}
+		l.Code = code
+		if err := s.store.Insert(ctx, l); !errors.Is(err, ErrCodeTaken) {
+			return err
+		}
+	}
+	return fmt.Errorf("no free code after %d attempts", maxCodeAttempts)
+}
+
+// PublicError maps a short-link error to a status and a message safe to show.
 func PublicError(err error) (status int, msg string) {
 	switch {
+	case errors.Is(err, ErrLinkNotFound):
+		return http.StatusNotFound, linkNotFound
 	case errors.Is(err, ErrSlugTaken):
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, ErrDisabled):
@@ -353,7 +324,11 @@ func (s *Shortener) Recent(ctx context.Context, n int64) ([]Link, error) {
 	if !s.HasKey() {
 		return nil, ErrDisabled
 	}
-	return s.store.Recent(ctx, n)
+	links, err := s.store.Recent(ctx, n)
+	for i := range links {
+		links[i].Short = s.ShortURL(links[i].Code)
+	}
+	return links, err
 }
 
 // newCode uses crypto/rand: math/rand is predictable, and hashing the target would make an oracle.

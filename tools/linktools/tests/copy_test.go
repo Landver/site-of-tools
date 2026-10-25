@@ -80,7 +80,7 @@ func TestCopyOffersTheWholeShortURL(t *testing.T) {
 		t.Error("a created link does not copy on its own")
 	}
 
-	dead, err := short.Create(ctx, "https://example.com/dead", linktools.CreateOptions{})
+	dead, err := short.Create(ctx, linktools.CreateRequest{URL: "https://example.com/dead"}, "")
 	if err != nil {
 		t.Fatalf("create link to revoke: %v", err)
 	}

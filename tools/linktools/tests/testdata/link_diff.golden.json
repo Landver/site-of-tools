@@ -2,13 +2,13 @@
   "bad_a": {
     "status": 400,
     "body": {
-      "error": "URL A is not valid: missing ']' in host"
+      "error": "URL A: not a valid URL: missing ']' in host"
     }
   },
   "bad_b": {
     "status": 400,
     "body": {
-      "error": "URL B is not valid: invalid URL escape \"%zz\""
+      "error": "URL B: not a valid URL: invalid URL escape \"%zz\""
     }
   },
   "cosmetic": {
@@ -129,7 +129,7 @@
   "wrong_tool": {
     "status": 400,
     "body": {
-      "error": "That looks like a curl command, not a URL."
+      "error": "URL B: That looks like a curl command, not a URL."
     }
   }
 }

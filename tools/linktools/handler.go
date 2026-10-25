@@ -147,24 +147,25 @@ type suggestion struct {
 	Label, Action, Field, Value string
 }
 
-// wrongTool sends misplaced input on with a 400 and a POST button, so curl cookies never ride in a URL.
-func (h *handler) wrongTool(c *echo.Context, vm map[string]any, raw, page string) (bool, error) {
-	var msg string
-	switch WrongTool(raw) {
-	case ToolCurl:
-		msg = CurlNotURL
-		label := "Take it apart on the curl page"
-		if page == "link/curl" {
-			label = "Take it apart instead"
-		}
-		vm["Suggest"] = suggestion{Label: label, Action: "/curl", Field: "curl", Value: raw}
-	case ToolExtract:
-		msg = TextNotURL
-		vm["Suggest"] = suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: raw}
-	default:
-		return false, nil
+// toolError answers a URL tool's error with a 400. Misplaced input gets a POST button to its page, so
+// curl cookies never ride in a URL.
+func (h *handler) toolError(c *echo.Context, vm map[string]any, err error, page string) error {
+	var m *MisplacedError
+	if errors.As(err, &m) {
+		vm["Suggest"] = suggestionFor(m, page)
 	}
-	return true, h.fail(c, vm, http.StatusBadRequest, msg, page)
+	return h.fail(c, vm, http.StatusBadRequest, err.Error(), page)
+}
+
+func suggestionFor(m *MisplacedError, page string) suggestion {
+	if m.Tool == ToolExtract {
+		return suggestion{Label: "Pull the links out on the Extract page", Action: "/extract", Field: "text", Value: m.Input}
+	}
+	label := "Take it apart on the curl page"
+	if page == "link/curl" {
+		label = "Take it apart instead"
+	}
+	return suggestion{Label: label, Action: "/curl", Field: "curl", Value: m.Input}
 }
 
 func parseCleanOptions(c *echo.Context) CleanOptions {
@@ -185,13 +186,9 @@ func (h *handler) inspect(c *echo.Context) error {
 		"?u=https%3A%2F%2Fexample.com%2F%3Fa%3D1"); done {
 		return err
 	}
-
-	if done, err := h.wrongTool(c, vm, raw, "link/index"); done {
-		return err
-	}
 	res, err := h.svc.Parse(raw)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/index")
+		return h.toolError(c, vm, err, "link/index")
 	}
 
 	if cleaned, cleanErr := h.svc.Clean(raw, opt); cleanErr == nil {
@@ -213,13 +210,9 @@ func (h *handler) clean(c *echo.Context) error {
 		"?u=https%3A%2F%2Fexample.com%2F%3Futm_source%3Dx"); done {
 		return err
 	}
-
-	if done, err := h.wrongTool(c, vm, raw, "link/clean"); done {
-		return err
-	}
 	res, err := h.svc.Clean(raw, opt)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/clean")
+		return h.toolError(c, vm, err, "link/clean")
 	}
 	vm["Result"], vm["Groups"] = res, groupRemovals(res.Removed)
 	return platform.Reply(c, http.StatusOK, res, vm, "link/clean", "link/cleaned")
@@ -280,14 +273,9 @@ func (h *handler) diff(c *echo.Context) error {
 		}
 		return platform.Reply(c, http.StatusOK, nil, vm, "link/diff", "link/diffed")
 	}
-	for _, side := range []string{a, b} {
-		if done, err := h.wrongTool(c, vm, side, "link/diff"); done {
-			return err
-		}
-	}
 	res, err := h.svc.Diff(a, b)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/diff")
+		return h.toolError(c, vm, err, "link/diff")
 	}
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/diff", "link/diffed")
@@ -307,10 +295,6 @@ func (h *handler) traceRoute(c *echo.Context) error {
 		"?u=http%3A%2F%2Fexample.com%2F"); done {
 		return err
 	}
-
-	if done, err := h.wrongTool(c, vm, raw, "link/trace"); done {
-		return err
-	}
 	if !h.lim.FetchCap.TryAcquire(c.RealIP(), 1) {
 		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/trace")
 	}
@@ -320,7 +304,7 @@ func (h *handler) traceRoute(c *echo.Context) error {
 		if errors.Is(err, ErrDisabled) {
 			return h.fail(c, vm, http.StatusServiceUnavailable, "Tracing is not enabled on this server.", "link/trace")
 		}
-		return h.badRequest(c, vm, err, "link/trace")
+		return h.toolError(c, vm, err, "link/trace")
 	}
 	vm["Result"] = ch
 	return platform.Reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
@@ -348,15 +332,12 @@ func (h *handler) headersRoute(c *echo.Context) error {
 	if pasted != "" {
 		res, err := ParseRawHeaders(pasted)
 		if err != nil {
-			return h.badRequest(c, vm, err, "link/headers")
+			return h.toolError(c, vm, err, "link/headers")
 		}
 		vm["Result"] = res
 		return platform.Reply(c, http.StatusOK, res, vm, "link/headers", "link/headers-result")
 	}
 
-	if done, err := h.wrongTool(c, vm, raw, "link/headers"); done {
-		return err
-	}
 	if h.trace == nil {
 		return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
 	}
@@ -371,7 +352,7 @@ func (h *handler) headersRoute(c *echo.Context) error {
 		if errors.Is(err, ErrDisabled) {
 			return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
 		}
-		return h.badRequest(c, vm, err, "link/headers")
+		return h.toolError(c, vm, err, "link/headers")
 	}
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/headers", "link/headers-result")
@@ -399,10 +380,10 @@ func (h *handler) shortConsole(c *echo.Context) error {
 	if authed {
 		links, err := h.short.Recent(c.Request().Context(), RecentLimit)
 		if err != nil {
-			return h.storageError(c, vm, err, "link/short")
+			return h.shortError(c, vm, err)
 		}
 		// Project first: json:"-" hides CreatedIP from JSON but means nothing to html/template.
-		vm["Links"] = consoleRows(h.short, links)
+		vm["Links"] = consoleRows(links)
 		body["links"] = links
 	}
 	// Page vs fragment differ: htmx's "Load aliases" (the only X-Api-Key sender) wants just the list.
@@ -421,25 +402,24 @@ func (h *handler) shortCreate(c *echo.Context) error {
 
 	var req CreateRequest
 	if err := c.Bind(&req); err != nil {
-		return h.badRequest(c, vm, errors.New("could not read the request body"), "link/short")
+		return h.fail(c, vm, http.StatusBadRequest, "could not read the request body", "link/short")
 	}
-	created, err := h.short.CreateFrom(c.Request().Context(), req, c.RealIP())
+	link, err := h.short.Create(c.Request().Context(), req, c.RealIP())
 	if err != nil {
-		code, msg := PublicError(err)
-		if code == http.StatusInternalServerError {
-			return h.storageError(c, vm, err, "link/short")
-		}
-		return h.fail(c, vm, code, msg, "link/short")
+		return h.shortError(c, vm, err)
 	}
-	vm["Created"] = created
+	vm["Created"] = link
 	listChanged(c)
-	return platform.Reply(c, http.StatusCreated, created, vm, "link/short", "link/created")
+	return platform.Reply(c, http.StatusCreated, link, vm, "link/short", "link/created")
 }
 
-// storageError logs the real error and returns a fixed 500 to the caller.
-func (h *handler) storageError(c *echo.Context, vm map[string]any, err error, page string) error {
-	c.Logger().Error("linktools storage error", "err", err, "path", c.Request().URL.Path)
-	return h.fail(c, vm, http.StatusInternalServerError, storageFailure, page)
+// shortError answers with PublicError's status and message; a storage error's detail is only logged.
+func (h *handler) shortError(c *echo.Context, vm map[string]any, err error) error {
+	code, msg := PublicError(err)
+	if code == http.StatusInternalServerError {
+		c.Logger().Error("linktools storage error", "err", err, "path", c.Request().URL.Path)
+	}
+	return h.fail(c, vm, code, msg, "link/short")
 }
 
 func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page string) error {
@@ -449,9 +429,8 @@ func (h *handler) fail(c *echo.Context, vm map[string]any, code int, msg, page s
 
 // consoleRow is what the console renders of a Link, so CreatedIP can't reach a template at all.
 type consoleRow struct {
-	Code string
-	// Short comes from ShortURL, which owns the /s/ prefix; templates must not rebuild it from base + code.
-	Short     string
+	Code      string
+	Short     string // templates must not rebuild it from base + code
 	Target    string
 	Note      string
 	Hits      int64
@@ -463,12 +442,12 @@ type consoleRow struct {
 	Expires string
 }
 
-func consoleRows(s *Shortener, links []Link) []consoleRow {
+func consoleRows(links []Link) []consoleRow {
 	now := time.Now()
 	out := make([]consoleRow, 0, len(links))
 	for _, l := range links {
 		row := consoleRow{
-			Code: l.Code, Short: s.ShortURL(l.Code), Target: l.Target, Note: l.Note, Hits: l.Hits,
+			Code: l.Code, Short: l.Short, Target: l.Target, Note: l.Note, Hits: l.Hits,
 			CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt, RevokedAt: l.RevokedAt, Expires: "Never",
 		}
 		if e := l.ExpiresAt; e != nil {
@@ -494,10 +473,7 @@ func (h *handler) shortRevoke(c *echo.Context) error {
 		return h.fail(c, vm, http.StatusUnauthorized, msg, "link/short")
 	}
 	if err := h.short.Revoke(c.Request().Context(), c.Param("code")); err != nil {
-		if errors.Is(err, ErrLinkNotFound) {
-			return h.fail(c, vm, http.StatusNotFound, "No such short link.", "link/short")
-		}
-		return h.storageError(c, vm, err, "link/short")
+		return h.shortError(c, vm, err)
 	}
 	vm["Revoked"] = c.Param("code")
 	listChanged(c)
@@ -567,17 +543,14 @@ func (h *handler) curl(c *echo.Context) error {
 	if cmd != "" {
 		res, err := h.svc.ParseCurl(cmd)
 		if err != nil {
-			return h.badRequest(c, vm, err, "link/curl")
+			return h.toolError(c, vm, err, "link/curl")
 		}
-		vm["FromCurl"], vm["Headers"], vm["Result"], vm["Request"] = res.URL, res.Headers, res.Inspection, res
+		vm["Result"] = res
 		return platform.Reply(c, http.StatusOK, res, vm, "link/curl", "link/curled")
 	}
 
 	if done, err := h.needURL(c, raw, vm, "link/curl", "link/curled",
 		"?u=https%3A%2F%2Fexample.com%2F"); done {
-		return err
-	}
-	if done, err := h.wrongTool(c, vm, raw, "link/curl"); done {
 		return err
 	}
 	opt := CurlOptions{
@@ -587,10 +560,9 @@ func (h *handler) curl(c *echo.Context) error {
 	}
 	line, err := h.svc.ToCurl(raw, opt)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/curl")
+		return h.toolError(c, vm, err, "link/curl")
 	}
-	vm["Curl"], vm["Personas"], vm["Persona"] = line, Personas(), opt.Persona
-	vm["Follow"], vm["ShowHeaders"] = opt.FollowRedirects, opt.ShowHeaders
+	vm["Curl"], vm["Follow"], vm["ShowHeaders"] = line, opt.FollowRedirects, opt.ShowHeaders
 	return platform.Reply(c, http.StatusOK, map[string]any{"curl": line}, vm, "link/curl", "link/curled")
 }
 
@@ -622,7 +594,7 @@ func (h *handler) extract(c *echo.Context) error {
 	}
 	res, err := h.svc.Extract(text)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/extract")
+		return h.toolError(c, vm, err, "link/extract")
 	}
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/extract", "link/extracted")
@@ -665,13 +637,9 @@ func (h *handler) utm(c *echo.Context) error {
 		"?u=https%3A%2F%2Fexample.com%2F&utm_source=newsletter"); done {
 		return err
 	}
-
-	if done, err := h.wrongTool(c, vm, raw, "link/utm"); done {
-		return err
-	}
 	res, err := h.svc.BuildUTM(raw, typed)
 	if err != nil {
-		return h.badRequest(c, vm, err, "link/utm")
+		return h.toolError(c, vm, err, "link/utm")
 	}
 	vm["Result"] = res
 	return platform.Reply(c, http.StatusOK, res, vm, "link/utm", "link/utmbuilt")
@@ -703,10 +671,6 @@ func (h *handler) encoding(c *echo.Context) error {
 func (h *handler) privacy(c *echo.Context) error {
 	return c.Render(http.StatusOK, "link/privacy",
 		h.vm("", "Extension privacy", privacyDesc, ""))
-}
-
-func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
-	return h.fail(c, vm, http.StatusBadRequest, err.Error(), page)
 }
 
 func sentence(s string) string {

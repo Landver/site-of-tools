@@ -118,14 +118,10 @@ func (t *Tracer) ProbeHeaders(ctx context.Context, raw string, persona string) (
 	if t == nil {
 		return nil, ErrDisabled
 	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, errors.New("no URL given")
+	raw, err := readURL(raw)
+	if err != nil {
+		return nil, err
 	}
-	if len(raw) > maxInput {
-		return nil, fmt.Errorf("URL is %d bytes, over the %d KB limit", len(raw), maxInput>>10)
-	}
-
 	p := personaFor(persona)
 	targetURL, _, err := parseTarget(raw)
 	if err != nil {

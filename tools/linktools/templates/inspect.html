@@ -46,7 +46,14 @@
   </div>
 </div>
 {{end}}
+{{template "link/parsed" .}}
+{{else}}
+{{template "link/examples" .Examples}}
+{{end}}
+{{end}}
 
+{{/* One parsed URL, dot the Inspection, so the curl page renders a command's URL with it too. */}}
+{{define "link/parsed"}}
 {{/* Summary strip, before the table: what shape the input was parsed as. */}}
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm"
      data-announce="Parsed: {{len .Params}} {{if eq (len .Params) 1}}parameter{{else}}parameters{{end}}{{if .Notes}}, {{len .Notes}} {{if eq (len .Notes) 1}}finding{{else}}findings{{end}}{{end}}.">
@@ -244,10 +251,6 @@
 
 {{if and .Host .Canonical (eq .Canonical .Input)}}
 <p class="mt-6 text-sm text-muted">Already canonical: lowercase, no default port, no dot segments.</p>
-{{end}}
-
-{{else}}
-{{template "link/examples" .Examples}}
 {{end}}
 {{end}}
 

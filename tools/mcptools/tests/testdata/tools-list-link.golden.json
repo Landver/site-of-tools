@@ -305,7 +305,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Say where one of corpberry.com's own short links leads, without following it or counting a visit. Pass the code or the whole short URL, e.g. http://link.test/s/q4-report. An expired, revoked or unknown code answers no such link. For any other short link or redirect, use link_redirect_chain.",
+    "description": "Say where one of corpberry.com's own short links leads, without following it or counting a visit. Pass the code or the whole short URL, e.g. http://link.test/s/q4-report. An expired, revoked or unknown code gets the same not-found answer. For any other short link or redirect, use link_redirect_chain.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

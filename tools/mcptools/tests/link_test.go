@@ -95,7 +95,9 @@ func TestLinkDiff(t *testing.T) {
 	if got["identical"] != false || len(rows(t, got, "params")) == 0 {
 		t.Errorf("diff = %v, want a's change found", got)
 	}
-	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "http://[::1", "url_b": "https://example.com/"}), "URL A is not valid")
+	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "http://[::1", "url_b": "https://example.com/"}), "URL A: not a valid URL")
+	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "https://example.com/", "url_b": "see https://a.example/ and https://b.example/"}),
+		"URL B: That looks like text with links in it, not one URL. Pull them out with link_extract.")
 	failsWith(t, call(t, cs, "link_diff", map[string]any{"url_a": "https://example.com/"}), "url_b")
 }
 
@@ -228,10 +230,9 @@ func TestLinkWholeStrings(t *testing.T) {
 func TestLinkShortResolveOffline(t *testing.T) {
 	var log syncBuffer
 	cs := newStack(t, stackOpts{log: &log}).client(t, "/mcp/link", nil, nil)
-	for _, code := range []string{"https://bit.ly/abc", "link.test/clean", "http://link.test/x/abc"} {
-		failsWith(t, call(t, cs, "link_short_resolve", map[string]any{"code": code}), "link_redirect_chain")
+	for _, code := range []string{"https://bit.ly/abc", "link.test/clean", "http://link.test/x/abc", "no such!"} {
+		failsWith(t, call(t, cs, "link_short_resolve", map[string]any{"code": code}), "Not a corpberry.com short link")
 	}
-	failsWith(t, call(t, cs, "link_short_resolve", map[string]any{"code": "no such!"}), "no such link")
 	res := call(t, cs, "link_short_resolve", map[string]any{"code": "http://link.test/s/abc-def"})
 	failsWith(t, res, "Something went wrong on our side")
 	if !strings.Contains(log.String(), "mcp: link storage error") || strings.Contains(text(t, res), "127.0.0.1") {
