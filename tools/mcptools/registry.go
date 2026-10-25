@@ -132,7 +132,7 @@ var coverage = map[Route]Decision{
 	{"link", get, "/encode"}:            served("link_percent_encode"),
 	{"link", get, "/trace"}:             served("link_redirect_chain"),
 	{"link", get, "/headers"}:           served("link_headers_inspect"),
-	{"link", post, "/headers"}:          served("link_headers_inspect"),
+	{"link", post, "/headers"}:          served("link_headers_parse"),
 	{"link", get, "/s/:code"}:           served("link_short_resolve"),
 	{"link", get, "/short"}:             served("link_short_list"),
 	{"link", post, "/short"}:            served("link_short_create"),

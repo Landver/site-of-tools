@@ -504,9 +504,9 @@ func clipCause(err error) string {
 func refusalDetail(err error) string {
 	switch {
 	case errors.Is(err, platform.ErrBlockedPort):
-		return "Port " + afterColon(err) + " isn't allowed. Trace only connects to ports 80 and 443."
+		return "Port " + afterColon(err) + " isn't allowed: only ports 80 and 443 are ever contacted."
 	case errors.Is(err, platform.ErrBlockedAddress):
-		return afterColon(err) + " isn't on the public internet (not publicly routable), so Trace won't contact it. Private, loopback and reserved addresses, and this site's own hosts, are always refused."
+		return afterColon(err) + " isn't on the public internet (not publicly routable), so it is never contacted. Private, loopback and reserved addresses, and this site's own hosts, are always refused."
 	}
 	return err.Error()
 }

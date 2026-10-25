@@ -2,6 +2,7 @@ package linktools
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -140,10 +141,10 @@ func TestAnalyzeSecurity(t *testing.T) {
 
 	// 2. Cookie prefix violations & SameSite=None without Secure
 	hCookie := make(http.Header)
-	hCookie.Add("Set-Cookie", "__Host-id=123; Path=/")                                      // Missing Secure
-	hCookie.Add("Set-Cookie", "__Host-valid=123; Secure; Path=/")                           // Valid
+	hCookie.Add("Set-Cookie", "__Host-id=123; Path=/")                                     // Missing Secure
+	hCookie.Add("Set-Cookie", "__Host-valid=123; Secure; Path=/")                          // Valid
 	hCookie.Add("Set-Cookie", "__Host-bad-domain=123; Secure; Domain=example.com; Path=/") // Domain forbidden
-	hCookie.Add("Set-Cookie", "tracker=xyz; SameSite=None")                                 // SameSite=None without Secure
+	hCookie.Add("Set-Cookie", "tracker=xyz; SameSite=None")                                // SameSite=None without Secure
 
 	secCookie := AnalyzeSecurity(hCookie)
 	if len(secCookie.Cookies) != 4 {
@@ -209,10 +210,13 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestProbeHeadersLiveAndETag(t *testing.T) {
-	guard := platform.NewEgressGuard(nil, nil)
+	guard := platform.NewEgressGuard([]string{"80", "443"}, nil)
 	tracer := NewTracer(guard, 5*time.Second)
 
 	tracer.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if _, ok := r.Context().Deadline(); !ok {
+			t.Errorf("%s fetched with no deadline; the tracer's total must bound every door", r.URL)
+		}
 		if r.Header.Get("If-None-Match") == `"test-etag-123"` {
 			return &http.Response{
 				StatusCode: http.StatusNotModified,
@@ -256,6 +260,50 @@ func TestProbeHeadersLiveAndETag(t *testing.T) {
 	}
 	if report.ETagSimulation.StatusCode != http.StatusNotModified {
 		t.Errorf("ETag simulation status: want 304, got %d", report.ETagSimulation.StatusCode)
+	}
+}
+
+// Own hosts and odd ports are refused before any request, a dead target is a fetch failure (502), and a
+// target's long header value comes back clipped as Trace clips it.
+func TestProbeHeadersRefusesFailsAndClips(t *testing.T) {
+	tracer := NewTracer(platform.NewEgressGuard([]string{"80", "443"}, []string{"link.corpberry.com"}), 5*time.Second)
+	fetched := 0
+	tracer.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		fetched++
+		if r.URL.Host == "down.example" {
+			return nil, errors.New("connection refused")
+		}
+		h := make(http.Header)
+		h.Set("Content-Security-Policy", "img-src "+strings.Repeat("https://cdn.example ", 30)+"; object-src 'none'")
+		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+	})
+	ctx := context.Background()
+
+	for _, u := range []string{"https://link.corpberry.com/", "http://example.com:8080/", "http://127.0.0.1/"} {
+		_, err := tracer.ProbeHeaders(ctx, u, "")
+		if err == nil || errors.Is(err, ErrFetchFailed) || !strings.Contains(err.Error(), "allowed") && !strings.Contains(err.Error(), "never contacted") {
+			t.Errorf("%s = %v, want a refusal before connecting", u, err)
+		}
+	}
+	if fetched != 0 {
+		t.Errorf("%d requests went out for refused targets", fetched)
+	}
+
+	if _, err := tracer.ProbeHeaders(ctx, "https://down.example/", ""); !errors.Is(err, ErrFetchFailed) {
+		t.Errorf("unreachable target = %v, want ErrFetchFailed", err)
+	}
+
+	report, err := tracer.ProbeHeaders(ctx, "https://example.com/", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range report.Headers {
+		if len(row.Value) > maxHeaderValue {
+			t.Errorf("%s is %d bytes, over the %d a target's text may take", row.Name, len(row.Value), maxHeaderValue)
+		}
+	}
+	if !report.Security.CSP.ObjectSrcNone {
+		t.Error("the audit missed object-src past the clip: it must read the whole header, not the shown row")
 	}
 }
 
@@ -307,10 +355,10 @@ func TestCacheDirectives_BoundaryAndConflictingHeaders(t *testing.T) {
 func TestSecurityAudit_CookiesAndCORSBoundary(t *testing.T) {
 	// 1. __Host- cookie violations: Path != "/" and missing Secure
 	hCookie := make(http.Header)
-	hCookie.Add("Set-Cookie", "__Host-sub=token1; Secure; Path=/app")       // Path must be /
-	hCookie.Add("Set-Cookie", "__Secure-tok=token2; Path=/app")             // Missing Secure
-	hCookie.Add("Set-Cookie", "malformed_cookie_without_equals; Secure")    // No =
-	hCookie.Add("Set-Cookie", "session=xyz123; Secure; SameSite=Lax")       // Missing HttpOnly on auth name
+	hCookie.Add("Set-Cookie", "__Host-sub=token1; Secure; Path=/app")    // Path must be /
+	hCookie.Add("Set-Cookie", "__Secure-tok=token2; Path=/app")          // Missing Secure
+	hCookie.Add("Set-Cookie", "malformed_cookie_without_equals; Secure") // No =
+	hCookie.Add("Set-Cookie", "session=xyz123; Secure; SameSite=Lax")    // Missing HttpOnly on auth name
 	sec := AnalyzeSecurity(hCookie)
 
 	if len(sec.Cookies) != 4 {

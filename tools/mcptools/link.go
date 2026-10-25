@@ -33,9 +33,14 @@ type linkDiffArgs struct {
 	URLB string `json:"url_b" jsonschema:"the second URL"`
 }
 
-type linkTraceArgs struct {
-	URL     string `json:"url" jsonschema:"the URL to follow; https:// is assumed when it has no scheme"`
+// linkFetchArgs serve both tools that visit a URL.
+type linkFetchArgs struct {
+	URL     string `json:"url" jsonschema:"the URL to visit; https:// is assumed when it has no scheme"`
 	Persona string `json:"persona,omitempty" jsonschema:"the user agent to present as"`
+}
+
+type linkHeadersParseArgs struct {
+	Headers string `json:"headers" jsonschema:"raw HTTP response headers, status line optional, as curl -i or DevTools shows them"`
 }
 
 type linkCurlParseArgs struct {
@@ -71,12 +76,6 @@ type linkResolveArgs struct {
 	Code string `json:"code" jsonschema:"a short link's code, or its whole short URL"`
 }
 
-type linkHeadersArgs struct {
-	URL     string `json:"url,omitempty" jsonschema:"the URL to probe live headers from via the guarded client"`
-	Headers string `json:"headers,omitempty" jsonschema:"pasted raw HTTP response headers (from curl or DevTools)"`
-	Persona string `json:"persona,omitempty" jsonschema:"the User-Agent to present as when fetching live URL"`
-}
-
 const extractRows = 30
 
 type linkTools struct {
@@ -101,6 +100,19 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 				Annotations: readOnly(false)},
 			deadline: quickDeadline,
 			limiter:  lim.Pure,
+			add:      add,
+		})
+	}
+	fetch := func(name, title, desc string, add func(*mcp.Server, *mcp.Tool)) {
+		specs = append(specs, toolSpec{
+			toolset: "link",
+			tool: &mcp.Tool{Name: name, Title: title, Description: desc,
+				InputSchema: inputSchema[linkFetchArgs](minLength("url", 1),
+					oneOf("persona", personas), defaultTo("persona", personas[0])),
+				Annotations: acts(false, false, true)},
+			deadline: fetchDeadline,
+			limiter:  lim.Fetch,
+			cap:      lim.FetchCap,
 			add:      add,
 		})
 	}
@@ -131,6 +143,13 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 				"Use it to find why one link behaves differently from another. "+
 				"Example: url_a https://example.com/?a=1&b=2, url_b https://example.com/?b=2&a=3.",
 			inputSchema[linkDiffArgs](minLength("url_a", 1), minLength("url_b", 1)), urlTool(t.diff))
+		pure("link_headers_parse", "Audit pasted response headers",
+			"Audit HTTP response headers you already have, pasted from curl -i or a browser's DevTools, without fetching anything: "+
+				"caching (Cache-Control, the RFC 9213 CDN-Cache-Control edge TTL, Vary, ETag), security headers "+
+				"(CSP, HSTS, COOP and COEP isolation, Permissions-Policy) and each cookie's attributes, with every finding graded. "+
+				"To fetch a live URL's headers instead, use link_headers_inspect. "+
+				"Example: headers HTTP/2 200 then cache-control: public, max-age=3600 on the next line. "+thirdParty,
+			inputSchema[linkHeadersParseArgs](minLength("headers", 1)), handle(t.headersParse))
 		pure("link_curl_parse", "Take apart a curl command",
 			"Take a curl command apart, including a browser's Copy as cURL: its URL (inspected as link_inspect does), "+
 				"the method and why it is that one, every header in order, and the size of any body, whose content is never echoed. "+
@@ -164,40 +183,19 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			inputSchema[linkEncodeArgs](minLength("value", 1)), handle(t.encode))
 	}
 	if t.trace != nil {
-		specs = append(specs, toolSpec{
-			toolset: "link",
-			tool: &mcp.Tool{
-				Name:  "link_redirect_chain",
-				Title: "Trace a redirect chain",
-				Description: "Follow a URL's HTTP redirects hop by hop from this server: each hop's status, timing, Location, Server and Content-Type " +
-					"and whether it set a cookie, where the chain ends, and notes when it goes on by JavaScript or meta refresh. It returns no page body. " +
-					"It visits the URL, so never trace a one-time login, unsubscribe or email-verification link: the visit can use it up. " +
-					"persona sets the user agent, to see what a crawler or link unfurler is shown. Example: url https://example.com/old-page. " + thirdParty,
-				InputSchema: inputSchema[linkTraceArgs](minLength("url", 1),
-					oneOf("persona", personas), defaultTo("persona", personas[0])),
-				Annotations: acts(false, false, true),
-			},
-			deadline: fetchDeadline,
-			limiter:  lim.Fetch,
-			cap:      lim.FetchCap,
-			add:      urlTool(t.redirectChain),
-		})
-		specs = append(specs, toolSpec{
-			toolset: "link",
-			tool: &mcp.Tool{
-				Name:  "link_headers_inspect",
-				Title: "Inspect HTTP Caching and Security Headers",
-				Description: "Audit modern HTTP caching (RFC 9111 & RFC 9213 CDN-Cache-Control dual TTL), " +
-					"Cross-Origin Isolation (COOP & COEP for SharedArrayBuffer), Permissions-Policy, cookie security attributes (RFC 6265bis), " +
-					"and ETag conditional revalidation from a live URL or pasted headers. Example: url https://web.dev/.",
-				InputSchema: inputSchema[linkHeadersArgs](oneOf("persona", personas)),
-				Annotations: acts(false, false, true),
-			},
-			deadline: fetchDeadline,
-			limiter:  lim.Fetch,
-			cap:      lim.FetchCap,
-			add:      urlTool(t.headersInspect),
-		})
+		fetch("link_redirect_chain", "Trace a redirect chain",
+			"Follow a URL's HTTP redirects hop by hop from this server: each hop's status, timing, Location, Server and Content-Type "+
+				"and whether it set a cookie, where the chain ends, and notes when it goes on by JavaScript or meta refresh. It returns no page body. "+
+				"It visits the URL, so never trace a one-time login, unsubscribe or email-verification link: the visit can use it up. "+
+				"persona sets the user agent, to see what a crawler or link unfurler is shown. Example: url https://example.com/old-page. "+thirdParty,
+			urlTool(t.redirectChain))
+		fetch("link_headers_inspect", "Inspect a URL's response headers",
+			"Fetch a URL from this server and audit its response headers: caching (Cache-Control, the RFC 9213 CDN-Cache-Control edge TTL, Vary), "+
+				"security headers (CSP, HSTS, COOP and COEP isolation, Permissions-Policy) and each cookie's attributes, with every finding graded. "+
+				"It visits the URL twice: a GET, then, when the answer carries an ETag, a conditional GET to see whether the server answers 304. "+
+				"For headers you already have, use link_headers_parse; to follow redirects hop by hop, link_redirect_chain. "+
+				"Example: url https://example.com/. "+thirdParty,
+			urlTool(t.headersInspect))
 	}
 	if t.short != nil {
 		specs = append(specs, toolSpec{
@@ -258,21 +256,16 @@ func (t linkTools) diff(_ context.Context, _ *mcp.CallToolRequest, a linkDiffArg
 	return t.svc.Diff(a.URLA, a.URLB)
 }
 
-func (t linkTools) redirectChain(ctx context.Context, _ *mcp.CallToolRequest, a linkTraceArgs) (any, error) {
+func (t linkTools) redirectChain(ctx context.Context, _ *mcp.CallToolRequest, a linkFetchArgs) (any, error) {
 	return t.trace.Trace(ctx, a.URL, a.Persona)
 }
 
-func (t linkTools) headersInspect(ctx context.Context, _ *mcp.CallToolRequest, a linkHeadersArgs) (any, error) {
-	if a.Headers != "" {
-		return linktools.ParseRawHeaders(a.Headers)
-	}
-	if a.URL != "" {
-		if t.trace == nil {
-			return nil, errors.New("live header probing is disabled on this server")
-		}
-		return t.trace.ProbeHeaders(ctx, a.URL, a.Persona)
-	}
-	return nil, errors.New("provide either url or headers")
+func (t linkTools) headersInspect(ctx context.Context, _ *mcp.CallToolRequest, a linkFetchArgs) (any, error) {
+	return t.trace.ProbeHeaders(ctx, a.URL, a.Persona)
+}
+
+func (t linkTools) headersParse(_ context.Context, _ *mcp.CallToolRequest, a linkHeadersParseArgs) (any, error) {
+	return linktools.ParseRawHeaders(a.Headers)
 }
 
 func (t linkTools) curlParse(_ context.Context, _ *mcp.CallToolRequest, a linkCurlParseArgs) (any, error) {

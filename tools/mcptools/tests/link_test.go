@@ -243,12 +243,12 @@ func TestLinkShortResolveOffline(t *testing.T) {
 func TestLinkToolsNeedTheirDependencies(t *testing.T) {
 	cs := newStack(t, stackOpts{bare: true, link: linktools.NewService()}).client(t, "/mcp/link", nil, nil)
 	for _, name := range toolNames(t, cs) {
-		if name == "link_redirect_chain" || name == "link_short_resolve" {
+		if name == "link_redirect_chain" || name == "link_headers_inspect" || name == "link_short_resolve" {
 			t.Errorf("%s is listed without its tracer or short-link store", name)
 		}
 	}
-	if n := len(toolNames(t, cs)); n != 9 {
-		t.Errorf("%d link tools without a tracer and a store, want the 9 that need neither", n)
+	if n := len(toolNames(t, cs)); n != 10 {
+		t.Errorf("%d link tools without a tracer and a store, want the 10 that need neither", n)
 	}
 }
 
@@ -276,6 +276,7 @@ func TestLinkParity(t *testing.T) {
 	q := url.QueryEscape
 	letter := newsletter(80)
 	const cmd = "curl -X POST -H 'Accept: application/json' -H 'Cookie: s=1' --data 'a=1' 'https://api.example.com/v1/items?x=1'"
+	const pasted = "HTTP/2 200\ncache-control: public, max-age=3600\nset-cookie: sid=1; Secure\nstrict-transport-security: max-age=31536000"
 	cases := []struct {
 		tool                 string
 		args                 map[string]any
@@ -292,6 +293,7 @@ func TestLinkParity(t *testing.T) {
 		{"link_curl_build", map[string]any{"url": "https://example.com/?q=a b", "persona": "googlebot", "follow_redirects": true}, http.MethodGet, "/curl?ua=googlebot&follow=true&u=" + q("https://example.com/?q=a b"), "", nil},
 		{"link_extract", map[string]any{"text": letter}, http.MethodPost, "/extract", "text=" + q(letter), extractConcise},
 		{"link_extract", map[string]any{"text": letter, "detailed": true}, http.MethodPost, "/extract", "text=" + q(letter), extractDetailed},
+		{"link_headers_parse", map[string]any{"headers": pasted}, http.MethodPost, "/headers", "headers=" + q(pasted), nil},
 		{"link_utm", map[string]any{"url": "https://example.com/?utm_source=old", "utm_source": "News", "utm_campaign": "spring"}, http.MethodGet, "/utm?utm_source=News&utm_campaign=spring&u=" + q("https://example.com/?utm_source=old"), "", nil},
 		{"link_percent_encode", map[string]any{"value": "a b+c/d%2F"}, http.MethodGet, "/encode?v=" + q("a b+c/d%2F"), "", nil},
 	}
@@ -309,9 +311,8 @@ func TestLinkParity(t *testing.T) {
 	}
 }
 
-func TestMCP_LinkHeadersInspect(t *testing.T) {
+func TestLinkHeadersParse(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
-
 	rawHeaders := "HTTP/2 200 OK\n" +
 		"content-type: text/html\n" +
 		"cache-control: public, max-age=3600, s-maxage=7200\n" +
@@ -320,25 +321,28 @@ func TestMCP_LinkHeadersInspect(t *testing.T) {
 		"cross-origin-embedder-policy: require-corp\n" +
 		"set-cookie: __Host-id=secret123; Secure; Path=/\n"
 
-	// 1. Inspection of pasted raw headers
-	res := object(t, call(t, cs, "link_headers_inspect", map[string]any{"headers": rawHeaders}))
+	res := object(t, call(t, cs, "link_headers_parse", map[string]any{"headers": rawHeaders}))
 	if fmt.Sprint(res["status_code"]) != "200" {
 		t.Errorf("status code: want 200, got %v", res["status_code"])
 	}
-	cache := res["cache"].(map[string]any)
-	ttl := cache["ttl"].(map[string]any)
+	ttl := res["cache"].(map[string]any)["ttl"].(map[string]any)
 	if fmt.Sprint(ttl["browser_ttl_seconds"]) != "3600" || fmt.Sprint(ttl["edge_ttl_seconds"]) != "86400" {
 		t.Errorf("TTL mismatch: browser=%v, edge=%v", ttl["browser_ttl_seconds"], ttl["edge_ttl_seconds"])
 	}
-	sec := res["security"].(map[string]any)
-	iso := sec["isolation"].(map[string]any)
-	if iso["isolated"] != true {
+	if iso := res["security"].(map[string]any)["isolation"].(map[string]any); iso["isolated"] != true {
 		t.Errorf("expected cross-origin isolated: true")
 	}
+	failsWith(t, call(t, cs, "link_headers_parse", map[string]any{}), "headers")
+}
 
-	// 2. Missing both url and headers
-	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{}), "provide either url or headers")
-
-	// 3. Passing curl command instead of URL triggers wrongTool detection
+// TestLinkHeadersInspect: refusals before any request; linktools' white-box tests drive a real fetch.
+func TestLinkHeadersInspect(t *testing.T) {
+	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
+	for _, u := range []string{"http://mcp.test/mcp", "https://link.corpberry.com/", "http://127.0.0.1/", "http://[::1]/"} {
+		failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": u}), "never contacted")
+	}
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "https://example.com:8443/"}), "only ports 80 and 443")
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{}), "url")
 	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "curl https://example.com"}), "Take it apart with link_curl_parse")
+	failsWith(t, call(t, cs, "link_headers_inspect", map[string]any{"url": "https://example.com/", "persona": "nobody"}), "persona")
 }

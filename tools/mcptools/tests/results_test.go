@@ -20,7 +20,7 @@ var required = map[string]map[string]any{
 	"link_extract":        {"text": "see https://example.com/"},
 	"link_utm":            {"url": "https://example.com/"},
 	"link_percent_encode": {"value": "a b"},
-	"link_headers_inspect": {"headers": "HTTP/1.1 200 OK\nCache-Control: public, max-age=3600"},
+	"link_headers_parse":  {"headers": "HTTP/1.1 200 OK\nCache-Control: public, max-age=3600"},
 
 	"cipher_jwt_decode":      {"token": jwtioToken},
 	"cipher_jwt_sign":        {"key": signKey},
@@ -56,13 +56,14 @@ var required = map[string]map[string]any{
 	"site_blog":      {},
 }
 
-// TestEveryToolAnswersAnObject; link_short_resolve needs a store, so TestShortLinksLive covers it.
+// TestEveryToolAnswersAnObject; link_short_resolve needs a store and link_headers_inspect a reachable
+// URL, so TestShortLinksLive and linktools' TestProbeHeadersLiveAndETag cover them.
 func TestEveryToolAnswersAnObject(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
 	for _, name := range toolNames(t, cs) {
 		args, ok := required[name]
 		if !ok {
-			if name != "link_short_resolve" {
+			if name != "link_short_resolve" && name != "link_headers_inspect" {
 				t.Errorf("%s has no entry here", name)
 			}
 			continue

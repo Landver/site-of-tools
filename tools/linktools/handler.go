@@ -85,14 +85,14 @@ func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base 
 	e.GET("/encoding", h.encoding)
 	e.GET("/extension/privacy", h.privacy)
 
-	// An empty form dials nothing, so it does not spend the trace budget.
-	e.GET("/trace", h.traceRoute, platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
+	// An empty form dials nothing, so it does not spend the fetch budget.
+	fetch := platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
 		return strings.TrimSpace(c.QueryParam("u")) == ""
-	}, limited))
-	e.GET("/headers", h.headersRoute, platform.RateLimit(lim.Fetch, func(c *echo.Context) bool {
-		return strings.TrimSpace(c.QueryParam("u")) == ""
-	}, limited))
-	e.POST("/headers", h.headersRoute, pure)
+	}, limited)
+	e.GET("/trace", h.traceRoute, fetch)
+	e.GET("/headers", h.headers, fetch)
+	// Pasted headers are only parsed, never fetched.
+	e.POST("/headers", h.pastedHeaders, pure)
 
 	// The key-gated console reads the corpus, so both /short routes get the strict limiter (doc 06 §4).
 	e.GET("/short", h.shortConsole, keyed)
@@ -147,14 +147,18 @@ type suggestion struct {
 	Label, Action, Field, Value string
 }
 
-// toolError answers a URL tool's error with a 400. Misplaced input gets a POST button to its page, so
-// curl cookies never ride in a URL.
+// toolError answers a URL tool's error: 502 when the caller's URL didn't answer, else 400. Misplaced
+// input gets a POST button to its page, so curl cookies never ride in a URL.
 func (h *handler) toolError(c *echo.Context, vm map[string]any, err error, page string) error {
+	code := http.StatusBadRequest
+	if errors.Is(err, ErrFetchFailed) {
+		code = http.StatusBadGateway
+	}
 	var m *MisplacedError
 	if errors.As(err, &m) {
 		vm["Suggest"] = suggestionFor(m, page)
 	}
-	return h.fail(c, vm, http.StatusBadRequest, err.Error(), page)
+	return h.fail(c, vm, code, err.Error(), page)
 }
 
 func suggestionFor(m *MisplacedError, page string) suggestion {
@@ -301,57 +305,54 @@ func (h *handler) traceRoute(c *echo.Context) error {
 	defer h.lim.FetchCap.Release(c.RealIP(), 1)
 	ch, err := h.trace.Trace(c.Request().Context(), raw, persona)
 	if err != nil {
-		if errors.Is(err, ErrDisabled) {
-			return h.fail(c, vm, http.StatusServiceUnavailable, "Tracing is not enabled on this server.", "link/trace")
-		}
 		return h.toolError(c, vm, err, "link/trace")
 	}
 	vm["Result"] = ch
 	return platform.Reply(c, http.StatusOK, ch, vm, "link/trace", "link/chain")
 }
 
-func (h *handler) headersRoute(c *echo.Context) error {
+// headersVM serves both tabs of the headers page: GET fetches ?u=, POST parses pasted headers.
+func (h *handler) headersVM(c *echo.Context, query, pasted string) map[string]any {
+	vm := h.vm("headers", "HTTP Caching & Security Headers Analyzer", headersDesc, query)
+	vm["Personas"], vm["Persona"] = Personas(), strings.TrimSpace(c.QueryParam("ua"))
+	vm["Disabled"], vm["PastedHeaders"] = h.trace == nil, pasted
+	return vm
+}
+
+func (h *handler) headers(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("u"))
-	pasted := strings.TrimSpace(c.FormValue("headers"))
-	if raw == "" && c.Request().Method == http.MethodGet {
-		raw = strings.TrimSpace(c.QueryParam("url"))
+	vm := h.headersVM(c, raw, "")
+	// The empty form renders even with probing off: the paste tab still works.
+	if done, err := h.needURL(c, raw, vm, "link/headers", "link/headers-result",
+		"?u=https%3A%2F%2Fexample.com%2F"); done {
+		return err
 	}
-	persona := strings.TrimSpace(c.QueryParam("ua"))
-	vm := h.vm("headers", "HTTP Caching & Security Headers Analyzer", headersDesc, raw)
-	vm["Personas"], vm["Persona"] = Personas(), persona
-	vm["Disabled"] = h.trace == nil
-	vm["PastedHeaders"] = pasted
-
-	if raw == "" && pasted == "" {
-		if platform.WantsJSON(c) {
-			return apiError(c, http.StatusBadRequest, "no URL or headers provided; pass ?u= or POST headers=")
-		}
-		return platform.Reply(c, http.StatusOK, nil, vm, "link/headers", "link/headers-result")
-	}
-
-	if pasted != "" {
-		res, err := ParseRawHeaders(pasted)
-		if err != nil {
-			return h.toolError(c, vm, err, "link/headers")
-		}
-		vm["Result"] = res
-		return platform.Reply(c, http.StatusOK, res, vm, "link/headers", "link/headers-result")
-	}
-
 	if h.trace == nil {
 		return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
 	}
-	clientIP := c.RealIP()
-	if !h.lim.FetchCap.TryAcquire(clientIP, 1) {
+	if !h.lim.FetchCap.TryAcquire(c.RealIP(), 1) {
 		return h.fail(c, vm, http.StatusServiceUnavailable, platform.BusyMessage, "link/headers")
 	}
-	defer h.lim.FetchCap.Release(clientIP, 1)
-
-	res, err := h.trace.ProbeHeaders(c.Request().Context(), raw, persona)
+	defer h.lim.FetchCap.Release(c.RealIP(), 1)
+	res, err := h.trace.ProbeHeaders(c.Request().Context(), raw, c.QueryParam("ua"))
 	if err != nil {
-		if errors.Is(err, ErrDisabled) {
-			return h.fail(c, vm, http.StatusServiceUnavailable, "Header probing is not enabled on this server.", "link/headers")
+		return h.toolError(c, vm, err, "link/headers")
+	}
+	vm["Result"] = res
+	return platform.Reply(c, http.StatusOK, res, vm, "link/headers", "link/headers-result")
+}
+
+func (h *handler) pastedHeaders(c *echo.Context) error {
+	pasted := strings.TrimSpace(c.FormValue("headers"))
+	vm := h.headersVM(c, "", pasted)
+	if pasted == "" {
+		if platform.WantsJSON(c) {
+			return apiError(c, http.StatusBadRequest, "no headers; POST a headers field")
 		}
+		return platform.Reply(c, http.StatusOK, nil, vm, "link/headers", "link/headers-result")
+	}
+	res, err := ParseRawHeaders(pasted)
+	if err != nil {
 		return h.toolError(c, vm, err, "link/headers")
 	}
 	vm["Result"] = res
