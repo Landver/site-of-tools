@@ -75,10 +75,17 @@ func TestForeignOriginIsServedAndLogged(t *testing.T) {
 
 func TestOwnerKey(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	unknown := s.do(http.MethodPost, "/mcp/nope", listBody, mcpHeaders(nil))
 	for name, hdr := range map[string]map[string]string{
-		"no key":     nil,
-		"wrong key":  {"X-Api-Key": "guess"},
-		"basic":      {"Authorization": "Basic " + ownerKey},
+		"no key":    nil,
+		"wrong key": {"X-Api-Key": "guess"},
+		"basic":     {"Authorization": "Basic " + ownerKey},
+	} {
+		if rec := s.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(hdr)); rec.Code != http.StatusNotFound || rec.Body.String() != unknown.Body.String() {
+			t.Errorf("%s = %d %.80q, want the unknown path's 404 %.80q", name, rec.Code, rec.Body, unknown.Body)
+		}
+	}
+	for name, hdr := range map[string]map[string]string{
 		"cross-site": {"X-Api-Key": ownerKey, "Sec-Fetch-Site": "cross-site"},
 		"same-site":  {"X-Api-Key": ownerKey, "Sec-Fetch-Site": "same-site"},
 	} {
@@ -91,9 +98,9 @@ func TestOwnerKey(t *testing.T) {
 	}
 
 	browser := map[string]string{"Accept": "text/html,application/xhtml+xml,*/*"}
-	page, unknown := s.do(http.MethodGet, "/mcp/owner", "", browser), s.do(http.MethodGet, "/mcp/nope", "", browser)
-	if page.Code != http.StatusNotFound || page.Body.String() != unknown.Body.String() {
-		t.Errorf("browser GET /mcp/owner = %d %.80q, want the unknown path's 404 %.80q", page.Code, page.Body, unknown.Body)
+	page, unknownPage := s.do(http.MethodGet, "/mcp/owner", "", browser), s.do(http.MethodGet, "/mcp/nope", "", browser)
+	if page.Code != http.StatusNotFound || page.Body.String() != unknownPage.Body.String() {
+		t.Errorf("browser GET /mcp/owner = %d %.80q, want the unknown path's 404 %.80q", page.Code, page.Body, unknownPage.Body)
 	}
 
 	// A gateway's own token doesn't touch the public endpoints.

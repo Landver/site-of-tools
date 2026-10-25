@@ -51,7 +51,7 @@ type Deps struct {
 
 const maxBody = 1 << 20
 
-const landingDesc = "An MCP server for AI agents: corpberry.com's IP, DNS, Link and Cipher Tools, Bot check and blog, " +
+const landingDesc = "An MCP server for AI agents: corpberry.com's IP, DNS, Link, Cipher and Mail Tools, Bot check and blog, " +
 	"with the same results as the web pages and their JSON API. Free, no account, no key."
 
 type handler struct {
@@ -115,12 +115,10 @@ func (h *handler) serve(c *echo.Context) error {
 	name := c.Param("toolset")
 	ep := h.endpoints[name]
 	req := c.Request()
-	page := req.Method == http.MethodGet && !platform.WantsJSON(c)
-	// The landing page at /mcp/owner would tell any visitor the endpoint exists.
-	if ep == nil || page && name == ownerEndpoint {
-		return refuseHTTP(c, http.StatusNotFound, "No MCP endpoint at this path. The endpoints are listed at "+h.base+"/")
+	if ep == nil {
+		return h.noEndpoint(c)
 	}
-	if page {
+	if name != ownerEndpoint && req.Method == http.MethodGet && !platform.WantsJSON(c) {
 		return h.landing(c)
 	}
 	switch req.Header.Get("Sec-Fetch-Site") {
@@ -133,8 +131,9 @@ func (h *handler) serve(c *echo.Context) error {
 		return refuseHTTP(c, http.StatusTooManyRequests, platform.LimitedMessage)
 	}
 	if name == ownerEndpoint {
+		// Answered as an unknown path, so only the key's holder learns the endpoint exists.
 		if !h.owner.Authorized(ownerKey(req.Header)) {
-			return refuseHTTP(c, http.StatusForbidden, "This endpoint needs the owner key, as X-Api-Key or Authorization: Bearer.")
+			return h.noEndpoint(c)
 		}
 		// The SDK copies every header into each handler's request; none needs these.
 		req.Header.Del("X-Api-Key")
@@ -158,6 +157,10 @@ func (h *handler) serve(c *echo.Context) error {
 	who := &caller{ip: ip, host: req.Host, userAgent: req.UserAgent(), http: req.Context()}
 	c.SetRequest(req.WithContext(context.WithValue(req.Context(), callerKey{}, who)))
 	return h.sdk(c)
+}
+
+func (h *handler) noEndpoint(c *echo.Context) error {
+	return refuseHTTP(c, http.StatusNotFound, "No MCP endpoint at this path. The endpoints are listed at "+h.base+"/")
 }
 
 func refuseHTTP(c *echo.Context, code int, msg string) error {
@@ -256,6 +259,7 @@ func (h *handler) landing(c *echo.Context) error {
 	vm := map[string]any{
 		"Title":     "MCP server — corpberry.com",
 		"Desc":      landingDesc,
+		"Canonical": h.base + "/",
 		"Endpoints": eps,
 		"Toolsets":  eps[1:],
 		"Example":   example,
