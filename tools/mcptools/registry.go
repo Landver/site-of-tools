@@ -106,6 +106,7 @@ func excluded(reason string) Decision { return Decision{Reason: reason} }
 const (
 	get, post, del = http.MethodGet, http.MethodPost, http.MethodDelete
 	engineShell    = "A page shell for the in-browser engine; the op it posts to is a tool."
+	arcStructure   = "Reads ARC header structure without verifying a signature, which a model reads from the headers as well."
 )
 
 var coverage = map[Route]Decision{
@@ -131,7 +132,7 @@ var coverage = map[Route]Decision{
 	{"link", get, "/clean"}:             served("link_clean"),
 	{"link", get, "/clean/rules"}:       served("link_tracking_rules"),
 	{"link", get, "/diff"}:              served("link_diff"),
-	{"link", get, "/curl"}:              served("link_curl_parse", "link_curl_build"),
+	{"link", get, "/curl"}:              served("link_curl_parse"),
 	{"link", post, "/curl"}:             served("link_curl_parse"),
 	{"link", get, "/extract"}:           served("link_extract"),
 	{"link", post, "/extract"}:          served("link_extract"),
@@ -160,7 +161,7 @@ var coverage = map[Route]Decision{
 	{"cipher", post, "/totp"}:            served("cipher_totp"),
 	{"cipher", post, "/random"}:          served("cipher_random"),
 	{"cipher", post, "/encode"}:          served("cipher_encode"),
-	{"cipher", post, "/encode/basic"}:    served("cipher_basic_auth"),
+	{"cipher", post, "/encode/basic"}:    excluded("Basic auth is base64 of user:password, which cipher_encode converts."),
 	{"cipher", post, "/identify"}:        served("cipher_identify"),
 	{"cipher", post, "/pkce/generate"}:   served("cipher_pkce_generate"),
 	{"cipher", post, "/pkce/verify"}:     served("cipher_pkce_verify"),
@@ -194,8 +195,8 @@ var coverage = map[Route]Decision{
 	{"mail", post, "/dmarc/parse"}: served("mail_dmarc_parse"),
 	{"mail", post, "/bimi"}:        served("mail_bimi_validate"),
 	{"mail", post, "/bimi/fix"}:    served("mail_bimi_validate"),
-	{"mail", post, "/arc"}:         served("mail_arc_analyze"),
-	{"mail", post, "/arc/parse"}:   served("mail_arc_analyze"),
+	{"mail", post, "/arc"}:         excluded(arcStructure),
+	{"mail", post, "/arc/parse"}:   excluded(arcStructure),
 	{"mail", get, "/dmarc"}:        excluded(engineShell),
 	{"mail", get, "/bimi"}:         excluded(engineShell),
 	{"mail", get, "/arc"}:          excluded(engineShell),

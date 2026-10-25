@@ -48,13 +48,6 @@ type linkCurlParseArgs struct {
 	Command string `json:"command" jsonschema:"the curl command, backslash line continuations and all"`
 }
 
-type linkCurlBuildArgs struct {
-	URL             string `json:"url" jsonschema:"the URL to fetch"`
-	Persona         string `json:"persona,omitempty" jsonschema:"send this client's User-Agent"`
-	FollowRedirects bool   `json:"follow_redirects,omitempty" jsonschema:"add -L to follow redirects"`
-	ShowHeaders     bool   `json:"show_headers,omitempty" jsonschema:"add -i to print the response headers"`
-}
-
 type linkExtractArgs struct {
 	Text     string `json:"text" jsonschema:"the HTML, Markdown or plain text"`
 	Detailed bool   `json:"detailed,omitempty" jsonschema:"list every distinct link, not the first 30, up to what fits one 80 KB result"`
@@ -153,14 +146,9 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 		pure("link_curl_parse", "Take apart a curl command",
 			"Take a curl command apart, including a browser's Copy as cURL: its URL (inspected as link_inspect does), "+
 				"the method and why it is that one, every header in order, and the size of any body, whose content is never echoed. "+
-				"Nothing is run or fetched. For the reverse, use link_curl_build. "+
+				"Nothing is run or fetched. "+
 				"Example: command curl -H 'Accept: application/json' https://api.example.com/v1/items.",
 			inputSchema[linkCurlParseArgs](minLength("command", 1)), handle(t.curlParse))
-		pure("link_curl_build", "Build a curl command",
-			"Turn a URL into a curl command, single-quoted so it is safe to paste into a shell. "+
-				"persona adds that client's User-Agent (left out, curl sends its own), follow_redirects adds -L and show_headers adds -i. "+
-				"For taking a command apart, use link_curl_parse. Example: url https://example.com/search?q=a&page=2.",
-			inputSchema[linkCurlBuildArgs](minLength("url", 1), oneOf("persona", personas)), urlTool(t.curlBuild))
 		pure("link_extract", "Extract links",
 			"Pull every link out of pasted HTML, Markdown or plain text, such as a newsletter before it is sent: "+
 				"deduplicated in the order first seen, counted, with anchor text and flags for links that should stop a send "+
@@ -268,16 +256,6 @@ func (t linkTools) headersParse(_ context.Context, a linkHeadersParseArgs) (any,
 
 func (t linkTools) curlParse(_ context.Context, a linkCurlParseArgs) (any, error) {
 	return t.svc.ParseCurl(a.Command)
-}
-
-func (t linkTools) curlBuild(_ context.Context, a linkCurlBuildArgs) (any, error) {
-	line, err := t.svc.ToCurl(a.URL, linktools.CurlOptions{
-		Persona: a.Persona, FollowRedirects: a.FollowRedirects, ShowHeaders: a.ShowHeaders,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{"curl": line}, nil
 }
 
 // extract leaves out byte positions, which only a page highlighting the text needs.

@@ -46,7 +46,7 @@ Files: `handler.go` (`Register`, `Deps`, gate, landing page),
   model's context, so each toolset has a URL.
 - **One tool per task.** No operation switches; reads and writes never share
   a tool; same-task routes share one (`GET`/`POST /extract`), a two-task route
-  splits (`/curl` → parse, build).
+  splits (`/headers` → parse, inspect).
 - **Adapters only map** arguments → the handler's domain call → result. Logic
   both doors need lives in the domain (`LookupEnriched`, `InputFromJSON`,
   `Shortener.Create`, `mailtools.Service`).

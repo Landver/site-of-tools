@@ -33,12 +33,6 @@ const (
 	badSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" onload="alert(1)">
   <script>evil()</script><rect width="200" height="100"/>
 </svg>`
-	arcChain = `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=none; b=sig1
-ARC-Message-Signature: i=1; a=rsa-sha256; d=origin.example; s=arc; b=sig2
-ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
-	arcPassFirst = `ARC-Seal: i=1; a=rsa-sha256; d=origin.example; s=arc; cv=pass; b=sig1
-ARC-Message-Signature: i=1; a=rsa-sha256; d=origin.example; s=arc; b=sig2
-ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
 )
 
 func base64Of(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
@@ -63,7 +57,6 @@ func TestMailParity(t *testing.T) {
 		{"mail_dmarc_parse", map[string]any{"xml": dmarcReport, "detailed": true}, http.MethodPost, "/dmarc/parse", "xml=" + q(dmarcReport)},
 		{"mail_bimi_validate", map[string]any{"svg": tinySVG}, http.MethodPost, "/bimi", "svg=" + q(tinySVG)},
 		{"mail_bimi_validate", map[string]any{"svg": badSVG}, http.MethodPost, "/bimi", "svg=" + q(badSVG)},
-		{"mail_arc_analyze", map[string]any{"headers": arcChain}, http.MethodPost, "/arc/parse", "headers=" + q(arcChain)},
 		{"mail_classify_domain", map[string]any{"domain": "someone@mailinator.com"}, http.MethodGet, "/disposable?domain=" + q("someone@mailinator.com"), ""},
 		{"mail_classify_domain", map[string]any{"domain": "alex@gmail.com"}, http.MethodGet, "/classifier?domain=" + q("alex@gmail.com"), ""},
 	}
@@ -88,8 +81,6 @@ func TestMailResults(t *testing.T) {
 		{"dmarc gzip as base64", "mail_dmarc_parse", map[string]any{"base64": base64Of(gzipped(dmarcReport))}, map[string]string{"org_name": "google.com"}},
 		{"bimi compliant", "mail_bimi_validate", map[string]any{"svg": tinySVG}, map[string]string{"compliant": "true"}},
 		{"bimi not compliant", "mail_bimi_validate", map[string]any{"svg": badSVG}, map[string]string{"compliant": "false"}},
-		{"arc intact", "mail_arc_analyze", map[string]any{"headers": arcChain}, map[string]string{"chain_valid": "true", "final_chain_validation": "none"}},
-		{"arc cv=pass on the first hop", "mail_arc_analyze", map[string]any{"headers": arcPassFirst}, map[string]string{"chain_valid": "false"}},
 		{"disposable", "mail_classify_domain", map[string]any{"domain": "test@mailinator.com"}, map[string]string{"is_disposable": "true", "type": "disposable"}},
 		{"corporate", "mail_classify_domain", map[string]any{"domain": "stripe.com"}, map[string]string{"is_disposable": "false", "type": "corporate"}},
 		{"free webmail", "mail_classify_domain", map[string]any{"domain": "alex@gmail.com"}, map[string]string{"is_freemail": "true", "type": "freemail"}},

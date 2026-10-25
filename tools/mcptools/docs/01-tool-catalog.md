@@ -58,20 +58,23 @@ Owner endpoint, `/mcp/owner`:
 
 ## cipher
 
-One tool per op, generated at boot from the field specs ciphertools exports
-(`ciphertools.Ops`): the specs its own parsers read, so the schemas can't
-drift (ciphertools' `TestFieldSpecsMatchTheCode`). An op without a description
-in `cipher.go` stops the boot. One adapter decodes the arguments with
-`ciphertools.InputFromJSON`, as the JSON API does, and calls `ciphertools.Run`. `Coverage` maps each to its POST
-route.
+One tool per op `cipher.go` describes, generated at boot from the field specs
+ciphertools exports (`ciphertools.Ops`): the specs its own parsers read, so the
+schemas can't drift (ciphertools' `TestFieldSpecsMatchTheCode`). An op left out
+is not served, and its route needs a reasoned `Coverage` exclusion: Basic auth
+is, as `cipher_encode` builds and reads it. One adapter decodes the arguments
+with `ciphertools.InputFromJSON`, as the JSON API does, and calls
+`ciphertools.Limits.Run`.
 
 - A list field (`sets`) is a comma-separated string, as in the JSON API; a
   JSON field (`payload`, `header`) stays a string, so re-encoding can't
   reorder the claims it signs; file fields have no MCP form (binary goes as
   base64 or hex, ~750 KB at most).
-- The pages run in the browser and send nothing; over MCP inputs and outputs
-  (generated keys, random values) pass through this server and the user's AI
-  provider, so every description ends "use test material only".
+- The pages run in the browser and send nothing; over MCP the ops run on this
+  server, which the server instructions say once, with nothing logged. A tool
+  that takes keys, passwords or tokens asks for test ones; a tool that
+  generates them says the value lands in the conversation. Hashing, encoding,
+  identifying and PKCE verification say neither.
 
 ## mail
 

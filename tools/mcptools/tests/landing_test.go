@@ -58,7 +58,7 @@ func TestLandingJSON(t *testing.T) {
 	for path, want := range map[string][]string{
 		"/mcp/ip": {"ip_cidr", "ip_lookup"}, "/mcp/botcheck": {"botcheck_score"},
 		"/mcp/mail": {
-			"mail_arc_analyze", "mail_bimi_validate", "mail_check_dnsbl",
+			"mail_bimi_validate", "mail_check_dnsbl",
 			"mail_classify_domain", "mail_dmarc_parse", "mail_domain_health",
 		},
 		"/mcp/site": {"site_blog"},
@@ -67,8 +67,8 @@ func TestLandingJSON(t *testing.T) {
 			t.Errorf("%s tools (-want +got):\n%s", path, diff)
 		}
 	}
-	if n := len(tools["/mcp/cipher"]); n != 19 || len(tools["/mcp"]) != 46 {
-		t.Errorf("%d cipher tools and %d in all, want 19 and the catalog's 46", n, len(tools["/mcp"]))
+	if n := len(tools["/mcp/cipher"]); n != 18 || len(tools["/mcp"]) != 43 {
+		t.Errorf("%d cipher tools and %d in all, want 18 and the catalog's 43", n, len(tools["/mcp"]))
 	}
 }
 
@@ -94,7 +94,7 @@ func TestLandingPage(t *testing.T) {
 		"codex mcp add corpberry-ip --url http://mcp.test/mcp/ip",
 		"gemini mcp add --transport http corpberry-ip http://mcp.test/mcp/ip",
 
-		"test material only", "Never the arguments",
+		"never live ones", "Never the arguments",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page lacks %q", want)

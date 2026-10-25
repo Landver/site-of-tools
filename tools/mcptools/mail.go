@@ -25,10 +25,6 @@ type mailBIMIArgs struct {
 	SVG string `json:"svg" jsonschema:"the SVG logo's markup"`
 }
 
-type mailARCArgs struct {
-	Headers string `json:"headers" jsonschema:"the message's raw headers, ARC-Seal, ARC-Message-Signature and ARC-Authentication-Results among them"`
-}
-
 type mailDomainArgs struct {
 	Domain string `json:"domain" jsonschema:"a domain, e.g. stripe.com, or an email address"`
 }
@@ -71,15 +67,6 @@ func mailSpecs(d Deps) []toolSpec {
 			InputSchema: inputSchema[mailBIMIArgs](minLength("svg", 1)),
 			Annotations: readOnly(false),
 		}, handle(t.bimiValidate)),
-		spec(false, &mcp.Tool{
-			Name:  "mail_arc_analyze",
-			Title: "Check ARC header structure",
-			Description: "Check the structure of a message's ARC headers (RFC 8617): every forwarding hop i=1, 2, … has its ARC-Seal, ARC-Message-Signature and " +
-				"ARC-Authentication-Results, numbered without gaps or repeats, with cv= values in the order the RFC requires, and any arc=fail a receiver recorded. " +
-				"Signatures are not verified, so an intact structure is not proof the message is authentic. Pass the raw headers. " + thirdParty,
-			InputSchema: inputSchema[mailARCArgs](minLength("headers", 1)),
-			Annotations: readOnly(false),
-		}, handle(t.arcAnalyze)),
 		spec(false, &mcp.Tool{
 			Name:  "mail_classify_domain",
 			Title: "Disposable, free or company email",
@@ -147,10 +134,6 @@ func (t mailTools) dmarcParse(_ context.Context, a mailDMARCArgs) (any, error) {
 
 func (t mailTools) bimiValidate(_ context.Context, a mailBIMIArgs) (any, error) {
 	return mailtools.ValidateBIMI(a.SVG)
-}
-
-func (t mailTools) arcAnalyze(_ context.Context, a mailARCArgs) (any, error) {
-	return mailtools.AnalyzeARC(a.Headers)
 }
 
 func (t mailTools) classify(_ context.Context, a mailDomainArgs) (any, error) {

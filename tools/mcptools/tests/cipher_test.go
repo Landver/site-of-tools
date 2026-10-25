@@ -108,9 +108,6 @@ func cipherCases() []cipherCase {
 			want: map[string]any{"kind": "password", "alphabet": "0123456789"}, random: true},
 		{tool: "cipher_encode", args: map[string]any{"text": "aGVsbG8=", "from": "base64"},
 			want: map[string]any{"text": "hello", "hex": "68656c6c6f", "base32": "NBSWY3DP"}},
-		// RFC 7617 §2.
-		{tool: "cipher_basic_auth", args: map[string]any{"user": "Aladdin", "password": "open sesame"},
-			want: map[string]any{"mode": "build", "token": "QWxhZGRpbjpvcGVuIHNlc2FtZQ=="}},
 		{tool: "cipher_identify", args: map[string]any{"text": "5d41402abc4b2a76b9719d911017c592"},
 			want: map[string]any{"candidates.0.name": "MD5 digest", "candidates.0.hashcat": "0"}},
 		{tool: "cipher_pkce_generate", args: map[string]any{"length": 64, "method": "S256"},
@@ -146,8 +143,8 @@ func dig(v any, path string) any {
 func TestCipherToolsKnownVectors(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp/cipher", nil, nil)
 	cases := cipherCases()
-	if len(cases) != len(ciphertools.Ops()) {
-		t.Fatalf("%d cases for %d ops", len(cases), len(ciphertools.Ops()))
+	if n := len(listTools(t, cs).Tools); len(cases) != n {
+		t.Fatalf("%d cases for %d cipher tools", len(cases), n)
 	}
 	for _, tc := range cases {
 		got := object(t, call(t, cs, tc.tool, tc.args))
@@ -293,7 +290,6 @@ func TestCipherParity(t *testing.T) {
 	for _, op := range ciphertools.Ops() {
 		paths["cipher_"+strings.ReplaceAll(op.Name, "-", "_")] = op.Path
 	}
-	paths["cipher_basic_auth"] = "/encode/basic"
 	for _, tc := range cipherCases() {
 		body, _ := json.Marshal(tc.args)
 		rec := s.do(http.MethodPost, paths[tc.tool], string(body),

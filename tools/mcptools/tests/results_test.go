@@ -16,7 +16,6 @@ var required = map[string]map[string]any{
 	"link_diff":           {"url_a": "https://example.com/?a=1", "url_b": "https://example.com/?a=2"},
 	"link_redirect_chain": {"url": "http://127.0.0.1/"},
 	"link_curl_parse":     {"command": "curl https://example.com/"},
-	"link_curl_build":     {"url": "https://example.com/"},
 	"link_extract":        {"text": "see https://example.com/"},
 	"link_utm":            {"url": "https://example.com/"},
 	"link_percent_encode": {"value": "a b"},
@@ -35,7 +34,6 @@ var required = map[string]map[string]any{
 	"cipher_totp":            {"secret": "JBSWY3DPEHPK3PXP"},
 	"cipher_random":          {},
 	"cipher_encode":          {"text": "abc"},
-	"cipher_basic_auth":      {"user": "aladdin"},
 	"cipher_identify":        {"text": "abc"},
 	"cipher_pkce_generate":   {},
 	"cipher_pkce_verify":     {"code_verifier": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"},
@@ -44,7 +42,6 @@ var required = map[string]map[string]any{
 
 	"mail_dmarc_parse":     {"xml": "<feedback><report_metadata><org_name>test</org_name></report_metadata><policy_published><domain>test.com</domain></policy_published></feedback>"},
 	"mail_bimi_validate":   {"svg": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>`},
-	"mail_arc_analyze":     {"headers": "ARC-Seal: i=1; a=rsa-sha256; d=example.com; s=arc; cv=none\nARC-Message-Signature: i=1; a=rsa-sha256; d=example.com; s=arc\nARC-Authentication-Results: i=1; mx.example.com; spf=pass"},
 	"mail_classify_domain": {"domain": "test@gmail.com"},
 
 	"botcheck_score": {"ip": "8.8.8.8"},

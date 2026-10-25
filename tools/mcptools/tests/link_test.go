@@ -131,16 +131,6 @@ func TestLinkCurl(t *testing.T) {
 		t.Errorf("parse = %v", got)
 	}
 	failsWith(t, call(t, cs, "link_curl_parse", map[string]any{"command": "curl 'https://example.com/"}), "never closed")
-
-	plain := object(t, call(t, cs, "link_curl_build", map[string]any{"url": "https://example.com/a?b=1&c=2"}))
-	if plain["curl"] != "curl 'https://example.com/a?b=1&c=2'" {
-		t.Errorf("options omitted = %v, want a bare quoted command", plain)
-	}
-	opts := object(t, call(t, cs, "link_curl_build", map[string]any{"url": "https://example.com/", "persona": "googlebot", "follow_redirects": true, "show_headers": true}))
-	if c := opts["curl"].(string); !strings.Contains(c, " -L ") || !strings.Contains(c, " -i ") || !strings.Contains(c, "Googlebot") {
-		t.Errorf("with options = %q, want -L, -i and Googlebot's User-Agent", c)
-	}
-	failsWith(t, call(t, cs, "link_curl_build", map[string]any{"url": "javascript:alert(1)"}), "not a network scheme")
 }
 
 func TestLinkExtract(t *testing.T) {
@@ -213,7 +203,6 @@ func TestLinkWholeStrings(t *testing.T) {
 	for tool, args := range map[string]map[string]any{
 		"link_clean":          {"url": long},
 		"link_utm":            {"url": long, "utm_campaign": "c"},
-		"link_curl_build":     {"url": long},
 		"link_percent_encode": {"value": state},
 		"link_diff":           {"url_a": long, "url_b": "https://example.com/p?state=b"},
 		"link_curl_parse":     {"command": "curl '" + long + "'"},
@@ -247,8 +236,8 @@ func TestLinkToolsNeedTheirDependencies(t *testing.T) {
 			t.Errorf("%s is listed without its tracer or short-link store", name)
 		}
 	}
-	if n := len(toolNames(t, cs)); n != 10 {
-		t.Errorf("%d link tools without a tracer and a store, want the 10 that need neither", n)
+	if n := len(toolNames(t, cs)); n != 9 {
+		t.Errorf("%d link tools without a tracer and a store, want the 9 that need neither", n)
 	}
 }
 
@@ -290,7 +279,6 @@ func TestLinkParity(t *testing.T) {
 		{"link_diff", map[string]any{"url_a": "https://example.com/?a=1&b=2", "url_b": "https://EXAMPLE.com/?b=2&a=3"}, http.MethodGet, "/diff?a=" + q("https://example.com/?a=1&b=2") + "&b=" + q("https://EXAMPLE.com/?b=2&a=3"), "", nil},
 		{"link_redirect_chain", map[string]any{"url": "http://127.0.0.1/admin"}, http.MethodGet, "/trace?u=" + q("http://127.0.0.1/admin"), "", nil},
 		{"link_curl_parse", map[string]any{"command": cmd}, http.MethodPost, "/curl", "curl=" + q(cmd), nil},
-		{"link_curl_build", map[string]any{"url": "https://example.com/?q=a b", "persona": "googlebot", "follow_redirects": true}, http.MethodGet, "/curl?ua=googlebot&follow=true&u=" + q("https://example.com/?q=a b"), "", nil},
 		{"link_extract", map[string]any{"text": letter}, http.MethodPost, "/extract", "text=" + q(letter), extractConcise},
 		{"link_extract", map[string]any{"text": letter, "detailed": true}, http.MethodPost, "/extract", "text=" + q(letter), extractDetailed},
 		{"link_headers_parse", map[string]any{"headers": pasted}, http.MethodPost, "/headers", "headers=" + q(pasted), nil},

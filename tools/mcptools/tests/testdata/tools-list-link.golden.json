@@ -44,54 +44,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Turn a URL into a curl command, single-quoted so it is safe to paste into a shell. persona adds that client's User-Agent (left out, curl sends its own), follow_redirects adds -L and show_headers adds -i. For taking a command apart, use link_curl_parse. Example: url https://example.com/search?q=a&page=2.",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {
-        "follow_redirects": {
-          "description": "add -L to follow redirects",
-          "type": "boolean"
-        },
-        "persona": {
-          "description": "send this client's User-Agent",
-          "enum": [
-            "browser",
-            "googlebot",
-            "bingbot",
-            "twitterbot",
-            "slackbot",
-            "facebook",
-            "gptbot",
-            "curl"
-          ],
-          "type": "string"
-        },
-        "show_headers": {
-          "description": "add -i to print the response headers",
-          "type": "boolean"
-        },
-        "url": {
-          "description": "the URL to fetch",
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "url"
-      ],
-      "type": "object"
-    },
-    "name": "link_curl_build",
-    "title": "Build a curl command"
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": true,
-      "openWorldHint": false,
-      "readOnlyHint": true
-    },
-    "description": "Take a curl command apart, including a browser's Copy as cURL: its URL (inspected as link_inspect does), the method and why it is that one, every header in order, and the size of any body, whose content is never echoed. Nothing is run or fetched. For the reverse, use link_curl_build. Example: command curl -H 'Accept: application/json' https://api.example.com/v1/items.",
+    "description": "Take a curl command apart, including a browser's Copy as cURL: its URL (inspected as link_inspect does), the method and why it is that one, every header in order, and the size of any body, whose content is never echoed. Nothing is run or fetched. Example: command curl -H 'Accept: application/json' https://api.example.com/v1/items.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
