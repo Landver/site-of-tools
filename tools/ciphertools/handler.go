@@ -97,6 +97,19 @@ func HeavyWeight(name string, in Input) int64 {
 	return min(max(MemoryCost(name, in), 1<<20), heavyBudget)
 }
 
+// Run runs op for client, a Heavy op holding its HeavyWeight of HeavyCap meanwhile; REST and MCP both
+// come through here. A full budget is platform.ErrBusy.
+func (l *Limits) Run(client string, op Op, in Input) (any, error) {
+	if op.Heavy {
+		w := HeavyWeight(op.Name, in)
+		if !l.HeavyCap.TryAcquire(client, w) {
+			return nil, platform.ErrBusy
+		}
+		defer l.HeavyCap.Release(client, w)
+	}
+	return Run(op, in)
+}
+
 type handler struct {
 	base string
 	lim  *Limits
@@ -202,7 +215,7 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 		in, err := readInput(c)
 		var res any
 		if err == nil {
-			res, err = h.run(c.RealIP(), op, in)
+			res, err = h.lim.Run(c.RealIP(), op, in)
 		}
 		vm := h.vm(p)
 		vm["Form"], vm["Op"] = in.Fields, op.Name
@@ -217,17 +230,6 @@ func (h *handler) op(op Op) echo.HandlerFunc {
 		}
 		return platform.Reply(c, code, map[string]string{"error": err.Error()}, vm, "cipher/"+p.Key, "cipher/"+p.Key)
 	}
-}
-
-func (h *handler) run(client string, op Op, in Input) (any, error) {
-	if op.Heavy {
-		w := HeavyWeight(op.Name, in)
-		if !h.lim.HeavyCap.TryAcquire(client, w) {
-			return nil, platform.ErrBusy
-		}
-		defer h.lim.HeavyCap.Release(client, w)
-	}
-	return Run(op, in)
 }
 
 // readInput takes a form (urlencoded or multipart) or a flat JSON object, so both curl -d and curl --json work.

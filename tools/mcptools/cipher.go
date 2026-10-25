@@ -2,7 +2,6 @@ package mcptools
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -103,22 +102,16 @@ func cipherSpecs(d Deps) []toolSpec {
 				InputSchema: cipherSchema(op), Annotations: readOnly(false)},
 			deadline: quickDeadline,
 			limiter:  lim.Pure,
-			add: handle(func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
+			add: handle(func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
 				in, err := ciphertools.InputFromJSON(args)
 				if err != nil {
 					return nil, err
 				}
-				return ciphertools.Run(op, in)
+				return lim.Run(callerFrom(ctx).ip, op, in)
 			}),
 		}
 		if op.Heavy {
-			s.deadline, s.limiter, s.cap = heavyDeadline, lim.Heavy, lim.HeavyCap
-			s.weight = func(raw json.RawMessage) int64 {
-				var args map[string]any
-				_ = json.Unmarshal(raw, &args) // arguments that don't decode fail validation next
-				in, _ := ciphertools.InputFromJSON(args)
-				return ciphertools.HeavyWeight(op.Name, in)
-			}
+			s.deadline, s.limiter = heavyDeadline, lim.Heavy
 		}
 		specs = append(specs, s)
 	}

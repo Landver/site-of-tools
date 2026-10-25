@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -82,6 +83,31 @@ func TestHeavyOpsShareAMemoryBudget(t *testing.T) {
 	}
 	if rec := post(t, e, "/hash", hash, form, asAPI); rec.Code != http.StatusOK {
 		t.Errorf("a light op with the budget spent = %d, want 200", rec.Code)
+	}
+}
+
+// Limits.Run is the one budget path, REST's and MCP's: a Heavy op past the budget is ErrBusy, a light one runs.
+func TestLimitsRunHoldsTheBudget(t *testing.T) {
+	lim := ciphertools.NewLimits()
+	const budget, client = 256 << 20, "198.51.100.252"
+	if !lim.HeavyCap.TryAcquire("198.51.100.253", budget) {
+		t.Fatal("a fresh budget is under 256 MiB")
+	}
+	heavy, _ := ciphertools.Lookup("password-hash")
+	bcrypt := ciphertools.Input{Fields: url.Values{"password": {"pw"}, "bcrypt_cost": {"4"}}}
+	if _, err := lim.Run(client, heavy, bcrypt); !errors.Is(err, platform.ErrBusy) {
+		t.Errorf("heavy op with the budget spent: err = %v, want ErrBusy", err)
+	}
+	light, _ := ciphertools.Lookup("hash")
+	if _, err := lim.Run(client, light, ciphertools.Input{Fields: url.Values{"text": {"abc"}}}); err != nil {
+		t.Errorf("light op with the budget spent: %v", err)
+	}
+	lim.HeavyCap.Release("198.51.100.253", budget)
+	if _, err := lim.Run(client, heavy, bcrypt); err != nil {
+		t.Errorf("heavy op with the budget free: %v", err)
+	}
+	if !lim.HeavyCap.TryAcquire(client, budget/4) {
+		t.Error("Run kept its share of the budget after returning")
 	}
 }
 
