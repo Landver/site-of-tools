@@ -137,7 +137,7 @@ func NewECSEnvelope(sp *Spread, e *ECS) (*ECSEnvelope, error) {
 	return &ECSEnvelope{Spread: sp, ECS: e}, nil
 }
 
-// ECS runs the check against the pinned resolver. qtype defaults to A.
+// ECS runs the check against the pinned resolver, on a name and type Consistency has normalised.
 func (s *Service) ECS(ctx context.Context, name, qtype string) (*ECS, error) {
 	addr, _ := resolverAddr(ecsResolverKey)
 	return s.ecsRun(ctx, name, qtype, addr)
@@ -145,11 +145,6 @@ func (s *Service) ECS(ctx context.Context, name, qtype string) (*ECS, error) {
 
 // ecsRun takes addr so a white-box test can aim it at loopback.
 func (s *Service) ecsRun(ctx context.Context, name, qtype, addr string) (*ECS, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, ErrEmptyName
-	}
-	qtype = walkType(qtype)
 	if !slices.Contains(ecsSteerableTypes, qtype) {
 		return nil, fmt.Errorf("%w: location steering is only measurable on %s",
 			ErrBadType, strings.Join(ecsSteerableTypes, ", "))

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -97,10 +98,12 @@ func (f *goldenDNS) ECS(_ context.Context, name, qtype string) (*dnstools.ECS, e
 	}, nil
 }
 
+// Trace reads the raw query, as Service.Trace does.
 func (f *goldenDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace, error) {
 	if f.traceErr != nil {
 		return nil, f.traceErr
 	}
+	name, qtype = dnstools.NormalizeName(name), cmp.Or(strings.ToUpper(qtype), dnstools.DefaultType)
 	return &dnstools.Trace{
 		Name: name, QName: name + ".", Type: qtype,
 		Hops: []dnstools.TraceHop{

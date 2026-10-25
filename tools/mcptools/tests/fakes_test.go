@@ -177,7 +177,9 @@ func (f *fakeDNS) ECS(_ context.Context, name, qtype string) (*dnstools.ECS, err
 	}, nil
 }
 
+// Trace reads the raw name, as Service.Trace does.
 func (f *fakeDNS) Trace(_ context.Context, name, qtype string) (*dnstools.Trace, error) {
+	name = dnstools.NormalizeName(name)
 	if err := f.check(name); err != nil {
 		return nil, err
 	}
@@ -259,7 +261,7 @@ func (u upstream) client(t *testing.T) *dnstools.DomainClient {
 		_ = json.NewEncoder(w).Encode(rows)
 	}))
 	t.Cleanup(srv.Close)
-	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second)
+	return dnstools.NewDomainClient(srv.URL, srv.URL, 5*time.Second, nil)
 }
 
 var ownHosts = []string{mcpHost, ipHost, dnsHost, linkHost, "mcp.localhost:8080", "mcp.corpberry.com", "link.corpberry.com"}

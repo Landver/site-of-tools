@@ -102,9 +102,8 @@ const (
 	maxZoneWalk      = 8 // the registrable-domain stop normally ends the walk first
 )
 
-// Spread runs the check. qtype defaults to A.
+// Spread runs the check on a name and type Consistency has normalised.
 func (s *Service) Spread(ctx context.Context, name, qtype string) (*Spread, error) {
-	name, qtype = strings.TrimSpace(name), walkType(qtype)
 	// Types, not miekg's registry: ANY/AXFR at caller-chosen nameservers is an amplification pipe.
 	if !slices.Contains(Types, qtype) {
 		return nil, ErrBadType
@@ -539,8 +538,11 @@ func Consistency(ctx context.Context, spr Spreader, ecs ECSer, geo iptools.Looke
 	return NewECSEnvelope(sp, steer)
 }
 
+// DefaultType is the record type a walk asks for when none is named.
+const DefaultType = "A"
+
 func walkType(qtype string) string {
-	return cmp.Or(strings.ToUpper(strings.TrimSpace(qtype)), "A")
+	return cmp.Or(strings.ToUpper(strings.TrimSpace(qtype)), DefaultType)
 }
 
 func delegationHealth(ctx context.Context, sp *Spread, geo iptools.Looker, dom *DomainClient) {

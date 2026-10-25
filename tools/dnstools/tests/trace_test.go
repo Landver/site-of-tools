@@ -383,6 +383,10 @@ func TestTraceRejectsBadInput(t *testing.T) {
 	if _, err := svc.Trace(ctx, "1.1.1.1", "A"); err == nil {
 		t.Error("an IP literal should be refused")
 	}
+	// Trace reads a pasted URL as its host, so this is the IP refusal, not a malformed name.
+	if _, err := svc.Trace(ctx, "https://1.1.1.1/x", "A"); err != dnstools.ErrNeedDomain {
+		t.Errorf("pasted URL of an IP: got %v, want ErrNeedDomain", err)
+	}
 	if _, err := svc.Trace(ctx, "not a domain!", "A"); err == nil {
 		t.Error("a malformed name should be refused before it costs a query")
 	}

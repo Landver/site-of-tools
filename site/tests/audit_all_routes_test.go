@@ -75,7 +75,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	// 4. DNS Tools
 	dnsLim := dnstools.NewLimits()
 	dnsSvc := dnstools.NewService(time.Second)
-	domainClient := dnstools.NewDomainClient("", "", time.Second)
+	domainClient := dnstools.NewDomainClient("", "", time.Second, nil)
 	dnstools.Register(apps["dns"], dnsSvc, geo, domainClient, dnsLim)
 
 	// 5. Link Tools

@@ -35,13 +35,13 @@ type Tracer interface {
 
 // handler holds the routes' deps; all but svc may be nil, which leaves that card or page off.
 type handler struct {
-	svc   Looker
-	spr   Spreader
-	tra   Tracer
-	ecs   ECSer
-	dom   *DomainClient
-	geo   iptools.Looker // iptools' open IP2Location handles, in-process: no HTTP hop
-	lim   *Limits
+	svc Looker
+	spr Spreader
+	tra Tracer
+	ecs ECSer
+	dom *DomainClient
+	geo iptools.Looker // iptools' open IP2Location handles, in-process: no HTTP hop
+	lim *Limits
 }
 
 // Limits are shared by REST and MCP; a walk costs 50 to 100 upstream queries.
@@ -174,11 +174,11 @@ func (h *handler) domain(c *echo.Context) error {
 		}
 		// "The registry holds nothing" is not "the lookup failed"; only the latter gets the disclaimer.
 		vm["Domain"], vm["RegAbsent"] = rep, errors.Is(rep.RegErr, errNoRDAPRecord)
-		// Partial success stays 200; total failure must not.
-		if err := rep.Err(); err != nil && !errors.Is(err, ErrDisabled) {
+		// Partial success stays 200; total failure is a 502 that still carries the report.
+		if err = rep.Err(); err != nil && !errors.Is(err, ErrDisabled) {
 			return platform.Reply(c, http.StatusBadGateway, rep, vm, "dns/page", "dns/frag")
 		}
-		return answered(c, name, rep, rep.Err(), vm)
+		return answered(c, name, rep, err, vm)
 	})
 }
 
@@ -197,13 +197,12 @@ func (h *handler) consistency(c *echo.Context) error {
 // trace serves the delegation walk from the root, with the chain of trust validated here.
 func (h *handler) trace(c *echo.Context) error {
 	name, vm := view(c, "trace", "DNS trace", traceDesc)
-	qtype := walkType(c.QueryParam("type"))
-	vm["QType"], vm["Types"] = qtype, Types
+	vm["QType"], vm["Types"] = walkType(c.QueryParam("type")), Types
 	return serve(c, name, vm, h.lim.WalkCap, func(ctx context.Context) error {
 		if h.tra == nil {
 			return answered(c, name, nil, ErrDisabled, vm)
 		}
-		res, err := h.tra.Trace(ctx, name, qtype)
+		res, err := h.tra.Trace(ctx, c.QueryParam("name"), c.QueryParam("type"))
 		vm["Trace"] = res
 		return answered(c, name, res, err, vm)
 	})

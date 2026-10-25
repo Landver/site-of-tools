@@ -32,6 +32,8 @@ func TestECSRejectsInputThatCannotBeMeasured(t *testing.T) {
 		{"TXT is not a steering target", "example.com", "TXT", dnstools.ErrBadType},
 		{"PTR is a reverse question", "example.com", "PTR", dnstools.ErrBadType},
 		{"not a domain name", "not a domain", "A", dnstools.ErrBadName},
+		// The default is Consistency's to apply (TestConsistencyComposesTheCheck), so ECS asks nothing for "".
+		{"no type", "example.com", "", dnstools.ErrBadType},
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
@@ -44,19 +46,6 @@ func TestECSRejectsInputThatCannotBeMeasured(t *testing.T) {
 				t.Errorf("a rejected request still returned a report: %+v", got)
 			}
 		})
-	}
-}
-
-// /consistency defaults to A, so the card must ask the same question by default.
-func TestECSDefaultsToA(t *testing.T) {
-	requireEgress(t)
-
-	got, err := dnstools.NewService(5*time.Second).ECS(context.Background(), "example.com", "")
-	if err != nil {
-		t.Fatalf("ECS: %v", err)
-	}
-	if got.Type != "A" {
-		t.Errorf("Type = %q, want A", got.Type)
 	}
 }
 

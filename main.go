@@ -160,7 +160,7 @@ func run() error {
 	botcheck.Register(apps["botcheck"], shodanGeo, corpus, ipCheck, botLim)
 
 	// A blank RDAP/CT URL disables that half; the page says so rather than claim no registration.
-	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second).WithEgressGuard(webGuard)
+	domainClient := dnstools.NewDomainClient(cfg.RDAPURL, cfg.CrtShURL, 20*time.Second, webGuard)
 	dnsSvc := dnstools.NewService(5 * time.Second).WithEgressGuard(httpsGuard)
 	dnstools.Register(apps["dns"], dnsSvc, geo, domainClient, dnsLim)
 

@@ -114,8 +114,9 @@ type DomainClient struct {
 
 var errRedirectRefused = errors.New("redirect refused")
 
-// NewDomainClient builds the client. Blank URLs disable that half.
-func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient {
+// NewDomainClient builds the client; blank URLs disable that half. Every dial off the configured
+// hosts (an RDAP referral) goes through g, and a nil g refuses them all.
+func NewDomainClient(rdapURL, ctURL string, timeout time.Duration, g *platform.EgressGuard) *DomainClient {
 	if rdapURL == "" && ctURL == "" {
 		return nil
 	}
@@ -126,22 +127,11 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration) *DomainClient
 		rdapLimit: rate.NewLimiter(1, 5),
 		ctLimit:   rate.NewLimiter(1, 5),
 	}
-	d.client = d.httpClient(timeout, platform.NewEgressGuard([]string{"80", "443"}, nil))
-	return d
-}
-
-// WithEgressGuard sends every dial off the configured hosts through g. Nil-safe.
-func (d *DomainClient) WithEgressGuard(g *platform.EgressGuard) *DomainClient {
-	if d != nil && g != nil {
-		d.client = d.httpClient(d.client.Timeout, g)
-	}
+	d.client = d.httpClient(timeout, g)
 	return d
 }
 
 func (d *DomainClient) httpClient(timeout time.Duration, g *platform.EgressGuard) *http.Client {
-	if g == nil {
-		g = platform.NewEgressGuard([]string{"80", "443"}, nil)
-	}
 	base := map[string]bool{}
 	for _, raw := range []string{d.rdapURL, d.ctURL} {
 		if u, err := url.Parse(raw); err == nil && u.Host != "" {

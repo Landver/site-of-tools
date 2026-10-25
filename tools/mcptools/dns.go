@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"context"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -68,7 +69,7 @@ func dnsSpecs(d Deps) []toolSpec {
 			Name:  "dns_lookup",
 			Title: "DNS lookup",
 			Description: "Look up a domain's DNS records through a public resolver: by default every common type at once " +
-				"(A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, HTTPS), or one type, with TTLs, the CNAME chain, DNSSEC flags and the network behind each address. " +
+				"(" + strings.Join(dnstools.FanoutTypes, ", ") + "), or one type, with TTLs, the CNAME chain, DNSSEC flags and the network behind each address. " +
 				"Types with no records are listed in missing, nxdomain means the name doesn't exist, and failed says why a type's query didn't answer. " +
 				"Pass an IP address for its PTR name. " +
 				"For whether every nameserver gives the same answer use dns_consistency; for the delegation from the root, dns_trace. " +
@@ -91,7 +92,7 @@ func dnsSpecs(d Deps) []toolSpec {
 				"so resolvers that differ are only caching or steering by location. " +
 				"Each server names its answer by index into groups. Example: name example.com, type TXT. " + thirdParty,
 			InputSchema: inputSchema[dnsConsistencyArgs](minLength("name", 1),
-				oneOf("type", dnstools.Types), defaultTo("type", "A")),
+				oneOf("type", dnstools.Types), defaultTo("type", dnstools.DefaultType)),
 		},
 		limiter: lim.Walk,
 		cap:     lim.WalkCap,
@@ -107,7 +108,7 @@ func dnsSpecs(d Deps) []toolSpec {
 				"dnssec is secure, insecure (unsigned: the common case, not a fault), bogus or indeterminate. " +
 				"Use it for a broken delegation or a lame nameserver; for the records themselves, use dns_lookup. Example: name www.example.com. " + thirdParty,
 			InputSchema: inputSchema[dnsTraceArgs](minLength("name", 1),
-				oneOf("type", dnstools.Types), defaultTo("type", "A")),
+				oneOf("type", dnstools.Types), defaultTo("type", dnstools.DefaultType)),
 		},
 		limiter: lim.Walk,
 		cap:     lim.WalkCap,
@@ -181,7 +182,7 @@ func (t dnsTools) consistency(ctx context.Context, _ *mcp.CallToolRequest, a dns
 }
 
 func (t dnsTools) trace(ctx context.Context, _ *mcp.CallToolRequest, a dnsTraceArgs) (any, error) {
-	return t.tra.Trace(ctx, dnstools.NormalizeName(a.Name), a.Type)
+	return t.tra.Trace(ctx, a.Name, a.Type)
 }
 
 func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomainArgs) (any, error) {
