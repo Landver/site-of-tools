@@ -20,12 +20,13 @@ import (
 
 func newMailApp(t *testing.T) *echo.Echo {
 	t.Helper()
+	_ = mailtools.InitFromEmbedded()
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	mailtools.Register(e, "https://mail.example", nil)
+	mailtools.Register(e, "https://mail.example", nil, nil, "", nil)
 	return e
 }
 
@@ -250,12 +251,16 @@ ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
 func TestMailToolsHTTPRoutes(t *testing.T) {
 	e := newMailApp(t)
 
-	// 1. GET / redirects to /dmarc
+	// 1. GET / renders health audit dashboard
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "text/html")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusMovedPermanently {
-		t.Errorf("GET /: want 301, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /: want 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<!DOCTYPE html>") {
+		t.Error("GET / browser response missing <!DOCTYPE html>")
 	}
 
 	// 2. GET /dmarc HTML

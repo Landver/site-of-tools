@@ -1,0 +1,102 @@
+{{define "mail/disposable"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "mail/skip" .}}
+  {{template "partials/header" .}}
+  <main id="main" tabindex="-1" class="page-main" hx-history-elt>
+    {{template "mail/nav" .}}
+    <div class="mt-1 flex flex-wrap items-baseline gap-2.5">
+      <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+      <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
+        10,000+ Curated Providers
+      </span>
+    </div>
+    <p class="mt-2 text-sm text-muted">
+      Identify temporary, throwaway, and burner email services (Mailinator, 10MinuteMail, GuerrillaMail, and private mirrors).
+      Powered by the canonical <code class="font-mono text-strong">disposable-email-domains</code> standard with wildcard pattern support.
+    </p>
+
+    <div class="mt-6">
+      <form action="/disposable" method="post"
+            hx-post="/disposable" hx-target="#result" hx-swap="innerHTML" hx-indicator="#disp-spinner"
+            class="space-y-4">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <div class="relative flex-1">
+            <input type="text" name="input" value="{{if .Result}}{{.Result.Domain}}{{end}}"
+                   placeholder="e.g. test@mailinator.com, user@tempmail.net, or domain.xyz" required
+                   class="field w-full text-base sm:text-sm pl-9">
+            <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/>
+            </svg>
+          </div>
+          <button type="submit" class="btn-primary inline-flex items-center justify-center gap-2">
+            <span>Check Email</span>
+            <span id="disp-spinner" class="htmx-indicator inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white"></span>
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'test@mailinator.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">mailinator.com</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'alex@gmail.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">gmail.com</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'security@stripe.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">stripe.com</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="result" class="mt-8">
+      {{if .Result}}
+        {{template "mail/disposable-result" .}}
+      {{end}}
+    </div>
+  </main>
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "mail/disposable-result"}}
+{{with .Result}}
+<div class="rounded-lg border border-line bg-surface p-5 space-y-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-3">
+    <div>
+      <div class="text-xs font-semibold uppercase tracking-wider text-faint">Disposable Status</div>
+      <div class="mt-1 font-mono text-xl font-bold text-strong">{{.Domain}}</div>
+    </div>
+    <div>
+      {{if .IsDisposable}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-danger/30 bg-danger/10 text-danger">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Disposable / Burner Email
+        </span>
+      {{else}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-ok/30 bg-ok/10 text-ok">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          Clean / Not Disposable
+        </span>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+    <div class="rounded bg-canvas p-3 border border-line">
+      <div class="text-faint">Classification</div>
+      <div class="mt-1 font-semibold text-strong capitalize">{{.Type}}</div>
+    </div>
+    <div class="rounded bg-canvas p-3 border border-line">
+      <div class="text-faint">Match Reason</div>
+      <div class="mt-1 font-medium text-strong">{{if .MatchReason}}{{.MatchReason}}{{else}}Verified non-burner domain{{end}}</div>
+    </div>
+    <div class="rounded bg-canvas p-3 border border-line">
+      <div class="text-faint">Recommended Action</div>
+      <div class="mt-1 font-semibold {{if .IsDisposable}}text-danger{{else}}text-ok{{end}}">
+        {{if .IsDisposable}}Reject registration / Flag signup{{else}}Allow registration{{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{end}}

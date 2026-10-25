@@ -1,0 +1,139 @@
+{{define "mail/blacklist"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "mail/skip" .}}
+  {{template "partials/header" .}}
+  <main id="main" tabindex="-1" class="page-main" hx-history-elt>
+    {{template "mail/nav" .}}
+    <div class="mt-1 flex flex-wrap items-baseline gap-2.5">
+      <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+      <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
+        Spamhaus · Barracuda · SpamCop
+      </span>
+    </div>
+    <p class="mt-2 text-sm text-muted">
+      Concurrent real-time reputation audit across 15+ authoritative global DNSBL and RBL feeds in &lt; 800 ms.
+      Checks sending mail server IP addresses and domain reputations with official delisting portal links.
+    </p>
+
+    <div class="mt-6">
+      <form action="/blacklist" method="post"
+            hx-post="/blacklist" hx-target="#result" hx-swap="innerHTML" hx-indicator="#bl-spinner"
+            class="space-y-4">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <div class="relative flex-1">
+            <input type="text" name="target" value="{{if .Result}}{{.Result.Target}}{{end}}"
+                   placeholder="e.g. 198.51.100.1, mail.company.com, or domain.com" required
+                   class="field w-full text-base sm:text-sm pl-9">
+            <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+            </svg>
+          </div>
+          <button type="submit" class="btn-primary inline-flex items-center justify-center gap-2">
+            <span>Check Blacklists</span>
+            <span id="bl-spinner" class="htmx-indicator inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white"></span>
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=target]').value = '127.0.0.2'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">127.0.0.2 (Test IP)</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=target]').value = '8.8.8.8'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">8.8.8.8 (Google DNS)</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=target]').value = 'stripe.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">stripe.com (Domain)</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="result" class="mt-8">
+      {{if .Result}}
+        {{template "mail/blacklist-result" .}}
+      {{end}}
+    </div>
+  </main>
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "mail/blacklist-result"}}
+{{with .Result}}
+<div class="space-y-4">
+  <div class="rounded-lg border border-line bg-surface p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div>
+      <div class="text-xs font-semibold uppercase tracking-wider text-faint">Reputation Audit Target</div>
+      <div class="mt-1 font-mono text-xl font-bold text-strong">{{.Target}}</div>
+    </div>
+    <div>
+      {{if eq .ListedCount 0}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-ok/30 bg-ok/10 text-ok">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          0 Listings (Clean across all {{.TotalChecked}} lists)
+        </span>
+      {{else}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-danger/30 bg-danger/10 text-danger">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Listed on {{.ListedCount}} of {{.TotalChecked}} Blacklists
+        </span>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-line bg-canvas">
+    <table class="w-full text-left text-xs">
+      <thead class="border-b border-line bg-surface text-faint uppercase tracking-wider text-[11px]">
+        <tr>
+          <th class="px-4 py-2.5 font-medium">Blacklist Name</th>
+          <th class="px-4 py-2.5 font-medium">Status / Category</th>
+          <th class="px-4 py-2.5 font-medium">Return Code</th>
+          <th class="px-4 py-2.5 font-medium text-right">Latency</th>
+          <th class="px-4 py-2.5 font-medium text-right">Remediation</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line/60">
+        {{range .Results}}
+          <tr class="hover:bg-surface/50 transition">
+            <td class="px-4 py-3 font-semibold text-strong">
+              <div>{{.Name}}</div>
+              <div class="text-[11px] font-mono text-faint font-normal">{{.Zone}}</div>
+            </td>
+            <td class="px-4 py-3">
+              {{if .Listed}}
+                <span class="inline-flex items-center gap-1 rounded bg-danger/10 px-2 py-0.5 font-semibold text-danger">
+                  LISTED: {{.Category}}
+                </span>
+              {{else if .IsWarning}}
+                <span class="inline-flex items-center gap-1 rounded bg-warn/10 px-2 py-0.5 text-warn">
+                  {{.Category}}
+                </span>
+              {{else}}
+                <span class="inline-flex items-center gap-1 rounded bg-ok/10 px-2 py-0.5 font-medium text-ok">
+                  Clean
+                </span>
+              {{end}}
+            </td>
+            <td class="px-4 py-3 font-mono text-[11px] text-faint">
+              {{if .ReturnCode}}{{.ReturnCode}}{{else}}—{{end}}
+            </td>
+            <td class="px-4 py-3 font-mono text-faint text-right">
+              {{.LatencyMS}} ms
+            </td>
+            <td class="px-4 py-3 text-right">
+              {{if and .Listed .DelistURL}}
+                <a href="{{.DelistURL}}" target="_blank" rel="noopener" class="font-medium text-brand hover:underline">
+                  Delist Request &rarr;
+                </a>
+              {{else}}
+                <span class="text-faint">—</span>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+{{end}}

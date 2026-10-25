@@ -40,6 +40,9 @@ type Config struct {
 	MongoURI      string
 	MongoDatabase string
 
+	// SpamhausDQSKey is an optional free non-commercial key for Spamhaus DQS lookups.
+	SpamhausDQSKey string
+
 	// EgressDenyAddrs: the host's public IPs, invisible to net.InterfaceAddrs in a container.
 	EgressDenyAddrs []string
 }
@@ -51,6 +54,7 @@ func Load() Config {
 		Env:             getenv("APP_ENV", "dev"),
 		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
 		BaseDomain:      getenv("BASE_DOMAIN", "localhost"),
+		SpamhausDQSKey:  os.Getenv("SPAMHAUS_DQS_KEY"),
 		DB11V4:          os.Getenv("IP2LOCATION_DB11_V4"),
 		DB11V6:          os.Getenv("IP2LOCATION_DB11_V6"),
 		ASNV4:           os.Getenv("IP2LOCATION_ASN_V4"),

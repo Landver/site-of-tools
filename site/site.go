@@ -40,7 +40,7 @@ func Tools(cfg platform.Config) []platform.Tool {
 		},
 		{
 			Name: "Mail Tools",
-			Desc: "Zero-knowledge DMARC aggregate report (RUA XML.GZ) visualizer, BIMI SVG Tiny P/S validator and auto-fixer, and ARC authentication trace analyzer.",
+			Desc: "Enterprise email deliverability & security: SEG gateway identification, BIMI & VMC validation, disposable email detection, and real-time multi-DNSBL reputation audit.",
 			URL:  cfg.URL("mail"),
 		},
 		{

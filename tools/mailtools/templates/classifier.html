@@ -1,0 +1,110 @@
+{{define "mail/classifier"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "mail/skip" .}}
+  {{template "partials/header" .}}
+  <main id="main" tabindex="-1" class="page-main" hx-history-elt>
+    {{template "mail/nav" .}}
+    <div class="mt-1 flex flex-wrap items-baseline gap-2.5">
+      <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
+      <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
+        31,000+ ESP Mappings
+      </span>
+    </div>
+    <p class="mt-2 text-sm text-muted">
+      Distinguish between personal consumer webmail accounts (Gmail, Yahoo, iCloud, Proton, Mail.ru, QQ) and enterprise corporate custom domains.
+      Essential for B2B lead enrichment, anti-fraud screening, and signup filtering.
+    </p>
+
+    <div class="mt-6">
+      <form action="/classifier" method="post"
+            hx-post="/classifier" hx-target="#result" hx-swap="innerHTML" hx-indicator="#class-spinner"
+            class="space-y-4">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <div class="relative flex-1">
+            <input type="text" name="input" value="{{if .Result}}{{.Result.Domain}}{{end}}"
+                   placeholder="e.g. john@uber.com or alex@gmail.com" required
+                   class="field w-full text-base sm:text-sm pl-9">
+            <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+            </svg>
+          </div>
+          <button type="submit" class="btn-primary inline-flex items-center justify-center gap-2">
+            <span>Classify Domain</span>
+            <span id="class-spinner" class="htmx-indicator inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white"></span>
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'john@uber.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">uber.com</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'alex@proton.me'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">proton.me</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'user@yahoo.co.jp'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">yahoo.co.jp</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="result" class="mt-8">
+      {{if .Result}}
+        {{template "mail/classifier-result" .}}
+      {{end}}
+    </div>
+  </main>
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}
+
+{{define "mail/classifier-result"}}
+{{with .Result}}
+<div class="rounded-lg border border-line bg-surface p-5 space-y-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-3">
+    <div>
+      <div class="text-xs font-semibold uppercase tracking-wider text-faint">Domain Classification</div>
+      <div class="mt-1 font-mono text-xl font-bold text-strong">{{.Domain}}</div>
+    </div>
+    <div>
+      {{if eq .Type "corporate"}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-ok/30 bg-ok/10 text-ok">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          Corporate / Business Domain
+        </span>
+      {{else if eq .Type "freemail"}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-info/30 bg-info/10 text-info">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/></svg>
+          Personal Free Webmail
+        </span>
+      {{else}}
+        <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold border border-danger/30 bg-danger/10 text-danger">
+          Burner / Disposable Email
+        </span>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+    <div class="rounded bg-canvas p-3 border border-line">
+      <div class="text-faint">Audience Profile</div>
+      <div class="mt-1 font-semibold text-strong">
+        {{if eq .Type "corporate"}}B2B Corporate Account{{else}}Consumer / Personal User{{end}}
+      </div>
+    </div>
+    <div class="rounded bg-canvas p-3 border border-line">
+      <div class="text-faint">Lead Scoring Weight</div>
+      <div class="mt-1 font-semibold {{if eq .Type "corporate"}}text-ok{{else}}text-muted{{end}}">
+        {{if eq .Type "corporate"}}High (Business Lead){{else}}Standard (Consumer){{end}}
+      </div>
+    </div>
+    <div class="rounded bg-canvas p-3 border border-line">
+      <div class="text-faint">Verification Type</div>
+      <div class="mt-1 font-medium text-strong">
+        {{if .MatchReason}}{{.MatchReason}}{{else}}Custom domain infrastructure{{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{end}}

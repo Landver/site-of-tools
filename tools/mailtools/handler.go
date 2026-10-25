@@ -12,9 +12,16 @@ import (
 )
 
 const (
-	dmarcDesc = "Parse and visualize DMARC aggregate XML and gzip reports (RUA) directly in your browser. Inspect SPF/DKIM alignment, IP sources, ESPs, and policy disposition."
-	bimiDesc  = "Audit SVG logos against BIMI Tiny P/S requirements. Validate square aspect ratio, sanitize malicious vectors, and auto-convert to compliant Tiny 1.2 SVGs."
-	arcDesc   = "Trace and validate Authenticated Received Chain (RFC 8617) headers. Audit multi-hop email forwarding, ARC seals, signatures, and authentication states."
+	maxBIMIPayload = 64 * 1024
+	maxARCPayload  = 256 * 1024
+
+	healthDesc     = "Comprehensive email infrastructure, deliverability, SEG gateway identification, and sender reputation audit."
+	disposableDesc = "Detect over 10,000+ throwaway, burner, and temporary email domains powered by the canonical disposable-email-domains database."
+	classifierDesc = "Classify email domains into corporate business accounts versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton)."
+	blacklistDesc  = "Concurrent multi-DNSBL reputation audit querying 15+ global authoritative spam blacklists (Spamhaus, Barracuda, SpamCop, Mailspike) in < 800 ms."
+	dmarcDesc      = "Parse and visualize DMARC aggregate XML and gzip reports (RUA) directly in your browser. Inspect SPF/DKIM alignment, IP sources, ESPs, and policy disposition."
+	bimiDesc       = "Audit SVG logos against BIMI Tiny P/S requirements and cryptographically validate Verified Mark Certificates (VMC) from DigiCert, GlobalSign, and SSL.com."
+	arcDesc        = "Trace and validate Authenticated Received Chain (RFC 8617) headers. Audit multi-hop email forwarding, ARC seals, signatures, and authentication states."
 )
 
 // Limits sets per-IP request bounds for mailtools routes.
@@ -31,21 +38,42 @@ func NewLimits() *Limits {
 }
 
 type handler struct {
-	base string
-	lim  *Limits
+	base   string
+	guard  *platform.EgressGuard
+	store  *Store
+	dqsKey string
+	lim    *Limits
 }
 
 // Register mounts mailtools routes onto the Echo router.
-func Register(e *echo.Echo, base string, lim *Limits) {
+func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Store, dqsKey string, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
-	h := &handler{base: base, lim: lim}
+	h := &handler{
+		base:   base,
+		guard:  guard,
+		store:  store,
+		dqsKey: dqsKey,
+		lim:    lim,
+	}
 
 	pure := platform.RateLimit(lim.Pure, nil, limited)
 	heavy := platform.RateLimit(lim.Heavy, nil, limited)
 
 	e.GET("/", h.index, pure)
+	e.POST("/", h.health, heavy)
+	e.POST("/health", h.health, heavy)
+
+	e.GET("/disposable", h.disposable, pure)
+	e.POST("/disposable", h.disposable, pure)
+
+	e.GET("/classifier", h.classifier, pure)
+	e.POST("/classifier", h.classifier, pure)
+
+	e.GET("/blacklist", h.blacklist, pure)
+	e.POST("/blacklist", h.blacklist, heavy)
+
 	e.GET("/dmarc", h.dmarc, pure)
 	e.POST("/dmarc", h.dmarc, heavy)
 	e.POST("/dmarc/parse", h.dmarcParse, heavy)
@@ -76,7 +104,96 @@ func (h *handler) vm(active, heading, desc string) map[string]any {
 }
 
 func (h *handler) index(c *echo.Context) error {
-	return c.Redirect(http.StatusMovedPermanently, "/dmarc")
+	vm := h.vm("health", "Email Infrastructure & Deliverability Health Check", healthDesc)
+	return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
+}
+
+func (h *handler) health(c *echo.Context) error {
+	vm := h.vm("health", "Email Infrastructure & Deliverability Health Check", healthDesc)
+	target := strings.TrimSpace(c.FormValue("domain"))
+	if target == "" {
+		target = strings.TrimSpace(c.QueryParam("domain"))
+	}
+	if target == "" {
+		return h.badRequest(c, vm, errors.New("please provide a domain name or email address"), "mail/health")
+	}
+
+	report, err := AuditDomainHealth(c.Request().Context(), target, h.guard, h.store, h.dqsKey)
+	if err != nil {
+		return h.badRequest(c, vm, err, "mail/health")
+	}
+
+	vm["Result"] = report
+	return platform.Reply(c, http.StatusOK, report, vm, "mail/health", "mail/health-result")
+}
+
+func (h *handler) disposable(c *echo.Context) error {
+	vm := h.vm("disposable", "Disposable Email & Burner Domain Checker", disposableDesc)
+
+	if c.Request().Method == http.MethodGet {
+		input := strings.TrimSpace(c.QueryParam("input"))
+		if input == "" {
+			return platform.Reply(c, http.StatusOK, nil, vm, "mail/disposable", "mail/disposable-result")
+		}
+		res := ActiveClassifier().Classify(input)
+		vm["Result"] = res
+		return platform.Reply(c, http.StatusOK, res, vm, "mail/disposable", "mail/disposable-result")
+	}
+
+	input := strings.TrimSpace(c.FormValue("input"))
+	if input == "" {
+		return h.badRequest(c, vm, errors.New("please provide an email or domain to verify"), "mail/disposable")
+	}
+
+	res := ActiveClassifier().Classify(input)
+	vm["Result"] = res
+	return platform.Reply(c, http.StatusOK, res, vm, "mail/disposable", "mail/disposable-result")
+}
+
+func (h *handler) classifier(c *echo.Context) error {
+	vm := h.vm("classifier", "Free Webmail vs Corporate Domain Classifier", classifierDesc)
+
+	if c.Request().Method == http.MethodGet {
+		input := strings.TrimSpace(c.QueryParam("input"))
+		if input == "" {
+			return platform.Reply(c, http.StatusOK, nil, vm, "mail/classifier", "mail/classifier-result")
+		}
+		res := ActiveClassifier().Classify(input)
+		vm["Result"] = res
+		return platform.Reply(c, http.StatusOK, res, vm, "mail/classifier", "mail/classifier-result")
+	}
+
+	input := strings.TrimSpace(c.FormValue("input"))
+	if input == "" {
+		return h.badRequest(c, vm, errors.New("please provide an email or domain to classify"), "mail/classifier")
+	}
+
+	res := ActiveClassifier().Classify(input)
+	vm["Result"] = res
+	return platform.Reply(c, http.StatusOK, res, vm, "mail/classifier", "mail/classifier-result")
+}
+
+func (h *handler) blacklist(c *echo.Context) error {
+	vm := h.vm("blacklist", "Real-Time Multi-DNSBL Reputation Checker", blacklistDesc)
+
+	target := strings.TrimSpace(c.FormValue("target"))
+	if target == "" {
+		target = strings.TrimSpace(c.QueryParam("target"))
+	}
+	if target == "" {
+		if c.Request().Method == http.MethodGet {
+			return platform.Reply(c, http.StatusOK, nil, vm, "mail/blacklist", "mail/blacklist-result")
+		}
+		return h.badRequest(c, vm, errors.New("please provide an IP address or hostname to audit"), "mail/blacklist")
+	}
+
+	rep, err := CachedDNSBLAudit(c.Request().Context(), h.store, target, h.dqsKey)
+	if err != nil {
+		return h.badRequest(c, vm, err, "mail/blacklist")
+	}
+
+	vm["Result"] = rep
+	return platform.Reply(c, http.StatusOK, rep, vm, "mail/blacklist", "mail/blacklist-result")
 }
 
 func (h *handler) dmarc(c *echo.Context) error {
@@ -86,7 +203,6 @@ func (h *handler) dmarc(c *echo.Context) error {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/dmarc", "mail/dmarc-result")
 	}
 
-	// Handle uploaded file or pasted XML
 	var r io.Reader
 	file, err := c.FormFile("report_file")
 	if err == nil {
@@ -126,7 +242,6 @@ func (h *handler) dmarcParse(c *echo.Context) error {
 	} else {
 		pasted := strings.TrimSpace(c.FormValue("xml"))
 		if pasted == "" {
-			// Try reading raw request body (bounded against unbounded memory allocation)
 			r = io.LimitReader(c.Request().Body, maxDMARCPayload)
 		} else {
 			r = strings.NewReader(pasted)
@@ -141,13 +256,13 @@ func (h *handler) dmarcParse(c *echo.Context) error {
 }
 
 func (h *handler) bimi(c *echo.Context) error {
-	vm := h.vm("bimi", "BIMI SVG Tiny P/S Validator & Auto-Fixer", bimiDesc)
+	vm := h.vm("bimi", "BIMI SVG Tiny P/S & VMC Validator", bimiDesc)
 
 	if c.Request().Method == http.MethodGet {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/bimi", "mail/bimi-result")
 	}
 
-	var rawSVG string
+	var svgData []byte
 	file, err := c.FormFile("svg_file")
 	if err == nil {
 		f, err := file.Open()
@@ -155,48 +270,40 @@ func (h *handler) bimi(c *echo.Context) error {
 			return h.badRequest(c, vm, err, "mail/bimi")
 		}
 		defer f.Close()
-		buf := new(strings.Builder)
-		if _, err := io.Copy(buf, f); err != nil {
+		svgData, err = io.ReadAll(io.LimitReader(f, maxBIMIPayload))
+		if err != nil {
 			return h.badRequest(c, vm, err, "mail/bimi")
 		}
-		rawSVG = buf.String()
 	} else {
-		rawSVG = strings.TrimSpace(c.FormValue("svg"))
+		pasted := c.FormValue("svg")
+		if strings.TrimSpace(pasted) == "" {
+			return h.badRequest(c, vm, errors.New("please upload an SVG file or paste SVG markup"), "mail/bimi")
+		}
+		svgData = []byte(pasted)
 	}
 
-	if rawSVG == "" {
-		return h.badRequest(c, vm, errors.New("no SVG content provided"), "mail/bimi")
-	}
-
-	val, err := ValidateBIMI(rawSVG)
+	res, err := ValidateBIMI(string(svgData))
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/bimi")
 	}
-
-	vm["Result"] = val
-	vm["RawSVG"] = rawSVG
-	return platform.Reply(c, http.StatusOK, val, vm, "mail/bimi", "mail/bimi-result")
+	vm["Result"] = res
+	return platform.Reply(c, http.StatusOK, res, vm, "mail/bimi", "mail/bimi-result")
 }
 
 func (h *handler) bimiFix(c *echo.Context) error {
-	rawSVG := strings.TrimSpace(c.FormValue("svg"))
-	if rawSVG == "" {
+	svg := c.FormValue("svg")
+	if strings.TrimSpace(svg) == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "no SVG provided"})
 	}
-	fixed, err := AutoFixBIMI(rawSVG)
+	fixed, err := AutoFixBIMI(svg)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	if platform.WantsJSON(c) {
-		return c.JSON(http.StatusOK, map[string]string{"svg": fixed})
-	}
-	c.Response().Header().Set("Content-Type", "image/svg+xml")
-	c.Response().Header().Set("Content-Disposition", "attachment; filename=\"bimi-logo.svg\"")
-	return c.String(http.StatusOK, fixed)
+	return c.JSON(http.StatusOK, map[string]string{"svg": fixed, "fixed_svg": fixed})
 }
 
 func (h *handler) arc(c *echo.Context) error {
-	vm := h.vm("arc", "ARC Header Trace & Forwarding Analyzer", arcDesc)
+	vm := h.vm("arc", "ARC (Authenticated Received Chain) Header Analyzer", arcDesc)
 
 	if c.Request().Method == http.MethodGet {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/arc", "mail/arc-result")
@@ -207,48 +314,46 @@ func (h *handler) arc(c *echo.Context) error {
 		return h.badRequest(c, vm, errors.New("please paste email headers containing ARC-Seal and ARC-Authentication-Results"), "mail/arc")
 	}
 
-	arc, err := AnalyzeARC(headers)
+	res, err := AnalyzeARC(headers)
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/arc")
 	}
-
-	vm["Result"] = arc
-	vm["Headers"] = headers
-	return platform.Reply(c, http.StatusOK, arc, vm, "mail/arc", "mail/arc-result")
+	vm["Result"] = res
+	return platform.Reply(c, http.StatusOK, res, vm, "mail/arc", "mail/arc-result")
 }
 
 func (h *handler) arcParse(c *echo.Context) error {
 	headers := strings.TrimSpace(c.FormValue("headers"))
 	if headers == "" {
-		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, 1<<20)) // 1 MB limit against memory exhaustion
-		headers = strings.TrimSpace(string(body))
+		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, maxARCPayload))
+		headers = string(body)
 	}
-	if headers == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "no headers provided"})
+	if strings.TrimSpace(headers) == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "no email headers provided"})
 	}
-	arc, err := AnalyzeARC(headers)
+	res, err := AnalyzeARC(headers)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, arc)
+	return c.JSON(http.StatusOK, res)
 }
 
-func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, page string) error {
+func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, tmpl string) error {
 	vm["Error"] = err.Error()
-	return platform.Reply(c, http.StatusBadRequest, map[string]string{"error": err.Error()}, vm, page, "mail/error")
+	return platform.Reply(c, http.StatusBadRequest, map[string]string{"error": err.Error()}, vm, tmpl, "mail/error")
 }
 
 func limited(c *echo.Context) error {
-	const msg = platform.LimitedMessage
-	return platform.Reply(c, http.StatusTooManyRequests,
-		map[string]string{"error": msg},
-		map[string]any{"Title": "Slow down — Mail Tools", "Desc": msg, "Error": msg, "Active": ""},
-		"mail/error", "mail/error")
+	return c.String(http.StatusTooManyRequests, "Rate limit exceeded. Please wait a moment.")
 }
 
-// SitemapPages lists the public tool routes on mail.corpberry.com.
+// SitemapPages lists all public routes for sitemap.xml.
 func SitemapPages() ([]platform.Page, error) {
 	return []platform.Page{
+		{Path: "/"},
+		{Path: "/disposable"},
+		{Path: "/classifier"},
+		{Path: "/blacklist"},
 		{Path: "/dmarc"},
 		{Path: "/bimi"},
 		{Path: "/arc"},

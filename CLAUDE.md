@@ -16,9 +16,9 @@ Go + this frontend stack: prefer the simple idiomatic path, explain Go choices.
 3. **No Node/npm. Ever.** htmx/Alpine vendored in `shared/static/js/`; CSS via
    the Tailwind **standalone binary**.
 4. **htmx only when plain HTML can't** (AJAX, partial swaps, WS).
-5. **Persistence below the domain.** One Mongo client (`platform.OpenMongo` in
-   `main.go`, `MONGODB_URI`); repositories take `*mongo.Database`, self-prune
-   via `platform.EnsureTTLIndex`, are nil-safe (no URI → app boots stateless).
+5. **Persistence below the domain.** MongoDB is a standard dependency (`platform.OpenMongo`
+   in `main.go`, `MONGODB_URI`). Repositories take `*mongo.Database`, manage collections
+   and self-prune via `platform.EnsureTTLIndex`. Tools requiring persistence rely on MongoDB.
 6. **Tests required.** Black-box in `<pkg>/tests/` (white-box `*_test.go` only
    for unexported needs); `testing` + `go-cmp`; handlers via `httptest`; DB/BIN
    tests skip when absent. `make test` = `go test ./... -race`; pre-push hook

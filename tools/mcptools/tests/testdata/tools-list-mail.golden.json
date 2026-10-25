@@ -81,6 +81,106 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
+    "description": "Check if an email address or domain is a temporary, burner, or disposable email service using the canonical community blocklist and wildcard patterns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "description": "the email domain name (e.g. stripe.com) or email address",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "name": "mail_check_disposable",
+    "title": "Check Disposable Email Domain"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "description": "Audit an IP address or domain across 15+ authoritative global DNSBL/RBL spam blacklists (Spamhaus, Barracuda BRBL, SpamCop, Mailspike) in parallel.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "description": "the IP address (e.g. 198.51.100.1) or domain name to check against blacklists",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "mail_check_dnsbl",
+    "title": "Check Multi-DNSBL Blacklists"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Classify an email address or domain into B2B corporate custom domain versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton, etc.).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "description": "the email domain name (e.g. stripe.com) or email address",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "name": "mail_classify_domain",
+    "title": "Classify Email Domain (Free vs Corporate)"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "description": "Inspect MX records and fingerprint enterprise security gateways (Proofpoint, Mimecast, Microsoft Defender, Google Workspace, Cisco IronPort, Barracuda) and direct-to-MX bypass risks.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "description": "the email domain name (e.g. stripe.com) or email address",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "name": "mail_detect_gateway",
+    "title": "Detect Secure Email Gateway (SEG)"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
     "description": "Parse and aggregate an RFC 7489 DMARC XML (or .xml.gz) report: message counts, pass rate %, SPF/DKIM alignment, and sending IPs classified by ESP (Google, Microsoft 365, Amazon SES, SendGrid, etc.).",
     "inputSchema": {
       "additionalProperties": false,
@@ -98,5 +198,30 @@
     },
     "name": "mail_dmarc_parse",
     "title": "Parse DMARC Aggregate Report"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "description": "Comprehensive email infrastructure and deliverability audit: combines SEG gateway detection, BIMI/VMC verification, disposable check, and DNSBL reputation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "description": "the email domain name (e.g. stripe.com) or email address",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
+    },
+    "name": "mail_domain_health",
+    "title": "Audit Domain Email Health"
   }
 ]

@@ -41,7 +41,7 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 	apps["cipher"] = app()
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), fstest.MapFS{}, nil)
 	apps["mail"] = app()
-	mailtools.Register(apps["mail"], cfg.URL("mail"), nil)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil, "", nil)
 
 	routes := map[mcptools.Route]bool{}
 	for host, e := range apps {
@@ -98,7 +98,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 			t.Errorf("%s is served but no REST route maps to it", name)
 		}
 	}
-	if mapped != 53 {
-		t.Errorf("%d routes map to tools, want 53", mapped)
+	if mapped != 61 {
+		t.Errorf("%d routes map to tools, want 61", mapped)
 	}
 }

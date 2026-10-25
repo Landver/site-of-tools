@@ -57,15 +57,19 @@ func TestLandingJSON(t *testing.T) {
 	}
 	for path, want := range map[string][]string{
 		"/mcp/ip": {"ip_cidr", "ip_lookup"}, "/mcp/botcheck": {"botcheck_score"},
-		"/mcp/mail": {"mail_arc_analyze", "mail_bimi_autofix", "mail_bimi_validate", "mail_dmarc_parse"},
+		"/mcp/mail": {
+			"mail_arc_analyze", "mail_bimi_autofix", "mail_bimi_validate",
+			"mail_check_disposable", "mail_check_dnsbl", "mail_classify_domain",
+			"mail_detect_gateway", "mail_dmarc_parse", "mail_domain_health",
+		},
 		"/mcp/site": {"site_blog"},
 	} {
 		if diff := cmp.Diff(want, tools[path]); diff != "" {
 			t.Errorf("%s tools (-want +got):\n%s", path, diff)
 		}
 	}
-	if n := len(tools["/mcp/cipher"]); n != 19 || len(tools["/mcp"]) != 44 {
-		t.Errorf("%d cipher tools and %d in all, want 19 and the catalog's 44", n, len(tools["/mcp"]))
+	if n := len(tools["/mcp/cipher"]); n != 19 || len(tools["/mcp"]) != 49 {
+		t.Errorf("%d cipher tools and %d in all, want 19 and the catalog's 49", n, len(tools["/mcp"]))
 	}
 }
 
