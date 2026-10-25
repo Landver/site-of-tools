@@ -91,7 +91,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 
 	// 7. Mail Tools
 	mailLim := mailtools.NewLimits()
-	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil, "", mailLim)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, mailLim)
 
 	// 8. MCP Tools
 	mcptools.Register(apps["mcp"], mcptools.Deps{
