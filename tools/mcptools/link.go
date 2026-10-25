@@ -25,8 +25,7 @@ type linkCleanArgs struct {
 }
 
 type linkRulesArgs struct {
-	Param string `json:"param,omitempty" jsonschema:"a parameter name, e.g. ref"`
-	Full  bool   `json:"full,omitempty" jsonschema:"the whole rule table"`
+	Param string `json:"param,omitempty" jsonschema:"a parameter name, e.g. ref; left out, the whole table"`
 }
 
 type linkDiffArgs struct {
@@ -52,7 +51,7 @@ type linkCurlBuildArgs struct {
 
 type linkExtractArgs struct {
 	Text     string `json:"text" jsonschema:"the HTML, Markdown or plain text"`
-	Detailed bool   `json:"detailed,omitempty" jsonschema:"list up to 2,000 links, each with its byte positions in the text"`
+	Detailed bool   `json:"detailed,omitempty" jsonschema:"list every distinct link, not the first 30, up to what fits one 80 KB result"`
 }
 
 type linkUTMArgs struct {
@@ -123,8 +122,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 		pure("link_tracking_rules", "Tracking rules",
 			"Look up the tracking-parameter rules link_clean applies. "+
 				"param (e.g. ref or utm_source) returns every rule and never-strip entry naming it, with the hosts each is limited to; "+
-				"full: true returns the whole table (about 20 KB), as the JSON API serves it. "+
-				"With none of them it returns the table's version, scope and size. Pass param or full, not both.",
+				"left out, it returns the whole table (about 20 KB), as the JSON API serves it.",
 			inputSchema[linkRulesArgs](), handle(t.rules))
 		pure("link_diff", "Compare two URLs",
 			"Compare two URLs part by part and parameter by parameter: what was added, removed, changed or only moved, "+
@@ -148,7 +146,9 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			"Pull every link out of pasted HTML, Markdown or plain text, such as a newsletter before it is sent: "+
 				"deduplicated in the order first seen, counted, with anchor text and flags for links that should stop a send "+
 				"(a javascript: link, credentials before the host, text that shows one host and links to another). Nothing is fetched. "+
-				"Lists the first 30 distinct links, with unique counting them all; detailed: true lists up to 2,000 with their byte positions. "+thirdParty,
+				"Lists the first 30 distinct links, with unique counting them all; detailed: true lists every one "+
+				"as far as one result's 80 KB goes: about 150 long click-tracked links, or 1,500 short ones. "+
+				"Byte positions in the text are left out. "+thirdParty,
 			inputSchema[linkExtractArgs](minLength("text", 1)), handle(t.extract))
 		pure("link_utm", "Build a campaign URL",
 			"Add or change a URL's UTM campaign tags. "+
@@ -248,15 +248,10 @@ func (t linkTools) clean(_ context.Context, _ *mcp.CallToolRequest, a linkCleanA
 
 func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesArgs) (any, error) {
 	cat := linktools.Rules()
-	switch {
-	case a.Param != "" && a.Full:
-		return nil, errors.New("pass param or full, not both")
-	case a.Full:
-		return cat, nil
-	case a.Param != "":
+	if a.Param != "" {
 		return cat.Matches(a.Param), nil
 	}
-	return cat.Summary(), nil
+	return cat, nil
 }
 
 func (t linkTools) diff(_ context.Context, _ *mcp.CallToolRequest, a linkDiffArgs) (any, error) {
@@ -306,22 +301,19 @@ func (t linkTools) curlBuild(_ context.Context, _ *mcp.CallToolRequest, a linkCu
 	return map[string]string{"curl": line}, nil
 }
 
+// extract leaves out byte positions, which only a page highlighting the text needs.
 func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtractArgs) (any, error) {
 	res, err := t.svc.Extract(strings.TrimSpace(a.Text))
 	if err != nil {
 		return nil, err
 	}
-	if a.Detailed {
-		return res, nil
-	}
 	for i := range res.URLs {
 		res.URLs[i].Positions = nil
 	}
-	if n := len(res.URLs); n > extractRows {
+	if n := len(res.URLs); !a.Detailed && n > extractRows {
 		res.URLs = res.URLs[:extractRows]
 		res.Notes = append(res.Notes, linktools.Note{Severity: linktools.SevInfo,
-			Title:  fmt.Sprintf("The first %d of %d links", extractRows, n),
-			Detail: "Pass detailed: true for all of them, with their positions in the text."})
+			Title: fmt.Sprintf("The first %d of %d links", extractRows, n), Detail: "Pass detailed: true for all of them."})
 	}
 	return res, nil
 }

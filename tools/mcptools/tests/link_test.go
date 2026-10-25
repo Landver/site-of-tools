@@ -75,8 +75,9 @@ func TestLinkTrackingRules(t *testing.T) {
 	cat := linktools.Rules()
 
 	got := object(t, call(t, cs, "link_tracking_rules", map[string]any{}))
-	if got["version"] != cat.Version || got["tracking"] != num(len(cat.Tracking)) || got["wrappers"] != num(len(cat.Wrappers)) {
-		t.Errorf("no argument = %v, want the version and counts", got)
+	if got["version"] != cat.Version || got["scope"] != cat.Scope || len(rows(t, got, "tracking")) != len(cat.Tracking) ||
+		len(rows(t, got, "never_strip")) != len(cat.NeverStrip) || len(rows(t, got, "wrappers")) != len(cat.Wrappers) || len(cat.Tracking) == 0 {
+		t.Errorf("no argument = version %v, %d tracking rules, want the whole table: %s and all %d", got["version"], len(rows(t, got, "tracking")), cat.Version, len(cat.Tracking))
 	}
 	ref := object(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "REF"}))
 	if ref["param"] != "ref" || len(rows(t, ref, "tracking")) == 0 || len(rows(t, ref, "never_strip")) == 0 {
@@ -85,10 +86,7 @@ func TestLinkTrackingRules(t *testing.T) {
 	if hosts := rows(t, ref, "never_strip")[0]["hosts"]; hosts == nil {
 		t.Errorf("the never-strip entry for ref lists no hosts")
 	}
-	if full := object(t, call(t, cs, "link_tracking_rules", map[string]any{"full": true})); len(rows(t, full, "tracking")) != len(cat.Tracking) {
-		t.Errorf("full = %d tracking rules, want all %d", len(rows(t, full, "tracking")), len(cat.Tracking))
-	}
-	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "full": true}), "not both")
+	failsWith(t, call(t, cs, "link_tracking_rules", map[string]any{"param": "ref", "full": true}), "full")
 }
 
 func TestLinkDiff(t *testing.T) {
@@ -163,8 +161,8 @@ func TestLinkExtract(t *testing.T) {
 	}
 
 	full := object(t, call(t, cs, "link_extract", map[string]any{"text": text, "detailed": true}))
-	if rs := rows(t, full, "urls"); len(rs) != 122 || rs[len(rs)-1]["positions"] == nil {
-		t.Errorf("detailed = %d rows, want all 122 with positions", len(rs))
+	if rs := rows(t, full, "urls"); len(rs) != 122 || rs[len(rs)-1]["positions"] != nil {
+		t.Errorf("detailed = %d rows, want all 122 without positions", len(rs))
 	}
 	failsWith(t, call(t, cs, "link_extract", map[string]any{"text": "  \n "}), "no text given")
 }
@@ -253,17 +251,20 @@ func TestLinkToolsNeedTheirDependencies(t *testing.T) {
 	}
 }
 
-// extractConcise is link_extract's concise projection, restated.
-func extractConcise(body map[string]any) {
-	urls := body["urls"].([]any)
-	for _, u := range urls {
+// extractDetailed and extractConcise are link_extract's projections of the REST body, restated.
+func extractDetailed(body map[string]any) {
+	for _, u := range body["urls"].([]any) {
 		delete(u.(map[string]any), "positions")
 	}
-	if len(urls) > 30 {
+}
+
+func extractConcise(body map[string]any) {
+	extractDetailed(body)
+	if urls := body["urls"].([]any); len(urls) > 30 {
 		body["urls"] = urls[:30]
 		notes, _ := body["notes"].([]any)
 		body["notes"] = append(notes, map[string]any{"severity": "info",
-			"title": fmt.Sprintf("The first 30 of %d links", len(urls)), "detail": "Pass detailed: true for all of them, with their positions in the text."})
+			"title": fmt.Sprintf("The first 30 of %d links", len(urls)), "detail": "Pass detailed: true for all of them."})
 	}
 }
 
@@ -283,13 +284,13 @@ func TestLinkParity(t *testing.T) {
 		{"link_inspect", map[string]any{"url": "https://Example.com:443/a/../b?utm_source=x&id=7#frag"}, http.MethodGet, "/?u=" + q("https://Example.com:443/a/../b?utm_source=x&id=7#frag"), "", nil},
 		{"link_clean", map[string]any{"url": safeLinks}, http.MethodGet, "/clean?u=" + q(safeLinks), "", nil},
 		{"link_clean", map[string]any{"url": safeLinks, "unwrap": false, "strip_affiliate": true, "sort": true}, http.MethodGet, "/clean?unwrap=false&affiliate=true&sort=true&u=" + q(safeLinks), "", nil},
-		{"link_tracking_rules", map[string]any{"full": true}, http.MethodGet, "/clean/rules", "", nil},
+		{"link_tracking_rules", map[string]any{}, http.MethodGet, "/clean/rules", "", nil},
 		{"link_diff", map[string]any{"url_a": "https://example.com/?a=1&b=2", "url_b": "https://EXAMPLE.com/?b=2&a=3"}, http.MethodGet, "/diff?a=" + q("https://example.com/?a=1&b=2") + "&b=" + q("https://EXAMPLE.com/?b=2&a=3"), "", nil},
 		{"link_redirect_chain", map[string]any{"url": "http://127.0.0.1/admin"}, http.MethodGet, "/trace?u=" + q("http://127.0.0.1/admin"), "", nil},
 		{"link_curl_parse", map[string]any{"command": cmd}, http.MethodPost, "/curl", "curl=" + q(cmd), nil},
 		{"link_curl_build", map[string]any{"url": "https://example.com/?q=a b", "persona": "googlebot", "follow_redirects": true}, http.MethodGet, "/curl?ua=googlebot&follow=true&u=" + q("https://example.com/?q=a b"), "", nil},
 		{"link_extract", map[string]any{"text": letter}, http.MethodPost, "/extract", "text=" + q(letter), extractConcise},
-		{"link_extract", map[string]any{"text": letter, "detailed": true}, http.MethodPost, "/extract", "text=" + q(letter), nil},
+		{"link_extract", map[string]any{"text": letter, "detailed": true}, http.MethodPost, "/extract", "text=" + q(letter), extractDetailed},
 		{"link_utm", map[string]any{"url": "https://example.com/?utm_source=old", "utm_source": "News", "utm_campaign": "spring"}, http.MethodGet, "/utm?utm_source=News&utm_campaign=spring&u=" + q("https://example.com/?utm_source=old"), "", nil},
 		{"link_percent_encode", map[string]any{"value": "a b+c/d%2F"}, http.MethodGet, "/encode?v=" + q("a b+c/d%2F"), "", nil},
 	}
