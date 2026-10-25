@@ -8,6 +8,14 @@ if ! command -v go >/dev/null 2>&1; then
 	exit 1
 fi
 
+echo "pre-push › gofmt"
+unformatted=$(gofmt -l $(git ls-files '*.go'))
+if [ -n "$unformatted" ]; then
+	echo "pre-push: gofmt -w these first:" >&2
+	echo "$unformatted" >&2
+	exit 1
+fi
+
 echo "pre-push › go vet ./..."
 go vet ./...
 
@@ -15,5 +23,5 @@ echo "pre-push › go test ./..."
 go test ./...
 
 echo "pre-push › wasm engine (GOOS=js GOARCH=wasm go vet)"
-GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm
+GOOS=js GOARCH=wasm go vet ./tools/ciphertools ./tools/ciphertools/wasm ./tools/mailtools ./tools/mailtools/wasm
 echo "pre-push › OK"
