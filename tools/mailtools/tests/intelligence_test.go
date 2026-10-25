@@ -105,7 +105,7 @@ func TestDNSBLReturnCodeSemantics(t *testing.T) {
 }
 
 func TestEmailIntelligenceHTTPHandlers(t *testing.T) {
-	e := newMailApp(t)
+	e := newMailApp(t, nil)
 
 	// 1. GET /disposable
 	req := httptest.NewRequest(http.MethodGet, "/disposable?input=test@mailinator.com", nil)
@@ -399,7 +399,7 @@ func TestDNSBL_ContextCancellation(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestHTTPHandlers_RoutesAndEdgeCases(t *testing.T) {
-	e := newMailApp(t)
+	e := newMailApp(t, nil)
 
 	// Helper to execute request
 	exec := func(method, target string, body io.Reader, contentType, accept, hx string) *httptest.ResponseRecorder {

@@ -224,7 +224,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		DNS: o.dns, DNSGeo: dnsGeo, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
 		CipherLimits: o.cipherLim, BotLimits: o.botLim, Blog: blog,
-		Mail: mailtools.NewService(platform.NewEgressGuard([]string{"443"}, ownHosts), nil, ""),
+		Mail: mailtools.NewService(platform.NewEgressGuard([]string{"443"}, ownHosts), nil, ""), MailLimits: mailtools.NewLimits(),
 		ToolURL: func(sub string) string {
 			if sub == "" {
 				return apexURL

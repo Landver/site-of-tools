@@ -24,16 +24,19 @@ const (
 	arcDesc        = "Trace and validate Authenticated Received Chain (RFC 8617) headers. Audit multi-hop email forwarding, ARC seals, signatures, and authentication states."
 )
 
-// Limits sets per-IP request bounds for mailtools routes.
+// Limits are shared by REST and MCP.
 type Limits struct {
 	Pure  platform.Limiter
 	Heavy platform.Limiter
+	// HeavyCap bounds heavy work in flight: an audit fans out to dozens of lookups, a report parse can take 100s of MB.
+	HeavyCap *platform.Cap
 }
 
 func NewLimits() *Limits {
 	return &Limits{
-		Pure:  platform.NewLimiter(10, 50),
-		Heavy: platform.NewLimiter(2, 10),
+		Pure:     platform.NewLimiter(10, 50),
+		Heavy:    platform.NewLimiter(2, 10),
+		HeavyCap: platform.NewCap(8),
 	}
 }
 
@@ -51,16 +54,16 @@ func Register(e *echo.Echo, base string, svc *Service, lim *Limits) {
 	h := &handler{base: base, svc: svc, lim: lim}
 
 	pure := platform.RateLimit(lim.Pure, nil, limited)
-	heavy := platform.RateLimit(lim.Heavy, nil, limited)
 	skipEmpty := func(c *echo.Context) bool {
 		return formOrQuery(c, "domain", "target", "input", "q") == ""
 	}
-	heavyAudit := platform.RateLimit(lim.Heavy, skipEmpty, limited)
+	audit := []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, skipEmpty, limited), capped(lim.HeavyCap, skipEmpty)}
+	parse := []echo.MiddlewareFunc{platform.RateLimit(lim.Heavy, nil, limited), capped(lim.HeavyCap, nil)}
 
-	e.GET("/", h.health, heavyAudit)
-	e.GET("/health", h.health, heavyAudit)
-	e.POST("/", h.health, heavyAudit)
-	e.POST("/health", h.health, heavyAudit)
+	e.GET("/", h.health, audit...)
+	e.GET("/health", h.health, audit...)
+	e.POST("/", h.health, audit...)
+	e.POST("/health", h.health, audit...)
 
 	e.GET("/disposable", h.disposable, pure)
 	e.POST("/disposable", h.disposable, pure)
@@ -68,12 +71,12 @@ func Register(e *echo.Echo, base string, svc *Service, lim *Limits) {
 	e.GET("/classifier", h.classifier, pure)
 	e.POST("/classifier", h.classifier, pure)
 
-	e.GET("/blacklist", h.blacklist, heavyAudit)
-	e.POST("/blacklist", h.blacklist, heavyAudit)
+	e.GET("/blacklist", h.blacklist, audit...)
+	e.POST("/blacklist", h.blacklist, audit...)
 
 	e.GET("/dmarc", h.dmarc, pure)
-	e.POST("/dmarc", h.dmarc, heavy)
-	e.POST("/dmarc/parse", h.dmarcParse, heavy)
+	e.POST("/dmarc", h.dmarc, parse...)
+	e.POST("/dmarc/parse", h.dmarcParse, parse...)
 
 	e.GET("/bimi", h.bimi, pure)
 	e.POST("/bimi", h.bimi, pure)
@@ -330,6 +333,22 @@ func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, tmpl
 
 func limited(c *echo.Context) error {
 	return c.String(http.StatusTooManyRequests, "Rate limit exceeded. Please wait a moment.")
+}
+
+// capped holds a slot while the route runs and answers 503 when none is free; skip lets a bare page view through.
+func capped(slots *platform.Cap, skip func(*echo.Context) bool) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if skip != nil && skip(c) {
+				return next(c)
+			}
+			if !slots.TryAcquire(c.RealIP(), 1) {
+				return c.String(http.StatusServiceUnavailable, platform.BusyMessage)
+			}
+			defer slots.Release(c.RealIP(), 1)
+			return next(c)
+		}
+	}
 }
 
 // SitemapPages lists all public routes for sitemap.xml.

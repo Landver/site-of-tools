@@ -18,14 +18,14 @@ import (
 	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
-func newMailApp(t *testing.T) *echo.Echo {
+func newMailApp(t *testing.T, lim *mailtools.Limits) *echo.Echo {
 	t.Helper()
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	mailtools.Register(e, "https://mail.example", newService(nil), nil)
+	mailtools.Register(e, "https://mail.example", newService(nil), lim)
 	return e
 }
 
@@ -190,7 +190,7 @@ ARC-Authentication-Results: i=1; mx.origin.example; spf=pass`
 }
 
 func TestMailToolsHTTPRoutes(t *testing.T) {
-	e := newMailApp(t)
+	e := newMailApp(t, nil)
 
 	// 1. GET / renders health audit dashboard
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -509,5 +509,32 @@ func TestHealthResultRendersStatuses(t *testing.T) {
 	}
 	if strings.Contains(html, "DMARC: none") || strings.Contains(html, "No DMARC") {
 		t.Errorf("DMARC badge shows p= instead of the effective sp= policy")
+	}
+}
+
+// A full HeavyCap answers 503 on the heavy routes, while a bare page view takes no slot.
+func TestHeavyCap(t *testing.T) {
+	lim := mailtools.NewLimits()
+	lim.HeavyCap = platform.NewCap(1)
+	lim.HeavyCap.TryAcquire("198.51.100.7", 1) // another client holds the only slot
+	e := newMailApp(t, lim)
+	for _, tc := range []struct {
+		method, target string
+		want           int
+	}{
+		{http.MethodGet, "/", http.StatusOK},
+		{http.MethodGet, "/blacklist", http.StatusOK},
+		{http.MethodGet, "/health?domain=example.com", http.StatusServiceUnavailable},
+		{http.MethodGet, "/blacklist?target=127.0.0.2", http.StatusServiceUnavailable},
+		{http.MethodPost, "/dmarc", http.StatusServiceUnavailable},
+		{http.MethodPost, "/dmarc/parse", http.StatusServiceUnavailable},
+	} {
+		req := httptest.NewRequest(tc.method, tc.target, nil)
+		req.Header.Set("Accept", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.target, rec.Code, tc.want)
+		}
 	}
 }

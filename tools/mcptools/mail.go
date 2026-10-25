@@ -41,9 +41,6 @@ type mailTools struct {
 
 func mailSpecs(d Deps) []toolSpec {
 	lim := d.MailLimits
-	if lim == nil {
-		lim = mailtools.NewLimits()
-	}
 	t := mailTools{svc: d.Mail}
 
 	var specs []toolSpec
@@ -75,11 +72,12 @@ func mailSpecs(d Deps) []toolSpec {
 			},
 			deadline: heavyDeadline,
 			limiter:  lim.Heavy,
+			cap:      lim.HeavyCap,
 			add:      add,
 		})
 	}
 
-	pure("mail_dmarc_parse", "Parse DMARC Aggregate Report",
+	heavy("mail_dmarc_parse", "Parse DMARC Aggregate Report",
 		"Parse and aggregate an RFC 7489 DMARC XML (or .xml.gz) report: message counts, pass rate %, SPF/DKIM alignment, and sending IPs classified by ESP (Google, Microsoft 365, Amazon SES, SendGrid, etc.).",
 		false, inputSchema[mailDMARCArgs](), handle(t.dmarcParse))
 
