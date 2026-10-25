@@ -140,6 +140,7 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			"Audit HTTP response headers you already have, pasted from curl -i or a browser's DevTools, without fetching anything: "+
 				"caching (Cache-Control, the RFC 9213 CDN-Cache-Control edge TTL, Vary, ETag), security headers "+
 				"(CSP, HSTS, COOP and COEP isolation, Permissions-Policy) and each cookie's attributes, with every finding graded. "+
+				"A paste holding request headers (Cookie, User-Agent, Sec-Fetch-*) is refused. "+
 				"To fetch a live URL's headers instead, use link_headers_inspect. "+
 				"Example: headers HTTP/2 200 then cache-control: public, max-age=3600 on the next line. "+thirdParty,
 			inputSchema[linkHeadersParseArgs](minLength("headers", 1)), handle(t.headersParse))
