@@ -2,6 +2,7 @@ package mcptools
 
 import (
 	"context"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -19,24 +20,21 @@ type endpoint struct {
 const routing = "dns_trace walks a name's DNS delegation down from the root; link_redirect_chain follows a URL's HTTP redirects. " +
 	"link_percent_encode is URL percent-encoding; cipher_encode converts bytes between text, hex, base64 and base32. "
 
-func buildEndpoints(public, owner []toolSpec, m *calls, base string) map[string]*endpoint {
-	eps := map[string]*endpoint{"": {name: "", path: "/mcp"}}
-	for i := range public {
-		s := &public[i]
-		eps[""].specs = append(eps[""].specs, s)
-		ep := eps[s.toolset]
-		if ep == nil {
-			ep = &endpoint{name: s.toolset, path: "/mcp/" + s.toolset}
-			eps[s.toolset] = ep
+// buildEndpoints serves each spec on its toolset's endpoint and every public one on /mcp too.
+func buildEndpoints(specs []toolSpec, m *calls, base string) map[string]*endpoint {
+	eps := map[string]*endpoint{}
+	add := func(name string, s *toolSpec) {
+		if eps[name] == nil {
+			eps[name] = &endpoint{name: name, path: path.Join("/mcp", name)}
 		}
-		ep.specs = append(ep.specs, s)
+		eps[name].specs = append(eps[name].specs, s)
 	}
-	if len(owner) > 0 {
-		ep := &endpoint{name: ownerEndpoint, path: "/mcp/" + ownerEndpoint}
-		for i := range owner {
-			ep.specs = append(ep.specs, &owner[i])
+	for i := range specs {
+		s := &specs[i]
+		add(s.toolset, s)
+		if s.toolset != ownerEndpoint {
+			add("", s)
 		}
-		eps[ownerEndpoint] = ep
 	}
 	impl := &mcp.Implementation{Name: "corpberry", Title: "corpberry.com tools", Version: version, WebsiteURL: base}
 	for _, ep := range eps {

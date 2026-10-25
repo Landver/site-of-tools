@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
@@ -82,12 +83,13 @@ type linkTools struct {
 	svc   *linktools.Service
 	trace *linktools.Tracer
 	short *linktools.Shortener
+	busy  platform.Limiter // every client's short-link resolves together
 	log   *slog.Logger
 }
 
 func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
-	t := linkTools{svc: d.Link, trace: d.Tracer, short: d.Short, log: log}
 	lim := d.LinkLimits
+	t := linkTools{svc: d.Link, trace: d.Tracer, short: d.Short, busy: lim.ResolveGlobal, log: log}
 	var personas []string
 	for _, p := range linktools.Personas() {
 		personas = append(personas, p.Key)
@@ -211,7 +213,6 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 			},
 			deadline: quickDeadline,
 			limiter:  lim.Resolve,
-			breaker:  lim.ResolveGlobal,
 			add:      handle(t.resolve),
 		})
 	}
@@ -309,6 +310,10 @@ func (t linkTools) encode(_ context.Context, _ *mcp.CallToolRequest, a linkEncod
 }
 
 func (t linkTools) resolve(ctx context.Context, _ *mcp.CallToolRequest, a linkResolveArgs) (any, error) {
+	// A refusal shared by every client reads as busy, not as this client's fault.
+	if !platform.AllowKey(t.busy, callerFrom(ctx).ip) {
+		return nil, platform.ErrBusy
+	}
 	code, ok := t.short.Code(a.Code)
 	if !ok {
 		return nil, fmt.Errorf("Not a corpberry.com short link (%s). To see where any other link leads, use link_redirect_chain.",

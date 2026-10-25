@@ -15,163 +15,145 @@ import (
 )
 
 type mailDMARCArgs struct {
-	XML    string `json:"xml,omitempty" jsonschema:"the raw DMARC XML text, or base64-encoded XML or gzip payload"`
-	Base64 string `json:"base64,omitempty" jsonschema:"base64-encoded .xml or .xml.gz report payload"`
+	XML      string `json:"xml,omitempty" jsonschema:"the report's XML text"`
+	Base64   string `json:"base64,omitempty" jsonschema:"the report file's bytes base64-encoded, for a .xml.gz or a .xml"`
+	Detailed bool   `json:"detailed,omitempty" jsonschema:"list every source IP and every report row"`
 }
 
 type mailBIMIArgs struct {
-	SVG string `json:"svg" jsonschema:"the raw SVG logo markup"`
+	SVG string `json:"svg" jsonschema:"the SVG logo's markup"`
 }
 
 type mailARCArgs struct {
-	Headers string `json:"headers" jsonschema:"the raw forwarded email headers containing ARC-Seal, ARC-Message-Signature, and ARC-Authentication-Results"`
+	Headers string `json:"headers" jsonschema:"the message's raw headers, ARC-Seal, ARC-Message-Signature and ARC-Authentication-Results among them"`
 }
 
 type mailDomainArgs struct {
-	Domain string `json:"domain" jsonschema:"the email domain name (e.g. stripe.com) or email address"`
+	Domain string `json:"domain" jsonschema:"a domain, e.g. stripe.com, or an email address"`
 }
 
 type mailTargetArgs struct {
-	Target string `json:"target" jsonschema:"the IP address (e.g. 198.51.100.1) or domain name to check against blacklists"`
+	Target string `json:"target" jsonschema:"an IPv4 address, e.g. 198.51.100.7, or a domain"`
 }
 
-type mailTools struct {
-	svc *mailtools.Service
-}
+const dmarcSources = 30
+
+type mailTools struct{ svc *mailtools.Service }
 
 func mailSpecs(d Deps) []toolSpec {
-	lim := d.MailLimits
-	t := mailTools{svc: d.Mail}
-
-	var specs []toolSpec
-	pure := func(name, title, desc string, open bool, schema any, add func(*mcp.Server, *mcp.Tool)) {
-		specs = append(specs, toolSpec{
-			toolset: "mail",
-			tool: &mcp.Tool{
-				Name:        name,
-				Title:       title,
-				Description: desc,
-				InputSchema: schema,
-				Annotations: readOnly(open),
-			},
-			deadline: quickDeadline,
-			limiter:  lim.Pure,
-			add:      add,
-		})
+	lim, t := d.MailLimits, mailTools{svc: d.Mail}
+	spec := func(heavy bool, tool *mcp.Tool, add func(*mcp.Server, *mcp.Tool)) toolSpec {
+		s := toolSpec{toolset: "mail", tool: tool, deadline: quickDeadline, limiter: lim.Pure, add: add}
+		if heavy {
+			s.deadline, s.limiter, s.cap = heavyDeadline, lim.Heavy, lim.HeavyCap
+		}
+		return s
 	}
-
-	heavy := func(name, title, desc string, open bool, schema any, add func(*mcp.Server, *mcp.Tool)) {
-		specs = append(specs, toolSpec{
-			toolset: "mail",
-			tool: &mcp.Tool{
-				Name:        name,
-				Title:       title,
-				Description: desc,
-				InputSchema: schema,
-				Annotations: readOnly(open),
-			},
-			deadline: heavyDeadline,
-			limiter:  lim.Heavy,
-			cap:      lim.HeavyCap,
-			add:      add,
-		})
+	specs := []toolSpec{
+		spec(true, &mcp.Tool{
+			Name:  "mail_dmarc_parse",
+			Title: "Read a DMARC report",
+			Description: "Read a DMARC aggregate report (the RFC 7489 rua XML a mailbox provider sends, plain or gzipped): who sent it and for which dates, " +
+				"the policy published, message totals and pass rate, and the senders rolled up by provider (Google, Microsoft 365, Amazon SES, SendGrid…) and by IP. " +
+				"Pass the XML as xml, or the file's bytes base64-encoded as base64. Up to 2 MB and 5,000 rows. " +
+				"Lists the 30 busiest source IPs; detailed: true lists every IP and every report row. " + thirdParty,
+			InputSchema: inputSchema[mailDMARCArgs](),
+			Annotations: readOnly(false),
+		}, handle(t.dmarcParse)),
+		spec(false, &mcp.Tool{
+			Name:  "mail_bimi_validate",
+			Title: "Check a BIMI logo",
+			Description: "Check an SVG logo against the BIMI SVG Tiny P/S rules Gmail and Apple Mail enforce: the SVG namespace, version 1.2, baseProfile tiny-ps, " +
+				"a square viewBox, at most 32 KB, and no scripts, event handlers, javascript: links or external resources. " +
+				"When the root's attributes are what fails, auto_fixed_svg is the logo with them corrected; content problems are named for you to fix. " +
+				`Example: svg <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">…</svg>.`,
+			InputSchema: inputSchema[mailBIMIArgs](minLength("svg", 1)),
+			Annotations: readOnly(false),
+		}, handle(t.bimiValidate)),
+		spec(false, &mcp.Tool{
+			Name:  "mail_arc_analyze",
+			Title: "Check ARC header structure",
+			Description: "Check the structure of a message's ARC headers (RFC 8617): every forwarding hop i=1, 2, … has its ARC-Seal, ARC-Message-Signature and " +
+				"ARC-Authentication-Results, numbered without gaps or repeats, with cv= values in the order the RFC requires, and any arc=fail a receiver recorded. " +
+				"Signatures are not verified, so an intact structure is not proof the message is authentic. Pass the raw headers. " + thirdParty,
+			InputSchema: inputSchema[mailARCArgs](minLength("headers", 1)),
+			Annotations: readOnly(false),
+		}, handle(t.arcAnalyze)),
+		spec(false, &mcp.Tool{
+			Name:  "mail_classify_domain",
+			Title: "Disposable, free or company email",
+			Description: "Say whether an email address or domain is disposable (a throwaway inbox service), free webmail (Gmail, Yahoo, Proton…) or a company's own domain, " +
+				"from curated lists refreshed daily; a subdomain of a listed domain counts as listed, and match_reason names the entry. " +
+				"Nothing is looked up. For a domain's mail setup, use mail_domain_health. Example: domain someone@mailinator.com.",
+			InputSchema: inputSchema[mailDomainArgs](minLength("domain", 1)),
+			Annotations: readOnly(false),
+		}, handle(t.classify)),
 	}
-
-	heavy("mail_dmarc_parse", "Parse DMARC Aggregate Report",
-		"Parse and aggregate an RFC 7489 DMARC XML (or .xml.gz) report: message counts, pass rate %, SPF/DKIM alignment, and sending IPs classified by ESP (Google, Microsoft 365, Amazon SES, SendGrid, etc.).",
-		false, inputSchema[mailDMARCArgs](), handle(t.dmarcParse))
-
-	pure("mail_bimi_validate", "Validate BIMI SVG Logo",
-		"Validate an SVG logo against strict BIMI SVG Tiny P/S standards (version 1.2, baseProfile tiny-ps, square 1:1 aspect ratio, <= 32 KB, no scripts or event handlers) for Gmail and Apple Mail.",
-		false, inputSchema[mailBIMIArgs](minLength("svg", 1)), handle(t.bimiValidate))
-
-	pure("mail_bimi_autofix", "Auto-Fix BIMI SVG Logo",
-		"Auto-fix an SVG logo into compliant BIMI SVG Tiny P/S: updates version 1.2, baseProfile, square viewBox, and strips dangerous scripts, foreignObjects, and inline event handlers.",
-		false, inputSchema[mailBIMIArgs](minLength("svg", 1)), handle(t.bimiAutoFix))
-
-	pure("mail_arc_analyze", "Analyze ARC Authentication Chain",
-		"Analyze RFC 8617 Authenticated Received Chain (ARC) headers: verifies hop sequence (i=1, 2, ...), cv validation states, and reports whether mailing list / forwarding preserved message authenticity.",
-		false, inputSchema[mailARCArgs](minLength("headers", 1)), handle(t.arcAnalyze))
-
-	pure("mail_check_disposable", "Check Disposable Email Domain",
-		"Check if an email address or domain is a temporary, burner, or disposable email service using the canonical community blocklist and wildcard patterns.",
-		false, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.checkDisposable))
-
-	pure("mail_classify_domain", "Classify Email Domain (Free vs Corporate)",
-		"Classify an email address or domain into B2B corporate custom domain versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton, etc.).",
-		false, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.classifyDomain))
-
 	if d.Mail == nil {
 		return specs
 	}
-
-	heavy("mail_detect_gateway", "Detect Secure Email Gateway (SEG)",
-		"Inspect MX records and fingerprint enterprise security gateways (Proofpoint, Mimecast, Microsoft Defender, Google Workspace, Cisco IronPort, Barracuda) and direct-to-MX bypass risks.",
-		true, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.detectGateway))
-
-	heavy("mail_check_dnsbl", "Check Multi-DNSBL Blacklists",
-		"Audit an IP address or domain across 15+ authoritative global DNSBL/RBL spam blacklists (Spamhaus, Barracuda BRBL, SpamCop, Mailspike) in parallel.",
-		true, inputSchema[mailTargetArgs](minLength("target", 1)), handle(t.checkDNSBL))
-
-	heavy("mail_domain_health", "Audit Domain Email Health",
-		"Comprehensive email infrastructure and deliverability audit: combines SEG gateway detection, BIMI/VMC verification, disposable check, and DNSBL reputation.",
-		true, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.domainHealth))
-
-	return specs
+	return append(specs,
+		spec(true, &mcp.Tool{
+			Name:  "mail_domain_health",
+			Title: "Audit a domain's email",
+			Description: "Audit a domain's email setup from this server: SPF and its DNS lookup count, the DMARC policy in force (an inherited sp= included), " +
+				"DKIM on common selectors, MTA-STS, the MX hosts and the security gateway in front of them, BIMI and its certificate, and blocklist listings, " +
+				"scored out of 100 with a recommendation per finding. Pass a domain or an email address. " +
+				"For the blocklists alone use mail_check_dnsbl. Example: domain stripe.com. " + thirdParty,
+			InputSchema: inputSchema[mailDomainArgs](minLength("domain", 1)),
+			Annotations: readOnly(true),
+		}, handle(t.domainHealth)),
+		spec(true, &mcp.Tool{
+			Name:  "mail_check_dnsbl",
+			Title: "Check DNS blocklists",
+			Description: "Look up an IPv4 address or a domain on public DNS blocklists (Spamhaus, Barracuda, SpamCop, Mailspike and others) from this server: " +
+				"each list's verdict and what its answer code means. A domain is checked on the domain lists and by its primary mail server's address. " +
+				"For a domain's whole mail setup, use mail_domain_health. Example: target 198.51.100.7. " + thirdParty,
+			InputSchema: inputSchema[mailTargetArgs](minLength("target", 1)),
+			Annotations: readOnly(true),
+		}, handle(t.checkDNSBL)),
+	)
 }
 
 func (t mailTools) dmarcParse(_ context.Context, _ *mcp.CallToolRequest, a mailDMARCArgs) (any, error) {
 	var r io.Reader
-	if a.Base64 != "" {
-		dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(a.Base64))
+	switch {
+	case a.Base64 != "":
+		raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(a.Base64))
 		if err != nil {
-			return nil, fmt.Errorf("invalid base64 payload: %w", err)
+			return nil, fmt.Errorf("base64: %w", err)
 		}
-		r = bytes.NewReader(dec)
-	} else if a.XML != "" {
-		s := strings.TrimSpace(a.XML)
-		if !strings.HasPrefix(s, "<") {
-			if dec, err := base64.StdEncoding.DecodeString(s); err == nil {
-				r = bytes.NewReader(dec)
-			} else {
-				r = strings.NewReader(s)
-			}
-		} else {
-			r = strings.NewReader(s)
-		}
-	} else {
+		r = bytes.NewReader(raw)
+	case a.XML != "":
+		r = strings.NewReader(a.XML)
+	default:
 		return nil, errors.New("provide either xml or base64")
 	}
-
-	return mailtools.ParseDMARCReport(r)
+	rep, err := mailtools.ParseDMARCReport(r)
+	if err != nil || a.Detailed {
+		return rep, err
+	}
+	out, err := object(rep)
+	if err != nil {
+		return nil, err
+	}
+	delete(out, "records")
+	if len(rep.Sources) > dmarcSources {
+		out["sources"], out["sources_truncated"] = rep.Sources[:dmarcSources], true
+	}
+	return out, nil
 }
 
 func (t mailTools) bimiValidate(_ context.Context, _ *mcp.CallToolRequest, a mailBIMIArgs) (any, error) {
 	return mailtools.ValidateBIMI(a.SVG)
 }
 
-func (t mailTools) bimiAutoFix(_ context.Context, _ *mcp.CallToolRequest, a mailBIMIArgs) (any, error) {
-	fixed, err := mailtools.AutoFixBIMI(a.SVG)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{"svg": fixed}, nil
-}
-
 func (t mailTools) arcAnalyze(_ context.Context, _ *mcp.CallToolRequest, a mailARCArgs) (any, error) {
 	return mailtools.AnalyzeARC(a.Headers)
 }
 
-func (t mailTools) checkDisposable(_ context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
+func (t mailTools) classify(_ context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
 	return mailtools.ActiveClassifier().Classify(a.Domain), nil
-}
-
-func (t mailTools) classifyDomain(_ context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
-	return mailtools.ActiveClassifier().Classify(a.Domain), nil
-}
-
-func (t mailTools) detectGateway(ctx context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
-	return mailtools.DetectGateway(ctx, a.Domain)
 }
 
 func (t mailTools) checkDNSBL(ctx context.Context, _ *mcp.CallToolRequest, a mailTargetArgs) (any, error) {

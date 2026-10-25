@@ -59,10 +59,6 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				got = http.StatusTooManyRequests
 				return refuse(call, platform.LimitedMessage)
 			}
-			if spec.breaker != nil && !platform.AllowKey(spec.breaker, who.ip) {
-				got = http.StatusServiceUnavailable
-				return refuse(call, platform.BusyMessage)
-			}
 			if !spec.cap.TryAcquire(who.ip, 1) {
 				got = http.StatusServiceUnavailable
 				return refuse(call, platform.BusyMessage)

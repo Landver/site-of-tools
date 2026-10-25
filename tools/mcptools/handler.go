@@ -27,17 +27,17 @@ import (
 
 // Deps are the REST routes' own values, Limits included; a nil one drops its tools.
 type Deps struct {
-	Geo          iptools.Looker // with Shodan
-	DNSGeo       iptools.Looker // the same without Shodan
-	Blocklist    iptools.Checker
-	DNS          dnstools.Looker
-	Domain       *dnstools.DomainClient
-	Link         *linktools.Service
-	Tracer       *linktools.Tracer
-	Short        *linktools.Shortener
-	Owner        *linktools.Shortener // without a key /mcp/owner is a 404
-	Blog         *site.Blog
-	Mail         *mailtools.Service
+	Geo       iptools.Looker // with Shodan
+	DNSGeo    iptools.Looker // the same without Shodan
+	Blocklist iptools.Checker
+	DNS       dnstools.Looker
+	Domain    *dnstools.DomainClient
+	Link      *linktools.Service
+	Tracer    *linktools.Tracer
+	Short     *linktools.Shortener
+	Owner     *linktools.Shortener // without a key /mcp/owner is a 404
+	Blog      *site.Blog
+	Mail      *mailtools.Service
 
 	IPLimits     *iptools.Limits
 	DNSLimits    *dnstools.Limits
@@ -81,8 +81,8 @@ func newHandler(d Deps, base string, log *slog.Logger) *handler {
 		d.Geo = nil
 	}
 	m := &calls{reqlog: d.RequestLog, log: log}
-	public := slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), mailSpecs(d), siteSpecs(d))
-	eps := buildEndpoints(public, ownerSpecs(d, log), m, base)
+	eps := buildEndpoints(slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), mailSpecs(d), siteSpecs(d),
+		ownerSpecs(d, log)), m, base)
 	sdk := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		if ep := eps[r.PathValue("toolset")]; ep != nil {
 			return ep.server

@@ -19,6 +19,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 // fakeDNS serves every check from data built per call; heavy adds sixty TXT records.
@@ -292,4 +293,10 @@ func roomyCipher() *ciphertools.Limits {
 
 func roomyBot() *botcheck.Limits {
 	return &botcheck.Limits{Check: platform.NewLimiter(100, 1000), CheckCap: platform.NewCap(8)}
+}
+
+func roomyMail() *mailtools.Limits {
+	l := mailtools.NewLimits()
+	l.Pure, l.Heavy = platform.NewLimiter(100, 1000), platform.NewLimiter(100, 1000)
+	return l
 }

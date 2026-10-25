@@ -66,7 +66,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 		}
 	}
 
-	s := newStack(t, stackOpts{owner: offlineOwner(t)})
+	s := newStack(t, stackOpts{owner: offlineOwner(t), mail: mailService()})
 	listed := map[string]bool{}
 	for _, path := range []string{"/mcp", "/mcp/owner"} {
 		hdr := map[string]string{"CF-Connecting-IP": clientIP, "X-Api-Key": ownerKey}
@@ -98,7 +98,7 @@ func TestEveryRouteHasAnMCPDecision(t *testing.T) {
 			t.Errorf("%s is served but no REST route maps to it", name)
 		}
 	}
-	if mapped != 61 {
-		t.Errorf("%d routes map to tools, want 61", mapped)
+	if mapped != 62 {
+		t.Errorf("%d routes map to tools, want 62", mapped)
 	}
 }

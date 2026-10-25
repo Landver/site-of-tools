@@ -286,7 +286,7 @@ func (h *handler) bimiFix(c *echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]string{"svg": fixed, "fixed_svg": fixed})
+	return c.JSON(http.StatusOK, map[string]string{"svg": fixed})
 }
 
 func (h *handler) arc(c *echo.Context) error {

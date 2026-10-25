@@ -14,6 +14,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 // TestOneBudgetWhicheverDoor: a budget spent over REST is spent over MCP, an IPv6 client's by its /64.
@@ -42,6 +43,8 @@ func TestOneBudgetWhicheverDoor(t *testing.T) {
 		// The breaker every client shares reads as busy, not as this client's fault.
 		{"short link breaker", resolve(func(l *linktools.Limits) { l.ResolveGlobal = platform.NewGlobalLimiter(0.001, 1) }), rest{linkHost, http.MethodGet, "/s/no-such", ""},
 			"198.51.100.41", "198.51.100.41", "link_short_resolve", map[string]any{"code": "no such!"}, platform.BusyMessage, ""},
+		{"mail heavy", stackOpts{mailLim: mailtools.NewLimits()}, rest{mailHost, http.MethodPost, "/dmarc/parse", dmarcReport},
+			"198.51.100.42", "198.51.100.42", "mail_dmarc_parse", map[string]any{"xml": dmarcReport}, platform.LimitedMessage, "mail_classify_domain"},
 	} {
 		s := newStack(t, tc.opts)
 		// Connected first, so the bucket has no time to refill between doors.

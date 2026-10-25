@@ -28,7 +28,6 @@ type toolSpec struct {
 	tool     *mcp.Tool
 	deadline time.Duration
 	limiter  platform.Limiter
-	breaker  platform.Limiter // a budget every client shares; its refusal reads as busy
 	cap      *platform.Cap
 	add      func(*mcp.Server, *mcp.Tool)
 }
@@ -98,7 +97,7 @@ func excluded(reason string) Decision { return Decision{Reason: reason} }
 
 const (
 	get, post, del = http.MethodGet, http.MethodPost, http.MethodDelete
-	cipherShell    = "A page shell for the in-browser engine; the op it posts to is a tool."
+	engineShell    = "A page shell for the in-browser engine; the op it posts to is a tool."
 )
 
 var coverage = map[Route]Decision{
@@ -159,37 +158,37 @@ var coverage = map[Route]Decision{
 	{"cipher", post, "/pkce/verify"}:     served("cipher_pkce_verify"),
 	{"cipher", post, "/dpop/generate"}:   served("cipher_dpop_generate"),
 	{"cipher", post, "/dpop/verify"}:     served("cipher_dpop_verify"),
-	{"cipher", get, "/"}:                 excluded(cipherShell),
-	{"cipher", get, "/hash"}:             excluded(cipherShell),
-	{"cipher", get, "/hmac"}:             excluded(cipherShell),
-	{"cipher", get, "/password"}:         excluded(cipherShell),
-	{"cipher", get, "/encrypt"}:          excluded(cipherShell),
-	{"cipher", get, "/keys"}:             excluded(cipherShell),
-	{"cipher", get, "/cert"}:             excluded(cipherShell),
-	{"cipher", get, "/totp"}:             excluded(cipherShell),
-	{"cipher", get, "/random"}:           excluded(cipherShell),
-	{"cipher", get, "/encode"}:           excluded(cipherShell),
-	{"cipher", get, "/identify"}:         excluded(cipherShell),
-	{"cipher", get, "/pkce"}:             excluded(cipherShell),
-	{"cipher", get, "/dpop"}:             excluded(cipherShell),
+	{"cipher", get, "/"}:                 excluded(engineShell),
+	{"cipher", get, "/hash"}:             excluded(engineShell),
+	{"cipher", get, "/hmac"}:             excluded(engineShell),
+	{"cipher", get, "/password"}:         excluded(engineShell),
+	{"cipher", get, "/encrypt"}:          excluded(engineShell),
+	{"cipher", get, "/keys"}:             excluded(engineShell),
+	{"cipher", get, "/cert"}:             excluded(engineShell),
+	{"cipher", get, "/totp"}:             excluded(engineShell),
+	{"cipher", get, "/random"}:           excluded(engineShell),
+	{"cipher", get, "/encode"}:           excluded(engineShell),
+	{"cipher", get, "/identify"}:         excluded(engineShell),
+	{"cipher", get, "/pkce"}:             excluded(engineShell),
+	{"cipher", get, "/dpop"}:             excluded(engineShell),
 
-	{"mail", get, "/"}:             excluded("In-browser email intelligence suite landing page; mail_domain_health serves the audit."),
-	{"mail", post, "/"}:            served("mail_domain_health", "mail_detect_gateway"),
+	{"mail", get, "/"}:             served("mail_domain_health"),
+	{"mail", post, "/"}:            served("mail_domain_health"),
 	{"mail", get, "/health"}:       served("mail_domain_health"),
 	{"mail", post, "/health"}:      served("mail_domain_health"),
-	{"mail", get, "/disposable"}:    served("mail_check_disposable"),
-	{"mail", post, "/disposable"}:   served("mail_check_disposable"),
-	{"mail", get, "/classifier"}:    served("mail_classify_domain"),
-	{"mail", post, "/classifier"}:   served("mail_classify_domain"),
-	{"mail", get, "/blacklist"}:     served("mail_check_dnsbl"),
-	{"mail", post, "/blacklist"}:    served("mail_check_dnsbl"),
-	{"mail", get, "/dmarc"}:         excluded("In-browser DMARC visualizer page; mail_dmarc_parse serves report parsing."),
-	{"mail", post, "/dmarc"}:        served("mail_dmarc_parse"),
-	{"mail", post, "/dmarc/parse"}:  served("mail_dmarc_parse"),
-	{"mail", get, "/bimi"}:          excluded("In-browser BIMI validator page; mail_bimi_validate and mail_bimi_autofix serve it."),
-	{"mail", post, "/bimi"}:         served("mail_bimi_validate"),
-	{"mail", post, "/bimi/fix"}:     served("mail_bimi_autofix"),
-	{"mail", get, "/arc"}:           excluded("In-browser ARC trace page; mail_arc_analyze serves it."),
-	{"mail", post, "/arc"}:          served("mail_arc_analyze"),
-	{"mail", post, "/arc/parse"}:    served("mail_arc_analyze"),
+	{"mail", get, "/disposable"}:   served("mail_classify_domain"),
+	{"mail", post, "/disposable"}:  served("mail_classify_domain"),
+	{"mail", get, "/classifier"}:   served("mail_classify_domain"),
+	{"mail", post, "/classifier"}:  served("mail_classify_domain"),
+	{"mail", get, "/blacklist"}:    served("mail_check_dnsbl"),
+	{"mail", post, "/blacklist"}:   served("mail_check_dnsbl"),
+	{"mail", post, "/dmarc"}:       served("mail_dmarc_parse"),
+	{"mail", post, "/dmarc/parse"}: served("mail_dmarc_parse"),
+	{"mail", post, "/bimi"}:        served("mail_bimi_validate"),
+	{"mail", post, "/bimi/fix"}:    served("mail_bimi_validate"),
+	{"mail", post, "/arc"}:         served("mail_arc_analyze"),
+	{"mail", post, "/arc/parse"}:   served("mail_arc_analyze"),
+	{"mail", get, "/dmarc"}:        excluded(engineShell),
+	{"mail", get, "/bimi"}:         excluded(engineShell),
+	{"mail", get, "/arc"}:          excluded(engineShell),
 }

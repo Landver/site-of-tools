@@ -43,6 +43,7 @@ const (
 	linkHost   = "link.test"
 	cipherHost = "cipher.test"
 	botHost    = "botcheck.test"
+	mailHost   = "mail.test"
 	apexHost   = "corpberry.test"
 	base       = "http://" + mcpHost
 	linkBase   = "http://" + linkHost
@@ -109,6 +110,11 @@ var offlineStore = sync.OnceValue(func() *linktools.LinkStore {
 	return linktools.NewLinkStore(context.Background(), client.Database("site-of-tools-offline"))
 })
 
+// mailService queries DNS only when one of its tools is called.
+func mailService() *mailtools.Service {
+	return mailtools.NewService(platform.NewEgressGuard([]string{"443"}, ownHosts), nil, "")
+}
+
 func offlineOwner(t *testing.T) *linktools.Shortener {
 	t.Helper()
 	s := linktools.NewShortener(offlineStore(), ownerKey, linkBase)
@@ -137,6 +143,9 @@ type stackOpts struct {
 	linkLim   *linktools.Limits
 	cipherLim *ciphertools.Limits
 	botLim    *botcheck.Limits
+	mailLim   *mailtools.Limits
+	// mail is nil offline, which drops the mail tools that query DNS.
+	mail *mailtools.Service
 }
 
 // stack is the vhost handler as main.go builds it, each REST app and MCP sharing one Limits.
@@ -185,11 +194,15 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	if o.botLim == nil {
 		o.botLim = roomyBot()
 	}
+	if o.mailLim == nil {
+		o.mailLim = roomyMail()
+	}
 	renderer := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: iptools.Templates, DevDir: "tools/iptools/templates"},
 		platform.TemplateSource{Embed: dnstools.Templates, DevDir: "tools/dnstools/templates"},
 		platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
+		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
 		platform.TemplateSource{Embed: mcptools.Templates, DevDir: "tools/mcptools/templates"},
 	)
 	app := func() *echo.Echo { return platform.NewApp(renderer, fstest.MapFS{}, false, nil) }
@@ -207,6 +220,8 @@ func newStack(t *testing.T, o stackOpts) *stack {
 	ciphertools.Register(hosts[cipherHost], "http://"+cipherHost, fstest.MapFS{}, o.cipherLim)
 	hosts[botHost] = app()
 	botcheck.Register(hosts[botHost], o.geo, nil, o.chk, o.botLim)
+	hosts[mailHost] = app()
+	mailtools.Register(hosts[mailHost], "http://"+mailHost, o.mail, o.mailLim)
 	var blog *site.Blog
 	if o.posts != nil {
 		hosts[apexHost] = app()
@@ -224,7 +239,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		DNS: o.dns, DNSGeo: dnsGeo, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
 		CipherLimits: o.cipherLim, BotLimits: o.botLim, Blog: blog,
-		Mail: mailtools.NewService(platform.NewEgressGuard([]string{"443"}, ownHosts), nil, ""), MailLimits: mailtools.NewLimits(),
+		Mail: o.mail, MailLimits: o.mailLim,
 		ToolURL: func(sub string) string {
 			if sub == "" {
 				return apexURL
