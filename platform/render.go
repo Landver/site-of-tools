@@ -24,7 +24,7 @@ type Tool struct {
 var navBaseFuncs = template.FuncMap{
 	"apexURL":    func() string { return "/" },
 	"navTools":   func() []Tool { return nil },
-	"navCatalog": func() []ToolSection { return defaultCatalog },
+	"navCatalog": Catalog,
 	// Origin of a sibling tool, for links that hand off to it.
 	"toolURL": func(sub string) string { return "https://" + sub + ".corpberry.com" },
 	"asset":   StaticURL,

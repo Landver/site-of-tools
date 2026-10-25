@@ -51,7 +51,7 @@ func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context
 	})
 }
 
-// AllowKey is RateLimit outside Echo; client may be the raw IP or its key.
+// AllowKey is RateLimit outside Echo; client is the raw IP, keyed as the middleware keys it.
 func AllowKey(l Limiter, client string) bool {
 	ok, err := l.Allow(RateLimitKey(client))
 	return ok && err == nil

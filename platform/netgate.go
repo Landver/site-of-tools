@@ -30,10 +30,10 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fc00::/7"),        // unique local
 	// ::/96 is RFC 4291's IPv4-compatible form: ::127.0.0.1 is loopback, yet IsLoopback only matches ::1.
 	netip.MustParsePrefix("::/96"),
-	netip.MustParsePrefix("fec0::/10"),      // deprecated site-local
-	netip.MustParsePrefix("192.88.99.0/24"), // 6to4 relay anycast
-	netip.MustParsePrefix("100::/64"),       // discard-only
-	netip.MustParsePrefix("2001:db8::/32"),  // documentation
+	netip.MustParsePrefix("fec0::/10"),        // deprecated site-local
+	netip.MustParsePrefix("192.88.99.0/24"),   // 6to4 relay anycast
+	netip.MustParsePrefix("100::/64"),         // discard-only
+	netip.MustParsePrefix("2001:db8::/32"),    // documentation
 	netip.MustParsePrefix("168.63.129.16/32"), // Azure wireserver / host agent
 }
 
@@ -219,17 +219,13 @@ func (g *EgressGuard) Transport(timeout time.Duration) *http.Transport {
 // RateLimitKey keys IPv6 on its /64, since one client gets 2^64 addresses and each would hold a bucket;
 // unparseable junk, such as a forged CF-Connecting-IP, shares one bucket.
 func RateLimitKey(ip string) string {
-	s := strings.TrimSpace(ip)
-	if addr, err := netip.ParseAddr(s); err == nil {
-		addr = addr.Unmap()
-		if addr.Is4() {
-			return addr.String()
-		}
-		p, _ := addr.Prefix(64)
-		return p.String()
+	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return "unknown"
 	}
-	if p, err := netip.ParsePrefix(s); err == nil && p.Addr().Is6() && p.Bits() == 64 {
-		return p.Masked().String()
+	if addr = addr.Unmap(); addr.Is4() {
+		return addr.String()
 	}
-	return "unknown"
+	p, _ := addr.Prefix(64)
+	return p.String()
 }

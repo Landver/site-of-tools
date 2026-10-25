@@ -111,7 +111,7 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 			c.Logger().LogAttrs(context.Background(), level, msg, attrs...)
 
 			// Record is non-blocking and nil-safe, so this stays off the request path.
-			if ShouldRecord(c.Request().URL.Path) {
+			if ShouldRecord(v.Method, c.Request().URL.Path, v.Status) {
 				reqlog.Record(RequestEntry{
 					Method:    v.Method,
 					Host:      v.Host,

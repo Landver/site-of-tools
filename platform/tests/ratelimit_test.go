@@ -68,11 +68,11 @@ func TestRateLimitUnparseableClientsShareOneBucket(t *testing.T) {
 	}
 }
 
-// AllowKey, the MCP door, must spend the middleware's bucket, by raw IP or key.
+// AllowKey, the MCP door, must spend the middleware's bucket, for any address in the /64.
 func TestAllowKeySpendsTheMiddlewaresBucket(t *testing.T) {
 	l := platform.NewLimiter(0.001, 3)
 	e := limitedApp(l)
-	if !platform.AllowKey(l, "2001:db8:1:2::1") || !platform.AllowKey(l, platform.RateLimitKey("2001:db8:1:2::2")) {
+	if !platform.AllowKey(l, "2001:db8:1:2::1") || !platform.AllowKey(l, "2001:db8:1:2::2") {
 		t.Fatal("AllowKey refused inside the burst")
 	}
 	hitAs(e, "2001:db8:1:2::3")
@@ -119,8 +119,8 @@ func TestCapSharePerClient(t *testing.T) {
 			t.Fatalf("unit %d of the client's share of 2 refused", i+1)
 		}
 	}
-	if c.TryAcquire(platform.RateLimitKey("2001:db8:1:2::77"), 1) {
-		t.Error("a third unit for the same /64, by its key, was granted past the share")
+	if c.TryAcquire("2001:db8:1:2::77", 1) {
+		t.Error("a third unit for the same /64, from another address in it, was granted past the share")
 	}
 	for i := range 6 {
 		if !c.TryAcquire(fmt.Sprintf("198.51.100.%d", i+1), 1) {

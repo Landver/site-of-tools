@@ -35,7 +35,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	navFuncs := template.FuncMap{
 		"apexURL":    func() string { return cfg.URL("") },
 		"navTools":   func() []platform.Tool { return site.Tools(cfg) },
-		"navCatalog": func() []platform.ToolSection { return platform.Catalog(cfg) },
+		"navCatalog": platform.Catalog,
 		"toolURL":    cfg.URL,
 		"asset":      platform.StaticURL,
 	}
@@ -198,7 +198,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	}
 
 	// Also audit EVERY tool path from catalog
-	for _, section := range platform.Catalog(cfg) {
+	for _, section := range platform.Catalog() {
 		for _, tool := range section.Tools {
 			routesToAudit = append(routesToAudit, struct {
 				Subdomain string
