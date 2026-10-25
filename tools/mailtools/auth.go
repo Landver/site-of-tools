@@ -387,7 +387,7 @@ func (s *Service) checkMTASTS(ctx context.Context, domain string) *MTASTSAnalysi
 	}
 
 	policy := &url.URL{Scheme: "https", Host: "mta-sts." + domain, Path: "/.well-known/mta-sts.txt"}
-	// RFC 8461 §3.2 caps a policy at 64 KB.
+	// A policy is a few lines; 64 KB is ample.
 	if body, err := s.fetch(ctx, policy, 64*1024); err != nil {
 		res.PolicyError = err.Error()
 	} else {
