@@ -30,11 +30,11 @@ var systemResolvers = func() []string {
 
 // DNSBLZone defines an individual real-time blacklist or reputation zone.
 type DNSBLZone struct {
-	Name        string // Human-readable name
-	Host        string // DNS zone root
-	IsDomain    bool   // True if for domains, false if for IPs
-	DelistURL   string // URL to removal/lookup page
-	Description string // What this list identifies
+	Name        string
+	Host        string
+	IsDomain    bool
+	DelistURL   string
+	Description string
 }
 
 // DNSBLResult is the individual audit outcome for one DNSBL list.
@@ -62,127 +62,28 @@ type DNSBLReport struct {
 }
 
 var ipDNSBLs = []DNSBLZone{
-	{
-		Name:        "Spamhaus ZEN",
-		Host:        "zen.spamhaus.org",
-		DelistURL:   "https://check.spamhaus.org/",
-		Description: "Gold standard IP reputation (SBL direct spam, XBL botnet exploits, PBL dynamic IPs)",
-	},
-	{
-		Name:        "Barracuda Reputation (BRBL)",
-		Host:        "b.barracudacentral.org",
-		DelistURL:   "https://www.barracudacentral.org/rbl/removal-request",
-		Description: "Global enterprise honeypot and appliance telemetry network",
-	},
-	{
-		Name:        "SpamCop (SCBL)",
-		Host:        "bl.spamcop.net",
-		DelistURL:   "https://www.spamcop.net/bl.shtml",
-		Description: "Real-time user reported spam trap network",
-	},
-	{
-		Name:        "Mailspike IP Reputation",
-		Host:        "rep.mailspike.net",
-		DelistURL:   "https://mailspike.org/an-ip-is-listed.html",
-		Description: "Granular sliding-scale sender reputation (L1-L5 bad, H1-H5 good)",
-	},
-	{
-		Name:        "Mailspike Blacklist (BL)",
-		Host:        "bl.mailspike.net",
-		DelistURL:   "https://mailspike.org/an-ip-is-listed.html",
-		Description: "High-confidence persistent spam bot and zombie list",
-	},
-	{
-		Name:        "Backscatterer",
-		Host:        "ips.backscatterer.org",
-		DelistURL:   "http://www.backscatterer.org/?target=test",
-		Description: "Misconfigured mail servers sending abusive NDR backscatter bounces",
-	},
-	{
-		Name:        "Truncate (GBUdb)",
-		Host:        "truncate.gbudb.net",
-		DelistURL:   "http://www.gbudb.com/truncate/",
-		Description: "Real-time automated spam emission probability engine",
-	},
-	{
-		Name:        "Passive Spam Block List (PSBL)",
-		Host:        "psbl.surriel.com",
-		DelistURL:   "https://psbl.org/",
-		Description: "Easy-on, easy-off honeypot-based automated spam list",
-	},
-	{
-		Name:        "DroneBL",
-		Host:        "dnsbl.dronebl.org",
-		DelistURL:   "https://dronebl.org/lookup",
-		Description: "Compromised botnet nodes, open proxies, and worm infections",
-	},
-	{
-		Name:        "Blocklist.de",
-		Host:        "bl.blocklist.de",
-		DelistURL:   "https://www.blocklist.de/en/search.html",
-		Description: "Real-time fail2ban network reporting abusive attack sources",
-	},
-	{
-		Name:        "s5h.net IP Reputation",
-		Host:        "all.s5h.net",
-		DelistURL:   "http://www.s5h.net/rbl",
-		Description: "Authoritative spam emission and infected host reputation list",
-	},
-	{
-		Name:        "SPFBL DNSBL",
-		Host:        "dnsbl.spfbl.net",
-		DelistURL:   "https://matrix.spfbl.net/",
-		Description: "Collaborative peer-to-peer anti-spam sender reputation network",
-	},
-	{
-		Name:        "NordSpam IP Blacklist",
-		Host:        "bl.nordspam.com",
-		DelistURL:   "https://nordspam.com/",
-		Description: "Enterprise reputation list tracking automated spam emitters",
-	},
-	{
-		Name:        "UCEPROTECT Level 1",
-		Host:        "dnsbl-1.uceprotect.net",
-		DelistURL:   "http://www.uceprotect.net/en/rblcheck.php",
-		Description: "Directly detected spam emission sources and abused mail relays",
-	},
-	{
-		Name:        "UCEPROTECT Level 2",
-		Host:        "dnsbl-2.uceprotect.net",
-		DelistURL:   "http://www.uceprotect.net/en/rblcheck.php",
-		Description: "Escalation list for networks with open spam outbreaks",
-	},
+	{"Spamhaus ZEN", "zen.spamhaus.org", false, "https://check.spamhaus.org/", "SBL direct spam, XBL botnets, PBL dynamic IPs"},
+	{"Barracuda BRBL", "b.barracudacentral.org", false, "https://www.barracudacentral.org/rbl/removal-request", "Honeypot and appliance telemetry network"},
+	{"SpamCop SCBL", "bl.spamcop.net", false, "https://www.spamcop.net/bl.shtml", "Real-time user reported spam traps"},
+	{"Mailspike Rep", "rep.mailspike.net", false, "https://mailspike.org/an-ip-is-listed.html", "Sender reputation rating (L1-L5 bad, H1-H5 good)"},
+	{"Mailspike BL", "bl.mailspike.net", false, "https://mailspike.org/an-ip-is-listed.html", "Spam bot and zombie list"},
+	{"Backscatterer", "ips.backscatterer.org", false, "http://www.backscatterer.org/?target=test", "Abusive NDR backscatter bounces"},
+	{"Truncate GBUdb", "truncate.gbudb.net", false, "http://www.gbudb.com/truncate/", "Automated spam emission probability engine"},
+	{"PSBL", "psbl.surriel.com", false, "https://psbl.org/", "Passive Spam Block List honeypots"},
+	{"DroneBL", "dnsbl.dronebl.org", false, "https://dronebl.org/lookup", "Compromised botnets and open proxies"},
+	{"Blocklist.de", "bl.blocklist.de", false, "https://www.blocklist.de/en/search.html", "Fail2ban abusive attack network"},
+	{"s5h.net", "all.s5h.net", false, "http://www.s5h.net/rbl", "Spam emission and infected host reputation"},
+	{"SPFBL DNSBL", "dnsbl.spfbl.net", false, "https://matrix.spfbl.net/", "Peer-to-peer anti-spam sender reputation"},
+	{"NordSpam IP", "bl.nordspam.com", false, "https://nordspam.com/", "Automated spam emitter tracker"},
+	{"UCEPROTECT L1", "dnsbl-1.uceprotect.net", false, "http://www.uceprotect.net/en/rblcheck.php", "Directly detected spam emission sources"},
+	{"UCEPROTECT L2", "dnsbl-2.uceprotect.net", false, "http://www.uceprotect.net/en/rblcheck.php", "Escalation list for networks with spam outbreaks"},
 }
 
 var domainDNSBLs = []DNSBLZone{
-	{
-		Name:        "Spamhaus DBL",
-		Host:        "dbl.spamhaus.org",
-		IsDomain:    true,
-		DelistURL:   "https://check.spamhaus.org/",
-		Description: "Real-time database of domains associated with spam, malware and phishing",
-	},
-	{
-		Name:        "SURBL Multi",
-		Host:        "multi.surbl.org",
-		IsDomain:    true,
-		DelistURL:   "http://www.surbl.org/surbl-analysis",
-		Description: "Domains spotted in unsolicited email bodies, malware sites and phishing",
-	},
-	{
-		Name:        "URIBL Multi",
-		Host:        "multi.uribl.com",
-		IsDomain:    true,
-		DelistURL:   "https://admin.uribl.com/",
-		Description: "Real-time black/grey/red domain reputation used by SpamAssassin",
-	},
-	{
-		Name:        "URIBL Black",
-		Host:        "black.uribl.com",
-		IsDomain:    true,
-		DelistURL:   "https://admin.uribl.com/",
-		Description: "Zero-false-positive strict domain spam blacklist",
-	},
+	{"Spamhaus DBL", "dbl.spamhaus.org", true, "https://check.spamhaus.org/", "Domains associated with spam, malware and phishing"},
+	{"SURBL Multi", "multi.surbl.org", true, "http://www.surbl.org/surbl-analysis", "Domains in unsolicited email bodies and malware sites"},
+	{"URIBL Multi", "multi.uribl.com", true, "https://admin.uribl.com/", "Real-time black/grey/red domain reputation"},
+	{"URIBL Black", "black.uribl.com", true, "https://admin.uribl.com/", "Zero-false-positive strict domain spam blacklist"},
 }
 
 // CachedDNSBLAudit queries cache first, falling back to parallel DNSBL audits and updating MongoDB cache.
@@ -211,6 +112,14 @@ func CachedDNSBLAudit(ctx context.Context, store *Store, target, dqsKey string) 
 	return res, nil
 }
 
+type auditTask struct {
+	target string
+	ip     net.IP
+	zone   DNSBLZone
+	suffix string
+	desc   string
+}
+
 // QueryDNSBLAudits performs parallel DNSBL checks for an IP or domain target.
 func QueryDNSBLAudits(ctx context.Context, target string, dqsKey string) (*DNSBLReport, error) {
 	start := time.Now()
@@ -222,125 +131,90 @@ func QueryDNSBLAudits(ctx context.Context, target string, dqsKey string) (*DNSBL
 	parsedIP := net.ParseIP(target)
 	isIP := parsedIP != nil
 
+	var tasks []auditTask
+	if isIP {
+		for _, z := range ipDNSBLs {
+			tasks = append(tasks, auditTask{target: target, ip: parsedIP, zone: z})
+		}
+	} else {
+		target = ExtractDomain(target)
+		if target == "" || strings.ContainsAny(target, " \t\r\n\x00;\"'\\") || len(target) > 253 {
+			return nil, errors.New("invalid domain name format for DNSBL lookup")
+		}
+		for _, z := range domainDNSBLs {
+			tasks = append(tasks, auditTask{target: target, zone: z, suffix: " (Domain)"})
+		}
+		if mxHost, mxIP := resolveMXIP(ctx, target); mxIP != nil {
+			for _, z := range ipDNSBLs {
+				tasks = append(tasks, auditTask{
+					target: mxHost,
+					ip:     mxIP,
+					zone:   z,
+					suffix: " (MX IP)",
+					desc:   fmt.Sprintf("Mail server %s [%s] — %s", mxHost, mxIP.String(), z.Description),
+				})
+			}
+		}
+	}
+
+	report := &DNSBLReport{
+		Target:       target,
+		IsIP:         isIP,
+		TotalChecked: len(tasks),
+		Results:      make([]DNSBLResult, len(tasks)),
+	}
+
 	c := &dns.Client{
 		Net:     "udp",
 		Timeout: 1200 * time.Millisecond,
 	}
 
-	if isIP {
-		report := &DNSBLReport{
-			Target:       target,
-			IsIP:         true,
-			TotalChecked: len(ipDNSBLs),
-			Results:      make([]DNSBLResult, len(ipDNSBLs)),
-		}
-
-		var wg sync.WaitGroup
-		wg.Add(len(ipDNSBLs))
-		for idx, z := range ipDNSBLs {
-			go func(i int, zone DNSBLZone) {
-				defer wg.Done()
-				res := queryOneDNSBL(ctx, c, target, parsedIP, zone, dqsKey)
-				report.Results[i] = res
-			}(idx, z)
-		}
-		wg.Wait()
-
-		for _, r := range report.Results {
-			if r.Listed {
-				report.ListedCount++
-			}
-			if r.IsWarning {
-				report.WarningCount++
-			}
-		}
-		report.DurationMS = time.Since(start).Milliseconds()
-		return report, nil
-	}
-
-	target = ExtractDomain(target)
-	if target == "" || strings.ContainsAny(target, " \t\r\n\x00;\"'\\") || len(target) > 253 {
-		return nil, errors.New("invalid domain name format for DNSBL lookup")
-	}
-
-	// For a domain, email deliverability depends on BOTH:
-	// 1. The Domain Name Reputation (DBL / URIBL / SURBL)
-	// 2. The Sending Mail Server (MX) IP Reputation (DNSBL)
-	var mxHost string
-	var mxIP net.IP
-	if mxs, err := net.DefaultResolver.LookupMX(ctx, target); err == nil && len(mxs) > 0 {
-		slices.SortFunc(mxs, func(a, b *net.MX) int {
-			if c := cmp.Compare(a.Pref, b.Pref); c != 0 {
-				return c
-			}
-			return strings.Compare(a.Host, b.Host)
-		})
-		mxHost = strings.TrimSuffix(mxs[0].Host, ".")
-	}
-	if mxHost == "" {
-		mxHost = target
-	}
-	if addrs, err := net.DefaultResolver.LookupIPAddr(ctx, mxHost); err == nil && len(addrs) > 0 {
-		for _, a := range addrs {
-			if v4 := a.IP.To4(); v4 != nil {
-				mxIP = v4
-				break
-			}
-		}
-	}
-
-	total := len(domainDNSBLs)
-	if mxIP != nil {
-		total += len(ipDNSBLs)
-	}
-
-	report := &DNSBLReport{
-		Target:       target,
-		IsIP:         false,
-		TotalChecked: total,
-		Results:      make([]DNSBLResult, total),
-	}
-
 	var wg sync.WaitGroup
-	wg.Add(total)
-
-	// Domain reputation queries
-	for idx, z := range domainDNSBLs {
-		go func(i int, zone DNSBLZone) {
+	wg.Add(len(tasks))
+	for i, t := range tasks {
+		go func(idx int, task auditTask) {
 			defer wg.Done()
-			res := queryOneDNSBL(ctx, c, target, nil, zone, dqsKey)
-			res.Name = zone.Name + " (Domain)"
-			report.Results[i] = res
-		}(idx, z)
+			res := queryOneDNSBL(ctx, c, task.target, task.ip, task.zone, dqsKey)
+			if task.suffix != "" {
+				res.Name += task.suffix
+			}
+			if task.desc != "" {
+				res.Description = task.desc
+			}
+			report.Results[idx] = res
+		}(i, t)
 	}
-
-	// Mail server IP reputation queries
-	if mxIP != nil {
-		offset := len(domainDNSBLs)
-		for idx, z := range ipDNSBLs {
-			go func(i int, zone DNSBLZone) {
-				defer wg.Done()
-				res := queryOneDNSBL(ctx, c, mxHost, mxIP, zone, dqsKey)
-				res.Name = zone.Name + " (MX IP)"
-				res.Description = fmt.Sprintf("Mail server %s [%s] — %s", mxHost, mxIP.String(), zone.Description)
-				report.Results[offset+i] = res
-			}(idx, z)
-		}
-	}
-
 	wg.Wait()
 
 	for _, r := range report.Results {
 		if r.Listed {
 			report.ListedCount++
-		}
-		if r.IsWarning {
+		} else if r.IsWarning {
 			report.WarningCount++
 		}
 	}
 
 	report.DurationMS = time.Since(start).Milliseconds()
 	return report, nil
+}
+
+func resolveMXIP(ctx context.Context, domain string) (string, net.IP) {
+	mxs, err := net.DefaultResolver.LookupMX(ctx, domain)
+	if err != nil || len(mxs) == 0 {
+		return "", nil
+	}
+	slices.SortFunc(mxs, func(a, b *net.MX) int {
+		return cmp.Or(cmp.Compare(a.Pref, b.Pref), strings.Compare(a.Host, b.Host))
+	})
+	host := strings.TrimSuffix(mxs[0].Host, ".")
+	if addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host); err == nil {
+		for _, a := range addrs {
+			if v4 := a.IP.To4(); v4 != nil {
+				return host, v4
+			}
+		}
+	}
+	return host, nil
 }
 
 var (
@@ -387,7 +261,6 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 
 	lookupHost := zone.Host
 	if strings.Contains(zone.Host, "spamhaus.org") && dqsKey != "" {
-		// Use dedicated DQS zone for Spamhaus
 		if zone.IsDomain {
 			lookupHost = fmt.Sprintf("%s.dbl.dq.spamhaus.net", dqsKey)
 		} else {
@@ -412,7 +285,6 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 	m.SetQuestion(queryName, dns.TypeA)
 	m.RecursionDesired = true
 
-	// Query recursive resolvers (preferring system resolver, then public fallbacks)
 	var in *dns.Msg
 	var err error
 	for _, srv := range systemResolvers {
@@ -436,7 +308,6 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 		return res
 	}
 
-	// Check answers
 	for _, ans := range in.Answer {
 		if a, ok := ans.(*dns.A); ok {
 			code := a.A.String()
@@ -449,26 +320,36 @@ func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip ne
 	return res
 }
 
+var spamCodes = map[string]string{
+	"127.0.0.2":   "Listed: Direct UBE spam source / SBL",
+	"127.0.0.3":   "Listed: Snowshoe spam emitter / CSS",
+	"127.0.0.4":   "Listed: Botnet / Malware exploit infection / XBL",
+	"127.0.0.5":   "Listed: Botnet / Malware exploit infection / XBL",
+	"127.0.0.6":   "Listed: Botnet / Malware exploit infection / XBL",
+	"127.0.0.7":   "Listed: Botnet / Malware exploit infection / XBL",
+	"127.0.1.2":   "Listed: Spam domain (Spamhaus DBL)",
+	"127.0.1.4":   "Listed: Phishing domain (Spamhaus DBL)",
+	"127.0.1.5":   "Listed: Malware distribution domain (Spamhaus DBL)",
+	"127.0.1.6":   "Listed: Botnet C2 domain (Spamhaus DBL)",
+	"127.0.1.102": "Listed: Abused legit web host / redirector",
+	"127.0.1.103": "Listed: Abused legit web host / redirector",
+	"127.0.1.104": "Listed: Abused legit web host / redirector",
+}
+
 func parseReturnCode(res *DNSBLResult, code string) {
-	// 1. Spamhaus Special Administrative Signals
 	if code == "127.255.255.254" {
-		res.Listed = false
 		res.IsWarning = true
 		res.Category = "Spamhaus Open Resolver Notice: Query blocked via public DNS (requires Spamhaus DQS key)"
 		return
 	}
 	if code == "127.255.255.255" {
-		res.Listed = false
 		res.IsWarning = true
 		res.Category = "Spamhaus Query Limit Exceeded: Query volume limit exceeded"
 		return
 	}
 
-	// 2. URIBL Multi (multi.uribl.com)
-	// Note: 127.0.0.1 is "Query Refused / Blocked" from public resolver; NEVER a listing!
 	if strings.Contains(res.Zone, "uribl.com") {
 		if code == "127.0.0.1" {
-			res.Listed = false
 			res.IsWarning = true
 			res.Category = "URIBL Notice: Public resolver query refused by zone operator"
 			return
@@ -486,16 +367,12 @@ func parseReturnCode(res *DNSBLResult, code string) {
 				return
 			}
 		}
-		res.Listed = false
 		res.Category = "Clean / Not Listed"
 		return
 	}
 
-	// 3. SURBL Multi (multi.surbl.org)
-	// Note: 127.0.0.1 is "Query Blocked" on public resolvers; NEVER a listing!
 	if strings.Contains(res.Zone, "surbl.org") {
 		if code == "127.0.0.1" {
-			res.Listed = false
 			res.IsWarning = true
 			res.Category = "SURBL Notice: Public resolver query blocked by zone operator"
 			return
@@ -515,63 +392,31 @@ func parseReturnCode(res *DNSBLResult, code string) {
 			}
 			return
 		}
-		res.Listed = false
 		res.Category = "Clean / Not Listed"
 		return
 	}
 
-	// 4. DroneBL (dnsbl.dronebl.org)
-	// 127.0.0.1 on DroneBL is a genuine listing (test class), not a refusal
-	if strings.Contains(res.Zone, "dronebl.org") {
-		if code == "127.0.0.1" || code == "127.0.0.2" {
-			res.Listed = true
-			res.Category = "Listed in DroneBL: Compromised botnet or open proxy"
-			return
-		}
+	if strings.Contains(res.Zone, "dronebl.org") && (code == "127.0.0.1" || code == "127.0.0.2") {
+		res.Listed = true
+		res.Category = "Listed in DroneBL: Compromised botnet or open proxy"
+		return
 	}
 
-	// 5. General / IP DNSBL return codes
 	if strings.HasPrefix(code, "127.") {
-		// Generic 127.0.0.1 on a DNSBL is administrative refusal or test loopback, not a listing
 		if code == "127.0.0.1" {
-			res.Listed = false
 			res.IsWarning = true
 			res.Category = "Notice: Query refused or test loopback"
 			return
 		}
-		switch code {
-		case "127.0.0.10", "127.0.0.11":
-			// Spamhaus PBL is an outbound policy indicator (often set deliberately on inbound-only MX hosts).
-			res.Listed = false
+		if code == "127.0.0.10" || code == "127.0.0.11" {
 			res.IsWarning = true
 			res.Category = "Spamhaus PBL Notice: Inbound or non-outbound IP policy range"
 			return
-		case "127.0.0.2":
-			res.Listed = true
-			res.Category = "Listed: Direct UBE spam source / SBL"
-		case "127.0.0.3":
-			res.Listed = true
-			res.Category = "Listed: Snowshoe spam emitter / CSS"
-		case "127.0.0.4", "127.0.0.5", "127.0.0.6", "127.0.0.7":
-			res.Listed = true
-			res.Category = "Listed: Botnet / Malware exploit infection / XBL"
-		case "127.0.1.2":
-			res.Listed = true
-			res.Category = "Listed: Spam domain (Spamhaus DBL)"
-		case "127.0.1.4":
-			res.Listed = true
-			res.Category = "Listed: Phishing domain (Spamhaus DBL)"
-		case "127.0.1.5":
-			res.Listed = true
-			res.Category = "Listed: Malware distribution domain (Spamhaus DBL)"
-		case "127.0.1.6":
-			res.Listed = true
-			res.Category = "Listed: Botnet C2 domain (Spamhaus DBL)"
-		case "127.0.1.102", "127.0.1.103", "127.0.1.104":
-			res.Listed = true
-			res.Category = "Listed: Abused legit web host / redirector"
-		default:
-			res.Listed = true
+		}
+		res.Listed = true
+		if desc, ok := spamCodes[code]; ok {
+			res.Category = desc
+		} else {
 			res.Category = fmt.Sprintf("Listed in blacklist (code %s)", code)
 		}
 	} else if code != "" {
