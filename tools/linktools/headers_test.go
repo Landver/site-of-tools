@@ -494,10 +494,12 @@ func TestSecurityPageOnlyChecks(t *testing.T) {
 		want    []string
 	}{
 		{"json", map[string]string{"Content-Type": "application/json; charset=utf-8", "Referrer-Policy": "unsafe-url"}, false, []string{hsts, sniff}},
-		{"html", map[string]string{"Content-Type": "text/html; charset=utf-8"}, true, []string{csp, hsts, sniff, frame}},
-		{"html, permissive referrer", map[string]string{"Content-Type": "text/html", "Referrer-Policy": "no-referrer-when-downgrade"}, true, []string{csp, hsts, sniff, frame, referrer}},
-		{"svg", map[string]string{"Content-Type": "image/svg+xml"}, true, []string{csp, hsts, sniff, frame}},
-		{"no type", map[string]string{"Cache-Control": "no-store"}, true, []string{csp, hsts, sniff, frame}},
+		{"html", map[string]string{"Content-Type": "text/html; charset=utf-8"}, true, []string{hsts, sniff, csp, frame}},
+		{"html, permissive referrer", map[string]string{"Content-Type": "text/html", "Referrer-Policy": "no-referrer-when-downgrade"}, true, []string{hsts, sniff, csp, frame, referrer}},
+		{"svg", map[string]string{"Content-Type": "image/svg+xml"}, true, []string{hsts, sniff, csp, frame}},
+		{"no type", map[string]string{"Cache-Control": "no-store"}, true, []string{hsts, sniff, csp, frame}},
+		{"json with a csp", map[string]string{"Content-Type": "application/json", "Content-Security-Policy": "default-src 'none'",
+			"Strict-Transport-Security": "max-age=31536000", "X-Content-Type-Options": "nosniff"}, false, nil},
 	} {
 		h := make(http.Header)
 		for k, v := range tc.headers {
@@ -568,5 +570,37 @@ func TestParseRawHeadersStatus(t *testing.T) {
 		if r.StatusCode != tc.code || r.StatusText != tc.text || r.Proto != tc.proto {
 			t.Errorf("%q = %d %q %q, want %d %q %q", tc.raw, r.StatusCode, r.StatusText, r.Proto, tc.code, tc.text, tc.proto)
 		}
+	}
+}
+
+// curl -IL prints every hop; the audit is of the last response alone.
+func TestParseRawHeadersAuditsLastHop(t *testing.T) {
+	r, err := ParseRawHeaders("HTTP/1.1 301 Moved Permanently\nlocation: /new\ncache-control: max-age=31536000\n\n" +
+		"HTTP/2 200\ncache-control: no-store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != 200 || r.Cache.TTL.BrowserSource != "Cache-Control: no-store" || len(r.Headers) != 1 {
+		t.Errorf("status %d, browser lifetime from %q, %d header rows; want the 200's lone no-store",
+			r.StatusCode, r.Cache.TTL.BrowserSource, len(r.Headers))
+	}
+}
+
+// Attributes are read loosely, as browsers read them, and a later invalid duplicate keeps the valid value.
+func TestSecurityAttributeParsing(t *testing.T) {
+	h := make(http.Header)
+	h.Set("Strict-Transport-Security", `max-age="31536000"; max-age=x; includeSubDomains`)
+	h.Add("Set-Cookie", "sid=1; Max-Age=5; Max-Age=abc; SameSite = lax; Secure=1; HttpOnly")
+	h.Add("Set-Cookie", "=secret; Path=/")
+	sec := AnalyzeSecurity(h)
+
+	if sec.HSTS.MaxAgeSeconds != 31536000 || !sec.HSTS.IncludeSubDomains {
+		t.Errorf("HSTS = %+v, want the quoted year kept past the bad duplicate", sec.HSTS)
+	}
+	if c := sec.Cookies[0]; c.MaxAge != 5 || c.SameSite != "Lax" || !c.Secure || !c.HttpOnly {
+		t.Errorf("cookie = %+v, want Max-Age 5, SameSite Lax, Secure, HttpOnly", c)
+	}
+	if c := sec.Cookies[1]; c.Name != "" || c.ValueRedact == "" {
+		t.Errorf("nameless cookie = %+v, want no name and the value redacted", c)
 	}
 }

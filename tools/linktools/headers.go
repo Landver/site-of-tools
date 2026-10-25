@@ -57,6 +57,9 @@ type HeadersReport struct {
 	InfoCount      int              `json:"info_count"`
 }
 
+// categoryOrder is how the headers table groups its rows.
+var categoryOrder = []string{"caching", "security", "cookies", "cors", "standard"}
+
 // HeaderCategory returns the conceptual domain of a given header name.
 func HeaderCategory(name string) string {
 	n := strings.ToLower(name)
@@ -112,7 +115,8 @@ func headerRows(h http.Header) []HeaderRow {
 		}
 	}
 	slices.SortStableFunc(rows, func(a, b HeaderRow) int {
-		return cmp.Or(cmp.Compare(categoryOrder(a.Category), categoryOrder(b.Category)), strings.Compare(a.Name, b.Name))
+		rank := func(r HeaderRow) int { return slices.Index(categoryOrder, r.Category) }
+		return cmp.Or(cmp.Compare(rank(a), rank(b)), strings.Compare(a.Name, b.Name))
 	})
 	return rows
 }
@@ -244,7 +248,8 @@ func ParseRawHeaders(raw string) (*HeadersReport, error) {
 		if p, rest, ok := strings.Cut(line, " "); ok && strings.HasPrefix(p, "HTTP/") {
 			code, text, _ := strings.Cut(strings.TrimSpace(rest), " ")
 			if c, ok := statusCode(code); ok {
-				proto, status, statusText = p, c, cmp.Or(text, http.StatusText(c))
+				// curl -IL prints every hop: audit the last response's headers only.
+				proto, status, statusText, headers = p, c, cmp.Or(text, http.StatusText(c)), http.Header{}
 				continue
 			}
 		}
@@ -286,19 +291,4 @@ func ParseRawHeaders(raw string) (*HeadersReport, error) {
 func statusCode(s string) (int, bool) {
 	c, err := strconv.Atoi(strings.TrimSpace(s))
 	return c, err == nil && c >= 100 && c < 600
-}
-
-func categoryOrder(cat string) int {
-	switch cat {
-	case "caching":
-		return 1
-	case "security":
-		return 2
-	case "cookies":
-		return 3
-	case "cors":
-		return 4
-	default:
-		return 5
-	}
 }
