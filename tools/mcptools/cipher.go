@@ -107,7 +107,7 @@ func cipherSpecs(d Deps) []toolSpec {
 				InputSchema: cipherSchema(op), Annotations: readOnly(false)},
 			deadline: quickDeadline,
 			limiter:  lim.Pure,
-			add: handle(func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (any, error) {
+			add: handle(func(ctx context.Context, args map[string]any) (any, error) {
 				in, err := ciphertools.InputFromJSON(args)
 				if err != nil {
 					return nil, err

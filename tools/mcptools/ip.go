@@ -74,7 +74,7 @@ func ipSpecs(d Deps) []toolSpec {
 	})
 }
 
-func (t ipTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a ipLookupArgs) (any, error) {
+func (t ipTools) lookup(ctx context.Context, a ipLookupArgs) (any, error) {
 	ip, self := strings.TrimSpace(a.IP), false
 	if strings.EqualFold(ip, "self") {
 		own := callerFrom(ctx).ip
@@ -94,7 +94,7 @@ func (t ipTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a ipLookupA
 	return out, nil
 }
 
-func (t ipTools) cidr(_ context.Context, _ *mcp.CallToolRequest, a ipCIDRArgs) (any, error) {
+func (t ipTools) cidr(_ context.Context, a ipCIDRArgs) (any, error) {
 	return iptools.ParseSubnet(a.CIDR)
 }
 

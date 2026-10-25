@@ -132,7 +132,7 @@ func dnsSpecs(d Deps) []toolSpec {
 	return specs
 }
 
-func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLookupArgs) (any, error) {
+func (t dnsTools) lookup(ctx context.Context, a dnsLookupArgs) (any, error) {
 	set, err := dnstools.LookupEnriched(ctx, t.svc, t.geo, a.Name, a.Type, a.Resolver)
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (t dnsTools) lookup(ctx context.Context, _ *mcp.CallToolRequest, a dnsLooku
 	return out, nil
 }
 
-func (t dnsTools) consistency(ctx context.Context, _ *mcp.CallToolRequest, a dnsConsistencyArgs) (any, error) {
+func (t dnsTools) consistency(ctx context.Context, a dnsConsistencyArgs) (any, error) {
 	env, err := dnstools.Consistency(ctx, t.spr, t.ecs, t.geo, t.dom, a.Name, a.Type)
 	if err != nil {
 		return nil, err
@@ -181,11 +181,11 @@ func (t dnsTools) consistency(ctx context.Context, _ *mcp.CallToolRequest, a dns
 	return out, nil
 }
 
-func (t dnsTools) trace(ctx context.Context, _ *mcp.CallToolRequest, a dnsTraceArgs) (any, error) {
+func (t dnsTools) trace(ctx context.Context, a dnsTraceArgs) (any, error) {
 	return t.tra.Trace(ctx, a.Name, a.Type)
 }
 
-func (t dnsTools) domain(ctx context.Context, _ *mcp.CallToolRequest, a dnsDomainArgs) (any, error) {
+func (t dnsTools) domain(ctx context.Context, a dnsDomainArgs) (any, error) {
 	rep, err := dnstools.DomainInfo(ctx, t.svc, t.dom, a.Name)
 	if err != nil {
 		return nil, err

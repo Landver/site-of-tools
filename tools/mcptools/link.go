@@ -226,9 +226,9 @@ var siblings = map[string]string{
 }
 
 // urlTool is handle for a tool taking a URL, adding the sibling tool to a misplaced input's error.
-func urlTool[In any](f func(context.Context, *mcp.CallToolRequest, In) (any, error)) func(*mcp.Server, *mcp.Tool) {
-	return handle(func(ctx context.Context, req *mcp.CallToolRequest, in In) (any, error) {
-		out, err := f(ctx, req, in)
+func urlTool[In any](f func(context.Context, In) (any, error)) func(*mcp.Server, *mcp.Tool) {
+	return handle(func(ctx context.Context, in In) (any, error) {
+		out, err := f(ctx, in)
 		var m *linktools.MisplacedError
 		if errors.As(err, &m) {
 			return nil, fmt.Errorf("%w %s", err, siblings[m.Tool])
@@ -237,15 +237,15 @@ func urlTool[In any](f func(context.Context, *mcp.CallToolRequest, In) (any, err
 	})
 }
 
-func (t linkTools) inspect(_ context.Context, _ *mcp.CallToolRequest, a linkInspectArgs) (any, error) {
+func (t linkTools) inspect(_ context.Context, a linkInspectArgs) (any, error) {
 	return t.svc.Parse(a.URL)
 }
 
-func (t linkTools) clean(_ context.Context, _ *mcp.CallToolRequest, a linkCleanArgs) (any, error) {
+func (t linkTools) clean(_ context.Context, a linkCleanArgs) (any, error) {
 	return t.svc.Clean(a.URL, linktools.CleanOptions{Unwrap: a.Unwrap, StripAffiliate: a.StripAffiliate, Sort: a.Sort})
 }
 
-func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesArgs) (any, error) {
+func (t linkTools) rules(_ context.Context, a linkRulesArgs) (any, error) {
 	cat := linktools.Rules()
 	if a.Param != "" {
 		return cat.Matches(a.Param), nil
@@ -253,27 +253,27 @@ func (t linkTools) rules(_ context.Context, _ *mcp.CallToolRequest, a linkRulesA
 	return cat, nil
 }
 
-func (t linkTools) diff(_ context.Context, _ *mcp.CallToolRequest, a linkDiffArgs) (any, error) {
+func (t linkTools) diff(_ context.Context, a linkDiffArgs) (any, error) {
 	return t.svc.Diff(a.URLA, a.URLB)
 }
 
-func (t linkTools) redirectChain(ctx context.Context, _ *mcp.CallToolRequest, a linkFetchArgs) (any, error) {
+func (t linkTools) redirectChain(ctx context.Context, a linkFetchArgs) (any, error) {
 	return t.trace.Trace(ctx, a.URL, a.Persona)
 }
 
-func (t linkTools) headersInspect(ctx context.Context, _ *mcp.CallToolRequest, a linkFetchArgs) (any, error) {
+func (t linkTools) headersInspect(ctx context.Context, a linkFetchArgs) (any, error) {
 	return t.trace.ProbeHeaders(ctx, a.URL, a.Persona)
 }
 
-func (t linkTools) headersParse(_ context.Context, _ *mcp.CallToolRequest, a linkHeadersParseArgs) (any, error) {
+func (t linkTools) headersParse(_ context.Context, a linkHeadersParseArgs) (any, error) {
 	return linktools.ParseRawHeaders(a.Headers)
 }
 
-func (t linkTools) curlParse(_ context.Context, _ *mcp.CallToolRequest, a linkCurlParseArgs) (any, error) {
+func (t linkTools) curlParse(_ context.Context, a linkCurlParseArgs) (any, error) {
 	return t.svc.ParseCurl(a.Command)
 }
 
-func (t linkTools) curlBuild(_ context.Context, _ *mcp.CallToolRequest, a linkCurlBuildArgs) (any, error) {
+func (t linkTools) curlBuild(_ context.Context, a linkCurlBuildArgs) (any, error) {
 	line, err := t.svc.ToCurl(a.URL, linktools.CurlOptions{
 		Persona: a.Persona, FollowRedirects: a.FollowRedirects, ShowHeaders: a.ShowHeaders,
 	})
@@ -284,7 +284,7 @@ func (t linkTools) curlBuild(_ context.Context, _ *mcp.CallToolRequest, a linkCu
 }
 
 // extract leaves out byte positions, which only a page highlighting the text needs.
-func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtractArgs) (any, error) {
+func (t linkTools) extract(_ context.Context, a linkExtractArgs) (any, error) {
 	res, err := t.svc.Extract(strings.TrimSpace(a.Text))
 	if err != nil {
 		return nil, err
@@ -300,16 +300,16 @@ func (t linkTools) extract(_ context.Context, _ *mcp.CallToolRequest, a linkExtr
 	return res, nil
 }
 
-func (t linkTools) utm(_ context.Context, _ *mcp.CallToolRequest, a linkUTMArgs) (any, error) {
+func (t linkTools) utm(_ context.Context, a linkUTMArgs) (any, error) {
 	return t.svc.BuildUTM(a.URL, map[string]string{"utm_source": a.UTMSource, "utm_medium": a.UTMMedium,
 		"utm_campaign": a.UTMCampaign, "utm_term": a.UTMTerm, "utm_content": a.UTMContent})
 }
 
-func (t linkTools) encode(_ context.Context, _ *mcp.CallToolRequest, a linkEncodeArgs) (any, error) {
+func (t linkTools) encode(_ context.Context, a linkEncodeArgs) (any, error) {
 	return linktools.EncodeAll(a.Value), nil
 }
 
-func (t linkTools) resolve(ctx context.Context, _ *mcp.CallToolRequest, a linkResolveArgs) (any, error) {
+func (t linkTools) resolve(ctx context.Context, a linkResolveArgs) (any, error) {
 	// A refusal shared by every client reads as busy, not as this client's fault.
 	if !platform.AllowKey(t.busy, callerFrom(ctx).ip) {
 		return nil, platform.ErrBusy

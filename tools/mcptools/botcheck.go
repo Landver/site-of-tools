@@ -62,7 +62,7 @@ func anyObject(prop string) func(*jsonschema.Schema) {
 }
 
 // score never reads or writes the corpus: a synthetic payload must not train it.
-func (t ipTools) score(ctx context.Context, _ *mcp.CallToolRequest, a botScoreArgs) (any, error) {
+func (t ipTools) score(ctx context.Context, a botScoreArgs) (any, error) {
 	ip := strings.TrimSpace(a.IP)
 	if len(a.Fingerprint) == 0 && a.HTTP == nil && ip == "" {
 		return nil, errNothingToScore

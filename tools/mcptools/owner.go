@@ -71,7 +71,7 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 	return specs
 }
 
-func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a linktools.CreateRequest) (any, error) {
+func (t ownerTools) create(ctx context.Context, a linktools.CreateRequest) (any, error) {
 	link, err := t.owner.Create(ctx, a, callerFrom(ctx).ip)
 	if err != nil {
 		return nil, publicError(t.log, "link_short_create", err)
@@ -79,7 +79,7 @@ func (t ownerTools) create(ctx context.Context, _ *mcp.CallToolRequest, a linkto
 	return link, nil
 }
 
-func (t ownerTools) list(ctx context.Context, _ *mcp.CallToolRequest, a shortListArgs) (any, error) {
+func (t ownerTools) list(ctx context.Context, a shortListArgs) (any, error) {
 	links, err := t.owner.Recent(ctx, int64(a.Limit))
 	if err != nil {
 		return nil, publicError(t.log, "link_short_list", err)
@@ -90,7 +90,7 @@ func (t ownerTools) list(ctx context.Context, _ *mcp.CallToolRequest, a shortLis
 	return map[string]any{"links": links}, nil
 }
 
-func (t ownerTools) revoke(ctx context.Context, _ *mcp.CallToolRequest, a shortRevokeArgs) (any, error) {
+func (t ownerTools) revoke(ctx context.Context, a shortRevokeArgs) (any, error) {
 	code, ok := t.owner.Code(a.Code)
 	if !ok {
 		return nil, publicError(t.log, "link_short_revoke", linktools.ErrLinkNotFound)

@@ -115,7 +115,7 @@ func mailSpecs(d Deps) []toolSpec {
 	)
 }
 
-func (t mailTools) dmarcParse(_ context.Context, _ *mcp.CallToolRequest, a mailDMARCArgs) (any, error) {
+func (t mailTools) dmarcParse(_ context.Context, a mailDMARCArgs) (any, error) {
 	var r io.Reader
 	switch {
 	case a.Base64 != "":
@@ -144,22 +144,22 @@ func (t mailTools) dmarcParse(_ context.Context, _ *mcp.CallToolRequest, a mailD
 	return out, nil
 }
 
-func (t mailTools) bimiValidate(_ context.Context, _ *mcp.CallToolRequest, a mailBIMIArgs) (any, error) {
+func (t mailTools) bimiValidate(_ context.Context, a mailBIMIArgs) (any, error) {
 	return mailtools.ValidateBIMI(a.SVG)
 }
 
-func (t mailTools) arcAnalyze(_ context.Context, _ *mcp.CallToolRequest, a mailARCArgs) (any, error) {
+func (t mailTools) arcAnalyze(_ context.Context, a mailARCArgs) (any, error) {
 	return mailtools.AnalyzeARC(a.Headers)
 }
 
-func (t mailTools) classify(_ context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
+func (t mailTools) classify(_ context.Context, a mailDomainArgs) (any, error) {
 	return mailtools.ActiveClassifier().Classify(a.Domain), nil
 }
 
-func (t mailTools) checkDNSBL(ctx context.Context, _ *mcp.CallToolRequest, a mailTargetArgs) (any, error) {
+func (t mailTools) checkDNSBL(ctx context.Context, a mailTargetArgs) (any, error) {
 	return t.svc.DNSBL(ctx, a.Target)
 }
 
-func (t mailTools) domainHealth(ctx context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
+func (t mailTools) domainHealth(ctx context.Context, a mailDomainArgs) (any, error) {
 	return t.svc.AuditDomainHealth(ctx, a.Domain)
 }

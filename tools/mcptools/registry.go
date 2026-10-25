@@ -32,10 +32,10 @@ type toolSpec struct {
 	add      func(*mcp.Server, *mcp.Tool)
 }
 
-func handle[In any](f func(context.Context, *mcp.CallToolRequest, In) (any, error)) func(*mcp.Server, *mcp.Tool) {
+func handle[In any](f func(context.Context, In) (any, error)) func(*mcp.Server, *mcp.Tool) {
 	return func(s *mcp.Server, t *mcp.Tool) {
-		mcp.AddTool(s, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-			out, err := f(ctx, req, in)
+		mcp.AddTool(s, t, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+			out, err := f(ctx, in)
 			return nil, out, err
 		})
 	}
