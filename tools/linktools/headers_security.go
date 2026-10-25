@@ -2,13 +2,17 @@ package linktools
 
 import (
 	"fmt"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
 // SecurityAnalysis represents modern browser security posture, cross-origin isolation, and cookie safety.
+// Page is false when Content-Type names something a browser never renders as a page, such as JSON:
+// CSP, framing, Referrer-Policy and isolation then don't apply and aren't audited.
 type SecurityAnalysis struct {
+	Page           bool                 `json:"page"`
 	Isolation      CrossOriginIsolation `json:"isolation"`
 	CSP            CSPReport            `json:"csp"`
 	Permissions    PermissionsReport    `json:"permissions"`
@@ -26,7 +30,7 @@ type CrossOriginIsolation struct {
 	COOP     string `json:"coop,omitempty"` // Cross-Origin-Opener-Policy
 	COEP     string `json:"coep,omitempty"` // Cross-Origin-Embedder-Policy
 	CORP     string `json:"corp,omitempty"` // Cross-Origin-Resource-Policy
-	Status   string `json:"status"`         // "Isolated (SharedArrayBuffer Enabled)", "Not Isolated"
+	Status   string `json:"status"`         // "Cross-Origin Isolated", "Not Cross-Origin Isolated", "Not applicable"
 	Detail   string `json:"detail"`
 }
 
@@ -81,6 +85,7 @@ type HSTSReport struct {
 func AnalyzeSecurity(h http.Header) SecurityAnalysis {
 	var sec SecurityAnalysis
 	var notes []HeaderNote
+	sec.Page = isPage(h.Get("Content-Type"))
 
 	// 1. Cross-Origin Isolation
 	coop := strings.ToLower(strings.TrimSpace(h.Get("Cross-Origin-Opener-Policy")))
@@ -94,7 +99,10 @@ func AnalyzeSecurity(h http.Header) SecurityAnalysis {
 	isCoopOk := strings.HasPrefix(coop, "same-origin")
 	isCoepOk := strings.HasPrefix(coep, "require-corp") || strings.HasPrefix(coep, "credentialless")
 
-	if isCoopOk && isCoepOk {
+	if !sec.Page {
+		sec.Isolation.Status = "Not applicable"
+		sec.Isolation.Detail = "COOP and COEP isolate pages, and Content-Type says this response is not one."
+	} else if isCoopOk && isCoepOk {
 		sec.Isolation.Isolated = true
 		sec.Isolation.Status = "Cross-Origin Isolated"
 		sec.Isolation.Detail = "Site has enabled Cross-Origin Isolation. SharedArrayBuffer and high-precision performance timers are available in modern browsers."
@@ -173,7 +181,7 @@ func AnalyzeSecurity(h http.Header) SecurityAnalysis {
 				RFC:      "W3C CSP Level 3",
 			})
 		}
-	} else {
+	} else if sec.Page {
 		notes = append(notes, HeaderNote{
 			Severity: SevWarn,
 			Category: "security",
@@ -319,7 +327,7 @@ func AnalyzeSecurity(h http.Header) SecurityAnalysis {
 	// 7. X-Frame-Options & Framing
 	xfo := strings.ToUpper(strings.TrimSpace(h.Get("X-Frame-Options")))
 	sec.XFrameOptions = xfo
-	if xfo == "" && !strings.Contains(strings.ToLower(rawCSP), "frame-ancestors") {
+	if sec.Page && xfo == "" && !strings.Contains(strings.ToLower(rawCSP), "frame-ancestors") {
 		notes = append(notes, HeaderNote{
 			Severity: SevWarn,
 			Category: "security",
@@ -329,21 +337,30 @@ func AnalyzeSecurity(h http.Header) SecurityAnalysis {
 		})
 	}
 
-	// 8. Referrer-Policy
+	// 8. Referrer-Policy: when absent, browsers use strict-origin-when-cross-origin, which is safe.
 	rp := strings.ToLower(strings.TrimSpace(h.Get("Referrer-Policy")))
 	sec.ReferrerPolicy = rp
-	if rp == "" || rp == "unsafe-url" || rp == "no-referrer-when-downgrade" {
+	if sec.Page && (rp == "unsafe-url" || rp == "no-referrer-when-downgrade") {
 		notes = append(notes, HeaderNote{
 			Severity: SevInfo,
 			Category: "security",
 			Title:    "Permissive Referrer-Policy",
-			Detail:   "Recommend 'strict-origin-when-cross-origin' or 'no-referrer' to avoid leaking path and query parameters to external hosts.",
+			Detail:   fmt.Sprintf("%s sends the full URL, path and query included, to other sites. Without the header, browsers use strict-origin-when-cross-origin, which sends them only the origin.", rp),
 			RFC:      "W3C Referrer Policy",
 		})
 	}
 
 	sec.Findings = notes
 	return sec
+}
+
+// isPage: an unknown or missing type may be a page, so it gets the page checks.
+func isPage(contentType string) bool {
+	mt, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return true
+	}
+	return mt == "text/html" || strings.HasSuffix(mt, "/xml") || strings.HasSuffix(mt, "+xml")
 }
 
 // parseCookieAudit parses attributes of a single Set-Cookie string.

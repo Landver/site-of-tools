@@ -147,6 +147,30 @@ func TestHeadersRoutesSplitFetchFromPaste(t *testing.T) {
 	if rec := linkCall(t, e, linkCase{method: http.MethodPost, target: "/headers"}); rec.Code != http.StatusBadRequest {
 		t.Errorf("POST /headers with nothing pasted = %d, want 400", rec.Code)
 	}
+	asked := linkCall(t, e, linkCase{method: http.MethodPost, target: "/headers",
+		body: q("headers", "cookie: sid=1\nuser-agent: Mozilla/5.0"), ctype: formType})
+	if asked.Code != http.StatusBadRequest || !strings.Contains(asked.Body.String(), "request headers in it (Cookie, User-Agent)") {
+		t.Errorf("POST /headers with request headers = %d %s, want 400 naming them", asked.Code, asked.Body)
+	}
+}
+
+// With no status line the page says so instead of showing 200, and each freshness card names its header.
+func TestHeadersPageNamesWhatItRead(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+	rec := linkCall(t, e, linkCase{method: http.MethodPost, target: "/headers", headers: asHTMX,
+		body: q("headers", "cache-control: public, max-age=60, s-maxage=600\ncontent-type: application/json"), ctype: formType})
+	body := rec.Body.String()
+	for _, want := range []string{"NOT GIVEN", "No status line pasted", "Cache-Control: max-age", "Cache-Control: s-maxage", "Not a page"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("result page lacks %q", want)
+		}
+	}
+	for _, stale := range []string{"200 OK", "CDN-Cache-Control / s-maxage", "inherits Browser TTL"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("result page still shows %q", stale)
+		}
+	}
 }
 
 // Nothing typed is a person's normal first step, but a program asking for nothing has a bug to see.

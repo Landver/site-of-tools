@@ -321,6 +321,7 @@ func TestLinkHeadersParse(t *testing.T) {
 		t.Errorf("expected cross-origin isolated: true")
 	}
 	failsWith(t, call(t, cs, "link_headers_parse", map[string]any{}), "headers")
+	failsWith(t, call(t, cs, "link_headers_parse", map[string]any{"headers": "cookie: sid=1\nuser-agent: Mozilla/5.0"}), "request headers")
 }
 
 // TestLinkHeadersInspect: refusals before any request; linktools' white-box tests drive a real fetch.

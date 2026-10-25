@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/Landver/site-of-tools/platform"
 )
 
@@ -84,8 +86,14 @@ func TestCacheAntiPatterns(t *testing.T) {
 		{
 			name:      "heuristic caching",
 			status:    200,
-			headers:   map[string]string{"Content-Type": "text/html"},
-			wantTitle: "Heuristic caching active",
+			headers:   map[string]string{"Content-Type": "text/html", "Last-Modified": "Mon, 01 Jan 2024 00:00:00 GMT"},
+			wantTitle: "Heuristic caching active (no explicit cache lifetime)",
+		},
+		{
+			name:      "private with s-maxage",
+			status:    200,
+			headers:   map[string]string{"Cache-Control": "private, max-age=60, s-maxage=600"},
+			wantTitle: "Contradictory directives: private with s-maxage",
 		},
 		{
 			name:      "weak etag",
@@ -104,7 +112,7 @@ func TestCacheAntiPatterns(t *testing.T) {
 			res := AnalyzeCache(tc.status, h)
 			found := false
 			for _, note := range res.Findings {
-				if note.Title == tc.wantTitle || (tc.name == "heuristic caching" && note.Title == "Heuristic caching active (no explicit cache lifetime)") {
+				if note.Title == tc.wantTitle {
 					found = true
 					break
 				}
@@ -345,10 +353,10 @@ func TestCacheDirectives_BoundaryAndConflictingHeaders(t *testing.T) {
 		t.Errorf("edge TTL: want 86400, got %d", resCDN.TTL.EdgeTTLSeconds)
 	}
 
-	// 5. Completely empty headers (Heuristic Caching)
+	// 5. Completely empty headers: nothing to guess from, so stale on arrival rather than heuristic
 	resEmpty := AnalyzeCache(http.StatusOK, make(http.Header))
-	if !resEmpty.TTL.Heuristic || resEmpty.TTL.BrowserTTLSeconds != 0 {
-		t.Errorf("empty headers must trigger heuristic caching notice")
+	if resEmpty.TTL.Heuristic || resEmpty.TTL.BrowserTTLSeconds != 0 || resEmpty.TTL.BrowserSource != "none" {
+		t.Errorf("empty headers = %+v, want no lifetime and no heuristic", resEmpty.TTL)
 	}
 }
 
@@ -397,5 +405,168 @@ func TestSecurityAudit_CookiesAndCORSBoundary(t *testing.T) {
 	}
 	if !foundCORS {
 		t.Errorf("expected Cache Poisoning warning for CORS without Vary: Origin")
+	}
+}
+
+// Browsers guess a lifetime only from Last-Modified, and only for a status cacheable by default or a
+// public response; a lifetime that doesn't parse is stale, never blank.
+func TestBrowserLifetimeSource(t *testing.T) {
+	const lm = "Mon, 01 Jan 2024 00:00:00 GMT"
+	for _, tc := range []struct {
+		name      string
+		status    int
+		headers   map[string]string
+		heuristic bool
+		human     string
+		source    string
+	}{
+		{"last-modified on a 200", 200, map[string]string{"Last-Modified": lm}, true, "Heuristic", "Last-Modified"},
+		{"last-modified, no status pasted", 0, map[string]string{"Last-Modified": lm}, true, "Heuristic", "Last-Modified"},
+		{"last-modified on a 500", 500, map[string]string{"Last-Modified": lm}, false, "0s (no lifetime given)", "none"},
+		{"public 500 with last-modified", 500, map[string]string{"Last-Modified": lm, "Cache-Control": "public"}, true, "Heuristic", "Last-Modified"},
+		{"public alone", 200, map[string]string{"Cache-Control": "public"}, false, "0s (no lifetime given)", "none"},
+		{"max-age", 200, map[string]string{"Cache-Control": "max-age=120"}, false, "2m", "Cache-Control: max-age"},
+		{"bad max-age", 200, map[string]string{"Cache-Control": "max-age=soon"}, false, "0s (invalid value: stale)", "Cache-Control: max-age"},
+		{"bad expires", 200, map[string]string{"Expires": "tomorrow"}, false, "0s (expired)", "Expires"},
+		{"no-cache", 200, map[string]string{"Cache-Control": "no-cache", "Last-Modified": lm}, false, "0s (no-cache: must revalidate before use)", "Cache-Control: no-cache"},
+	} {
+		h := make(http.Header)
+		for k, v := range tc.headers {
+			h.Set(k, v)
+		}
+		ttl := AnalyzeCache(tc.status, h).TTL
+		if ttl.Heuristic != tc.heuristic || ttl.BrowserTTLHuman != tc.human || ttl.BrowserSource != tc.source {
+			t.Errorf("%s: heuristic %v, %q from %q; want %v, %q from %q",
+				tc.name, ttl.Heuristic, ttl.BrowserTTLHuman, ttl.BrowserSource, tc.heuristic, tc.human, tc.source)
+		}
+	}
+}
+
+// The edge card names the header that set its lifetime; private keeps a CDN out unless CDN-Cache-Control
+// speaks for it.
+func TestEdgeLifetimeSource(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		seconds int
+		source  string
+	}{
+		{"s-maxage", map[string]string{"Cache-Control": "public, max-age=60, s-maxage=300"}, 300, "Cache-Control: s-maxage"},
+		{"cdn-cache-control wins", map[string]string{"Cache-Control": "max-age=60, s-maxage=300", "CDN-Cache-Control": "max-age=86400"}, 86400, "CDN-Cache-Control: max-age"},
+		{"private beats s-maxage", map[string]string{"Cache-Control": "private, max-age=60, s-maxage=300"}, 0, "Cache-Control: private"},
+		{"private with cdn-cache-control", map[string]string{"Cache-Control": "private, max-age=60", "CDN-Cache-Control": "max-age=600"}, 600, "CDN-Cache-Control: max-age"},
+		{"no-store", map[string]string{"Cache-Control": "no-store"}, 0, "Cache-Control: no-store"},
+		{"cdn no-store", map[string]string{"Cache-Control": "max-age=60", "CDN-Cache-Control": "no-store"}, 0, "CDN-Cache-Control: no-store"},
+		{"surrogate-control", map[string]string{"Cache-Control": "max-age=60", "Surrogate-Control": "max-age=900"}, 900, "Surrogate-Control: max-age"},
+		{"inherited", map[string]string{"Cache-Control": "max-age=60"}, 60, "same as browser"},
+	} {
+		h := make(http.Header)
+		for k, v := range tc.headers {
+			h.Set(k, v)
+		}
+		ttl := AnalyzeCache(http.StatusOK, h).TTL
+		if ttl.EdgeTTLSeconds != tc.seconds || ttl.EdgeSource != tc.source {
+			t.Errorf("%s: edge %ds from %q, want %ds from %q", tc.name, ttl.EdgeTTLSeconds, ttl.EdgeSource, tc.seconds, tc.source)
+		}
+		if strings.Contains(ttl.EdgeTTLHuman, "inherits") || ttl.EdgeTTLHuman == "" {
+			t.Errorf("%s: edge reads %q; the source names where it came from", tc.name, ttl.EdgeTTLHuman)
+		}
+	}
+}
+
+// CSP, framing, Referrer-Policy and isolation matter only for what a browser renders as a page; a type
+// left out might be one. Without Referrer-Policy the browser default is already strict.
+func TestSecurityPageOnlyChecks(t *testing.T) {
+	titles := func(notes []HeaderNote) []string {
+		var out []string
+		for _, n := range notes {
+			out = append(out, n.Title)
+		}
+		return out
+	}
+	const csp, frame, hsts, sniff, referrer = "Missing Content-Security-Policy",
+		"Missing Clickjacking protection (X-Frame-Options / frame-ancestors)",
+		"Missing Strict-Transport-Security (HSTS)", "Missing X-Content-Type-Options: nosniff", "Permissive Referrer-Policy"
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		page    bool
+		want    []string
+	}{
+		{"json", map[string]string{"Content-Type": "application/json; charset=utf-8", "Referrer-Policy": "unsafe-url"}, false, []string{hsts, sniff}},
+		{"html", map[string]string{"Content-Type": "text/html; charset=utf-8"}, true, []string{csp, hsts, sniff, frame}},
+		{"html, permissive referrer", map[string]string{"Content-Type": "text/html", "Referrer-Policy": "no-referrer-when-downgrade"}, true, []string{csp, hsts, sniff, frame, referrer}},
+		{"svg", map[string]string{"Content-Type": "image/svg+xml"}, true, []string{csp, hsts, sniff, frame}},
+		{"no type", map[string]string{"Cache-Control": "no-store"}, true, []string{csp, hsts, sniff, frame}},
+	} {
+		h := make(http.Header)
+		for k, v := range tc.headers {
+			h.Set(k, v)
+		}
+		sec := AnalyzeSecurity(h)
+		if sec.Page != tc.page {
+			t.Errorf("%s: page = %v, want %v", tc.name, sec.Page, tc.page)
+		}
+		if diff := cmp.Diff(tc.want, titles(sec.Findings)); diff != "" {
+			t.Errorf("%s: findings (-want +got):\n%s", tc.name, diff)
+		}
+		if !tc.page && (sec.Isolation.Status != "Not applicable" || sec.Isolation.Isolated) {
+			t.Errorf("%s: isolation %+v, want not applicable", tc.name, sec.Isolation)
+		}
+	}
+}
+
+// A paste with request headers in it is refused, naming them but never echoing a value; one built only
+// from response headers that merely look alike is audited.
+func TestParseRawHeadersRefusesRequests(t *testing.T) {
+	devtools := "accept: application/vnd.linkedin.normalized+json+2.1\n" +
+		"cookie: bcookie=\"v=2&secret-cookie-value\"; li_at=secret-session\n" +
+		"csrf-token: ajax:1234\n" +
+		"sec-fetch-mode: cors\n" +
+		"user-agent: Mozilla/5.0\n" +
+		"x-li-lang: en_US"
+	for _, tc := range []struct{ name, raw, names string }{
+		{"devtools request block", devtools, "(Accept, Cookie, Sec-Fetch-Mode)"},
+		{"request line", "POST /voyager/api/graphql HTTP/1.1\nHost: www.linkedin.com", "(POST request line, Host)"},
+		{"http/2 pseudo-headers", ":method: POST\n:path: /api\ncontent-type: application/json", "(:method, :path)"},
+		{"response and request mixed", "HTTP/2 200\ncache-control: no-store\ncookie: a=1", "(Cookie)"},
+		{"repeated cookie lines", "cookie: a=1\ncookie: b=2\nsec-ch-ua-mobile: ?0", "(Cookie, Sec-Ch-Ua-Mobile)"},
+	} {
+		_, err := ParseRawHeaders(tc.raw)
+		if !errors.Is(err, ErrRequestHeaders) || !strings.Contains(err.Error(), tc.names) {
+			t.Errorf("%s = %v, want ErrRequestHeaders naming %s", tc.name, err, tc.names)
+		}
+		if err != nil && strings.Contains(err.Error(), "secret") {
+			t.Errorf("%s: the refusal echoes a header value: %v", tc.name, err)
+		}
+	}
+
+	lookalikes := "HTTP/2 200\naccept-ranges: bytes\naccept-ch: Sec-CH-UA-Model\nvary: Origin, Accept-Encoding\naccess-control-allow-origin: *"
+	if _, err := ParseRawHeaders(lookalikes); err != nil {
+		t.Errorf("response-only lookalikes refused: %v", err)
+	}
+}
+
+// The status comes from a status line or :status, and is left at 0 rather than guessed when neither is pasted.
+func TestParseRawHeadersStatus(t *testing.T) {
+	for _, tc := range []struct {
+		raw         string
+		code        int
+		text, proto string
+	}{
+		{"cache-control: no-store", 0, "", ""},
+		{":status: 404\ncontent-type: text/html", 404, "Not Found", ""},
+		{"HTTP/1.1 404 Not Found\ncontent-type: text/html", 404, "Not Found", "HTTP/1.1"},
+		{"HTTP/2 301\nlocation: https://example.com/", 301, "Moved Permanently", "HTTP/2"},
+		{"x-request-id: abc\n\nHTTP/3 503\nretry-after: 30", 503, "Service Unavailable", "HTTP/3"},
+	} {
+		r, err := ParseRawHeaders(tc.raw)
+		if err != nil {
+			t.Errorf("%q: %v", tc.raw, err)
+			continue
+		}
+		if r.StatusCode != tc.code || r.StatusText != tc.text || r.Proto != tc.proto {
+			t.Errorf("%q = %d %q %q, want %d %q %q", tc.raw, r.StatusCode, r.StatusText, r.Proto, tc.code, tc.text, tc.proto)
+		}
 	}
 }

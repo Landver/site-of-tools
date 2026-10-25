@@ -8,12 +8,15 @@ import (
 	"time"
 )
 
-// TTLSummary holds the computed freshness lifetime for browser and CDN edge.
+// TTLSummary holds the computed freshness lifetime for browser and CDN edge; each Source names the
+// header that set it.
 type TTLSummary struct {
 	BrowserTTLSeconds int    `json:"browser_ttl_seconds"`
 	BrowserTTLHuman   string `json:"browser_ttl_human"`
+	BrowserSource     string `json:"browser_source"`
 	EdgeTTLSeconds    int    `json:"edge_ttl_seconds"`
 	EdgeTTLHuman      string `json:"edge_ttl_human"`
+	EdgeSource        string `json:"edge_source"`
 	StaleWhileReval   int    `json:"stale_while_revalidate_seconds"`
 	StaleIfError      int    `json:"stale_if_error_seconds"`
 	Public            bool   `json:"public"`
@@ -110,6 +113,23 @@ func formatDuration(sec int) string {
 	return fmt.Sprintf("%dd %dh", d, h)
 }
 
+// lifetime reads a delta-seconds directive; one that doesn't parse leaves the response stale.
+func lifetime(v string) (int, string) {
+	if sec, err := strconv.Atoi(v); err == nil && sec >= 0 {
+		return sec, formatDuration(sec)
+	}
+	return 0, "0s (invalid value: stale)"
+}
+
+// heuristicStatus: the codes RFC 9110 §15.1 makes cacheable without explicit freshness.
+func heuristicStatus(code int) bool {
+	switch code {
+	case 200, 203, 204, 206, 300, 301, 308, 404, 405, 410, 414, 501:
+		return true
+	}
+	return false
+}
+
 // AnalyzeCache inspects headers for RFC 9111 HTTP caching and RFC 9213 CDN-Cache-Control.
 func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 	var analysis CacheAnalysis
@@ -201,62 +221,60 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 	}
 
 	// Browser TTL
-	if ttl.NoStore {
-		ttl.BrowserTTLSeconds = 0
-		ttl.BrowserTTLHuman = "0s (no-store: not cached)"
-	} else if ttl.NoCache {
-		ttl.BrowserTTLSeconds = 0
-		ttl.BrowserTTLHuman = "0s (no-cache: must revalidate before use)"
-	} else if maxAgeStr, ok := ccMap["max-age"]; ok {
-		if ma, err := strconv.Atoi(maxAgeStr); err == nil && ma >= 0 {
-			ttl.BrowserTTLSeconds = ma
-			ttl.BrowserTTLHuman = formatDuration(ma)
-		}
-	} else if rawExpires != "" {
-		// RFC 9111 §5.3 Expires fallback when max-age absent
-		if t, err := http.ParseTime(rawExpires); err == nil {
+	maxAge, hasMaxAge := ccMap["max-age"]
+	_, lmErr := http.ParseTime(analysis.LastModified)
+	switch {
+	case ttl.NoStore:
+		ttl.BrowserTTLHuman, ttl.BrowserSource = "0s (no-store: not cached)", "Cache-Control: no-store"
+	case ttl.NoCache:
+		ttl.BrowserTTLHuman, ttl.BrowserSource = "0s (no-cache: must revalidate before use)", "Cache-Control: no-cache"
+	case hasMaxAge:
+		ttl.BrowserTTLSeconds, ttl.BrowserTTLHuman = lifetime(maxAge)
+		ttl.BrowserSource = "Cache-Control: max-age"
+	case rawExpires != "":
+		ttl.BrowserSource = "Expires"
+		// RFC 9111 §5.3: an Expires that doesn't parse is already past.
+		if t, err := http.ParseTime(rawExpires); err == nil && time.Until(t) > 0 {
 			diff := int(time.Until(t).Seconds())
-			if diff > 0 {
-				ttl.BrowserTTLSeconds = diff
-				ttl.BrowserTTLHuman = formatDuration(diff) + " (from Expires)"
-			} else {
-				ttl.BrowserTTLSeconds = 0
-				ttl.BrowserTTLHuman = "0s (expired via Expires header)"
-			}
+			ttl.BrowserTTLSeconds, ttl.BrowserTTLHuman = diff, formatDuration(diff)
+		} else {
+			ttl.BrowserTTLHuman = "0s (expired)"
 		}
-	} else if rawCC == "" && rawExpires == "" {
+	// Browsers guess only from Last-Modified (RFC 9111 §4.2.2), and only for a status cacheable by default
+	// or a public response; with neither, the response is stale on arrival.
+	case lmErr == nil && (statusCode == 0 || heuristicStatus(statusCode) || ttl.Public):
 		ttl.Heuristic = true
-		ttl.BrowserTTLSeconds = 0
-		ttl.BrowserTTLHuman = "Heuristic (no Cache-Control or Expires)"
+		ttl.BrowserTTLHuman, ttl.BrowserSource = "Heuristic", "Last-Modified"
+	default:
+		ttl.BrowserTTLHuman, ttl.BrowserSource = "0s (no lifetime given)", "none"
 	}
 
-	// Edge CDN TTL calculation:
-	// Priority 1: Cloudflare-CDN-Cache-Control / CDN-Cache-Control max-age (RFC 9213)
-	// Priority 2: s-maxage in Cache-Control
-	// Priority 3: Surrogate-Control max-age
-	// Priority 4: Browser max-age
-	if cdnNoStore, ok := cdnMap["no-store"]; ok || (ttl.NoStore && len(cdnMap) == 0 && len(surrogateMap) == 0) {
-		_ = cdnNoStore
-		ttl.EdgeTTLSeconds = 0
-		ttl.EdgeTTLHuman = "0s (no-store)"
-	} else if cdnMaStr, ok := cdnMap["max-age"]; ok {
-		if ma, err := strconv.Atoi(cdnMaStr); err == nil && ma >= 0 {
-			ttl.EdgeTTLSeconds = ma
-			ttl.EdgeTTLHuman = formatDuration(ma) + " (via CDN-Cache-Control)"
-		}
-	} else if sMaxAgeStr, ok := ccMap["s-maxage"]; ok {
-		if sma, err := strconv.Atoi(sMaxAgeStr); err == nil && sma >= 0 {
-			ttl.EdgeTTLSeconds = sma
-			ttl.EdgeTTLHuman = formatDuration(sma) + " (via s-maxage)"
-		}
-	} else if surrMaStr, ok := surrogateMap["max-age"]; ok {
-		if ma, err := strconv.Atoi(surrMaStr); err == nil && ma >= 0 {
-			ttl.EdgeTTLSeconds = ma
-			ttl.EdgeTTLHuman = formatDuration(ma) + " (via Surrogate-Control)"
-		}
-	} else {
-		ttl.EdgeTTLSeconds = ttl.BrowserTTLSeconds
-		ttl.EdgeTTLHuman = ttl.BrowserTTLHuman + " (inherits Browser TTL)"
+	// Edge TTL: RFC 9213 CDN-Cache-Control replaces Cache-Control for the CDN; then s-maxage, then
+	// Surrogate-Control, then whatever the browser gets. private keeps shared caches out (RFC 9111 §5.2.2.7).
+	_, cdnNoStore := cdnMap["no-store"]
+	cdnMaxAge, hasCDNMaxAge := cdnMap["max-age"]
+	sMaxAge, hasSMaxAge := ccMap["s-maxage"]
+	surrMaxAge, hasSurrMaxAge := surrogateMap["max-age"]
+	ccOnly := len(cdnMap) == 0 && len(surrogateMap) == 0
+	switch {
+	case cdnNoStore:
+		ttl.EdgeTTLHuman, ttl.EdgeSource = "0s (no-store)", "CDN-Cache-Control: no-store"
+	case ttl.NoStore && ccOnly:
+		ttl.EdgeTTLHuman, ttl.EdgeSource = "0s (no-store)", "Cache-Control: no-store"
+	case hasCDNMaxAge:
+		ttl.EdgeTTLSeconds, ttl.EdgeTTLHuman = lifetime(cdnMaxAge)
+		ttl.EdgeSource = "CDN-Cache-Control: max-age"
+	case ttl.Private && ccOnly:
+		ttl.EdgeTTLHuman, ttl.EdgeSource = "0s (private: CDNs must not store it)", "Cache-Control: private"
+	case hasSMaxAge:
+		ttl.EdgeTTLSeconds, ttl.EdgeTTLHuman = lifetime(sMaxAge)
+		ttl.EdgeSource = "Cache-Control: s-maxage"
+	case hasSurrMaxAge:
+		ttl.EdgeTTLSeconds, ttl.EdgeTTLHuman = lifetime(surrMaxAge)
+		ttl.EdgeSource = "Surrogate-Control: max-age"
+	default:
+		ttl.EdgeTTLSeconds, ttl.EdgeTTLHuman = ttl.BrowserTTLSeconds, ttl.BrowserTTLHuman
+		ttl.EdgeSource = "same as browser"
 	}
 
 	// Stale windows
@@ -418,14 +436,22 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 		})
 	}
 
-	// Rule 10: Private browser cache combined with public CDN-Cache-Control
-	if ttl.Private && (len(cdnDirs) > 0 || ccMap["s-maxage"] != "") {
+	// Rule 10: Private browser cache combined with an edge lifetime
+	if ttl.Private && len(cdnMap) > 0 {
 		notes = append(notes, HeaderNote{
 			Severity: SevOK,
 			Category: "cache",
 			Title:    "Dual TTL: Private browser cache with Edge CDN caching",
-			Detail:   "Using RFC 9213 CDN-Cache-Control or s-maxage allows the CDN edge to cache public pages while browsers treat responses as private or revalidation-required.",
+			Detail:   "RFC 9213 CDN-Cache-Control lets the CDN edge cache the response while browsers treat it as private.",
 			RFC:      "RFC 9213 §2",
+		})
+	} else if ttl.Private && hasSMaxAge {
+		notes = append(notes, HeaderNote{
+			Severity: SevWarn,
+			Category: "cache",
+			Title:    "Contradictory directives: private with s-maxage",
+			Detail:   "private forbids every shared cache from storing the response, so s-maxage never applies. CDN-Cache-Control gives the edge its own lifetime.",
+			RFC:      "RFC 9111 §5.2.2.7",
 		})
 	}
 
@@ -435,7 +461,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 			Severity: SevWarn,
 			Category: "cache",
 			Title:    "Heuristic caching active (no explicit cache lifetime)",
-			Detail:   "Neither Cache-Control nor Expires was provided. RFC 9111 permits caches to calculate heuristic freshness (often ~10% of time since Last-Modified), causing inconsistent behavior across browsers.",
+			Detail:   "Neither Cache-Control nor Expires sets a lifetime, so caches guess one from Last-Modified, typically 10% of the time since it. Browsers and CDNs may each guess differently.",
 			RFC:      "RFC 9111 §4.2.2",
 		})
 	}

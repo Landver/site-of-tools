@@ -62,7 +62,7 @@
       <form action="/headers" method="post" hx-post="/headers" hx-target="#result" hx-swap="innerHTML"
             class="space-y-3">
         <label class="block text-sm text-muted">
-          Pasted HTTP Response Headers (from curl -I or browser DevTools Network tab)
+          Pasted HTTP response headers (curl -I, or the Response Headers block in DevTools' Network tab)
           <textarea name="headers" rows="6" spellcheck="false"
                     placeholder="HTTP/2 200&#10;content-type: text/html; charset=UTF-8&#10;cache-control: public, max-age=3600, s-maxage=86400&#10;cdn-cache-control: max-age=604800&#10;etag: &quot;33a64df551425fcc55e4d42a148795d9f25f89d4&quot;&#10;strict-transport-security: max-age=31536000; includeSubDomains"
                     class="field mt-1 w-full font-mono text-base sm:text-xs">{{.PastedHeaders}}</textarea>
@@ -97,40 +97,38 @@
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Status Code</div>
       <div>
-        {{if lt .StatusCode 300}}<span class="badge badge-ok">{{.StatusCode}} {{.StatusText}}</span>
+        {{if not .StatusCode}}<span class="badge badge-neutral">NOT GIVEN</span>
+        {{else if lt .StatusCode 300}}<span class="badge badge-ok">{{.StatusCode}} {{.StatusText}}</span>
         {{else if lt .StatusCode 400}}<span class="badge badge-warn">{{.StatusCode}} {{.StatusText}}</span>
         {{else}}<span class="badge badge-danger">{{.StatusCode}} {{.StatusText}}</span>{{end}}
       </div>
-      <div class="mt-1 text-xs text-faint font-mono">{{if .IsLiveURL}}{{.LatencyMS}} ms roundtrip{{else}}Pasted headers{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if .IsLiveURL}}{{.LatencyMS}} ms roundtrip{{else if .StatusCode}}Pasted headers{{else}}No status line pasted{{end}}</div>
     </div>
 
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Browser Freshness (TTL)</div>
       <div class="font-mono font-bold text-strong text-sm">{{.Cache.TTL.BrowserTTLHuman}}</div>
-      <div class="mt-1 text-xs text-faint font-mono">
-        {{if .Cache.TTL.NoStore}}no-store
-        {{else if .Cache.TTL.NoCache}}no-cache
-        {{else if .Cache.TTL.Heuristic}}Heuristic calculation
-        {{else}}max-age directive{{end}}
-      </div>
+      <div class="mt-1 text-xs text-faint font-mono">{{.Cache.TTL.BrowserSource}}</div>
     </div>
 
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Edge CDN Freshness (TTL)</div>
       <div class="font-mono font-bold text-strong text-sm">{{.Cache.TTL.EdgeTTLHuman}}</div>
-      <div class="mt-1 text-xs text-faint font-mono">RFC 9213 / s-maxage</div>
+      <div class="mt-1 text-xs text-faint font-mono">{{.Cache.TTL.EdgeSource}}</div>
     </div>
 
     <div class="telemetry-card">
       <div class="eyebrow text-faint mb-1">Browser Isolation</div>
       <div>
-        {{if .Security.Isolation.Isolated}}
+        {{if not .Security.Page}}
+          <span class="badge badge-neutral">N/A</span>
+        {{else if .Security.Isolation.Isolated}}
           <span class="badge badge-ok">ISOLATED</span>
         {{else}}
-          <span class="badge badge-warn">NOT ISOLATED</span>
+          <span class="badge badge-neutral">NOT ISOLATED</span>
         {{end}}
       </div>
-      <div class="mt-1 text-xs text-faint font-mono">{{if .Security.Isolation.Isolated}}SharedArrayBuffer enabled{{else}}COOP/COEP absent{{end}}</div>
+      <div class="mt-1 text-xs text-faint font-mono">{{if not .Security.Page}}Not a page{{else if .Security.Isolation.Isolated}}SharedArrayBuffer enabled{{else}}Needed only for SharedArrayBuffer{{end}}</div>
     </div>
   </div>
 
@@ -195,7 +193,7 @@
           <span class="badge badge-info">{{.Cache.TTL.BrowserTTLHuman}}</span>
         </div>
         <div class="mt-2 text-xs space-y-1">
-          <div class="flex justify-between text-muted"><span>Directive:</span> <span class="font-mono text-strong">{{if .Cache.TTL.NoStore}}no-store{{else if .Cache.TTL.NoCache}}no-cache{{else if .Cache.TTL.Heuristic}}Heuristic{{else}}max-age={{.Cache.TTL.BrowserTTLSeconds}}{{end}}</span></div>
+          <div class="flex justify-between text-muted"><span>Directive:</span> <span class="font-mono text-strong">{{.Cache.TTL.BrowserSource}}</span></div>
           <div class="flex justify-between text-muted"><span>Must Revalidate:</span> <span class="font-mono text-strong">{{if .Cache.TTL.MustRevalidate}}Yes{{else}}No{{end}}</span></div>
           <div class="flex justify-between text-muted"><span>Immutable:</span> <span class="font-mono text-strong">{{if .Cache.TTL.Immutable}}Yes{{else}}No{{end}}</span></div>
           {{if .Cache.AgeSeconds}}<div class="flex justify-between text-muted"><span>Current Age:</span> <span class="font-mono text-strong">{{.Cache.AgeSeconds}}s</span></div>{{end}}
@@ -208,7 +206,7 @@
           <span class="badge badge-info">{{.Cache.TTL.EdgeTTLHuman}}</span>
         </div>
         <div class="mt-2 text-xs space-y-1">
-          <div class="flex justify-between text-muted"><span>Directive:</span> <span class="font-mono text-strong">CDN-Cache-Control / s-maxage</span></div>
+          <div class="flex justify-between text-muted"><span>Directive:</span> <span class="font-mono text-strong">{{.Cache.TTL.EdgeSource}}</span></div>
           <div class="flex justify-between text-muted"><span>Stale-While-Revalidate:</span> <span class="font-mono text-strong">{{if .Cache.TTL.StaleWhileReval}}{{.Cache.TTL.StaleWhileReval}}s{{else}}None{{end}}</span></div>
           <div class="flex justify-between text-muted"><span>Stale-If-Error:</span> <span class="font-mono text-strong">{{if .Cache.TTL.StaleIfError}}{{.Cache.TTL.StaleIfError}}s{{else}}None{{end}}</span></div>
           <div class="flex justify-between text-muted"><span>Cacheability:</span> <span class="font-mono text-strong">{{if .Cache.TTL.Public}}public{{else if .Cache.TTL.Private}}private{{else if .Cache.TTL.NoStore}}no-store{{else}}unspecified{{end}}</span></div>

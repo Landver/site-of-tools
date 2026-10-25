@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,8 +41,8 @@ type HeadersReport struct {
 	Input          string           `json:"input"`
 	IsLiveURL      bool             `json:"is_live_url"`
 	TargetURL      string           `json:"target_url,omitempty"`
-	StatusCode     int              `json:"status_code"`
-	StatusText     string           `json:"status_text"`
+	StatusCode     int              `json:"status_code,omitempty"` // 0: a paste with no status line
+	StatusText     string           `json:"status_text,omitempty"`
 	Proto          string           `json:"proto,omitempty"`
 	LatencyMS      int64            `json:"latency_ms,omitempty"`
 	Persona        string           `json:"persona,omitempty"`
@@ -197,65 +198,94 @@ func (t *Tracer) simulateETag(ctx context.Context, req *http.Request, etag strin
 	return sim
 }
 
-// ParseRawHeaders parses pasted raw HTTP response headers (e.g. from curl or browser DevTools).
+// ErrRequestHeaders: the paste holds what a browser sent, which says nothing of what the server answered.
+var ErrRequestHeaders = errors.New("That paste has request headers in it")
+
+// requestOnly names headers only a client sends; one either side may send is left out.
+var requestOnly = map[string]bool{
+	"accept": true, "accept-language": true, "authorization": true, "cookie": true, "dnt": true,
+	"host": true, "if-match": true, "if-modified-since": true, "if-none-match": true, "origin": true,
+	"range": true, "referer": true, "sec-gpc": true, "upgrade-insecure-requests": true, "user-agent": true,
+}
+
+// requestPseudo are the HTTP/2 and HTTP/3 pseudo-headers DevTools shows on a request.
+var requestPseudo = map[string]bool{"method": true, "path": true, "authority": true, "scheme": true, "protocol": true}
+
+func isRequestHeader(name string) bool {
+	n := strings.ToLower(name)
+	return requestOnly[n] || strings.HasPrefix(n, "sec-fetch-") || strings.HasPrefix(n, "sec-ch-") ||
+		strings.HasPrefix(n, "access-control-request-")
+}
+
+// ParseRawHeaders parses pasted response headers (curl -i, DevTools). A paste with request headers in it
+// is refused: audited as an answer, it could only report every response header as missing.
 func ParseRawHeaders(raw string) (*HeadersReport, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, errors.New("no headers pasted")
 	}
 
-	scanner := bufio.NewScanner(strings.NewReader(raw))
 	headers := make(http.Header)
-	statusCode := http.StatusOK
-	statusText := "OK"
-	proto := "HTTP/1.1"
-
-	firstLine := true
+	var status int
+	var statusText, proto string
+	var sent []string
+	note := func(name string) {
+		if !slices.Contains(sent, name) {
+			sent = append(sent, name)
+		}
+	}
+	scanner := bufio.NewScanner(strings.NewReader(raw))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		if f := strings.Fields(line); len(f) == 3 && strings.HasPrefix(f[2], "HTTP/") && !strings.ContainsRune(f[0], ':') {
+			note(f[0] + " request line")
 			continue
 		}
-
-		if firstLine {
-			firstLine = false
-			// Check if line is an HTTP status line, e.g. "HTTP/1.1 200 OK" or "HTTP/2 404"
-			if strings.HasPrefix(line, "HTTP/") {
-				parts := strings.SplitN(line, " ", 3)
-				if len(parts) >= 2 {
-					proto = parts[0]
-					var code int
-					if _, err := fmt.Sscanf(parts[1], "%d", &code); err == nil && code >= 100 && code < 600 {
-						statusCode = code
-						if len(parts) >= 3 {
-							statusText = parts[2]
-						} else {
-							statusText = http.StatusText(code)
-						}
-						continue
-					}
-				}
+		if p, rest, ok := strings.Cut(line, " "); ok && strings.HasPrefix(p, "HTTP/") {
+			code, text, _ := strings.Cut(strings.TrimSpace(rest), " ")
+			if c, ok := statusCode(code); ok {
+				proto, status, statusText = p, c, cmp.Or(text, http.StatusText(c))
+				continue
 			}
 		}
-
-		// Header line: "Key: Value"
-		idx := strings.IndexByte(line, ':')
-		if idx <= 0 {
+		if pseudo, ok := strings.CutPrefix(line, ":"); ok {
+			name, val, _ := strings.Cut(pseudo, ":")
+			if c, ok := statusCode(val); ok && name == "status" {
+				status, statusText = c, http.StatusText(c)
+			} else if requestPseudo[name] {
+				note(":" + name)
+			}
 			continue
 		}
-		key := strings.TrimSpace(line[:idx])
-		val := strings.TrimSpace(line[idx+1:])
-		headers.Add(key, val)
-	}
 
+		key, val, ok := strings.Cut(line, ":")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			continue
+		}
+		if isRequestHeader(key) {
+			note(http.CanonicalHeaderKey(key))
+		}
+		headers.Add(key, strings.TrimSpace(val))
+	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading headers: %w", err)
 	}
 
+	if len(sent) > 0 {
+		return nil, fmt.Errorf("%w (%s): a browser sends those, and this tool audits what the server sends back. "+
+			"Copy only the Response Headers block from DevTools, or run curl -I on the URL.",
+			ErrRequestHeaders, strings.Join(sent[:min(len(sent), 3)], ", "))
+	}
 	if len(headers) == 0 {
 		return nil, errors.New("could not find any valid 'Header-Name: Value' lines in pasted text")
 	}
-	return newHeadersReport(raw, proto, statusCode, statusText, headers), nil
+	return newHeadersReport(raw, proto, status, statusText, headers), nil
+}
+
+func statusCode(s string) (int, bool) {
+	c, err := strconv.Atoi(strings.TrimSpace(s))
+	return c, err == nil && c >= 100 && c < 600
 }
 
 func categoryOrder(cat string) int {
