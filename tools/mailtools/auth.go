@@ -3,22 +3,19 @@ package mailtools
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/Landver/site-of-tools/platform"
 )
 
 // SPFAnalysis contains recursive SPF include resolution, 10-lookup limit evaluation, and syntax checks.
 type SPFAnalysis struct {
 	Record    string   `json:"record"`
 	Lookups   int      `json:"lookups"`
-	Limit     int      `json:"limit"` // RFC 7208 limit: 10
+	Limit     int      `json:"limit"`         // RFC 7208 limit: 10
 	All       string   `json:"all,omitempty"` // -all, ~all, ?all, +all
 	Chain     []string `json:"chain,omitempty"`
 	Extra     []string `json:"extra_records,omitempty"`
@@ -96,7 +93,7 @@ var commonDKIMSelectors = []string{
 const maxSPFIncludes = 15
 
 // AuditEmailAuth performs a comprehensive, concurrent audit of a domain's email authentication.
-func AuditEmailAuth(ctx context.Context, domain string, guard *platform.EgressGuard) *EmailAuthSummary {
+func (s *Service) AuditEmailAuth(ctx context.Context, domain string) *EmailAuthSummary {
 	domain = ExtractDomain(domain)
 	summary := &EmailAuthSummary{}
 
@@ -133,15 +130,16 @@ func AuditEmailAuth(ctx context.Context, domain string, guard *platform.EgressGu
 	// 4. MTA-STS & TLSRPT
 	go func() {
 		defer wg.Done()
-		summary.MTASTS = checkMTASTS(ctx, domain, guard)
+		summary.MTASTS = s.checkMTASTS(ctx, domain)
 	}()
 
 	wg.Wait()
 	return summary
 }
 
-func lookupTXTWithPrefix(ctx context.Context, r *net.Resolver, domain, prefix string) []string {
-	txts, err := r.LookupTXT(ctx, domain)
+// lookupTXTWithPrefix returns name's TXT records that start with prefix, ignoring case, trimmed.
+func lookupTXTWithPrefix(ctx context.Context, name, prefix string) []string {
+	txts, err := net.DefaultResolver.LookupTXT(ctx, name)
 	if err != nil {
 		return nil
 	}
@@ -158,8 +156,7 @@ func lookupTXTWithPrefix(ctx context.Context, r *net.Resolver, domain, prefix st
 
 // checkSPF resolves SPF records recursively, tracking the 10-lookup limit (RFC 7208 §4.6.4).
 func checkSPF(ctx context.Context, domain string) *SPFAnalysis {
-	r := &net.Resolver{}
-	spfRecs := lookupTXTWithPrefix(ctx, r, domain, "v=spf1")
+	spfRecs := lookupTXTWithPrefix(ctx, domain, "v=spf1")
 	if len(spfRecs) == 0 {
 		return nil
 	}
@@ -211,7 +208,7 @@ func checkSPF(ctx context.Context, domain string) *SPFAnalysis {
 					continue
 				}
 
-				subRecs := lookupTXTWithPrefix(ctx, r, target, "v=spf1")
+				subRecs := lookupTXTWithPrefix(ctx, target, "v=spf1")
 				if len(subRecs) == 0 {
 					res.Voids = append(res.Voids, target)
 				} else {
@@ -293,14 +290,13 @@ func spfTerm(tok string) (name, target string) {
 
 // checkDMARC queries _dmarc.<domain> and climbs up to parent domains if missing (RFC 7489 §6.6.3).
 func checkDMARC(ctx context.Context, domain string) *DMARCAnalysis {
-	r := &net.Resolver{}
 	name := domain
 
 	for range 4 {
 		at := "_dmarc." + name
-		recs := lookupTXTWithPrefix(ctx, r, at, "v=DMARC1")
+		recs := lookupTXTWithPrefix(ctx, at, "v=DMARC1")
 		if len(recs) > 0 {
-			tags := parseAuthTags(recs[0])
+			tags := parseTXTTags(recs[0])
 			res := &DMARCAnalysis{
 				Record:    recs[0],
 				Inherited: name != domain,
@@ -365,7 +361,8 @@ func checkDMARC(ctx context.Context, domain string) *DMARCAnalysis {
 	return nil
 }
 
-func parseAuthTags(rec string) map[string]string {
+// parseTXTTags reads a "k=v; k=v" record (DMARC, DKIM, BIMI) into lowercase keys and trimmed values.
+func parseTXTTags(rec string) map[string]string {
 	tags := make(map[string]string)
 	for _, part := range strings.Split(rec, ";") {
 		if k, v, ok := strings.Cut(part, "="); ok {
@@ -377,40 +374,15 @@ func parseAuthTags(rec string) map[string]string {
 
 // checkDKIM probes common selectors in parallel and detects wildcard DNS configurations.
 func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
-	r := &net.Resolver{}
 	analysis := &DKIMAnalysis{}
-
-	// Probe synthetic canary selector to detect wildcard DNS (*._domainkey)
+	// A key at a made-up selector means *._domainkey answers for every name.
 	canary := fmt.Sprintf("probe-wildcard-%d._domainkey.%s", time.Now().UnixNano()%10000, domain)
-	if txts, err := r.LookupTXT(ctx, canary); err == nil {
-		for _, txt := range txts {
-			tr := strings.TrimSpace(txt)
-			if strings.Contains(tr, "p=") || strings.HasPrefix(tr, "v=DKIM1") {
-				analysis.Wildcard = true
-				break
-			}
-		}
-	}
+	analysis.Wildcard = dkimKey(ctx, canary) != ""
 
 	recs := make([]string, len(commonDKIMSelectors))
 	var wg sync.WaitGroup
-	wg.Add(len(commonDKIMSelectors))
-
 	for i, sel := range commonDKIMSelectors {
-		go func(idx int, selector string) {
-			defer wg.Done()
-			qDomain := fmt.Sprintf("%s._domainkey.%s", selector, domain)
-			txts, err := r.LookupTXT(ctx, qDomain)
-			if err == nil {
-				for _, txt := range txts {
-					tr := strings.TrimSpace(txt)
-					if strings.Contains(tr, "p=") || strings.HasPrefix(tr, "v=DKIM1") {
-						recs[idx] = tr
-						break
-					}
-				}
-			}
-		}(i, sel)
+		wg.Go(func() { recs[i] = dkimKey(ctx, sel+"._domainkey."+domain) })
 	}
 	wg.Wait()
 
@@ -419,8 +391,7 @@ func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
 			if rec == "" {
 				continue
 			}
-			tags := parseAuthTags(rec)
-			if tags["p"] != "" {
+			if parseTXTTags(rec)["p"] != "" {
 				analysis.FoundSelectors = append(analysis.FoundSelectors, DKIMSelectorInfo{
 					Selector: commonDKIMSelectors[i],
 					Record:   rec,
@@ -450,16 +421,24 @@ func checkDKIM(ctx context.Context, domain string) *DKIMAnalysis {
 	return analysis
 }
 
-// checkMTASTS inspects _mta-sts.<domain> and fetches policy over HTTPS.
-func checkMTASTS(ctx context.Context, domain string, guard *platform.EgressGuard) *MTASTSAnalysis {
-	r := &net.Resolver{}
-	res := &MTASTSAnalysis{}
+// dkimKey returns the DKIM key record at name; v=DKIM1 is optional, so p= marks one too.
+func dkimKey(ctx context.Context, name string) string {
+	for _, txt := range lookupTXTWithPrefix(ctx, name, "") {
+		if strings.Contains(txt, "p=") || strings.HasPrefix(txt, "v=DKIM1") {
+			return txt
+		}
+	}
+	return ""
+}
 
-	if recs := lookupTXTWithPrefix(ctx, r, "_mta-sts."+domain, "v=STSv1"); len(recs) > 0 {
+// checkMTASTS reads _mta-sts and _smtp._tls, then fetches the policy over HTTPS through the guard.
+func (s *Service) checkMTASTS(ctx context.Context, domain string) *MTASTSAnalysis {
+	res := &MTASTSAnalysis{}
+	if recs := lookupTXTWithPrefix(ctx, "_mta-sts."+domain, "v=STSv1"); len(recs) > 0 {
 		res.RecordFound = true
 		res.Record = recs[0]
 	}
-	if recs := lookupTXTWithPrefix(ctx, r, "_smtp._tls."+domain, "v=TLSRPTv1"); len(recs) > 0 {
+	if recs := lookupTXTWithPrefix(ctx, "_smtp._tls."+domain, "v=TLSRPTv1"); len(recs) > 0 {
 		res.TLSRPT = recs[0]
 	}
 
@@ -469,36 +448,13 @@ func checkMTASTS(ctx context.Context, domain string, guard *platform.EgressGuard
 		return res
 	}
 
-	// Fetch policy over HTTPS (RFC 8461 forbids HTTP redirects to prevent downgrade/SSRF)
-	policyURL := fmt.Sprintf("https://mta-sts.%s/.well-known/mta-sts.txt", domain)
-	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	if guard != nil {
-		client.Transport = guard.Transport(3 * time.Second)
-	}
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, policyURL, nil)
-	if err == nil {
-		resp, fetchErr := client.Do(req)
-		if fetchErr == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
-				res.PolicyFound = true
-				ParseMTASTSPolicy(string(bodyBytes), res)
-			} else {
-				res.PolicyError = fmt.Sprintf("HTTP %d from policy file", resp.StatusCode)
-			}
-		} else {
-			res.PolicyError = fetchErr.Error()
-		}
+	policy := &url.URL{Scheme: "https", Host: "mta-sts." + domain, Path: "/.well-known/mta-sts.txt"}
+	// RFC 8461 §3.2 caps a policy at 64 KB.
+	if body, err := s.fetch(ctx, policy, 64*1024); err != nil {
+		res.PolicyError = err.Error()
+	} else {
+		res.PolicyFound = true
+		ParseMTASTSPolicy(string(body), res)
 	}
 
 	if res.PolicyFound {

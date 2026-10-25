@@ -25,8 +25,12 @@ func newMailApp(t *testing.T) *echo.Echo {
 		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},
 	)
 	e := platform.NewApp(r, fstest.MapFS{}, false, nil)
-	mailtools.Register(e, "https://mail.example", nil, nil, "", nil)
+	mailtools.Register(e, "https://mail.example", newService(nil), nil)
 	return e
+}
+
+func newService(store *mailtools.Store) *mailtools.Service {
+	return mailtools.NewService(platform.NewEgressGuard([]string{"443"}, nil), store, "")
 }
 
 func TestDMARCXMLParsingAndGzip(t *testing.T) {

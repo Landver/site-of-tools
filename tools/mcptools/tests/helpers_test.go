@@ -32,6 +32,7 @@ import (
 	"github.com/Landver/site-of-tools/tools/dnstools"
 	"github.com/Landver/site-of-tools/tools/iptools"
 	"github.com/Landver/site-of-tools/tools/linktools"
+	"github.com/Landver/site-of-tools/tools/mailtools"
 	"github.com/Landver/site-of-tools/tools/mcptools"
 )
 
@@ -223,6 +224,7 @@ func newStack(t *testing.T, o stackOpts) *stack {
 		DNS: o.dns, DNSGeo: dnsGeo, Domain: o.dom, DNSLimits: o.dnsLim,
 		Link: o.link, Tracer: o.tracer, Short: o.short, Owner: o.owner, LinkLimits: o.linkLim,
 		CipherLimits: o.cipherLim, BotLimits: o.botLim, Blog: blog,
+		Mail: mailtools.NewService(platform.NewEgressGuard([]string{"443"}, ownHosts), nil, ""),
 		ToolURL: func(sub string) string {
 			if sub == "" {
 				return apexURL

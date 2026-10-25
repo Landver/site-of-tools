@@ -8,9 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
@@ -83,9 +87,9 @@ func TestGatewayDetectionLogic(t *testing.T) {
 func TestDNSBLReturnCodeSemantics(t *testing.T) {
 	// Query local test IP 127.0.0.2 against DNSBL audit logic
 	ctx := context.Background()
-	rep, err := mailtools.QueryDNSBLAudits(ctx, "127.0.0.2", "")
+	rep, err := newService(nil).DNSBL(ctx, "127.0.0.2")
 	if err != nil {
-		t.Fatalf("QueryDNSBLAudits failed: %v", err)
+		t.Fatalf("DNSBL failed: %v", err)
 	}
 
 	if rep.TotalChecked == 0 {
@@ -314,22 +318,49 @@ func TestEngine_FragmentRenderingAndErrors(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestStore_NilSafety(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // every DNS query fails at once
 
 	// 1. NewStore with nil DB
-	if store := mailtools.NewStore(ctx, nil); store != nil {
+	store := mailtools.NewStore(ctx, nil)
+	if store != nil {
 		t.Errorf("NewStore(nil) should return nil")
 	}
 
-	// 2. Methods on nil *Store pointer
-	var s *mailtools.Store
-	res, err := s.GetDNSBLCache(ctx, "target.com")
-	if res != nil || err != nil {
-		t.Errorf("nil Store.GetDNSBLCache should return nil, nil: got %v, %v", res, err)
+	// 2. A Service on a nil Store runs every check uncached
+	for range 2 {
+		if rep, err := newService(store).DNSBL(ctx, "target.com"); err != nil || rep == nil {
+			t.Errorf("uncached DNSBL = %v, %v; want a report", rep, err)
+		}
 	}
+}
 
-	// Must not panic
-	s.SaveDNSBLCache(ctx, "target.com", nil, 0, 0, 0)
+// The cache is keyed by the normalized target and keeps the report as it was answered.
+func TestDNSBL_CacheKeyedByNormalizedTarget(t *testing.T) {
+	uri := os.Getenv("MONGODB_TEST_URI")
+	if uri == "" {
+		t.Skip("MONGODB_TEST_URI not set")
+	}
+	ctx := context.Background()
+	m, err := platform.OpenMongo(ctx, uri, "site-of-tools-test")
+	if err != nil {
+		t.Fatalf("OpenMongo: %v", err)
+	}
+	t.Cleanup(func() { m.Close(ctx) })
+	_ = m.DB().Collection("email_dnsbl_cache").Drop(ctx)
+	svc := newService(mailtools.NewStore(ctx, m.DB()))
+
+	first, err := svc.DNSBL(ctx, "  [127.0.0.2] ")
+	if err != nil {
+		t.Fatalf("DNSBL: %v", err)
+	}
+	again, err := svc.DNSBL(ctx, "127.0.0.2")
+	if err != nil {
+		t.Fatalf("DNSBL: %v", err)
+	}
+	if diff := cmp.Diff(first, again); diff != "" {
+		t.Errorf("second call was not served from the cache (-first +again):\n%s", diff)
+	}
 }
 
 func TestSyncWorker_CanceledContext(t *testing.T) {
@@ -343,9 +374,10 @@ func TestDNSBL_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // canceled before execution
 
-	rep, err := mailtools.QueryDNSBLAudits(ctx, "127.0.0.2", "dqskey")
+	svc := mailtools.NewService(platform.NewEgressGuard([]string{"443"}, nil), nil, "dqskey")
+	rep, err := svc.DNSBL(ctx, "127.0.0.2")
 	if err != nil {
-		t.Fatalf("QueryDNSBLAudits returned error on canceled context: %v", err)
+		t.Fatalf("DNSBL returned error on canceled context: %v", err)
 	}
 	if rep == nil || rep.TotalChecked == 0 {
 		t.Errorf("expected report with zones checked, got: %+v", rep)

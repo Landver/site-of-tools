@@ -179,11 +179,12 @@ func run() error {
 	// The pages compute in the browser (wasm), so pasted secrets never reach us; POSTs are the JSON API.
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), staticFS, cipherLim)
 
-	mailtools.Register(apps["mail"], cfg.URL("mail"), httpsGuard, mailStore, cfg.SpamhausDQSKey, mailLim)
+	mailSvc := mailtools.NewService(httpsGuard, mailStore, cfg.SpamhausDQSKey)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), mailSvc, mailLim)
 
 	mcptools.Register(apps["mcp"], mcptools.Deps{
 		Geo: shodanGeo, DNSGeo: geo, Blocklist: ipCheck,
-		DNS: dnsSvc, Domain: domainClient, Blog: blog,
+		DNS: dnsSvc, Domain: domainClient, Blog: blog, Mail: mailSvc,
 		Link: linkSvc, Tracer: tracer, Short: shortener, Owner: newShortener(cfg.MCPOwnerKey),
 		IPLimits: ipLim, DNSLimits: dnsLim, LinkLimits: linkLim, CipherLimits: cipherLim, BotLimits: botLim, MailLimits: mailLim,
 		RequestLog: reqlog, ToolURL: cfg.URL,

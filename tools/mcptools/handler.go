@@ -37,6 +37,7 @@ type Deps struct {
 	Short        *linktools.Shortener
 	Owner        *linktools.Shortener // without a key /mcp/owner is a 404
 	Blog         *site.Blog
+	Mail         *mailtools.Service
 
 	IPLimits     *iptools.Limits
 	DNSLimits    *dnstools.Limits

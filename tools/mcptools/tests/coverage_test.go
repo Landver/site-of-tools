@@ -41,7 +41,7 @@ func restRoutes(t *testing.T) map[mcptools.Route]bool {
 	apps["cipher"] = app()
 	ciphertools.Register(apps["cipher"], cfg.URL("cipher"), fstest.MapFS{}, nil)
 	apps["mail"] = app()
-	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil, "", nil)
+	mailtools.Register(apps["mail"], cfg.URL("mail"), nil, nil)
 
 	routes := map[mcptools.Route]bool{}
 	for host, e := range apps {

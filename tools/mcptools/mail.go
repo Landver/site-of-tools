@@ -36,7 +36,7 @@ type mailTargetArgs struct {
 }
 
 type mailTools struct {
-	lim *mailtools.Limits
+	svc *mailtools.Service
 }
 
 func mailSpecs(d Deps) []toolSpec {
@@ -44,7 +44,7 @@ func mailSpecs(d Deps) []toolSpec {
 	if lim == nil {
 		lim = mailtools.NewLimits()
 	}
-	t := mailTools{lim: lim}
+	t := mailTools{svc: d.Mail}
 
 	var specs []toolSpec
 	pure := func(name, title, desc string, open bool, schema any, add func(*mcp.Server, *mcp.Tool)) {
@@ -102,6 +102,10 @@ func mailSpecs(d Deps) []toolSpec {
 	pure("mail_classify_domain", "Classify Email Domain (Free vs Corporate)",
 		"Classify an email address or domain into B2B corporate custom domain versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton, etc.).",
 		false, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.classifyDomain))
+
+	if d.Mail == nil {
+		return specs
+	}
 
 	heavy("mail_detect_gateway", "Detect Secure Email Gateway (SEG)",
 		"Inspect MX records and fingerprint enterprise security gateways (Proofpoint, Mimecast, Microsoft Defender, Google Workspace, Cisco IronPort, Barracuda) and direct-to-MX bypass risks.",
@@ -173,9 +177,9 @@ func (t mailTools) detectGateway(ctx context.Context, _ *mcp.CallToolRequest, a 
 }
 
 func (t mailTools) checkDNSBL(ctx context.Context, _ *mcp.CallToolRequest, a mailTargetArgs) (any, error) {
-	return mailtools.QueryDNSBLAudits(ctx, a.Target, "")
+	return t.svc.DNSBL(ctx, a.Target)
 }
 
 func (t mailTools) domainHealth(ctx context.Context, _ *mcp.CallToolRequest, a mailDomainArgs) (any, error) {
-	return mailtools.AuditDomainHealth(ctx, a.Domain, nil, nil, "")
+	return t.svc.AuditDomainHealth(ctx, a.Domain)
 }

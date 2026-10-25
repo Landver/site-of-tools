@@ -38,25 +38,17 @@ func NewLimits() *Limits {
 }
 
 type handler struct {
-	base   string
-	guard  *platform.EgressGuard
-	store  *Store
-	dqsKey string
-	lim    *Limits
+	base string
+	svc  *Service
+	lim  *Limits
 }
 
 // Register mounts mailtools routes onto the Echo router.
-func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Store, dqsKey string, lim *Limits) {
+func Register(e *echo.Echo, base string, svc *Service, lim *Limits) {
 	if lim == nil {
 		lim = NewLimits()
 	}
-	h := &handler{
-		base:   base,
-		guard:  guard,
-		store:  store,
-		dqsKey: dqsKey,
-		lim:    lim,
-	}
+	h := &handler{base: base, svc: svc, lim: lim}
 
 	pure := platform.RateLimit(lim.Pure, nil, limited)
 	heavy := platform.RateLimit(lim.Heavy, nil, limited)
@@ -133,7 +125,7 @@ func (h *handler) health(c *echo.Context) error {
 	}
 
 	vm["Domain"] = target
-	report, err := AuditDomainHealth(c.Request().Context(), target, h.guard, h.store, h.dqsKey)
+	report, err := h.svc.AuditDomainHealth(c.Request().Context(), target)
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/health")
 	}
@@ -180,8 +172,7 @@ func (h *handler) blacklist(c *echo.Context) error {
 	}
 
 	vm["Target"] = target
-
-	rep, err := CachedDNSBLAudit(c.Request().Context(), h.store, target, h.dqsKey)
+	rep, err := h.svc.DNSBL(c.Request().Context(), target)
 	if err != nil {
 		return h.badRequest(c, vm, err, "mail/blacklist")
 	}

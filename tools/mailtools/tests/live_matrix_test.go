@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
 func TestLiveDomainMatrix(t *testing.T) {
@@ -38,7 +37,7 @@ func TestLiveDomainMatrix(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 			defer cancel()
 
-			rep, err := mailtools.AuditDomainHealth(ctx, tt.domain, nil, nil, "")
+			rep, err := newService(nil).AuditDomainHealth(ctx, tt.domain)
 			if err != nil {
 				t.Fatalf("AuditDomainHealth(%q) failed: %v", tt.domain, err)
 			}

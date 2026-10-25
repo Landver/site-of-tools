@@ -13,9 +13,12 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Landver/site-of-tools/platform"
 )
 
 // -----------------------------------------------------------------------------
@@ -76,19 +79,19 @@ func TestMatchVendor_AllSignatures(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		vendor, features := matchVendor(tc.host)
-		if vendor != tc.wantVendor {
-			t.Errorf("matchVendor(%q).vendor = %v, want %v", tc.host, vendor, tc.wantVendor)
+		sig := matchVendor(tc.host)
+		if sig.vendor != tc.wantVendor {
+			t.Errorf("matchVendor(%q).vendor = %v, want %v", tc.host, sig.vendor, tc.wantVendor)
 		}
 		found := false
-		for _, f := range features {
+		for _, f := range sig.features {
 			if strings.Contains(f, tc.wantFeature) {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("matchVendor(%q) missing feature %q in %+v", tc.host, tc.wantFeature, features)
+			t.Errorf("matchVendor(%q) missing feature %q in %+v", tc.host, tc.wantFeature, sig.features)
 		}
 	}
 }
@@ -200,7 +203,7 @@ func TestParseReturnCode_AllSemantics(t *testing.T) {
 // 3. BIMI Tag Parsing & VMC X.509 Cryptographic Verification
 // -----------------------------------------------------------------------------
 
-func TestParseBIMITags_EdgeCases(t *testing.T) {
+func TestParseTXTTags_EdgeCases(t *testing.T) {
 	cases := []struct {
 		raw     string
 		wantTag map[string]string
@@ -234,10 +237,10 @@ func TestParseBIMITags_EdgeCases(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got := parseBIMITags(tc.raw)
+		got := parseTXTTags(tc.raw)
 		for k, wantVal := range tc.wantTag {
 			if got[k] != wantVal {
-				t.Errorf("parseBIMITags(%q)[%q] = %q, want %q", tc.raw, k, got[k], wantVal)
+				t.Errorf("parseTXTTags(%q)[%q] = %q, want %q", tc.raw, k, got[k], wantVal)
 			}
 		}
 	}
@@ -291,14 +294,14 @@ func (m mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	ctx := context.Background()
-	origClient := vmcHTTPClient
-	defer func() { vmcHTTPClient = origClient }()
+	s := NewService(platform.NewEgressGuard([]string{"443"}, nil), nil, "")
+	vmcURL, _ := url.Parse("https://example.com/vmc.pem")
 
 	// 1. Valid DigiCert VMC with Logotype extension
 	now := time.Now()
 	validPEM := helperGenerateVMC(t, "DigiCert Verified Mark Root CA", "Stripe Inc", now.Add(-24*time.Hour), now.Add(180*24*time.Hour), []string{"stripe.com"}, true)
 
-	vmcHTTPClient = &http.Client{
+	s.http = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -309,7 +312,7 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	audit := &BIMIAudit{Domain: "stripe.com", VMCURL: "https://example.com/vmc.pem"}
-	validateVMCChain(ctx, audit, nil)
+	s.validateVMC(ctx, audit, vmcURL)
 
 	if !audit.VMCValid {
 		t.Errorf("valid VMC failed validation: errors: %+v", audit.Errors)
@@ -326,7 +329,7 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 
 	// 2. Expired Certificate
 	expiredPEM := helperGenerateVMC(t, "GlobalSign VMC CA", "Test Org", now.Add(-60*24*time.Hour), now.Add(-1*time.Hour), []string{"test.com"}, true)
-	vmcHTTPClient = &http.Client{
+	s.http = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -337,7 +340,7 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	auditExpired := &BIMIAudit{Domain: "test.com", VMCURL: "https://example.com/vmc.pem"}
-	validateVMCChain(ctx, auditExpired, nil)
+	s.validateVMC(ctx, auditExpired, vmcURL)
 	if auditExpired.VMCValid {
 		t.Errorf("expired VMC must not be marked valid")
 	}
@@ -354,7 +357,7 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 
 	// 3. Not Yet Valid Certificate
 	futurePEM := helperGenerateVMC(t, "SSL.com Verified Mark CA", "Test Org", now.Add(24*time.Hour), now.Add(365*24*time.Hour), []string{"test.com"}, true)
-	vmcHTTPClient = &http.Client{
+	s.http = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -365,14 +368,14 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	auditFuture := &BIMIAudit{Domain: "test.com", VMCURL: "https://example.com/vmc.pem"}
-	validateVMCChain(ctx, auditFuture, nil)
+	s.validateVMC(ctx, auditFuture, vmcURL)
 	if auditFuture.VMCValid {
 		t.Errorf("future VMC must not be marked valid")
 	}
 
 	// 4. SAN Mismatch and Missing Logotype extension
 	mismatchPEM := helperGenerateVMC(t, "Untrusted Unknown CA", "Mismatch Org", now.Add(-24*time.Hour), now.Add(100*24*time.Hour), []string{"otherdomain.org"}, false)
-	vmcHTTPClient = &http.Client{
+	s.http = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -383,7 +386,7 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	auditMismatch := &BIMIAudit{Domain: "stripe.com", VMCURL: "https://example.com/vmc.pem"}
-	validateVMCChain(ctx, auditMismatch, nil)
+	s.validateVMC(ctx, auditMismatch, vmcURL)
 	if auditMismatch.SANMatch {
 		t.Errorf("SANMatch should be false for domain mismatch")
 	}
@@ -392,7 +395,7 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	// 5. Server 500 error
-	vmcHTTPClient = &http.Client{
+	s.http = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusInternalServerError,
@@ -403,13 +406,13 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	audit500 := &BIMIAudit{Domain: "test.com", VMCURL: "https://example.com/vmc.pem"}
-	validateVMCChain(ctx, audit500, nil)
+	s.validateVMC(ctx, audit500, vmcURL)
 	if len(audit500.Errors) == 0 || !strings.Contains(audit500.Errors[0], "returned HTTP 500") {
 		t.Errorf("expected HTTP 500 error, got: %+v", audit500.Errors)
 	}
 
 	// 6. Non-PEM Payload
-	vmcHTTPClient = &http.Client{
+	s.http = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -420,9 +423,58 @@ func TestValidateVMCChain_SyntheticCertificates(t *testing.T) {
 	}
 
 	auditGarbage := &BIMIAudit{Domain: "test.com", VMCURL: "https://example.com/vmc.pem"}
-	validateVMCChain(ctx, auditGarbage, nil)
+	s.validateVMC(ctx, auditGarbage, vmcURL)
 	if len(auditGarbage.Errors) == 0 || !strings.Contains(auditGarbage.Errors[0], "valid PEM") {
 		t.Errorf("expected invalid PEM error, got: %+v", auditGarbage.Errors)
+	}
+}
+
+// The guard judges every fetch a domain's records point at, before any dial.
+func TestFetch_GuardRefusesBeforeDialing(t *testing.T) {
+	s := NewService(platform.NewEgressGuard([]string{"443"}, []string{"mail.corpberry.com"}), nil, "")
+	s.http = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+		t.Errorf("dialled %s past the guard", req.URL)
+		return nil, http.ErrHandlerTimeout
+	})}
+	for _, raw := range []string{"https://localhost/vmc.pem", "https://10.0.0.1/vmc.pem", "https://mail.corpberry.com/vmc.pem"} {
+		u, _ := url.Parse(raw)
+		audit := &BIMIAudit{Domain: "example.com", VMCURL: raw}
+		s.validateVMC(context.Background(), audit, u)
+		if len(audit.Errors) == 0 || !strings.Contains(audit.Errors[0], platform.ErrBlockedAddress.Error()) {
+			t.Errorf("%s: errors = %q, want a blocked-address refusal", raw, audit.Errors)
+		}
+	}
+}
+
+func TestGatewayAudit(t *testing.T) {
+	mx := func(hosts ...string) []MXRecord {
+		out := make([]MXRecord, len(hosts))
+		for i, h := range hosts {
+			out[i] = MXRecord{Host: h, Pref: uint16(10 * (i + 1))}
+		}
+		return out
+	}
+	cases := []struct {
+		name                  string
+		mx                    []MXRecord
+		vendor                GatewayVendor
+		nullMX, redundant, rk bool
+	}{
+		{"no MX", nil, VendorGeneric, false, false, false},
+		{"null MX", []MXRecord{{Host: "", Pref: 0}}, VendorNullMX, true, false, false},
+		{"one self-hosted MX", mx("mail.example.com"), VendorGeneric, false, false, false},
+		{"one distributed gateway", mx("example-com.mail.protection.outlook.com"), VendorMicrosoft, false, true, false},
+		{"one non-distributed gateway", mx("mx1.iphmx.com"), VendorCisco, false, false, false},
+		{"gateway and a self-hosted backup", mx("mx1.pphosted.com", "backup.example.com"), VendorProofpoint, false, true, true},
+		{"two hosts of one gateway", mx("mx1.pphosted.com", "mx2.pphosted.com"), VendorProofpoint, false, true, false},
+		{"self-hosted primary, gateway backup", mx("mail.example.com", "mx1.pphosted.com"), VendorGeneric, false, true, false},
+	}
+	for _, tc := range cases {
+		a := gatewayAudit("example.com", tc.mx)
+		if a.Vendor != tc.vendor || a.IsNullMX != tc.nullMX || a.HasRedundancy != tc.redundant || a.HasDirectMXRisk != tc.rk {
+			t.Errorf("%s: vendor %q null %v redundant %v risk %v, want %q %v %v %v", tc.name,
+				a.Vendor, a.IsNullMX, a.HasRedundancy, a.HasDirectMXRisk, tc.vendor, tc.nullMX, tc.redundant, tc.rk)
+		}
 	}
 }
 

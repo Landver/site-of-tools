@@ -1,12 +1,10 @@
 package mailtools
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,104 +84,94 @@ var domainDNSBLs = []DNSBLZone{
 	{"URIBL Black", "black.uribl.com", true, "https://admin.uribl.com/", "Zero-false-positive strict domain spam blacklist"},
 }
 
-// CachedDNSBLAudit queries cache first, falling back to parallel DNSBL audits and updating MongoDB cache.
-func CachedDNSBLAudit(ctx context.Context, store *Store, target, dqsKey string) (*DNSBLReport, error) {
-	if store != nil {
-		cached, _ := store.GetDNSBLCache(ctx, target)
-		if cached != nil {
-			return &DNSBLReport{
-				Target:       cached.Target,
-				IsIP:         net.ParseIP(target) != nil,
-				TotalChecked: cached.TotalChecked,
-				ListedCount:  cached.ListedCount,
-				WarningCount: cached.WarningCount,
-				Results:      cached.Results,
-			}, nil
+// DNSBL checks an IP, or a domain and its primary MX's address, against every list.
+func (s *Service) DNSBL(ctx context.Context, target string) (*DNSBLReport, error) {
+	return s.dnsbl(ctx, target, func(domain string) []MXRecord {
+		mx, _ := lookupMX(ctx, domain)
+		return mx
+	})
+}
+
+// dnsbl asks for a domain's MX only on a cache miss; a health audit passes the records it already has.
+func (s *Service) dnsbl(ctx context.Context, target string, mx func(domain string) []MXRecord) (*DNSBLReport, error) {
+	target, ip, err := dnsblTarget(target)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.cachedDNSBL(ctx, target, func() *DNSBLReport {
+		if ip != nil {
+			return s.query(ctx, target, true, auditTasks(ipDNSBLs, ip.String(), ip, "", ""))
 		}
-	}
+		tasks := auditTasks(domainDNSBLs, target, nil, " (Domain)", "")
+		if host, addr := primaryMXAddr(ctx, mx(target)); addr != nil {
+			tasks = append(tasks, auditTasks(ipDNSBLs, host, addr, " (MX IP)", fmt.Sprintf("Mail server %s [%s] — ", host, addr))...)
+		}
+		return s.query(ctx, target, false, tasks)
+	}), nil
+}
 
-	res, err := QueryDNSBLAudits(ctx, target, dqsKey)
-	if err != nil || res == nil {
-		return res, err
+// dnsblTarget normalizes the cache key: an IP in canonical form, or the domain of an address or URL.
+func dnsblTarget(raw string) (string, net.IP, error) {
+	t := strings.Trim(strings.TrimSpace(strings.ToLower(raw)), "[]")
+	if t == "" {
+		return "", nil, errors.New("target domain or IP address is required")
 	}
-
-	if store != nil {
-		store.SaveDNSBLCache(ctx, target, res.Results, res.ListedCount, res.WarningCount, res.TotalChecked)
+	if ip := net.ParseIP(t); ip != nil {
+		return ip.String(), ip, nil
 	}
-	return res, nil
+	d := ExtractDomain(t)
+	if d == "" || strings.ContainsAny(d, " \t\r\n\x00;\"'\\") || len(d) > 253 {
+		return "", nil, errors.New("invalid domain name format for DNSBL lookup")
+	}
+	return d, nil, nil
 }
 
 type auditTask struct {
 	target string
 	ip     net.IP
 	zone   DNSBLZone
-	suffix string
+	name   string
 	desc   string
 }
 
-// QueryDNSBLAudits performs parallel DNSBL checks for an IP or domain target.
-func QueryDNSBLAudits(ctx context.Context, target string, dqsKey string) (*DNSBLReport, error) {
+func auditTasks(zones []DNSBLZone, target string, ip net.IP, suffix, about string) []auditTask {
+	tasks := make([]auditTask, len(zones))
+	for i, z := range zones {
+		tasks[i] = auditTask{target: target, ip: ip, zone: z, name: z.Name + suffix, desc: about + z.Description}
+	}
+	return tasks
+}
+
+// primaryMXAddr returns the most preferred MX host and its first IPv4 address, the one the IP lists can judge.
+func primaryMXAddr(ctx context.Context, mx []MXRecord) (string, net.IP) {
+	if len(mx) == 0 {
+		return "", nil
+	}
+	host := mx[0].Host
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return host, nil
+	}
+	for _, a := range addrs {
+		if v4 := a.IP.To4(); v4 != nil {
+			return host, v4
+		}
+	}
+	return host, nil
+}
+
+func (s *Service) query(ctx context.Context, target string, isIP bool, tasks []auditTask) *DNSBLReport {
 	start := time.Now()
-	target = strings.Trim(strings.TrimSpace(strings.ToLower(target)), "[]")
-	if target == "" {
-		return nil, errors.New("target domain or IP address is required")
-	}
-
-	parsedIP := net.ParseIP(target)
-	isIP := parsedIP != nil
-
-	var tasks []auditTask
-	if isIP {
-		for _, z := range ipDNSBLs {
-			tasks = append(tasks, auditTask{target: target, ip: parsedIP, zone: z})
-		}
-	} else {
-		target = ExtractDomain(target)
-		if target == "" || strings.ContainsAny(target, " \t\r\n\x00;\"'\\") || len(target) > 253 {
-			return nil, errors.New("invalid domain name format for DNSBL lookup")
-		}
-		for _, z := range domainDNSBLs {
-			tasks = append(tasks, auditTask{target: target, zone: z, suffix: " (Domain)"})
-		}
-		if mxHost, mxIP := resolveMXIP(ctx, target); mxIP != nil {
-			for _, z := range ipDNSBLs {
-				tasks = append(tasks, auditTask{
-					target: mxHost,
-					ip:     mxIP,
-					zone:   z,
-					suffix: " (MX IP)",
-					desc:   fmt.Sprintf("Mail server %s [%s] — %s", mxHost, mxIP.String(), z.Description),
-				})
-			}
-		}
-	}
-
 	report := &DNSBLReport{
 		Target:       target,
 		IsIP:         isIP,
 		TotalChecked: len(tasks),
 		Results:      make([]DNSBLResult, len(tasks)),
 	}
-
-	c := &dns.Client{
-		Net:     "udp",
-		Timeout: 1200 * time.Millisecond,
-	}
-
+	c := &dns.Client{Net: "udp", Timeout: 1200 * time.Millisecond}
 	var wg sync.WaitGroup
-	wg.Add(len(tasks))
 	for i, t := range tasks {
-		go func(idx int, task auditTask) {
-			defer wg.Done()
-			res := queryOneDNSBL(ctx, c, task.target, task.ip, task.zone, dqsKey)
-			if task.suffix != "" {
-				res.Name += task.suffix
-			}
-			if task.desc != "" {
-				res.Description = task.desc
-			}
-			report.Results[idx] = res
-		}(i, t)
+		wg.Go(func() { report.Results[i] = queryOneDNSBL(ctx, c, t, s.dqsKey) })
 	}
 	wg.Wait()
 
@@ -194,28 +182,8 @@ func QueryDNSBLAudits(ctx context.Context, target string, dqsKey string) (*DNSBL
 			report.WarningCount++
 		}
 	}
-
 	report.DurationMS = time.Since(start).Milliseconds()
-	return report, nil
-}
-
-func resolveMXIP(ctx context.Context, domain string) (string, net.IP) {
-	mxs, err := net.DefaultResolver.LookupMX(ctx, domain)
-	if err != nil || len(mxs) == 0 {
-		return "", nil
-	}
-	slices.SortFunc(mxs, func(a, b *net.MX) int {
-		return cmp.Or(cmp.Compare(a.Pref, b.Pref), strings.Compare(a.Host, b.Host))
-	})
-	host := strings.TrimSuffix(mxs[0].Host, ".")
-	if addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host); err == nil {
-		for _, a := range addrs {
-			if v4 := a.IP.To4(); v4 != nil {
-				return host, v4
-			}
-		}
-	}
-	return host, nil
+	return report
 }
 
 var (
@@ -250,14 +218,15 @@ func lastOctet(ipStr string) int {
 	return 0
 }
 
-func queryOneDNSBL(ctx context.Context, client *dns.Client, target string, ip net.IP, zone DNSBLZone, dqsKey string) DNSBLResult {
+func queryOneDNSBL(ctx context.Context, client *dns.Client, task auditTask, dqsKey string) DNSBLResult {
 	start := time.Now()
+	zone, target, ip := task.zone, task.target, task.ip
 	res := DNSBLResult{
-		Name:        zone.Name,
+		Name:        task.name,
 		Zone:        zone.Host,
 		Category:    "Clean / Not Listed",
 		DelistURL:   zone.DelistURL,
-		Description: zone.Description,
+		Description: task.desc,
 	}
 
 	lookupHost := zone.Host

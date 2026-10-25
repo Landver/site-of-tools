@@ -13,7 +13,7 @@ func TestAuditEmailAuthLiveOrOffline(t *testing.T) {
 	defer cancel()
 
 	// Testing with a reputable domain
-	res := mailtools.AuditEmailAuth(ctx, "google.com", nil)
+	res := newService(nil).AuditEmailAuth(ctx, "google.com")
 	if res == nil {
 		t.Fatal("AuditEmailAuth returned nil for google.com")
 	}
@@ -42,7 +42,7 @@ func TestAuditDomainHealthEnriched(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	report, err := mailtools.AuditDomainHealth(ctx, "stripe.com", nil, nil, "")
+	report, err := newService(nil).AuditDomainHealth(ctx, "stripe.com")
 	if err != nil {
 		t.Fatalf("AuditDomainHealth failed: %v", err)
 	}
