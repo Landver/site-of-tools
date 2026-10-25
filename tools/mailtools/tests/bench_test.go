@@ -78,6 +78,26 @@ func BenchmarkParseDMARCReport_Gzip(b *testing.B) {
 	}
 }
 
+func BenchmarkParseDMARCReport_RecordLimit(b *testing.B) {
+	data := []byte(dmarcReportXML(5000))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := mailtools.ParseDMARCReport(bytes.NewReader(data)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkParseDMARCReport_GzipBomb(b *testing.B) {
+	data := gzipped(b, dmarcReportXML(28000))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := mailtools.ParseDMARCReport(bytes.NewReader(data)); err == nil {
+			b.Fatal("oversized report parsed")
+		}
+	}
+}
+
 func BenchmarkValidateBIMI(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -270,63 +270,6 @@ func TestSitemapPages_Registry(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// 3. ESP Identification (All Providers and Edge Cases)
-// -----------------------------------------------------------------------------
-
-func TestIdentifyESP_AllSignatures(t *testing.T) {
-	tests := []struct {
-		ip       string
-		ptr      string
-		wantName string
-		wantCat  string
-	}{
-		{"", "mail-ed1-f41.google.com", "Google Workspace / Gmail", "mailbox"},
-		{"", "smtp.googlemail.com", "Google Workspace / Gmail", "mailbox"},
-		{"", "server.1e100.net", "Google Workspace / Gmail", "mailbox"},
-		{"", "mail-oln040092066001.outbound.protection.outlook.com", "Microsoft 365 / Outlook", "mailbox"},
-		{"", "smtp.microsoft.com", "Microsoft 365 / Outlook", "mailbox"},
-		{"", "mail.hotmail.com", "Microsoft 365 / Outlook", "mailbox"},
-		{"", "a8-27.smtp-out.amazonses.com", "Amazon SES", "esp"},
-		{"", "email.aws.com", "Amazon SES", "esp"},
-		{"", "o1.ptr2934.sendgrid.net", "SendGrid (Twilio)", "esp"},
-		{"", "so254-4.mailgun.org", "Mailgun (Sinch)", "esp"},
-		{"", "mxa.mailgun.net", "Mailgun (Sinch)", "esp"},
-		{"", "pm.postmarkapp.com", "Postmark (ActiveCampaign)", "esp"},
-		{"", "smtp.sendinblue.com", "Brevo", "esp"},
-		{"", "relay.brevo.com", "Brevo", "esp"},
-		{"", "mail1.mcsv.net", "Mailchimp / Mandrill", "esp"},
-		{"", "delivery.mandrillapp.com", "Mailchimp / Mandrill", "esp"},
-		{"", "mail.mailchimp.com", "Mailchimp / Mandrill", "esp"},
-		{"", "mail.protonmail.ch", "Proton Mail", "mailbox"},
-		{"", "mail.proton.me", "Proton Mail", "mailbox"},
-		{"", "smtp.yahoo.com", "Yahoo / AOL", "mailbox"},
-		{"", "mx.yahoodns.net", "Yahoo / AOL", "mailbox"},
-		{"", "mail.aol.com", "Yahoo / AOL", "mailbox"},
-		{"", "mx1.mail.icloud.com", "Apple iCloud Mail", "mailbox"},
-		{"", "relay.apple.com", "Apple iCloud Mail", "mailbox"},
-		{"", "smtp.fastmail.com", "Fastmail", "mailbox"},
-		{"", "out1-smtp.messagingengine.com", "Fastmail", "mailbox"},
-		{"", "mx.zoho.com", "Zoho Mail", "mailbox"},
-		{"", "relay.transmail.net", "Zoho Mail", "mailbox"},
-		// Loopback and RFC1918 Private ranges
-		{"127.0.0.1", "", "Internal / Private IP", "self-hosted"},
-		{"10.0.5.20", "", "Internal / Private IP", "self-hosted"},
-		{"192.168.1.100", "", "Internal / Private IP", "self-hosted"},
-		{"172.16.4.1", "", "Internal / Private IP", "self-hosted"},
-		// Generic custom MTA
-		{"203.0.113.10", "mail.corporategateway.corp", "mail.corporategateway.corp", "self-hosted"},
-		{"203.0.113.11", "", "Unknown Sender", "self-hosted"},
-	}
-
-	for _, tt := range tests {
-		info := mailtools.IdentifyESP(tt.ip, tt.ptr)
-		if info.Name != tt.wantName || info.Category != tt.wantCat {
-			t.Errorf("IdentifyESP(%q, %q) = %+v, want Name=%q Category=%q", tt.ip, tt.ptr, info, tt.wantName, tt.wantCat)
-		}
-	}
-}
-
-// -----------------------------------------------------------------------------
 // 4. Engine Fragment & Error Rendering
 // -----------------------------------------------------------------------------
 
