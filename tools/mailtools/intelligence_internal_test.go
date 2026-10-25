@@ -467,6 +467,145 @@ func TestGatewayAudit(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDMARC(t *testing.T) {
+	cases := []struct {
+		name      string
+		recs      []string
+		inherited bool
+		effective string
+		status    string
+		msg       string
+	}{
+		{"own p=reject", []string{"v=DMARC1; p=reject"}, false, "reject", "pass", "p=reject"},
+		{"own p=none ignores sp", []string{"v=DMARC1; p=none; sp=reject"}, false, "none", "warn", "p=none"},
+		{"inherited sp=reject over p=none", []string{"v=DMARC1; p=none; sp=reject"}, true, "reject", "pass", "sp=reject"},
+		{"inherited sp=none over p=reject", []string{"v=DMARC1; p=reject; sp=none"}, true, "none", "warn", "sp=none"},
+		{"inherited without sp falls back to p", []string{"v=DMARC1; p=quarantine"}, true, "quarantine", "pass", "p=quarantine"},
+		{"several records, the first p=none", []string{"v=DMARC1; p=none", "v=DMARC1; p=reject"}, false, "", "fail", "Multiple DMARC records"},
+		{"no p tag", []string{"v=DMARC1; rua=mailto:d@example.com"}, false, "", "fail", "missing mandatory 'p' tag"},
+		{"unknown policy", []string{"v=DMARC1; p=block"}, false, "", "fail", "p=block"},
+		{"unknown inherited sp", []string{"v=DMARC1; p=reject; sp=block"}, true, "", "fail", "sp=block"},
+	}
+	for _, tc := range cases {
+		got := analyzeDMARC(tc.recs, tc.inherited)
+		if got.Effective != tc.effective || got.Status != tc.status || !strings.Contains(got.StatusMsg, tc.msg) {
+			t.Errorf("%s: effective %q status %q %q, want %q %q containing %q", tc.name,
+				got.Effective, got.Status, got.StatusMsg, tc.effective, tc.status, tc.msg)
+		}
+	}
+}
+
+func TestParseSPF(t *testing.T) {
+	got := parseSPF("v=spf1 a/24 -include:_spf.example.com ?MX redirect=_spf.example.net ~all")
+	want := []spfTerm{
+		{'+', "v", "spf1"}, {'+', "a", ""}, {'-', "include", "_spf.example.com"},
+		{'?', "mx", ""}, {'+', "redirect", "_spf.example.net"}, {'~', "all", ""},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parseSPF = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("term %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSPFVerdict(t *testing.T) {
+	cases := []struct {
+		name     string
+		spf      SPFAnalysis
+		redirect bool
+		status   string
+	}{
+		{"loop", SPFAnalysis{Loop: true, All: "-all"}, false, "fail"},
+		{"two records", SPFAnalysis{Extra: []string{"v=spf1 -all"}, All: "-all"}, false, "fail"},
+		{"over the lookup limit", SPFAnalysis{Lookups: 11, All: "-all"}, false, "fail"},
+		{"three void includes", SPFAnalysis{Voids: []string{"a", "b", "c"}, All: "-all"}, false, "fail"},
+		{"two void includes", SPFAnalysis{Voids: []string{"a", "b"}, All: "-all"}, false, "pass"},
+		{"near the limit", SPFAnalysis{Lookups: 8, All: "-all"}, false, "warn"},
+		{"+all", SPFAnalysis{All: "+all"}, false, "fail"},
+		{"?all", SPFAnalysis{All: "?all"}, false, "warn"},
+		{"-all", SPFAnalysis{All: "-all"}, false, "pass"},
+		{"~all", SPFAnalysis{All: "~all"}, false, "pass"},
+		{"redirect only", SPFAnalysis{}, true, "pass"},
+		{"no all, no redirect", SPFAnalysis{}, false, "warn"},
+	}
+	for _, tc := range cases {
+		tc.spf.Limit = spfLookupLimit
+		if status, msg := tc.spf.verdict(tc.redirect); status != tc.status || msg == "" {
+			t.Errorf("%s: %q %q, want status %q", tc.name, status, msg, tc.status)
+		}
+	}
+}
+
+// healthyReport scores 100 with no advice; each case below breaks one thing.
+func healthyReport() *DomainHealthReport {
+	return &DomainHealthReport{
+		Domain:  "example.com",
+		Gateway: gatewayAudit("example.com", []MXRecord{{Host: "mx1.example.com", Pref: 10}, {Host: "mx2.example.com", Pref: 20}}),
+		Auth: &EmailAuthSummary{
+			SPF:    &SPFAnalysis{Status: "pass", StatusMsg: "spf ok"},
+			DMARC:  analyzeDMARC([]string{"v=DMARC1; p=reject"}, false),
+			DKIM:   &DKIMAnalysis{Status: "pass", StatusMsg: "dkim ok"},
+			MTASTS: &MTASTSAnalysis{Status: "pass", StatusMsg: "mta-sts ok"},
+		},
+		BIMI:  &BIMIAudit{RecordFound: true, HasVMC: true},
+		DNSBL: &DNSBLReport{},
+	}
+}
+
+func TestGrade(t *testing.T) {
+	cases := []struct {
+		name   string
+		breaks func(r *DomainHealthReport)
+		score  int
+		advice string
+	}{
+		{"healthy", func(*DomainHealthReport) {}, 100, ""},
+		{"subdomain p=none; sp=reject is enforced", func(r *DomainHealthReport) {
+			r.Auth.DMARC = analyzeDMARC([]string{"v=DMARC1; p=none; sp=reject"}, true)
+		}, 100, ""},
+		{"p=none", func(r *DomainHealthReport) {
+			r.Auth.DMARC = analyzeDMARC([]string{"v=DMARC1; p=none"}, false)
+		}, 95, "Monitoring only (p=none)"},
+		{"several DMARC records, the first p=none", func(r *DomainHealthReport) {
+			r.Auth.DMARC = analyzeDMARC([]string{"v=DMARC1; p=none", "v=DMARC1; p=reject"}, false)
+		}, 80, "Multiple DMARC records"},
+		{"no DMARC", func(r *DomainHealthReport) {
+			r.Auth.DMARC = &DMARCAnalysis{Status: "fail", StatusMsg: "No DMARC record found"}
+		}, 80, "No DMARC record found"},
+		{"SPF void lookups", func(r *DomainHealthReport) {
+			r.Auth.SPF = &SPFAnalysis{Limit: spfLookupLimit, All: "-all", Voids: []string{"a", "b", "c"}}
+			r.Auth.SPF.Status, r.Auth.SPF.StatusMsg = r.Auth.SPF.verdict(false)
+		}, 80, "Too many void lookups"},
+		{"MTA-STS missing costs nothing but advises", func(r *DomainHealthReport) {
+			r.Auth.MTASTS = &MTASTSAnalysis{Status: "info", StatusMsg: "MTA-STS not configured"}
+		}, 100, "MTA-STS not configured"},
+		{"DKIM not found is no finding", func(r *DomainHealthReport) {
+			r.Auth.DKIM = &DKIMAnalysis{Status: "info", StatusMsg: "No common public selectors discovered"}
+		}, 100, ""},
+		{"single self-hosted MX", func(r *DomainHealthReport) {
+			r.Gateway = gatewayAudit("example.com", []MXRecord{{Host: "mx1.example.com", Pref: 10}})
+		}, 90, "backup MX"},
+		{"two listings", func(r *DomainHealthReport) { r.DNSBL.ListedCount = 2 }, 60, "Remediate"},
+		{"floored at zero", func(r *DomainHealthReport) {
+			r.Classification.IsDisposable = true
+			r.Gateway = gatewayAudit("example.com", nil)
+			r.DNSBL.ListedCount = 3
+		}, 0, "disposable"},
+	}
+	for _, tc := range cases {
+		r := healthyReport()
+		tc.breaks(r)
+		score, advice := grade(r)
+		joined := strings.Join(advice, " | ")
+		if score != tc.score || (tc.advice == "") != (len(advice) == 0) || !strings.Contains(joined, tc.advice) {
+			t.Errorf("%s: score %d advice %q, want %d with %q", tc.name, score, advice, tc.score, tc.advice)
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // 4. Worker Whitelist Guard & Sanity Checks
 // -----------------------------------------------------------------------------

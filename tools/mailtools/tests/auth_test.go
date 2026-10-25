@@ -18,23 +18,20 @@ func TestAuditEmailAuthLiveOrOffline(t *testing.T) {
 		t.Fatal("AuditEmailAuth returned nil for google.com")
 	}
 
-	if !res.HasSPF {
-		t.Log("Note: Live DNS lookup for google.com SPF was empty or timed out")
-	} else {
-		if res.SPF == nil || res.SPF.Record == "" {
-			t.Error("HasSPF is true but res.SPF is empty")
-		}
-		if res.SPF.Lookups <= 0 {
-			t.Errorf("expected SPF lookups > 0, got %d", res.SPF.Lookups)
-		}
+	if res.SPF == nil || res.DMARC == nil || res.DKIM == nil || res.MTASTS == nil {
+		t.Fatalf("every analysis must be present, even for a missing record: %+v", res)
 	}
 
-	if !res.HasDMARC {
+	if res.SPF.Record == "" {
+		t.Log("Note: Live DNS lookup for google.com SPF was empty or timed out")
+	} else if res.SPF.Lookups <= 0 {
+		t.Errorf("expected SPF lookups > 0, got %d", res.SPF.Lookups)
+	}
+
+	if res.DMARC.Record == "" {
 		t.Log("Note: Live DNS lookup for google.com DMARC was empty or timed out")
-	} else {
-		if res.DMARC == nil || res.DMARCPolicy == "" {
-			t.Error("HasDMARC is true but res.DMARC is empty")
-		}
+	} else if res.DMARC.Effective == "" {
+		t.Errorf("DMARC record found but no effective policy: %+v", res.DMARC)
 	}
 }
 

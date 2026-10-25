@@ -477,3 +477,37 @@ ARC-Authentication-Results: i=1; mx.example.com; spf=pass`
 		t.Errorf("RenderARC missing expected tokens in HTML: %s", arcHTML)
 	}
 }
+
+// The health card reads each check's status, and the DMARC badge its effective policy.
+func TestHealthResultRendersStatuses(t *testing.T) {
+	tmpl, err := mailtools.FragmentTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := &mailtools.DomainHealthReport{
+		Domain:  "sub.example.com",
+		Gateway: &mailtools.GatewayAudit{Vendor: mailtools.VendorGeneric},
+		Auth: &mailtools.EmailAuthSummary{
+			SPF: &mailtools.SPFAnalysis{Record: "v=spf1 include:a include:b include:c ~all", Lookups: 3, Limit: 10,
+				Status: "fail", StatusMsg: "Too many void lookups: 3 includes publish no SPF record"},
+			DMARC: &mailtools.DMARCAnalysis{Record: "v=DMARC1; p=none; sp=reject", Policy: "none", SubPolicy: "reject",
+				Effective: "reject", Inherited: true, Status: "pass", StatusMsg: "Reject policy (sp=reject)"},
+			DKIM:   &mailtools.DKIMAnalysis{Status: "info"},
+			MTASTS: &mailtools.MTASTSAnalysis{Status: "info"},
+		},
+		BIMI: &mailtools.BIMIAudit{},
+	}
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "mail/health-result", map[string]any{"Result": report}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	html := b.String()
+	for _, want := range []string{"DMARC: reject", "Apex Inherited", "Too many void lookups", "3 / 10 DNS Lookups", "No MX records discovered"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("health card missing %q", want)
+		}
+	}
+	if strings.Contains(html, "DMARC: none") || strings.Contains(html, "No DMARC") {
+		t.Errorf("DMARC badge shows p= instead of the effective sp= policy")
+	}
+}

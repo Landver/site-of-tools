@@ -94,82 +94,63 @@ func (s *Service) AuditDomainHealth(ctx context.Context, input string) (*DomainH
 	report.DNSBL, _ = s.dnsbl(ctx, domain, func(string) []MXRecord { return mx })
 	wg.Wait()
 
-	// Calculate overall health score (0-100)
-	score := 100
-
-	if report.Classification.IsDisposable {
-		score -= 60
-		report.Recommendations = append(report.Recommendations, "High risk: Domain is a known disposable/burner email address service.")
-	}
-
-	if len(report.Gateway.MXRecords) == 0 {
-		score -= 40
-		report.Recommendations = append(report.Recommendations, "No functional MX records found: domain cannot receive inbound emails.")
-	} else {
-		if report.Gateway.IsNullMX {
-			score -= 50
-			report.Recommendations = append(report.Recommendations, "Null MX (RFC 7505) is active: this domain explicitly refuses all inbound mail.")
-		} else if !report.Gateway.HasRedundancy {
-			score -= 10
-			report.Recommendations = append(report.Recommendations, "Add at least one backup MX record to prevent email delivery loss during provider maintenance.")
-		}
-		if report.Gateway.HasDirectMXRisk {
-			score -= 15
-			report.Recommendations = append(report.Recommendations, report.Gateway.DirectMXWarning)
-		}
-	}
-
-	if !report.Auth.HasDMARC {
-		score -= 15
-		report.Recommendations = append(report.Recommendations, "No DMARC record found at _dmarc."+domain+": publish a DMARC policy to protect your domain from brand spoofing.")
-	} else if report.Auth.DMARCPolicy == "none" {
-		score -= 5
-		report.Recommendations = append(report.Recommendations, "DMARC policy is currently set to p=none (monitoring only). Upgrade to p=quarantine or p=reject to actively block unauthorized mail.")
-	} else if report.Auth.DMARC != nil && len(report.Auth.DMARC.Extra) > 0 {
-		score -= 20
-		report.Recommendations = append(report.Recommendations, "Multiple DMARC records found: RFC 7489 specifies that receivers must ignore all records, leaving your domain completely unprotected.")
-	}
-
-	if !report.Auth.HasSPF {
-		score -= 10
-		report.Recommendations = append(report.Recommendations, "No SPF record found on domain: publish v=spf1 to authorize sending IP addresses.")
-	} else if report.Auth.SPF != nil {
-		if report.Auth.SPF.Lookups > 10 {
-			score -= 25
-			report.Recommendations = append(report.Recommendations, fmt.Sprintf("SPF Permerror: Record requires %d DNS lookups, exceeding the RFC 7208 limit of 10. Major mail receivers will reject your emails.", report.Auth.SPF.Lookups))
-		} else if report.Auth.SPF.Lookups >= 8 {
-			report.Recommendations = append(report.Recommendations, fmt.Sprintf("SPF Warning: Record requires %d of 10 allowed DNS lookups. Future includes risk causing SPF permerrors.", report.Auth.SPF.Lookups))
-		}
-		if len(report.Auth.SPF.Extra) > 0 {
-			score -= 20
-			report.Recommendations = append(report.Recommendations, "Multiple SPF records found: RFC 7208 forbids multiple v=spf1 records and causes an immediate SPF Permerror.")
-		}
-		if report.Auth.SPF.Loop {
-			score -= 20
-			report.Recommendations = append(report.Recommendations, "SPF Include Loop detected: recursive includes circle back to an already visited domain, causing authentication failure.")
-		}
-		if report.Auth.SPF.All == "+all" {
-			score -= 15
-			report.Recommendations = append(report.Recommendations, "SPF uses dangerous '+all' mechanism: authorizes anyone on the internet to send email on behalf of your domain.")
-		}
-	}
-
-	if report.Auth.MTASTS == nil || !report.Auth.MTASTS.RecordFound || report.Auth.MTASTS.Mode != "enforce" {
-		report.Recommendations = append(report.Recommendations, "Consider configuring MTA-STS (RFC 8461) to prevent SMTP downgrade and man-in-the-middle attacks.")
-	}
-
-	if !report.BIMI.RecordFound {
-		report.Recommendations = append(report.Recommendations, "Publish a default._bimi TXT record to display verified corporate brand logos in recipient inboxes.")
-	} else if !report.BIMI.HasVMC {
-		report.Recommendations = append(report.Recommendations, "Acquire a Verified Mark Certificate (VMC) from DigiCert, GlobalSign, or SSL.com for Gmail and Apple Mail support.")
-	}
-
-	if report.DNSBL != nil && report.DNSBL.ListedCount > 0 {
-		score -= (report.DNSBL.ListedCount * 20)
-		report.Recommendations = append(report.Recommendations, "Remediate domain or mail IP listings on active spam/reputation blacklists.")
-	}
-
-	report.OverallScore = max(score, 0)
+	report.OverallScore, report.Recommendations = grade(report)
 	report.DurationMS = time.Since(start).Milliseconds()
 	return report, nil
+}
+
+// authPenalties is what each auth check's status costs; a status listed here also recommends that check's message.
+var authPenalties = map[string]map[string]int{
+	"spf":     {"fail": 20, "warn": 5},
+	"dmarc":   {"fail": 20, "warn": 5},
+	"dkim":    {"warn": 0},
+	"mta-sts": {"warn": 0, "info": 0},
+}
+
+// grade scores the report out of 100 and collects the advice behind every finding.
+func grade(r *DomainHealthReport) (int, []string) {
+	score := 100
+	var advice []string
+	find := func(penalty int, msg string) {
+		score -= penalty
+		advice = append(advice, msg)
+	}
+
+	if r.Classification.IsDisposable {
+		find(60, "High risk: Domain is a known disposable/burner email address service.")
+	}
+	switch g := r.Gateway; {
+	case len(g.MXRecords) == 0:
+		find(40, "No functional MX records found: domain cannot receive inbound emails.")
+	case g.IsNullMX:
+		find(50, "Null MX (RFC 7505) is active: this domain explicitly refuses all inbound mail.")
+	case !g.HasRedundancy:
+		find(10, "Add at least one backup MX record to prevent email delivery loss during provider maintenance.")
+	}
+	if r.Gateway.HasDirectMXRisk {
+		find(15, r.Gateway.DirectMXWarning)
+	}
+
+	a := r.Auth
+	for _, c := range []struct{ check, status, msg string }{
+		{"spf", a.SPF.Status, a.SPF.StatusMsg},
+		{"dmarc", a.DMARC.Status, a.DMARC.StatusMsg},
+		{"dkim", a.DKIM.Status, a.DKIM.StatusMsg},
+		{"mta-sts", a.MTASTS.Status, a.MTASTS.StatusMsg},
+	} {
+		if penalty, ok := authPenalties[c.check][c.status]; ok {
+			find(penalty, c.msg)
+		}
+	}
+
+	switch {
+	case !r.BIMI.RecordFound:
+		find(0, "Publish a default._bimi TXT record to display verified corporate brand logos in recipient inboxes.")
+	case !r.BIMI.HasVMC:
+		find(0, "Acquire a Verified Mark Certificate (VMC) from DigiCert, GlobalSign, or SSL.com for Gmail and Apple Mail support.")
+	}
+	if r.DNSBL != nil && r.DNSBL.ListedCount > 0 {
+		find(20*r.DNSBL.ListedCount, "Remediate domain or mail IP listings on active spam/reputation blacklists.")
+	}
+	return max(score, 0), advice
 }
