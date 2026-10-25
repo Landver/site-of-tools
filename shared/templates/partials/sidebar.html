@@ -43,19 +43,32 @@
   cancelCloseHover() {
     clearTimeout(this.hoverTimer);
   },
-  matches(el) {
+  toolsBySec: {
+    {{range navCatalog}}
+    {{$sec := .}}
+    '{{$sec.ID}}': {
+      {{range $sec.Tools}}
+      '{{.Key}}': ({{printf "%s %s %s" .Name .ShortDesc $sec.Name | printf "%q"}} + ' ' + {{range .Tech}}{{printf "%q" .}} + ' ' + {{end}}'').toLowerCase(),
+      {{end}}
+    },
+    {{end}}
+  },
+  isToolMatch(secId, key) {
     if (!this.q.trim()) return true;
+    const hay = this.toolsBySec[secId]?.[key];
+    if (!hay) return false;
     const tokens = this.q.toLowerCase().trim().split(/\s+/);
-    const hay = ((el.dataset.name || '') + ' ' + (el.dataset.tags || '') + ' ' + (el.dataset.desc || '')).toLowerCase();
-    return tokens.every(t => hay.includes(t));
+    return tokens.every(tok => hay.includes(tok));
+  },
+  isSectionVisible(secId) {
+    if (!this.q.trim()) return true;
+    const sec = this.toolsBySec[secId];
+    if (!sec) return false;
+    return Object.keys(sec).some(key => this.isToolMatch(secId, key));
   },
   isTagMatch(tag) {
     if (!this.q.trim()) return false;
     return tag.toLowerCase().includes(this.q.toLowerCase().trim());
-  },
-  hasVisibleTools(secEl) {
-    if (!this.q.trim()) return true;
-    return Array.from(secEl.querySelectorAll('[data-tool-item]')).some(el => this.matches(el));
   }
 }"
 @toggle-sidebar.window="toggleCollapse()"
@@ -130,9 +143,7 @@ class="contents">
       {{$isCurrentSec := eq $sec.Subdomain $currSub}}
       
       <div class="category-block"
-           x-data="{ visible: true }"
-           x-show="!q.trim() || visible"
-           x-effect="visible = !q.trim() || hasVisibleTools($el)">
+           x-show="isSectionVisible('{{$sec.ID}}')">
         
         <!-- SECTION HEADER ACCORDION (No subdomain prefix, just clean header & chevron) -->
         <button type="button"
@@ -166,7 +177,7 @@ class="contents">
           
           <a {{if $isCurrentSec}}href="{{$tool.Path}}"{{else}}href="{{toolURL $sec.Subdomain}}{{$tool.Path}}"{{end}}
              data-tool-item
-             x-show="matches($el)"
+             x-show="isToolMatch('{{$sec.ID}}', '{{$tool.Key}}')"
              data-name="{{$tool.Name}}"
              data-desc="{{$tool.ShortDesc}}"
              data-tags="{{range $tool.Tech}}{{.}} {{end}}"
