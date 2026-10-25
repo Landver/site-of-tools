@@ -538,3 +538,17 @@ func TestHeavyCap(t *testing.T) {
 		}
 	}
 }
+
+// Each server-side mail page names its MCP endpoint, as every tool's terminal section does.
+func TestPagesNameTheMCPEndpoint(t *testing.T) {
+	e := newMailApp(t, nil)
+	for _, path := range []string{"/", "/blacklist", "/disposable", "/classifier"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Accept", "text/html")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "https://mcp.corpberry.com/mcp/mail") {
+			t.Errorf("GET %s = %d, want a page naming https://mcp.corpberry.com/mcp/mail", path, rec.Code)
+		}
+	}
+}
