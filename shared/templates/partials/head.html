@@ -178,9 +178,18 @@
         }
 
         if (populated && btn.getAttribute("data-submit") !== "false" && form) {
-          syncQueryToUrl(form);
-          if (typeof form.requestSubmit === "function") form.requestSubmit(btn);
-          else form.submit();
+          try { syncQueryToUrl(form); } catch (_) {}
+          var submitBtn = form.querySelector("button[type=submit], input[type=submit]");
+          try {
+            if (typeof form.requestSubmit === "function") {
+              if (submitBtn) form.requestSubmit(submitBtn);
+              else form.requestSubmit();
+            } else {
+              form.submit();
+            }
+          } catch (_) {
+            try { form.submit(); } catch (_) {}
+          }
         }
       });
 
