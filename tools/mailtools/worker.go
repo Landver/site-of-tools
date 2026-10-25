@@ -56,6 +56,6 @@ func syncDisposableDomains(ctx context.Context) {
 		log.Printf("[mailtools.worker] rejected update: only %d domains (expected >= %d)", len(domains), minDisposableDomains)
 		return
 	}
-	active.Store(classifierWith(domains))
+	synced.Store(classifierWith(domains))
 	log.Printf("[mailtools.worker] synced %d disposable domains", len(domains))
 }

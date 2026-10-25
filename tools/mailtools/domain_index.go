@@ -8,6 +8,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -35,24 +36,29 @@ type DomainClassifier struct {
 	disposable, freemail, whitelist map[string]struct{}
 }
 
+type seedLists struct{ wildcards, freemail, whitelist []string }
+
+// Built on first use, so the browser engine, which never classifies, doesn't index 40k domains at load.
 // The daily sync replaces only the disposable list; wildcards, freemail and the whitelist stay the embedded seed.
 var (
-	seedWildcards = seedList("data/wildcard.json")
-	seedFreemail  = seedList("data/freemail.json")
-	seedWhitelist = seedList("data/whitelist.txt")
-
-	active atomic.Pointer[DomainClassifier]
+	seeds = sync.OnceValue(func() seedLists {
+		return seedLists{seedList("data/wildcard.json"), seedList("data/freemail.json"), seedList("data/whitelist.txt")}
+	})
+	embedded = sync.OnceValue(func() *DomainClassifier { return classifierWith(seedList("data/disposable.txt")) })
+	synced   atomic.Pointer[DomainClassifier]
 )
 
-func init() {
-	active.Store(classifierWith(seedList("data/disposable.txt")))
+// ActiveClassifier returns the classifier in use: the embedded seed until the first daily sync lands.
+func ActiveClassifier() *DomainClassifier {
+	if c := synced.Load(); c != nil {
+		return c
+	}
+	return embedded()
 }
 
-// ActiveClassifier returns the classifier in use: the embedded seed until the first daily sync lands.
-func ActiveClassifier() *DomainClassifier { return active.Load() }
-
 func classifierWith(disposable []string) *DomainClassifier {
-	return NewDomainClassifier(slices.Concat(disposable, seedWildcards), seedFreemail, seedWhitelist)
+	s := seeds()
+	return NewDomainClassifier(slices.Concat(disposable, s.wildcards), s.freemail, s.whitelist)
 }
 
 // NewDomainClassifier indexes the lists; a "*.example.com" wildcard covers what "example.com" does.
