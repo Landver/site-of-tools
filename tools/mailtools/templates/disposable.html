@@ -40,9 +40,9 @@
 
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span class="text-faint">Try sample:</span>
-          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'test@mailinator.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">mailinator.com</button>
-          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'alex@gmail.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">gmail.com</button>
-          <button type="button" @click="$el.closest('form').querySelector('input[name=input]').value = 'security@stripe.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">stripe.com</button>
+          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=input]'); inp.value = 'test@mailinator.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">mailinator.com</button>
+          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=input]'); inp.value = 'alex@gmail.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">gmail.com</button>
+          <button type="button" onclick="var f = this.closest('form'); var inp = f.querySelector('input[name=input]'); inp.value = 'security@stripe.com'; f.requestSubmit ? f.requestSubmit() : f.submit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">stripe.com</button>
         </div>
       </form>
     </div>
