@@ -30,7 +30,6 @@ type toolSpec struct {
 	limiter  platform.Limiter
 	breaker  platform.Limiter // a budget every client shares; its refusal reads as busy
 	cap      *platform.Cap
-	weight   func(json.RawMessage) int64 // of cap, from arguments not yet validated; nil weighs 1
 	add      func(*mcp.Server, *mcp.Tool)
 }
 

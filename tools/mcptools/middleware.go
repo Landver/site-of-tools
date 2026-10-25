@@ -63,15 +63,11 @@ func (m *calls) middleware(path string, specs map[string]*toolSpec) mcp.Middlewa
 				got = http.StatusServiceUnavailable
 				return refuse(call, platform.BusyMessage)
 			}
-			w := int64(1)
-			if spec.weight != nil {
-				w = spec.weight(call.Params.Arguments)
-			}
-			if !spec.cap.TryAcquire(who.ip, w) {
+			if !spec.cap.TryAcquire(who.ip, 1) {
 				got = http.StatusServiceUnavailable
 				return refuse(call, platform.BusyMessage)
 			}
-			defer spec.cap.Release(who.ip, w)
+			defer spec.cap.Release(who.ip, 1)
 
 			res, err = next(ctx, method, req)
 			if err != nil {
