@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -173,6 +174,23 @@ func TestLiveFormsKeepTheHistoryClean(t *testing.T) {
 		}
 		if !strings.Contains(body, `hx-replace-url="true"`) {
 			t.Errorf("%s: the address bar does not follow the result", page)
+		}
+	}
+}
+
+// htmx drops a 4xx or 5xx reply unless partials/htmx-errors swaps it in, so a form page without it fails
+// silently; link/live fills the page's result-status announcer.
+func TestEveryFormPageShowsItsErrors(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+	live := slices.Concat(samplePages, []string{"/trace"})
+	for _, page := range append(live, "/short") {
+		body := request(t, e, http.MethodGet, page, asHTML).Body.String()
+		if !strings.Contains(body, "[400, 401, 404, 409, 429, 500, 502, 503]") {
+			t.Errorf("%s does not include partials/htmx-errors: its error replies never reach the page", page)
+		}
+		if slices.Contains(live, page) && !strings.Contains(body, "isResult(e.detail.target)") {
+			t.Errorf("%s does not include link/live", page)
 		}
 	}
 }
