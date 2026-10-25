@@ -13,7 +13,6 @@ import (
 
 const (
 	maxBIMIPayload = 64 * 1024
-	maxARCPayload  = 256 * 1024
 
 	healthDesc     = "All-in-one email deliverability, SEG gateway identification, disposable detection & blacklist audit."
 	disposableDesc = "Detect over 10,000+ throwaway, burner, and temporary email domains powered by the canonical disposable-email-domains database."
@@ -21,7 +20,7 @@ const (
 	blacklistDesc  = "Concurrent multi-DNSBL reputation audit querying 15+ global authoritative spam blacklists (Spamhaus, Barracuda, SpamCop, Mailspike) in < 800 ms."
 	dmarcDesc      = "Parse and visualize DMARC aggregate XML and gzip reports (RUA) directly in your browser. Inspect SPF/DKIM alignment, IP sources, ESPs, and policy disposition."
 	bimiDesc       = "Audit SVG logos against BIMI Tiny P/S requirements and cryptographically validate Verified Mark Certificates (VMC) from DigiCert, GlobalSign, and SSL.com."
-	arcDesc        = "Trace and validate Authenticated Received Chain (RFC 8617) headers. Audit multi-hop email forwarding, ARC seals, signatures, and authentication states."
+	arcDesc        = "Check Authenticated Received Chain (RFC 8617) header structure and the cv= and arc= results each forwarder reports. Signatures are not verified."
 )
 
 // Limits are shared by REST and MCP.
@@ -230,7 +229,7 @@ func (h *handler) dmarcParse(c *echo.Context) error {
 	} else {
 		pasted := strings.TrimSpace(c.FormValue("xml"))
 		if pasted == "" {
-			r = io.LimitReader(c.Request().Body, maxDMARCPayload)
+			r = c.Request().Body
 		} else {
 			r = strings.NewReader(pasted)
 		}
@@ -313,7 +312,7 @@ func (h *handler) arc(c *echo.Context) error {
 func (h *handler) arcParse(c *echo.Context) error {
 	headers := strings.TrimSpace(c.FormValue("headers"))
 	if headers == "" {
-		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, maxARCPayload))
+		body, _ := io.ReadAll(io.LimitReader(c.Request().Body, maxARCInput+1))
 		headers = string(body)
 	}
 	if strings.TrimSpace(headers) == "" {
