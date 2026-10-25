@@ -56,7 +56,7 @@ func mailSpecs(d Deps) []toolSpec {
 			Title: "Read a DMARC report",
 			Description: "Read a DMARC aggregate report (the RFC 7489 rua XML a mailbox provider sends, plain or gzipped): who sent it and for which dates, " +
 				"the policy published, message totals and pass rate, and the senders rolled up by provider (Google, Microsoft 365, Amazon SES, SendGrid…) and by IP. " +
-				"Pass the XML as xml, or the file's bytes base64-encoded as base64. Up to 2 MB and 5,000 rows. " +
+				"Pass the XML as xml, or the file's bytes base64-encoded as base64; one request carries at most 1 MB, and a report at most 5,000 rows. " +
 				"Lists the 30 busiest source IPs; detailed: true lists every IP and every report row. " + thirdParty,
 			InputSchema: inputSchema[mailDMARCArgs](),
 			Annotations: readOnly(false),

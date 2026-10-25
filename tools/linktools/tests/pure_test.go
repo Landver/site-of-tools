@@ -448,6 +448,8 @@ func TestParseCurlReadsShortFlagClusters(t *testing.T) {
 		{"curl -o out.txt https://example.com/file", "https://example.com/file"},
 		{"curl -d 'a=1&b=2' https://example.com/post", "https://example.com/post"},
 		{"$ curl https://example.com/prompt", "https://example.com/prompt"},
+		// The command's own URL is one URL, whatever it carries.
+		{"curl 'https://a.example/?q=see https://b.example/'", "https://a.example/?q=see https://b.example/"},
 	} {
 		r, err := svc.ParseCurl(tc.cmd)
 		if err != nil {

@@ -111,6 +111,11 @@ func (s *Service) Parse(raw string) (*Inspection, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.inspect(raw)
+}
+
+// inspect is Parse past readURL's vetting, for a URL already known to be one, such as a curl command's.
+func (s *Service) inspect(raw string) (*Inspection, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("not a valid URL: %w", parseReason(err))

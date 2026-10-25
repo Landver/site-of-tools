@@ -98,7 +98,7 @@ func (s *Service) ParseCurl(cmd string) (*CurlParse, error) {
 	if err != nil {
 		return nil, err
 	}
-	in, err := s.Parse(r.URL)
+	in, err := s.inspect(r.URL)
 	if err != nil {
 		return nil, err
 	}

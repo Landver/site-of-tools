@@ -301,7 +301,7 @@ Content-Type: application/json
    "target":"https://example.com/very/long",
    "original":"https://example.com/very/long?utm_source=x",
    "cleaned":["utm_source"],
-   "expires_at":null,
+   "note":"optional",
    "hits":0,
    "created_at":"2026-09-25T10:04:00Z"}
 ```
