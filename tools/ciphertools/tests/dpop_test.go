@@ -149,7 +149,7 @@ func TestDPoPGenerate_HashesEveryAccessToken(t *testing.T) {
 	if got := claimsOf(t, gen.Payload)["ath"]; got != s256Test(tok) {
 		t.Errorf("ath = %v, want SHA-256 of the token %s", got, s256Test(tok))
 	}
-	if !strings.Contains(gen.Curl, "Authorization: DPoP "+tok+`"`) {
+	if !strings.Contains(gen.Curl, "'Authorization: DPoP "+tok+"'") {
 		t.Errorf("curl does not send the token itself:\n%s", gen.Curl)
 	}
 	if v := verifyProof(t, gen.Token, "GET", "https://api.example.com/r", tok, now); !v.Valid {
@@ -408,4 +408,21 @@ func s256Test(s string) string {
 
 func b64urlTest(b []byte) string {
 	return strings.TrimRight(base64.URLEncoding.EncodeToString(b), "=")
+}
+
+// The curl line is pasted into a shell, so a quote in any value must not end its quoting.
+func TestDPoPCurlLineIsShellSafe(t *testing.T) {
+	gen := opOf[ciphertools.DPoPGenerateResult](t, "dpop-generate", url.Values{
+		"htm": {"GET"}, "htu": {"https://api.example.com/$HOME"}, "access_token": {`x'; touch /tmp/p; echo "`},
+	}, nil)
+	for _, want := range []string{`'Authorization: DPoP x'\''; touch /tmp/p; echo "'`, `'https://api.example.com/$HOME'`} {
+		if !strings.Contains(gen.Curl, want) {
+			t.Errorf("curl line lacks %s:\n%s", want, gen.Curl)
+		}
+	}
+}
+
+func TestDPoPVerify_RefusesNonUTF8(t *testing.T) {
+	token := b64urlTest([]byte("{\"typ\":\"\xff\",\"alg\":\"ES256\"}")) + "." + b64urlTest([]byte("{}")) + ".AA"
+	wantErr(t, "dpop-verify", url.Values{"token": {token}, "htm": {"GET"}, "htu": {"https://api.example.com/r"}}, "the header is not UTF-8")
 }

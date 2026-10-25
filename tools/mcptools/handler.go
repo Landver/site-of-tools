@@ -120,7 +120,15 @@ func (h *handler) serve(c *echo.Context) error {
 	if ep == nil {
 		return h.noEndpoint(c)
 	}
-	if name != ownerEndpoint && req.Method == http.MethodGet && !platform.WantsJSON(c) {
+	if name == ownerEndpoint {
+		// Ahead of every other answer, so only the key's holder learns the endpoint exists.
+		if !h.owner.Authorized(ownerKey(req.Header)) {
+			return h.noEndpoint(c)
+		}
+		// The SDK copies every header into each handler's request; none needs these.
+		req.Header.Del("X-Api-Key")
+		req.Header.Del("Authorization")
+	} else if req.Method == http.MethodGet && !platform.WantsJSON(c) {
 		return h.landing(c)
 	}
 	switch req.Header.Get("Sec-Fetch-Site") {
@@ -131,15 +139,6 @@ func (h *handler) serve(c *echo.Context) error {
 	ip := c.RealIP()
 	if !platform.AllowKey(h.perIP, ip) {
 		return refuseHTTP(c, http.StatusTooManyRequests, platform.LimitedMessage)
-	}
-	if name == ownerEndpoint {
-		// Answered as an unknown path, so only the key's holder learns the endpoint exists.
-		if !h.owner.Authorized(ownerKey(req.Header)) {
-			return h.noEndpoint(c)
-		}
-		// The SDK copies every header into each handler's request; none needs these.
-		req.Header.Del("X-Api-Key")
-		req.Header.Del("Authorization")
 	}
 
 	if req.Method == http.MethodPost {

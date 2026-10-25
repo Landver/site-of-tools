@@ -77,9 +77,10 @@ func TestOwnerKey(t *testing.T) {
 	s := newStack(t, stackOpts{owner: offlineOwner(t)})
 	unknown := s.do(http.MethodPost, "/mcp/nope", listBody, mcpHeaders(nil))
 	for name, hdr := range map[string]map[string]string{
-		"no key":    nil,
-		"wrong key": {"X-Api-Key": "guess"},
-		"basic":     {"Authorization": "Basic " + ownerKey},
+		"no key":             nil,
+		"wrong key":          {"X-Api-Key": "guess"},
+		"basic":              {"Authorization": "Basic " + ownerKey},
+		"no key, cross-site": {"Sec-Fetch-Site": "cross-site"},
 	} {
 		if rec := s.do(http.MethodPost, "/mcp/owner", listBody, mcpHeaders(hdr)); rec.Code != http.StatusNotFound || rec.Body.String() != unknown.Body.String() {
 			t.Errorf("%s = %d %.80q, want the unknown path's 404 %.80q", name, rec.Code, rec.Body, unknown.Body)

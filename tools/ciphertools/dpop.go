@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -184,11 +185,11 @@ func runDPoPGenerate(in Input) (any, error) {
 	}
 	r.Token = input + "." + b64url.EncodeToString(sig)
 	r.HeaderJSON, r.PayloadJSON = pretty(r.Header), pretty(r.Payload)
-	r.Curl = fmt.Sprintf("curl -X %s \\\n  -H \"DPoP: %s\" \\\n", htm, r.Token)
+	r.Curl = "curl -X " + shellQuote(htm) + " \\\n  -H " + shellQuote("DPoP: "+r.Token) + " \\\n"
 	if accessToken != "" {
-		r.Curl += fmt.Sprintf("  -H \"Authorization: DPoP %s\" \\\n", accessToken)
+		r.Curl += "  -H " + shellQuote("Authorization: DPoP "+accessToken) + " \\\n"
 	}
-	r.Curl += fmt.Sprintf("  \"%s\"", htu)
+	r.Curl += "  " + shellQuote(htu)
 	return r, nil
 }
 
@@ -350,11 +351,17 @@ func dpopURI(raw string) (string, error) {
 	return u.String(), nil
 }
 
-// dpopPart decodes a proof's JSON segment into v and returns its bytes as sent.
+// shellQuote single-quotes s for a POSIX shell, so a pasted value can't end the quoting.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// dpopPart decodes a proof's JSON segment into v and returns its bytes as sent, which RFC 7515 makes UTF-8.
 func dpopPart(seg, name string, v any) (json.RawMessage, error) {
 	b, err := segment(seg, name)
 	if err != nil {
 		return nil, err
+	}
+	if !utf8.Valid(b) {
+		return nil, fmt.Errorf("the %s is not UTF-8", name)
 	}
 	if err := json.Unmarshal(b, v); err != nil {
 		return nil, fmt.Errorf("the %s: %w", name, jsonError(err))

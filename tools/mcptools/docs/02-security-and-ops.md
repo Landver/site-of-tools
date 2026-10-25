@@ -12,14 +12,14 @@ serves every subdomain), upstreams we are a guest of, the domain's reputation
 `handler.go` `serve`, before the SDK, in order:
 
 1. `Cache-Control: no-store` on every response: cipher results can be secrets.
-2. Unknown toolset or one with no tools, `/mcp/owner` unconfigured → 404.
+2. Unknown toolset or one with no tools, `/mcp/owner` unconfigured or without
+   the [owner key](#owner-key) → 404.
 3. A browser `GET`, `/mcp/owner` aside → the landing page; other `GET`/`DELETE` → the SDK's 405.
 4. `Sec-Fetch-Site: cross-site` or `same-site` → 403.
 5. All of `/mcp`, per address: 20/s, burst 100 → 429.
-6. `/mcp/owner` without the [owner key](#owner-key) → step 2's 404.
-7. Body over 1 MiB → 413; a JSON-RPC batch → 400.
-8. A foreign `Origin` is served and logged (`mcp: foreign Origin`).
-9. Raw IP, host, user agent and HTTP context into the context.
+6. Body over 1 MiB → 413; a JSON-RPC batch → 400.
+7. A foreign `Origin` is served and logged (`mcp: foreign Origin`).
+8. Raw IP, host, user agent and HTTP context into the context.
 
 Echo's exact-Host vhost map stops DNS rebinding, so the SDK's localhost check
 (it would 403 dev's `mcp.localhost:8080`) is off. A page can't make a browser
@@ -93,9 +93,9 @@ source.
 `/mcp/owner` needs short-link storage and `MCP_OWNER_KEY`: a second `Shortener`
 on the same store, rotated apart from `LINK_API_KEY`, serving only the three
 short-link tools. The key, as `X-Api-Key` or `Authorization: Bearer`, is
-compared as SHA-256 in constant time; no key or a wrong one gets an unknown
-path's 404, after the per-address limit, so guessing a 256-bit key gets nowhere
-and only the key's holder learns the endpoint exists. Both headers are deleted before the SDK, which copies headers into
+compared as SHA-256 in constant time before any other check; no key or a wrong
+one gets an unknown path's 404, so only the key's holder learns the endpoint
+exists. Both headers are deleted before the SDK, which copies headers into
 every handler. Configure it per user (`claude mcp add --scope user … --header
 "X-Api-Key: …"`), never in a committed `.mcp.json`.
 
