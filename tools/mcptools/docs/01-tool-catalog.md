@@ -1,7 +1,7 @@
 # Tool catalog
 
-35 public tools and 3 owner tools. 41 REST routes map to them; every other
-route has a reasoned exclusion (`Coverage` in `registry.go`, test-enforced).
+Every REST route maps to a tool or has a reasoned exclusion (`Coverage` in
+`registry.go`, test-enforced; the tests pin the counts).
 The contract agents see (names, descriptions, argument schemas with enums,
 defaults and bounds, hints) is the `tools/list` goldens in
 [`tests/testdata/`](../tests/testdata/). Results are the REST twin's JSON
@@ -36,15 +36,16 @@ listed behave exactly as their REST twin.
 | `dns_domain_info` | `GET /domain` | Concise: `certificate_names.names` is the first 50 names as strings (`total` kept, `truncated` when cut). One half failing is named in the result; both failing is a tool error, as REST's 502. |
 
 Attribution: `dns_lookup` IP2Location; `dns_consistency` IP2Location and
-rdap.org; `dns_domain_info` crt.sh and rdap.org; `dns_email_auth` Spamhaus.
+rdap.org; `dns_domain_info` crt.sh and rdap.org.
 
 ## link
 
 | Tool | REST twin | Differs from REST |
 |---|---|---|
-| `link_tracking_rules` | `GET /clean/rules` | `param` (every rule naming it, with its hosts) or `full: true` (the REST body), not both; none returns the table's version, scope and size. |
+| `link_tracking_rules` | `GET /clean/rules` | `param` narrows the table to the rules and never-strip entries naming it, with their hosts; without it, the REST body. |
 | `link_redirect_chain` | `GET /trace` | Not read-only: it visits the URL from this server, which can use up a one-time link. Status, timing and headers per hop, never a body. |
-| `link_extract` | `GET`, `POST /extract` | Concise: no `positions`, and the first 30 links plus a note (`unique` still counts all). |
+| `link_headers_inspect` | `GET /headers?u=` | Not read-only, as `link_redirect_chain`: a GET, then a conditional GET to test the ETag. Pasted headers are `link_headers_parse` (`POST /headers`). |
+| `link_extract` | `GET`, `POST /extract` | Never `positions`. Concise: the first 30 links plus a note (`unique` still counts all); `detailed: true` lists every link that fits one 80 KB result. |
 | `link_short_resolve` | `GET /s/:code` | Says where one of our short links leads without redirecting or counting a hit; any other host is an error naming `link_redirect_chain`. Listed whenever short-link storage is on, with or without `LINK_API_KEY`. |
 
 Owner endpoint, `/mcp/owner`:
@@ -53,6 +54,7 @@ Owner endpoint, `/mcp/owner`:
 |---|---|---|
 | `link_short_create` | `POST /short` | Marked destructive although it only adds a row: it publishes a redirect on corpberry.com, so clients ask first. |
 | `link_short_list` | `GET /short` | `{links: [...]}`, newest first, `limit` 1–50. |
+| `link_short_revoke` | `DELETE /short/:code` | Takes the code or the whole short URL `link_short_create` returned. |
 
 ## cipher
 
@@ -70,6 +72,19 @@ route.
 - The pages run in the browser and send nothing; over MCP inputs and outputs
   (generated keys, random values) pass through this server and the user's AI
   provider, so every description ends "use test material only".
+
+## mail
+
+| Tool | REST twin | Differs from REST |
+|---|---|---|
+| `mail_domain_health` | `GET`, `POST /` and `/health` | Adds Spamhaus's `attribution`. |
+| `mail_check_dnsbl` | `GET`, `POST /blacklist` | Adds Spamhaus's `attribution`. |
+| `mail_classify_domain` | `/classifier`, `/disposable` | One tool for both pages: the result says `is_disposable` and `is_freemail`. |
+| `mail_dmarc_parse` | `POST /dmarc`, `/dmarc/parse` | The report goes as `xml` text or as the file's bytes in `base64` (`.xml.gz` too). Concise drops `records` and lists the 30 busiest `sources` (`sources_truncated` when cut); `detailed: true` is the REST body. |
+| `mail_bimi_validate` | `POST /bimi`, `/bimi/fix` | Also `/bimi/fix`'s tool: `auto_fixed_svg` is the logo with its root attributes corrected whenever one fails. |
+
+The two DNS-backed tools share REST's `mailtools.Service`: one egress guard,
+the blocklist cache and the Spamhaus DQS key.
 
 ## botcheck
 

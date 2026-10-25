@@ -36,7 +36,7 @@ type Config struct {
 	// MCPOwnerKey gates /mcp/owner; apart from LinkAPIKey so each rotates alone.
 	MCPOwnerKey string
 
-	// MongoURI is optional: empty disables lookup history and the request log, and the app still boots.
+	// MongoURI is optional: empty disables the request log and every store, and the app still boots.
 	MongoURI      string
 	MongoDatabase string
 

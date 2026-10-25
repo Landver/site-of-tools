@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/mailtools"
 )
 
@@ -157,9 +158,22 @@ func (t mailTools) classify(_ context.Context, a mailDomainArgs) (any, error) {
 }
 
 func (t mailTools) checkDNSBL(ctx context.Context, a mailTargetArgs) (any, error) {
-	return t.svc.DNSBL(ctx, a.Target)
+	return withSpamhaus(t.svc.DNSBL(ctx, a.Target))
 }
 
 func (t mailTools) domainHealth(ctx context.Context, a mailDomainArgs) (any, error) {
-	return t.svc.AuditDomainHealth(ctx, a.Domain)
+	return withSpamhaus(t.svc.AuditDomainHealth(ctx, a.Domain))
+}
+
+// withSpamhaus credits the blocklist answers, as every result built on licensed data does.
+func withSpamhaus(rep any, err error) (any, error) {
+	if err != nil {
+		return nil, err
+	}
+	out, err := object(rep)
+	if err != nil {
+		return nil, err
+	}
+	out["attribution"] = credits(platform.CreditSpamhaus)
+	return out, nil
 }

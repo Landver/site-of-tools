@@ -49,7 +49,7 @@ of its `subdomains` list and hands the Host → app map to
 
 - Host keys come from config (`cfg.VHost`): `*.localhost:8080` in dev (v5 matches
   the port too), bare domains in prod.
-- Hosts: apex (`site`), `ip.`, `botcheck.`, `dns.`, `link.`, `cipher.`, `mcp.`.
+- Hosts: apex (`site`), `ip.`, `botcheck.`, `dns.`, `link.`, `cipher.`, `mail.`, `mcp.`.
   The same list feeds the outbound guards' deny list.
 - New subdomain = one list entry + its `Register` + an nginx block. Never a new
   service.
@@ -137,7 +137,7 @@ platform/          engine: config, app, render, mongo, conn, netgate, redact, ra
 shared/            base partials + vendored htmx/alpine/css (embedded)
 site/              apex: landing, tools index, blog (site/posts/*.md)
 tools/<tool>/      one subdomain each: domain code · handler.go · embed.go · templates/ · tests/ · docs/
-  iptools · botcheck · dnstools · linktools (+ extension/) · ciphertools (+ wasm/) · mcptools
+  iptools · botcheck · dnstools · linktools (+ extension/) · ciphertools (+ wasm/) · mailtools (+ wasm/) · mcptools
 docs/              ARCHITECTURE.md, DEPLOYMENT.md
 ```
 
@@ -183,9 +183,9 @@ Cross-cutting engine files:
 
 - **MongoDB** is wired (one client from `platform.OpenMongo`, repositories below
   the domain, self-pruning via `platform.EnsureTTLIndex`, all no-ops without
-  `MONGODB_URI`) and used by: IP lookup history, the request log (one record per
-  request, and per MCP message: tool, status, latency, IP — never arguments or
-  results), botcheck's fingerprint corpus, and link short links (the only one
+  `MONGODB_URI`) and used by: the request log (one record per request, and per
+  MCP message: tool, status, latency, IP — never arguments or results),
+  botcheck's fingerprint corpus, mail's blocklist cache, and link short links (the only one
   that *is* the feature: unique index, long TTL so a slug is never reissued).
   Further storage follows the same shape.
 - **Huma / OpenAPI** — only if a formal public API is wanted (§4).

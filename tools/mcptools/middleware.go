@@ -105,7 +105,7 @@ func refuse(call *mcp.CallToolRequest, msg string) (mcp.Result, error) {
 	return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msg}
 }
 
-// The request log skips /mcp: each message is recorded here instead, never with
+// The request log skips the /mcp POSTs that reach here: each message is recorded here, never with
 // its arguments, result or error text: cipher errors quote their input.
 func (m *calls) record(who *caller, uri string, status, size int, d time.Duration, req mcp.Request) {
 	client := who.userAgent

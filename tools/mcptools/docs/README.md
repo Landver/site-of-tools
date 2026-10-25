@@ -17,8 +17,8 @@ clients, official `go-sdk` v1.8.0. Public tools need no account or key.
 | Path on `https://mcp.corpberry.com` | Serves |
 |---|---|
 | `/` | landing page: endpoints, per-client setup, every tool; the same catalog as JSON for non-browsers |
-| `/mcp` | all 35 public tools, for clients with tool search (Claude Code) |
-| `/mcp/ip` · `/mcp/dns` · `/mcp/link` · `/mcp/cipher` · `/mcp/botcheck` · `/mcp/site` | one toolset each, for every other client |
+| `/mcp` | every public tool, for clients with tool search (Claude Code) |
+| `/mcp/ip` · `/mcp/dns` · `/mcp/link` · `/mcp/cipher` · `/mcp/botcheck` · `/mcp/mail` · `/mcp/site` | one toolset each, for every other client |
 | `/mcp/owner` | the owner's 3 short-link tools, behind `MCP_OWNER_KEY`; never advertised |
 
 A browser `GET` on a public endpoint gets the landing page. Tool lists are
@@ -49,7 +49,7 @@ Files: `handler.go` (`Register`, `Deps`, gate, landing page),
   splits (`/curl` → parse, build).
 - **Adapters only map** arguments → the handler's domain call → result. Logic
   both doors need lives in the domain (`LookupEnriched`, `InputFromJSON`,
-  `Shortener.CreateFrom`).
+  `Shortener.Create`, `mailtools.Service`).
 - **Contracts come from the domain**: enums, defaults and bounds are read at
   boot (`dnstools.Types`, `linktools.Personas`, ciphertools' field specs).
 - **Results** are the REST body as `structuredContent` (always an object) plus
