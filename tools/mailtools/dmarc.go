@@ -39,7 +39,7 @@ type dmarcPolicyPubXML struct {
 	ASPF   string `xml:"aspf"`
 	P      string `xml:"p"`
 	SP     string `xml:"sp"`
-	Pct    int    `xml:"pct"`
+	Pct    *int   `xml:"pct"`
 	Fo     string `xml:"fo"`
 }
 
@@ -165,12 +165,12 @@ func ParseDMARCReport(r io.Reader) (*DMARCReport, error) {
 		Email:      raw.Metadata.Email,
 		ReportID:   raw.Metadata.ReportID,
 		Domain:     raw.Policy.Domain,
-		Policy:     raw.Policy.P,
+		Policy:       raw.Policy.P,
 		SubdomainPol: raw.Policy.SP,
-		Percentage: raw.Policy.Pct,
+		Percentage:   100,
 	}
-	if rep.Percentage == 0 {
-		rep.Percentage = 100
+	if raw.Policy.Pct != nil {
+		rep.Percentage = *raw.Policy.Pct
 	}
 
 	if raw.Metadata.DateRange.Begin > 0 {

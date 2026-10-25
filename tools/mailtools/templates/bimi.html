@@ -49,12 +49,8 @@
           <div class="mt-2 space-y-2">
             <textarea name="svg" rows="6" placeholder="<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 100 100&quot;>&#10;  <circle cx=&quot;50&quot; cy=&quot;50&quot; r=&quot;40&quot; fill=&quot;#b83266&quot;/>&#10;</svg>"
                       class="field w-full font-mono text-base sm:text-xs">{{.RawSVG}}</textarea>
-            <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center justify-start gap-2">
               <button type="submit" class="btn-primary">Validate SVG</button>
-              <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                <span class="text-faint">Try sample:</span>
-                <button type="button" data-target="textarea[name=svg]" data-sample="&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; version=&quot;1.2&quot; baseProfile=&quot;tiny-ps&quot; viewBox=&quot;0 0 100 100&quot;&gt;&lt;title&gt;BIMI Logo&lt;/title&gt;&lt;circle cx=&quot;50&quot; cy=&quot;50&quot; r=&quot;45&quot; fill=&quot;#6366f1&quot;/&gt;&lt;path d=&quot;M35 50 L45 60 L65 40&quot; stroke=&quot;#ffffff&quot; stroke-width=&quot;8&quot; stroke-linecap=&quot;round&quot; fill=&quot;none&quot;/&gt;&lt;/svg&gt;" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">RFC Tiny-PS SVG</button>
-              </div>
             </div>
           </div>
         </details>

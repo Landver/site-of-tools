@@ -362,6 +362,51 @@ func TestDMARC_CorruptArchivesAndAggregation(t *testing.T) {
 	}
 }
 
+func TestDMARC_PercentagePreservation(t *testing.T) {
+	tests := []struct {
+		name    string
+		xml     string
+		wantPct int
+	}{
+		{
+			name: "omitted pct tag defaults to 100",
+			xml: `<feedback>
+  <report_metadata><org_name>test</org_name><email>a@b.com</email><report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata>
+  <policy_published><domain>test.com</domain><p>reject</p></policy_published>
+</feedback>`,
+			wantPct: 100,
+		},
+		{
+			name: "explicit pct=0 is preserved",
+			xml: `<feedback>
+  <report_metadata><org_name>test</org_name><email>a@b.com</email><report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata>
+  <policy_published><domain>test.com</domain><p>quarantine</p><pct>0</pct></policy_published>
+</feedback>`,
+			wantPct: 0,
+		},
+		{
+			name: "explicit pct=25 is preserved",
+			xml: `<feedback>
+  <report_metadata><org_name>test</org_name><email>a@b.com</email><report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata>
+  <policy_published><domain>test.com</domain><p>reject</p><pct>25</pct></policy_published>
+</feedback>`,
+			wantPct: 25,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rep, err := mailtools.ParseDMARCReport(strings.NewReader(tt.xml))
+			if err != nil {
+				t.Fatalf("ParseDMARCReport failed: %v", err)
+			}
+			if rep.Percentage != tt.wantPct {
+				t.Errorf("Percentage = %d, want %d", rep.Percentage, tt.wantPct)
+			}
+		})
+	}
+}
+
 func TestBIMI_SecurityAndBoundaryViolations(t *testing.T) {
 	// 1. Strict 32 KB size boundary limit
 	exactSizeSVG := `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 100 100">`

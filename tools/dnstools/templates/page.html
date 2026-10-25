@@ -39,12 +39,12 @@
     </p>
 
     <form hx-get="/{{if ne $a "lookup"}}{{$a}}{{end}}" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace"
-          data-busy="{{if eq $a "lookup"}}Querying every record type…{{else if eq $a "consistency"}}Asking the zone's nameservers directly…{{else if eq $a "trace"}}Walking down from the root…{{else if eq $a "domain"}}Reading the registry record…{{else}}Checking SPF, DMARC, DKIM, MTA-STS…{{end}}"
+          data-busy="{{if eq $a "lookup"}}Querying every record type…{{else if eq $a "consistency"}}Asking the zone's nameservers directly…{{else if eq $a "trace"}}Walking down from the root…{{else}}Reading the registry record…{{end}}"
           class="mt-6 space-y-2">
       <div class="flex flex-wrap gap-2">
         <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
-               aria-label="{{if eq $a "lookup"}}Domain name or IP address to look up{{else if eq $a "consistency"}}Domain name to check{{else if eq $a "trace"}}Domain name to trace{{else if eq $a "domain"}}Domain name{{else}}Domain name, or an email address{{end}}"
-               placeholder="{{if eq $a "lookup"}}cloudflare.com or 1.1.1.1{{else if eq $a "email"}}github.com or you@domain.com{{else}}github.com{{end}}" class="field basis-full sm:basis-0">
+               aria-label="{{if eq $a "lookup"}}Domain name or IP address to look up{{else if eq $a "consistency"}}Domain name to check{{else if eq $a "trace"}}Domain name to trace{{else}}Domain name{{end}}"
+               placeholder="{{if eq $a "lookup"}}cloudflare.com or 1.1.1.1{{else}}github.com{{end}}" class="field basis-full sm:basis-0">
         {{with .Types}}
         <select name="type" aria-label="Record type"
                 class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
@@ -61,8 +61,8 @@
         <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
           {{/* One grid cell for both labels: the button keeps its width in flight. */}}
           <span class="inline-grid">
-            <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">{{if eq $a "trace"}}Trace{{else if or (eq $a "consistency") (eq $a "email")}}Check{{else}}Look up{{end}}</span>
-            <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">{{if eq $a "trace"}}Tracing…{{else if or (eq $a "consistency") (eq $a "email")}}Checking…{{else}}Looking up…{{end}}</span>
+            <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">{{if eq $a "trace"}}Trace{{else if eq $a "consistency"}}Check{{else}}Look up{{end}}</span>
+            <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">{{if eq $a "trace"}}Tracing…{{else if eq $a "consistency"}}Checking…{{else}}Looking up…{{end}}</span>
           </span>
         </button>
       </div>

@@ -125,66 +125,55 @@
       };
 
       document.addEventListener("click", function (e) {
-        var btn = e.target.closest("button[data-sample], button[class*='data-sample']");
-        if (!btn) {
-          // Check for any button with data-sample-* attributes
-          var el = e.target.closest("button");
-          if (el) {
-            for (var a = 0; a < el.attributes.length; a++) {
-              if (el.attributes[a].name.startsWith("data-sample")) {
-                btn = el;
-                break;
-              }
-            }
+        var btn = e.target.closest("button");
+        if (!btn) return;
+        var hasSample = false;
+        for (var a = 0; a < btn.attributes.length; a++) {
+          if (btn.attributes[a].name.startsWith("data-sample")) {
+            hasSample = true;
+            break;
           }
         }
-        if (!btn) return;
+        if (!hasSample) return;
 
         var form = btn.closest("form") || (btn.getAttribute("data-form") ? document.querySelector(btn.getAttribute("data-form")) : null);
-
-        // Universal Multi-Field Sample Handler:
-        // Any data-sample-<fieldName>="val" maps directly to [name="<fieldName>"]
         var hasMulti = false;
+
         for (var i = 0; i < btn.attributes.length; i++) {
           var attr = btn.attributes[i];
           if (attr.name.startsWith("data-sample-") && attr.name !== "data-sample-submit") {
             hasMulti = true;
-            var fieldName = attr.name.substring("data-sample-".length);
             var f = form || document;
-            var targetInp = f.querySelector("[name='" + fieldName + "']");
+            var targetInp = f.querySelector("[name='" + attr.name.substring("data-sample-".length) + "']");
             if (targetInp) {
+              var pd = targetInp.closest("details");
+              if (pd) pd.open = true;
               targetInp.value = attr.value;
               targetInp.dispatchEvent(new Event("input", { bubbles: true }));
               targetInp.dispatchEvent(new Event("change", { bubbles: true }));
             }
           }
         }
-        if (hasMulti) {
-          if (btn.getAttribute("data-submit") !== "false" && form) {
-            if (typeof form.requestSubmit === "function") form.requestSubmit();
-            else form.submit();
+
+        if (!hasMulti) {
+          var selector = btn.getAttribute("data-target");
+          var inp = selector ? ((form ? form.querySelector(selector) : null) || document.querySelector(selector)) : null;
+          if (!inp && form) {
+            inp = form.querySelector(
+              "input[name=domain], input[name=name], input[name=ip], input[name=cidr], input[name=u], input[name=input], input[name=target], input[name=q], textarea[name=xml], textarea[name=curl], textarea[name=headers], textarea[name=token], textarea[name=cert], textarea[name=text], textarea[name=key], textarea[name=sample], textarea, input[type=text], input:not([type])"
+            );
           }
-          return;
+          if (inp) {
+            var parentDetails = inp.closest("details");
+            if (parentDetails) parentDetails.open = true;
+            var val = btn.getAttribute("data-sample");
+            if (val === null || val === undefined) val = btn.textContent.trim();
+            inp.value = val;
+            inp.dispatchEvent(new Event("input", { bubbles: true }));
+            inp.dispatchEvent(new Event("change", { bubbles: true }));
+          }
         }
 
-        var selector = btn.getAttribute("data-target");
-        var inp = null;
-        if (selector) {
-          inp = (form ? form.querySelector(selector) : null) || document.querySelector(selector);
-        }
-        if (!inp && form) {
-          inp = form.querySelector(
-            "input[name=domain], input[name=name], input[name=ip], input[name=cidr], input[name=u], input[name=input], input[name=target], input[name=q], textarea[name=xml], textarea[name=curl], textarea[name=headers], textarea[name=token], textarea[name=cert], textarea[name=text], textarea[name=key], textarea[name=sample], textarea, input[type=text], input:not([type])"
-          );
-        }
-        if (!inp) return;
-        var parentDetails = inp.closest("details");
-        if (parentDetails) parentDetails.open = true;
-        var val = btn.getAttribute("data-sample");
-        if (val === null || val === undefined) val = btn.textContent.trim();
-        inp.value = val;
-        inp.dispatchEvent(new Event("input", { bubbles: true }));
-        inp.dispatchEvent(new Event("change", { bubbles: true }));
         if (btn.getAttribute("data-submit") !== "false" && form) {
           if (typeof form.requestSubmit === "function") form.requestSubmit();
           else form.submit();
