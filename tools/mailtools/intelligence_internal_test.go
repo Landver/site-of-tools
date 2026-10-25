@@ -434,7 +434,6 @@ func TestWorker_WhitelistProtectionRule(t *testing.T) {
 	classifier := NewDomainClassifier(
 		[]string{"burner.com"},
 		nil,
-		nil,
 		[]string{"google.com", "stripe.com"},
 	)
 

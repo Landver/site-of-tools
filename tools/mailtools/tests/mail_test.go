@@ -20,7 +20,6 @@ import (
 
 func newMailApp(t *testing.T) *echo.Echo {
 	t.Helper()
-	_ = mailtools.InitFromEmbedded()
 	r := platform.NewRenderer(false, nil,
 		platform.TemplateSource{Embed: shared.Templates, DevDir: "shared/templates"},
 		platform.TemplateSource{Embed: mailtools.Templates, DevDir: "tools/mailtools/templates"},

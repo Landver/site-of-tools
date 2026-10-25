@@ -72,9 +72,6 @@ func run() error {
 		log.Printf("link tools: unique code index unavailable (%v); short-link creation will refuse writes", err)
 	}
 	mailStore := mailtools.NewStore(idxCtx, mdb.DB())
-	if err := mailtools.InitFromEmbedded(); err != nil {
-		log.Printf("mail tools: failed to load embedded seed data: %v", err)
-	}
 	cancelIdx()
 	// Bounded: with Mongo unreachable each queued entry costs 5s, so a full buffer could take an hour.
 	defer func() {
@@ -94,7 +91,7 @@ func run() error {
 	syncs.Add(2)
 	go func() { defer syncs.Done(); iptools.RunIPsumSync(ctx, blocklist) }()
 	go func() { defer syncs.Done(); iptools.RunSpamhausDROPSync(ctx, blocklist) }()
-	mailtools.StartSyncWorker(ctx, mailStore, 24*time.Hour)
+	mailtools.StartSyncWorker(ctx, 24*time.Hour)
 	// Bounded: a sync that ignores its context must not hold the process open.
 	defer waitBounded(&syncs, 5*time.Second)
 

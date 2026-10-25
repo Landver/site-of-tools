@@ -15,7 +15,6 @@ import (
 )
 
 func TestDisposableAndFreemailClassification(t *testing.T) {
-	_ = mailtools.InitFromEmbedded()
 	classifier := mailtools.ActiveClassifier()
 
 	tests := []struct {
@@ -150,8 +149,6 @@ func TestEmailIntelligenceHTTPHandlers(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestDomainClassifier_EdgeCasesAndPrecedence(t *testing.T) {
-	_ = mailtools.InitFromEmbedded()
-
 	// 1. ExtractDomain parsing variants
 	cases := []struct {
 		input string
@@ -182,8 +179,7 @@ func TestDomainClassifier_EdgeCasesAndPrecedence(t *testing.T) {
 
 	// 2. Multi-level Subdomains and Whitelist Immunity over Disposable
 	custom := mailtools.NewDomainClassifier(
-		[]string{"burner.com", "disposable.net", "whitelisted-burner.com"},
-		[]string{"wildcard-temp.org"},
+		[]string{"burner.com", "disposable.net", "whitelisted-burner.com", "*.wildcard-temp.org"},
 		[]string{"freemail.org"},
 		[]string{"whitelisted-burner.com", "trusted-enterprise.com"},
 	)
@@ -226,13 +222,10 @@ func TestDomainClassifier_EdgeCasesAndPrecedence(t *testing.T) {
 		t.Errorf("empty input classification unexpected: %+v", repEmpty)
 	}
 
-	// ActiveClassifier fallback safety when globalClassifier is nil
-	orig := mailtools.ActiveClassifier()
-	mailtools.SetGlobalClassifier(nil) // no-op check
+	// The embedded seed is indexed at package load: no init call comes first.
 	if mailtools.ActiveClassifier() == nil {
 		t.Errorf("ActiveClassifier() must never return nil")
 	}
-	mailtools.SetGlobalClassifier(orig)
 }
 
 // -----------------------------------------------------------------------------
@@ -337,22 +330,13 @@ func TestStore_NilSafety(t *testing.T) {
 
 	// Must not panic
 	s.SaveDNSBLCache(ctx, "target.com", nil, 0, 0, 0)
-
-	meta, err := s.GetSyncMeta(ctx, "disposable")
-	if meta != nil || err != nil {
-		t.Errorf("nil Store.GetSyncMeta should return nil, nil: got %v, %v", meta, err)
-	}
-
-	if err := s.SetSyncMeta(ctx, mailtools.SyncMeta{}); err != nil {
-		t.Errorf("nil Store.SetSyncMeta should return nil, got %v", err)
-	}
 }
 
 func TestSyncWorker_CanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 	// Must start and exit without blocking or panicking
-	mailtools.StartSyncWorker(ctx, nil, 0)
+	mailtools.StartSyncWorker(ctx, 0)
 }
 
 func TestDNSBL_ContextCancellation(t *testing.T) {
@@ -608,7 +592,6 @@ func TestHTTPHandlers_RoutesAndEdgeCases(t *testing.T) {
 }
 
 func BenchmarkDomainClassification(b *testing.B) {
-	_ = mailtools.InitFromEmbedded()
 	classifier := mailtools.ActiveClassifier()
 	samples := []string{
 		"test@mailinator.com",
