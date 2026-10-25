@@ -36,7 +36,6 @@ var errNothingToScore = errors.New("Nothing to score: pass fingerprint (the JSON
 func botSpecs(d Deps) []toolSpec {
 	t := ipTools{geo: d.Geo, chk: d.Blocklist}
 	return []toolSpec{{
-		toolset: "botcheck",
 		tool: &mcp.Tool{
 			Name:  "botcheck_score",
 			Title: "Bot check score",

@@ -38,7 +38,6 @@ func ipSpecs(d Deps) []toolSpec {
 	var specs []toolSpec
 	if d.Geo != nil {
 		specs = append(specs, toolSpec{
-			toolset: "ip",
 			tool: &mcp.Tool{
 				Name:  "ip_lookup",
 				Title: "IP lookup",
@@ -57,7 +56,6 @@ func ipSpecs(d Deps) []toolSpec {
 		})
 	}
 	return append(specs, toolSpec{
-		toolset: "ip",
 		tool: &mcp.Tool{
 			Name:  "ip_cidr",
 			Title: "Subnet calculator",

@@ -60,7 +60,7 @@ func dnsSpecs(d Deps) []toolSpec {
 	var specs []toolSpec
 	spec := func(on bool, s toolSpec) {
 		if on {
-			s.toolset, s.deadline, s.tool.Annotations = "dns", upstreamDeadline, readOnly(true)
+			s.deadline, s.tool.Annotations = upstreamDeadline, readOnly(true)
 			specs = append(specs, s)
 		}
 	}

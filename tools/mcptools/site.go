@@ -36,7 +36,6 @@ func siteSpecs(d Deps) []toolSpec {
 	}
 	t := siteTools{blog: d.Blog, base: d.ToolURL("")}
 	return []toolSpec{{
-		toolset: "site",
 		tool: &mcp.Tool{
 			Name:  "site_blog",
 			Title: "corpberry.com blog",

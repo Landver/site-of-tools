@@ -66,7 +66,7 @@ func ownerSpecs(d Deps, log *slog.Logger) []toolSpec {
 		},
 	}
 	for i := range specs {
-		specs[i].toolset, specs[i].deadline, specs[i].limiter = ownerEndpoint, fetchDeadline, d.LinkLimits.Short
+		specs[i].deadline, specs[i].limiter = fetchDeadline, d.LinkLimits.Short
 	}
 	return specs
 }

@@ -102,7 +102,6 @@ func cipherSpecs(d Deps) []toolSpec {
 	for _, op := range ops {
 		ct := cipherTools[op.Name]
 		s := toolSpec{
-			toolset: "cipher",
 			tool: &mcp.Tool{Name: ct.name, Title: ct.title, Description: ct.desc + " " + testMaterial,
 				InputSchema: cipherSchema(op), Annotations: readOnly(false)},
 			deadline: quickDeadline,

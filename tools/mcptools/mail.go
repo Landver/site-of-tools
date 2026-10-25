@@ -44,7 +44,7 @@ type mailTools struct{ svc *mailtools.Service }
 func mailSpecs(d Deps) []toolSpec {
 	lim, t := d.MailLimits, mailTools{svc: d.Mail}
 	spec := func(heavy bool, tool *mcp.Tool, add func(*mcp.Server, *mcp.Tool)) toolSpec {
-		s := toolSpec{toolset: "mail", tool: tool, deadline: quickDeadline, limiter: lim.Pure, add: add}
+		s := toolSpec{tool: tool, deadline: quickDeadline, limiter: lim.Pure, add: add}
 		if heavy {
 			s.deadline, s.limiter, s.cap = heavyDeadline, lim.Heavy, lim.HeavyCap
 		}

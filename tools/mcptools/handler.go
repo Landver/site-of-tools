@@ -81,8 +81,9 @@ func newHandler(d Deps, base string, log *slog.Logger) *handler {
 		d.Geo = nil
 	}
 	m := &calls{reqlog: d.RequestLog, log: log}
-	eps := buildEndpoints(slices.Concat(ipSpecs(d), dnsSpecs(d), linkSpecs(d, log), cipherSpecs(d), botSpecs(d), mailSpecs(d), siteSpecs(d),
-		ownerSpecs(d, log)), m, base)
+	eps := buildEndpoints(slices.Concat(in("ip", ipSpecs(d)), in("dns", dnsSpecs(d)), in("link", linkSpecs(d, log)),
+		in("cipher", cipherSpecs(d)), in("botcheck", botSpecs(d)), in("mail", mailSpecs(d)), in("site", siteSpecs(d)),
+		in(ownerEndpoint, ownerSpecs(d, log))), m, base)
 	sdk := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		if ep := eps[r.PathValue("toolset")]; ep != nil {
 			return ep.server

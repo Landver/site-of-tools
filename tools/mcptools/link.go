@@ -97,7 +97,6 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 	var specs []toolSpec
 	pure := func(name, title, desc string, schema any, add func(*mcp.Server, *mcp.Tool)) {
 		specs = append(specs, toolSpec{
-			toolset: "link",
 			tool: &mcp.Tool{Name: name, Title: title, Description: desc, InputSchema: schema,
 				Annotations: readOnly(false)},
 			deadline: quickDeadline,
@@ -107,7 +106,6 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 	}
 	fetch := func(name, title, desc string, add func(*mcp.Server, *mcp.Tool)) {
 		specs = append(specs, toolSpec{
-			toolset: "link",
 			tool: &mcp.Tool{Name: name, Title: title, Description: desc,
 				InputSchema: inputSchema[linkFetchArgs](minLength("url", 1),
 					oneOf("persona", personas), defaultTo("persona", personas[0])),
@@ -201,7 +199,6 @@ func linkSpecs(d Deps, log *slog.Logger) []toolSpec {
 	}
 	if t.short != nil {
 		specs = append(specs, toolSpec{
-			toolset: "link",
 			tool: &mcp.Tool{
 				Name:  "link_short_resolve",
 				Title: "Resolve a short link",
