@@ -3,6 +3,7 @@ package tests
 import (
 	"bytes"
 	"compress/gzip"
+	"strings"
 	"testing"
 
 	"github.com/Landver/site-of-tools/tools/mailtools"
@@ -115,6 +116,20 @@ func BenchmarkAutoFixBIMI(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, err := mailtools.AutoFixBIMI(benchBIMINeedsFix)
 		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAnalyzeARC_InputLimit(b *testing.B) {
+	var sb strings.Builder
+	for i := 0; sb.Len() < 256<<10-200; i++ {
+		sb.WriteString(arcSet(i%50+1, "hop.example", "pass", "; arc=pass"))
+	}
+	headers := sb.String()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := mailtools.AnalyzeARC(headers); err != nil {
 			b.Fatal(err)
 		}
 	}

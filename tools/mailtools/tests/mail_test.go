@@ -532,7 +532,7 @@ ARC-Authentication-Results: i=1; mx.example.com; spf=pass`
 	if err != nil {
 		t.Fatalf("RenderARC error: %v", err)
 	}
-	if !strings.Contains(arcHTML, "Chain Status") || !strings.Contains(arcHTML, "VALID CHAIN") {
+	if !strings.Contains(arcHTML, "Chain Structure") || !strings.Contains(arcHTML, "INTACT") {
 		t.Errorf("RenderARC missing expected tokens in HTML: %s", arcHTML)
 	}
 }
