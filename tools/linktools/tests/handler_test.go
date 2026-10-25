@@ -105,6 +105,15 @@ func TestOneURLThreeRepresentations(t *testing.T) {
 	}
 }
 
+func TestHeadersPageRender(t *testing.T) {
+	t.Parallel()
+	e := newLinkApp(t, nil, nil)
+	rec := request(t, e, http.MethodGet, "/headers", asHTML)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /headers HTML status = %d, want 200: body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // Nothing typed is a person's normal first step, but a program asking for nothing has a bug to see.
 func TestBareHitIsAFormForABrowserAndAnErrorForAnAPI(t *testing.T) {
 	t.Parallel()
