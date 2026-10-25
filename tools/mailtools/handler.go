@@ -15,7 +15,7 @@ const (
 	maxBIMIPayload = 64 * 1024
 	maxARCPayload  = 256 * 1024
 
-	healthDesc     = "Comprehensive email infrastructure, deliverability, SEG gateway identification, and sender reputation audit."
+	healthDesc     = "All-in-one email deliverability, SEG gateway identification, disposable detection & blacklist audit."
 	disposableDesc = "Detect over 10,000+ throwaway, burner, and temporary email domains powered by the canonical disposable-email-domains database."
 	classifierDesc = "Classify email domains into corporate business accounts versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton)."
 	blacklistDesc  = "Concurrent multi-DNSBL reputation audit querying 15+ global authoritative spam blacklists (Spamhaus, Barracuda, SpamCop, Mailspike) in < 800 ms."
@@ -62,6 +62,7 @@ func Register(e *echo.Echo, base string, guard *platform.EgressGuard, store *Sto
 	heavy := platform.RateLimit(lim.Heavy, nil, limited)
 
 	e.GET("/", h.index, pure)
+	e.GET("/health", h.index, pure)
 	e.POST("/", h.health, heavy)
 	e.POST("/health", h.health, heavy)
 
@@ -104,15 +105,35 @@ func (h *handler) vm(active, heading, desc string) map[string]any {
 }
 
 func (h *handler) index(c *echo.Context) error {
-	vm := h.vm("health", "Email Infrastructure & Deliverability Health Check", healthDesc)
-	return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
+	target := strings.TrimSpace(c.QueryParam("domain"))
+	if target == "" {
+		target = strings.TrimSpace(c.QueryParam("input"))
+	}
+	vm := h.vm("health", "Domain & Email Intelligence Audit", healthDesc)
+	if target == "" {
+		return platform.Reply(c, http.StatusOK, nil, vm, "mail/health", "mail/health-result")
+	}
+
+	report, err := AuditDomainHealth(c.Request().Context(), target, h.guard, h.store, h.dqsKey)
+	if err != nil {
+		return h.badRequest(c, vm, err, "mail/health")
+	}
+
+	vm["Result"] = report
+	return platform.Reply(c, http.StatusOK, report, vm, "mail/health", "mail/health-result")
 }
 
 func (h *handler) health(c *echo.Context) error {
-	vm := h.vm("health", "Email Infrastructure & Deliverability Health Check", healthDesc)
+	vm := h.vm("health", "Domain & Email Intelligence Audit", healthDesc)
 	target := strings.TrimSpace(c.FormValue("domain"))
 	if target == "" {
+		target = strings.TrimSpace(c.FormValue("input"))
+	}
+	if target == "" {
 		target = strings.TrimSpace(c.QueryParam("domain"))
+	}
+	if target == "" {
+		target = strings.TrimSpace(c.QueryParam("input"))
 	}
 	if target == "" {
 		return h.badRequest(c, vm, errors.New("please provide a domain name or email address"), "mail/health")
@@ -133,6 +154,9 @@ func (h *handler) disposable(c *echo.Context) error {
 	if c.Request().Method == http.MethodGet {
 		input := strings.TrimSpace(c.QueryParam("input"))
 		if input == "" {
+			input = strings.TrimSpace(c.QueryParam("domain"))
+		}
+		if input == "" {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/disposable", "mail/disposable-result")
 		}
 		res := ActiveClassifier().Classify(input)
@@ -141,6 +165,9 @@ func (h *handler) disposable(c *echo.Context) error {
 	}
 
 	input := strings.TrimSpace(c.FormValue("input"))
+	if input == "" {
+		input = strings.TrimSpace(c.FormValue("domain"))
+	}
 	if input == "" {
 		return h.badRequest(c, vm, errors.New("please provide an email or domain to verify"), "mail/disposable")
 	}
@@ -156,6 +183,9 @@ func (h *handler) classifier(c *echo.Context) error {
 	if c.Request().Method == http.MethodGet {
 		input := strings.TrimSpace(c.QueryParam("input"))
 		if input == "" {
+			input = strings.TrimSpace(c.QueryParam("domain"))
+		}
+		if input == "" {
 			return platform.Reply(c, http.StatusOK, nil, vm, "mail/classifier", "mail/classifier-result")
 		}
 		res := ActiveClassifier().Classify(input)
@@ -164,6 +194,9 @@ func (h *handler) classifier(c *echo.Context) error {
 	}
 
 	input := strings.TrimSpace(c.FormValue("input"))
+	if input == "" {
+		input = strings.TrimSpace(c.FormValue("domain"))
+	}
 	if input == "" {
 		return h.badRequest(c, vm, errors.New("please provide an email or domain to classify"), "mail/classifier")
 	}
@@ -178,7 +211,16 @@ func (h *handler) blacklist(c *echo.Context) error {
 
 	target := strings.TrimSpace(c.FormValue("target"))
 	if target == "" {
+		target = strings.TrimSpace(c.FormValue("domain"))
+	}
+	if target == "" {
 		target = strings.TrimSpace(c.QueryParam("target"))
+	}
+	if target == "" {
+		target = strings.TrimSpace(c.QueryParam("domain"))
+	}
+	if target == "" {
+		target = strings.TrimSpace(c.QueryParam("ip"))
 	}
 	if target == "" {
 		if c.Request().Method == http.MethodGet {

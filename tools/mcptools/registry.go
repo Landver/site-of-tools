@@ -177,7 +177,8 @@ var coverage = map[Route]Decision{
 
 	{"mail", get, "/"}:             excluded("In-browser email intelligence suite landing page; mail_domain_health serves the audit."),
 	{"mail", post, "/"}:            served("mail_domain_health", "mail_detect_gateway"),
-	{"mail", post, "/health"}:       served("mail_domain_health"),
+	{"mail", get, "/health"}:       served("mail_domain_health"),
+	{"mail", post, "/health"}:      served("mail_domain_health"),
 	{"mail", get, "/disposable"}:    served("mail_check_disposable"),
 	{"mail", post, "/disposable"}:   served("mail_check_disposable"),
 	{"mail", get, "/classifier"}:    served("mail_classify_domain"),

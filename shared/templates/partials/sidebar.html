@@ -177,6 +177,7 @@ class="contents">
           
           <a {{if $isCurrentSec}}href="{{$tool.Path}}"{{else}}href="{{toolURL $sec.Subdomain}}{{$tool.Path}}"{{end}}
              data-tool-item
+             @click="if (window.innerWidth < 768) sidebarOpen = false"
              x-show="isToolMatch('{{$sec.ID}}', '{{$tool.Key}}')"
              data-name="{{$tool.Name}}"
              data-desc="{{$tool.ShortDesc}}"

@@ -11,12 +11,12 @@
       <h1 class="text-2xl font-semibold text-strong">{{.Heading}}</h1>
       <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-medium border border-line bg-surface text-muted">
         <span class="h-1.5 w-1.5 rounded-full bg-ok"></span>
-        Enterprise Feeds & DNSBL
+        All-in-One Deliverability & Security
       </span>
     </div>
     <p class="mt-2 text-sm text-muted">
-      Comprehensive email deliverability, security architecture, and sender reputation audit.
-      Detects Secure Email Gateways (Proofpoint, Microsoft Defender, Google Workspace), BIMI/VMC certificate chains, burner domains, and real-time blacklists.
+      Comprehensive domain intelligence and email infrastructure audit.
+      Analyzes corporate classification, disposable burner risk, Secure Email Gateways (Proofpoint, Defender, Google), SPF &amp; DMARC policies, BIMI/VMC certificate chains, and 15+ real-time DNSBL blacklists.
     </p>
 
     <div class="mt-6">
@@ -26,14 +26,14 @@
         <div class="flex flex-col sm:flex-row gap-2">
           <div class="relative flex-1">
             <input type="text" name="domain" value="{{if .Result}}{{.Result.Domain}}{{end}}"
-                   placeholder="e.g. stripe.com, github.com, or user@company.com" required
+                   placeholder="e.g. stripe.com, mailinator.com, or user@company.com" required
                    class="field w-full text-base sm:text-sm pl-9">
             <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
             </svg>
           </div>
           <button type="submit" class="btn-primary inline-flex items-center justify-center gap-2">
-            <span>Audit Domain</span>
+            <span>Analyze Domain</span>
             <span id="health-spinner" class="htmx-indicator inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white"></span>
           </button>
         </div>
@@ -41,8 +41,9 @@
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span class="text-faint">Try sample:</span>
           <button type="button" @click="$el.closest('form').querySelector('input[name=domain]').value = 'stripe.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">stripe.com</button>
-          <button type="button" @click="$el.closest('form').querySelector('input[name=domain]').value = 'github.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">github.com</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=domain]').value = 'gmail.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">gmail.com</button>
           <button type="button" @click="$el.closest('form').querySelector('input[name=domain]').value = 'mailinator.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">mailinator.com</button>
+          <button type="button" @click="$el.closest('form').querySelector('input[name=domain]').value = 'github.com'; $el.closest('form').requestSubmit();" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong">github.com</button>
         </div>
       </form>
     </div>
@@ -61,61 +62,129 @@
 {{define "mail/health-result"}}
 {{with .Result}}
 <div class="space-y-6">
-  <!-- Top Score Header -->
-  <div class="rounded-lg border border-line bg-surface p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-    <div>
-      <div class="text-xs font-semibold uppercase tracking-wider text-faint">Infrastructure Health Score</div>
-      <div class="mt-1 flex items-baseline gap-3">
-        <span class="text-3xl font-bold {{if ge .OverallScore 80}}text-ok{{else if ge .OverallScore 50}}text-warn{{else}}text-danger{{end}}">
-          {{.OverallScore}}<span class="text-lg font-normal text-faint">/100</span>
-        </span>
-        <span class="font-mono text-base font-semibold text-strong">{{.Domain}}</span>
+
+  <!-- TOP SUMMARY & SCORE BANNER -->
+  <div class="rounded-lg border border-line bg-surface p-5 space-y-4">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-wider text-faint">Overall Infrastructure Health Score</div>
+        <div class="mt-1 flex items-baseline gap-3">
+          <span class="text-3xl font-bold {{if ge .OverallScore 80}}text-ok{{else if ge .OverallScore 50}}text-warn{{else}}text-danger{{end}}">
+            {{.OverallScore}}<span class="text-lg font-normal text-faint">/100</span>
+          </span>
+          <span class="font-mono text-lg font-semibold text-strong">{{.Domain}}</span>
+          <span class="text-xs text-faint">({{if .Gateway}}{{len .Gateway.MXRecords}} MX{{else}}No MX{{end}} · {{.DurationMS}}ms)</span>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        {{if .Classification.IsWhitelisted}}
+          <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border border-ok/30 bg-ok/10 text-ok">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            Tranco Authority Domain
+          </span>
+        {{end}}
+
+        {{if .Gateway}}
+          {{if and (ne .Gateway.Vendor "Self-Hosted / Direct MTA") (ne .Gateway.Vendor "Null MX (RFC 7505 - Rejects All Mail)")}}
+            <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border border-brand/30 bg-brand/10 text-brand-ink">
+              🛡️ {{.Gateway.Vendor}}
+            </span>
+          {{end}}
+        {{end}}
+
+        {{if and .Auth .Auth.HasDMARC}}
+          <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border {{if or (eq .Auth.DMARCPolicy "reject") (eq .Auth.DMARCPolicy "quarantine")}}border-ok/30 bg-ok/10 text-ok{{else}}border-warn/30 bg-warn/10 text-warn{{end}}">
+            🔒 DMARC p={{.Auth.DMARCPolicy}}
+          </span>
+        {{end}}
       </div>
     </div>
-    <div class="flex flex-wrap gap-2">
-      {{if .Classification.IsWhitelisted}}
-        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border border-ok/30 bg-ok/10 text-ok">
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-          Tranco Top Authority Domain
-        </span>
-      {{end}}
-      {{if .Classification.IsDisposable}}
-        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border border-danger/30 bg-danger/10 text-danger">
-          Burner / Disposable Service
-        </span>
-      {{else if .Classification.IsFreemail}}
-        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border border-info/30 bg-info/10 text-info">
-          Free Public Webmail
-        </span>
-      {{else}}
-        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border border-ok/30 bg-ok/10 text-ok">
-          Corporate Business Domain
-        </span>
-      {{end}}
-    </div>
+
+    <!-- PRIMARY IDENTITY VERDICT BANNER -->
+    {{if .Classification.IsDisposable}}
+      <div class="rounded-md border border-danger/40 bg-danger/10 p-3.5 text-danger flex items-start gap-3">
+        <svg class="h-5 w-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <div class="text-xs space-y-0.5">
+          <div class="font-bold text-sm">Disposable / Burner Email Service Detected</div>
+          <p class="text-danger/90">This domain is flagged in canonical disposable blocklists (Mailinator, 10MinuteMail, TempMail). Emails from this domain are ephemeral and represent high fraud/bounce risk for signups.</p>
+        </div>
+      </div>
+    {{else if .Classification.IsFreemail}}
+      <div class="rounded-md border border-info/40 bg-info/10 p-3.5 text-info flex items-start gap-3">
+        <svg class="h-5 w-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/></svg>
+        <div class="text-xs space-y-0.5">
+          <div class="font-bold text-sm">Free Consumer Webmail Provider</div>
+          <p class="text-info/90">Personal public webmail account (e.g. Gmail, Yahoo, Proton, Mail.ru). This is an individual user inbox, not a custom business domain.</p>
+        </div>
+      </div>
+    {{else}}
+      <div class="rounded-md border border-ok/40 bg-ok/10 p-3.5 text-ok flex items-start gap-3">
+        <svg class="h-5 w-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+        <div class="text-xs space-y-0.5">
+          <div class="font-bold text-sm">Verified B2B Corporate Domain</div>
+          <p class="text-ok/90">Custom organization domain with dedicated business email infrastructure. Not listed in any throwaway or public burner directories.</p>
+        </div>
+      </div>
+    {{end}}
   </div>
 
-  <!-- 4-Card Analysis Grid -->
+  <!-- 5-PANEL DETAILED DIAGNOSTIC GRID -->
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-    <!-- Card 1: Gateway & Routing -->
+    <!-- Panel 1: Domain Classification & Anti-Abuse -->
+    <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
+      <div class="flex items-center justify-between border-b border-line pb-2">
+        <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
+          <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+          1. Domain Identity &amp; Anti-Abuse
+        </h3>
+        <span class="font-mono text-xs uppercase font-medium text-strong">{{.Classification.Type}}</span>
+      </div>
+      <div class="text-xs space-y-2">
+        <div class="flex justify-between py-1 border-b border-line/60">
+          <span class="text-faint">Account Classification</span>
+          <span class="font-medium text-strong">
+            {{if .Classification.IsFreemail}}Free Personal Webmail{{else}}Corporate Business Domain{{end}}
+          </span>
+        </div>
+        <div class="flex justify-between py-1 border-b border-line/60">
+          <span class="text-faint">Canonical Disposable Blocklist</span>
+          <span class="{{if .Classification.IsDisposable}}text-danger font-semibold{{else}}text-ok font-medium{{end}}">
+            {{if .Classification.IsDisposable}}⚠️ Flagged as Disposable{{else}}Clean (Not Listed){{end}}
+          </span>
+        </div>
+        <div class="flex justify-between py-1 border-b border-line/60">
+          <span class="text-faint">Whitelist Precedence</span>
+          <span class="{{if .Classification.IsWhitelisted}}text-ok font-semibold{{else}}text-muted{{end}}">
+            {{if .Classification.IsWhitelisted}}Protected Authority Domain{{else}}Standard Domain{{end}}
+          </span>
+        </div>
+        <div class="flex justify-between py-1">
+          <span class="text-faint">Verification Database</span>
+          <span class="text-muted font-mono text-[11px]">41,000+ Curated Providers (Kickbox + Community)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 2: Secure Email Gateway & MX Routing -->
     <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
       <div class="flex items-center justify-between border-b border-line pb-2">
         <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
           <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-          Inbound Security Gateway (SEG)
+          2. Inbound Security Gateway (SEG)
         </h3>
         {{if .Gateway}}
-          <span class="font-mono text-xs font-medium text-strong">{{.Gateway.Vendor}}</span>
+          <span class="font-mono text-xs font-semibold text-strong">{{.Gateway.Vendor}}</span>
         {{end}}
       </div>
       {{if .Gateway}}
         {{if .Gateway.IsNullMX}}
-          <div class="rounded bg-danger/10 p-2.5 text-xs text-danger font-medium">Null MX (RFC 7505) is published: domain does not accept email.</div>
+          <div class="rounded bg-danger/10 p-2.5 text-xs text-danger font-medium">Null MX (RFC 7505) is published: domain deliberately refuses all inbound mail.</div>
         {{else}}
           <div class="text-xs space-y-1">
-            <div class="text-faint">Configured MX Hosts:</div>
-            <div class="space-y-1 font-mono text-[11px]">
+            <div class="text-faint">Inbound MX Records:</div>
+            <div class="space-y-1 font-mono text-[11px] max-h-28 overflow-y-auto">
               {{range .Gateway.MXRecords}}
                 <div class="flex justify-between items-center bg-surface px-2 py-1 rounded border border-line">
                   <span class="truncate">{{.Host}}</span>
@@ -131,27 +200,73 @@
             </div>
           {{end}}
           {{if .Gateway.SecurityFeatures}}
-            <div class="pt-2 border-t border-line text-xs">
-              <span class="text-faint">Gateway Features:</span>
+            <div class="pt-1.5 border-t border-line text-xs">
+              <span class="text-faint">Gateway Defenses:</span>
               <div class="flex flex-wrap gap-1 mt-1">
                 {{range .Gateway.SecurityFeatures}}
-                  <span class="rounded bg-surface px-1.5 py-0.5 text-[11px] text-muted border border-line">{{.}}</span>
+                  <span class="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted border border-line">{{.}}</span>
                 {{end}}
               </div>
             </div>
           {{end}}
         {{end}}
       {{else}}
-        <p class="text-xs text-faint">No MX records discovered for domain.</p>
+        <p class="text-xs text-faint">No MX records discovered for this domain.</p>
       {{end}}
     </div>
 
-    <!-- Card 2: BIMI & VMC Certificate -->
+    <!-- Panel 3: Email Authentication (SPF & DMARC) -->
     <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
       <div class="flex items-center justify-between border-b border-line pb-2">
         <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
-          <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
-          BIMI Brand Indicator & VMC
+          <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          3. Email Authentication (SPF &amp; DMARC)
+        </h3>
+        {{if and .Auth .Auth.HasDMARC}}
+          <span class="rounded px-2 py-0.5 text-xs font-semibold {{if or (eq .Auth.DMARCPolicy "reject") (eq .Auth.DMARCPolicy "quarantine")}}bg-ok/10 text-ok{{else}}bg-warn/10 text-warn{{end}}">
+            DMARC: {{.Auth.DMARCPolicy}}
+          </span>
+        {{else}}
+          <span class="rounded bg-danger/10 px-2 py-0.5 text-xs font-semibold text-danger">No DMARC</span>
+        {{end}}
+      </div>
+      <div class="text-xs space-y-2">
+        <div class="p-2 rounded border border-line bg-surface space-y-1">
+          <div class="flex justify-between items-center">
+            <span class="font-medium text-strong">DMARC Policy (RFC 7489)</span>
+            {{if and .Auth .Auth.HasDMARC}}
+              <span class="font-mono text-[11px] font-semibold {{if or (eq .Auth.DMARCPolicy "reject") (eq .Auth.DMARCPolicy "quarantine")}}text-ok{{else}}text-warn{{end}}">p={{.Auth.DMARCPolicy}}</span>
+            {{else}}
+              <span class="text-danger font-medium text-[11px]">Missing</span>
+            {{end}}
+          </div>
+          {{if and .Auth .Auth.DMARCRecord}}
+            <div class="font-mono text-[10px] text-faint truncate" title="{{.Auth.DMARCRecord}}">{{.Auth.DMARCRecord}}</div>
+          {{end}}
+        </div>
+
+        <div class="p-2 rounded border border-line bg-surface space-y-1">
+          <div class="flex justify-between items-center">
+            <span class="font-medium text-strong">Sender Policy Framework (SPF)</span>
+            {{if and .Auth .Auth.HasSPF}}
+              <span class="font-mono text-[11px] font-semibold text-ok">Active</span>
+            {{else}}
+              <span class="text-warn font-medium text-[11px]">Missing</span>
+            {{end}}
+          </div>
+          {{if and .Auth .Auth.SPFRecord}}
+            <div class="font-mono text-[10px] text-faint truncate" title="{{.Auth.SPFRecord}}">{{.Auth.SPFRecord}}</div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 4: Brand Protection (BIMI & VMC) -->
+    <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
+      <div class="flex items-center justify-between border-b border-line pb-2">
+        <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
+          <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          4. Brand Indicator &amp; VMC (BIMI)
         </h3>
         {{if and .BIMI .BIMI.RecordFound}}
           <span class="inline-flex items-center gap-1 rounded bg-ok/10 px-2 py-0.5 text-xs font-medium text-ok">BIMI1 Active</span>
@@ -188,91 +303,62 @@
             </div>
           {{else}}
             <div class="rounded bg-warn/10 p-2 text-xs text-warn">
-              Missing VMC certificate (a= tag). Gmail and Apple Mail will not display this logo without a verified MVA certificate.
+              Missing VMC certificate (a= tag). Major providers (Gmail, Apple Mail) require a VMC/CMC to display brand logos.
             </div>
           {{end}}
         </div>
       {{else}}
-        <p class="text-xs text-muted">No <code class="font-mono text-strong">default._bimi</code> DNS TXT record found. Senders cannot display authenticated brand logos in recipient webmail clients.</p>
-      {{end}}
-    </div>
-
-    <!-- Card 3: Domain Reputation & Disposable Check -->
-    <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
-      <div class="flex items-center justify-between border-b border-line pb-2">
-        <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
-          <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-          Domain Anti-Abuse Classification
-        </h3>
-        <span class="font-mono text-xs uppercase font-medium text-strong">{{.Classification.Type}}</span>
-      </div>
-      <div class="text-xs space-y-2">
-        <div class="flex justify-between py-1 border-b border-line/60">
-          <span class="text-faint">Canonical Disposable Blocklist</span>
-          <span class="{{if .Classification.IsDisposable}}text-danger font-semibold{{else}}text-ok{{end}}">
-            {{if .Classification.IsDisposable}}Flagged as Disposable{{else}}Clean (Not Listed){{end}}
-          </span>
-        </div>
-        <div class="flex justify-between py-1 border-b border-line/60">
-          <span class="text-faint">Personal Webmail Classifier</span>
-          <span class="{{if .Classification.IsFreemail}}text-info font-medium{{else}}text-strong{{end}}">
-            {{if .Classification.IsFreemail}}Public Free Webmail{{else}}Custom Corporate Domain{{end}}
-          </span>
-        </div>
-        <div class="flex justify-between py-1">
-          <span class="text-faint">Classification Engine</span>
-          <span class="text-muted">In-Memory 35k+ Verified Providers</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Card 4: Multi-DNSBL Blacklists -->
-    <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
-      <div class="flex items-center justify-between border-b border-line pb-2">
-        <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
-          <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
-          Multi-DNSBL Blacklists
-        </h3>
-        {{if .DNSBL}}
-          <span class="text-xs font-semibold {{if eq .DNSBL.ListedCount 0}}text-ok{{else}}text-danger{{end}}">
-            {{.DNSBL.ListedCount}} Listed / {{.DNSBL.TotalChecked}} Checked
-          </span>
-        {{end}}
-      </div>
-      {{if .DNSBL}}
-        <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-          {{range .DNSBL.Results}}
-            <div class="flex items-center justify-between text-xs bg-surface p-1.5 rounded border border-line">
-              <span class="font-medium text-strong truncate">{{.Name}}</span>
-              <div class="flex items-center gap-2 shrink-0 ml-2">
-                {{if .Listed}}
-                  <span class="rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-semibold text-danger">LISTED</span>
-                {{else if .IsWarning}}
-                  <span class="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] text-warn">Notice</span>
-                {{else}}
-                  <span class="rounded bg-ok/10 px-1.5 py-0.5 text-[11px] font-medium text-ok">OK</span>
-                {{end}}
-              </div>
-            </div>
-          {{end}}
-        </div>
-      {{else}}
-        <p class="text-xs text-muted">DNSBL reputation check completed.</p>
+        <p class="text-xs text-muted">No <code class="font-mono text-strong">default._bimi</code> DNS TXT record found. Senders cannot display authenticated brand logos in recipient inboxes.</p>
       {{end}}
     </div>
 
   </div>
 
-  <!-- Recommendations List -->
+  <!-- Panel 5: Real-Time Multi-DNSBL Blacklists Matrix (Full Width) -->
+  <div class="rounded-lg border border-line bg-canvas p-4 space-y-3">
+    <div class="flex items-center justify-between border-b border-line pb-2">
+      <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
+        <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+        5. Real-Time Multi-DNSBL Reputation Matrix
+      </h3>
+      {{if .DNSBL}}
+        <span class="text-xs font-semibold {{if eq .DNSBL.ListedCount 0}}text-ok{{else}}text-danger{{end}}">
+          {{if eq .DNSBL.ListedCount 0}}Clean (0 Listed / {{.DNSBL.TotalChecked}} Checked){{else}}Listed on {{.DNSBL.ListedCount}} / {{.DNSBL.TotalChecked}} Blacklists{{end}}
+        </span>
+      {{end}}
+    </div>
+    {{if .DNSBL}}
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {{range .DNSBL.Results}}
+          <div class="flex items-center justify-between text-xs bg-surface p-2 rounded border border-line">
+            <span class="font-medium text-strong truncate mr-2" title="{{.Description}}">{{.Name}}</span>
+            <div class="flex items-center gap-1.5 shrink-0">
+              {{if .Listed}}
+                <a href="{{.DelistURL}}" target="_blank" rel="noopener" class="rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger hover:underline">LISTED ↗</a>
+              {{else if .IsWarning}}
+                <span class="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] text-warn font-medium">Notice</span>
+              {{else}}
+                <span class="rounded bg-ok/10 px-1.5 py-0.5 text-[10px] font-semibold text-ok">OK</span>
+              {{end}}
+            </div>
+          </div>
+        {{end}}
+      </div>
+    {{else}}
+      <p class="text-xs text-muted">DNSBL reputation check completed.</p>
+    {{end}}
+  </div>
+
+  <!-- RECOMMENDATIONS LIST -->
   {{if .Recommendations}}
     <div class="rounded-lg border border-line bg-surface p-4 space-y-2">
       <h3 class="text-sm font-semibold text-strong flex items-center gap-2">
         <svg class="h-4 w-4 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        Actionable Deliverability & Security Recommendations
+        Actionable Deliverability &amp; Security Recommendations
       </h3>
-      <ul class="space-y-1 text-xs text-muted list-disc list-inside">
+      <ul class="space-y-1.5 text-xs text-muted list-disc list-inside">
         {{range .Recommendations}}
-          <li>{{.}}</li>
+          <li class="leading-relaxed">{{.}}</li>
         {{end}}
       </ul>
     </div>
