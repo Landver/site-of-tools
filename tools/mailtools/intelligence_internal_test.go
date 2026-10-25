@@ -100,101 +100,90 @@ func TestMatchVendor_AllSignatures(t *testing.T) {
 // 2. DNSBL Return Code Semantics (All Codes and Warnings)
 // -----------------------------------------------------------------------------
 
-func TestParseReturnCode_AllSemantics(t *testing.T) {
-	codes := []struct {
+func TestDNSBLDecoders(t *testing.T) {
+	cases := []struct {
+		list        string
+		decode      dnsblDecoder
 		code        string
 		wantListed  bool
 		wantWarning bool
 		wantSubstr  string
 	}{
-		{"127.255.255.254", false, true, "Spamhaus Open Resolver Notice"},
-		{"127.255.255.255", false, true, "Spamhaus Query Limit Exceeded"},
-		{"127.0.0.2", true, false, "Direct UBE spam source / SBL"},
-		{"127.0.0.3", true, false, "Snowshoe spam emitter / CSS"},
-		{"127.0.0.4", true, false, "Botnet / Malware exploit infection / XBL"},
-		{"127.0.0.5", true, false, "Botnet / Malware exploit infection / XBL"},
-		{"127.0.0.6", true, false, "Botnet / Malware exploit infection / XBL"},
-		{"127.0.0.7", true, false, "Botnet / Malware exploit infection / XBL"},
-		{"127.0.0.10", false, true, "Spamhaus PBL Notice"},
-		{"127.0.0.11", false, true, "Spamhaus PBL Notice"},
-		{"127.0.1.2", true, false, "Spam domain (Spamhaus DBL)"},
-		{"127.0.1.4", true, false, "Phishing domain (Spamhaus DBL)"},
-		{"127.0.1.5", true, false, "Malware distribution domain (Spamhaus DBL)"},
-		{"127.0.1.6", true, false, "Botnet C2 domain (Spamhaus DBL)"},
-		{"127.0.1.102", true, false, "Abused legit web host / redirector"},
-		{"127.0.1.103", true, false, "Abused legit web host / redirector"},
-		{"127.0.1.104", true, false, "Abused legit web host / redirector"},
-		{"127.0.0.99", true, false, "Listed in blacklist (code 127.0.0.99)"},
-		{"10.0.0.1", false, false, "Clean / Not Listed"},
-		{"", false, false, "Clean / Not Listed"},
-	}
+		{"Spamhaus", spamhaus, "127.255.255.254", false, true, "Spamhaus Open Resolver Notice"},
+		{"Spamhaus", spamhaus, "127.255.255.255", false, true, "Spamhaus Query Limit Exceeded"},
+		{"Spamhaus", spamhaus, "127.0.0.2", true, false, "Direct UBE spam source / SBL"},
+		{"Spamhaus", spamhaus, "127.0.0.3", true, false, "Snowshoe spam emitter / CSS"},
+		{"Spamhaus", spamhaus, "127.0.0.4", true, false, "Botnet / Malware exploit infection / XBL"},
+		{"Spamhaus", spamhaus, "127.0.0.5", true, false, "Botnet / Malware exploit infection / XBL"},
+		{"Spamhaus", spamhaus, "127.0.0.6", true, false, "Botnet / Malware exploit infection / XBL"},
+		{"Spamhaus", spamhaus, "127.0.0.7", true, false, "Botnet / Malware exploit infection / XBL"},
+		{"Spamhaus", spamhaus, "127.0.0.10", false, true, "Spamhaus PBL Notice"},
+		{"Spamhaus", spamhaus, "127.0.0.11", false, true, "Spamhaus PBL Notice"},
+		{"Spamhaus", spamhaus, "127.0.1.2", true, false, "Spam domain (Spamhaus DBL)"},
+		{"Spamhaus", spamhaus, "127.0.1.4", true, false, "Phishing domain (Spamhaus DBL)"},
+		{"Spamhaus", spamhaus, "127.0.1.5", true, false, "Malware distribution domain (Spamhaus DBL)"},
+		{"Spamhaus", spamhaus, "127.0.1.6", true, false, "Botnet C2 domain (Spamhaus DBL)"},
+		{"Spamhaus", spamhaus, "127.0.1.102", true, false, "Abused legit web host / redirector"},
+		{"Spamhaus", spamhaus, "127.0.1.103", true, false, "Abused legit web host / redirector"},
+		{"Spamhaus", spamhaus, "127.0.1.104", true, false, "Abused legit web host / redirector"},
+		{"Spamhaus", spamhaus, "127.0.0.99", true, false, "Listed in blacklist (code 127.0.0.99)"},
+		{"Spamhaus", spamhaus, "10.0.0.1", false, false, notListed},
+		{"Spamhaus", spamhaus, "", false, false, notListed},
 
-	for _, tc := range codes {
-		res := DNSBLResult{Category: "Clean / Not Listed"}
-		parseReturnCode(&res, tc.code)
-		if res.Listed != tc.wantListed {
-			t.Errorf("parseReturnCode(%q).Listed = %v, want %v", tc.code, res.Listed, tc.wantListed)
-		}
-		if res.IsWarning != tc.wantWarning {
-			t.Errorf("parseReturnCode(%q).IsWarning = %v, want %v", tc.code, res.IsWarning, tc.wantWarning)
-		}
-		if !strings.Contains(res.Category, tc.wantSubstr) {
-			t.Errorf("parseReturnCode(%q).Category = %q, want containing %q", tc.code, res.Category, tc.wantSubstr)
+		{"URIBL", uribl, "127.0.0.1", false, true, "URIBL Notice"},
+		{"URIBL", uribl, "127.0.0.2", true, false, "Black (Spam)"},
+		{"URIBL", uribl, "127.0.0.4", true, false, "Grey (Suspicious)"},
+		{"URIBL", uribl, "127.0.0.8", true, false, "Red (Malware)"},
+		{"URIBL", uribl, "127.0.0.14", true, false, "Black (Spam) / Grey (Suspicious) / Red (Malware)"},
+		{"URIBL", uribl, "127.0.0.0", false, false, notListed},
+
+		{"SURBL", surbl, "127.0.0.1", false, true, "SURBL Notice"},
+		{"SURBL", surbl, "127.0.0.8", true, false, "Phishing"},
+		{"SURBL", surbl, "127.0.0.16", true, false, "Malware"},
+		{"SURBL", surbl, "127.0.0.64", true, false, "Abuse"},
+		{"SURBL", surbl, "127.0.0.0", false, false, notListed},
+
+		// Spamhaus's codes mean nothing to the other lists.
+		{"generic", generic, "127.0.0.10", true, false, "Listed in blacklist (code 127.0.0.10)"},
+		{"generic", generic, "127.0.0.3", true, false, "Listed in blacklist (code 127.0.0.3)"},
+		{"generic", generic, "127.0.0.1", false, true, "Query refused or test loopback"},
+		{"DroneBL", dronebl, "127.0.0.3", true, false, "Listed in DroneBL"},
+		{"DroneBL", dronebl, "127.0.0.10", true, false, "Listed in DroneBL"},
+
+		{"Mailspike", mailspikeRep, "127.0.0.10", true, false, "Bad sender reputation"},
+		{"Mailspike", mailspikeRep, "127.0.0.15", false, true, "Neutral / suspicious"},
+		{"Mailspike", mailspikeRep, "127.0.0.18", false, false, "High sender reputation"},
+		{"Mailspike", mailspikeRep, "127.0.0.2", false, false, notListed},
+	}
+	for _, tc := range cases {
+		res := DNSBLResult{Category: notListed}
+		tc.decode(&res, tc.code)
+		if res.Listed != tc.wantListed || res.IsWarning != tc.wantWarning || !strings.Contains(res.Category, tc.wantSubstr) {
+			t.Errorf("%s %q = listed %v warning %v %q, want %v %v containing %q", tc.list, tc.code,
+				res.Listed, res.IsWarning, res.Category, tc.wantListed, tc.wantWarning, tc.wantSubstr)
 		}
 	}
+}
 
-	// 2.1 URIBL Multi bitmask & administrative notice tests
-	uriblCases := []struct {
-		code        string
-		wantListed  bool
-		wantWarning bool
-		wantSubstr  string
+// A DQS key moves only the Spamhaus zones onto the key's own hosts.
+func TestDNSBLLookups_DQS(t *testing.T) {
+	for _, tc := range []struct {
+		key        string
+		zones      []dnsblZone
+		name       string
+		want0      string
+		wantOthers string
 	}{
-		{"127.0.0.1", false, true, "URIBL Notice"},
-		{"127.0.0.2", true, false, "Black (Spam)"},
-		{"127.0.0.4", true, false, "Grey (Suspicious)"},
-		{"127.0.0.8", true, false, "Red (Malware)"},
-		{"127.0.0.14", true, false, "Black (Spam) / Grey (Suspicious) / Red (Malware)"},
-		{"127.0.0.0", false, false, "Clean / Not Listed"},
-	}
-	for _, tc := range uriblCases {
-		res := DNSBLResult{Zone: "multi.uribl.com", Category: "Clean / Not Listed"}
-		parseReturnCode(&res, tc.code)
-		if res.Listed != tc.wantListed {
-			t.Errorf("URIBL parseReturnCode(%q).Listed = %v, want %v", tc.code, res.Listed, tc.wantListed)
+		{"", ipZones, "2.0.0.127", "2.0.0.127.zen.spamhaus.org.", "2.0.0.127.b.barracudacentral.org."},
+		{"k3y", ipZones, "2.0.0.127", "2.0.0.127.k3y.zen.dq.spamhaus.net.", "2.0.0.127.b.barracudacentral.org."},
+		{"k3y", domainZones, "example.com", "example.com.k3y.dbl.dq.spamhaus.net.", "example.com.multi.surbl.org."},
+	} {
+		lookups := (&Service{dqsKey: tc.key}).dnsblLookups(tc.zones, tc.name, "", "")
+		if lookups[0].qname != tc.want0 || lookups[1].qname != tc.wantOthers {
+			t.Errorf("key %q: asked %q and %q, want %q and %q", tc.key, lookups[0].qname, lookups[1].qname, tc.want0, tc.wantOthers)
 		}
-		if res.IsWarning != tc.wantWarning {
-			t.Errorf("URIBL parseReturnCode(%q).IsWarning = %v, want %v", tc.code, res.IsWarning, tc.wantWarning)
-		}
-		if !strings.Contains(res.Category, tc.wantSubstr) {
-			t.Errorf("URIBL parseReturnCode(%q).Category = %q, want containing %q", tc.code, res.Category, tc.wantSubstr)
-		}
-	}
-
-	// 2.2 SURBL Multi bitmask & administrative notice tests
-	surblCases := []struct {
-		code        string
-		wantListed  bool
-		wantWarning bool
-		wantSubstr  string
-	}{
-		{"127.0.0.1", false, true, "SURBL Notice"},
-		{"127.0.0.8", true, false, "Phishing"},
-		{"127.0.0.16", true, false, "Malware"},
-		{"127.0.0.64", true, false, "Abuse"},
-		{"127.0.0.0", false, false, "Clean / Not Listed"},
-	}
-	for _, tc := range surblCases {
-		res := DNSBLResult{Zone: "multi.surbl.org", Category: "Clean / Not Listed"}
-		parseReturnCode(&res, tc.code)
-		if res.Listed != tc.wantListed {
-			t.Errorf("SURBL parseReturnCode(%q).Listed = %v, want %v", tc.code, res.Listed, tc.wantListed)
-		}
-		if res.IsWarning != tc.wantWarning {
-			t.Errorf("SURBL parseReturnCode(%q).IsWarning = %v, want %v", tc.code, res.IsWarning, tc.wantWarning)
-		}
-		if !strings.Contains(res.Category, tc.wantSubstr) {
-			t.Errorf("SURBL parseReturnCode(%q).Category = %q, want containing %q", tc.code, res.Category, tc.wantSubstr)
+		if lookups[0].result.Zone != tc.zones[0].host {
+			t.Errorf("key %q: reported zone %q, want the public %q", tc.key, lookups[0].result.Zone, tc.zones[0].host)
 		}
 	}
 }

@@ -370,6 +370,16 @@ func TestSyncWorker_CanceledContext(t *testing.T) {
 	mailtools.StartSyncWorker(ctx, 0)
 }
 
+// An IPv6 target is refused in one clear error, before any query.
+func TestDNSBL_IPv6Refused(t *testing.T) {
+	for _, target := range []string{"2001:db8::1", "[2001:db8::25]"} {
+		rep, err := newService(nil).DNSBL(context.Background(), target)
+		if err == nil || !strings.Contains(err.Error(), "IPv6") {
+			t.Errorf("DNSBL(%q) = %+v, %v; want an IPv6 error", target, rep, err)
+		}
+	}
+}
+
 func TestDNSBL_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // canceled before execution
