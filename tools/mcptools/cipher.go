@@ -83,9 +83,14 @@ var cipherTools = map[string]cipherTool{
 	"pkce-verify": {"cipher_pkce_verify", "Verify PKCE challenge against verifier",
 		"Verify whether a code_verifier matches the expected code_challenge using transformation method S256 or plain according to RFC 7636. Example: code_verifier dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk, code_challenge E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM, method S256."},
 	"dpop-generate": {"cipher_dpop_generate", "Generate RFC 9449 DPoP proof",
-		"Generate an RFC 9449 Demonstrating Proof-of-Possession (DPoP) JWT proof binding an HTTP request (htm, htu) to an asymmetric key pair (ES256, RS256 or EdDSA). If no key is provided, an ephemeral P-256 key is generated and the private key returned. ath access token hash and server nonce can be included. Example: htm GET, htu https://api.example.com/resource, alg ES256."},
+		"Generate an RFC 9449 Demonstrating Proof-of-Possession (DPoP) proof: a JWT binding one HTTP request (htm, htu) to a key pair, signed with ES256 (the default), RS256 or EdDSA. " +
+			"Without key a fresh key for alg is made (P-256, RSA-2048 or Ed25519) and its private key returned as PKCS#8 PEM in key, to pass back for the next proof. " +
+			"access_token is the token itself: the proof gets its SHA-256 as ath, and the curl line an Authorization: DPoP header; nonce adds a server's DPoP-Nonce. " +
+			"header and payload come back as JSON objects. Example: htm GET, htu https://api.example.com/resource, alg ES256."},
 	"dpop-verify": {"cipher_dpop_verify", "Verify RFC 9449 DPoP proof JWT",
-		"Validate and verify an RFC 9449 DPoP proof JWT: verifies typ=dpop+jwt header, embedded public JWK (ensuring no private key 'd' is leaked), signature validity, iat freshness within allowed skew leeway, htm HTTP method, htu HTTP URI, and optional access_token ath binding hash. Example: token eyJhbGciOiJFUzI1NiIsInR5cCI6ImRwb3Arand0IiwiandrIjp7...}, htm GET, htu https://api.example.com/resource."},
+		"Check an RFC 9449 DPoP proof against the request it came with: typ dpop+jwt, an asymmetric alg, a header jwk holding only a public key, the signature, htm, " +
+			"htu (query and fragment ignored, scheme and host in any case, the path exact), iat within leeway, a jti, and with access_token its ath. " +
+			"valid means every check passed; refusing a replayed jti and checking a nonce are left to the server. Example: token eyJ0eXAiOiJkcG9wK2p3dCIs…, htm GET, htu https://api.example.com/resource."},
 }
 
 const maxSafeInt = 1<<53 - 1

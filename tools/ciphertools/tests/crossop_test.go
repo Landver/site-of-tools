@@ -31,6 +31,8 @@ func TestEnumFieldsReadLoosely(t *testing.T) {
 		{"pkce-generate", "method", "s256", `method: want S256 or plain, got "BOGUS"`, nil},
 		{"pkce-verify", "method", "PLAIN", `method: want S256 or plain, got "BOGUS"`,
 			url.Values{"code_verifier": {strings.Repeat("a", 43)}, "code_challenge": {"x"}}},
+		{"dpop-generate", "alg", "eddsa", `alg: want ES256, RS256 or EdDSA, got "BOGUS"`,
+			url.Values{"htm": {"GET"}, "htu": {"https://api.example.com"}}},
 	} {
 		for _, v := range []string{c.ok, " BOGUS "} {
 			f := url.Values{c.field: {v}}
