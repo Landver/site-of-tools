@@ -30,7 +30,13 @@
                     placeholder="ARC-Seal: i=1; a=rsa-sha256; d=example.com; s=arc; cv=none;&#10;ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=example.com;&#10;ARC-Authentication-Results: i=1; mx.example.com; dkim=pass (ok); spf=pass"
                     class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Headers}}</textarea>
         </label>
-        <button type="submit" class="btn-primary">Analyze ARC Chain</button>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <button type="submit" class="btn-primary">Analyze ARC Chain</button>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button" data-target="textarea[name=headers]" data-sample="ARC-Seal: i=1; a=rsa-sha256; d=google.com; s=arc-20240605; t=1719234567; cv=none; b=e30=&#10;ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605; h=to:subject:message-id:date:from:mime-version; bh=e30=; b=e30=&#10;ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@github.com header.s=s2023 header.b=pass; spf=pass (google.com: domain of support@github.com designates 192.30.252.204 as permitted sender) smtp.mailfrom=support@github.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Google/GitHub ARC Header</button>
+          </div>
+        </div>
       </form>
     </div>
 

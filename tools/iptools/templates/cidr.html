@@ -13,12 +13,22 @@
     </p>
 
     <!-- Plain GET form: a stateless calculator needs no htmx. -->
-    <form method="get" action="/cidr" class="mt-6 flex gap-2">
-      <input name="cidr" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
-             aria-label="Network in CIDR notation"
-             placeholder="192.168.1.0/24 or 2001:db8::/32"
-             class="field">
-      <button type="submit" class="btn-primary">Calculate</button>
+    <form method="get" action="/cidr" class="mt-6 space-y-2">
+      <div class="flex gap-2">
+        <input name="cidr" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+               aria-label="Network in CIDR notation"
+               placeholder="192.168.1.0/24 or 2001:4860::/32"
+               class="field">
+        <button type="submit" class="btn-primary">Calculate</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample:</span>
+        <button type="button" data-sample="192.168.1.0/24" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">192.168.1.0/24</button>
+        <button type="button" data-sample="10.0.0.0/16" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">10.0.0.0/16</button>
+        <button type="button" data-sample="172.16.0.0/12" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">172.16.0.0/12</button>
+        <button type="button" data-sample="2606:4700::/32" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">2606:4700::/32 (Cloudflare v6)</button>
+        <button type="button" data-sample="8.8.8.0/24" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">8.8.8.0/24 (Google)</button>
+      </div>
     </form>
 
     <details class="mt-4 text-sm">

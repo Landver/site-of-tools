@@ -18,6 +18,13 @@
                       class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
           </label>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button" data-sample="5f4dcc3b5aa765d61d8327deb882cf99" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">MD5 Hash</button>
+            <button type="button" data-sample="$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">bcrypt Hash</button>
+            <button type="button" data-sample="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">SHA-256 Hash</button>
+            <button type="button" data-sample="aGVsbG8gd29ybGQ=" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">Base64</button>
+          </div>
           <button type="submit" class="btn-primary">Identify</button>
         </form>
 

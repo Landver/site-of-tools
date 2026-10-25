@@ -103,7 +103,7 @@ func mailSpecs(d Deps) []toolSpec {
 		"Classify an email address or domain into B2B corporate custom domain versus personal free consumer webmail (Gmail, Yahoo, Mail.ru, Proton, etc.).",
 		false, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.classifyDomain))
 
-	pure("mail_detect_gateway", "Detect Secure Email Gateway (SEG)",
+	heavy("mail_detect_gateway", "Detect Secure Email Gateway (SEG)",
 		"Inspect MX records and fingerprint enterprise security gateways (Proofpoint, Mimecast, Microsoft Defender, Google Workspace, Cisco IronPort, Barracuda) and direct-to-MX bypass risks.",
 		true, inputSchema[mailDomainArgs](minLength("domain", 1)), handle(t.detectGateway))
 

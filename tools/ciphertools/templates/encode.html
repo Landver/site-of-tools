@@ -34,7 +34,15 @@
               </select>
             </label>
           </div>
-          <button type="submit" class="btn-primary">Convert</button>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <button type="submit" class="btn-primary">Convert</button>
+            <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+              <span class="text-faint">Try sample:</span>
+              <button type="button" data-sample="SGVsbG8sIHdvcmxkIQ==" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">Base64</button>
+              <button type="button" data-sample="48656c6c6f2c20576f726c6421" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">Hex</button>
+              <button type="button" data-sample="Hello, World!" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">Plain Text</button>
+            </div>
+          </div>
         </form>
 
         <details class="card text-sm cursor-pointer">

@@ -114,21 +114,8 @@
     });
   }
 
-  // Delegated click handler for "Try sample" chips across all mail forms
+  // Delegated click handler for BIMI auto-fixed SVG download
   document.addEventListener("click", (e) => {
-    const sampleBtn = e.target.closest("[data-sample]");
-    if (sampleBtn) {
-      const form = sampleBtn.closest("form");
-      if (!form) return;
-      const input = form.querySelector("input[name=domain], input[name=input], input[name=target]");
-      if (!input) return;
-      input.value = sampleBtn.dataset.sample;
-      if (form.requestSubmit) form.requestSubmit();
-      else form.submit();
-      return;
-    }
-
-    // Delegated click handler for BIMI auto-fixed SVG download
     const dlBtn = e.target.closest("[data-download-bimi]");
     if (dlBtn) {
       const content = document.querySelector("#bimi-svg-content")?.value;

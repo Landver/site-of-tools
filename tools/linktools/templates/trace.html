@@ -21,21 +21,30 @@
     {{/* Not live: each trace dials out. hx-sync over hx-disabled-elt, which would throw focus to <body>. */}}
     <form action="/trace" hx-get="/trace" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
           hx-trigger="submit, change from:find select" hx-sync="this:queue last"
-          class="mt-6 flex flex-wrap gap-2">
-      <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
-             aria-label="URL to trace" placeholder="http://bit.ly/example"
-             class="field min-w-0 basis-full sm:basis-0">
-      <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
-        <span class="shrink-0">Ask as</span>
-        <select name="ua" class="field min-w-0 flex-1">
-          {{$p := .Persona}}
-          {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
-        </select>
-      </label>
-      <button type="submit" class="btn-primary">
-        <span class="in-[.htmx-request]:hidden">Trace</span>
-        <span class="hidden in-[.htmx-request]:inline" role="status">Following…</span>
-      </button>
+          class="mt-6 space-y-2">
+      <div class="flex flex-wrap gap-2">
+        <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
+               aria-label="URL to trace" placeholder="http://github.com or short link"
+               class="field min-w-0 basis-full sm:basis-0">
+        <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
+          <span class="shrink-0">Ask as</span>
+          <select name="ua" class="field min-w-0 flex-1">
+            {{$p := .Persona}}
+            {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+        </label>
+        <button type="submit" class="btn-primary">
+          <span class="in-[.htmx-request]:hidden">Trace</span>
+          <span class="hidden in-[.htmx-request]:inline" role="status">Following…</span>
+        </button>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample:</span>
+        <button type="button" data-sample="http://github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">http://github.com</button>
+        <button type="button" data-sample="http://google.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">http://google.com</button>
+        <button type="button" data-sample="http://bit.ly/google" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">http://bit.ly/google</button>
+        <button type="button" data-sample="http://t.co" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">http://t.co</button>
+      </div>
     </form>
     {{end}}
 

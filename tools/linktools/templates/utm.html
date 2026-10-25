@@ -23,9 +23,16 @@
       <label class="flex flex-col gap-1 text-sm">
         <span class="text-xs font-medium text-strong">URL to tag</span>
         <input name="u" value="{{.Query}}"{{if not .Query}} autofocus{{end}} autocomplete="off" spellcheck="false"
-               placeholder="https://example.com/landing-page"
+               placeholder="https://github.com/pricing"
                class="field w-full flex-none">
       </label>
+
+      <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample URL:</span>
+        <button type="button" data-sample="https://github.com/pricing" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://github.com/pricing</button>
+        <button type="button" data-sample="https://corpberry.com/blog/dns-security" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">corpberry.com/blog</button>
+        <button type="button" data-sample="https://stripe.com/payments" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">stripe.com/payments</button>
+      </div>
 
       <div class="mt-3 grid gap-3 sm:grid-cols-3">
         {{range .Common}}{{template "link/utmfield" .}}{{end}}

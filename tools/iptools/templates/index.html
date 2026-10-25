@@ -14,13 +14,23 @@
 
     <!-- An empty box is valid: it looks up the visitor's own IP. -->
     <form hx-get="/" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
-          class="mt-6 flex gap-2">
-      <input name="ip" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
-             aria-label="IP address to look up"
-             placeholder="8.8.8.8 or 2001:4860:4860::8888 (empty = your own IP)"
-             class="field">
-      <button type="submit" class="btn-primary">Look up</button>
-      <span class="htmx-indicator self-center text-sm text-faint">…</span>
+          class="mt-6 space-y-2">
+      <div class="flex gap-2">
+        <input name="ip" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+               aria-label="IP address to look up"
+               placeholder="8.8.8.8 or 2001:4860:4860::8888 (empty = your own IP)"
+               class="field">
+        <button type="submit" class="btn-primary">Look up</button>
+        <span class="htmx-indicator self-center text-sm text-faint">…</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample:</span>
+        <button type="button" data-sample="1.1.1.1" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">1.1.1.1</button>
+        <button type="button" data-sample="8.8.8.8" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">8.8.8.8</button>
+        <button type="button" data-sample="2606:4700:4700::1111" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">2606:4700:4700::1111</button>
+        <button type="button" data-sample="140.82.112.4" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">140.82.112.4 (GitHub)</button>
+        <button type="button" data-sample="93.184.216.34" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">93.184.216.34 (Edgecast)</button>
+      </div>
     </form>
 
     <details class="mt-4 text-sm">

@@ -31,21 +31,29 @@
     <div id="panel-url" role="tabpanel" aria-labelledby="tab-url" x-show="tab === 'url'" class="mt-4">
       <form action="/headers" hx-get="/headers" hx-target="#result" hx-swap="innerHTML" hx-push-url="true"
             hx-trigger="submit, change from:find select" hx-sync="this:queue last"
-            class="flex flex-wrap gap-2">
-        <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
-               aria-label="URL to analyze headers" placeholder="https://example.com"
-               class="field min-w-0 basis-full sm:basis-0">
-        <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
-          <span class="shrink-0">Ask as</span>
-          <select name="ua" class="field min-w-0 flex-1">
-            {{$p := .Persona}}
-            {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
-          </select>
-        </label>
-        <button type="submit" class="btn-primary" {{if .Disabled}}disabled{{end}}>
-          <span class="in-[.htmx-request]:hidden">Analyze Headers</span>
-          <span class="hidden in-[.htmx-request]:inline" role="status">Probing…</span>
-        </button>
+            class="space-y-2">
+        <div class="flex flex-wrap gap-2">
+          <input name="u" value="{{.Query}}" autofocus autocomplete="off" spellcheck="false"
+                 aria-label="URL to analyze headers" placeholder="https://cloudflare.com"
+                 class="field min-w-0 basis-full sm:basis-0">
+          <label class="flex flex-1 items-center gap-2 text-sm text-muted sm:flex-none">
+            <span class="shrink-0">Ask as</span>
+            <select name="ua" class="field min-w-0 flex-1">
+              {{$p := .Persona}}
+              {{range .Personas}}<option value="{{.Key}}"{{if eq .Key $p}} selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+          </label>
+          <button type="submit" class="btn-primary" {{if .Disabled}}disabled{{end}}>
+            <span class="in-[.htmx-request]:hidden">Analyze Headers</span>
+            <span class="hidden in-[.htmx-request]:inline" role="status">Probing…</span>
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" data-sample="https://cloudflare.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://cloudflare.com</button>
+          <button type="button" data-sample="https://github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://github.com</button>
+          <button type="button" data-sample="https://developer.mozilla.org" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://developer.mozilla.org</button>
+        </div>
       </form>
     </div>
 
@@ -59,7 +67,14 @@
                     placeholder="HTTP/2 200&#10;content-type: text/html; charset=UTF-8&#10;cache-control: public, max-age=3600, s-maxage=86400&#10;cdn-cache-control: max-age=604800&#10;etag: &quot;33a64df551425fcc55e4d42a148795d9f25f89d4&quot;&#10;strict-transport-security: max-age=31536000; includeSubDomains"
                     class="field mt-1 w-full font-mono text-base sm:text-xs">{{.PastedHeaders}}</textarea>
         </label>
-        <button type="submit" class="btn-primary">Analyze Pasted Headers</button>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <button type="submit" class="btn-primary">Analyze Pasted Headers</button>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button" data-sample="HTTP/2 200 OK&#10;content-type: text/html; charset=UTF-8&#10;cache-control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=600&#10;cdn-cache-control: max-age=604800&#10;etag: W/&quot;d8e8fca2dc0f896fd7cb4cb0031ba249&quot;&#10;strict-transport-security: max-age=31536000; includeSubDomains; preload&#10;x-frame-options: DENY&#10;x-content-type-options: nosniff&#10;permissions-policy: geolocation=(), camera=(), microphone=()" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Fastly / Varnish CDN</button>
+            <button type="button" data-sample="HTTP/2 200 OK&#10;server: cloudflare&#10;cf-cache-status: HIT&#10;cache-control: public, max-age=14400, stale-if-error=86400&#10;strict-transport-security: max-age=15552000; includeSubDomains; preload&#10;cross-origin-opener-policy: same-origin&#10;cross-origin-embedder-policy: require-corp" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Cloudflare Edge</button>
+          </div>
+        </div>
       </form>
     </div>
 

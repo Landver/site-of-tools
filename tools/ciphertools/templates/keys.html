@@ -75,6 +75,12 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out key.pem</pre>
                     placeholder="-----BEGIN PUBLIC KEY-----, {&quot;kty&quot;:&quot;EC&quot;,…}, or ssh-ed25519 AAAA… user@host"
                     class="field mt-1 w-full font-mono text-base sm:text-xs">{{if eq .Op "keys-inspect"}}{{.Form.Get "key"}}{{end}}</textarea>
         </label>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" data-sample="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl user@corpberry" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">OpenSSH Ed25519 Public Key</button>
+          <button type="button" data-sample="-----BEGIN PUBLIC KEY-----&#10;MCowBQYDK2VwAyEA4yqqeRXOubRJ0bpQ6ioouxpuAfkL2iRaLR2HaX0YomU=&#10;-----END PUBLIC KEY-----" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">PEM SPKI Public Key</button>
+          <button type="button" data-sample="{&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;Ed25519&quot;,&quot;x&quot;:&quot;4yqqeRXOubRJ0bpQ6ioouxpuAfkL2iRaLR2HaX0YomU&quot;}" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">RFC 7517 JWK</button>
+        </div>
         <p class="text-xs text-faint">
           Reads PKCS#8, PKCS#1, SEC 1, SPKI and unencrypted OpenSSH PEM, a certificate's key, JWK and JWKS, and
           authorized_keys lines. A private key is converted too, but its private forms stay folded away, and the

@@ -42,6 +42,17 @@
             <input name="expected" value="{{.Form.Get "expected"}}" autocomplete="off" spellcheck="false"
                    placeholder="sha256=… or hex or base64" class="field mt-1 w-full font-mono text-base sm:text-xs">
           </label>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button"
+                    data-sample-text="What do ya want for nothing?"
+                    data-sample-key="Jefe"
+                    class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">RFC 2202 (Jefe)</button>
+            <button type="button"
+                    data-sample-text="{&quot;action&quot;:&quot;opened&quot;,&quot;issue&quot;:{&quot;number&quot;:101,&quot;title&quot;:&quot;Found bug&quot;}}"
+                    data-sample-key="webhook_secret_key"
+                    class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">GitHub Webhook Payload</button>
+          </div>
           <details class="text-xs text-muted">
             <summary class="cursor-pointer hover:text-strong">Checking a GitHub, Stripe or Slack webhook?</summary>
             <p class="mt-1 text-faint">

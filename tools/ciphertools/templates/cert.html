@@ -18,6 +18,11 @@
                       placeholder="-----BEGIN CERTIFICATE-----, a fullchain.pem, -----BEGIN CERTIFICATE REQUEST-----, or MIIF…"
                       class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "cert"}}</textarea>
           </label>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button" data-sample="-----BEGIN CERTIFICATE-----&#10;MIIBGzCB2aADAgECAgECMAsGCWCGSAFlAwQDAjATMREwDwYDVQQDDAhEU0EgUm9v&#10;dDAeFw0yNjA5MjgxMzQ1MjVaFw00NTExMjcxMzQ1MjVaMBYxFDASBgNVBAMMC2Rz&#10;YS5leGFtcGxlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEywQKHsNKIgZSKWmd&#10;WmNN2/hCxsLRVZsBu4nJqkCVU6q6ZwssgVq3rvGFHnen8ITUPQm1+cVw6TLJQXb2&#10;GWZoJaMaMBgwFgYDVR0RBA8wDYILZHNhLmV4YW1wbGUwCwYJYIZIAWUDBAMCAzAA&#10;MC0CFGHSmGaxl82oGla/O5xJZ+g9cd7RAhUAtlt9G7pAOcoHF1uxg8v5PTnU2QE=&#10;-----END CERTIFICATE-----" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">X.509 Leaf Certificate</button>
+            <button type="button" data-sample="-----BEGIN CERTIFICATE REQUEST-----&#10;MIICGzCCAdcCAQAwFjEUMBIGA1UEAwwLZHNhLmV4YW1wbGUwggG2MIIBKwYHKoZI&#10;zjgEATCCAR4CgYEAxPns90673Q19X82l1cVvZWEAmmBvcKZtsjLhkzw+PjWbJsmF&#10;Z2Lj2wTqdo8J2G/Qrpxb2p+WN6t3rhw91rPM12CW312NqPaBO7d1Nq1+LBovBI9X&#10;ifW7lIRDi7Kc5y6zusxcJDI7bmQvHHJZOdbP9f5/NroN3OVQCKzvhVjEFp8CFQDA&#10;yjg9jSUzuMg4aZetzwmn5mvUUwKBgHxV7UFaq2dH/pC1UJxoh9KerBvjcqh5UTQ3&#10;YfCTgywvYrW2tc9lEofNOEh8sqsK6L621fHzx3VChtQPGxp5O66R0N2VXofqgkoQ&#10;OnBG3Ozg48ZX4CSRjxxyH38LxgwIaJP2yqGNZXgigqjH9d0oQ+4QtS15n0zewTUI&#10;HNHm4a+BA4GEAAKBgBdWU9pnHSyFXUiPbh1+ZhZm0cFRZ8aL2r7tq0tc/sQPNMRV&#10;C+ZG9OZY0CgPoplgrEWIy0NTe/+eWDcUduM/4uZTjvnc6PZ4YbTncTkoxhhwxSZE&#10;LGlp3KQAFn9vzlw/+jjJbba550KwANUBo/1RR53ZTDiOk9nHXs/j+jutGdogoAAw&#10;CwYJYIZIAWUDBAMCAzEAMC4CFQCML/8Bp6o4J5Y1SBkcLoWz3s8CZAIVAKK5opJg&#10;gueeXq/u6Fg1TWIyBGUp&#10;-----END CERTIFICATE REQUEST-----" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Certificate Request (CSR)</button>
+          </div>
           <div>
             <span class="block text-sm text-muted">Or pick a file (.pem, .crt, .cer, .der, .csr):</span>
             <div class="mt-1 flex flex-wrap items-center gap-2">

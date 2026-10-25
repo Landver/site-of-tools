@@ -17,6 +17,11 @@
                     class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "secret"}}</textarea>
           <span class="mt-1 block text-xs text-faint">Spaces, dashes and lower case are fine. A pasted URI brings its own settings.</span>
         </label>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" data-sample="JBSWY3DPEHPK3PXP" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">RFC 6238 Seed</button>
+          <button type="button" data-sample="otpauth://totp/GitHub:octocat?secret=JBSWY3DPEHPK3PXP&amp;issuer=GitHub" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">GitHub otpauth:// URI</button>
+        </div>
         <label class="block text-sm text-muted">Code to check <span class="text-faint">(optional)</span>
           <input name="code" value="{{.Form.Get "code"}}" inputmode="numeric" autocomplete="off" spellcheck="false"
                  placeholder="123456" class="field mt-1 w-full font-mono">

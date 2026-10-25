@@ -18,6 +18,12 @@
                       class="field mt-1 w-full font-mono text-base sm:text-xs">
 {{.Form.Get "text"}}</textarea>
           </label>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button" data-sample="The quick brown fox jumps over the lazy dog" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">NIST test vector</button>
+            <button type="button" data-sample="Hello, World!" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Hello, World!</button>
+            <button type="button" data-sample="corpberry:security:2026" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">corpberry:security:2026</button>
+          </div>
           <div class="grid gap-3 sm:grid-cols-[10rem_1fr]">
             <label class="block text-sm text-muted">Text is
               <select name="enc" class="field mt-1 w-full">{{template "cipher/engine-enc-options" (.Form.Get "enc")}}</select>

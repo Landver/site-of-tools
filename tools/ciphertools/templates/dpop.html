@@ -47,11 +47,17 @@ curl {{.Base}}/dpop/verify -d token=eyJ... -d htm=GET -d htu=https://api.example
 
             <label class="block text-sm text-muted">Target HTTP URI (htu)
               <input type="text" name="htu" autocomplete="off" spellcheck="false"
-                     placeholder="https://api.example.com/resource"
-                     value="{{with .Form.Get "htu"}}{{.}}{{else}}https://api.example.com/resource{{end}}"
+                     placeholder="https://api.github.com/user"
+                     value="{{with .Form.Get "htu"}}{{.}}{{else}}https://api.github.com/user{{end}}"
                      class="field mt-1 w-full font-mono text-base sm:text-xs">
               <span class="mt-1 block text-xs text-faint">Must NOT contain query parameters or fragment.</span>
             </label>
+            <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+              <span class="text-faint">Try sample URI:</span>
+              <button type="button" data-sample="https://api.github.com/user" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">api.github.com/user</button>
+              <button type="button" data-sample="https://api.cloudflare.com/client/v4/user" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">api.cloudflare.com</button>
+              <button type="button" data-sample="https://identity.corpberry.com/oauth/token" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">identity.corpberry.com</button>
+            </div>
 
             <label class="block text-sm text-muted">Access token or ath hash <span class="text-faint">(optional)</span>
               <input type="text" name="ath" autocomplete="off" spellcheck="false"

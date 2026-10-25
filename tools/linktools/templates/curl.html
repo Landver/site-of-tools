@@ -38,8 +38,13 @@
                   aria-label="curl command to take apart"
                   placeholder="curl 'https://example.com/api/thing?id=1' -H 'Accept: application/json'"
                   class="field w-full font-mono text-base sm:text-xs">{{.Cmd}}</textarea>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
+        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
           <button type="submit" class="btn-primary">Take it apart</button>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span class="text-faint">Try sample:</span>
+            <button type="button" data-sample="curl -X POST 'https://api.github.com/repos/octocat/Hello-World/issues' -H 'Accept: application/vnd.github+json' -H 'Authorization: Bearer ghp_sample1234567890' -H 'User-Agent: curl/8.4.0' -d '{&quot;title&quot;:&quot;Found a bug&quot;,&quot;body&quot;:&quot;Steps to reproduce&quot;}'" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">GitHub API Issue POST</button>
+            <button type="button" data-sample="curl -X GET 'https://api.cloudflare.com/client/v4/zones?status=active' -H 'Authorization: Bearer c1234567890abcdef' -H 'Content-Type: application/json'" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Cloudflare Zones GET</button>
+          </div>
         </div>
         <p class="mt-2 text-xs text-muted">
           A command copied out of DevTools usually carries a session cookie or a bearer token, and it is shown
@@ -73,6 +78,12 @@
             </select>
           </label>
           <button type="submit" class="btn-primary">Build</button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" data-sample="https://api.github.com/zen" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://api.github.com/zen</button>
+          <button type="button" data-sample="https://cloudflare.com/cdn-cgi/trace" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://cloudflare.com/cdn-cgi/trace</button>
+          <button type="button" data-sample="https://httpbin.org/get" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">https://httpbin.org/get</button>
         </div>
         <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
           <label class="flex items-center gap-2">

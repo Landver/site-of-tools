@@ -30,6 +30,11 @@
           <select name="enc" class="field mt-1 w-full">{{template "cipher/engine-enc-options" (.Form.Get "enc")}}</select>
         </label>
       </div>
+      <div x-show="mode === 'encrypt'" class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample text:</span>
+        <button type="button" data-sample="Confidential message: database password is correct-horse-battery-staple" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Secret Passphrase</button>
+        <button type="button" data-sample="{&quot;secret&quot;:&quot;session_token_12345&quot;,&quot;user&quot;:&quot;admin&quot;}" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">JSON Session Payload</button>
+      </div>
       <div x-show="mode === 'decrypt'" class="grid gap-3 sm:grid-cols-[1fr_12rem]">
         <label class="block text-sm text-muted">Data to decrypt <span class="text-faint">(the combined output)</span>
           <textarea name="data" rows="4" autocomplete="off" spellcheck="false"

@@ -19,13 +19,22 @@
     {{/* Live, like Inspect (see index.html). */}}
     <form action="/encode" hx-get="/encode" hx-target="#result" hx-swap="innerHTML" hx-replace-url="true"
           hx-trigger="submit, input delay:300ms" hx-sync="this:replace"
-          class="mt-6 flex flex-wrap gap-2">
-      {{/* A textarea: a value can hold newlines (JSON, a PEM block, base64). */}}
-      <textarea name="v" rows="1"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
-                data-enter-submits aria-label="Value to encode and decode"
-                placeholder="hello world &amp; friends"
-                class="field field-sizing-content min-h-10 min-w-0 flex-1 resize-y">{{.Value}}</textarea>
-      <button type="submit" class="btn-primary">Convert</button>
+          class="mt-6 space-y-2">
+      <div class="flex flex-wrap gap-2">
+        {{/* A textarea: a value can hold newlines (JSON, a PEM block, base64). */}}
+        <textarea name="v" rows="1"{{if not .Value}} autofocus{{end}} autocomplete="off" spellcheck="false"
+                  data-enter-submits aria-label="Value to encode and decode"
+                  placeholder="hello world &amp; friends"
+                  class="field field-sizing-content min-h-10 min-w-0 flex-1 resize-y">{{.Value}}</textarea>
+        <button type="submit" class="btn-primary">Convert</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample:</span>
+        <button type="button" data-sample="https://api.github.com/search?q=hello world &amp; sort=stars" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">URL with spaces &amp; query</button>
+        <button type="button" data-sample="{&quot;name&quot;:&quot;Alice&quot;,&quot;admin&quot;:true,&quot;email&quot;:&quot;alice@example.com&quot;}" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">JSON payload</button>
+        <button type="button" data-sample="%48%65%6c%6c%6f%2c%20%57%6f%72%6c%64%21" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">%48%65%6c... (Percent-encoded)</button>
+        <button type="button" data-sample="aGVsbG8gd29ybGQ=" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">aGVsbG8... (Base64)</button>
+      </div>
     </form>
 
 

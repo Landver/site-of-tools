@@ -40,30 +40,59 @@
 
     <form hx-get="/{{if ne $a "lookup"}}{{$a}}{{end}}" hx-target="#result" hx-swap="innerHTML" hx-push-url="true" hx-sync="this:replace"
           data-busy="{{if eq $a "lookup"}}Querying every record type…{{else if eq $a "consistency"}}Asking the zone's nameservers directly…{{else if eq $a "trace"}}Walking down from the root…{{else if eq $a "domain"}}Reading the registry record…{{else}}Checking SPF, DMARC, DKIM, MTA-STS…{{end}}"
-          class="mt-6 flex flex-wrap gap-2">
-      <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
-             aria-label="{{if eq $a "lookup"}}Domain name or IP address to look up{{else if eq $a "consistency"}}Domain name to check{{else if eq $a "trace"}}Domain name to trace{{else if eq $a "domain"}}Domain name{{else}}Domain name, or an email address{{end}}"
-             placeholder="{{if eq $a "lookup"}}example.com or an IP{{else if eq $a "email"}}example.com or you@example.com{{else}}example.com{{end}}" class="field basis-full sm:basis-0">
-      {{with .Types}}
-      <select name="type" aria-label="Record type"
-              class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
-        {{if eq $a "lookup"}}<option value="all"{{if not $.QType}} selected{{end}}>All types</option>{{end}}
-        {{range .}}<option value="{{.}}"{{if eq . $.QType}} selected{{end}}>{{.}}</option>{{end}}
-      </select>
-      {{end}}
-      {{with .Resolvers}}
-      <select name="resolver" aria-label="Resolver to query"
-              class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
-        {{range .}}<option value="{{.Key}}"{{if eq .Key $.Resolver}} selected{{end}}>{{.Name}}</option>{{end}}
-      </select>
-      {{end}}
-      <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
-        {{/* One grid cell for both labels: the button keeps its width in flight. */}}
-        <span class="inline-grid">
-          <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">{{if eq $a "trace"}}Trace{{else if or (eq $a "consistency") (eq $a "email")}}Check{{else}}Look up{{end}}</span>
-          <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">{{if eq $a "trace"}}Tracing…{{else if or (eq $a "consistency") (eq $a "email")}}Checking…{{else}}Looking up…{{end}}</span>
-        </span>
-      </button>
+          class="mt-6 space-y-2">
+      <div class="flex flex-wrap gap-2">
+        <input name="name" value="{{.Query}}" {{if not .Query}}autofocus{{end}} required pattern=".*\S.*" title="Enter a domain name" {{if .Error}}aria-invalid="true" aria-describedby="dns-error"{{end}} autocomplete="off" spellcheck="false"
+               aria-label="{{if eq $a "lookup"}}Domain name or IP address to look up{{else if eq $a "consistency"}}Domain name to check{{else if eq $a "trace"}}Domain name to trace{{else if eq $a "domain"}}Domain name{{else}}Domain name, or an email address{{end}}"
+               placeholder="{{if eq $a "lookup"}}cloudflare.com or 1.1.1.1{{else if eq $a "email"}}github.com or you@domain.com{{else}}github.com{{end}}" class="field basis-full sm:basis-0">
+        {{with .Types}}
+        <select name="type" aria-label="Record type"
+                class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
+          {{if eq $a "lookup"}}<option value="all"{{if not $.QType}} selected{{end}}>All types</option>{{end}}
+          {{range .}}<option value="{{.}}"{{if eq . $.QType}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+        {{end}}
+        {{with .Resolvers}}
+        <select name="resolver" aria-label="Resolver to query"
+                class="grow rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:grow-0">
+          {{range .}}<option value="{{.Key}}"{{if eq .Key $.Resolver}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        {{end}}
+        <button type="submit" class="btn-primary grow in-[.htmx-request]:cursor-wait in-[.htmx-request]:opacity-60 sm:grow-0">
+          {{/* One grid cell for both labels: the button keeps its width in flight. */}}
+          <span class="inline-grid">
+            <span class="col-start-1 row-start-1 in-[.htmx-request]:invisible">{{if eq $a "trace"}}Trace{{else if or (eq $a "consistency") (eq $a "email")}}Check{{else}}Look up{{end}}</span>
+            <span class="invisible col-start-1 row-start-1 in-[.htmx-request]:visible">{{if eq $a "trace"}}Tracing…{{else if or (eq $a "consistency") (eq $a "email")}}Checking…{{else}}Looking up…{{end}}</span>
+          </span>
+        </button>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span class="text-faint">Try sample:</span>
+        {{if eq $a "lookup"}}
+          <button type="button" data-sample="cloudflare.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">cloudflare.com</button>
+          <button type="button" data-sample="github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">github.com</button>
+          <button type="button" data-sample="wikipedia.org" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">wikipedia.org</button>
+          <button type="button" data-sample="1.1.1.1" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">1.1.1.1 (Reverse PTR)</button>
+        {{else if eq $a "consistency"}}
+          <button type="button" data-sample="google.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">google.com</button>
+          <button type="button" data-sample="netflix.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">netflix.com</button>
+          <button type="button" data-sample="debian.org" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">debian.org</button>
+          <button type="button" data-sample="cloudflare.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">cloudflare.com</button>
+        {{else if eq $a "trace"}}
+          <button type="button" data-sample="ietf.org" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">ietf.org (DNSSEC)</button>
+          <button type="button" data-sample="cloudflare.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">cloudflare.com</button>
+          <button type="button" data-sample="verisign.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">verisign.com</button>
+          <button type="button" data-sample="nlnetlabs.nl" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">nlnetlabs.nl</button>
+        {{else if eq $a "domain"}}
+          <button type="button" data-sample="github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">github.com</button>
+          <button type="button" data-sample="openai.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">openai.com</button>
+          <button type="button" data-sample="apple.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">apple.com</button>
+        {{else}}
+          <button type="button" data-sample="github.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">github.com</button>
+          <button type="button" data-sample="stripe.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">stripe.com</button>
+          <button type="button" data-sample="google.com" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition font-mono">google.com</button>
+        {{end}}
+      </div>
     </form>
 
     <details class="mt-4 text-sm">

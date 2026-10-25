@@ -33,8 +33,19 @@
                placeholder="https://staging.example.com/search?page=1&amp;q=hello"
                class="field min-w-0">
       </label>
-      <div class="flex flex-wrap items-center gap-2 pl-7">
+      <div class="flex flex-wrap items-center justify-between gap-2 pl-7">
         <button type="submit" class="btn-primary">Compare</button>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button"
+                  data-sample-a="https://api.github.com/repos/owner/repo/pulls?state=open&amp;sort=created&amp;direction=desc&amp;page=1"
+                  data-sample-b="https://staging-api.github.com/repos/owner/repo/pulls?direction=asc&amp;page=1&amp;state=open&amp;sort=updated&amp;filter=all"
+                  class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Prod vs Staging API</button>
+          <button type="button"
+                  data-sample-a="https://corpberry.com/blog/security"
+                  data-sample-b="https://corpberry.com/blog/security?utm_source=twitter&amp;utm_medium=social&amp;utm_campaign=audit&amp;fbclid=123"
+                  class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Clean vs Tracked URL</button>
+        </div>
       </div>
     </form>
 

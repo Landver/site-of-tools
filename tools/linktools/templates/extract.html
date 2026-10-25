@@ -25,8 +25,12 @@
                 aria-label="Text to pull links out of"
                 placeholder="Paste an email body, a Markdown file, an HTML fragment…"
                 class="field w-full font-mono text-base sm:text-xs">{{.Text}}</textarea>
-      <div class="mt-2 flex flex-wrap items-center gap-2">
+      <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
         <button type="submit" class="btn-primary">Pull the links out</button>
+        <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span class="text-faint">Try sample:</span>
+          <button type="button" data-sample="Here are our official resources:&#10;- Read the [API Docs](https://api.github.com) for specs&#10;- Visit [Corpberry Blog](https://corpberry.com/blog?utm_source=docs&amp;fbclid=123) for updates&#10;- Raw link: https://cloudflare.com/cdn-cgi/trace" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Markdown with Mixed Links</button>
+        </div>
       </div>
     </form>
 

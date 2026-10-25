@@ -39,6 +39,11 @@
                         placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMifQ.…"
                         class="field mt-1 w-full font-mono text-base sm:text-xs">{{.Form.Get "token"}}</textarea>
             </label>
+            <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+              <span class="text-faint">Try sample:</span>
+              <button type="button" data-sample="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJyb2xlIjoiYWRtaW4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">RFC 7519 HS256 Token</button>
+              <button type="button" data-sample="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjEifQ.eyJpc3MiOiJodHRwczovL2F1dGguY29ycGJlcnJ5LmNvbS8iLCJzdWIiOiJ1c2VyXzQyIiwiYXVkIjoibXktYXBwIiwiZXhwIjoxOTAwMDAwMDAwLCJlbWFpbCI6ImFsaWNlQGNvcnBiZXJyeS5jb20ifQ.sample" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">OIDC RS256 Payload</button>
+            </div>
             <div class="grid gap-3 sm:grid-cols-[1fr_10rem]">
               <label class="block text-sm text-muted">Secret, key, JWK/JWKS <span class="text-faint">(optional)</span>
                 <textarea name="key" rows="3" autocomplete="off" spellcheck="false"

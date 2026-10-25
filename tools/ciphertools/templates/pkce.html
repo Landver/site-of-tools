@@ -69,7 +69,16 @@ curl {{.Base}}/pkce/verify -d code_verifier=your_verifier -d code_challenge=your
                 <option value="plain" {{if eq (.Form.Get "method") "plain"}}selected{{end}}>plain</option>
               </select>
             </label>
-            <button type="submit" class="btn-primary">Verify Challenge</button>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <button type="submit" class="btn-primary">Verify Challenge</button>
+              <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                <span class="text-faint">Try sample:</span>
+                <button type="button"
+                        data-sample-code_verifier="dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+                        data-sample-code_challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+                        class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">RFC 7636 Vector (S256)</button>
+              </div>
+            </div>
           </form>
         </div>
         <div id="pkce-ver-result" class="lg:col-span-7 min-w-0" aria-live="polite">

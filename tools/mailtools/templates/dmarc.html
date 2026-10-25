@@ -44,7 +44,13 @@
           <div class="mt-2 space-y-2">
             <textarea name="xml" rows="6" placeholder="<feedback>&#10;  <report_metadata>...&#10;</feedback>"
                       class="field w-full font-mono text-base sm:text-xs"></textarea>
-            <button type="submit" class="btn-primary">Parse XML Text</button>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <button type="submit" class="btn-primary">Parse XML Text</button>
+              <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                <span class="text-faint">Try sample:</span>
+                <button type="button" data-target="textarea[name=xml]" data-sample="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; ?&gt;&#10;&lt;feedback&gt;&#10;  &lt;report_metadata&gt;&#10;    &lt;org_name&gt;google.com&lt;/org_name&gt;&#10;    &lt;email&gt;noreply-dmarc-support@google.com&lt;/email&gt;&#10;    &lt;report_id&gt;9876543210123456&lt;/report_id&gt;&#10;    &lt;date_range&gt;&lt;begin&gt;1700000000&lt;/begin&gt;&lt;end&gt;1700086400&lt;/end&gt;&lt;/date_range&gt;&#10;  &lt;/report_metadata&gt;&#10;  &lt;policy_published&gt;&#10;    &lt;domain&gt;corpberry.com&lt;/domain&gt;&#10;    &lt;adkim&gt;r&lt;/adkim&gt;&lt;aspf&gt;r&lt;/aspf&gt;&#10;    &lt;p&gt;reject&lt;/p&gt;&lt;sp&gt;reject&lt;/sp&gt;&lt;pct&gt;100&lt;/pct&gt;&#10;  &lt;/policy_published&gt;&#10;  &lt;record&gt;&#10;    &lt;row&gt;&#10;      &lt;source_ip&gt;209.85.220.41&lt;/source_ip&gt;&#10;      &lt;count&gt;142&lt;/count&gt;&#10;      &lt;policy_evaluated&gt;&#10;        &lt;disposition&gt;none&lt;/disposition&gt;&#10;        &lt;dkim&gt;pass&lt;/dkim&gt;&#10;        &lt;spf&gt;pass&lt;/spf&gt;&#10;      &lt;/policy_evaluated&gt;&#10;    &lt;/row&gt;&#10;    &lt;identifiers&gt;&lt;header_from&gt;corpberry.com&lt;/header_from&gt;&lt;/identifiers&gt;&#10;    &lt;auth_results&gt;&#10;      &lt;dkim&gt;&lt;domain&gt;corpberry.com&lt;/domain&gt;&lt;result&gt;pass&lt;/result&gt;&lt;selector&gt;google&lt;/selector&gt;&lt;/dkim&gt;&#10;      &lt;spf&gt;&lt;domain&gt;corpberry.com&lt;/domain&gt;&lt;result&gt;pass&lt;/result&gt;&lt;/spf&gt;&#10;    &lt;/auth_results&gt;&#10;  &lt;/record&gt;&#10;&lt;/feedback&gt;" class="rounded border border-line bg-surface px-1.5 py-0.5 hover:text-strong hover:border-brand transition">Google DMARC Report XML</button>
+              </div>
+            </div>
           </div>
         </details>
       </form>
