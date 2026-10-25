@@ -78,12 +78,11 @@ func EncodeAll(v string) *EncodeResult {
 	if (r.Kind == KindBase64 || r.Kind == KindJWT) && len(r.Layers) > 0 {
 		switch first := r.Layers[0]; first.Method {
 		case "base64", "base64url", "jwt-payload":
-			first.Value = strings.TrimSuffix(first.Value, jwtUnverified)
 			r.Reading = &first
 		}
 	}
 	r.Ladder = r.Layers
-	if len(r.Ladder) > 0 && r.shown(strings.TrimSuffix(r.Ladder[0].Value, jwtUnverified)) {
+	if len(r.Ladder) > 0 && r.shown(r.Ladder[0].Value) {
 		r.Ladder = r.Ladder[1:]
 	}
 

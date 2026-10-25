@@ -160,7 +160,7 @@
               <ol class="mt-1 space-y-1 border-l border-line pl-3">
                 {{range .Layers}}
                 <li class="text-xs">
-                  <span class="text-muted">{{.Depth}}. {{.Method}}</span>
+                  <span class="text-muted">{{.Depth}}. {{.Method}}{{if eq .Method "jwt-payload"}} (signature not verified: this tool only decodes){{end}}</span>
                   <pre class="mt-0.5 whitespace-pre-wrap wrap-anywhere font-mono text-strong">{{.Value}}</pre>
                 </li>
                 {{end}}
