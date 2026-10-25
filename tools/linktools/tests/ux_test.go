@@ -1,11 +1,13 @@
 package tests
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"html"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,24 +19,48 @@ import (
 
 // Each test pins one UX promise through the real router and templates.
 
-// examplePages have "Try an example" chips; Trace's dial out, so are not followed.
-var examplePages = []string{"/", "/clean", "/diff", "/curl", "/utm", "/encode", "/extract"}
+// samplePages carry "Try sample" chips. A chip fills a field of its own form and submits it,
+// as the handler in shared/templates/partials/head.html does.
+var samplePages = []string{"/", "/clean", "/diff", "/curl", "/utm", "/encode", "/extract", "/headers"}
 
-var exampleHref = regexp.MustCompile(`href="([^"]+)"`)
+var (
+	formBlock = regexp.MustCompile(`(?s)<form\b([^>]*)>(.*?)</form>`)
+	formAttr  = regexp.MustCompile(`\b(method|action)="([^"]*)"`)
+	fieldName = regexp.MustCompile(`<(?:input|textarea)\b[^>]*\bname="([^"]+)"`)
+	chipTag   = regexp.MustCompile(`<button\b[^>]*\bdata-sample[^>]*>`)
+	chipValue = regexp.MustCompile(`\bdata-sample(?:-([a-z]+))?="([^"]*)"`)
+)
 
-func examplesOn(t *testing.T, body string) []string {
-	t.Helper()
-	i := strings.Index(body, "Try an example")
-	if i < 0 {
-		return nil
-	}
-	block := body[i:]
-	if end := strings.Index(block, "</div>"); end >= 0 {
-		block = block[:end]
-	}
-	var out []string
-	for _, m := range exampleHref.FindAllStringSubmatch(block, -1) {
-		out = append(out, html.UnescapeString(m[1]))
+type sampleRequest struct{ method, target, body string }
+
+// sampleRequests is the request each chip on a page submits; a data-sample without a field name fills the
+// form's first field. The live headers fetch dials out, so its chips are left out.
+func sampleRequests(body string) []sampleRequest {
+	var out []sampleRequest
+	for _, f := range formBlock.FindAllStringSubmatch(body, -1) {
+		method, action := http.MethodGet, ""
+		for _, a := range formAttr.FindAllStringSubmatch(f[1], -1) {
+			if a[1] == "method" {
+				method = strings.ToUpper(a[2])
+			} else {
+				action = a[2]
+			}
+		}
+		first := fieldName.FindStringSubmatch(f[2])
+		if first == nil || (action == "/headers" && method == http.MethodGet) {
+			continue
+		}
+		for _, chip := range chipTag.FindAllString(f[2], -1) {
+			v := url.Values{}
+			for _, m := range chipValue.FindAllStringSubmatch(chip, -1) {
+				v.Set(cmp.Or(m[1], first[1]), html.UnescapeString(m[2]))
+			}
+			if method == http.MethodPost {
+				out = append(out, sampleRequest{method, action, v.Encode()})
+			} else {
+				out = append(out, sampleRequest{method, action + "?" + v.Encode(), ""})
+			}
+		}
 	}
 	return out
 }
@@ -57,51 +83,40 @@ func TestHeadingIsThePageNameAlone(t *testing.T) {
 	}
 }
 
-// Every chip lands on a result, not an error or the empty form again.
-func TestEveryExampleLoadsAResult(t *testing.T) {
+// Every sample chip lands on a result, not an error.
+func TestEverySampleLoadsAResult(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
 
-	for _, page := range examplePages {
-		hrefs := examplesOn(t, request(t, e, http.MethodGet, page, asHTML).Body.String())
-		if len(hrefs) == 0 {
-			t.Errorf("%s: an empty page offers no examples", page)
-			continue
+	for _, page := range samplePages {
+		body := request(t, e, http.MethodGet, page, asHTML).Body.String()
+		if !strings.Contains(body, "Try sample") {
+			t.Errorf("%s: the page offers no samples", page)
 		}
-		for _, href := range hrefs {
-			if !strings.HasPrefix(href, page) && !(page == "/" && strings.HasPrefix(href, "/?")) {
-				t.Errorf("%s: example %q leaves the page it was offered on", page, href)
-				continue
+		for _, r := range sampleRequests(body) {
+			req := httptest.NewRequest(r.method, r.target, strings.NewReader(r.body))
+			req.Header.Set("Accept", "text/html")
+			if r.body != "" {
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			}
-			rec := request(t, e, http.MethodGet, href, asHTML)
-			if rec.Code != http.StatusOK {
-				t.Errorf("%s: example %q = %d, want 200", page, href, rec.Code)
-				continue
-			}
-			body := rec.Body.String()
-			if strings.Contains(body, `class="alert-error"`) {
-				t.Errorf("%s: example %q renders an error:\n%s", page, href, truncate(body))
-			}
-			if examplesOn(t, body) != nil {
-				t.Errorf("%s: example %q renders the empty state again, not a result", page, href)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `class="alert-error"`) {
+				t.Errorf("%s: sample %s %.120s = %d, want a result:\n%s", page, r.method, r.target+r.body, rec.Code, truncate(rec.Body.String()))
 			}
 		}
 	}
 }
 
-// An emptied live box gets the empty state, not a blank area or an error.
-func TestClearingTheInputBringsTheExamplesBack(t *testing.T) {
+// An emptied live box swaps in an empty result, not an error.
+func TestClearingTheInputClearsTheResult(t *testing.T) {
 	t.Parallel()
 	e := newLinkApp(t, nil, nil)
 
 	for _, target := range []string{"/?u=", "/clean?u=", "/encode?v=", "/utm?u=", "/diff?a=&b="} {
 		rec := request(t, e, http.MethodGet, target, asHTMX)
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s as htmx = %d, want 200", target, rec.Code)
-			continue
-		}
-		if !strings.Contains(rec.Body.String(), "Try an example") {
-			t.Errorf("%s as htmx did not swap the examples back in:\n%s", target, truncate(rec.Body.String()))
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `class="alert-error"`) {
+			t.Errorf("%s as htmx = %d, want an empty result:\n%s", target, rec.Code, truncate(rec.Body.String()))
 		}
 	}
 }
@@ -446,11 +461,11 @@ func TestEachStateSaysWhatItIs(t *testing.T) {
 	if b := body("/curl?curl="+urlEscape("https://example.com/x"), asJSON); !strings.Contains(b, "Only a URL") {
 		t.Errorf("bare URL pasted as a command: %s", truncate(b))
 	}
-	// Each curl panel offers its own direction's examples.
-	page := body("/curl", asHTML)
-	paste := page[strings.Index(page, `id="result"`):strings.Index(page, `id="result-build"`)]
-	if strings.Contains(paste, "/curl?u=") || !strings.Contains(paste, "/curl?curl=") {
-		t.Errorf("the paste panel's examples are not its own:\n%s", truncate(paste))
+	// Each curl panel offers its own direction's samples: commands to take apart, URLs to build from.
+	for _, r := range sampleRequests(body("/curl", asHTML)) {
+		if (r.method == http.MethodPost) != strings.Contains(r.target+"?"+r.body, "curl=curl") {
+			t.Errorf("a curl sample sits in the other panel: %s %.120s", r.method, r.target+r.body)
+		}
 	}
 
 	// An htmx POST resets the address bar to the bare path.

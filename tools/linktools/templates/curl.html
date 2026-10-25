@@ -54,8 +54,7 @@
       </form>
       <div id="result" class="mt-6" data-result>
         {{if and .Error (not $build)}}{{template "link/error" .}}
-        {{else if .Result}}{{template "link/curled" .}}
-        {{else if not .Curl}}{{template "link/examples" .Examples}}{{end}}
+        {{else if .Result}}{{template "link/curled" .}}{{end}}
       </div>
       </div>
 
@@ -98,8 +97,7 @@
       </form>
       <div id="result-build" class="mt-6" data-result>
         {{if and .Error $build}}{{template "link/error" .}}
-        {{else if .Curl}}{{template "link/curled" .}}
-        {{else if not .Result}}{{template "link/examples" .BuildExamples}}{{end}}
+        {{else if .Curl}}{{template "link/curled" .}}{{end}}
       </div>
       </div>
     </div>
@@ -252,6 +250,5 @@
 <div class="mt-6">{{template "link/parsed" .Inspection}}</div>
 {{end}}
 
-{{if not (or .Curl .Result)}}{{template "link/examples" .EmptyExamples}}{{end}}
 
 {{end}}

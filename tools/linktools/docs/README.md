@@ -112,9 +112,9 @@ new page can follow them:
 - **The answer leads.** The result sits directly under the form, its main
   output first (the clean URL, the final destination, the tagged URL), each
   with a Copy button. Explainer `<details>` go below the result.
-- **Empty pages offer examples.** `examples.go` builds "Try an example" links
-  with `url.Values`; they are the result fragment's empty state, so clearing the
-  input brings them back.
+- **Every form offers samples.** "Try sample" chips under each input, as on
+  every tool page: the shared `data-sample` handler fills the field and submits
+  the form.
 - **Parsing pages are live.** `hx-trigger="submit, input delay:300ms"`,
   `hx-replace-url` (the address bar is always shareable; history gets no entry
   per pause) and `hx-sync="this:replace"`. Trace is the exception: it dials out,
