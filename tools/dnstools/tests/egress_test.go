@@ -26,11 +26,14 @@ func requireEgress(t *testing.T) {
 	}
 }
 
-// A 1ms timeout gives the shape of an egress-blocked host: every type Failed, no error.
+// An expired context or blocked egress gives the shape of a transport failure: every type Failed, no error.
 func TestRequireEgressDetectsATotalFailure(t *testing.T) {
 	t.Parallel()
 
-	set, err := dnstools.NewService(time.Millisecond).LookupSet(context.Background(), "example.com", "cloudflare", []string{"A"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	set, err := dnstools.NewService(time.Millisecond).LookupSet(ctx, "example.com", "cloudflare", []string{"A"})
 	if err != nil {
 		t.Fatalf("transport failure should not surface as an error: %v", err)
 	}

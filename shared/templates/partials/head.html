@@ -178,6 +178,8 @@
           );
         }
         if (!inp) return;
+        var parentDetails = inp.closest("details");
+        if (parentDetails) parentDetails.open = true;
         var val = btn.getAttribute("data-sample");
         if (val === null || val === undefined) val = btn.textContent.trim();
         inp.value = val;
