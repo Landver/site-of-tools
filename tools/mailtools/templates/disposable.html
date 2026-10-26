@@ -20,7 +20,7 @@
 
     <div class="mt-6">
       <form action="/disposable" method="get"
-            hx-get="/disposable" hx-target="#result" hx-swap="innerHTML" hx-indicator="#disp-spinner"
+            hx-get="/disposable" hx-push-url="true" hx-target="#result" hx-swap="innerHTML" hx-indicator="#disp-spinner"
             class="space-y-4">
         <div class="flex flex-col sm:flex-row gap-2">
           <div class="relative flex-1">

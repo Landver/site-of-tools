@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -231,6 +232,9 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "Internal Server Error") {
 			t.Errorf("Internal Server Error in body on [%s] %s: body=%s", tc.Subdomain, tc.Path, rec.Body.String())
 		}
+		if strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
+			auditPage(t, "["+tc.Subdomain+"] "+tc.Path, rec.Body.String())
+		}
 
 		// 2. HTMX Fragment request (only for non-static/SEO)
 		if !strings.HasSuffix(tc.Path, ".xml") && !strings.HasSuffix(tc.Path, ".txt") {
@@ -246,6 +250,23 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 			if strings.Contains(recHTMX.Body.String(), "Internal Server Error") {
 				t.Errorf("Internal Server Error in body on HTMX [%s] %s: body=%s", tc.Subdomain, tc.Path, recHTMX.Body.String())
 			}
+		}
+	}
+}
+
+var formTag = regexp.MustCompile(`(?s)<form\b[^>]*>`)
+
+// auditPage: only htmx writes the address bar, and only for a reply it accepts, so a refused paste or a
+// failed lookup never lands in history; a lookup form must say how its result gets a URL.
+func auditPage(t *testing.T, where, body string) {
+	t.Helper()
+	if head, _, _ := strings.Cut(body, "</head>"); strings.Contains(head, "history.") || strings.Contains(head, "location.search") {
+		t.Errorf("%s: the shared head reads or writes the address bar", where)
+	}
+	for _, form := range formTag.FindAllString(body, -1) {
+		if strings.Contains(form, "hx-get=") && strings.Contains(form, `hx-target="#result"`) &&
+			!strings.Contains(form, "hx-push-url") && !strings.Contains(form, "hx-replace-url") {
+			t.Errorf("%s: a lookup form sets neither hx-push-url nor hx-replace-url, so its result has no URL: %s", where, form)
 		}
 	}
 }

@@ -20,7 +20,7 @@
 
     <div class="mt-6">
       <form action="/classifier" method="get"
-            hx-get="/classifier" hx-target="#result" hx-swap="innerHTML" hx-indicator="#class-spinner"
+            hx-get="/classifier" hx-push-url="true" hx-target="#result" hx-swap="innerHTML" hx-indicator="#class-spinner"
             class="space-y-4">
         <div class="flex flex-col sm:flex-row gap-2">
           <div class="relative flex-1">
