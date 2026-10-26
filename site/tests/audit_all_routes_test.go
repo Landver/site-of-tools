@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -263,7 +264,12 @@ func auditPage(t *testing.T, where, body string) {
 	if head, _, _ := strings.Cut(body, "</head>"); strings.Contains(head, "history.") || strings.Contains(head, "location.search") {
 		t.Errorf("%s: the shared head reads or writes the address bar", where)
 	}
-	for _, form := range formTag.FindAllString(body, -1) {
+	forms := formTag.FindAllString(body, -1)
+	if slices.ContainsFunc(forms, func(f string) bool { return strings.Contains(f, "hx-get=") || strings.Contains(f, "hx-post=") }) &&
+		!strings.Contains(body, "[400, 401, 404, 409, 429, 500, 502, 503]") {
+		t.Errorf("%s: an htmx form without partials/htmx-errors drops every error reply", where)
+	}
+	for _, form := range forms {
 		if strings.Contains(form, "hx-get=") && strings.Contains(form, `hx-target="#result"`) &&
 			!strings.Contains(form, "hx-push-url") && !strings.Contains(form, "hx-replace-url") {
 			t.Errorf("%s: a lookup form sets neither hx-push-url nor hx-replace-url, so its result has no URL: %s", where, form)
