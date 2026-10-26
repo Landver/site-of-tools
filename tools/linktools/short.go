@@ -27,8 +27,7 @@ type Shortener struct {
 	hasKey  bool // false: keyHash is the zero value and must never be compared
 	baseURL string
 
-	// CleanTarget is injected at wiring time. A rule may unwrap ?url= and change the host, so Create
-	// re-validates whatever it returns; left nil, a create asking for clean fails closed.
+	// CleanTarget may unwrap ?url= to another host, so Create re-validates it; nil makes clean fail closed.
 	CleanTarget func(raw string) (cleaned string, removed []string, err error)
 }
 
@@ -162,8 +161,7 @@ func (s *Shortener) Code(input string) (string, bool) {
 	return code, err == nil
 }
 
-// Create validates req, re-validates whatever cleaning returns, and stores the link under req.Slug or a
-// generated code. ip is stored for forensics and never handed back.
+// Create stores a validated link under req.Slug or a generated code; ip is kept for forensics, never shown.
 func (s *Shortener) Create(ctx context.Context, req CreateRequest, ip string) (*Link, error) {
 	if !s.HasKey() {
 		return nil, ErrDisabled
@@ -227,8 +225,7 @@ func parseTTL(ttl string) (time.Duration, error) {
 	return d, nil
 }
 
-// insert stores l under slug, or else under generated codes, inserting and retrying, never
-// checking first: only the unique index can arbitrate the race.
+// insert never checks first, it inserts and retries: only the unique index can arbitrate the race.
 func (s *Shortener) insert(ctx context.Context, l *Link, slug string) error {
 	if slug != "" {
 		code, err := validateSlug(slug)
@@ -270,9 +267,8 @@ func PublicError(err error) (status int, msg string) {
 	return http.StatusInternalServerError, storageFailure
 }
 
-// Resolve enforces expiry against time.Now(), as Mongo's TTL sweep lags a minute or more. Expired,
-// revoked and missing share one error so slugs give no existence oracle, and the scheme is rechecked
-// so a bad stored row can't make the redirect a javascript: dispenser.
+// Resolve enforces expiry itself, as Mongo's TTL sweep lags a minute or more. Expired, revoked and missing
+// share one error (no existence oracle); the scheme is rechecked so a bad row can't redirect to javascript:.
 func (s *Shortener) Resolve(ctx context.Context, code string) (*Link, error) {
 	if s == nil {
 		return nil, ErrDisabled
@@ -307,8 +303,7 @@ func (s *Shortener) RecordHit(code string) {
 	s.store.RecordHit(code)
 }
 
-// Revoke only soft-deletes: a freed custom slug, re-registered elsewhere, would silently redirect
-// every copy of the old link already in people's notes.
+// Revoke only soft-deletes: a freed slug, re-registered, would silently redirect every old copy of the link.
 func (s *Shortener) Revoke(ctx context.Context, code string) error {
 	if !s.HasKey() {
 		return ErrDisabled

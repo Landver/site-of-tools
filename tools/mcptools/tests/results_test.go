@@ -48,8 +48,7 @@ var required = map[string]map[string]any{
 	"site_blog":      {},
 }
 
-// TestEveryToolAnswersAnObject; link_short_resolve needs a store and link_headers_inspect a reachable
-// URL, so TestShortLinksLive and linktools' TestProbeHeadersLiveAndETag cover them.
+// TestEveryToolAnswersAnObject skips the two tools that need a store or a live URL; live tests cover them.
 func TestEveryToolAnswersAnObject(t *testing.T) {
 	cs := newStack(t, stackOpts{}).client(t, "/mcp", nil, nil)
 	for _, name := range toolNames(t, cs) {

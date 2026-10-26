@@ -1,5 +1,4 @@
-// Engine host: a Web Worker, since bcrypt, Argon2 or RSA-4096 take seconds. In: init {wasm, wasmExec} | run {id, op,
-// fields, files}. Out: ready | failed {error} | result {id, html}, exactly one per run: the page waits on it.
+// Runs the engine in a Web Worker (bcrypt, Argon2, RSA-4096 take seconds); each run gets exactly one reply.
 "use strict";
 
 const escapeHTML = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);

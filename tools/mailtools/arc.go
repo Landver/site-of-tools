@@ -15,9 +15,8 @@ const (
 	maxARCHops  = 50 // RFC 8617 §4.2.1
 )
 
-// ARCSummary audits only the structure of an Authenticated Received Chain (RFC 8617).
-// No signature is verified, so ChainValid means structurally intact and FinalCV is the
-// last hop's self-reported cv.
+// ARCSummary audits only the structure of an Authenticated Received Chain (RFC 8617): no signature
+// is verified, so ChainValid means structurally intact and FinalCV is the last hop's self-reported cv.
 type ARCSummary struct {
 	ChainValid  bool      `json:"chain_valid"`
 	ChainLength int       `json:"chain_length"`

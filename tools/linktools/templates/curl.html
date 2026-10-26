@@ -105,8 +105,7 @@
     {{/* Not a live region: see link/live. */}}
     <p id="result-status" class="sr-only" role="status"></p>
 
-    {{/* Keeps the address bar on the shown direction and moves a curl command typed into Build to paste.
-         Must be registered before link/live's listener, which it stops. */}}
+    {{/* Syncs the URL bar; moves a curl typed into Build to paste. Must register before link/live's listener. */}}
     <script>
       (function () {
         var paste = document.getElementById('curl-mode-paste')
@@ -245,8 +244,7 @@
 </section>
 {{end}}
 
-{{/* Inspect's own parse block: .Linkable rides in the Inspection, so the allowlist check stays in one place.
-     No heading: the parse brings its own sections at the same rank. */}}
+{{/* .Linkable rides in .Inspection, so one place checks the allowlist; link/parsed brings its own headings. */}}
 <div class="mt-6">{{template "link/parsed" .Inspection}}</div>
 {{end}}
 

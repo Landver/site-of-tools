@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// A full report row is ~550 bytes of XML, so 2 MB holds ~3,600 of them, far past a
-// typical daily report; the row cap bounds reports made of minimal rows.
+// 2 MB fits ~3,600 full rows (~550 bytes each), far past a daily report; the row cap bounds tiny rows.
 const (
 	maxDMARCPayload = 2 << 20
 	maxDMARCRecords = 5000
@@ -79,8 +78,7 @@ type dmarcAuthXML struct {
 	Result string `xml:"result"`
 }
 
-// DMARCReport is a parsed aggregate report. The fields through PassRatePct summarise the
-// whole report, Providers and Sources roll the rows up by ESP and by IP, Records holds every row.
+// DMARCReport is a parsed aggregate report: totals, the rows rolled up by ESP and by IP, and every row.
 type DMARCReport struct {
 	OrgName       string                 `json:"org_name"`
 	Email         string                 `json:"email"`

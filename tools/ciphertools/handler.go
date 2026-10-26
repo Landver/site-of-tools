@@ -97,8 +97,7 @@ func HeavyWeight(name string, in Input) int64 {
 	return min(max(MemoryCost(name, in), 1<<20), heavyBudget)
 }
 
-// Run runs op for client, a Heavy op holding its HeavyWeight of HeavyCap meanwhile; REST and MCP both
-// come through here. A full budget is platform.ErrBusy.
+// Run serves REST and MCP alike: a Heavy op holds its HeavyWeight of HeavyCap, or gets platform.ErrBusy.
 func (l *Limits) Run(client string, op Op, in Input) (any, error) {
 	if op.Heavy {
 		w := HeavyWeight(op.Name, in)

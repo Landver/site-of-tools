@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// TTLSummary holds the computed freshness lifetime for browser and CDN edge; each Source names the
-// header that set it.
+// TTLSummary holds the browser and CDN edge freshness lifetimes; each Source names the header that set it.
 type TTLSummary struct {
 	BrowserTTLSeconds int    `json:"browser_ttl_seconds"`
 	BrowserTTLHuman   string `json:"browser_ttl_human"`
@@ -59,8 +58,7 @@ type HeaderNote struct {
 	RFC      string `json:"rfc,omitempty"`
 }
 
-// parseDirectives splits "public, max-age=3600" into directives, and maps each name to its first value
-// (RFC 9111 §4.2.1).
+// parseDirectives splits "public, max-age=3600"; the map keeps each name's first value (RFC 9111 §4.2.1).
 func parseDirectives(source, raw string) ([]Directive, map[string]string) {
 	var list []Directive
 	byName := map[string]string{}
@@ -163,8 +161,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 		} else {
 			ttl.BrowserTTLHuman = "0s (expired)"
 		}
-	// Browsers guess only from Last-Modified (RFC 9111 §4.2.2), and only for a status cacheable by default
-	// or a public response; with neither, the response is stale on arrival.
+	// RFC 9111 §4.2.2: browsers guess from Last-Modified only for a status cacheable by default, or public.
 	case lmErr == nil && (statusCode == 0 || heuristicStatus(statusCode) || ttl.Public):
 		ttl.Heuristic = true
 		ttl.BrowserTTLHuman, ttl.BrowserSource = "Heuristic", "Last-Modified"
@@ -172,8 +169,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 		ttl.BrowserTTLHuman, ttl.BrowserSource = "0s (no lifetime given)", "none"
 	}
 
-	// RFC 9213 CDN-Cache-Control replaces Cache-Control for the CDN; then s-maxage, then Surrogate-Control,
-	// then whatever the browser gets. private keeps shared caches out (RFC 9111 §5.2.2.7).
+	// RFC 9213: CDN-Cache-Control beats Cache-Control at the edge, then s-maxage, then Surrogate-Control.
 	ccOnly := len(edge) == 0 && len(surrogate) == 0
 	switch {
 	case has(edge, "no-store"):

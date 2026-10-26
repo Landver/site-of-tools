@@ -1,6 +1,4 @@
-// Mail Engine host: a Web Worker running Go WASM in-browser.
-// In: init {wasm, wasmExec} | run {id, op, fields, files}.
-// Out: ready | failed {error} | result {id, html}.
+// Mail engine host: runs the Go wasm engine in a Web Worker, same message protocol as cipher-worker.js.
 "use strict";
 
 const escapeHTML = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);

@@ -1,5 +1,4 @@
-// mail.corpberry.com page glue: runs each form[data-mail] in the client-side engine (mail-worker.js).
-// Everything runs locally via WebAssembly: zero bytes of reports, SVGs, or headers sent to any server.
+// mail.corpberry.com glue: runs each form[data-mail] in mail-worker.js; nothing is sent to any server.
 (() => {
   "use strict";
 

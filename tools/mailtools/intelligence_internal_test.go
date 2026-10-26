@@ -22,9 +22,7 @@ import (
 	"github.com/Landver/site-of-tools/platform"
 )
 
-// -----------------------------------------------------------------------------
 // 1. Secure Email Gateway: All Vendor Signatures & Feature Detection
-// -----------------------------------------------------------------------------
 
 func TestMatchVendor_AllSignatures(t *testing.T) {
 	cases := []struct {
@@ -94,9 +92,7 @@ func TestMatchVendor_AllSignatures(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
 // 2. DNSBL Return Code Semantics (All Codes and Warnings)
-// -----------------------------------------------------------------------------
 
 func TestDNSBLDecoders(t *testing.T) {
 	cases := []struct {
@@ -186,9 +182,7 @@ func TestDNSBLLookups_DQS(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
 // 3. BIMI Tag Parsing & VMC X.509 Cryptographic Verification
-// -----------------------------------------------------------------------------
 
 func TestParseTXTTags_EdgeCases(t *testing.T) {
 	cases := []struct {
@@ -604,9 +598,7 @@ func TestGrade(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
 // 4. Worker Whitelist Guard & Sanity Checks
-// -----------------------------------------------------------------------------
 
 func TestWorker_WhitelistProtectionRule(t *testing.T) {
 	classifier := NewDomainClassifier(
@@ -643,9 +635,7 @@ func TestWorker_WhitelistProtectionRule(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
 // 5. Engine Error Fallback Rendering
-// -----------------------------------------------------------------------------
 
 func TestEngine_RenderErrorFallback(t *testing.T) {
 	err := fmt.Errorf("synthetic rendering failure")

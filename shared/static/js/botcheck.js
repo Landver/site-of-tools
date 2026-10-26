@@ -1,12 +1,10 @@
-// botcheck collector: gathers client-side signals the server can't see and POSTs them to /check.
-// Every probe goes through safe(), so one failure never aborts collection; scoring stays in Go.
+// botcheck collector: POSTs client-only signals to /check; probes run in safe(), scoring stays in Go.
 (() => {
   "use strict";
 
   const NATIVE_RE = /\{\s*\[native code\]\s*\}/;
 
-  // Automation-only globals. Embedded-runtime markers (CefSharp/CEF) stay out: legit desktop apps
-  // embed those engines, and the UA-side embedded_runtime rule covers them.
+  // Automation-only globals. CEF/CefSharp stay out: desktop apps embed them (UA embedded_runtime rule).
   const WINDOW_MARKERS = [
     "__playwright", "__pw_manual", "__PW_inspect", "_playwright",
     "__pwInitScripts", "__playwright__binding__", // Playwright binding hooks
@@ -69,8 +67,7 @@
     return fns.length > 0 && fns.every((fn) => safe(() => NATIVE_RE.test(tos.call(fn)), false));
   };
 
-  // ── G04: deep native-tamper / lie detection (CreepJS queryLies-style) ───────
-  // Stealth kits swap toString for a lying Proxy, so probe what a lie can't hide; can't run = pass.
+  // ── G04 lie detection: stealth kits fake toString, so probe what a lie can't hide; can't run = pass ──
 
   // Fails to "absent", the conservative answer for every use below.
   const hasOwn = (o, k) => safe(() => Object.hasOwn(o, k), false);
@@ -169,8 +166,7 @@
     });
   }, true);
 
-  // Real chrome.runtime.sendMessage/connect are native non-constructors (G22). A chrome without runtime
-  // passes: Chrome for Testing lacks it too (findings/2026-07-19-multi-framework-matrix-results.md).
+  // G22: runtime.sendMessage/connect must be native non-constructors; Chrome for Testing has no runtime: pass.
   const chromeRuntimeOK = () => safe(() => {
     if (!("chrome" in window)) return true;
     const c = window.chrome;
@@ -256,8 +252,7 @@
     } catch { resolve(false); }
   });
 
-  // ── v4 probes (G15/G21): "env" section, every value fails to ABSENT, never a zero ──
-  // Only matchmedia_missing and netinfo_incoherent score; the rest is entropy (prefs aren't bot tells).
+  // ── v4 "env" probes (G15/G21): fail to ABSENT; only matchmedia_missing and netinfo_incoherent score ──
 
   // matchMedia exists in every real browser, so its absence on a browser UA is a tell (G15).
   const mediaProbe = () => {
@@ -468,8 +463,7 @@
     } catch { resolve(fallback); }
   });
 
-  // Fourth JS context. A blob: URL can't register as a SW, hence /botcheck-sw.js; it answers over a
-  // MessageChannel port so it can't race the global message listener.
+  // Fourth JS context (a blob: URL can't be a SW); a MessageChannel reply can't race the global listener.
   const swProbe = () => new Promise((resolve) => {
     const fallback = { ua: "", languages: [], cores: 0, platform: "", webdriver: false, cdp: false };
     try {
@@ -502,8 +496,7 @@
 
   const uaData = async () => {
     const d = navigator.userAgentData;
-    // fullVersionList is the G01 signal (a "Chrome/NNN" UA edit disagrees with it). Fetching it can
-    // REJECT (NotAllowedError in a sandbox), which safe() can't catch: hence the .catch.
+    // fullVersionList (G01) can reject async (NotAllowedError in a sandbox), which safe() can't catch.
     const hi = await safe(() => d?.getHighEntropyValues?.(["fullVersionList"])?.catch(() => null), null);
     return {
       platform: safe(() => d?.platform ?? "", ""),
@@ -532,8 +525,7 @@
         storageProbe(), permissionsProbe(), emeProbe()],
     );
     return {
-      // Bump when a new field is damning-when-false (a missing key binds false): Go skips those rules
-      // on older payloads, so a stale cached copy of this file never reads as tampered.
+      // Bump when adding a damning-when-false field: Go skips its rules on older v, so stale cached copies pass.
       v: 4,
       webdriver: safe(() => navigator.webdriver === true, false),
       frameworkGlobals: frameworkGlobals(),
@@ -671,8 +663,7 @@
   window.runBotCheck = runBotCheck;
   renderHistory(); // G46: a returning visitor sees their history before the first run
 
-  // Font and media probes read cold at DOMContentLoaded ("no fonts / no codecs"), so wait for load and
-  // fonts.ready, with a timeout so a stalled resource can't leave the page on "analyzing".
+  // Font/media probes read empty before load and fonts.ready; a timeout stops a stall hanging "analyzing".
   let autoStarted = false;
   const autoRun = () => {
     if (autoStarted) return;

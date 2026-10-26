@@ -271,8 +271,7 @@ func TestProbeHeadersLiveAndETag(t *testing.T) {
 	}
 }
 
-// Own hosts and odd ports are refused before any request, a dead target is a fetch failure (502), and a
-// target's long header value comes back clipped as Trace clips it.
+// Own hosts and odd ports are refused before any request, a dead target fails, and long values are clipped.
 func TestProbeHeadersRefusesFailsAndClips(t *testing.T) {
 	tracer := NewTracer(platform.NewEgressGuard([]string{"80", "443"}, []string{"link.corpberry.com"}), 5*time.Second)
 	fetched := 0
@@ -442,8 +441,7 @@ func TestBrowserLifetimeSource(t *testing.T) {
 	}
 }
 
-// The edge card names the header that set its lifetime; private keeps a CDN out unless CDN-Cache-Control
-// speaks for it.
+// The edge card names the header behind its lifetime; private keeps CDNs out unless CDN-Cache-Control is set.
 func TestEdgeLifetimeSource(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -518,8 +516,7 @@ func TestSecurityPageOnlyChecks(t *testing.T) {
 	}
 }
 
-// A paste with request headers in it is refused, naming them but never echoing a value; one built only
-// from response headers that merely look alike is audited.
+// A paste holding request headers is refused by name, never echoing a value; response-only look-alikes pass.
 func TestParseRawHeadersRefusesRequests(t *testing.T) {
 	devtools := "accept: application/vnd.linkedin.normalized+json+2.1\n" +
 		"cookie: bcookie=\"v=2&secret-cookie-value\"; li_at=secret-session\n" +

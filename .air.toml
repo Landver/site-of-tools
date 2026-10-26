@@ -3,13 +3,10 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  # The wasm engine rebuilds too, so a change to tools/ciphertools shows up in the
-  # browser path as well as the JSON API.
+  # Also rebuilds the wasm engines (cipher, mail), so their changes reach the browser, not just the API.
   cmd = "go build -o ./tmp/server . && make -s wasm"
   bin = "./tmp/server"
-  # Only Go changes need a rebuild. In dev (APP_ENV=dev) templates and static
-  # files are read from disk and re-parsed per request, so editing an .html just
-  # needs a browser refresh — no rebuild, no lost state.
+  # Go only: in dev (APP_ENV=dev) templates and static files are re-read per request, so just refresh.
   include_ext = ["go"]
   exclude_dir = ["tmp", "bin", "vendor", "shared/static", "tools/iptools/assets", "docs"]
   exclude_regex = ["_test\\.go"]

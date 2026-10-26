@@ -206,8 +206,7 @@ func TestRateLimitKey(t *testing.T) {
 	if a == c {
 		t.Errorf("addresses in different /64s share a key (%q); that would over-block", a)
 	}
-	// Fail closed: a forged CF-Connecting-IP must not buy a bucket per value. Callers pass the raw IP, so a
-	// /64 key is junk too.
+	// Fail closed: forged CF-Connecting-IP values share one bucket, as does a /64 key (callers pass raw IPs).
 	junk := platform.RateLimitKey("not an ip")
 	for _, in := range []string{"", "also junk", "999.1.1.1", "8.8.8.8:53", "10.0.0.0/8", "2001:db8::/48", a} {
 		if got := platform.RateLimitKey(in); got != junk {

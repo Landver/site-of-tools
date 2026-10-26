@@ -271,8 +271,7 @@ func ParseOTPURI(raw string) (*OTPSettings, []Warning, error) {
 	return s, notes, nil
 }
 
-// BuildOTPURI writes the label as "issuer:account" with only that ':' literal,
-// and spaces as %20: the Key Uri Format asks for it, and some apps show '+'.
+// BuildOTPURI writes "issuer:account" with only that ':' literal and spaces as %20; some apps show '+' as is.
 func BuildOTPURI(s *OTPSettings) string {
 	label := strings.Trim(otpEscape(s.Issuer)+":"+otpEscape(s.Account), ":") // the escaped parts hold no ':'
 	uri := "otpauth://" + s.Type + "/" + label + "?secret=" + b32raw.EncodeToString(s.Secret)
