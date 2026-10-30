@@ -148,6 +148,12 @@ func TestDNSBLDecoders(t *testing.T) {
 		{"Mailspike", mailspikeRep, "127.0.0.15", false, true, "Neutral / suspicious"},
 		{"Mailspike", mailspikeRep, "127.0.0.18", false, false, "High sender reputation"},
 		{"Mailspike", mailspikeRep, "127.0.0.2", false, false, notListed},
+
+		{"SPFBL", spfbl, "127.0.0.2", true, false, "Bad reputation confirmed by complaints"},
+		{"SPFBL", spfbl, "127.0.0.3", false, true, "SPFBL Notice"},
+		{"SPFBL", spfbl, "127.0.0.4", false, true, "No mail service identified"},
+		{"SPFBL", spfbl, "127.0.0.5", false, true, "SPFBL Notice"},
+		{"SPFBL", spfbl, "127.0.0.9", true, false, "Listed in blacklist (code 127.0.0.9)"},
 	}
 	for _, tc := range cases {
 		res := DNSBLResult{Category: notListed}
