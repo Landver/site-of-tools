@@ -237,6 +237,7 @@ var ruleFirePaths = map[string]func() botcheck.Signals{
 	},
 
 	// ── Soft heuristics (fire alone; only bite score at ≥3 cluster) ─────────────
+	"ip_probed":       func() botcheck.Signals { s := cleanChrome(); s.IPProbed = true; return s },
 	"empty_plugins":   func() botcheck.Signals { s := cleanChrome(); s.Plugins = 0; return s },
 	"empty_languages": func() botcheck.Signals { s := cleanChrome(); s.Languages = []string{}; return s },
 	"default_geometry": func() botcheck.Signals {
@@ -774,6 +775,9 @@ func TestIPBlocklistedRule(t *testing.T) {
 		{"deliberate source, no count, bypasses floor", func(s *botcheck.Signals) {
 			s.IPBlocklistSources, s.IPBlocklistDeliberate = []string{"rate-limiter"}, true
 		}, true, "suspicious"},
+		{"probe list only: soft ip_probed, never a ban", func(s *botcheck.Signals) {
+			s.IPBlocklistSources, s.IPProbed = []string{"corpberry-honeypot"}, true
+		}, false, "human"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

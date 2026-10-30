@@ -1,0 +1,51 @@
+{{define "ip/probes"}}
+<!DOCTYPE html>
+<html lang="en">
+{{template "partials/head" .}}
+<body>
+  {{template "partials/header" .}}
+
+  <main id="main" tabindex="-1" class="page-main">
+    <h1 class="text-2xl font-semibold text-strong">Probes</h1>
+    <p class="mt-2 text-sm text-muted">
+      Addresses that asked this site for secret files (<code>/.env</code>, <code>/.git/config</code>, <code>.php</code>…)
+      in the last 30 days. Each stays flagged in the IP lookup and Bot Check for 30 days after its latest probe.
+      Never blocked: a shared address carries real visitors too.
+    </p>
+
+    {{if .Error}}
+    <div class="card mt-6 text-sm text-muted">{{.Error}}</div>
+    {{else}}{{with .Stats}}
+    <p class="mt-6 text-sm text-muted"><span class="font-mono text-2xl font-bold text-strong">{{.IPs}}</span> addresses listed</p>
+    <div class="mt-4 grid gap-4 lg:grid-cols-3">
+      <div class="card">
+        <div class="eyebrow">networks</div>
+        <table class="w-full text-sm">
+          {{range .Networks}}<tr class="border-b border-line/60"><td class="py-1.5 pr-3">{{if .Key}}<span class="font-mono">AS{{.Key}}</span> {{.Name}}{{else}}<span class="text-faint">unknown</span>{{end}}</td><td class="py-1.5 text-right font-mono">{{.IPs}}</td></tr>
+          {{else}}<tr><td class="py-1.5 text-faint">none</td></tr>{{end}}
+        </table>
+      </div>
+      <div class="card">
+        <div class="eyebrow">countries</div>
+        <table class="w-full text-sm">
+          {{range .Countries}}<tr class="border-b border-line/60"><td class="py-1.5 pr-3">{{if .Key}}{{.Name}} <span class="text-faint">({{.Key}})</span>{{else}}<span class="text-faint">unknown</span>{{end}}</td><td class="py-1.5 text-right font-mono">{{.IPs}}</td></tr>
+          {{else}}<tr><td class="py-1.5 text-faint">none</td></tr>{{end}}
+        </table>
+        <p class="mt-2 text-xs text-faint">Where the address is hosted: a cloud server shows its data-center region, not its operator.</p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">pools · /24 and /48</div>
+        <table class="w-full text-sm">
+          {{range .Pools}}<tr class="border-b border-line/60"><td class="py-1.5 pr-3"><a href="/cidr?cidr={{.Key}}" class="link-brand font-mono">{{.Key}}</a> <span class="text-faint">{{.Name}}</span></td><td class="py-1.5 text-right font-mono">{{.IPs}}</td></tr>
+          {{else}}<tr><td class="py-1.5 text-faint">no pool holds two listed addresses</td></tr>{{end}}
+        </table>
+      </div>
+    </div>
+    <p class="mt-4 text-xs font-mono text-faint">JSON: curl https://ip.corpberry.com/probes</p>
+    {{end}}{{end}}
+  </main>
+
+  {{template "partials/footer" .}}
+</body>
+</html>
+{{end}}

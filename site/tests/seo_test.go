@@ -77,9 +77,9 @@ func TestRobotsAllowsAllAndPointsAtSitemap(t *testing.T) {
 	if !strings.Contains(body, "Sitemap: https://corpberry.com/sitemap.xml") {
 		t.Errorf("robots.txt should advertise the sitemap, got:\n%s", body)
 	}
-	// This site wants to be indexed and cited: nothing may be disallowed.
-	if strings.Contains(body, "Disallow: /") {
-		t.Errorf("robots.txt must not disallow crawling, got:\n%s", body)
+	// This site wants to be indexed and cited: only the probe paths may be disallowed.
+	if strings.Contains(body, "Disallow: /\n") || !strings.Contains(body, "Disallow: /*.php\n") {
+		t.Errorf("robots.txt must disallow only probe paths, got:\n%s", body)
 	}
 }
 

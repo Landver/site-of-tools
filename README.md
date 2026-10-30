@@ -7,7 +7,7 @@
 [![MCP Enabled](https://img.shields.io/badge/MCP-40%2B%20tools-8A2BE2)](https://mcp.corpberry.com)
 [![Privacy: No Ads / No Tracking](https://img.shields.io/badge/privacy-no%20ads%20%7C%20no%20analytics-success)](https://corpberry.com)
 
-A high-performance, privacy-first web utility and diagnostic suite. **36 specialized tools across 7 subdomains**, plus a full **Model Context Protocol (MCP)** server for AI agents — all served by a **single standalone Go binary** with zero external runtime dependencies.
+A high-performance, privacy-first web utility and diagnostic suite. **37 specialized tools across 7 subdomains**, plus a full **Model Context Protocol (MCP)** server for AI agents — all served by a **single standalone Go binary** with zero external runtime dependencies.
 
 ---
 
@@ -22,11 +22,11 @@ A high-performance, privacy-first web utility and diagnostic suite. **36 special
 
 ---
 
-## Tools Suite (36 Tools across 7 Subdomains)
+## Tools Suite (37 Tools across 7 Subdomains)
 
 ### [Bot Check](https://botcheck.corpberry.com) (`botcheck.corpberry.com`)
 A transparent browser automation and bot-detection self-test:
-- **68 Heuristic Signals**: Evaluates client-side navigator properties, CDP runtime tells, WebGL parameters, automation flags, HTTP headers, and IP reputation.
+- **69 Heuristic Signals**: Evaluates client-side navigator properties, CDP runtime tells, WebGL parameters, automation flags, HTTP headers, and IP reputation.
 - **Scoring & Verdict**: Scores browsers 0–100 (human / suspicious / automated / verified good-bot).
 - **Transparency**: Explains exactly what triggered each flag, caveats, and false-positive risks.
 
@@ -58,6 +58,7 @@ Parallel global DNS inspection and security auditing:
 Network diagnostics and IP intelligence:
 - **IP Lookup & Threat Intel**: Geolocation (IP2Location LITE), ASN network owner, proxy/VPN detection, and Spamhaus DROP check.
 - **Subnet Calculator**: IPv4 & IPv6 CIDR calculations, usable host ranges, netmasks, and wildcard masks.
+- **Probes**: Who probed this site for secret files in the last 30 days, by network, country and address pool. Flagged in lookups and Bot Check, never blocked.
 - **Lookup History**: Local audit log of previous queries.
 
 ### [Link Tools](https://link.corpberry.com) (`link.corpberry.com`)

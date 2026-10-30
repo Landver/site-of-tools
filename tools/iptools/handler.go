@@ -219,5 +219,5 @@ func (r *Result) ConnNetwork() platform.ConnNetwork {
 
 // SitemapPages leaves out /history: transient third-party IPs with no search value.
 func SitemapPages() ([]platform.Page, error) {
-	return []platform.Page{{Path: "/"}, {Path: "/cidr"}}, nil
+	return []platform.Page{{Path: "/"}, {Path: "/cidr"}, {Path: "/probes"}}, nil
 }

@@ -73,9 +73,9 @@ func TestRobotsAdvertisesOwnHostSitemap(t *testing.T) {
 	if !strings.Contains(body, "Sitemap: https://botcheck.corpberry.com/sitemap.xml") {
 		t.Errorf("robots.txt should advertise this host's sitemap, got:\n%s", body)
 	}
-	// These sites exist to be indexed and cited: nothing may be disallowed.
-	if strings.Contains(body, "Disallow: /") {
-		t.Errorf("robots.txt must not disallow crawling, got:\n%s", body)
+	// These sites exist to be indexed and cited: only the probe paths may be disallowed.
+	if strings.Contains(body, "Disallow: /\n") || !strings.Contains(body, "Disallow: /.\n") || !strings.Contains(body, "Allow: /.well-known/") {
+		t.Errorf("robots.txt must disallow only probe paths, got:\n%s", body)
 	}
 }
 

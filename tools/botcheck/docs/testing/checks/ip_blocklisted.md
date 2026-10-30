@@ -21,7 +21,7 @@ Fire logic (domain-pure, [`scoring.go`](../../../scoring.go)):
 
 - **not listed / corpus off** → empty sources → silent (never evidence, same contract as fingerprint-corpus rules).
 - **ipsum-only** → fires only when `count ≥ ipsumBlocklistFloor` (3), matching ipsum README recommendation for auto-ban list. Below that, single feed's take too weak to dock a real human on recycled residential address.
-- **deliberate ban** (any source other than automatic `ipsum` feed — incl `spamhaus-drop`) → fires regardless of count.
+- **deliberate ban** (any source but automatic `ipsum` feed & this site's probe list — incl `spamhaus-drop`) → fires regardless of count. Probe list feeds soft [`ip_probed`](ip_probed.md) instead.
 
 Consistency-tier (weight 25): server-observed, not client-spoofable, same class as `datacenter_ip` / `proxy_ip`. Suppressed for verified good bots via `suppressedForGoodBot` — verified crawler egress can legitimately land on abuse list (shared cloud ranges, recycled addresses), so deduction recorded, not counted, exactly like its datacenter/proxy hits. Roadmap item G37 (see [ip-reputation.md](../../roadmap/ip-reputation.md)); storage + sync detail: [storage.md](../../storage.md).
 

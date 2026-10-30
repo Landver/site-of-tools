@@ -33,10 +33,11 @@ func RegisterSEO(e *echo.Echo, base string, pages func() ([]Page, error)) {
 			append([]byte(xml.Header), out...))
 	})
 
-	// These sites exist to be indexed and cited, so no agent is excluded.
+	// These sites exist to be indexed and cited, so no agent is excluded. Only probe paths are, so an honest
+	// crawler following someone's link to /.env never lands on the probe list.
 	e.GET("/robots.txt", func(c *echo.Context) error {
-		return c.String(http.StatusOK,
-			"User-agent: *\nAllow: /\n\nSitemap: "+base+"/sitemap.xml\n")
+		return c.String(http.StatusOK, "User-agent: *\nAllow: /\nAllow: /.well-known/\nDisallow: /.\nDisallow: /*/.\n"+
+			"Disallow: /*.php\n\nSitemap: "+base+"/sitemap.xml\n")
 	})
 }
 

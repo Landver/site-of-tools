@@ -118,6 +118,7 @@ var coverage = map[Route]Decision{
 	{"ip", get, "/"}:        served("ip_lookup"),
 	{"ip", get, "/cidr"}:    served("ip_cidr"),
 	{"ip", get, "/history"}: excluded("A page reading this browser's localStorage; the server keeps no history."),
+	{"ip", get, "/probes"}:  excluded("Site telemetry, not a lookup: who probed corpberry.com. ip_lookup already reports a listed IP."),
 
 	{"botcheck", get, "/"}:               served("botcheck_score"),
 	{"botcheck", post, "/check"}:         served("botcheck_score"),

@@ -13,7 +13,7 @@
         "fired": 0
       },
       "soft": {
-        "evaluated": 28,
+        "evaluated": 29,
         "skipped": 1,
         "fired": 1
       }
@@ -39,7 +39,7 @@
         "fired": 0
       },
       "soft": {
-        "evaluated": 28,
+        "evaluated": 29,
         "skipped": 1,
         "fired": 4
       }
@@ -68,7 +68,7 @@
         "fired": 1
       },
       "soft": {
-        "evaluated": 28,
+        "evaluated": 29,
         "skipped": 1,
         "fired": 1
       }
@@ -95,7 +95,7 @@
         "fired": 1
       },
       "soft": {
-        "evaluated": 28,
+        "evaluated": 29,
         "skipped": 1,
         "fired": 1
       }
@@ -125,7 +125,7 @@
           "fired": 6
         },
         "soft": {
-          "evaluated": 28,
+          "evaluated": 29,
           "skipped": 1,
           "fired": 5
         }
@@ -446,6 +446,13 @@
           "skipped": true
         },
         {
+          "id": "ip_probed",
+          "label": "Egress IP probed this site for secret files",
+          "tier": "soft",
+          "weight": 8,
+          "triggered": false
+        },
+        {
           "id": "empty_plugins",
           "label": "No browser plugins",
           "tier": "soft",
@@ -760,7 +767,7 @@
         "fired": 2
       },
       "soft": {
-        "evaluated": 28,
+        "evaluated": 29,
         "skipped": 1,
         "fired": 1
       }

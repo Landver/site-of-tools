@@ -2,7 +2,7 @@
 
 *(part of [testing index](../README.md), see [botcheck docs index](../../README.md))*
 
-One file per impl check (`tools/botcheck/scoring.go` `rules`, 68 total — counted via `why` expander on live result page, one per rendered check, not historic per-rule-ID reserved-slot count in `report.go`). Each file = single place for all re that check: **what it checks** (logic, mirrored from `report.go`), **origin & history** (which `G##` roadmap item shipped it, when, why, tried & rejected), **test status** (verified/evaded/fixed/untested vs real automation), **Go scorer coverage** (which unit tests exercise it). Elsewhere that used to carry per-check — `roadmap/*.md`, `changelog.md`, `findings/*.md`, `next-steps.md` — now points here, not restating; those keep only cross-cutting (competitor comparisons, cross-framework audits, items w/ no shipped check yet).
+One file per impl check (`tools/botcheck/scoring.go` `rules`, 69 total — counted via `why` expander on live result page, one per rendered check, not historic per-rule-ID reserved-slot count in `report.go`). Each file = single place for all re that check: **what it checks** (logic, mirrored from `report.go`), **origin & history** (which `G##` roadmap item shipped it, when, why, tried & rejected), **test status** (verified/evaded/fixed/untested vs real automation), **Go scorer coverage** (which unit tests exercise it). Elsewhere that used to carry per-check — `roadmap/*.md`, `changelog.md`, `findings/*.md`, `next-steps.md` — now points here, not restating; those keep only cross-cutting (competitor comparisons, cross-framework audits, items w/ no shipped check yet).
 
 One reserved rule ID, no active check yet: `system_color_headless` (see [go-test-suite.md](../../go-test-suite.md)); no file here til it lands.
 
@@ -113,14 +113,15 @@ Rule logic = straight passthrough (already exercised by Go fixtures); this local
 | [`datacenter_ip`](datacenter_ip.md) | consistency | 30 |
 | [`proxy_ip`](proxy_ip.md) | consistency | 20 |
 
-## Server-side corpus rule — no browser-observable trigger (2)
+## Server-side corpus rule — no browser-observable trigger (3)
 
-`ip_fingerprint_churn` (G43, shipped 2026-07-21) & `ip_blocklisted` (G37, shipped 2026-07-21) both fire from Mongo corpus keyed on connecting IP, not anything browser emits, so real-automation testing doesn't apply as it does to client checks. Covered by Go domain fixtures & live-Mongo integration round-trips instead — see their files.
+`ip_fingerprint_churn` (G43), `ip_blocklisted` (G37) & `ip_probed` all fire from Mongo corpus keyed on connecting IP, not anything browser emits, so real-automation testing doesn't apply as it does to client checks. Covered by Go domain fixtures & live-Mongo integration round-trips instead — see their files.
 
 | Check | Tier | Weight |
 |---|---|---|
 | [`ip_fingerprint_churn`](ip_fingerprint_churn.md) | soft | 8 |
 | [`ip_blocklisted`](ip_blocklisted.md) | consistency | 25 |
+| [`ip_probed`](ip_probed.md) | soft | 8 |
 
 ## Not yet tested against real automation (0)
 

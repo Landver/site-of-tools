@@ -62,10 +62,12 @@ names, snake_case bson):
 | `meta` | source-specific extras, so nothing a richer feed carried is lost (ipsum stashes feed timestamp + URL; Spamhaus DROP stashes copyright notice + timestamp + terms URL + per-record sblid/rir) |
 | `created_at` | set once, on first insert (immutable — via `$setOnInsert`) |
 | `updated_at` | refreshed on every touch; drives TTL |
+| `expires_at` | optional own deletion date (probe list: 30 days after latest probe); feeds leave it unset |
 
 **Indexes:** a **TTL** on `updated_at` (60 days — owner's spec: entry not
 refreshed within two months self-prunes, so reputation decays once IP falls
-off every feed), a **unique `(ip, source)`** compound, and a **sparse
+off every feed), a second **TTL** on `expires_at` (`expireAfterSeconds: 0`: Mongo
+deletes each doc at its own date), a **unique `(ip, source)`** compound, and a **sparse
 `(range_start, range_end)`** compound (only netblock entries carry those
 fields, so sparse keeps ~100k-plus single-IP rows out of it). Unique
 compound = the "don't lose data" guarantee — each source keeps its *own*
@@ -101,6 +103,10 @@ triggered it):
   ([`shared/templates/partials/footer.html`](../../../shared/templates/partials/footer.html)),
   gated on the same `.Attribution` flag as the IP2Location credit.
 
+- **Probe list** (source `corpberry-honeypot`): live, not a sync. Request log
+  hands each probe to `BlockList.FlagProbe`; see
+  [checks/ip_probed.md](testing/checks/ip_probed.md).
+
 Both syncs advance touched entries' `updated_at` on every refresh, keeping
 still-listed IPs/netblocks alive against TTL; an entry that drops off its
 feed stops being refreshed and ages out after the 60-day window. A non-200
@@ -114,8 +120,8 @@ blocklist / network" result card + JSON `blocklist` field. Either way,
 `BlockList.Check(ip)` matches an exact single-IP entry OR (for a parseable
 IPv4 address) containment inside a stored netblock range, via one Mongo query
 with an `$or` — callers never need to know which kind matched.
-botcheck's handler fills three server-observed `Signals` fields
-(`IPBlocklistSources`, `IPBlocklistCount`, `IPBlocklistDeliberate`). Same
+botcheck's handler fills four server-observed `Signals` fields
+(`IPBlocklistSources`, `IPBlocklistCount`, `IPBlocklistDeliberate`, `IPProbed`). Same
 nil-safety as fingerprint corpus: disabled Mongo → nil `BlockList` → `Check`
 returns empty → rule silent → pure `Evaluate` still needs no DB. See
 [checks/ip_blocklisted.md](testing/checks/ip_blocklisted.md) for fire logic

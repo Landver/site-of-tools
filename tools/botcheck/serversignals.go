@@ -33,14 +33,15 @@ func AddHTTPSignals(sig *Signals, h HTTPSignals) {
 func AddIPSignals(ctx context.Context, sig *Signals, ip string, svc iptools.Looker, chk iptools.Checker) *iptools.Result {
 	sig.IPSupplied = true
 	sig.EgressIP = ip
-	// Any source but the ipsum feed is a deliberate ban; the scorer needn't know iptools' sources.
+	// Every source but ipsum and the probe list is a deliberate ban; the scorer needn't know iptools' sources.
 	if chk != nil {
 		if lk, err := chk.Check(ctx, ip); err == nil {
 			sig.IPBlocklistSources = lk.Sources
 			sig.IPBlocklistCount = lk.MaxCount
 			sig.IPBlocklistDeliberate = slices.ContainsFunc(lk.Sources, func(s string) bool {
-				return s != iptools.BlocklistSourceIPsum
+				return s != iptools.BlocklistSourceIPsum && s != iptools.BlocklistSourceProbe
 			})
+			sig.IPProbed = lk.Probed()
 		}
 	}
 	if svc == nil {
