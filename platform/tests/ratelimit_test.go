@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/labstack/echo/v5"
 
 	"github.com/Landver/site-of-tools/platform"
@@ -142,5 +144,52 @@ func TestCapSharePerClient(t *testing.T) {
 	}
 	if big.TryAcquire("192.0.2.1", 1) {
 		t.Error("a client over its share was granted more")
+	}
+}
+
+// TestClientLimit: probes spend a small budget of their own, so the scanning address keeps its real
+// pages; statics never spend the site budget.
+func TestClientLimit(t *testing.T) {
+	e := platform.NewApp(nil, fstest.MapFS{"x.css": {}}, false, nil)
+	e.Use(platform.ClientLimit(platform.NewLimiter(0.001, 4), platform.NewLimiter(0.001, 2))...)
+	e.GET("/", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
+	get := func(path string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("CF-Connecting-IP", "203.0.113.5")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := range 6 {
+		if code := get("/static/x.css"); code != http.StatusOK {
+			t.Fatalf("static #%d = %d, want 200: statics are free", i+1, code)
+		}
+	}
+	got := []int{get("/.env"), get("/.git/config"), get("/.env")}
+	if diff := cmp.Diff([]int{404, 404, 429}, got); diff != "" {
+		t.Errorf("probes (-want +got):\n%s", diff)
+	}
+	got = []int{get("/"), get("/"), get("/"), get("/"), get("/")}
+	if diff := cmp.Diff([]int{200, 200, 200, 200, 429}, got); diff != "" {
+		t.Errorf("real pages after the probes: the site budget of 4 must be untouched by them (-want +got):\n%s", diff)
+	}
+}
+
+// TestClientLimitAnswersInKind: JSON callers get the shared error shape, pages and htmx an HTML alert.
+func TestClientLimitAnswersInKind(t *testing.T) {
+	e := platform.NewApp(nil, fstest.MapFS{}, false, nil)
+	e.Use(platform.ClientLimit(platform.NewLimiter(0.001, 1), platform.NewLimiter(0.001, 1))...)
+	for accept, want := range map[string]string{"application/json": `"error":"` + platform.LimitedMessage, "text/html": `class="alert-error"`} {
+		var rec *httptest.ResponseRecorder
+		for range 2 {
+			req := httptest.NewRequest(http.MethodGet, "/.env", nil)
+			req.Header.Set("Accept", accept)
+			req.Header.Set("CF-Connecting-IP", "203.0.113.9")
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+		}
+		if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("Accept %s: %d %q, want 429 containing %q", accept, rec.Code, rec.Body.String(), want)
+		}
 	}
 }

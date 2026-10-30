@@ -2,12 +2,16 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/iptools"
@@ -39,6 +43,12 @@ func TestNilBlockListIsSafe(t *testing.T) {
 	}
 	if ts, err := b.LastSync(ctx, "ipsum"); err != nil || !ts.IsZero() {
 		t.Errorf("nil LastSync = (%v, %v), want (zero, nil)", ts, err)
+	}
+	if err := b.FlagProbe(ctx, "8.8.8.8", "/.env"); err != nil {
+		t.Errorf("nil FlagProbe err = %v, want nil", err)
+	}
+	if _, err := b.ProbeIPs(ctx); !errors.Is(err, platform.ErrMongoUnavailable) {
+		t.Errorf("nil ProbeIPs err = %v, want ErrMongoUnavailable", err)
 	}
 }
 
@@ -156,13 +166,7 @@ func TestBlockListLiveRoundTrip(t *testing.T) {
 // readTimes reads the raw doc: Check deliberately doesn't expose timestamps.
 func readTimes(t *testing.T, ctx context.Context, m *platform.Mongo, ip, source string) (created, updated time.Time) {
 	t.Helper()
-	var e iptools.BlockEntry
-	err := m.DB().Collection(blocklistColl).
-		FindOne(ctx, bson.D{{Key: "ip", Value: ip}, {Key: "source", Value: source}}).
-		Decode(&e)
-	if err != nil {
-		t.Fatalf("read raw doc for %s/%s: %v", ip, source, err)
-	}
+	e := readEntry(t, ctx, m, ip, source)
 	return e.CreatedAt, e.UpdatedAt
 }
 
@@ -259,4 +263,80 @@ func TestSyncSpamhausDROPSkipsWhenFresh(t *testing.T) {
 	if !res.Skipped || res.Written != 0 || res.Parsed != 0 {
 		t.Errorf("SyncSpamhausDROP on a fresh corpus = %+v, want Skipped with no download", res)
 	}
+}
+
+// TestFlagProbeLive: a probe lists the IP until 30 days after its latest hit, beside its feed record.
+func TestFlagProbeLive(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	bl, m := liveBlockListDB(t, ctx)
+	const ip = "8.8.4.4" // FlagProbe skips unroutable addresses, documentation ranges included
+
+	if err := bl.Upsert(ctx, iptools.BlockEntry{IP: ip, Source: iptools.BlocklistSourceIPsum, Count: 2}); err != nil {
+		t.Fatalf("seed ipsum: %v", err)
+	}
+	if err := bl.FlagProbe(ctx, ip, "/.env?x=1"); err != nil {
+		t.Fatalf("FlagProbe #1: %v", err)
+	}
+	first := readEntry(t, ctx, m, ip, iptools.BlocklistSourceProbe)
+	if left := time.Until(first.ExpiresAt); left < 29*24*time.Hour || left > 30*24*time.Hour {
+		t.Errorf("expires_at in %v, want ~30 days", left)
+	}
+	if first.Reason != "probed /.env" {
+		t.Errorf("reason = %q, want the path without its query", first.Reason)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	if err := bl.FlagProbe(ctx, ip, "/.git/config"); err != nil {
+		t.Fatalf("FlagProbe #2: %v", err)
+	}
+	second := readEntry(t, ctx, m, ip, iptools.BlocklistSourceProbe)
+	if !second.ExpiresAt.After(first.ExpiresAt) || !second.CreatedAt.Equal(first.CreatedAt) {
+		t.Errorf("second probe: expires %v → %v, created %v → %v; want a later expiry, same created_at",
+			first.ExpiresAt, second.ExpiresAt, first.CreatedAt, second.CreatedAt)
+	}
+	if feed := readEntry(t, ctx, m, ip, iptools.BlocklistSourceIPsum); !feed.ExpiresAt.IsZero() {
+		t.Errorf("ipsum doc got expires_at %v; feeds must keep their updated_at TTL", feed.ExpiresAt)
+	}
+
+	for _, form := range []string{ip, "::ffff:" + ip} { // any spelling of the address finds the listing
+		if lk, err := bl.Check(ctx, form); err != nil || !lk.Probed() || len(lk.Sources) != 2 {
+			t.Errorf("Check(%s) = (%+v, %v), want both sources and Probed", form, lk, err)
+		}
+	}
+	for _, skip := range []string{"10.0.0.1", "203.0.113.9", "not-an-ip"} {
+		if err := bl.FlagProbe(ctx, skip, "/.env"); err != nil {
+			t.Errorf("FlagProbe(%s) err = %v, want a silent skip", skip, err)
+		}
+	}
+	if err := bl.FlagProbe(ctx, "::ffff:1.1.1.1", "/.env"); err != nil {
+		t.Fatalf("FlagProbe mapped: %v", err)
+	}
+	ips, err := bl.ProbeIPs(ctx)
+	if err != nil {
+		t.Fatalf("ProbeIPs: %v", err)
+	}
+	if diff := cmp.Diff([]string{"1.1.1.1", ip}, ips, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+		t.Errorf("ProbeIPs (-want +got):\n%s", diff)
+	}
+
+	// Mongo, not the code, enforces the 30 days: the doc's own date via an expireAfterSeconds 0 index.
+	specs, err := m.DB().Collection(blocklistColl).Indexes().ListSpecifications(ctx)
+	if err != nil {
+		t.Fatalf("list indexes: %v", err)
+	}
+	if !slices.ContainsFunc(specs, func(s mongo.IndexSpecification) bool {
+		return s.Name == "expires_at_1" && s.ExpireAfterSeconds != nil && *s.ExpireAfterSeconds == 0
+	}) {
+		t.Errorf("no expires_at TTL index with expireAfterSeconds 0 among %d indexes", len(specs))
+	}
+}
+
+func readEntry(t *testing.T, ctx context.Context, m *platform.Mongo, ip, source string) iptools.BlockEntry {
+	t.Helper()
+	var e iptools.BlockEntry
+	if err := m.DB().Collection(blocklistColl).FindOne(ctx, bson.D{{Key: "ip", Value: ip}, {Key: "source", Value: source}}).Decode(&e); err != nil {
+		t.Fatalf("read %s/%s: %v", ip, source, err)
+	}
+	return e
 }

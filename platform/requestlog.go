@@ -27,13 +27,15 @@ type RequestEntry struct {
 	LatencyMS int64     `bson:"latency_ms"`
 	BytesOut  int64     `bson:"bytes_out"`
 	CreatedAt time.Time `bson:"created_at"`
+	Probe     bool      `bson:"-"` // set by IsProbe; hands the entry to onProbe
 }
 
 // RequestLog writes to Mongo off the request path, dropping overflow; a nil *RequestLog is a no-op store.
 type RequestLog struct {
-	coll *mongo.Collection
-	ch   chan RequestEntry
-	done chan struct{}
+	coll    *mongo.Collection
+	onProbe func(context.Context, RequestEntry)
+	ch      chan RequestEntry
+	done    chan struct{}
 	// mu guards ch: Close can run while echo finishes in-flight requests, and a send on a closed channel
 	// panics (select's default covers a full channel, not a closed one). Send under RLock, close under Lock.
 	mu     sync.RWMutex
@@ -41,16 +43,18 @@ type RequestLog struct {
 }
 
 // NewRequestLog returns nil for a nil db; a failed TTL index only forfeits auto-expiry, so it's ignored.
-func NewRequestLog(ctx context.Context, db *mongo.Database) *RequestLog {
+// onProbe (may be nil) runs on the writer for each probe entry, so it shares the buffer's bound.
+func NewRequestLog(ctx context.Context, db *mongo.Database, onProbe func(context.Context, RequestEntry)) *RequestLog {
 	if db == nil {
 		return nil
 	}
 	coll := db.Collection("request_logs")
 	_ = EnsureTTLIndex(ctx, coll, "created_at", requestLogTTL)
 	rl := &RequestLog{
-		coll: coll,
-		ch:   make(chan RequestEntry, requestLogBuffer),
-		done: make(chan struct{}),
+		coll:    coll,
+		onProbe: onProbe,
+		ch:      make(chan RequestEntry, requestLogBuffer),
+		done:    make(chan struct{}),
 	}
 	go rl.run()
 	return rl
@@ -78,6 +82,9 @@ func (rl *RequestLog) run() {
 	for e := range rl.ch {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, _ = rl.coll.InsertOne(ctx, e)
+		if e.Probe && rl.onProbe != nil {
+			rl.onProbe(ctx, e)
+		}
 		cancel()
 	}
 }
@@ -114,4 +121,21 @@ func ShouldRecord(method, path string, status int) bool {
 		return method == http.MethodGet || status >= http.StatusBadRequest
 	}
 	return true
+}
+
+// IsProbe: browsers send Sec-Fetch-Site on every request, so a hostile page's <img src=".../.env"> can't
+// flag its visitors; CF-Worker marks Cloudflare's Worker egress, one address shared by every Worker.
+func IsProbe(r *http.Request, status int) bool {
+	return status == http.StatusNotFound && r.Header.Get("Sec-Fetch-Site") == "" &&
+		r.Header.Get("CF-Worker") == "" && isProbePath(r.URL.Path)
+}
+
+// isProbePath: the site serves no dotfiles (bar /.well-known) and no PHP, so only scanners ask for them.
+func isProbePath(path string) bool {
+	for seg := range strings.SplitSeq(strings.ToLower(path), "/") {
+		if strings.HasPrefix(seg, ".") && seg != ".well-known" || strings.HasSuffix(seg, ".php") {
+			return true
+		}
+	}
+	return false
 }

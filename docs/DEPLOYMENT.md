@@ -27,8 +27,9 @@ terminates browser TLS, so the name needn't match). Reload:
 docker exec nginx-reverse-proxy-nginx-1 nginx -t && docker exec nginx-reverse-proxy-nginx-1 nginx -s reload
 ```
 
-New subdomain = a block in `conf.d` + a proxied Cloudflare DNS record + an
-entry in `main.go`'s `subdomains` list. It 502s until the app serves it.
+New subdomain = its name on the `corpberry.com.conf` `server_name` line (else
+`00-default.conf` refuses its handshake: 525) + a proxied Cloudflare DNS record
++ an entry in `main.go`'s `subdomains` list. It 502s until the app serves it.
 
 **mcp.corpberry.com** also needs `client_max_body_size 1m;` (don't copy
 cipher's 8m) and no SSE settings (every reply is one JSON body); Cloudflare
@@ -42,10 +43,13 @@ seeds the Origin allowlist.
 
 Client IP = `CF-Connecting-IP`, then trusted `X-Forwarded-For`, then
 `RemoteAddr`. Safe only because the app is published on the bridge gateway
-alone and nginx **accepts connections from Cloudflare alone** (its ranges or
-Authenticated Origin Pulls) — verify that on the proxy host. Every rate limit,
-REST and MCP, keys on this IP; a forged header reaching nginx directly would buy
-unlimited buckets.
+alone and nginx **admits Cloudflare alone**: the corpberry block includes
+`conf.d/cloudflare-only.inc` (Cloudflare's ranges, then `deny all`; refresh from
+cloudflare.com/ips), and `00-default.conf` refuses the TLS handshake for any
+other name, so wildcard-subdomain scans and bare-IP hits never reach Go. Every
+rate limit and the probe list key on this IP; check after any nginx change:
+`curl -k --resolve ip.corpberry.com:443:<origin IP> https://ip.corpberry.com/`
+must answer 403.
 
 ## 5. Docker
 

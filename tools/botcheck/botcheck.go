@@ -175,10 +175,11 @@ type Signals struct {
 	// CorpusConsulted: the corpus counts above were read; without it the corpus rules skip.
 	CorpusConsulted bool `json:"-"`
 	// IPBlocklist* are handler-computed (it owns iptools' source names); Count = ipsum feeds listing the IP,
-	// Deliberate = a non-ipsum ban, trusted regardless of Count.
+	// Deliberate = a ban from neither ipsum nor the probe list, trusted regardless of Count.
 	IPBlocklistSources    []string `json:"-"`
 	IPBlocklistCount      int      `json:"-"`
 	IPBlocklistDeliberate bool     `json:"-"`
+	IPProbed              bool     `json:"-"` // on this site's own probe list (iptools.BlocklistSourceProbe)
 
 	// Now is stamped by the handler so Evaluate stays pure; it resolves the browser tz's DST-aware offset.
 	Now time.Time `json:"-"`
@@ -313,7 +314,7 @@ const (
 	// churnWindow: short enough that a normal address's few devices never reach the floor.
 	churnWindow = 10 * time.Minute
 	// 3 = ipsum README's auto-ban advice ("at least 3 (black)lists"); one feed alone could dock a human on a
-	// recycled residential IP. A deliberate ban from any other source bypasses this floor.
+	// recycled residential IP. A deliberate ban bypasses this floor.
 	ipsumBlocklistFloor = 3
 )
 

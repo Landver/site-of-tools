@@ -2,6 +2,8 @@ package platform
 
 import (
 	"errors"
+	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/labstack/echo/v5"
@@ -49,6 +51,27 @@ func RateLimit(l Limiter, skip func(*echo.Context) bool, deny func(*echo.Context
 		},
 		DenyHandler: func(c *echo.Context, _ string, _ error) error { return deny(c) },
 	})
+}
+
+// ClientLimit is one per-client budget across every subdomain (statics free). Probe paths spend only a far
+// smaller one of their own, so a scan is slowed without costing its NAT neighbours their pages.
+func ClientLimit(site, probe Limiter) []echo.MiddlewareFunc {
+	return []echo.MiddlewareFunc{
+		RateLimit(site, func(c *echo.Context) bool {
+			p := c.Request().URL.Path
+			return strings.HasPrefix(p, "/static/") || isProbePath(p)
+		}, tooMany),
+		RateLimit(probe, func(c *echo.Context) bool { return !isProbePath(c.Request().URL.Path) }, tooMany),
+	}
+}
+
+// tooMany answers in kind: JSON for API and MCP callers, HTML that partials/htmx-errors swaps in.
+func tooMany(c *echo.Context) error {
+	SetNegotiationHeaders(c, http.StatusTooManyRequests)
+	if WantsJSON(c) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": LimitedMessage})
+	}
+	return c.HTML(http.StatusTooManyRequests, `<div class="alert-error" role="alert">`+LimitedMessage+`</div>`)
 }
 
 // AllowKey is RateLimit outside Echo; client is the raw IP, keyed as the middleware keys it.

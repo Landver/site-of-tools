@@ -19,9 +19,11 @@ server-side IP layer from.
 - `geoip.go` — geo/proxy **domain** (pure Go, no HTTP): `Service`, `Result`,
   `OpenService`, `Lookup`, the `Looker` interface.
 - `cidr.go` — subnet-calculator **domain** (pure CIDR math, no databases).
+- `blocklist.go` — the shared `ip_blocklist` repository (feeds, `FlagProbe`).
+- `probes.go` — `/probes`: `SummarizeProbes` tallies the probe list.
 - `handler.go` — **transport**: `Register` + query-param parsing, then
   `platform.Respond`.
-- `templates/` — `index.html`, `result.html`, `cidr.html`, `history.html`, `nav.html`.
+- `templates/` — `index.html`, `result.html`, `cidr.html`, `probes.html`, `history.html`, `nav.html`.
 - `assets/` — `.BIN` databases (gitignored, bind-mounted read-only in prod).
 - `download-assets.sh` — fetches databases (run via `make assets`).
 
@@ -106,6 +108,7 @@ browsers & htmx get HTML, everyone else JSON. Lookups **query-param only**
 | `GET /?ip=…` (htmx) | HTML **fragment**, result card only (`hx-target="#result"`) |
 | `GET /` or `GET /?ip=…` (JSON) | Geolocation + ASN + proxy for that IP |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
+| `GET /probes` | Probe-list tallies by network, country and /24 or /48 pool (HTML or JSON; 503 without Mongo) |
 | `GET /history` | Page listing this browser's past lookups from `localStorage` (no JSON: the server keeps none) |
 
 So this just works:
@@ -129,8 +132,7 @@ scheme, host, User-Agent, language. TLS & HTTP version omitted (terminate
 upstream); `Cookie`/`Authorization` never read. When visitor looks at own IP
 (bare visit), same lookup also enriches card w/ ASN & proxy/VPN attribution
 (`Result.ConnNetwork()` → `platform.ConnInfo.WithNetwork` — mapping botcheck's
-card shares). `ip.corpberry.com` DNS-only in Cloudflare today, so requests
-arrive via nginx's `X-Forwarded-For`.
+card shares). Requests arrive through Cloudflare (`CF-Connecting-IP`).
 
 **IPv6 check** = the one genuinely client-side piece: only browser can prove
 working IPv6 path (by fetching IPv6-only host), so not in JSON — by nature,
@@ -182,11 +184,23 @@ Engine-level **request log** (`platform.RequestLog`, `platform/requestlog.go`)
 is separate, cross-cutting corpus of *every* request (all subdomains); not
 part of this tool. See [ARCHITECTURE §10](../../../docs/ARCHITECTURE.md#10-out-of-scope-now-deliberately-deferred).
 
+## Probes
+
+A 404 on a dotfile or `.php` path (`platform.IsProbe`; never `/.well-known/`,
+a query, a browser's `Sec-Fetch-Site` or a Cloudflare Worker) reaches
+`BlockList.FlagProbe` through the request log's writer: source
+`corpberry-honeypot`, reason = the path, `expires_at` = 30 days after the latest
+probe, enforced by a TTL index on that field (feeds keep their 60-day
+`updated_at` TTL). Prod only: dev shares prod's database. Lookups show the
+listing with a link to `/probes`; botcheck reads it as the soft `ip_probed` rule.
+Listed addresses are never blocked: a shared NAT carries real visitors too.
+
 ## Abuse protection
 
 Per-client limits in `iptools.Limits`, shared with the `ip_*` MCP tools:
 lookups 2/s (burst 10), `/cidr` 10/s (burst 50), at most 8 lookups in flight.
-`IPExtractor` is wired, so limits and the request log see the real client IP.
+On top, every subdomain shares `platform.ClientLimit`: 20/s (burst 100) per
+client, while probe paths spend only their own 1 per 5 s (burst 5).
 
 ## Attribution (required)
 

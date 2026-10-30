@@ -99,7 +99,8 @@
       {{end}}
       {{with .Blocklist}}
       <dt>Blocklist</dt>
-      <dd>{{if .Listed}}<span class="text-danger">Yes</span>{{with .SourcesLabel}} — {{.}}{{end}}{{if gt .MaxCount 0}} ({{.MaxCount}} lists){{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not on any threat / abuse blocklist</span>{{end}}</dd>
+      <dd>{{if .Listed}}<span class="text-danger">Yes</span>{{with .SourcesLabel}} — {{.}}{{end}}{{if gt .MaxCount 0}} ({{.MaxCount}} lists){{end}}{{else}}<span class="text-ok">No</span> <span class="text-faint">— not on any threat / abuse blocklist</span>{{end}}
+        {{if .Probed}}<div class="text-xs text-faint">Probed this site for secret files in the last 30 days: flagged, not blocked. <a href="/probes" class="link-brand">All probes</a></div>{{end}}</dd>
       {{end}}
     </dl>
   </div>

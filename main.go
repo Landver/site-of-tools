@@ -56,13 +56,14 @@ func run() error {
 
 	// Index creation is bounded and best-effort; a nil db yields disabled stores.
 	idxCtx, cancelIdx := context.WithTimeout(context.Background(), 10*time.Second)
-	reqlog := platform.NewRequestLog(idxCtx, mdb.DB())
-	corpus := botcheck.NewCorpus(mdb.DB())
-	// Fed by the daily syncs below; read by botcheck's ip_blocklisted rule and the IP tool.
+	// Fed by the daily syncs below and the request log's probes; read by botcheck and the IP tool.
 	blocklist := iptools.NewBlockList(mdb.DB())
+	reqlog := platform.NewRequestLog(idxCtx, mdb.DB(), func(ctx context.Context, e platform.RequestEntry) {
+		_ = blocklist.FlagProbe(ctx, e.RemoteIP, e.URI)
+	})
+	corpus := botcheck.NewCorpus(mdb.DB())
 	// Best-effort: failure only forfeits auto-expiry.
 	_ = corpus.EnsureIndexes(idxCtx)
-	_ = blocklist.EnsureIndexes(idxCtx)
 	// Must be built inside the idxCtx window: a cancelled ctx silently skips its unique {code:1}
 	// index, which is what makes the collision retry correct.
 	linkStore := linktools.NewLinkStore(idxCtx, mdb.DB())
@@ -72,6 +73,10 @@ func run() error {
 		log.Printf("link tools: unique code index unavailable (%v); short-link creation will refuse writes", err)
 	}
 	mailStore := mailtools.NewStore(idxCtx, mdb.DB())
+	// Last in the window: a first build over the feed docs must not starve the link store's unique index.
+	if err := blocklist.EnsureIndexes(idxCtx); err != nil {
+		log.Printf("ip blocklist: indexes incomplete (%v); probe flags may outlive their 30 days", err)
+	}
 	cancelIdx()
 	// Bounded: with Mongo unreachable each queued entry costs 5s, so a full buffer could take an hour.
 	defer func() {
@@ -125,8 +130,11 @@ func run() error {
 
 	apps := map[string]*echo.Echo{}
 	ownHosts := []string{cfg.MongoURI}
+	// One budget per client across every subdomain, at mcptools' per-IP ceiling so each tool's own limit decides.
+	siteLim, probeLim := platform.NewLimiter(20, 100), platform.NewLimiter(0.2, 5)
 	for _, sub := range []string{"", "ip", "botcheck", "dns", "link", "cipher", "mail", "mcp"} {
 		apps[sub] = platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
+		apps[sub].Use(platform.ClientLimit(siteLim, probeLim)...)
 		ownHosts = append(ownHosts, cfg.VHost(sub))
 	}
 	ownHosts = append(ownHosts, cfg.EgressDenyAddrs...)
@@ -153,6 +161,7 @@ func run() error {
 	// DNS keeps the plain geo: it shows no open ports, so it must not spend the Shodan budget per record.
 	shodanGeo := geo.WithShodan(iptools.NewShodan(cfg.ShodanURL, 4*time.Second))
 	iptools.Register(apps["ip"], shodanGeo, ipCheck, ipLim)
+	iptools.RegisterProbes(apps["ip"], geo, blocklist.ProbeIPs)
 
 	botcheck.Register(apps["botcheck"], shodanGeo, corpus, ipCheck, botLim)
 

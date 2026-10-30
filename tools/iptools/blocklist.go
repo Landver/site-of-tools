@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,7 +36,12 @@ const (
 const (
 	BlocklistSourceIPsum        = "ipsum"
 	BlocklistSourceSpamhausDROP = "spamhaus-drop"
+	// First-hand: the address probed this site for secrets (platform.IsProbe). Flagged, never blocked.
+	BlocklistSourceProbe = "corpberry-honeypot"
 )
+
+// probeTTL counts from the latest probe: each one pushes the doc's expires_at forward.
+const probeTTL = 30 * 24 * time.Hour
 
 // BlockEntry's bson names are a public schema for external writers; they set created_at via $setOnInsert.
 type BlockEntry struct {
@@ -52,6 +58,8 @@ type BlockEntry struct {
 	Meta      map[string]any `bson:"meta,omitempty" json:"meta,omitempty"`
 	CreatedAt time.Time      `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time      `bson:"updated_at" json:"updated_at"` // refreshed every touch; drives TTL
+	// Set only by sources with their own lifetime; Mongo deletes the doc at this date instead.
+	ExpiresAt time.Time `bson:"expires_at,omitempty" json:"expires_at,omitzero"`
 }
 
 // BlockLookup folds every record for one IP into the facts a consumer scores on.
@@ -61,6 +69,8 @@ type BlockLookup struct {
 }
 
 func (l BlockLookup) Listed() bool { return len(l.Sources) > 0 }
+
+func (l BlockLookup) Probed() bool { return slices.Contains(l.Sources, BlocklistSourceProbe) }
 
 func (l BlockLookup) SourcesLabel() string { return strings.Join(l.Sources, ", ") }
 
@@ -98,6 +108,10 @@ func (b *BlockList) EnsureIndexes(ctx context.Context) error {
 	if err := platform.EnsureTTLIndex(ctx, b.coll, "updated_at", blocklistTTL); err != nil {
 		return err
 	}
+	// Feeds keep the 60-day updated_at TTL; a doc with expires_at ends on that date.
+	if err := platform.EnsureTTLIndex(ctx, b.coll, "expires_at", 0); err != nil {
+		return err
+	}
 	if _, err := b.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "ip", Value: 1}, {Key: "source", Value: 1}},
 		Options: options.Index().SetUnique(true).SetName("ip_source_unique"),
@@ -122,6 +136,31 @@ func (b *BlockList) Upsert(ctx context.Context, e BlockEntry) error {
 		options.UpdateOne().SetUpsert(true),
 	)
 	return err
+}
+
+// FlagProbe lists ip for 30 days from now; the reason keeps the probed path, not its query.
+func (b *BlockList) FlagProbe(ctx context.Context, ip, uri string) error {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || !platform.PubliclyRoutable(addr) {
+		return nil
+	}
+	path, _, _ := strings.Cut(uri, "?")
+	return b.Upsert(ctx, BlockEntry{
+		IP: addr.Unmap().String(), Source: BlocklistSourceProbe,
+		Reason: "probed " + platform.Clip(path, 200), ExpiresAt: time.Now().Add(probeTTL),
+	})
+}
+
+// ProbeIPs lists the addresses on the probe list; a nil b (Mongo off) is ErrMongoUnavailable.
+func (b *BlockList) ProbeIPs(ctx context.Context) ([]string, error) {
+	if b == nil {
+		return nil, platform.ErrMongoUnavailable
+	}
+	// The expires_at range rides its TTL index; filtering on source alone would scan every feed doc.
+	filter := bson.D{{Key: "expires_at", Value: bson.D{{Key: "$gt", Value: time.Now()}}}, {Key: "source", Value: BlocklistSourceProbe}}
+	var ips []string
+	err := b.coll.Distinct(ctx, "ip", filter).Decode(&ips)
+	return ips, err
 }
 
 // UpsertMany returns docs inserted or modified; callers still chunk to bound memory per write.
@@ -155,8 +194,14 @@ func (b *BlockList) Check(ctx context.Context, ip string) (BlockLookup, error) {
 	if b == nil || ip == "" {
 		return BlockLookup{}, nil
 	}
+	// Writers store netip's canonical form, so "::ffff:1.2.3.4" or upper-case IPv6 must reach it too.
+	addr, err := netip.ParseAddr(ip)
+	if err == nil {
+		addr = addr.Unmap()
+		ip = addr.String()
+	}
 	filter := bson.D{{Key: "ip", Value: ip}}
-	if addr, err := netip.ParseAddr(ip); err == nil && addr.Is4() {
+	if err == nil && addr.Is4() {
 		n := ipv4Uint32(addr)
 		filter = bson.D{{Key: "$or", Value: bson.A{
 			bson.D{{Key: "ip", Value: ip}},
@@ -323,6 +368,9 @@ func blocklistUpdate(e BlockEntry, now time.Time) bson.D {
 	}
 	if len(e.Meta) > 0 {
 		set = append(set, bson.E{Key: "meta", Value: e.Meta})
+	}
+	if !e.ExpiresAt.IsZero() {
+		set = append(set, bson.E{Key: "expires_at", Value: e.ExpiresAt})
 	}
 	return bson.D{
 		{Key: "$setOnInsert", Value: bson.D{

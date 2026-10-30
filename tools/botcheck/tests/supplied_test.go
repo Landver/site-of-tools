@@ -18,7 +18,7 @@ var (
 		"bot_user_agent", "ua_header_mismatch", "ch_platform_mismatch", "embedded_runtime", "lang_mismatch",
 		"ch_brands_mismatch", "sec_fetch_missing", "accept_encoding_missing", "accept_language_missing", "accept_nav_mismatch",
 	}
-	ipRules = []string{"tz_mismatch", "datacenter_ip", "proxy_ip", "ip_blocklisted", "webrtc_ip_mismatch"}
+	ipRules = []string{"tz_mismatch", "datacenter_ip", "proxy_ip", "ip_blocklisted", "webrtc_ip_mismatch", "ip_probed"}
 )
 
 var cmpSorted = cmpopts.SortSlices(func(a, b string) bool { return a < b })
@@ -92,11 +92,11 @@ func TestCoverageCounts(t *testing.T) {
 		s    botcheck.Signals
 		want botcheck.Coverage
 	}{
-		{"everything supplied", cleanChrome(), botcheck.Coverage{Hard: tier(8, 0, 0), Consistency: tier(31, 0, 0), Soft: tier(29, 0, 0)}},
-		{"fired", stealth, botcheck.Coverage{Hard: tier(8, 0, 1), Consistency: tier(31, 0, 1), Soft: tier(29, 0, 1)}},
-		{"fingerprint only", withoutIP(withoutHeaders(cleanChrome())), botcheck.Coverage{Hard: tier(7, 1, 0), Consistency: tier(21, 10, 0), Soft: tier(25, 4, 0)}},
-		{"server only", crawler("curl/8.4.0", ""), botcheck.Coverage{Hard: tier(1, 7, 1), Consistency: tier(4, 27, 0), Soft: tier(4, 25, 0)}},
-		{"nothing supplied", botcheck.Signals{}, botcheck.Coverage{Hard: tier(0, 8, 0), Consistency: tier(0, 31, 0), Soft: tier(0, 29, 0)}},
+		{"everything supplied", cleanChrome(), botcheck.Coverage{Hard: tier(8, 0, 0), Consistency: tier(31, 0, 0), Soft: tier(30, 0, 0)}},
+		{"fired", stealth, botcheck.Coverage{Hard: tier(8, 0, 1), Consistency: tier(31, 0, 1), Soft: tier(30, 0, 1)}},
+		{"fingerprint only", withoutIP(withoutHeaders(cleanChrome())), botcheck.Coverage{Hard: tier(7, 1, 0), Consistency: tier(21, 10, 0), Soft: tier(25, 5, 0)}},
+		{"server only", crawler("curl/8.4.0", ""), botcheck.Coverage{Hard: tier(1, 7, 1), Consistency: tier(4, 27, 0), Soft: tier(5, 25, 0)}},
+		{"nothing supplied", botcheck.Signals{}, botcheck.Coverage{Hard: tier(0, 8, 0), Consistency: tier(0, 31, 0), Soft: tier(0, 30, 0)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,6 +148,14 @@ func TestAddIPSignals(t *testing.T) {
 			want: botcheck.Signals{
 				IPSupplied: true, EgressIP: ip,
 				IPBlocklistSources: []string{"ipsum", "spamhaus-drop"}, IPBlocklistDeliberate: true,
+			},
+		},
+		{
+			name: "the probe list is soft evidence, not a deliberate ban",
+			svc:  fakeLooker{err: iptools.ErrUnavailable}, chk: listedBy(2, "corpberry-honeypot", "ipsum"),
+			want: botcheck.Signals{
+				IPSupplied: true, EgressIP: ip,
+				IPBlocklistSources: []string{"corpberry-honeypot", "ipsum"}, IPBlocklistCount: 2, IPProbed: true,
 			},
 		},
 		{

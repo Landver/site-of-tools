@@ -67,6 +67,7 @@ func TestEveryRouteAndTemplateInAllApps(t *testing.T) {
 	geo, _ := iptools.OpenService("", "", "", "", "")
 	ipLim := iptools.NewLimits()
 	iptools.Register(apps["ip"], geo, nil, ipLim)
+	iptools.RegisterProbes(apps["ip"], geo, iptools.NewBlockList(nil).ProbeIPs)
 
 	// 3. Botcheck
 	botLim := botcheck.NewLimits()

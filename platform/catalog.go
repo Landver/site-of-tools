@@ -221,6 +221,15 @@ var defaultCatalog = []ToolSection{
 				},
 			},
 			{
+				Key:       "probes",
+				Name:      "Probes",
+				Path:      "/probes",
+				Subdomain: "ip",
+				ShortDesc: "Who probed this site for secret files, by network, country and pool",
+				Badges:    []string{"Honeypot"},
+				Tech:      []string{"First-hand scanner list", "30-day expiry", "ASN, country and /24 tallies"},
+			},
+			{
 				Key:       "history",
 				Name:      "Lookup History",
 				Path:      "/history",

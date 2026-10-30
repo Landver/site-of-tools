@@ -52,6 +52,7 @@ var ruleExplanations = map[string]string{
 	"fingerprint_reuse":          "The same stable browser fingerprint (User-Agent, screen, GPU, timezone, …) arrived from many distinct IP addresses within the rolling 30-day corpus — the shape of a scraping farm that locks one fingerprint and rotates its proxy pool. One person roaming across networks accumulates a couple of IPs honestly, which is why this only counts from five; verified crawler fleets share one fingerprint by design and are exempt.",
 
 	// ── Soft heuristics (only bite as a cluster of ≥3) ─────────────────────────
+	"ip_probed":                  "The egress IP asked this site for secret files (/.env, /.git/config, .php…) in the last 30 days, which only scanners do. The address is listed, never blocked: a shared NAT, mobile carrier or VPN exit carries real visitors too, so this stays soft and only counts as part of a cluster.",
 	"empty_plugins":              "navigator.plugins is empty — typical of headless builds, but also of modern desktop browsers that report an empty list anyway. That ambiguity is exactly why this only counts as part of a cluster.",
 	"empty_languages":            "navigator.languages is an empty array. Real browsers always carry at least one language, though some hardened setups empty it on purpose — weak alone, it only counts with other signals.",
 	"default_geometry":           "The screen is exactly 800×600, the default of headless images and fresh VMs. Real displays that size are rare but exist (old machines, embedded panels), so it's a soft hint only.",

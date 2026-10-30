@@ -77,7 +77,7 @@ var ipZones = []dnsblZone{
 	{"DroneBL", "dnsbl.dronebl.org", "", "https://dronebl.org/lookup", "Compromised botnets and open proxies", dronebl},
 	{"Blocklist.de", "bl.blocklist.de", "", "https://www.blocklist.de/en/search.html", "Fail2ban abusive attack network", generic},
 	{"s5h.net", "all.s5h.net", "", "http://www.s5h.net/rbl", "Spam emission and infected host reputation", generic},
-	{"SPFBL DNSBL", "dnsbl.spfbl.net", "", "https://matrix.spfbl.net/", "Peer-to-peer anti-spam sender reputation", generic},
+	{"SPFBL DNSBL", "dnsbl.spfbl.net", "", "https://matrix.spfbl.net/", "Peer-to-peer anti-spam sender reputation", spfbl},
 	{"NordSpam IP", "bl.nordspam.com", "", "https://nordspam.com/", "Automated spam emitter tracker", generic},
 	{"UCEPROTECT L1", "dnsbl-1.uceprotect.net", "", "http://www.uceprotect.net/en/rblcheck.php", "Directly detected spam emission sources", generic},
 	{"UCEPROTECT L2", "dnsbl-2.uceprotect.net", "", "http://www.uceprotect.net/en/rblcheck.php", "Escalation list for networks with spam outbreaks", generic},
@@ -138,6 +138,23 @@ func generic(r *DNSBLResult, code string) {
 func dronebl(r *DNSBLResult, code string) {
 	if strings.HasPrefix(code, "127.") {
 		r.list("Listed in DroneBL: Compromised botnet or open proxy")
+	}
+}
+
+// spfbl: only .2 is a spam listing (confirmed complaints); .3-.5 grade attribution, whether the address
+// looks like a mail host, and the range's abuse desk (https://spfbl.net/en/dnsbl/).
+func spfbl(r *DNSBLResult, code string) {
+	switch code {
+	case "127.0.0.2":
+		r.list("Listed in SPFBL: Bad reputation confirmed by complaints")
+	case "127.0.0.3":
+		r.notice("SPFBL Notice: Abuse hard to attribute, or MTA not RFC 5321 compliant")
+	case "127.0.0.4":
+		r.notice("SPFBL Notice: No mail service identified (NAT router or residential connection)")
+	case "127.0.0.5":
+		r.notice("SPFBL Notice: Range whose abuse team does not act on reports")
+	default:
+		generic(r, code)
 	}
 }
 

@@ -154,6 +154,8 @@ Cross-cutting engine files:
   can't leak.
 - `platform/ratelimit.go` — `Limiter` and the non-queueing `Cap` with per-client
   shares; each package's `Limits` is built once and shared by REST and MCP.
+  `ClientLimit` adds one budget per client across every subdomain; probe paths
+  spend only a small one of their own. Nothing is ever blocked outright.
 - `platform/credits.go` — data-source credits for the footer and MCP results.
 
 ## 8. Adding a new tool
@@ -185,7 +187,9 @@ Cross-cutting engine files:
   the domain, self-pruning via `platform.EnsureTTLIndex`, all no-ops without
   `MONGODB_URI`) and used by: the request log (one record per request, and per
   MCP message: tool, status, latency, IP — never arguments or results),
-  botcheck's fingerprint corpus, mail's blocklist cache, and link short links (the only one
+  botcheck's fingerprint corpus, the shared `ip_blocklist` (daily feeds, plus
+  addresses the request log saw probing for secrets, each kept 30 days after
+  its last probe), mail's blocklist cache, and link short links (the only one
   that *is* the feature: unique index, long TTL so a slug is never reissued).
   Further storage follows the same shape.
 - **Huma / OpenAPI** — only if a formal public API is wanted (§4).

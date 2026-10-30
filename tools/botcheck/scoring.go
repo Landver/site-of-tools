@@ -545,6 +545,10 @@ var rules = []rule{
 
 	// ── Soft heuristics (only bite as a cluster of ≥3) ─────────────────────────
 	{
+		id: "ip_probed", label: "Egress IP probed this site for secret files", tier: TierSoft, weight: 8, needsIP: true,
+		eval: func(s Signals) (bool, string) { return s.IPProbed, "" },
+	},
+	{
 		id: "empty_plugins", label: "No browser plugins", tier: TierSoft, weight: 8, needsClient: true,
 		eval: func(s Signals) (bool, string) { return s.Plugins == 0, "" },
 	},

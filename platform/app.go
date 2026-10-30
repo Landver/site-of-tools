@@ -23,7 +23,7 @@ func NewApp(r *Renderer, staticFS fs.FS, dev bool, reqlog *RequestLog) *echo.Ech
 	e.IPExtractor = cfIPExtractor()
 
 	e.Use(middleware.Recover())
-	e.Use(requestLogger(reqlog))
+	e.Use(requestLogger(reqlog, dev))
 	e.Use(securityHeaders())
 	e.Use(negotiationHeaders())
 	// The ~13 MB cipher engine gzips itself once (tools/ciphertools); per response it costs ~0.25 s of CPU.
@@ -79,7 +79,7 @@ func cfIPExtractor() echo.IPExtractor {
 }
 
 // requestLogger is Echo's RequestLogger trimmed to our fields; a non-nil reqlog also stores each request.
-func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
+func requestLogger(reqlog *RequestLog, dev bool) echo.MiddlewareFunc {
 	return middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogLatency:       true,
 		LogRemoteIP:      true,
@@ -122,6 +122,8 @@ func requestLogger(reqlog *RequestLog) echo.MiddlewareFunc {
 					LatencyMS: v.Latency.Milliseconds(),
 					BytesOut:  v.ResponseSize,
 					CreatedAt: time.Now(),
+					// Dev shares prod's database: a dev curl must never list an address.
+					Probe: !dev && IsProbe(c.Request(), v.Status),
 				})
 			}
 			return nil
