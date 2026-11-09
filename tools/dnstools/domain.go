@@ -127,9 +127,16 @@ func NewDomainClient(rdapURL, ctURL string, timeout time.Duration, g *platform.E
 		ctURL:     strings.TrimSuffix(ctURL, "/"),
 		rdapLimit: rate.NewLimiter(1, 5),
 		ctLimit:   rate.NewLimiter(1, 5),
-		ctCache:   NewCTCache(1 * time.Hour),
 	}
 	d.client = d.httpClient(timeout, g)
+	return d
+}
+
+// WithCTCache enables an in-memory Certificate Transparency cache.
+func (d *DomainClient) WithCTCache(cache *CTCache) *DomainClient {
+	if d != nil {
+		d.ctCache = cache
+	}
 	return d
 }
 
@@ -324,14 +331,14 @@ func (d *DomainClient) CertNames(ctx context.Context, domain string) (*CertNames
 	if d == nil || d.ctURL == "" {
 		return nil, ErrDisabled
 	}
+	if !d.ctLimit.Allow() {
+		return nil, errUpstreamBusy
+	}
 	base := bareName(domain)
 	if d.ctCache != nil {
 		if cached, ok := d.ctCache.Get(base); ok {
 			return cached, nil
 		}
-	}
-	if !d.ctLimit.Allow() {
-		return nil, errUpstreamBusy
 	}
 	var rows []ctRow
 	q := url.Values{"q": {"%." + strings.TrimSuffix(domain, ".")}, "output": {"json"}, "exclude": {"expired"}}
