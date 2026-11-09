@@ -46,3 +46,27 @@ func TestEvaluateSPF_SoftfailAndNeutral(t *testing.T) {
 		t.Errorf("expected neutral, got %s", res2.Verdict)
 	}
 }
+
+func TestEvaluateSPF_EdgeCasesAndFallbacks(t *testing.T) {
+	cases := []struct {
+		name   string
+		ip     string
+		sender string
+		record string
+		want   mailtools.SPFVerdict
+	}{
+		{"empty record returns None", "1.2.3.4", "user@test.com", "", mailtools.SPFNone},
+		{"not an spf record returns None", "1.2.3.4", "user@test.com", "v=something_else", mailtools.SPFNone},
+		{"no all mechanism falls back to neutral", "1.2.3.4", "user@test.com", "v=spf1 ip4:5.6.7.8", mailtools.SPFNeutral},
+		{"explicit +all yields pass", "1.2.3.4", "user@test.com", "v=spf1 +all", mailtools.SPFPass},
+		{"empty sender handled cleanly", "1.2.3.4", "", "v=spf1 ip4:1.2.3.4 -all", mailtools.SPFPass},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := mailtools.EvaluateSPF(tc.ip, tc.sender, tc.record)
+			if res.Verdict != tc.want {
+				t.Errorf("got %s, want %s (reason: %s)", res.Verdict, tc.want, res.Reason)
+			}
+		})
+	}
+}

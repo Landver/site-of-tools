@@ -1,7 +1,6 @@
 package iptools
 
 import (
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -65,12 +63,10 @@ func ValidateRPKI(ipStr, asnStr string) *RPKIValidation {
 		return nil
 	}
 
-	cleanASN := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(asnStr), "AS"), "as")
-	originASN64, err := strconv.ParseUint(cleanASN, 10, 32)
-	if err != nil || originASN64 == 0 {
+	originASN, err := ParseASN(asnStr)
+	if err != nil {
 		return nil
 	}
-	originASN := uint32(originASN64)
 
 	var list []ROAEntry
 	if addr.Is4() {
@@ -138,11 +134,6 @@ func RunRPKISync(ctx context.Context) {
 	}
 }
 
-// StartRPKISyncWorker is a non-blocking helper for background execution.
-func StartRPKISyncWorker(ctx context.Context) {
-	go RunRPKISync(ctx)
-}
-
 func syncRPKI(ctx context.Context) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rpkiCloudflareURL, nil)
 	if err != nil {
@@ -150,7 +141,6 @@ func syncRPKI(ctx context.Context) {
 		return
 	}
 	req.Header.Set("User-Agent", "corpberry-iptools/1.0 (+https://ip.corpberry.com)")
-	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
 	if err != nil {
@@ -164,19 +154,8 @@ func syncRPKI(ctx context.Context) {
 		return
 	}
 
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			log.Printf("[iptools.rpki] gzip open failed: %v", err)
-			return
-		}
-		defer gz.Close()
-		reader = gz
-	}
-
 	var data rawRPKIResponse
-	if err := json.NewDecoder(io.LimitReader(reader, 250<<20)).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 250<<20)).Decode(&data); err != nil {
 		log.Printf("[iptools.rpki] JSON parse error: %v", err)
 		return
 	}
@@ -197,9 +176,10 @@ func syncRPKI(ctx context.Context) {
 		case float64:
 			asn = uint32(v)
 		case string:
-			clean := strings.TrimPrefix(strings.TrimPrefix(v, "AS"), "as")
-			n, _ := strconv.ParseUint(clean, 10, 32)
-			asn = uint32(n)
+			parsed, err := ParseASN(v)
+			if err == nil {
+				asn = parsed
+			}
 		}
 		if asn == 0 {
 			continue

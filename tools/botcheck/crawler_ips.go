@@ -86,14 +86,12 @@ func syncAllCrawlerFeeds(ctx context.Context) {
 	}
 
 	if len(newMap) > 0 {
+		merged := make(map[string][]netip.Prefix)
 		if curr := crawlerIndex.Load(); curr != nil {
-			for op, existing := range *curr {
-				if _, ok := newMap[op]; !ok {
-					newMap[op] = existing
-				}
-			}
+			merged = maps.Clone(*curr)
 		}
-		crawlerIndex.Store(&newMap)
+		maps.Copy(merged, newMap)
+		crawlerIndex.Store(&merged)
 	}
 }
 

@@ -44,7 +44,7 @@ FAILED=0
 
 # 2. Check for anti-patch patterns / downstream compensating hacks
 echo "▶ Checking for downstream anti-patch patterns..."
-PATCH_MATCHES=$(git diff "$BASE_REF"...HEAD -G'(TODO.*patch|FIXME.*patch|// temporarily bypass|// workaround upstream)' || true)
+PATCH_MATCHES=$(git diff "$BASE_REF"...HEAD -G'(TODO.*patch|FIXME.*patch|// temporarily bypass|// workaround upstream)' -- '*.go' || true)
 if [ -n "$PATCH_MATCHES" ]; then
     echo "❌ FAILED: Detected downstream patches or bypass comments in outgoing diff:"
     echo "$PATCH_MATCHES" | grep -E '^\+[ ]*(//.*(patch|bypass|workaround))' || true

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 
 	ip2location "github.com/ip2location/ip2location-go/v9"
@@ -251,4 +252,15 @@ func clean(s string) string {
 		return ""
 	}
 	return s
+}
+
+// ParseASN normalizes and parses an ASN string (e.g. "AS15169", "as15169", "15169") into uint32.
+// Returns 0 and an error if invalid or zero.
+func ParseASN(s string) (uint32, error) {
+	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(s), "AS"), "as")
+	n, err := strconv.ParseUint(clean, 10, 32)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("invalid ASN %q", s)
+	}
+	return uint32(n), nil
 }

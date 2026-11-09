@@ -3,6 +3,7 @@ package dnstools
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -105,6 +106,7 @@ func ValidateDNSSEC(ctx context.Context, zone string, resolver string) *DNSSECSt
 	for alg := range algSet {
 		res.Algorithms = append(res.Algorithms, alg)
 	}
+	slices.Sort(res.Algorithms)
 
 	// Authenticated Data (AD) bit check
 	if r.AuthenticatedData {

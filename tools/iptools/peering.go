@@ -7,8 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -60,12 +58,11 @@ func LookupPeering(asnStr string) *PeeringInfo {
 	if cache == nil {
 		return nil
 	}
-	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(asnStr), "AS"), "as")
-	asn64, err := strconv.ParseUint(clean, 10, 32)
-	if err != nil || asn64 == 0 {
+	asn, err := ParseASN(asnStr)
+	if err != nil {
 		return nil
 	}
-	return (*cache)[uint32(asn64)]
+	return (*cache)[asn]
 }
 
 // SetPeeringCacheForTest injects test data into the atomic pointer.

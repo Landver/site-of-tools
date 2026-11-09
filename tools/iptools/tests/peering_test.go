@@ -79,3 +79,15 @@ func TestPeeringDBParsingAndLookup(t *testing.T) {
 		t.Errorf("expected nil for unknown ASN, got %+v", unknown)
 	}
 }
+
+func TestLookupPeering_EdgeCases(t *testing.T) {
+	if got := iptools.LookupPeering(""); got != nil {
+		t.Errorf("expected nil for empty ASN, got %+v", got)
+	}
+	if got := iptools.LookupPeering("AS0"); got != nil {
+		t.Errorf("expected nil for AS0, got %+v", got)
+	}
+	if got := iptools.LookupPeering("invalid-asn"); got != nil {
+		t.Errorf("expected nil for invalid string, got %+v", got)
+	}
+}

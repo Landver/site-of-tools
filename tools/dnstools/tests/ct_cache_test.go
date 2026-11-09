@@ -39,3 +39,22 @@ func TestCTCacheHitAndExpiry(t *testing.T) {
 		t.Errorf("expected cache entry to expire after 50ms")
 	}
 }
+
+func TestCTCache_NilSafetyAndPruning(t *testing.T) {
+	var nilCache *dnstools.CTCache
+	if _, ok := nilCache.Get("example.com"); ok {
+		t.Error("expected ok=false on nil cache Get")
+	}
+	nilCache.Set("example.com", &dnstools.CertNames{})
+
+	cache := dnstools.NewCTCache(1 * time.Minute)
+	cache.Set("example.com", nil)
+	if _, ok := cache.Get("example.com"); ok {
+		t.Error("expected nil data not to be stored")
+	}
+
+	shortCache := dnstools.NewCTCache(1 * time.Nanosecond)
+	for i := 0; i < 1005; i++ {
+		shortCache.Set("example.com", &dnstools.CertNames{})
+	}
+}
