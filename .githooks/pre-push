@@ -7,6 +7,28 @@ if ! command -v go >/dev/null 2>&1; then
 	exit 1
 fi
 
+# Pre-push hook receives: <local ref> <local sha1> <remote ref> <remote sha1> on stdin.
+# If remote sha1 is all zeros, it's a new branch; otherwise audit diff between remote sha1 and local sha1.
+while read -r local_ref local_sha remote_ref remote_sha; do
+	if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+		continue # branch deletion
+	fi
+
+	BASE_TARGET="$remote_sha"
+	if [ "$remote_sha" = "0000000000000000000000000000000000000000" ] || [ -z "$remote_sha" ]; then
+		# New branch: compare against origin/master or origin/main
+		if git rev-parse origin/master >/dev/null 2>&1; then
+			BASE_TARGET="origin/master"
+		else
+			BASE_TARGET="HEAD~1"
+		fi
+	fi
+
+	if [ -f "./scripts/audit-agent-gate.sh" ]; then
+		./scripts/audit-agent-gate.sh "$BASE_TARGET"
+	fi
+done
+
 echo "pre-push › gofmt"
 unformatted=$(gofmt -l $(git ls-files '*.go'))
 if [ -n "$unformatted" ]; then
