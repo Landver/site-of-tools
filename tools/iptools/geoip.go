@@ -30,6 +30,8 @@ type Result struct {
 	Blocklist *BlockLookup `json:"blocklist,omitempty"`
 	// nil when not checked: Shodan disabled, a private IP, or the lookup failed.
 	Shodan *ShodanInfo `json:"shodan,omitempty"`
+	// RPKI Route Origin Validation status
+	RPKI *RPKIValidation `json:"rpki,omitempty"`
 }
 
 func (r *Result) ShodanConsulted() bool { return r != nil && r.Shodan != nil && !r.Shodan.Skipped }
@@ -159,6 +161,9 @@ func (s *Service) Lookup(ctx context.Context, ipStr string) (*Result, error) {
 			res.Shodan = si
 			FuseShodanProxy(res)
 		}
+	}
+	if Routable(ipStr) && res.ASN != "" {
+		res.RPKI = ValidateRPKI(ipStr, res.ASN)
 	}
 	return res, nil
 }

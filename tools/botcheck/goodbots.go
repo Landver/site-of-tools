@@ -1,6 +1,9 @@
 package botcheck
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // No evasion: a UA match alone never lowers suspicion; only a corroborating egress ASN grants "good-bot".
 
@@ -17,47 +20,50 @@ type BotIdentity struct {
 }
 
 // goodBot.asns holds only the operator's single-tenant crawler ASNs, matched by number: an owner name
-// ("yandex") also matches its rentable cloud. nil for crawlers on shared clouds (Googlebot, GPTBot).
+// ("yandex") also matches its rentable cloud. operator names published CIDR lists (Google, Bing, OpenAI).
 type goodBot struct {
-	token string // lowercase substring to find in UA
-	name  string
-	kind  string
-	asns  []string // single-tenant crawler ASN number(s); nil ⇒ recognised-only
+	token    string // lowercase substring to find in UA
+	name     string
+	kind     string
+	asns     []string // single-tenant crawler ASN number(s); nil ⇒ check operator CIDR
+	operator string   // feed operator key if verified via published CIDRs ("google", "bing", "openai")
 }
 
 // Verify a new ASN in the live IP2Location ASN BIN: a wrong number only misses; a cloud ASN lets VMs verify.
 var goodBots = []goodBot{
 	// ── Verifiable: single-tenant crawler ASNs (distinct from resold cloud) ──
-	{"yandexbot", "YandexBot", BotSearchCrawler, []string{"13238"}},
-	{"baiduspider", "Baiduspider", BotSearchCrawler, []string{"55967"}},
-	{"applebot", "Applebot", BotSearchCrawler, []string{"714", "6185"}},
-	{"seznambot", "SeznamBot", BotSearchCrawler, []string{"43037"}},
-	{"yeti", "Yeti (Naver)", BotSearchCrawler, []string{"23576"}}, // token generic → gated on "naver.me/bot"
-	{"claude-user", "Claude-User (Anthropic)", BotAIAgent, []string{"399358"}},
-	{"meta-externalagent", "Meta-ExternalAgent", BotAIAgent, []string{"32934"}},
-	{"meta-externalfetcher", "Meta-ExternalFetcher", BotAIAgent, []string{"32934"}},
-	{"bytespider", "Bytespider (ByteDance)", BotAIAgent, []string{"396986"}},
+	{"yandexbot", "YandexBot", BotSearchCrawler, []string{"13238"}, ""},
+	{"baiduspider", "Baiduspider", BotSearchCrawler, []string{"55967"}, ""},
+	{"applebot", "Applebot", BotSearchCrawler, []string{"714", "6185"}, ""},
+	{"seznambot", "SeznamBot", BotSearchCrawler, []string{"43037"}, ""},
+	{"yeti", "Yeti (Naver)", BotSearchCrawler, []string{"23576"}, ""}, // token generic → gated on "naver.me/bot"
+	{"claude-user", "Claude-User (Anthropic)", BotAIAgent, []string{"399358"}, ""},
+	{"meta-externalagent", "Meta-ExternalAgent", BotAIAgent, []string{"32934"}, ""},
+	{"meta-externalfetcher", "Meta-ExternalFetcher", BotAIAgent, []string{"32934"}, ""},
+	{"bytespider", "Bytespider (ByteDance)", BotAIAgent, []string{"396986"}, ""},
 
-	// ── Recognised only: multi-tenant cloud, no single-tenant ASN to check ──────
-	{"googlebot", "Googlebot", BotSearchCrawler, nil},
-	{"google-extended", "Google-Extended", BotAIAgent, nil},
-	{"google-cloudvertexbot", "Google-CloudVertexBot", BotAIAgent, nil},
-	{"bingbot", "Bingbot", BotSearchCrawler, nil},
-	{"amazonbot", "Amazonbot", BotSearchCrawler, nil},
-	{"gptbot", "GPTBot (OpenAI)", BotAIAgent, nil},
-	{"oai-searchbot", "OAI-SearchBot (OpenAI)", BotAIAgent, nil},
-	{"chatgpt-user", "ChatGPT-User (OpenAI)", BotAIAgent, nil},
-	{"claudebot", "ClaudeBot (Anthropic)", BotAIAgent, nil},
-	{"claude-searchbot", "Claude-SearchBot (Anthropic)", BotAIAgent, nil},
-	{"anthropic-ai", "anthropic-ai (Anthropic)", BotAIAgent, nil},
-	{"perplexitybot", "PerplexityBot", BotAIAgent, nil},
-	{"perplexity-user", "Perplexity-User", BotAIAgent, nil},
-	{"ccbot", "CCBot (Common Crawl)", BotAIAgent, nil},
-	{"cohere-ai", "cohere-ai", BotAIAgent, nil},
-	{"diffbot", "Diffbot", BotAIAgent, nil},
-	{"mistralai-user", "MistralAI-User", BotAIAgent, nil},
-	{"duckduckbot", "DuckDuckBot", BotSearchCrawler, nil},
-	{"duckassistbot", "DuckAssistBot", BotAIAgent, nil},
+	// ── Verifiable via published official CIDRs ────────────────────────────────
+	{"googlebot", "Googlebot", BotSearchCrawler, nil, "google"},
+	{"google-extended", "Google-Extended", BotAIAgent, nil, "google"},
+	{"google-cloudvertexbot", "Google-CloudVertexBot", BotAIAgent, nil, "google"},
+	{"bingbot", "Bingbot", BotSearchCrawler, nil, "bing"},
+	{"gptbot", "GPTBot (OpenAI)", BotAIAgent, nil, "openai"},
+	{"oai-searchbot", "OAI-SearchBot (OpenAI)", BotAIAgent, nil, "openai"},
+	{"chatgpt-user", "ChatGPT-User (OpenAI)", BotAIAgent, nil, "openai"},
+
+	// ── Recognised only: multi-tenant cloud, no dedicated published feed ────────
+	{"amazonbot", "Amazonbot", BotSearchCrawler, nil, ""},
+	{"claudebot", "ClaudeBot (Anthropic)", BotAIAgent, nil, ""},
+	{"claude-searchbot", "Claude-SearchBot (Anthropic)", BotAIAgent, nil, ""},
+	{"anthropic-ai", "anthropic-ai (Anthropic)", BotAIAgent, nil, ""},
+	{"perplexitybot", "PerplexityBot", BotAIAgent, nil, ""},
+	{"perplexity-user", "Perplexity-User", BotAIAgent, nil, ""},
+	{"ccbot", "CCBot (Common Crawl)", BotAIAgent, nil, ""},
+	{"cohere-ai", "cohere-ai", BotAIAgent, nil, ""},
+	{"diffbot", "Diffbot", BotAIAgent, nil, ""},
+	{"mistralai-user", "MistralAI-User", BotAIAgent, nil, ""},
+	{"duckduckbot", "DuckDuckBot", BotSearchCrawler, nil, ""},
+	{"duckassistbot", "DuckAssistBot", BotAIAgent, nil, ""},
 }
 
 // matchGoodBot: the "naver.me/bot" gate only cuts false positives; verification is the ASN's job.
@@ -85,20 +91,18 @@ func normalizeASN(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// classifyGoodBot returns nil for an unrecognised UA; Verified needs the egress ASN in the entry's list.
-func classifyGoodBot(ua, asn string) *BotIdentity {
+// classifyGoodBot returns nil for an unrecognised UA; Verified needs the egress ASN or official IP prefix match.
+func classifyGoodBot(ua, asn, ip string) *BotIdentity {
 	g := matchGoodBot(ua)
 	if g == nil {
 		return nil
 	}
 	verified := false
 	if egress := normalizeASN(asn); egress != "" {
-		for _, a := range g.asns {
-			if egress == a {
-				verified = true
-				break
-			}
-		}
+		verified = slices.Contains(g.asns, egress)
+	}
+	if !verified && g.operator != "" && ip != "" {
+		verified = MatchCrawlerIP(g.operator, ip)
 	}
 	return &BotIdentity{Name: g.name, Kind: g.kind, Verified: verified}
 }
