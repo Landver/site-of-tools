@@ -7,23 +7,31 @@
 ## 1. Реализовано (Статус: Done / In Production)
 
 ### 1.1 Verified Crawler IP Feeds (`tools/botcheck`)
-- **Проблема:** Поисковые краулеры (Googlebot, Bingbot, OpenAI SearchBot) делят инфраструктурные ASN с публичными облаками (Google Cloud, Microsoft Azure). Проверка по одному ASN уязвима к спуфингу.
-- **Решение:** Ежедневная фоновая загрузка официальных CIDR JSON-фидов Googlebot, Bingbot и OpenAI.
-- **Реализация:** Потоковый парсинг в `tools/botcheck/crawler_ips.go`, атомарная замена `atomic.Pointer[map[string][]netip.Prefix]`, интеграция в `goodbots.go`.
+- Ежедневная фоновая загрузка официальных CIDR JSON-фидов Googlebot, Bingbot и OpenAI с атомарной заменой `atomic.Pointer`.
 
 ### 1.2 Extended Disposable Email Sources (`tools/mailtools`)
-- **Проблема:** Одноразовые домены почты быстро ротируются, одного источника недостаточно для качественного детектирования.
-- **Решение:** Еженедельный синк агрегированных баз (`disposable-email-domains` canonical + Wesbos burner email provider list).
-- **Реализация:** Оптимизированный фоновый воркер `tools/mailtools/worker.go`, объединение списков без аллокационного оверхеда.
+- Еженедельный синк агрегированных баз (`disposable-email-domains` canonical + Wesbos burner email provider list).
 
 ### 1.3 BGP / RPKI Route Origin Validation (`tools/iptools`)
-- **Проблема:** Ошибки конфигурации BGP и BGP hijacking приводят к перехвату трафика. Простые WHOIS/ASN проверки не показывают легитимность маршрутизации.
-- **Решение:** Полноценный RFC 6811 RPKI ROA валидатор на основе ежедневного RPKI JSON-дампа Cloudflare (декомпрессия gzip на лету).
-- **Реализация:** 256-корзинный индекс по первому октету IPv4 в `tools/iptools/rpki.go` (субмиллисекундный поиск среди ~450k ROA), поддержка multi-homed ROA, интеграция в UI `tools/iptools/templates/result.html`.
+- RFC 6811 RPKI ROA валидатор на основе ежедневного RPKI JSON-дампа Cloudflare с 256-корзинным индексом по первому октету IPv4 ($O(1)$ sub-ms lookup).
 
 ### 1.4 Pre-Push Quality & Anti-Patch Gateway
-- **Решение:** Скрипт `scripts/audit-agent-gate.sh` и интеграция в `.githooks/pre-push`.
-- **Контроль:** Блокировка пуша при обнаружении downstream-патчей, проверка соблюдения DRY/KISS/YAGNI, соответствие тестового покрытия и запуск race-тестов по затронутым пакетам.
+- Автоматический шлюз аудита в `scripts/audit-agent-gate.sh` и `.githooks/pre-push`: блокировка downstream-патчей, проверка DRY/KISS/YAGNI, соответствие тестов и запуск race-тестов по затронутым пакетам.
+
+### 1.5 Threat Intelligence: Tor Exit Node Feed (`tools/iptools`)
+- Ежедневный регулярный синк официального Tor Bulk Exit List (`check.torproject.org/torbulkexitlist`) в общую коллекцию `ip_blocklist` с фоновым воркером `RunTorExitSync(ctx)` в `main.go`.
+
+### 1.6 PeeringDB & IXP Connectivity Insights (`tools/iptools`)
+- Еженедельный синк PeeringDB snapshot: отображение точек присутствия на IXP, пиринговой политики (`Open`, `Selective`), соотношения трафика и масштаба сети для любого ASN.
+
+### 1.7 DNSSEC Cryptographic Chain Validation (`tools/dnstools`)
+- Проверка криптографической цепочки DNSKEY/RRSIG и флага Authenticated Data (AD) без внешних платных API с распознаванием алгоритмов и проверкой Key Tags.
+
+### 1.8 Certificate Transparency Local Cache (`tools/dnstools`)
+- Потокобезопасный локальный кеш (`CTCache`) с настраиваемым TTL, снижающий нагрузку на upstream crt.sh и предотвращающий троттлинг.
+
+### 1.9 RFC 7208 SPF Mechanism Evaluator Engine (`tools/mailtools`)
+- Локальный анализатор соответствия IP клиента механизмам SPF (`ip4`, `ip6`, `all`) с выдачей стандартных RFC вердиктов (`Pass`, `Fail`, `Softfail`, `Neutral`, `PermError`).
 
 ---
 
