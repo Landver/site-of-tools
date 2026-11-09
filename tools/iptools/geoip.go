@@ -32,6 +32,8 @@ type Result struct {
 	Shodan *ShodanInfo `json:"shodan,omitempty"`
 	// RPKI Route Origin Validation status
 	RPKI *RPKIValidation `json:"rpki,omitempty"`
+	// PeeringDB IXP and interconnect profile
+	Peering *PeeringInfo `json:"peering,omitempty"`
 }
 
 func (r *Result) ShodanConsulted() bool { return r != nil && r.Shodan != nil && !r.Shodan.Skipped }
@@ -164,6 +166,7 @@ func (s *Service) Lookup(ctx context.Context, ipStr string) (*Result, error) {
 	}
 	if Routable(ipStr) && res.ASN != "" {
 		res.RPKI = ValidateRPKI(ipStr, res.ASN)
+		res.Peering = LookupPeering(res.ASN)
 	}
 	return res, nil
 }

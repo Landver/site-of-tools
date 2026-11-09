@@ -93,10 +93,11 @@ func run() error {
 	// Each skips the download if refreshed within a day, so redeploys don't re-fetch.
 	// Spamhaus DROP is free for all use; it is credited in shared/templates/partials/footer.html.
 	var syncs sync.WaitGroup
-	syncs.Add(6)
+	syncs.Add(7)
 	go func() { defer syncs.Done(); iptools.RunIPsumSync(ctx, blocklist) }()
 	go func() { defer syncs.Done(); iptools.RunSpamhausDROPSync(ctx, blocklist) }()
 	go func() { defer syncs.Done(); iptools.RunTorExitSync(ctx, blocklist) }()
+	go func() { defer syncs.Done(); iptools.RunPeeringDBSync(ctx) }()
 	go func() { defer syncs.Done(); iptools.RunRPKISync(ctx) }()
 	go func() { defer syncs.Done(); botcheck.RunCrawlerSync(ctx) }()
 	go func() { defer syncs.Done(); mailtools.RunSync(ctx) }()
