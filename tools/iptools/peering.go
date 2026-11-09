@@ -15,40 +15,40 @@ import (
 
 // PeeringInfo summarizes an autonomous system's connectivity profile from PeeringDB.
 type PeeringInfo struct {
-	ASN          uint32   `json:"asn"`
-	Name         string   `json:"name,omitempty"`
-	Policy       string   `json:"policy,omitempty"`        // Open, Selective, Restrictive, etc.
-	Traffic      string   `json:"traffic,omitempty"`       // e.g. "100-500Gbps"
-	Ratio        string   `json:"ratio,omitempty"`         // Balanced, Mostly Inbound, Mostly Outbound
-	Scope        string   `json:"scope,omitempty"`         // Regional, Global, etc.
-	IXPCount     int      `json:"ixp_count,omitempty"`     // Total IXPs connected
-	IXPs         []string `json:"ixps,omitempty"`          // Sample of IXP exchange names
-	Website      string   `json:"website,omitempty"`
+	ASN      uint32   `json:"asn"`
+	Name     string   `json:"name,omitempty"`
+	Policy   string   `json:"policy,omitempty"`    // Open, Selective, Restrictive, etc.
+	Traffic  string   `json:"traffic,omitempty"`   // e.g. "100-500Gbps"
+	Ratio    string   `json:"ratio,omitempty"`     // Balanced, Mostly Inbound, Mostly Outbound
+	Scope    string   `json:"scope,omitempty"`     // Regional, Global, etc.
+	IXPCount int      `json:"ixp_count,omitempty"` // Total IXPs connected
+	IXPs     []string `json:"ixps,omitempty"`      // Sample of IXP exchange names
+	Website  string   `json:"website,omitempty"`
 }
 
 type peeringDBDump struct {
 	Net struct {
 		Data []struct {
-			ASN         uint32 `json:"asn"`
-			Name        string `json:"name"`
-			Policy      string `json:"policy_general"`
-			Traffic     string `json:"info_traffic"`
-			Ratio       string `json:"info_ratio"`
-			Scope       string `json:"info_scope"`
-			Website     string `json:"website"`
-			ID          int    `json:"id"`
+			ASN     uint32 `json:"asn"`
+			Name    string `json:"name"`
+			Policy  string `json:"policy_general"`
+			Traffic string `json:"info_traffic"`
+			Ratio   string `json:"info_ratio"`
+			Scope   string `json:"info_scope"`
+			Website string `json:"website"`
+			ID      int    `json:"id"`
 		} `json:"data"`
 	} `json:"net"`
 	NetIXLAN struct {
 		Data []struct {
-			NetID   int    `json:"net_id"`
-			IXName  string `json:"name"`
+			NetID  int    `json:"net_id"`
+			IXName string `json:"name"`
 		} `json:"data"`
 	} `json:"netixlan"`
 }
 
 var (
-	peeringCache atomic.Pointer[map[uint32]*PeeringInfo]
+	peeringCache      atomic.Pointer[map[uint32]*PeeringInfo]
 	peeringHTTPClient = &http.Client{Timeout: 90 * time.Second}
 )
 
