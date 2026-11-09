@@ -36,6 +36,7 @@ const (
 const (
 	BlocklistSourceIPsum        = "ipsum"
 	BlocklistSourceSpamhausDROP = "spamhaus-drop"
+	BlocklistSourceTorExit      = "tor-exit"
 	// First-hand: the address probed this site for secrets (platform.IsProbe). Flagged, never blocked.
 	BlocklistSourceProbe = "corpberry-honeypot"
 )
