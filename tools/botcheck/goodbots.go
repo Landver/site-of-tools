@@ -1,6 +1,9 @@
 package botcheck
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // No evasion: a UA match alone never lowers suspicion; only a corroborating egress ASN grants "good-bot".
 
@@ -96,12 +99,7 @@ func classifyGoodBot(ua, asn, ip string) *BotIdentity {
 	}
 	verified := false
 	if egress := normalizeASN(asn); egress != "" {
-		for _, a := range g.asns {
-			if egress == a {
-				verified = true
-				break
-			}
-		}
+		verified = slices.Contains(g.asns, egress)
 	}
 	if !verified && g.operator != "" && ip != "" {
 		verified = MatchCrawlerIP(g.operator, ip)

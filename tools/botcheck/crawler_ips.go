@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -12,36 +13,24 @@ import (
 	"time"
 )
 
-// CrawlerFeed defines an official crawler IP list source.
-type CrawlerFeed struct {
-	Operator string // "google", "bing", "openai"
-	URL      string
-}
-
-var crawlerFeeds = []CrawlerFeed{
-	{Operator: "google", URL: "https://developers.google.com/static/crawling/ipranges/common-crawlers.json"},
-	{Operator: "bing", URL: "https://www.bing.com/toolbox/bingbot.json"},
-	{Operator: "openai", URL: "https://openai.com/gptbot.json"},
-}
-
-type prefixItem struct {
-	IPv4Prefix string `json:"ipv4Prefix"`
-	IPv6Prefix string `json:"ipv6Prefix"`
+var crawlerFeeds = [...]struct{ op, url string }{
+	{"google", "https://developers.google.com/static/crawling/ipranges/common-crawlers.json"},
+	{"bing", "https://www.bing.com/toolbox/bingbot.json"},
+	{"openai", "https://openai.com/gptbot.json"},
 }
 
 type crawlerPrefixList struct {
-	Prefixes []prefixItem `json:"prefixes"`
+	Prefixes []struct {
+		IPv4Prefix string `json:"ipv4Prefix"`
+		IPv6Prefix string `json:"ipv6Prefix"`
+	} `json:"prefixes"`
 }
 
-// CrawlerPrefixIndex is an atomic, immutable lookup table of verified IP prefixes.
-type CrawlerPrefixIndex struct {
-	prefixes map[string][]netip.Prefix // operator -> prefixes
-}
-
-var crawlerIndex atomic.Pointer[CrawlerPrefixIndex]
+var crawlerIndex atomic.Pointer[map[string][]netip.Prefix]
 
 func init() {
-	crawlerIndex.Store(&CrawlerPrefixIndex{prefixes: make(map[string][]netip.Prefix)})
+	empty := make(map[string][]netip.Prefix)
+	crawlerIndex.Store(&empty)
 }
 
 // MatchCrawlerIP checks if an IP belongs to the official published IP ranges of an operator.
@@ -50,8 +39,8 @@ func MatchCrawlerIP(operator, ipStr string) bool {
 	if idx == nil {
 		return false
 	}
-	prefixes, ok := idx.prefixes[operator]
-	if !ok || len(prefixes) == 0 {
+	prefixes := (*idx)[operator]
+	if len(prefixes) == 0 {
 		return false
 	}
 	addr, err := netip.ParseAddr(strings.TrimSpace(ipStr))
@@ -66,41 +55,19 @@ func MatchCrawlerIP(operator, ipStr string) bool {
 	return false
 }
 
-// SeedCrawlerPrefixesForTest populates prefixes for an operator in unit tests.
-func SeedCrawlerPrefixesForTest(operator string, rawPrefixes []string) {
-	curr := crawlerIndex.Load()
-	newMap := make(map[string][]netip.Prefix)
-	if curr != nil {
-		for k, v := range curr.prefixes {
-			newMap[k] = v
+// RunCrawlerSync syncs official crawler IP feeds periodically until ctx is canceled.
+func RunCrawlerSync(ctx context.Context) {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			syncAllCrawlerFeeds(ctx)
+			timer.Reset(24 * time.Hour)
 		}
 	}
-	var list []netip.Prefix
-	for _, s := range rawPrefixes {
-		if p, err := netip.ParsePrefix(s); err == nil {
-			list = append(list, p)
-		}
-	}
-	newMap[operator] = list
-	crawlerIndex.Store(&CrawlerPrefixIndex{prefixes: newMap})
-}
-
-// StartCrawlerSyncWorker syncs official crawler IP feeds periodically.
-func StartCrawlerSyncWorker(ctx context.Context) {
-	go func() {
-		// Sync after 10 seconds, then daily
-		timer := time.NewTimer(10 * time.Second)
-		defer timer.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				syncAllCrawlerFeeds(ctx)
-				timer.Reset(24 * time.Hour)
-			}
-		}
-	}()
 }
 
 func syncAllCrawlerFeeds(ctx context.Context) {
@@ -108,23 +75,25 @@ func syncAllCrawlerFeeds(ctx context.Context) {
 	newMap := make(map[string][]netip.Prefix)
 
 	for _, feed := range crawlerFeeds {
-		prefixes := fetchCrawlerFeed(ctx, client, feed.URL)
+		if ctx.Err() != nil {
+			return
+		}
+		prefixes := fetchCrawlerFeed(ctx, client, feed.url)
 		if len(prefixes) > 0 {
-			newMap[feed.Operator] = prefixes
-			log.Printf("[botcheck.crawler] synced %d prefixes for %s", len(prefixes), feed.Operator)
+			newMap[feed.op] = prefixes
+			log.Printf("[botcheck.crawler] synced %d prefixes for %s", len(prefixes), feed.op)
 		}
 	}
 
 	if len(newMap) > 0 {
-		// Merge with existing ones if any feed failed
 		if curr := crawlerIndex.Load(); curr != nil {
-			for op, existing := range curr.prefixes {
+			for op, existing := range *curr {
 				if _, ok := newMap[op]; !ok {
 					newMap[op] = existing
 				}
 			}
 		}
-		crawlerIndex.Store(&CrawlerPrefixIndex{prefixes: newMap})
+		crawlerIndex.Store(&newMap)
 	}
 }
 
@@ -144,28 +113,37 @@ func fetchCrawlerFeed(ctx context.Context, client *http.Client, feedURL string) 
 		return nil
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20))
-	if err != nil {
-		return nil
-	}
-
 	var data crawlerPrefixList
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&data); err != nil {
 		return nil
 	}
 
 	var prefixes []netip.Prefix
 	for _, item := range data.Prefixes {
-		raw := item.IPv4Prefix
-		if raw == "" {
-			raw = item.IPv6Prefix
-		}
-		if raw == "" {
-			continue
-		}
-		if p, err := netip.ParsePrefix(raw); err == nil {
-			prefixes = append(prefixes, p)
+		for _, raw := range [...]string{item.IPv4Prefix, item.IPv6Prefix} {
+			if raw != "" {
+				if p, err := netip.ParsePrefix(raw); err == nil {
+					prefixes = append(prefixes, p)
+				}
+			}
 		}
 	}
 	return prefixes
+}
+
+// SeedCrawlerPrefixesForTest populates prefixes for an operator in unit tests.
+func SeedCrawlerPrefixesForTest(operator string, rawPrefixes []string) {
+	curr := crawlerIndex.Load()
+	newMap := make(map[string][]netip.Prefix)
+	if curr != nil {
+		newMap = maps.Clone(*curr)
+	}
+	var list []netip.Prefix
+	for _, s := range rawPrefixes {
+		if p, err := netip.ParsePrefix(s); err == nil {
+			list = append(list, p)
+		}
+	}
+	newMap[operator] = list
+	crawlerIndex.Store(&newMap)
 }

@@ -753,14 +753,24 @@ func TestCrawlerIPPrefixVerification(t *testing.T) {
 	// Seed crawler index for testing
 	botcheck.SeedCrawlerPrefixesForTest("google", []string{"66.249.64.0/19", "2001:4860:4801:10::/64"})
 	botcheck.SeedCrawlerPrefixesForTest("openai", []string{"20.171.206.0/24"})
+	botcheck.SeedCrawlerPrefixesForTest("bing", []string{"157.55.39.0/24"})
 
-	const googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-	const gptbot = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.1; +https://openai.com/gptbot"
+	const (
+		googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+		gptbot    = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.1; +https://openai.com/gptbot"
+		bingbot   = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
+	)
 
-	// Verified via published IP prefix
+	// Verified via published IPv4 prefix
 	r1 := botcheck.Evaluate(crawlerWithIP(googlebot, "15169", "66.249.66.1"))
 	if r1.Bot == nil || !r1.Bot.Verified || r1.Verdict != "good-bot" {
-		t.Errorf("Googlebot with matching IP: got %+v (verdict %q), want verified good-bot", r1.Bot, r1.Verdict)
+		t.Errorf("Googlebot IPv4: got %+v (verdict %q), want verified good-bot", r1.Bot, r1.Verdict)
+	}
+
+	// Verified via published IPv6 prefix
+	r1V6 := botcheck.Evaluate(crawlerWithIP(googlebot, "15169", "2001:4860:4801:10::1"))
+	if r1V6.Bot == nil || !r1V6.Bot.Verified || r1V6.Verdict != "good-bot" {
+		t.Errorf("Googlebot IPv6: got %+v (verdict %q), want verified good-bot", r1V6.Bot, r1V6.Verdict)
 	}
 
 	// Spoofed IP outside published ranges
@@ -773,6 +783,20 @@ func TestCrawlerIPPrefixVerification(t *testing.T) {
 	r3 := botcheck.Evaluate(crawlerWithIP(gptbot, "8075", "20.171.206.50"))
 	if r3.Bot == nil || !r3.Bot.Verified || r3.Verdict != "good-bot" {
 		t.Errorf("GPTBot with matching IP: got %+v (verdict %q), want verified good-bot", r3.Bot, r3.Verdict)
+	}
+
+	// Bingbot verified via Bing prefix
+	r4 := botcheck.Evaluate(crawlerWithIP(bingbot, "8075", "157.55.39.10"))
+	if r4.Bot == nil || !r4.Bot.Verified || r4.Verdict != "good-bot" {
+		t.Errorf("Bingbot with matching IP: got %+v (verdict %q), want verified good-bot", r4.Bot, r4.Verdict)
+	}
+
+	// Malformed / invalid IP edge cases
+	if res := botcheck.MatchCrawlerIP("google", "not-an-ip"); res {
+		t.Error("MatchCrawlerIP must return false on invalid IP string")
+	}
+	if res := botcheck.MatchCrawlerIP("unknown-operator", "66.249.66.1"); res {
+		t.Error("MatchCrawlerIP must return false on unknown operator")
 	}
 }
 

@@ -163,8 +163,7 @@ func (s *Service) Lookup(ctx context.Context, ipStr string) (*Result, error) {
 		}
 	}
 	if Routable(ipStr) && res.ASN != "" {
-		rpkiVal := ValidateRPKI(ipStr, res.ASN)
-		res.RPKI = &rpkiVal
+		res.RPKI = ValidateRPKI(ipStr, res.ASN)
 	}
 	return res, nil
 }

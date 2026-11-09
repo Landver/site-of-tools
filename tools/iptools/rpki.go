@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -28,136 +29,130 @@ type RPKIValidation struct {
 	Details   string `json:"details,omitempty"`
 }
 
-type roaEntry struct {
-	prefix    netip.Prefix
-	asn       uint32
-	maxLength int
-}
-
-type rawROA struct {
-	ASN       any    `json:"asn"` // can be string or uint32 in various feeds
-	Prefix    string `json:"prefix"`
-	MaxLength int    `json:"maxLength"`
+// ROAEntry holds an authorized prefix route origin assertion.
+type ROAEntry struct {
+	Prefix    netip.Prefix
+	ASN       uint32
+	MaxLength int
 }
 
 type rawRPKIResponse struct {
-	ROAs []rawROA `json:"roas"`
+	ROAs []struct {
+		ASN       any    `json:"asn"`
+		Prefix    string `json:"prefix"`
+		MaxLength int    `json:"maxLength"`
+	} `json:"roas"`
 }
 
-// RPKIIndex provides in-memory Longest Prefix Match (LPM) for RPKI ROAs.
+// RPKIIndex provides 256-bucket fast IPv4 lookups + IPv6 list.
 type RPKIIndex struct {
-	v4List []roaEntry
-	v6List []roaEntry
+	v4Buckets [256][]ROAEntry
+	v6List    []ROAEntry
 }
 
 var activeRPKI atomic.Pointer[RPKIIndex]
 
-func init() {
-	activeRPKI.Store(&RPKIIndex{})
-}
-
-// ValidateRPKI checks an announced prefix or IP and origin ASN against active ROAs.
-func ValidateRPKI(ipStr, asnStr string) RPKIValidation {
+// ValidateRPKI checks an IP and origin ASN against active ROAs per RFC 6811.
+// Returns nil if the database is uninitialized or IP/ASN is invalid.
+func ValidateRPKI(ipStr, asnStr string) *RPKIValidation {
 	idx := activeRPKI.Load()
-	if idx == nil || (len(idx.v4List) == 0 && len(idx.v6List) == 0) {
-		return RPKIValidation{Status: "not_found", Details: "RPKI ROA database not loaded"}
+	if idx == nil {
+		return nil
 	}
 
 	addr, err := netip.ParseAddr(strings.TrimSpace(ipStr))
 	if err != nil {
-		return RPKIValidation{Status: "not_found", Details: "invalid target IP"}
+		return nil
 	}
 
 	cleanASN := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(asnStr), "AS"), "as")
-	originASN64, _ := strconv.ParseUint(cleanASN, 10, 32)
+	originASN64, err := strconv.ParseUint(cleanASN, 10, 32)
+	if err != nil || originASN64 == 0 {
+		return nil
+	}
 	originASN := uint32(originASN64)
 
-	var list []roaEntry
+	var list []ROAEntry
 	if addr.Is4() {
-		list = idx.v4List
+		list = idx.v4Buckets[addr.As4()[0]]
 	} else {
 		list = idx.v6List
 	}
+	if len(list) == 0 {
+		return &RPKIValidation{Status: "not_found", Details: "No covering ROA found in global RPKI repository"}
+	}
 
-	var bestCover *roaEntry
-	// Find longest covering prefix
+	// RFC 6811: Valid if at least ONE covering ROA matches origin ASN.
+	// Longest covering prefix is recorded for attribution.
+	var (
+		validROA   *ROAEntry
+		invalidROA *ROAEntry
+	)
 	for i := range list {
 		entry := &list[i]
-		if entry.prefix.Contains(addr) {
-			if bestCover == nil || entry.prefix.Bits() > bestCover.prefix.Bits() {
-				bestCover = entry
+		if !entry.Prefix.Contains(addr) {
+			continue
+		}
+		if entry.ASN == originASN {
+			if validROA == nil || entry.Prefix.Bits() > validROA.Prefix.Bits() {
+				validROA = entry
 			}
+		} else if invalidROA == nil || entry.Prefix.Bits() > invalidROA.Prefix.Bits() {
+			invalidROA = entry
 		}
 	}
 
-	if bestCover == nil {
-		return RPKIValidation{
-			Status:  "not_found",
-			Details: "No covering ROA found in global RPKI repository",
-		}
-	}
-
-	// Covering ROA found. Check RFC 6811 rules
-	targetBits := bestCover.prefix.Bits()
-	if bestCover.asn == originASN && targetBits <= bestCover.maxLength {
-		return RPKIValidation{
+	if validROA != nil {
+		return &RPKIValidation{
 			Status:    "valid",
-			ROAPrefix: bestCover.prefix.String(),
-			ROAASN:    bestCover.asn,
-			MaxLength: bestCover.maxLength,
-			Details:   "Valid: announced route matches authentic cryptographically signed ROA",
+			ROAPrefix: validROA.Prefix.String(),
+			ROAASN:    validROA.ASN,
+			MaxLength: validROA.MaxLength,
+			Details:   "Valid: route matches authentic cryptographically signed ROA",
 		}
 	}
-
-	// Invalid reason
-	if bestCover.asn != originASN {
-		return RPKIValidation{
+	if invalidROA != nil {
+		return &RPKIValidation{
 			Status:    "invalid",
-			ROAPrefix: bestCover.prefix.String(),
-			ROAASN:    bestCover.asn,
-			MaxLength: bestCover.maxLength,
-			Details:   "Invalid (AS Mismatch): prefix is authorized for AS" + strconv.FormatUint(uint64(bestCover.asn), 10) + ", but announced by AS" + strconv.FormatUint(uint64(originASN), 10),
+			ROAPrefix: invalidROA.Prefix.String(),
+			ROAASN:    invalidROA.ASN,
+			MaxLength: invalidROA.MaxLength,
+			Details:   fmt.Sprintf("Invalid (AS Mismatch): prefix authorized for AS%d, but announced by AS%d", invalidROA.ASN, originASN),
 		}
 	}
+	return &RPKIValidation{Status: "not_found", Details: "No covering ROA found in global RPKI repository"}
+}
 
-	return RPKIValidation{
-		Status:    "invalid",
-		ROAPrefix: bestCover.prefix.String(),
-		ROAASN:    bestCover.asn,
-		MaxLength: bestCover.maxLength,
-		Details:   "Invalid (MaxLength Exceeded): prefix length exceeds ROA maxLength " + strconv.Itoa(bestCover.maxLength),
+// RunRPKISync syncs Cloudflare RPKI JSON periodically until ctx cancels.
+func RunRPKISync(ctx context.Context) {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			syncRPKI(ctx)
+			timer.Reset(rpkiSyncInterval)
+		}
 	}
 }
 
-// StartRPKISyncWorker syncs Cloudflare RPKI JSON periodically in the background.
+// StartRPKISyncWorker is a non-blocking helper for background execution.
 func StartRPKISyncWorker(ctx context.Context) {
-	go func() {
-		// Run initial sync after 5 seconds, then daily
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				syncRPKI(ctx)
-				timer.Reset(rpkiSyncInterval)
-			}
-		}
-	}()
+	go RunRPKISync(ctx)
 }
 
 func syncRPKI(ctx context.Context) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rpkiCloudflareURL, nil)
 	if err != nil {
-		log.Printf("[iptools.rpki] failed to build request: %v", err)
+		log.Printf("[iptools.rpki] request error: %v", err)
 		return
 	}
 	req.Header.Set("User-Agent", "corpberry-iptools/1.0 (+https://ip.corpberry.com)")
 	req.Header.Set("Accept-Encoding", "gzip")
 
-	client := &http.Client{Timeout: 90 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
 	if err != nil {
 		log.Printf("[iptools.rpki] sync request failed: %v", err)
 		return
@@ -181,7 +176,6 @@ func syncRPKI(ctx context.Context) {
 	}
 
 	var data rawRPKIResponse
-	// Stream JSON with limit of 250MB uncompressed
 	if err := json.NewDecoder(io.LimitReader(reader, 250<<20)).Decode(&data); err != nil {
 		log.Printf("[iptools.rpki] JSON parse error: %v", err)
 		return
@@ -192,7 +186,7 @@ func syncRPKI(ctx context.Context) {
 		return
 	}
 
-	var v4, v6 []roaEntry
+	idx := &RPKIIndex{}
 	for _, r := range data.ROAs {
 		p, err := netip.ParsePrefix(r.Prefix)
 		if err != nil {
@@ -214,35 +208,27 @@ func syncRPKI(ctx context.Context) {
 		if maxL < p.Bits() {
 			maxL = p.Bits()
 		}
-		entry := roaEntry{prefix: p, asn: asn, maxLength: maxL}
+		entry := ROAEntry{Prefix: p, ASN: asn, MaxLength: maxL}
 		if p.Addr().Is4() {
-			v4 = append(v4, entry)
+			idx.v4Buckets[p.Addr().As4()[0]] = append(idx.v4Buckets[p.Addr().As4()[0]], entry)
 		} else {
-			v6 = append(v6, entry)
+			idx.v6List = append(idx.v6List, entry)
 		}
 	}
 
-	activeRPKI.Store(&RPKIIndex{v4List: v4, v6List: v6})
-	log.Printf("[iptools.rpki] synced %d IPv4 and %d IPv6 ROAs", len(v4), len(v6))
-}
-
-// TestROA is exported for unit testing SeedRPKIForTest.
-type TestROA struct {
-	Prefix    netip.Prefix
-	ASN       uint32
-	MaxLength int
+	activeRPKI.Store(idx)
+	log.Printf("[iptools.rpki] synced %d total ROAs", len(data.ROAs))
 }
 
 // SeedRPKIForTest populates test ROAs.
-func SeedRPKIForTest(roas []TestROA) {
-	var v4, v6 []roaEntry
+func SeedRPKIForTest(roas []ROAEntry) {
+	idx := &RPKIIndex{}
 	for _, r := range roas {
-		entry := roaEntry{prefix: r.Prefix, asn: r.ASN, maxLength: r.MaxLength}
 		if r.Prefix.Addr().Is4() {
-			v4 = append(v4, entry)
+			idx.v4Buckets[r.Prefix.Addr().As4()[0]] = append(idx.v4Buckets[r.Prefix.Addr().As4()[0]], r)
 		} else {
-			v6 = append(v6, entry)
+			idx.v6List = append(idx.v6List, r)
 		}
 	}
-	activeRPKI.Store(&RPKIIndex{v4List: v4, v6List: v6})
+	activeRPKI.Store(idx)
 }

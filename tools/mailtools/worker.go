@@ -4,50 +4,51 @@ import (
 	"context"
 	"io"
 	"log"
+	"maps"
 	"net/http"
+	"slices"
 	"time"
 )
 
 const (
 	canonicalDisposableURL = "https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf"
 	burnerEmailURL         = "https://raw.githubusercontent.com/wesbos/burner-email-providers/master/emails.txt"
-	// A short download is a truncated or hijacked list; the canonical one holds over 5,000 domains.
-	minDisposableDomains = 5000
-	syncInterval         = 24 * time.Hour
+	minDisposableDomains   = 5000
+	syncInterval           = 24 * time.Hour
 )
 
-// StartSyncWorker refreshes the disposable list a minute after boot, then daily.
-func StartSyncWorker(ctx context.Context) {
-	go func() {
-		wait := time.NewTimer(time.Minute)
-		defer wait.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-wait.C:
-				syncDisposableDomains(ctx)
-				wait.Reset(syncInterval)
-			}
+// RunSync refreshes the disposable list a minute after boot, then daily until ctx cancels.
+func RunSync(ctx context.Context) {
+	wait := time.NewTimer(time.Minute)
+	defer wait.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wait.C:
+			syncDisposableDomains(ctx)
+			wait.Reset(syncInterval)
 		}
-	}()
+	}
+}
+
+// StartSyncWorker is a non-blocking helper for background execution.
+func StartSyncWorker(ctx context.Context) {
+	go RunSync(ctx)
 }
 
 func syncDisposableDomains(ctx context.Context) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	domainMap := make(map[string]struct{})
 
-	// 1. Fetch canonical disposable list
-	if lines := fetchDomainList(ctx, client, canonicalDisposableURL); len(lines) > 0 {
-		for _, d := range lines {
-			domainMap[cleanDomain(d)] = struct{}{}
+	for _, u := range [...]string{canonicalDisposableURL, burnerEmailURL} {
+		if ctx.Err() != nil {
+			return
 		}
-	}
-
-	// 2. Fetch extended burner email list
-	if lines := fetchDomainList(ctx, client, burnerEmailURL); len(lines) > 0 {
-		for _, d := range lines {
-			domainMap[cleanDomain(d)] = struct{}{}
+		for _, d := range fetchDomainList(ctx, client, u) {
+			if d = cleanDomain(d); d != "" {
+				domainMap[d] = struct{}{}
+			}
 		}
 	}
 
@@ -56,10 +57,7 @@ func syncDisposableDomains(ctx context.Context) {
 		return
 	}
 
-	domains := make([]string, 0, len(domainMap))
-	for d := range domainMap {
-		domains = append(domains, d)
-	}
+	domains := slices.Collect(maps.Keys(domainMap))
 	synced.Store(classifierWith(domains))
 	log.Printf("[mailtools.worker] synced %d aggregated disposable domains", len(domains))
 }
