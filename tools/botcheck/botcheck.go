@@ -320,8 +320,8 @@ const (
 
 // Evaluate is pure (no DB, globals or clock): score starts at 100, hard/consistency hits subtract weight.
 func Evaluate(s Signals) Report {
-	// Only an ASN-verified bot gets suppression; an unverified UA claim is labelled, not excused.
-	bot := classifyGoodBot(clientUA(s), s.ASN)
+	// Only an ASN- or published-prefix-verified bot gets suppression; an unverified UA claim is labelled, not excused.
+	bot := classifyGoodBot(clientUA(s), s.ASN, s.EgressIP)
 	suppress := bot != nil && bot.Verified
 
 	checks := make([]Check, 0, len(rules))

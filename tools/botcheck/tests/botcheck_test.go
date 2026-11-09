@@ -652,6 +652,10 @@ func crawler(ua, asn string) botcheck.Signals {
 	return botcheck.Signals{HeadersSupplied: true, IPSupplied: true, HTTPUserAgent: ua, ASN: asn}
 }
 
+func crawlerWithIP(ua, asn, ip string) botcheck.Signals {
+	return botcheck.Signals{HeadersSupplied: true, IPSupplied: true, HTTPUserAgent: ua, ASN: asn, EgressIP: ip}
+}
+
 // "good-bot" needs the operator's single-tenant crawler ASN, which outsiders (even on its cloud)
 // can't originate from; multi-tenant Googlebot and cloud-hosted GPTBot stay unverified.
 func TestGoodBotClassification(t *testing.T) {
@@ -741,6 +745,34 @@ func TestGoodBotClassification(t *testing.T) {
 				t.Errorf("bot_user_agent Suppressed = %v, want %v (suppressed iff verified)", bua.Suppressed, tc.verified)
 			}
 		})
+	}
+}
+
+// The classifier needs a bot token: curl stays an unnamed bot, a human is never touched.
+func TestCrawlerIPPrefixVerification(t *testing.T) {
+	// Seed crawler index for testing
+	botcheck.SeedCrawlerPrefixesForTest("google", []string{"66.249.64.0/19", "2001:4860:4801:10::/64"})
+	botcheck.SeedCrawlerPrefixesForTest("openai", []string{"20.171.206.0/24"})
+
+	const googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+	const gptbot = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.1; +https://openai.com/gptbot"
+
+	// Verified via published IP prefix
+	r1 := botcheck.Evaluate(crawlerWithIP(googlebot, "15169", "66.249.66.1"))
+	if r1.Bot == nil || !r1.Bot.Verified || r1.Verdict != "good-bot" {
+		t.Errorf("Googlebot with matching IP: got %+v (verdict %q), want verified good-bot", r1.Bot, r1.Verdict)
+	}
+
+	// Spoofed IP outside published ranges
+	r2 := botcheck.Evaluate(crawlerWithIP(googlebot, "15169", "192.0.2.1"))
+	if r2.Bot == nil || r2.Bot.Verified || r2.Verdict != "bot" {
+		t.Errorf("Googlebot with spoofed IP: got %+v (verdict %q), want unverified bot", r2.Bot, r2.Verdict)
+	}
+
+	// GPTBot verified via OpenAI prefix
+	r3 := botcheck.Evaluate(crawlerWithIP(gptbot, "8075", "20.171.206.50"))
+	if r3.Bot == nil || !r3.Bot.Verified || r3.Verdict != "good-bot" {
+		t.Errorf("GPTBot with matching IP: got %+v (verdict %q), want verified good-bot", r3.Bot, r3.Verdict)
 	}
 }
 

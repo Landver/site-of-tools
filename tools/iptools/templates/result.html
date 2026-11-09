@@ -73,6 +73,14 @@
       <dt>Timezone</dt>  <dd>{{.Timezone}}</dd>
       <dt>Coords</dt>    <dd>{{.Latitude}}, {{.Longitude}}</dd>
       <dt>ASN</dt>       <dd>{{.ASN}}{{if .ASName}} — {{.ASName}}{{end}}</dd>
+      {{with .RPKI}}
+      <dt>RPKI</dt>
+      <dd>
+        {{if eq .Status "valid"}}<span class="badge badge-ok">VALID</span> <span class="text-xs text-faint font-mono">{{.ROAPrefix}} (AS{{.ROAASN}})</span>
+        {{else if eq .Status "invalid"}}<span class="badge badge-danger">INVALID</span> <span class="text-xs text-danger font-mono">{{.Details}}</span>
+        {{else}}<span class="badge badge-neutral">UNKNOWN</span> <span class="text-xs text-faint font-mono">No ROA</span>{{end}}
+      </dd>
+      {{end}}
     </dl>
     <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
       <span class="text-xs font-mono text-faint">Pivots:</span>

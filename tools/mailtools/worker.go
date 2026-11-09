@@ -10,6 +10,7 @@ import (
 
 const (
 	canonicalDisposableURL = "https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf"
+	burnerEmailURL         = "https://raw.githubusercontent.com/wesbos/burner-email-providers/master/emails.txt"
 	// A short download is a truncated or hijacked list; the canonical one holds over 5,000 domains.
 	minDisposableDomains = 5000
 	syncInterval         = 24 * time.Hour
@@ -33,27 +34,51 @@ func StartSyncWorker(ctx context.Context) {
 }
 
 func syncDisposableDomains(ctx context.Context) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, canonicalDisposableURL, nil)
-	if err != nil {
-		log.Printf("[mailtools.worker] failed to create sync request: %v", err)
-		return
+	client := &http.Client{Timeout: 30 * time.Second}
+	domainMap := make(map[string]struct{})
+
+	// 1. Fetch canonical disposable list
+	if lines := fetchDomainList(ctx, client, canonicalDisposableURL); len(lines) > 0 {
+		for _, d := range lines {
+			domainMap[cleanDomain(d)] = struct{}{}
+		}
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		log.Printf("[mailtools.worker] sync request failed: %v", err)
-		return
+
+	// 2. Fetch extended burner email list
+	if lines := fetchDomainList(ctx, client, burnerEmailURL); len(lines) > 0 {
+		for _, d := range lines {
+			domainMap[cleanDomain(d)] = struct{}{}
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("[mailtools.worker] sync returned HTTP %d", resp.StatusCode)
+
+	if len(domainMap) < minDisposableDomains {
+		log.Printf("[mailtools.worker] rejected update: only %d domains (expected >= %d)", len(domainMap), minDisposableDomains)
 		return
 	}
 
-	domains := readLines(io.LimitReader(resp.Body, 10<<20))
-	if len(domains) < minDisposableDomains {
-		log.Printf("[mailtools.worker] rejected update: only %d domains (expected >= %d)", len(domains), minDisposableDomains)
-		return
+	domains := make([]string, 0, len(domainMap))
+	for d := range domainMap {
+		domains = append(domains, d)
 	}
 	synced.Store(classifierWith(domains))
-	log.Printf("[mailtools.worker] synced %d disposable domains", len(domains))
+	log.Printf("[mailtools.worker] synced %d aggregated disposable domains", len(domains))
+}
+
+func fetchDomainList(ctx context.Context, client *http.Client, targetURL string) []string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		log.Printf("[mailtools.worker] failed to create sync request for %s: %v", targetURL, err)
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[mailtools.worker] sync request failed for %s: %v", targetURL, err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[mailtools.worker] sync returned HTTP %d for %s", resp.StatusCode, targetURL)
+		return nil
+	}
+	return readLines(io.LimitReader(resp.Body, 15<<20))
 }
