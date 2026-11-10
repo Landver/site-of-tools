@@ -104,19 +104,3 @@ func v4Masks(bits int) (netmask, wildcard string) {
 	binary.BigEndian.PutUint32(wc[:], host)
 	return netip.AddrFrom4(nm).String(), netip.AddrFrom4(wc).String()
 }
-
-// ipv4RangeBounds returns inclusive IPv4 bounds for cidr; ok=false for IPv6 or unparseable input.
-func ipv4RangeBounds(cidr string) (start, end uint32, ok bool) {
-	pfx, err := netip.ParsePrefix(strings.TrimSpace(cidr))
-	if err != nil || !pfx.Addr().Is4() {
-		return 0, 0, false
-	}
-	pfx = pfx.Masked()
-	return ipv4Uint32(pfx.Addr()), ipv4Uint32(lastAddr(pfx)), true
-}
-
-// ipv4Uint32 gives a comparable, indexable form, unlike the address string.
-func ipv4Uint32(a netip.Addr) uint32 {
-	v := a.As4()
-	return binary.BigEndian.Uint32(v[:])
-}

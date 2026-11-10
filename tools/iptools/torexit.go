@@ -25,7 +25,7 @@ func SyncTorExit(ctx context.Context, bl *BlockList) (BlockSyncResult, error) {
 			return fetchFeed(ctx, torExitHTTPClient, torExitURL, "tor exit list")
 		},
 		func(r io.Reader) ([]BlockEntry, error) {
-			return parseTorExitList(r)
+			return ParseTorExitList(r)
 		},
 	)
 }
@@ -35,12 +35,8 @@ func RunTorExitSync(ctx context.Context, bl *BlockList) {
 	runDailySync(ctx, bl, "tor-exit", "IPs", SyncTorExit)
 }
 
-// ParseTorExitListForTest exports parseTorExitList for black-box testing.
-func ParseTorExitListForTest(r io.Reader) ([]BlockEntry, error) {
-	return parseTorExitList(r)
-}
-
-func parseTorExitList(r io.Reader) ([]BlockEntry, error) {
+// ParseTorExitList parses an IP-per-line Tor bulk exit node list.
+func ParseTorExitList(r io.Reader) ([]BlockEntry, error) {
 	var entries []BlockEntry
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {

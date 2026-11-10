@@ -12,9 +12,6 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// shodanUserAgent IDs our lookups to Shodan / Cloudflare.
-const shodanUserAgent = "corpberry-iptools/1.0 (+https://ip.corpberry.com)"
-
 // InternetDB bans an IP for an hour after a few hundred quick requests; ours all share one IP.
 const (
 	shodanPerSecond = 1
@@ -66,7 +63,7 @@ func (s *Shodan) Lookup(ctx context.Context, ip string) (*ShodanInfo, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", shodanUserAgent)
+	req.Header.Set("User-Agent", iptoolsUserAgent)
 
 	resp, err := s.client.Do(req)
 	if err != nil {

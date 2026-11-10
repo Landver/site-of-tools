@@ -16,7 +16,7 @@ invalid-ip
 ::ffff:9.10.11.12
 2001:db8::1
 `
-	entries, err := iptools.ParseTorExitListForTest(strings.NewReader(raw))
+	entries, err := iptools.ParseTorExitList(strings.NewReader(raw))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
