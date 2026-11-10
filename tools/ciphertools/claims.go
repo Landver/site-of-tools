@@ -2,7 +2,6 @@ package ciphertools
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -122,8 +121,18 @@ func jsonError(err error) error {
 }
 
 func jsonKind(t reflect.Type) string {
-	return cmp.Or(map[reflect.Kind]string{reflect.String: "a string", reflect.Slice: "an array", reflect.Array: "an array",
-		reflect.Struct: "an object", reflect.Map: "an object", reflect.Bool: "true or false"}[t.Kind()], "a number")
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Slice, reflect.Array:
+		return "an array"
+	case reflect.Struct, reflect.Map:
+		return "an object"
+	case reflect.Bool:
+		return "true or false"
+	default:
+		return "a number"
+	}
 }
 
 // display is a table cell: strings unquoted, the rest compact JSON.

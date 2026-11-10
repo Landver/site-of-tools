@@ -191,7 +191,7 @@ func viewKey(k Key, generated bool) (KeyView, error) {
 	}
 	sum := sha256.Sum256(der)
 	v.PublicPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-	v.SPKISHA256, v.SPKIPin = fingerprintHex(sum[:]), base64.StdEncoding.EncodeToString(sum[:])
+	v.SPKISHA256, v.SPKIPin = certSPKI(der), base64.StdEncoding.EncodeToString(sum[:])
 	pub, err := PublicJWK(k.Public)
 	if err == nil {
 		v.Thumbprint, err = JWKThumbprint(pub)

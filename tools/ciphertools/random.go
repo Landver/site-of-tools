@@ -1,7 +1,6 @@
 package ciphertools
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -97,12 +96,6 @@ func randomPick(alphabet string, length int) string {
 		}
 	}
 	return string(out)
-}
-
-func randomBytes(n int) []byte {
-	b := make([]byte, n)
-	_, _ = rand.Read(b) // since Go 1.24 it never fails; it crashes the program instead
-	return b
 }
 
 var randomTokenEncodings = map[string]struct {
@@ -283,11 +276,4 @@ func randomUUIDs(in Input) (*RandomResult, error) {
 			". Use version 4 where that would leak something, such as when an account was made.")
 	}
 	return r, nil
-}
-
-func joinAnd(xs []string) string {
-	if len(xs) < 2 {
-		return strings.Join(xs, "")
-	}
-	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
 }

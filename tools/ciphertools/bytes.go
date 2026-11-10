@@ -1,6 +1,8 @@
 package ciphertools
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
@@ -161,9 +163,9 @@ func decodeBase64Any(s string) ([]byte, string, error) {
 	return nil, "", fmt.Errorf("not %s: truncated (%d characters is not a whole number of base64 groups)", variant, len(c))
 }
 
-// decodeBase32 accepts the lowercase, unpadded, space-grouped form TOTP secrets are usually printed in.
+// decodeBase32 accepts the lowercase, unpadded, space- or dash-grouped form TOTP secrets are printed in.
 func decodeBase32(s string) ([]byte, error) {
-	c, pos := stripSpace(s)
+	c, pos := stripSpace(strings.ReplaceAll(s, "-", " "))
 	c = strings.TrimRight(c, "=")
 	var u strings.Builder
 	for i, r := range c { // rune by rune, not strings.ToUpper, which can change byte lengths and so offsets
@@ -211,3 +213,43 @@ func printable(s string) bool {
 var b64url = base64.RawURLEncoding
 
 var b32raw = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+// Blob holds raw bytes alongside their standard hex and base64 representations.
+type Blob struct {
+	Hex    string `json:"hex"`
+	Base64 string `json:"base64"`
+	Bytes  int    `json:"bytes"`
+}
+
+func blobOf(b []byte) Blob {
+	return Blob{Hex: hex.EncodeToString(b), Base64: base64.StdEncoding.EncodeToString(b), Bytes: len(b)}
+}
+
+// randomBytes returns n cryptographically secure random bytes.
+func randomBytes(n int) []byte {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return b
+}
+
+func hexColons(b []byte) string { return strings.ReplaceAll(fmt.Sprintf("% x", b), " ", ":") }
+
+func joinAnd(xs []string) string {
+	if len(xs) < 2 {
+		return strings.Join(xs, "")
+	}
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
+}
+
+func ifElse[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
+}
+
+// s256 returns unpadded base64url(SHA-256(s)): used across PKCE, DPoP, and thumbprints.
+func s256(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return b64url.EncodeToString(sum[:])
+}

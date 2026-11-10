@@ -1,7 +1,6 @@
 package ciphertools
 
 import (
-	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -131,17 +130,4 @@ func pkceChallenge(verifier, method string) string {
 		return verifier
 	}
 	return s256(verifier)
-}
-
-// s256 is unpadded base64url(SHA-256(s)): PKCE's S256 challenge and DPoP's ath alike.
-func s256(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return b64url.EncodeToString(sum[:])
-}
-
-func ifElse[T any](cond bool, a, b T) T {
-	if cond {
-		return a
-	}
-	return b
 }
