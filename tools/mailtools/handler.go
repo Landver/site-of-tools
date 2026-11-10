@@ -192,22 +192,11 @@ func (h *handler) dmarc(c *echo.Context) error {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/dmarc", "mail/dmarc-result")
 	}
 
-	var r io.Reader
-	file, err := c.FormFile("report_file")
-	if err == nil {
-		f, err := file.Open()
-		if err != nil {
-			return h.badRequest(c, vm, err, "mail/dmarc")
-		}
-		defer f.Close()
-		r = f
-	} else {
-		pasted := strings.TrimSpace(c.FormValue("xml"))
-		if pasted == "" {
-			return h.badRequest(c, vm, errors.New("please upload a .xml or .xml.gz DMARC report, or paste raw XML"), "mail/dmarc")
-		}
-		r = strings.NewReader(pasted)
+	r, cleanup, err := readInputOrFile(c, "report_file", "xml", maxDMARCPayload)
+	if err != nil {
+		return h.badRequest(c, vm, errors.New("please upload a .xml or .xml.gz DMARC report, or paste raw XML"), "mail/dmarc")
 	}
+	defer cleanup()
 
 	rep, err := ParseDMARCReport(r)
 	if err != nil {
@@ -219,23 +208,11 @@ func (h *handler) dmarc(c *echo.Context) error {
 }
 
 func (h *handler) dmarcParse(c *echo.Context) error {
-	var r io.Reader
-	file, err := c.FormFile("file")
-	if err == nil {
-		f, err := file.Open()
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-		}
-		defer f.Close()
-		r = f
-	} else {
-		pasted := strings.TrimSpace(c.FormValue("xml"))
-		if pasted == "" {
-			r = c.Request().Body
-		} else {
-			r = strings.NewReader(pasted)
-		}
+	r, cleanup, err := readInputOrFile(c, "file", "xml", maxDMARCPayload)
+	if err != nil {
+		r = c.Request().Body
 	}
+	defer cleanup()
 
 	rep, err := ParseDMARCReport(r)
 	if err != nil {
@@ -251,24 +228,15 @@ func (h *handler) bimi(c *echo.Context) error {
 		return platform.Reply(c, http.StatusOK, nil, vm, "mail/bimi", "mail/bimi-result")
 	}
 
-	var svgData []byte
-	file, err := c.FormFile("svg_file")
-	if err == nil {
-		f, err := file.Open()
-		if err != nil {
-			return h.badRequest(c, vm, err, "mail/bimi")
-		}
-		defer f.Close()
-		svgData, err = io.ReadAll(io.LimitReader(f, maxBIMIInput+1))
-		if err != nil {
-			return h.badRequest(c, vm, err, "mail/bimi")
-		}
-	} else {
-		pasted := c.FormValue("svg")
-		if strings.TrimSpace(pasted) == "" {
-			return h.badRequest(c, vm, errors.New("please upload an SVG file or paste SVG markup"), "mail/bimi")
-		}
-		svgData = []byte(pasted)
+	r, cleanup, err := readInputOrFile(c, "svg_file", "svg", maxBIMIInput)
+	if err != nil {
+		return h.badRequest(c, vm, errors.New("please upload an SVG file or paste SVG markup"), "mail/bimi")
+	}
+	defer cleanup()
+
+	svgData, err := io.ReadAll(r)
+	if err != nil {
+		return h.badRequest(c, vm, err, "mail/bimi")
 	}
 
 	res, err := ValidateBIMI(string(svgData))
@@ -325,6 +293,23 @@ func (h *handler) arcParse(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, res)
+}
+
+func readInputOrFile(c *echo.Context, fileKey, formKey string, limit int64) (io.Reader, func(), error) {
+	cleanup := func() {}
+	file, err := c.FormFile(fileKey)
+	if err == nil {
+		f, err := file.Open()
+		if err != nil {
+			return nil, cleanup, err
+		}
+		return io.LimitReader(f, limit+1), func() { f.Close() }, nil
+	}
+	val := strings.TrimSpace(c.FormValue(formKey))
+	if val == "" {
+		return nil, cleanup, errors.New("empty input")
+	}
+	return strings.NewReader(val), cleanup, nil
 }
 
 func (h *handler) badRequest(c *echo.Context, vm map[string]any, err error, tmpl string) error {
