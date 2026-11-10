@@ -60,7 +60,7 @@ Each row in category files carries **`Sev · Effort · Status`**:
   `datadome`) — see [`../RESEARCH.md`](../RESEARCH.md) for cross-service
   summary.
 - Our **shipped** implementation, read as ground truth (not design doc):
-  [`../../scoring.go`](../../scoring.go) (68 detection rules),
+  [`../../scoring.go`](../../scoring.go) (69 detection rules),
   [`../../botcheck.go`](../../botcheck.go) (`Signals` struct + scorer),
   [`../../handler.go`](../../handler.go) (server signals), &
   [`shared/static/js/botcheck.js`](../../../../shared/static/js/botcheck.js)
