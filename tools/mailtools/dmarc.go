@@ -228,6 +228,14 @@ func (raw *dmarcFeedbackXML) report() *DMARCReport {
 
 	sources := map[string]*DMARCSourceSummary{}
 	providers := map[string]*DMARCProviderSummary{}
+	tally := func(rCount int, pass bool, count, passed, failed *int) {
+		*count += rCount
+		if pass {
+			*passed += rCount
+		} else {
+			*failed += rCount
+		}
+	}
 	for _, r := range rep.Records {
 		p := providers[r.ESP.Name]
 		if p == nil {
@@ -242,17 +250,9 @@ func (raw *dmarcFeedbackXML) report() *DMARCReport {
 		}
 
 		pass := r.DKIMResult == "pass" || r.SPFResult == "pass"
-		tally := func(count, passed, failed *int) {
-			*count += r.Count
-			if pass {
-				*passed += r.Count
-			} else {
-				*failed += r.Count
-			}
-		}
-		tally(&rep.TotalMessages, &rep.PassCount, &rep.FailCount)
-		tally(&s.Count, &s.PassCount, &s.FailCount)
-		tally(&p.Count, &p.PassCount, &p.FailCount)
+		tally(r.Count, pass, &rep.TotalMessages, &rep.PassCount, &rep.FailCount)
+		tally(r.Count, pass, &s.Count, &s.PassCount, &s.FailCount)
+		tally(r.Count, pass, &p.Count, &p.PassCount, &p.FailCount)
 		switch r.Disposition {
 		case "quarantine":
 			rep.QuarantineCnt += r.Count

@@ -23,11 +23,7 @@ func RenderDMARC(t *template.Template, r io.Reader) (string, error) {
 	if err != nil {
 		return renderError(t, err), err
 	}
-	var b bytes.Buffer
-	if err := t.ExecuteTemplate(&b, "mail/dmarc-result", map[string]any{"Result": rep}); err != nil {
-		return renderError(t, err), err
-	}
-	return b.String(), nil
+	return renderFragment(t, "mail/dmarc-result", map[string]any{"Result": rep})
 }
 
 // RenderBIMI validates an SVG logo and renders the bimi-result HTML fragment.
@@ -36,11 +32,7 @@ func RenderBIMI(t *template.Template, rawSVG string) (string, error) {
 	if err != nil {
 		return renderError(t, err), err
 	}
-	var b bytes.Buffer
-	if err := t.ExecuteTemplate(&b, "mail/bimi-result", map[string]any{"Result": val, "RawSVG": rawSVG}); err != nil {
-		return renderError(t, err), err
-	}
-	return b.String(), nil
+	return renderFragment(t, "mail/bimi-result", map[string]any{"Result": val, "RawSVG": rawSVG})
 }
 
 // RenderARC analyzes an ARC email header trace and renders the arc-result HTML fragment.
@@ -49,8 +41,12 @@ func RenderARC(t *template.Template, headers string) (string, error) {
 	if err != nil {
 		return renderError(t, err), err
 	}
+	return renderFragment(t, "mail/arc-result", map[string]any{"Result": summary, "Headers": headers})
+}
+
+func renderFragment(t *template.Template, tmpl string, data any) (string, error) {
 	var b bytes.Buffer
-	if err := t.ExecuteTemplate(&b, "mail/arc-result", map[string]any{"Result": summary, "Headers": headers}); err != nil {
+	if err := t.ExecuteTemplate(&b, tmpl, data); err != nil {
 		return renderError(t, err), err
 	}
 	return b.String(), nil
