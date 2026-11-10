@@ -26,6 +26,7 @@ listed behave exactly as their REST twin.
 | Tool | REST twin | Differs from REST |
 |---|---|---|
 | `ip_lookup` | `GET /?ip=` | `ip` is required: REST defaults to the caller, which over MCP is the client's host. `"self"` asks for it, adding `self: true` and a note saying whose address it is. When the process-wide Shodan budget is spent, ports are skipped (`shodan.skipped: true`) and Shodan's credit is left out. |
+| `ip_cidr` | `GET /cidr` | Pure arithmetic without network lookup. |
 
 ## dns
 
@@ -34,6 +35,7 @@ listed behave exactly as their REST twin.
 | `dns_lookup` | `GET /` | Concise drops `zone` and `dig`. |
 | `dns_consistency` | `GET /consistency` | Concise: each server row names its answer `group` instead of repeating its `values`. |
 | `dns_domain_info` | `GET /domain` | Concise: `certificate_names.names` is the first 50 names as strings (`total` kept, `truncated` when cut). One half failing is named in the result; both failing is a tool error, as REST's 502. |
+| `dns_trace` | `GET /trace` | Walks delegation iteratively from IANA root servers down to zone cuts without recursion, verifying DNSSEC chains. |
 
 Attribution: `dns_lookup` IP2Location; `dns_consistency` IP2Location and
 rdap.org; `dns_domain_info` crt.sh and rdap.org.
@@ -42,10 +44,17 @@ rdap.org; `dns_domain_info` crt.sh and rdap.org.
 
 | Tool | REST twin | Differs from REST |
 |---|---|---|
+| `link_inspect` | `GET /` | Dissects a URL without fetching: scheme, host, parameters with layered decode, tracker flags. |
+| `link_clean` | `GET /clean` | Removes tracking parameters, unwraps redirect wrappers (`unwrap: true` default), optional `strip_affiliate`. |
 | `link_tracking_rules` | `GET /clean/rules` | `param` narrows the table to the rules and never-strip entries naming it, with their hosts; without it, the REST body. |
+| `link_diff` | `GET /diff` | Compares two URLs component-by-component, marking cosmetic differences. |
 | `link_redirect_chain` | `GET /trace` | Not read-only: it visits the URL from this server, which can use up a one-time link. Status, timing and headers per hop, never a body. |
 | `link_headers_inspect` | `GET /headers?u=` | Not read-only, as `link_redirect_chain`: a GET, then a conditional GET to test the ETag. Pasted headers are `link_headers_parse` (`POST /headers`). |
+| `link_headers_parse` | `POST /headers` | Audits pasted HTTP response headers without network calls. |
+| `link_curl_parse` | `GET`, `POST /curl` | Parses a curl command into inspected URL, method, headers, and body size. |
 | `link_extract` | `GET`, `POST /extract` | Never `positions`. Concise: the first 30 links plus a note (`unique` still counts all); `detailed: true` lists every link that fits one 80 KB result. |
+| `link_utm` | `GET /utm` | Builds campaign UTM URLs with parameter validation. |
+| `link_percent_encode` | `GET /encode` | Encodes/decodes across query, path, base64, and HTML entities simultaneously. |
 | `link_short_resolve` | `GET /s/:code` | Says where one of our short links leads without redirecting or counting a hit; any other host is an error naming `link_redirect_chain`. Listed whenever short-link storage is on, with or without `LINK_API_KEY`. |
 
 Owner endpoint, `/mcp/owner`:
