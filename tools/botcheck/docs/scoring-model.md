@@ -82,6 +82,6 @@ pass) — breakdown = the point. HTML view groups checks by tier (automation
 tells / consistency cross-checks / environment heuristics), number + verdict at
 top, per-signal table below.
 
-For full list of 68 rules w/ IDs, weights, current tier, read
+For full list of 69 rules w/ IDs, weights, current tier, read
 [`../scoring.go`](../scoring.go) directly — ordered, authoritative source; this
 doc = summary, not mirror.

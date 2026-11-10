@@ -478,6 +478,15 @@ var botUATokens = []string{
 
 var embeddedRuntimeTokens = []string{"electron", "cef ", "cefsharp", "qtwebengine", "nw.js", "nwjs"}
 
+var embeddedRuntimeDisplay = map[string]string{
+	"electron":    "Electron",
+	"cef":         "CEF",
+	"cefsharp":    "CefSharp",
+	"qtwebengine": "QtWebEngine",
+	"nw.js":       "NW.js",
+	"nwjs":        "NW.js",
+}
+
 // botUAToken treats an empty UA as a bot token: real browsers always send one.
 func botUAToken(ua string) string {
 	if strings.TrimSpace(ua) == "" {
@@ -641,13 +650,9 @@ func majorOf(v string) int {
 	return n
 }
 
-// uaChromeMajor: the "Chrome/" major, which Chrome, Edge and Opera all track; 0 = not Chromium.
+// uaChromeMajor reads the "Chrome/" major; 0 = not Chromium.
 func uaChromeMajor(ua string) int {
-	const tok = "Chrome/"
-	if i := strings.Index(ua, tok); i >= 0 {
-		return majorOf(ua[i+len(tok):])
-	}
-	return 0
+	return uaTokenMajor(ua, "Chrome/")
 }
 
 // chVersionMajor reads the "Chromium" brand, not uaFullVersion: forks (Opera 111, Vivaldi 7) brand their

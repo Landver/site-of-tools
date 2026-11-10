@@ -177,12 +177,7 @@
       const fn = rt[name];
       if (typeof fn !== "function") continue;
       if ("prototype" in fn) return false; // native method carries none
-      try {
-        new fn();
-        return false; // constructed silently ⇒ JS stand-in
-      } catch (e) {
-        if (!(e instanceof TypeError)) return false;
-      }
+      if (!threwTypeError(() => new fn())) return false; // constructed silently ⇒ JS stand-in
     }
     return true;
   }, true);
@@ -258,6 +253,8 @@
   const mediaProbe = () => {
     const hasMM = safe(() => typeof window.matchMedia === "function", false);
     const out = { matchMedia: hasMM };
+    const dpr = safe(() => window.devicePixelRatio, 0);
+    if (typeof dpr === "number" && isFinite(dpr) && dpr > 0) out.dpr = dpr;
     if (!hasMM) return out;
     const mq = (q) => safe(() => window.matchMedia(q).matches, null); // null = query failed
     if (mq("(prefers-color-scheme: dark)") === true) out.colorScheme = "dark";
@@ -272,8 +269,6 @@
     if (mq("(color-gamut: rec2020)") === true) out.gamut = "rec2020";
     else if (mq("(color-gamut: p3)") === true) out.gamut = "p3";
     else if (mq("(color-gamut: srgb)") !== null) out.gamut = "srgb";
-    const dpr = safe(() => window.devicePixelRatio, 0);
-    if (typeof dpr === "number" && isFinite(dpr) && dpr > 0) out.dpr = dpr;
     return out;
   };
 
@@ -331,19 +326,12 @@
     Promise.resolve(null),
   );
 
-  // globalPrivacyControl (G21): a boolean where exposed (Firefox), else null, never false.
-  const gpcProbe = () => safe(() => {
-    const g = navigator.globalPrivacyControl;
-    return typeof g === "boolean" ? g : null;
-  }, null);
-
-  // quota/perms/eme come from collect()'s single Promise.all, so they add no wall time.
   const envSection = (quotaMB, perms, eme) => {
     const env = mediaProbe();
     const conn = connectionProbe();
     if (conn) env.connection = conn;
     if (quotaMB > 0) env.storageQuotaMB = quotaMB;
-    const gpc = gpcProbe();
+    const gpc = safe(() => (typeof navigator.globalPrivacyControl === "boolean" ? navigator.globalPrivacyControl : null), null);
     if (gpc !== null) env.gpc = gpc;
     if (perms) env.permissions = perms;
     if (eme !== null) env.emeClearKey = eme;
@@ -513,15 +501,10 @@
     return "";
   }, "");
 
-  const permState = () => safe(
-    () => navigator.permissions.query({ name: "notifications" }).then((p) => p.state || "", () => ""),
-    Promise.resolve(""),
-  );
-
   const collect = async () => {
     const iframe = iframeProbe();
-    const [worker, sw, ua, perm, webrtcIPs, imageBroken, quotaMB, perms, eme] = await Promise.all(
-      [workerProbe(), swProbe(), uaData(), permState(), webrtcProbe(), imageProbe(),
+    const [worker, sw, ua, webrtcIPs, imageBroken, quotaMB, perms, eme] = await Promise.all(
+      [workerProbe(), swProbe(), uaData(), webrtcProbe(), imageProbe(),
         storageProbe(), permissionsProbe(), emeProbe()],
     );
     return {
@@ -539,7 +522,7 @@
       navWorkerUA: worker.ua || "",
       navIframeUA: iframe.ua || "",
       languages: safe(() => [...(navigator.languages || [])], []),
-      permissionState: perm,
+      permissionState: perms?.notifications || "",
       notificationPermission: safe(() => (typeof Notification !== "undefined" ? Notification.permission : ""), ""),
       hasChromeObject: safe(() => !!window.chrome, false),
       ...webglGPU(),
@@ -661,7 +644,6 @@
   };
 
   window.runBotCheck = runBotCheck;
-  renderHistory(); // G46: a returning visitor sees their history before the first run
 
   // Font/media probes read empty before load and fonts.ready; a timeout stops a stall hanging "analyzing".
   let autoStarted = false;
