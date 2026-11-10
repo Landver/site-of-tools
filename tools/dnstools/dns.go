@@ -258,6 +258,14 @@ func NewService(timeout time.Duration) *Service {
 	}
 }
 
+// WithEgressGuard sends outbound probes through g. Nil-safe.
+func (s *Service) WithEgressGuard(g *platform.EgressGuard) *Service {
+	if s != nil {
+		s.guard = g
+	}
+	return s
+}
+
 // Looker is the handler's dependency; tests inject a fake so the suite stays offline.
 type Looker interface {
 	LookupSet(ctx context.Context, name, resolver string, types []string) (*ResultSet, error)
@@ -546,6 +554,9 @@ func cloneResult(r Result, cached bool, age time.Duration) Result {
 // ageRecords copies recs, so enrichment can't write into the cache, and counts each TTL down by age.
 func ageRecords(recs []Record, age time.Duration) []Record {
 	recs = slices.Clone(recs)
+	if age <= 0 {
+		return recs
+	}
 	for i := range recs {
 		recs[i].TTL -= min(recs[i].TTL, uint32(age/time.Second))
 		recs[i].TTLHuman = humanizeTTL(recs[i].TTL)

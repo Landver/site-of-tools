@@ -48,11 +48,10 @@ A transparent browser automation and bot-detection self-test:
 
 ### [DNS Tools](https://dns.corpberry.com) (`dns.corpberry.com`)
 Parallel global DNS inspection and security auditing:
-- **Global Propagation Checker**: Query 28+ authoritative public resolvers worldwide in real-time.
-- **Root DNSSEC Trace**: Visual iteration walk from the ICANN DNS root servers down to authoritative zone cuts.
-- **Domain & Certificates**: RDAP registration inspection and crt.sh Certificate Transparency logs.
-- **Email Auth DNS**: One-stop auditing for SPF records, DMARC policies, DKIM keys, BIMI, and MTA-STS.
-- **Core Record Lookup**: Multi-type parallel queries (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, CAA).
+- **Consistency & Propagation**: Asks authoritative nameservers directly (`RD=0`), compares against public resolvers, verifies SOA serial agreement, detects Lame delegations, and checks GeoDNS steering via EDNS Client Subnet (RFC 7871).
+- **Root DNSSEC Trace**: Iterative delegation walk from IANA root servers down to zone cuts with in-process cryptographic verification of DNSKEY, DS and RRSIG records.
+- **Domain & Certificates**: RDAP domain registration details (registrar, expiration, EPP statuses) and subdomains enumerated from Certificate Transparency (crt.sh).
+- **Core Record Lookup**: Multi-type parallel queries (A, AAAA, CNAME, MX, TXT, NS, SOA, CAA, HTTPS, PTR) with DNSSEC bogus detection, EDE/NSID capture, ASN/country network enrichment, BIND zone generation, and dangling CNAME takeover scanning.
 
 ### [IP Tools](https://ip.corpberry.com) (`ip.corpberry.com`)
 Network diagnostics and IP intelligence:
@@ -62,29 +61,23 @@ Network diagnostics and IP intelligence:
 - **Lookup History**: Local audit log of previous queries.
 
 ### [Link Tools](https://link.corpberry.com) (`link.corpberry.com`)
-11 utilities for URL inspection, link hygiene, redirection tracing, cache auditing, and short links:
-- **URL Inspector**: Decomposes URLs into scheme, host, IDN/punycode, path segments, and ordered parameters with typed values and nested ladders.
-- **Clean Trackers & Unwrap**: Strips tracking parameters (`utm_*`, `fbclid`, `gclid`) and unwraps SafeLinks, Proofpoint URL Defense, and AMP without network requests.
-- **Redirect Tracer**: Follows HTTP redirect chains hop-by-hop, measures latency, inspects cookies, detects meta/JS redirects and bot challenges.
-- **HTTP Headers & Cache**: Analyzes HTTP response headers for RFC 9111 caching (browser & CDN TTL) and security posture (CSP, HSTS, COOP/COEP, cookie prefixes).
-- **URL Diff**: Compares two URLs side-by-side, detailing added, removed, changed, or moved parameters.
-- **Link Extractor**: Discovers, deduplicates, and counts links from pasted HTML, Markdown, or raw text with anchor text.
-- **UTM Campaign Builder**: Standardized campaign link creator with taxonomy validation and hygiene checks.
-- **cURL Converter**: Two-way converter: turns URLs into safe cURL commands or parses pasted cURL commands.
-- **URL Percent Encoding**: RFC 3986 encoding and decoding utilities for path vs. query vs. Base64/JWT.
-- **RFC 3986 Reference**: Quick reference of reserved, unreserved, and sub-delimiter characters across URI components.
-- **Link Shortener**: Key-gated short link creation and console with TTL expiration and high-performance redirect resolver.
+11 utilities for link hygiene, redirection tracing, and cache debugging:
+- **Clean Trackers**: Strips marketing parameters (`utm_*`, `fbclid`, `gclid`) and unwraps Outlook Safelinks.
+- **Redirect Tracer**: Follows HTTP redirect chains, measures per-hop latency, and checks HSTS upgrade policies.
+- **HTTP Headers & Cache**: Validates RFC 9111 cache control headers, stale directives, and security headers.
+- **URL Parameter Diff**: Compares query strings between two URLs side-by-side.
+- **Link Extractor**: Discovers, categorizes, and validates hyperlinks from any webpage.
+- **UTM Campaign Builder**: Standardized marketing link creator with preset taxonomy.
+- **cURL Converter**: Converts web requests into copy-pasteable terminal commands.
+- **URL Percent Encoding**: RFC 3986 encoding and decoding utilities.
+- **RFC 3986 Reference**: Quick reference of reserved, unreserved, and sub-delimiter characters.
+- **Link Shortener**: Lightweight self-hosted short links with automatic TTL expiration.
 
 ### [Mail Tools](https://mail.corpberry.com) (`mail.corpberry.com`)
-Email deliverability and forensic diagnostics with server-side audits and client-side WebAssembly execution (reports and headers never leave your machine):
-- **All-in-One Domain Health**: Comprehensive scoring (0–100) aggregating SPF, DMARC, DKIM, MTA-STS, DANE TLSA, BIMI, Secure Email Gateway (SEG) detection, and live DNSBL reputation with actionable recommendations.
-- **Email Auth DNS & DANE**: Audits SPF recursive lookup trees (RFC 7208 10-lookup limit, void lookups, loops), DMARC policy inheritance (`sp=`), parallel DKIM selector probing, MTA-STS policy fetching over HTTPS, and DANE TLSA (RFC 6698/7672) with DNSSEC Authenticated Data (AD) verification.
-- **SPF Mechanism Evaluator**: Deterministic RFC 7208 evaluator testing sender IP and domain against SPF directives (`ip4`, `ip6`, CIDR, `all`) returning standardized verdicts (`Pass`, `Fail`, `Softfail`, `Neutral`, `PermError`).
-- **Disposable & Webmail Classifier**: In-memory classification of email domains into corporate, free webmail (Gmail, Yahoo, Proton, Mail.ru), and disposable/burner inboxes, backed by automated daily syncing from upstream blocklists.
-- **Multi-DNSBL Reputation Checker**: Concurrent reputation audit across 15+ authoritative spam blocklists (Spamhaus ZEN/DBL, Barracuda, SpamCop, Mailspike, SURBL, URIBL) with response code decoding and 20-minute MongoDB TTL caching.
-- **DMARC Aggregate Reports (RUA)**: Ingests and visualizes XML and GZ aggregate deliverability reports with ESP attribution and per-IP alignment analysis (server-side and client-side WASM).
-- **BIMI SVG Validator & Auto-Fix**: Validates SVG Tiny P/S compliance, security restrictions, and Verified Mark Certificates (VMC), with one-click automatic SVG attribute correction.
-- **ARC Trace Analyzer**: RFC 8617 Authenticated Received Chain header validator inspecting forwarding hops, seal integrity, and intermediate authentication results.
+Email deliverability and forensic diagnostics powered by WebAssembly (reports and headers never leave your machine):
+- **DMARC Aggregate Reports (RUA)**: Ingests and visualizes XML/GZ aggregate deliverability reports.
+- **BIMI SVG Validator**: Validates SVG Tiny P/S compliance, checks dimensions/security, and provides auto-fix downloads.
+- **ARC Trace Analyzer**: RFC 8617 Authenticated Received Chain header validator and seal verifier.
 
 ### [MCP Server](https://mcp.corpberry.com) (`mcp.corpberry.com`)
 Model Context Protocol endpoint exposing the entire toolset to AI workflows:
@@ -210,10 +203,10 @@ site-of-tools/
 ├── tools/                      # Tool implementations (co-located code, templates & tests)
 │   ├── botcheck/               # Bot Check heuristic engine & self-test
 │   ├── ciphertools/            # 13 Cryptographic tools & client WASM source
-│   ├── dnstools/               # Global propagation, DNSSEC trace, RDAP, Email Auth
+│   ├── dnstools/               # Consistency & propagation, DNSSEC trace, RDAP & CT, Core DNS lookup
 │   ├── iptools/                # IP geolocation, threat intel, subnet CIDR calculator
 │   ├── linktools/              # Tracker cleaner, redirect tracer, cache validator
-│   ├── mailtools/              # All-in-one health, DNSBL, disposable/freemail classifier, DMARC RUA parser, BIMI & VMC validator, ARC trace, client WASM
+│   ├── mailtools/              # DMARC RUA parser, BIMI validator, ARC seal analyzer
 │   └── mcptools/               # Model Context Protocol adapter & AI tool definitions
 ├── .github/workflows/          # CI/CD and automated cross-platform release pipeline
 └── docs/                       # Architecture and deployment documentation
