@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -70,16 +68,6 @@ var cipherSpecs = map[string]cipherSpec{
 		aead: func(key []byte) (cipher.AEAD, error) { b, _ := aes.NewCipher(key); return cipher.NewGCM(b) }},
 	"chacha20-poly1305": {name: "ChaCha20-Poly1305", aead: chacha20poly1305.New, nonce: 12, nonceName: "nonce", keys: []int{32}, keyText: "ChaCha20-Poly1305 takes exactly 32 bytes"},
 	"aes-cbc":           {name: "AES-%d-CBC", nonce: aes.BlockSize, nonceName: "IV", keys: []int{16, 24, 32}, keyText: encryptAESKeys},
-}
-
-type Blob struct {
-	Hex    string `json:"hex"`
-	Base64 string `json:"base64"`
-	Bytes  int    `json:"bytes"`
-}
-
-func blobOf(b []byte) Blob {
-	return Blob{Hex: hex.EncodeToString(b), Base64: base64.StdEncoding.EncodeToString(b), Bytes: len(b)}
 }
 
 type EncryptResult struct {

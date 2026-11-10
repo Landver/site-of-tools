@@ -692,16 +692,17 @@ func recognise(b []byte) (desc, page string) {
 		return "PEM text", "/cert"
 	case hasPrefixFold(s, "otpauth://"):
 		return "an otpauth:// URI", "/totp"
-	case (strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")) && json.Valid([]byte(s)):
+	case strings.HasPrefix(s, "{") || strings.HasPrefix(s, "["):
 		var obj map[string]any
-		_ = json.Unmarshal([]byte(s), &obj)
-		if _, ok := obj["kty"]; ok {
-			return "a JWK", "/keys"
+		if err := json.Unmarshal([]byte(s), &obj); err == nil {
+			if _, ok := obj["kty"]; ok {
+				return "a JWK", "/keys"
+			}
+			if _, ok := obj["alg"]; ok {
+				return "JSON with alg: a JWT header?", "/"
+			}
+			return "JSON", "/encode"
 		}
-		if _, ok := obj["alg"]; ok {
-			return "JSON with alg: a JWT header?", "/"
-		}
-		return "JSON", "/encode"
 	}
 	if _, _, ok := joseHeader(s); ok && singleToken(s) {
 		return "a JWT", "/"

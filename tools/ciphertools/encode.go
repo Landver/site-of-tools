@@ -87,8 +87,6 @@ func EncodeBytes(b []byte, readAs string) *Encoded {
 	return e
 }
 
-func hexColons(b []byte) string { return strings.ReplaceAll(fmt.Sprintf("% x", b), " ", ":") }
-
 // BasicAuth is an HTTP Basic credential (RFC 7617), built or taken apart.
 type BasicAuth struct {
 	Mode     string   `json:"mode"` // build | decode

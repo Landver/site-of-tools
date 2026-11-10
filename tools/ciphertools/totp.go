@@ -207,7 +207,7 @@ func (s *OTPSettings) otpParams(in Input, algoName, algo string) (err error) {
 
 // otpSecret blanks dashes rather than cutting them, so an error's offset points into what was pasted.
 func otpSecret(s string) ([]byte, error) {
-	b, err := decodeBase32(strings.ReplaceAll(s, "-", " "))
+	b, err := decodeBase32(s)
 	if err != nil {
 		return nil, fmt.Errorf("%w (base32 uses the letters A to Z and the digits 2 to 7)", err)
 	}
