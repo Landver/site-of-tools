@@ -48,11 +48,10 @@ A transparent browser automation and bot-detection self-test:
 
 ### [DNS Tools](https://dns.corpberry.com) (`dns.corpberry.com`)
 Parallel global DNS inspection and security auditing:
-- **Global Propagation Checker**: Query 28+ authoritative public resolvers worldwide in real-time.
-- **Root DNSSEC Trace**: Visual iteration walk from the ICANN DNS root servers down to authoritative zone cuts.
-- **Domain & Certificates**: RDAP registration inspection and crt.sh Certificate Transparency logs.
-- **Email Auth DNS**: One-stop auditing for SPF records, DMARC policies, DKIM keys, BIMI, and MTA-STS.
-- **Core Record Lookup**: Multi-type parallel queries (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, CAA).
+- **Consistency & Propagation**: Asks authoritative nameservers directly (`RD=0`), compares against public resolvers, verifies SOA serial agreement, detects Lame delegations, and checks GeoDNS steering via EDNS Client Subnet (RFC 7871).
+- **Root DNSSEC Trace**: Iterative delegation walk from IANA root servers down to zone cuts with in-process cryptographic verification of DNSKEY, DS and RRSIG records.
+- **Domain & Certificates**: RDAP domain registration details (registrar, expiration, EPP statuses) and subdomains enumerated from Certificate Transparency (crt.sh).
+- **Core Record Lookup**: Multi-type parallel queries (A, AAAA, CNAME, MX, TXT, NS, SOA, CAA, HTTPS, PTR) with DNSSEC bogus detection, EDE/NSID capture, ASN/country network enrichment, BIND zone generation, and dangling CNAME takeover scanning.
 
 ### [IP Tools](https://ip.corpberry.com) (`ip.corpberry.com`)
 Network diagnostics and IP intelligence:
@@ -204,7 +203,7 @@ site-of-tools/
 ├── tools/                      # Tool implementations (co-located code, templates & tests)
 │   ├── botcheck/               # Bot Check heuristic engine & self-test
 │   ├── ciphertools/            # 13 Cryptographic tools & client WASM source
-│   ├── dnstools/               # Global propagation, DNSSEC trace, RDAP, Email Auth
+│   ├── dnstools/               # Consistency & propagation, DNSSEC trace, RDAP & CT, Core DNS lookup
 │   ├── iptools/                # IP geolocation, threat intel, subnet CIDR calculator
 │   ├── linktools/              # Tracker cleaner, redirect tracer, cache validator
 │   ├── mailtools/              # DMARC RUA parser, BIMI validator, ARC seal analyzer

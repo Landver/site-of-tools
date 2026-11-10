@@ -70,15 +70,16 @@ func svcbFields(s *dns.SVCB) []Field {
 	return f
 }
 
+var alpnNames = map[string]string{
+	"h3": "HTTP/3", "h2": "HTTP/2", "http/1.1": "HTTP/1.1",
+	"h3-29": "HTTP/3 (draft 29)", "dot": "DNS-over-TLS",
+}
+
 // humanALPN turns "h3,h2" into something a non-specialist can read.
 func humanALPN(v string) string {
-	names := map[string]string{
-		"h3": "HTTP/3", "h2": "HTTP/2", "http/1.1": "HTTP/1.1",
-		"h3-29": "HTTP/3 (draft 29)", "dot": "DNS-over-TLS",
-	}
 	out := strings.Split(v, ",")
 	for i, a := range out {
-		if n, ok := names[a]; ok {
+		if n, ok := alpnNames[a]; ok {
 			out[i] = n
 		}
 	}
@@ -101,16 +102,16 @@ func soaFields(s *dns.SOA) []Field {
 	)
 }
 
-// txtLabels maps a TXT prefix to what the record is for.
+// txtLabels maps a lowercased TXT prefix to what the record is for.
 var txtLabels = []struct{ prefix, label string }{
 	{"v=spf1", "SPF — which servers may send mail"},
-	{"v=DMARC1", "DMARC — what to do with failing mail"},
-	{"v=BIMI1", "BIMI — brand logo in inboxes"},
-	{"v=STSv1", "MTA-STS — enforced mail transport security"},
-	{"v=TLSRPTv1", "TLS-RPT — where to send TLS reports"},
-	{"v=DKIM1", "DKIM — mail signing key"},
+	{"v=dmarc1", "DMARC — what to do with failing mail"},
+	{"v=bimi1", "BIMI — brand logo in inboxes"},
+	{"v=stsv1", "MTA-STS — enforced mail transport security"},
+	{"v=tlsrptv1", "TLS-RPT — where to send TLS reports"},
+	{"v=dkim1", "DKIM — mail signing key"},
 	{"google-site-verification=", "Google — site ownership"},
-	{"MS=", "Microsoft — domain ownership"},
+	{"ms=", "Microsoft — domain ownership"},
 	{"ms-domain-verification=", "Microsoft — domain ownership"},
 	{"apple-domain-verification=", "Apple — domain ownership"},
 	{"atlassian-domain-verification=", "Atlassian — domain ownership"},
@@ -120,13 +121,13 @@ var txtLabels = []struct{ prefix, label string }{
 	{"adobe-idp-site-verification=", "Adobe"},
 	{"canva-site-verification=", "Canva"},
 	{"zoom-domain-verification=", "Zoom"},
-	{"ZOOM_verify_", "Zoom"},
+	{"zoom_verify_", "Zoom"},
 	{"slack-domain-verification=", "Slack"},
 	{"notion-domain-verification=", "Notion"},
 	{"linkedin-site-verification=", "LinkedIn"},
 	{"shopify-site-verification=", "Shopify"},
 	{"tailscale-domain-verification=", "Tailscale"},
-	{"TAILSCALE-", "Tailscale"},
+	{"tailscale-", "Tailscale"},
 	{"anthropic-domain-verification=", "Anthropic"},
 	{"openai-domain-verification=", "OpenAI"},
 	{"brevo-code:", "Brevo"},
@@ -145,7 +146,7 @@ var txtLabels = []struct{ prefix, label string }{
 func txtLabel(v string) string {
 	t := strings.ToLower(strings.TrimSpace(strings.Trim(v, `"`)))
 	for _, l := range txtLabels {
-		if strings.HasPrefix(t, strings.ToLower(l.prefix)) {
+		if strings.HasPrefix(t, l.prefix) {
 			return l.label
 		}
 	}
@@ -205,7 +206,10 @@ func providerOf(records []Record) string {
 	seen := map[string]int{}
 	var order []string
 	for _, r := range records {
-		if name := knownProvider(bareName(r.Value)); r.Type == "NS" && name != "" {
+		if r.Type != "NS" {
+			continue
+		}
+		if name := knownProvider(bareName(r.Value)); name != "" {
 			if seen[name] == 0 {
 				order = append(order, name)
 			}
