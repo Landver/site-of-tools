@@ -1,18 +1,20 @@
 # DNS Tools (`dns.corpberry.com`)
 
-Suite of DNS tools on one subdomain, switched by sub-nav. **Five pages ship today:**
+Suite of DNS tools on one subdomain, switched by sub-nav. **Four pages ship today:**
 
 - **DNS lookup** (`/`) — every common record type for a name in one query
   (A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, HTTPS), in parallel, against one
   resolver from a fixed allowlist. Paste an IP and it becomes a reverse (PTR)
-  lookup.
+  lookup. Enriched with ASN/AS Name/Country via `iptools`, BIND zone export,
+  reproducible `dig` snippets, Extended DNS Errors (EDE), Anycast NSID,
+  and dangling CNAME takeover scanning.
 - **Consistency** (`/consistency`) — asks every one of the zone's own
   authoritative nameservers directly with recursion off, compares them against
   the three allowlisted public resolvers, reads each server's SOA serial, and
   audits the delegation (redundancy, network diversity, open recursion,
   TCP/53, registry-vs-zone NS). Beside that sits the steering card: the same
   question asked again several times over, each one carrying a different fixed
-  public /24 as its EDNS client subnet, read through the scope prefix the
+  public /24 as its EDNS client subnet (RFC 7871), read through the scope prefix the
   authoritative side hands back rather than through the answers alone.
 - **Trace** (`/trace`) — who actually decides this name, and can it be proved.
   The walk starts at a root server with recursion off and follows referrals
@@ -22,22 +24,16 @@ Suite of DNS tools on one subdomain, switched by sub-nav. **Five pages ship toda
   anchored at the hardcoded IANA root anchors, rather than read off a
   resolver's AD bit.
 - **Domain** (`/domain`) — registration via RDAP and subdomains from
-  Certificate Transparency. Both public, both free, and neither sends a packet
+  Certificate Transparency (crt.sh). Both public, both free, and neither sends a packet
   at the domain itself. A subdomain is looked up as its registrable domain
   (Public Suffix List), and a name with nameservers is never offered as
-  "unregistered" (.de, for one, runs no RDAP at all).
-- **Email** (`/email`) — SPF including the RFC 7208 ten-lookup limit that
-  silently breaks it, DMARC policy strength (including a policy inherited from
-  a parent via `sp=`), DKIM keys at twelve common selectors, MTA-STS policy
-  **fetched over HTTPS** rather than just its DNS pointer, TLS-RPT and BIMI.
-  Plus the one question the records cannot answer: the MX hosts are resolved
-  and their addresses read against the blocklist corpus this repo already
-  syncs for `iptools`, narrower coverage than a live DNSBL query and labelled
-  as such on the card.
+  "unregistered" (.de, for one, runs no RDAP at all). Cached in-memory via `CTCache`.
+
+*(Note: Email-specific diagnostics such as SPF, DMARC, DKIM, MTA-STS, and BIMI reside under [`mailtools`](../../mailtools/docs/README.md) on `mail.corpberry.com`).*
 
 Named as a suite, not "DNS Lookup", deliberately: lookup is 1 of the 14 aspects
 in [the feature inventory](01-feature-inventory.md), and most of what shipped
-alongside it (zone health, delegation audit, RDAP, email DNS) isn't a lookup at
+alongside it (zone health, delegation audit, RDAP) isn't a lookup at
 all. Same shape as [`iptools`](../../iptools/docs/README.md), where "IP lookup"
 is one page of "IP Tools".
 
@@ -52,18 +48,15 @@ well, and where it doesn't), [the feature inventory](01-feature-inventory.md)
 (what this stack can honestly ship). What shipped is
 all of Tier 0 plus most of Tier 1: multi-resolver comparison, the DNSSEC panel
 (DO/AD/EDE/NSID), parent-vs-child NS diff and SOA-serial agreement, CT + RDAP,
-the answer cache, and then Tier 1's three remaining DNS pieces — the `+trace`
-delegation walk with the chain of trust validated locally, the ECS steering
-card and the mail-server reputation card. Still unbuilt, and honestly so, in
-[Not built](#not-built) below.
+the answer cache, and then Tier 1's DNS pieces — the `+trace`
+delegation walk with the chain of trust validated locally and the ECS steering
+card. Still unbuilt, and honestly so, in [Not built](#not-built) below.
 
 ## Package layout (`dnstools/`, self-contained)
 
 - `dns.go` — **domain**: the lookup fan-out over `miekg/dns`. `Service`,
   `Result`, `ResultSet`, `Record`, `NewService`, `validDomain`, the `Looker`
-  interface. `Service` also carries an `*http.Client`, but nothing in this file
-  uses it: the package's only outbound HTTPS is `email.go`'s MTA-STS policy
-  fetch and `domain.go`'s two upstreams.
+  interface.
 - `cache.go` — the TTL-respecting answer cache, sitting *below* the domain
   service (rule #5). In-process only, deliberately not Mongo-backed. The
   single-flight that pairs with it is not here: it is `Service.inflight` in
@@ -91,18 +84,14 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
   resolver, which is the entire point of the page.
 - `domain.go` — **domain**: `DomainClient`, the RDAP and crt.sh halves of
   `/domain`. Speaks HTTP by design and sends no DNS at all; `nil` disables both
-  halves.
-- `email.go` — **domain**: `/email`'s seven checks (MX + FCrDNS, SPF, DMARC,
-  DKIM, MTA-STS, TLS-RPT, BIMI) plus `judge()`, which turns them into
-  fail/warn/ok/info notes. Owns the package's one outbound HTTPS request that
-  isn't `domain.go`'s.
-- `reputation.go` — **domain**: the mail-server card on `/email`. Resolves the
-  MX hosts and reads their addresses against the shared blocklist corpus
-  through the `BlockChecker` interface, so this package opens no Mongo handle
-  of its own and a nil dependency means "no card" rather than a panic. Feed
-  freshness is part of that interface rather than an optional extra: an empty
-  or stalled corpus answers "not listed" for every address, which is
-  indistinguishable from a real clean result unless the age is checked.
+  halves. Uses `CTCache` for caching Certificate Transparency responses.
+- `ct_cache.go` — in-memory thread-safe cache (`CTCache`) for Certificate
+  Transparency domain results with configurable TTL to prevent crt.sh rate limiting.
+- `dnssec.go` — cryptographic DNSSEC status inspector and algorithm name mapper.
+- `tls_chain.go` — TLS certificate chain reconstruction and Authority Information
+  Access (AIA) intermediate CA chasing (`caIssuers`).
+- `name.go` — URL/email normalization (`NormalizeName`), IDNA/Punycode mapping, and domain validation.
+- `notes.go` — audit note structures (`Note`), severity ranking, and `WithEgressGuard` wiring.
 - `handler.go` — **transport**: `Register` + query-param parsing; every route
   shares `view` (the view model), `serve` (bare hit, busy cap) and `answered`
   (result or error, content-negotiated). The rate limiter lives here.
@@ -110,20 +99,19 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
 - `templates/` — `page.html` is every route's page (`dns/page`, picked by
   `.Active`), the htmx answer `dns/frag`, the sub-nav and the 429 notice. Each
   route's cards sit in their own file: `result.html`, `spread.html`,
-  `trace.html`, `domain.html`, `email.html`. Two card partials render nothing
-  when their check did not run: `ecs.html` (`dns/ecs`, on `/consistency`) and
-  `reputation.html` (`dns/mxrep`, on `/email`). `notes.html` is the shared
-  severity-note list, so the severity aria-label is written once.
+  `trace.html`, `domain.html`. `ecs.html` (`dns/ecs`) renders the steering card
+  on `/consistency`. `notes.html` is the shared severity-note list, so the
+  severity aria-label is written once.
 - `tests/` — black-box tests over the exported API. Live queries call
   `requireEgress(t)` and skip honestly when UDP/53 egress is blocked, instead
   of passing vacuously.
 - White-box `*_test.go` beside the code, the rule #6 exception, where the
   subject is unexported: `cache_test.go`, `decode_test.go`, `spread_test.go`,
-  `spf_test.go`, `ecs_test.go`, `trace_test.go` (which signs its own zones, so
+  `ecs_test.go`, `trace_test.go` (which signs its own zones, so
   the validator is tested against keys and signatures the test made itself),
-  `reputation_test.go`, and `testserver_test.go` — a local `miekg/dns` UDP server plus
-  the test-only resolver seam that makes `127.0.0.1` reachable past the
-  allowlist.
+  `trace_wire_test.go`, `ad_test.go`, `outbound_test.go`, `spread_health_test.go`,
+  and `testserver_test.go` — a local `miekg/dns` UDP server plus the test-only
+  resolver seam that makes `127.0.0.1` reachable past the allowlist.
 
 **Subdomain:** `dns.corpberry.com` (dev: `dns.localhost:8080`). Go package: `dnstools`.
 
@@ -140,7 +128,6 @@ card and the mail-server reputation card. Still unbuilt, and honestly so, in
 | `GET /trace?name=example.com` | Delegation walk from a root server, chain of trust checked here |
 | `GET /trace?name=example.com&type=MX` | Same walk, for one record type (default `A`) |
 | `GET /domain?name=example.com` | RDAP registration + CT subdomains |
-| `GET /email?name=example.com` | SPF / DMARC / DKIM / MTA-STS / TLS-RPT / BIMI |
 
 Every one of those serves JSON to anything that doesn't ask for `text/html`,
 and an HTML fragment to htmx. A bare hit with no `?name=` is the empty form to
@@ -160,8 +147,7 @@ domain (everything but `/`) is `ErrNeedDomain`, `400`.
 JSON fields added by the UX pass, all additive: `target` on every record
 that names a host, `unvalidated` (types without AD beside some that had it),
 `keys_without_ds` on a trace chain link,
-`registrable_domain` and `delegated` on `/domain`, and `nxdomain` on
-`/email`.
+`registrable_domain` and `delegated` on `/domain`.
 
 
 `?type=` on `/`, `/consistency` and `/trace` is checked against this package's
@@ -275,13 +261,11 @@ calls non-negotiable are in place:
   address passes `nsRoutable` (`spread.go`): the `platform.EgressGuard`
   `main.go` hands `WithEgressGuard` (`PubliclyRoutable` plus this host's
   vhosts and `EGRESS_DENY_ADDRS`), or `PubliclyRoutable` alone without one.
-  `/email`'s MTA-STS fetch dials through that guard on 443 with no proxy and
-  no keep-alive, so every connection is judged at dial time, and refuses
-  redirects (RFC 8461 §3.3). `/domain`'s RDAP and crt.sh clients send every
+  `/domain`'s RDAP and crt.sh clients send every
   hop off their configured hosts through a guard too.
 - **Rate limits** per client (`platform.RateLimitKey`: IPv6 counts by its
   /64), in `dnstools.Limits`, which the `dns_*` MCP tools share: lookups (`/`,
-  `/domain`, `/email`) 2/s, burst 10; walks (`/consistency`, `/trace`) one per
+  `/domain`) 2/s, burst 10; walks (`/consistency`, `/trace`) one per
   2 s, burst 3. Work in flight is capped at 8 lookups, 4 walks and 4 `/domain`
   reports, no client holding more than a quarter of one; a full cap answers
   503 at once. rdap.org and crt.sh each get 1 request/s (burst 5) from the
@@ -304,7 +288,6 @@ calls non-negotiable are in place:
   | `/consistency` | `maxZoneWalk` = 8 NS steps + `maxAuthoritative` = 8 nameservers x 4 probes + 3 resolvers, plus the steering card: 1 query per vantage point, the 6 in its fixed table | ~49 DNS + 1 HTTPS |
   | `/trace` | `traceMaxQueries` = 48 for the whole walk, inside `traceMaxDepth` = 12 zone cuts, `traceMaxServersPerHop` = 3 and `traceMaxSideLookups` = 2 per glueless referral | <= 48 DNS, at root, TLD and authoritative servers |
   | `/domain` | RDAP + crt.sh, one request each | 2 HTTPS, 0 DNS |
-  | `/email` | 12 DKIM selectors + `maxSPFIncludes` = 15 + `maxMailHosts` = 5 x 4 FCrDNS + DMARC parent climb <= 3 + 6 fixed, plus the reputation card: 1 MX + the same `maxMailHosts` x `repMaxAddrsPerHost` = 2 | ~67 DNS + 1 HTTPS + <= `repMaxChecks` = 8 corpus reads |
 
   `/consistency`'s four probes per nameserver are: resolve its address, the
   question itself, an open-recursion probe, and its SOA serial, read over
@@ -321,15 +304,6 @@ calls non-negotiable are in place:
   `example.org`. `traceWalkTimeout` = 20s caps the wall clock separately,
   because 48 queries that each time out is minutes of a goroutine for one
   request that nothing else bounds.
-
-  The reputation card's corpus reads are local Mongo lookups, not upstream
-  DNS: `repMaxChecks` = 8 caps them independently of the host and address
-  caps, so their product can never become the real budget, and each read has
-  its own 3s `repCorpusTimeout`.
-
-  The SPF cap costs no accuracy: the only question is whether the record
-  exceeds the RFC limit of 10, so once resolution passes that the verdict is
-  settled and further queries buy nothing.
 
 ## Not built
 
@@ -429,12 +403,10 @@ DoH-over-443 fallback is needed**, and `/trace` — the one planned feature that
 would have died behind a restrictive egress policy — runs on exactly those
 paths. That last row is literally its first hop.
 
-Three HTTPS paths leave the box as well, and were not part of that UDP test:
-`rdap.org` and `crt.sh` for `/domain`, and `https://mta-sts.<domain>/.well-known/mta-sts.txt`
-for `/email`. Outbound 443 is already exercised in production by `iptools`'
-Shodan InternetDB client, so none of them needed a separate check. The MTA-STS
-host is attacker-chosen by construction, which is why that fetch is gated at
-dial time and refuses redirects.
+Two HTTPS paths leave the box as well, and were not part of that UDP test:
+`rdap.org` and `crt.sh` for `/domain`. Outbound 443 is already exercised in production by `iptools`'
+Shodan InternetDB client, so none of them needed a separate check. Every
+hop off their configured hosts is gated through `platform.EgressGuard` at dial time and refuses redirects.
 
 Re-run only if the tool moves to a different host:
 

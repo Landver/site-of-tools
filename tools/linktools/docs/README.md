@@ -1,31 +1,36 @@
-# Link Tools (`link.corpberry.com`) — build plan
+# Link Tools (`link.corpberry.com`) — documentation & architecture
 
-**Status: building.** These docs were the plan; `tools/linktools/` is now the
-implementation. Where the two disagree, the code is right and the doc is stale —
-say so rather than "fixing" working code to match a sentence here.
-
-Decisions 1–4 below were taken during the build, per their documented leans, and
-are recorded in [`08` §Decisions](08-delivery-plan.md#decisions).
-
-A suite of URL tools on one subdomain, switched by sub-nav, in the same shape as
+**Status: shipped & maintained.** `tools/linktools/` implements the full suite of
+URL tools on one subdomain, switched by sub-nav, in the same shape as
 [`iptools`](../../iptools/docs/README.md) and
-[`dnstools`](../../dnstools/docs/README.md). Named "Link Tools", not "URL
-Shortener", for the same reason DNS Tools isn't called "DNS Lookup": shortening
-is one of twenty candidate features, and the flagship page — taking a URL
-apart — isn't shortening at all.
+[`dnstools`](../../dnstools/docs/README.md).
 
-## What is planned to ship
+Decisions 1–4 below were taken during the build and are recorded in
+[`08` §Decisions](08-delivery-plan.md#decisions).
+
+Named "Link Tools", not "URL Shortener", for the same reason DNS Tools isn't called
+"DNS Lookup": shortening is one of the features, and the flagship page — taking a
+URL apart — isn't shortening at all.
+
+## Shipped features
 
 | Page | What it does | Network? | State? |
 |---|---|---|---|
 | **Inspect** (`/`) | A URL taken apart: scheme, host (IDN both ways), port, path segments, and the query decomposed into an ordered key/value table with percent-decoding, repeated keys kept visible, **delimited lists split and the delimiter named**, and nested encodings unwrapped. Values are editable and the URL rebuilds | none | none |
-| **Clean** (`/clean`) | Strips tracking parameters against a curated rule table, unwraps SafeLinks/urldefense-style wrappers, canonicalises the rest, and names every parameter removed and the rule that removed it | none | none |
+| **Clean** (`/clean`, `/clean/rules`) | Strips tracking parameters against a curated rule table, unwraps SafeLinks/urldefense/AMP-style wrappers, canonicalises the rest, and names every parameter removed and the rule that removed it | none | none |
+| **Headers** (`/headers`) | Analyze HTTP response headers for RFC 9111 caching, dual browser/CDN TTL, security posture (CSP, HSTS, COOP/COEP), cookie prefixes, and ETag revalidation. Supports live probing and offline pasted headers | outbound HTTPS (probe) / none (paste) | none |
+| **Trace** (`/trace`) | Follows the redirect chain hop by hop without a browser, inspecting status, timing, cookies, meta refresh, and bot barriers | outbound HTTPS | none |
+| **Diff** (`/diff`) | Compare two URLs side-by-side: what was added, removed, changed, or moved | none | none |
+| **cURL** (`/curl`) | URL ⇄ curl in both directions; turns URLs into safe curl commands or decomposes pasted curl commands | none | none |
+| **Extract** (`/extract`) | Extract and deduplicate links out of pasted HTML, Markdown, or plain text with anchor text | none | none |
+| **UTM** (`/utm`) | Build campaign URLs with utm_ parameters and validate tag hygiene | none | none |
+| **Encode** (`/encode`) | Percent-encode and decode with rules for query vs. path, plus Base64/JWT | none | none |
+| **Encoding Reference** (`/encoding`) | Reference guide for RFC 3986 percent-encoding across URI components | none | none |
 | **Short** (`/short`, `/s/:code`) | Creates and resolves aliases. Write side and console are API-key gated, always | none | Mongo |
-| **Trace** (`/trace`) | Follows the redirect chain hop by hop without a browser. *Optional — see the decisions below* | outbound HTTPS | none |
-| *Preview* (`/preview`) | OG/Twitter-card metadata | outbound HTTPS | none |
+| **Extension Privacy** (`/extension/privacy`) | Privacy disclosures for the browser extension | none | none |
 
-Plus a browser extension that adds **Copy Short Link Address** to the right-click
-menu on any link, talking to the same JSON endpoints.
+Plus a browser extension (`tools/linktools/extension/`) that adds **Copy Short Link Address**
+and **Copy Clean Link** to the right-click menu, talking to the same endpoints.
 
 Every page speaks HTML + JSON + an htmx fragment from one URL, like every other
 tool here.
@@ -86,12 +91,13 @@ tools would have produced it.
 
 ## What shipped
 
-Built 2026-09-25. Every page speaks HTML + JSON + an htmx fragment from one URL.
+Every page speaks HTML + JSON + an htmx fragment from one URL.
 
 | Route | Feature | Network | State |
 |---|---|---|---|
 | `/` | Inspect (A1, A2, A3, A12, A15) | none | none |
 | `/clean`, `/clean/rules` | Clean + unwrap (A4, A5, A16) | none | none |
+| `/headers` | Caching & security headers analyzer (A21) | HTTPS out (probe) / none (paste) | none |
 | `/diff` | Compare two URLs (A13) | none | none |
 | `/curl` | URL ⇄ curl, both directions (A19) | none | none |
 | `/extract` | Links out of pasted text (A18) | none | none |

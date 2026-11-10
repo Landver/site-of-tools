@@ -258,3 +258,10 @@ helper across `iptools/tests`, `botcheck/tests` — real duplication, but
 touches stable pre-existing test infra from before this feature for a
 test-only, zero-production-risk win; left a known documented deferral
 vs churn for its own sake.
+
+**Secret-file probers listed in shared blocklist, soft rule added: 68 → 69 rules (2026-10-30).**
+Added `ip_probed` rule (soft tier, weight 8) — checks whether the visitor's egress
+IP has probed secret paths (dotfiles, .env, .git, .php) on the site in the last 30 days.
+Backed by the shared `ip_blocklist` collection (`corpberry-honeypot` source) populated
+automatically by request log inspection without blocking traffic. See
+[checks/ip_probed.md](../testing/checks/ip_probed.md).

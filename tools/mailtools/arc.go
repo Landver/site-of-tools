@@ -50,12 +50,10 @@ type ARCNote struct {
 }
 
 var (
-	reAuthVerdicts = map[string]*regexp.Regexp{
-		"spf":   regexp.MustCompile(`\bspf\s*=\s*([a-zA-Z0-9_-]+)`),
-		"dkim":  regexp.MustCompile(`\bdkim\s*=\s*([a-zA-Z0-9_-]+)`),
-		"dmarc": regexp.MustCompile(`\bdmarc\s*=\s*([a-zA-Z0-9_-]+)`),
-		"arc":   regexp.MustCompile(`\barc\s*=\s*([a-zA-Z0-9_-]+)`),
-	}
+	reSPF   = regexp.MustCompile(`\bspf\s*=\s*([a-zA-Z0-9_-]+)`)
+	reDKIM  = regexp.MustCompile(`\bdkim\s*=\s*([a-zA-Z0-9_-]+)`)
+	reDMARC = regexp.MustCompile(`\bdmarc\s*=\s*([a-zA-Z0-9_-]+)`)
+	reARC   = regexp.MustCompile(`\barc\s*=\s*([a-zA-Z0-9_-]+)`)
 
 	arcHeaderNames = map[string]string{
 		"arc-seal":                   "ARC-Seal",
@@ -65,7 +63,20 @@ var (
 )
 
 func extractAuthVerdict(val, proto string) string {
-	if m := reAuthVerdicts[proto].FindStringSubmatch(strings.ToLower(val)); len(m) > 1 {
+	var re *regexp.Regexp
+	switch proto {
+	case "spf":
+		re = reSPF
+	case "dkim":
+		re = reDKIM
+	case "dmarc":
+		re = reDMARC
+	case "arc":
+		re = reARC
+	default:
+		return ""
+	}
+	if m := re.FindStringSubmatch(strings.ToLower(val)); len(m) > 1 {
 		return m[1]
 	}
 	return ""

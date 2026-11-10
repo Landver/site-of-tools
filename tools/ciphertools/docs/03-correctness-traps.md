@@ -113,3 +113,17 @@ test case in `tests/`.
 
 - 32 hex characters is MD5, NTLM, MD4 **or** LM. Return ranked candidates with
   hashcat modes, never a single verdict.
+
+## DPoP
+
+- **Header binding.** DPoP proof MUST have `typ: "dpop+jwt"` and a valid `jwk` in the header matching its signing key.
+- **Method & URI matching.** Verification checks case-sensitive HTTP method (`htm`) and exact target URI (`htu`, ignoring query strings if required by RFC 9449).
+- **Access token binding.** When `ath` is present, it must match the base64url-encoded SHA-256 hash of the presented access token.
+- **Clock skew & freshness.** Verify respects `now`, checking `iat` within reasonable limits and preventing future timestamps.
+
+## PKCE
+
+- **Charset enforcement.** `code_verifier` contains only unreserved characters `[A-Za-z0-9\-._~]` (RFC 7636).
+- **Length bounds.** Verifier length must be between 43 and 128 characters.
+- **S256 challenge calculation.** `code_challenge = BASE64URL-ENCODE(SHA256(ASCII(code_verifier)))` without padding.
+- **Constant-time verify.** Verifier vs challenge must be evaluated in constant time to prevent timing attacks.

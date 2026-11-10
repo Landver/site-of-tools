@@ -88,6 +88,8 @@ targets.
 | `/random` | Tokens, passwords, UUIDs | `/random` | no |
 | `/encode` | Bytes between text/hex/base64/base32, Basic auth | `/encode`, `/encode/basic` | yes |
 | `/identify` | What is this string? | `/identify` | yes |
+| `/dpop` | RFC 9449 DPoP proof generation & verification | `/dpop/generate`, `/dpop/verify` | verify |
+| `/pkce` | RFC 7636 PKCE code_verifier & code_challenge | `/pkce/generate`, `/pkce/verify` | verify |
 
 ## Floors
 
@@ -100,7 +102,7 @@ starts.
 3. **Password, Random.**
 4. **Keys, Certificates.**
 5. **TOTP, Encrypt, Identify.**
-6. **Review pass**, then the fixes it finds.
+6. **DPoP, PKCE, and Review pass**, then the fixes it finds.
 
 ## Outside the repo
 

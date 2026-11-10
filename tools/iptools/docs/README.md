@@ -1,6 +1,6 @@
 # IP tools (`ip.corpberry.com`)
 
-Suite of IP tools on one subdomain, `ip.corpberry.com`. Three pages today,
+Suite of IP tools on one subdomain, `ip.corpberry.com`. Four primary views,
 switched by sub-nav:
 
 - **IP lookup** (`/`) — geolocation + ASN + proxy/VPN for any IP; bare visit
@@ -8,6 +8,8 @@ switched by sub-nav:
 - **Subnet calculator** (`/cidr`) — pure CIDR math, no databases.
 - **Lookup history** (`/history`) — recent lookups from this browser, kept in
   its `localStorage`; the server stores none (see [Lookup history](#lookup-history)).
+- **Probes** (`/probes`) — tallies of IP addresses that probed this site for
+  secret files in the last 30 days (see [Probes](#probes)).
 
 Tool's design + reference doc. Layered request pattern from
 [ARCHITECTURE.md §4](../../../docs/ARCHITECTURE.md#4-request-layering-the-core-pattern--read-this),
@@ -20,24 +22,36 @@ server-side IP layer from.
   `OpenService`, `Lookup`, the `Looker` interface.
 - `cidr.go` — subnet-calculator **domain** (pure CIDR math, no databases).
 - `blocklist.go` — the shared `ip_blocklist` repository (feeds, `FlagProbe`).
+- `ipsum.go` — stamparm/ipsum 30+ threat-intelligence feed daily sync.
+- `torexit.go` — Tor bulk exit nodes daily sync into shared blocklist.
+- `rpki.go` — RFC 6811 RPKI Route Origin Validation against Cloudflare ROA dump.
+- `peering.go` — PeeringDB network connectivity & IXP profiles weekly sync.
+- `bogon.go` — in-memory bitwise Radix Trie for bogon ranges & Spamhaus DROP.
+- `shodan.go` — Shodan InternetDB open ports & CVEs live enrichment.
 - `probes.go` — `/probes`: `SummarizeProbes` tallies the probe list.
 - `handler.go` — **transport**: `Register` + query-param parsing, then
   `platform.Respond`.
+- `embed.go` — `go:embed templates` for HTML templates.
 - `templates/` — `index.html`, `result.html`, `cidr.html`, `probes.html`, `history.html`, `nav.html`.
 - `assets/` — `.BIN` databases (gitignored, bind-mounted read-only in prod).
 - `download-assets.sh` — fetches databases (run via `make assets`).
 
 **Subdomain:** `ip.corpberry.com` (dev: `ip.localhost:8080`).
 
-## Datasets
+## Datasets & Threat Intelligence
 
-IP2Location **LITE** (free tier). Present on disk today:
-
-| Dataset | Files | Size | In v1? |
-|---------|-------|------|--------|
-| DB11 geolocation | `ipv4/…DB11.BIN`, `ipv6/…DB11.IPV6.BIN` | 92M / 216M | ✅ |
-| ASN | `asn/…LITE-ASN.BIN`, `…LITE-ASN.IPV6.BIN` | 156M / 262M | ✅ |
-| IP2Proxy PX12 | `ip2proxy/…PX12.BIN` (+ CSV) | **1.7 GB** | ✅ |
+| Dataset / Source | Scope / Mechanism | Storage / Lifecycle | In Production? |
+|---|---|---|---|
+| **IP2Location LITE DB11** | City, country, coordinates, timezone, ZIP | `.BIN` files (`ipv4/`, `ipv6/`), positional `ReadAt` | ✅ |
+| **IP2Location LITE ASN** | Autonomous system number & name | `.BIN` files (`asn/`), positional `ReadAt` | ✅ |
+| **IP2Proxy LITE PX12** | Proxy, VPN, Tor, Datacenter, Fraud score | `IP2PROXY_PX12` `.BIN` (~1.7 GB), `ReadAt` | ✅ |
+| **IPsum Threat Intelligence** | 30+ aggregated public threat feeds | MongoDB `ip_blocklist`, daily background sync | ✅ |
+| **Tor Bulk Exit List** | Official Tor exit node addresses | MongoDB `ip_blocklist`, daily background sync | ✅ |
+| **Honeypot Probes** | First-hand secret path probing (`/.env`, `.git`) | MongoDB `ip_blocklist` (`expires_at` TTL) | ✅ |
+| **RPKI Validation (RFC 6811)** | Route Origin Authorization validation | In-memory 256-bucket index, daily Cloudflare sync | ✅ |
+| **PeeringDB Connectivity** | ASN IXP connections & peering policy | In-memory atomic cache, weekly JSON snapshot sync | ✅ |
+| **Bogon & Spamhaus DROP** | Martian ranges & hijacked netblocks | In-memory Radix Trie, daily Spamhaus DROP sync | ✅ |
+| **Shodan InternetDB** | Open ports, hostnames, CPEs, inferred CVEs | Live HTTP queries, rate-limited, no persistence | ✅ |
 
 IP2Proxy (proxy/VPN/threat detection) read by **separate** module,
 `github.com/ip2location/ip2proxy-go/v4` (v3 panics on PX12 database — needs
@@ -104,9 +118,9 @@ browsers & htmx get HTML, everyone else JSON. Lookups **query-param only**
 | Request | Response |
 |---------|----------|
 | `GET /` (browser) | Full page: own IP looked up (if routable), **connection inspector**, client-side IPv6 check — else empty form |
-| `GET /?ip=…` (browser) | Full page with looked-up result |
+| `GET /?ip=…` (browser) | Full page with looked-up result (geo, ASN, proxy/threat, RPKI, PeeringDB, Bogon, Shodan ports/CVEs) |
 | `GET /?ip=…` (htmx) | HTML **fragment**, result card only (`hx-target="#result"`) |
-| `GET /` or `GET /?ip=…` (JSON) | Geolocation + ASN + proxy for that IP |
+| `GET /` or `GET /?ip=…` (JSON) | Full `Result` JSON object with all enriched intelligence |
 | `GET /cidr?cidr=…` | Subnet calculation (HTML or JSON) |
 | `GET /probes` | Probe-list tallies by network, country and /24 or /48 pool (HTML or JSON; 503 without Mongo) |
 | `GET /history` | Page listing this browser's past lookups from `localStorage` (no JSON: the server keeps none) |
@@ -224,4 +238,5 @@ credit covers both.
 
 *(Done since v1: proxy/VPN detection, IPv6 check, connection inspector,
 subnet/CIDR calculator, browser-side lookup history, Shodan InternetDB
-open-port card.)*
+open-port card, IPsum threat intelligence, Tor bulk exit list, RPKI ROV validation,
+PeeringDB IXP connectivity, in-memory Bogon & Spamhaus DROP Radix Trie, Probes dashboard.)*

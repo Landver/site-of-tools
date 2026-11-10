@@ -35,8 +35,9 @@ connectors call from Anthropic's cloud with an undocumented `Origin`, and Go's
 1. `"arguments": null` is read as none.
 2. `recover` → an "Internal error" result, stack logged without arguments.
 3. Deadline: 25 s `ip_lookup`, DNS and botcheck tools, 20 s
-   `link_redirect_chain`, `link_headers_inspect` and owner tools, 15 s heavy
-   cipher and mail, 5 s the rest and other methods; a hang-up cancels the call
+   `link_redirect_chain` and `link_headers_inspect`, 20 s owner tools, 15 s heavy
+   cipher and mail (`mail_domain_health`, `mail_check_dnsbl`, `mail_dmarc_parse`),
+   5 s the rest and other methods; a hang-up cancels the call
    (`context.AfterFunc`).
 4. Rate: the tool's limiter; any other method only the gate's per-address limit.
 5. Capacity: the tool's cap; full → "Busy". Heavy cipher ops hold their memory
@@ -72,7 +73,7 @@ Each package's `Limits`, built once in `main.go`, serves its REST routes and too
 | `link_redirect_chain`, `link_headers_inspect`; owner tools (REST `/short`'s store) | 1/s (5) each | 4; — |
 | `mail_domain_health`, `mail_check_dnsbl`, `mail_dmarc_parse` | 2/s (10) | 8 |
 | `link_short_resolve` | 20/s (60), plus 200/s (400) for everyone | — |
-| cipher `jwt_sign`, `password_hash`, `password_verify`, `keys_generate` | 1/s (5) | 256 MiB of memory |
+| cipher `jwt_sign`, `password_hash`, `password_verify`, `keys_generate`, `dpop_generate` | 1/s (5) | 256 MiB of memory |
 | other cipher, link and mail tools, `ip_cidr`, `site_blog` (MCP-only) | 10/s (50) per package | — |
 
 A client holds at most a quarter of a cap unless it holds nothing. A heavy op
