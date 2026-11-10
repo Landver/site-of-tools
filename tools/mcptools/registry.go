@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"maps"
 	"net/http"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Landver/site-of-tools/platform"
+	"github.com/Landver/site-of-tools/tools/linktools"
 )
 
 const (
@@ -51,13 +54,47 @@ func handle[In any](f func(context.Context, In) (any, error)) func(*mcp.Server, 
 
 // All four hints are set: left unset, they read as destructive and open-world.
 func readOnly(open bool) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true,
-		DestructiveHint: jsonschema.Ptr(false), OpenWorldHint: jsonschema.Ptr(open)}
+	a := acts(false, true, open)
+	a.ReadOnlyHint = true
+	return a
 }
 
 func acts(destructive, idempotent, open bool) *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{IdempotentHint: idempotent,
 		DestructiveHint: jsonschema.Ptr(destructive), OpenWorldHint: jsonschema.Ptr(open)}
+}
+
+// credits resolves platform credit structs for third-party licensed data sources.
+func credits(ids ...string) []platform.Credit {
+	out := make([]platform.Credit, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := platform.CreditFor(id); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// withAttribution converts rep into a map object and attaches licensed data credits.
+func withAttribution(rep any, err error, ids ...string) (any, error) {
+	if err != nil {
+		return nil, err
+	}
+	out, err := object(rep)
+	if err != nil {
+		return nil, err
+	}
+	out["attribution"] = credits(ids...)
+	return out, nil
+}
+
+// publicError logs a store failure's detail, which can name hosts, and hides it.
+func publicError(log *slog.Logger, tool string, err error) error {
+	code, msg := linktools.PublicError(err)
+	if code == http.StatusInternalServerError {
+		log.Error("mcp: link storage error", "tool", tool, "err", err.Error())
+	}
+	return errors.New(msg)
 }
 
 // object is v's JSON as a map, numbers kept exact, for projections by JSON name.
