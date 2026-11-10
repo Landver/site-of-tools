@@ -75,10 +75,15 @@ Network diagnostics and IP intelligence:
 - **Link Shortener**: Lightweight self-hosted short links with automatic TTL expiration.
 
 ### [Mail Tools](https://mail.corpberry.com) (`mail.corpberry.com`)
-Email deliverability and forensic diagnostics powered by WebAssembly (reports and headers never leave your machine):
-- **DMARC Aggregate Reports (RUA)**: Ingests and visualizes XML/GZ aggregate deliverability reports.
-- **BIMI SVG Validator**: Validates SVG Tiny P/S compliance, checks dimensions/security, and provides auto-fix downloads.
-- **ARC Trace Analyzer**: RFC 8617 Authenticated Received Chain header validator and seal verifier.
+Email deliverability and forensic diagnostics with server-side audits and client-side WebAssembly execution (reports and headers never leave your machine):
+- **All-in-One Domain Health**: Comprehensive scoring (0–100) aggregating SPF, DMARC, DKIM, MTA-STS, DANE TLSA, BIMI, Secure Email Gateway (SEG) detection, and live DNSBL reputation with actionable recommendations.
+- **Email Auth DNS & DANE**: Audits SPF recursive lookup trees (RFC 7208 10-lookup limit, void lookups, loops), DMARC policy inheritance (`sp=`), parallel DKIM selector probing, MTA-STS policy fetching over HTTPS, and DANE TLSA (RFC 6698/7672) with DNSSEC Authenticated Data (AD) verification.
+- **SPF Mechanism Evaluator**: Deterministic RFC 7208 evaluator testing sender IP and domain against SPF directives (`ip4`, `ip6`, CIDR, `all`) returning standardized verdicts (`Pass`, `Fail`, `Softfail`, `Neutral`, `PermError`).
+- **Disposable & Webmail Classifier**: In-memory classification of email domains into corporate, free webmail (Gmail, Yahoo, Proton, Mail.ru), and disposable/burner inboxes, backed by automated daily syncing from upstream blocklists.
+- **Multi-DNSBL Reputation Checker**: Concurrent reputation audit across 15+ authoritative spam blocklists (Spamhaus ZEN/DBL, Barracuda, SpamCop, Mailspike, SURBL, URIBL) with response code decoding and 20-minute MongoDB TTL caching.
+- **DMARC Aggregate Reports (RUA)**: Ingests and visualizes XML and GZ aggregate deliverability reports with ESP attribution and per-IP alignment analysis (server-side and client-side WASM).
+- **BIMI SVG Validator & Auto-Fix**: Validates SVG Tiny P/S compliance, security restrictions, and Verified Mark Certificates (VMC), with one-click automatic SVG attribute correction.
+- **ARC Trace Analyzer**: RFC 8617 Authenticated Received Chain header validator inspecting forwarding hops, seal integrity, and intermediate authentication results.
 
 ### [MCP Server](https://mcp.corpberry.com) (`mcp.corpberry.com`)
 Model Context Protocol endpoint exposing the entire toolset to AI workflows:
@@ -207,7 +212,7 @@ site-of-tools/
 │   ├── dnstools/               # Global propagation, DNSSEC trace, RDAP, Email Auth
 │   ├── iptools/                # IP geolocation, threat intel, subnet CIDR calculator
 │   ├── linktools/              # Tracker cleaner, redirect tracer, cache validator
-│   ├── mailtools/              # DMARC RUA parser, BIMI validator, ARC seal analyzer
+│   ├── mailtools/              # All-in-one health, DNSBL, disposable/freemail classifier, DMARC RUA parser, BIMI & VMC validator, ARC trace, client WASM
 │   └── mcptools/               # Model Context Protocol adapter & AI tool definitions
 ├── .github/workflows/          # CI/CD and automated cross-platform release pipeline
 └── docs/                       # Architecture and deployment documentation
