@@ -26,7 +26,7 @@ func NormalizeName(raw string) string {
 			s = u.Hostname()
 		}
 	}
-	s = strings.TrimSuffix(strings.ToLower(s), ".")
+	s = bareName(s)
 	if !isASCII(s) {
 		if a, err := idnaNames.ToASCII(s); err == nil {
 			s = a

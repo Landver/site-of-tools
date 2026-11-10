@@ -269,6 +269,7 @@ func (s *Service) askResolver(ctx context.Context, qname, qtype string, r Resolv
 // answerValues returns the sorted set of the asked type, its lowest TTL and the first CNAME.
 func answerValues(m *dns.Msg, qtype string) (vals []string, ttl uint32, cname string) {
 	want := dns.StringToType[qtype]
+	vals = []string{}
 	for _, rr := range m.Answer {
 		switch h := rr.Header(); {
 		case h.Rrtype == want:

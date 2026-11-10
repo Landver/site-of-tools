@@ -200,10 +200,6 @@ func (s *Service) ecsAsk(ctx context.Context, qname, qtype, addr string, a ECSAn
 	a.SourceNetmask = uint8(prefix.Bits())
 	a.Rcode = dns.RcodeToString[resp.Rcode]
 	a.Values, a.TTL, a.CNAME = answerValues(resp, qtype)
-	if a.Values == nil {
-		// [], not nil, so the JSON never carries null.
-		a.Values = []string{}
-	}
 	// nil, not scope 0, means no client-subnet option came back.
 	if sub := ednsOption[*dns.EDNS0_SUBNET](resp); sub != nil {
 		a.Echoed = true
