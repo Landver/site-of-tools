@@ -56,10 +56,13 @@ Parallel global DNS inspection and security auditing:
 
 ### [IP Tools](https://ip.corpberry.com) (`ip.corpberry.com`)
 Network diagnostics and IP intelligence:
-- **IP Lookup & Threat Intel**: Geolocation (IP2Location LITE), ASN network owner, proxy/VPN detection, and Spamhaus DROP check.
+- **IP Lookup & Threat Intel**: Geolocation (IP2Location LITE), ASN network owner, proxy/VPN detection (IP2Proxy PX12), IPsum aggregate threat score, Tor exit node detection, and Spamhaus DROP check.
+- **BGP / RPKI Route Origin Validation**: Cryptographic route origin validation (RFC 6811) against Cloudflare RPKI cache.
+- **PeeringDB Connectivity & IXP**: Autonomous system peering policy, traffic volume/ratio, and interconnected Internet Exchange Points (IXPs).
+- **Shodan InternetDB**: Passive open-port enumeration, hostnames, CPEs, and inferred CVE vulnerabilities.
 - **Subnet Calculator**: IPv4 & IPv6 CIDR calculations, usable host ranges, netmasks, and wildcard masks.
 - **Probes**: Who probed this site for secret files in the last 30 days, by network, country and address pool. Flagged in lookups and Bot Check, never blocked.
-- **Lookup History**: Local audit log of previous queries.
+- **Lookup History**: Local browser audit log of previous queries (`localStorage`).
 
 ### [Link Tools](https://link.corpberry.com) (`link.corpberry.com`)
 11 utilities for link hygiene, redirection tracing, and cache debugging:

@@ -72,7 +72,7 @@ Each package's `Limits`, built once in `main.go`, serves its REST routes and too
 | `link_redirect_chain`, `link_headers_inspect`; owner tools (REST `/short`'s store) | 1/s (5) each | 4; — |
 | `mail_domain_health`, `mail_check_dnsbl`, `mail_dmarc_parse` | 2/s (10) | 8 |
 | `link_short_resolve` | 20/s (60), plus 200/s (400) for everyone | — |
-| cipher `jwt_sign`, `password_hash`, `password_verify`, `keys_generate` | 1/s (5) | 256 MiB of memory |
+| cipher `jwt_sign`, `password_hash`, `password_verify`, `keys_generate`, `dpop_generate` | 1/s (5) | 256 MiB of memory |
 | other cipher, link and mail tools, `ip_cidr`, `site_blog` (MCP-only) | 10/s (50) per package | — |
 
 A client holds at most a quarter of a cap unless it holds nothing. A heavy op

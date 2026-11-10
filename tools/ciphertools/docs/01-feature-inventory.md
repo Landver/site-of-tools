@@ -131,6 +131,24 @@ page links there instead of repeating them.
 | **Ranked candidates, never one verdict** | 0 | yes |
 | **Any pasted thing: JWT, JWE, PEM block, PHC string, UUID, `otpauth://`, base64, hex, with a link to the page that handles it** | 1 | yes |
 
+## C12. DPoP — `/dpop`
+
+| Feature | n | Ship |
+|---|---|---|
+| RFC 9449 DPoP proof generation: HTTP method (`htm`), target URI (`htu`), optional nonce and access token hash (`ath`) | 2 | yes |
+| Supported algorithms: ES256 (default), RS256, EdDSA | 2 | yes, embedded ephemeral JWK (`epk`) |
+| Strict proof verification: check `typ: dpop+jwt`, signature against embedded `jwk`, method & URI matching | 2 | yes, zero-knowledge in-browser |
+| Expiry and freshness checks with configurable `now` for reproducible testing | 0 | yes |
+
+## C13. PKCE — `/pkce`
+
+| Feature | n | Ship |
+|---|---|---|
+| RFC 7636 `code_verifier` generator (43–128 chars, cryptographically secure unreserved charset) | 3 | yes |
+| SHA-256 `code_challenge` derivation (`S256` method) and plain method | 3 | yes |
+| Constant-time verification of `code_verifier` against expected `code_challenge` | 1 | yes |
+
+
 ## Cut, with reasons
 
 | Feature | n | Why not |
