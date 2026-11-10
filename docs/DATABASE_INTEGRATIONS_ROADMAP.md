@@ -33,6 +33,19 @@
 ### 1.9 RFC 7208 SPF Mechanism Evaluator Engine (`tools/mailtools`)
 - Локальный анализатор соответствия IP клиента механизмам SPF (`ip4`, `ip6`, `all`) с выдачей стандартных RFC вердиктов (`Pass`, `Fail`, `Softfail`, `Neutral`, `PermError`).
 
+### 1.10 In-Memory Bitwise Radix Trie для Bogons & DROP (`tools/iptools`)
+- Потокобезопасный побитовый Radix Trie (`RadixTrie`) с атомарной подменой указателя (`atomic.Pointer`).
+- Источники: IANA IPv4/IPv6 Bogons (RFC 5735, RFC 6598, RFC 4291) + ежедневный официальный Spamhaus DROP/EDROP CIDR feed.
+- Субмикросекундная классификация ($O(k)$) марсианских, немаршрутизируемых и BGP-скомпрометированных диапазонов без roundtrip в базу данных.
+
+### 1.11 DANE TLSA (RFC 7672) & MTA-STS Wildcard Engine (`tools/mailtools`)
+- Криптографический аудит почтовых шлюзов по стандарту RFC 7672: парсинг TLSA записей (`_25._tcp.<mx>`), проверка обязательного DNSSEC AD-бита (Authenticated Data) и валидация готовности к ротации ключей (rollover hygiene).
+- Валидатор соответствия MX хостов спецификации MTA-STS (RFC 8461) с поддержкой одноуровневых wildcard-шаблонов.
+
+### 1.12 TLS Chain Reconstruction & AIA Intermediate Chasing (`tools/dnstools`)
+- Инспектор цепочек сертификатов x509 с автоматическим обнаружением неполных цепочек (когда сервер отдает только leaf-сертификат).
+- Безопасное скачивание промежуточных CA через Authority Information Access (`caIssuers`) с лимитами по размеру и таймаутам.
+
 ---
 
 ## 2. Предложенные фичи в бэклоге (Статус: Backlog / Proposed)
