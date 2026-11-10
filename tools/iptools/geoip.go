@@ -35,6 +35,8 @@ type Result struct {
 	RPKI *RPKIValidation `json:"rpki,omitempty"`
 	// PeeringDB IXP and interconnect profile
 	Peering *PeeringInfo `json:"peering,omitempty"`
+	// Bogon / unallocated / Spamhaus DROP classification
+	Bogon *BogonCheckResult `json:"bogon,omitempty"`
 }
 
 func (r *Result) ShodanConsulted() bool { return r != nil && r.Shodan != nil && !r.Shodan.Skipped }
@@ -168,6 +170,10 @@ func (s *Service) Lookup(ctx context.Context, ipStr string) (*Result, error) {
 	if Routable(ipStr) && res.ASN != "" {
 		res.RPKI = ValidateRPKI(ipStr, res.ASN)
 		res.Peering = LookupPeering(res.ASN)
+	}
+	bogon := CheckBogon(ipStr)
+	if bogon.IsBogon {
+		res.Bogon = &bogon
 	}
 	return res, nil
 }

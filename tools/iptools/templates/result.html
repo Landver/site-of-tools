@@ -88,6 +88,13 @@
         <span class="text-xs text-faint font-mono">{{if gt .IXPCount 0}}{{.IXPCount}} IXPs{{end}}{{if .Traffic}} · {{.Traffic}}{{end}}</span>
       </dd>
       {{end}}
+      {{with .Bogon}}
+      <dt>Routing</dt>
+      <dd>
+        <span class="badge badge-danger">BOGON / DROP</span>
+        <span class="text-xs text-danger font-mono">{{.Tag}}</span>
+      </dd>
+      {{end}}
     </dl>
     <div class="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
       <span class="text-xs font-mono text-faint">Pivots:</span>
