@@ -10,7 +10,7 @@
 - Ежедневная фоновая загрузка официальных CIDR JSON-фидов Googlebot, Bingbot и OpenAI с атомарной заменой `atomic.Pointer`.
 
 ### 1.2 Extended Disposable Email Sources (`tools/mailtools`)
-- Еженедельный синк агрегированных баз (`disposable-email-domains` canonical + Wesbos burner email provider list).
+- Ежедневный синк агрегированных баз (`disposable-email-domains` canonical + Wesbos burner email provider list) через фоновый воркер `RunSync(ctx)` в `worker.go`.
 
 ### 1.3 BGP / RPKI Route Origin Validation (`tools/iptools`)
 - RFC 6811 RPKI ROA валидатор на основе ежедневного RPKI JSON-дампа Cloudflare с 256-корзинным индексом по первому октету IPv4 ($O(1)$ sub-ms lookup).
@@ -79,14 +79,6 @@
 - **Целевой инструмент:** `tools/dnstools` (Subdomain & Certificate Insights).
 - **Источники данных:** Агрегированные базы Certificate Transparency или локальный индекс недавних сертификатов для домена.
 - **Функционал:** Обнаружение поддоменов через выпуск SSL/TLS сертификатов без активного брутфорса и риска блокировки по IP.
-
-### 2.5 SPF / DMARC Policy Evaluator Engine
-- **Целевой инструмент:** `tools/mailtools`.
-- **Источники данных:** RFC 7208 / RFC 7489 спецификации с локальным парсером графа директив.
-- **Функционал:**
-  - Локальный симулятор проверки входящего письма (IP + Sender -> Pass/Fail/Softfail).
-  - Детектирование превышения лимита 10 DNS lookups для SPF.
-  - Анализ DMARC aggregate reports (`rua`) конфигурации.
 
 ---
 
