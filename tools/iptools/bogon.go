@@ -134,14 +134,18 @@ var (
 	}
 )
 
-func init() {
+func newStandardBogonTrie() *RadixTrie {
 	trie := NewRadixTrie()
 	for _, b := range standardBogonPrefixes {
 		if pfx, err := netip.ParsePrefix(b.cidr); err == nil {
 			trie.Insert(pfx, b.tag)
 		}
 	}
-	globalPrefixTrie.Store(trie)
+	return trie
+}
+
+func init() {
+	globalPrefixTrie.Store(newStandardBogonTrie())
 }
 
 // CheckBogon tests if an IP is a bogon or Spamhaus DROP entry.
@@ -173,24 +177,14 @@ const (
 var dropHTTPClient = &http.Client{Timeout: dropHTTPTimeout}
 
 type dropRecord struct {
-	Type      string `json:"type"`
-	CIDR      string `json:"cidr"`
-	SBLID     string `json:"sblid"`
-	Timestamp int64  `json:"timestamp"`
-	Copyright string `json:"copyright"`
-	Terms     string `json:"terms"`
+	Type  string `json:"type"`
+	CIDR  string `json:"cidr"`
+	SBLID string `json:"sblid"`
 }
 
 // UpdatePrefixTrie parses DROP/EDROP lines and rebuilds the global atomic trie.
 func UpdatePrefixTrie(dropReader io.Reader) int {
-	trie := NewRadixTrie()
-	// Re-insert base bogons
-	for _, b := range standardBogonPrefixes {
-		if pfx, err := netip.ParsePrefix(b.cidr); err == nil {
-			trie.Insert(pfx, b.tag)
-		}
-	}
-
+	trie := newStandardBogonTrie()
 	count := 0
 	if dropReader != nil {
 		sc := bufio.NewScanner(dropReader)
@@ -220,18 +214,12 @@ func RunSpamhausTrieSync(ctx context.Context) {
 	defer ticker.Stop()
 
 	sync := func() {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, dropURL, nil)
+		body, err := fetchFeed(ctx, dropHTTPClient, dropURL, "Spamhaus DROP")
 		if err != nil {
 			return
 		}
-		resp, err := dropHTTPClient.Do(req)
-		if err != nil {
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			UpdatePrefixTrie(resp.Body)
-		}
+		defer body.Close()
+		UpdatePrefixTrie(body)
 	}
 
 	sync()

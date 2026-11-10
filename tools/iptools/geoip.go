@@ -14,6 +14,9 @@ import (
 	ip2proxy "github.com/ip2location/ip2proxy-go/v4"
 )
 
+// iptoolsUserAgent identifies iptools requests to external services.
+const iptoolsUserAgent = "corpberry-iptools/1.0 (+https://ip.corpberry.com)"
+
 type Result struct {
 	IP          string  `json:"ip"`
 	CountryCode string  `json:"country_code"`
@@ -263,8 +266,11 @@ func clean(s string) string {
 // ParseASN normalizes and parses an ASN string (e.g. "AS15169", "as15169", "15169") into uint32.
 // Returns 0 and an error if invalid or zero.
 func ParseASN(s string) (uint32, error) {
-	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(s), "AS"), "as")
-	n, err := strconv.ParseUint(clean, 10, 32)
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && strings.EqualFold(s[:2], "as") {
+		s = s[2:]
+	}
+	n, err := strconv.ParseUint(s, 10, 32)
 	if err != nil || n == 0 {
 		return 0, fmt.Errorf("invalid ASN %q", s)
 	}

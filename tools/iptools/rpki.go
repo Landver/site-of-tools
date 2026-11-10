@@ -48,7 +48,10 @@ type RPKIIndex struct {
 	v6List    []ROAEntry
 }
 
-var activeRPKI atomic.Pointer[RPKIIndex]
+var (
+	activeRPKI     atomic.Pointer[RPKIIndex]
+	rpkiHTTPClient = &http.Client{Timeout: 90 * time.Second}
+)
 
 // ValidateRPKI checks an IP and origin ASN against active ROAs per RFC 6811.
 // Returns nil if the database is uninitialized or IP/ASN is invalid.
@@ -140,9 +143,9 @@ func syncRPKI(ctx context.Context) {
 		log.Printf("[iptools.rpki] request error: %v", err)
 		return
 	}
-	req.Header.Set("User-Agent", "corpberry-iptools/1.0 (+https://ip.corpberry.com)")
+	req.Header.Set("User-Agent", iptoolsUserAgent)
 
-	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
+	resp, err := rpkiHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("[iptools.rpki] sync request failed: %v", err)
 		return

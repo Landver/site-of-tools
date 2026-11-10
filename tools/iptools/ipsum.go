@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -79,14 +79,14 @@ func parseIPsumLine(line string) (ip string, count int, ok bool) {
 	if len(fields) < 2 {
 		return "", 0, false
 	}
-	if net.ParseIP(fields[0]) == nil {
-		return "", 0, false
-	}
 	n, err := strconv.Atoi(fields[1])
 	if err != nil || n < 0 {
 		return "", 0, false
 	}
-	return fields[0], n, true
+	if addr, err := netip.ParseAddr(fields[0]); err == nil {
+		return addr.Unmap().String(), n, true
+	}
+	return "", 0, false
 }
 
 // parseIPsumHeaderTime reads "# Last update: Tue, 21 Jul 2026 03:00:58 +0200" (RFC 1123Z).

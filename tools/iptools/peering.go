@@ -123,6 +123,7 @@ func RunPeeringDBSync(ctx context.Context) {
 			log.Printf("peeringdb: request error: %v", err)
 			return
 		}
+		req.Header.Set("User-Agent", iptoolsUserAgent)
 		resp, err := peeringHTTPClient.Do(req)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
