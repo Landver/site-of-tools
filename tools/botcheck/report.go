@@ -120,14 +120,7 @@ func embeddedEnvironment(ua string) string {
 	if tok == "" {
 		return ""
 	}
-	name, ok := map[string]string{
-		"electron":    "Electron",
-		"cef":         "CEF",
-		"cefsharp":    "CefSharp",
-		"qtwebengine": "QtWebEngine",
-		"nw.js":       "NW.js",
-		"nwjs":        "NW.js",
-	}[strings.ToLower(tok)]
+	name, ok := embeddedRuntimeDisplay[strings.ToLower(tok)]
 	if !ok {
 		return "" // token w/ no display name: can't tell, don't guess
 	}

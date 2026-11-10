@@ -85,7 +85,7 @@ func matchGoodBot(ua string) *goodBot {
 // normalizeASN makes "AS13238" and "13238" compare equal.
 func normalizeASN(s string) string {
 	s = strings.TrimSpace(s)
-	if len(s) >= 2 && (s[0] == 'A' || s[0] == 'a') && (s[1] == 'S' || s[1] == 's') {
+	if strings.HasPrefix(s, "AS") || strings.HasPrefix(s, "as") || strings.HasPrefix(s, "As") || strings.HasPrefix(s, "aS") {
 		s = s[2:]
 	}
 	return strings.TrimSpace(s)

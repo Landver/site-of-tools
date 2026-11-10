@@ -112,14 +112,14 @@ var rules = []rule{
 			if s.NavMainUA == "" {
 				return false, ""
 			}
-			if s.NavWorkerUA != "" && s.NavWorkerUA != s.NavMainUA {
-				return true, "worker differs"
-			}
-			if s.NavIframeUA != "" && s.NavIframeUA != s.NavMainUA {
-				return true, "iframe differs"
-			}
-			if s.SWUA != "" && s.SWUA != s.NavMainUA {
-				return true, "service worker differs"
+			for _, c := range [...]struct{ name, ua string }{
+				{"worker", s.NavWorkerUA},
+				{"iframe", s.NavIframeUA},
+				{"service worker", s.SWUA},
+			} {
+				if c.ua != "" && c.ua != s.NavMainUA {
+					return true, c.name + " differs"
+				}
 			}
 			return false, ""
 		},
@@ -213,10 +213,7 @@ var rules = []rule{
 	{
 		id: "ua_os_mismatch", label: "OS in User-Agent ≠ userAgentData.platform", tier: TierConsistency, subgroup: subgroupUA, weight: 30, needsClient: true,
 		eval: func(s Signals) (bool, string) {
-			ua := osFromUA(s.NavMainUA)
-			if ua == "" {
-				ua = osFromUA(s.HTTPUserAgent)
-			}
+			ua := osFromUA(clientUA(s))
 			j := normPlatform(s.UAData.Platform)
 			if ua == "" || j == "" || ua == j {
 				return false, ""

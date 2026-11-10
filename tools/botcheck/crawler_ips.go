@@ -26,11 +26,23 @@ type crawlerPrefixList struct {
 	} `json:"prefixes"`
 }
 
-var crawlerIndex atomic.Pointer[map[string][]netip.Prefix]
+var (
+	crawlerHTTPClient = &http.Client{Timeout: 30 * time.Second}
+	crawlerIndex      atomic.Pointer[map[string][]netip.Prefix]
+)
 
 func init() {
 	empty := make(map[string][]netip.Prefix)
 	crawlerIndex.Store(&empty)
+}
+
+func storeCrawlerPrefixes(operator string, prefixes []netip.Prefix) {
+	newMap := make(map[string][]netip.Prefix)
+	if curr := crawlerIndex.Load(); curr != nil {
+		newMap = maps.Clone(*curr)
+	}
+	newMap[operator] = prefixes
+	crawlerIndex.Store(&newMap)
 }
 
 // MatchCrawlerIP checks if an IP belongs to the official published IP ranges of an operator.
@@ -71,27 +83,15 @@ func RunCrawlerSync(ctx context.Context) {
 }
 
 func syncAllCrawlerFeeds(ctx context.Context) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	newMap := make(map[string][]netip.Prefix)
-
 	for _, feed := range crawlerFeeds {
 		if ctx.Err() != nil {
 			return
 		}
-		prefixes := fetchCrawlerFeed(ctx, client, feed.url)
+		prefixes := fetchCrawlerFeed(ctx, crawlerHTTPClient, feed.url)
 		if len(prefixes) > 0 {
-			newMap[feed.op] = prefixes
+			storeCrawlerPrefixes(feed.op, prefixes)
 			log.Printf("[botcheck.crawler] synced %d prefixes for %s", len(prefixes), feed.op)
 		}
-	}
-
-	if len(newMap) > 0 {
-		merged := make(map[string][]netip.Prefix)
-		if curr := crawlerIndex.Load(); curr != nil {
-			merged = maps.Clone(*curr)
-		}
-		maps.Copy(merged, newMap)
-		crawlerIndex.Store(&merged)
 	}
 }
 
@@ -131,17 +131,11 @@ func fetchCrawlerFeed(ctx context.Context, client *http.Client, feedURL string) 
 
 // SeedCrawlerPrefixesForTest populates prefixes for an operator in unit tests.
 func SeedCrawlerPrefixesForTest(operator string, rawPrefixes []string) {
-	curr := crawlerIndex.Load()
-	newMap := make(map[string][]netip.Prefix)
-	if curr != nil {
-		newMap = maps.Clone(*curr)
-	}
 	var list []netip.Prefix
 	for _, s := range rawPrefixes {
 		if p, err := netip.ParsePrefix(s); err == nil {
 			list = append(list, p)
 		}
 	}
-	newMap[operator] = list
-	crawlerIndex.Store(&newMap)
+	storeCrawlerPrefixes(operator, list)
 }

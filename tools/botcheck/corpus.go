@@ -52,30 +52,30 @@ func (c *Corpus) Record(ctx context.Context, hash, ip string) error {
 	return err
 }
 
-// DistinctIPs feeds fingerprint_reuse; a disabled store returns 0, which the rule treats as no data.
-func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
+func (c *Corpus) distinctCount(ctx context.Context, field string, filter any) (int, error) {
 	if c == nil {
 		return 0, nil
 	}
-	var ips []string
-	if err := c.coll.Distinct(ctx, "ip", bson.D{{Key: "hash", Value: hash}}).Decode(&ips); err != nil {
+	var out []string
+	if err := c.coll.Distinct(ctx, field, filter).Decode(&out); err != nil {
 		return 0, err
 	}
-	return len(ips), nil
+	return len(out), nil
+}
+
+// DistinctIPs feeds fingerprint_reuse; a disabled store returns 0, which the rule treats as no data.
+func (c *Corpus) DistinctIPs(ctx context.Context, hash string) (int, error) {
+	return c.distinctCount(ctx, "ip", bson.D{{Key: "hash", Value: hash}})
 }
 
 // DistinctHashesByIP feeds ip_fingerprint_churn (many fingerprints from one IP); the caller owns window.
 func (c *Corpus) DistinctHashesByIP(ctx context.Context, ip string, window time.Duration) (int, error) {
-	if c == nil || ip == "" {
+	if ip == "" {
 		return 0, nil
 	}
 	filter := bson.D{
 		{Key: "ip", Value: ip},
 		{Key: "ts", Value: bson.D{{Key: "$gte", Value: time.Now().Add(-window)}}},
 	}
-	var hashes []string
-	if err := c.coll.Distinct(ctx, "hash", filter).Decode(&hashes); err != nil {
-		return 0, err
-	}
-	return len(hashes), nil
+	return c.distinctCount(ctx, "hash", filter)
 }
