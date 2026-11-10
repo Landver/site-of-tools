@@ -165,6 +165,22 @@ func CheckBogon(ip string) BogonCheckResult {
 	}
 }
 
+const (
+	dropURL         = "https://www.spamhaus.org/drop/drop_v4.json"
+	dropHTTPTimeout = 60 * time.Second
+)
+
+var dropHTTPClient = &http.Client{Timeout: dropHTTPTimeout}
+
+type dropRecord struct {
+	Type      string `json:"type"`
+	CIDR      string `json:"cidr"`
+	SBLID     string `json:"sblid"`
+	Timestamp int64  `json:"timestamp"`
+	Copyright string `json:"copyright"`
+	Terms     string `json:"terms"`
+}
+
 // UpdatePrefixTrie parses DROP/EDROP lines and rebuilds the global atomic trie.
 func UpdatePrefixTrie(dropReader io.Reader) int {
 	trie := NewRadixTrie()

@@ -34,9 +34,8 @@ const (
 
 // Exported so botcheck can tell automatic feeds apart from a deliberate ban another service wrote.
 const (
-	BlocklistSourceIPsum        = "ipsum"
-	BlocklistSourceSpamhausDROP = "spamhaus-drop"
-	BlocklistSourceTorExit      = "tor-exit"
+	BlocklistSourceIPsum   = "ipsum"
+	BlocklistSourceTorExit = "tor-exit"
 	// First-hand: the address probed this site for secrets (platform.IsProbe). Flagged, never blocked.
 	BlocklistSourceProbe = "corpberry-honeypot"
 )
@@ -46,16 +45,10 @@ const probeTTL = 30 * 24 * time.Hour
 
 // BlockEntry's bson names are a public schema for external writers; they set created_at via $setOnInsert.
 type BlockEntry struct {
-	// A netblock entry stores its CIDR here; Check matches netblocks by RangeStart/RangeEnd instead.
-	IP     string `bson:"ip" json:"ip"`
-	Source string `bson:"source" json:"source"` // "ipsum", "spamhaus-drop", "rate-limiter", "manual", …
-	Reason string `bson:"reason,omitempty" json:"reason,omitempty"`
-	// 0 when the source has no numeric strength (Spamhaus DROP is presence-only).
-	Count int `bson:"count,omitempty" json:"count,omitempty"`
-	// Inclusive IPv4 bounds, one doc per CIDR instead of one per address; IPv6 netblocks are unsupported.
-	RangeStart uint32 `bson:"range_start,omitempty" json:"range_start,omitempty"`
-	RangeEnd   uint32 `bson:"range_end,omitempty" json:"range_end,omitempty"`
-	// Spamhaus's licence requires its date and copyright text to stay with the data; they live here.
+	IP        string         `bson:"ip" json:"ip"`
+	Source    string         `bson:"source" json:"source"` // "ipsum", "tor-exit", "rate-limiter", "manual", …
+	Reason    string         `bson:"reason,omitempty" json:"reason,omitempty"`
+	Count     int            `bson:"count,omitempty" json:"count,omitempty"`
 	Meta      map[string]any `bson:"meta,omitempty" json:"meta,omitempty"`
 	CreatedAt time.Time      `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time      `bson:"updated_at" json:"updated_at"` // refreshed every touch; drives TTL
@@ -101,7 +94,7 @@ func CheckerFrom(b *BlockList) Checker {
 }
 
 // EnsureIndexes: unique (ip, source) keeps each source's own record, so a feed sync never clobbers a
-// manual ban; the range index is sparse because only netblock entries carry ranges.
+// manual ban.
 func (b *BlockList) EnsureIndexes(ctx context.Context) error {
 	if b == nil {
 		return nil
@@ -113,15 +106,9 @@ func (b *BlockList) EnsureIndexes(ctx context.Context) error {
 	if err := platform.EnsureTTLIndex(ctx, b.coll, "expires_at", 0); err != nil {
 		return err
 	}
-	if _, err := b.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
+	_, err := b.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "ip", Value: 1}, {Key: "source", Value: 1}},
 		Options: options.Index().SetUnique(true).SetName("ip_source_unique"),
-	}); err != nil {
-		return err
-	}
-	_, err := b.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "range_start", Value: 1}, {Key: "range_end", Value: 1}},
-		Options: options.Index().SetSparse(true).SetName("range_sparse"),
 	})
 	return err
 }
@@ -190,7 +177,7 @@ func (b *BlockList) UpsertMany(ctx context.Context, entries []BlockEntry) (int, 
 	return int(res.UpsertedCount + res.ModifiedCount), err
 }
 
-// Check also matches IPv4 netblocks containing ip; corpus off and not listed both return a zero lookup.
+// Check looks up listed records for ip; corpus off and not listed both return a zero lookup.
 func (b *BlockList) Check(ctx context.Context, ip string) (BlockLookup, error) {
 	if b == nil || ip == "" {
 		return BlockLookup{}, nil
@@ -202,16 +189,6 @@ func (b *BlockList) Check(ctx context.Context, ip string) (BlockLookup, error) {
 		ip = addr.String()
 	}
 	filter := bson.D{{Key: "ip", Value: ip}}
-	if err == nil && addr.Is4() {
-		n := ipv4Uint32(addr)
-		filter = bson.D{{Key: "$or", Value: bson.A{
-			bson.D{{Key: "ip", Value: ip}},
-			bson.D{
-				{Key: "range_start", Value: bson.D{{Key: "$lte", Value: n}}},
-				{Key: "range_end", Value: bson.D{{Key: "$gte", Value: n}}},
-			},
-		}}}
-	}
 	// Sorted so Sources is deterministic, not Mongo natural order.
 	cur, err := b.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "source", Value: 1}}))
 	if err != nil {
@@ -355,7 +332,7 @@ func runDailySync(ctx context.Context, bl *BlockList, label, unit string, sync f
 	}
 }
 
-// Empty count/range/meta stay out of $set so a source lacking them stamps no nulls.
+// Empty count/meta stay out of $set so a source lacking them stamps no nulls.
 func blocklistUpdate(e BlockEntry, now time.Time) bson.D {
 	set := bson.D{
 		{Key: "reason", Value: e.Reason},
@@ -363,9 +340,6 @@ func blocklistUpdate(e BlockEntry, now time.Time) bson.D {
 	}
 	if e.Count > 0 {
 		set = append(set, bson.E{Key: "count", Value: e.Count})
-	}
-	if e.RangeStart != 0 || e.RangeEnd != 0 {
-		set = append(set, bson.E{Key: "range_start", Value: e.RangeStart}, bson.E{Key: "range_end", Value: e.RangeEnd})
 	}
 	if len(e.Meta) > 0 {
 		set = append(set, bson.E{Key: "meta", Value: e.Meta})
