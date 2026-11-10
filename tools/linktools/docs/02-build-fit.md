@@ -7,7 +7,7 @@ Constraints in scope, from `CLAUDE.md` and
 and nginx, no budget for paid data.
 
 Headline: **most of this suite is `net/url` and a rule table**, and Tier 0 adds
-**zero new modules** — thirteen of twenty features need no network, no state and
+**zero new modules** — fourteen of twenty-one features need no network, no state and
 no dependency. Unlike `dnstools`, which needed a UDP egress test before a
 line could be written, Tier 0 here has no blocking technical unknown at all. It
 does have one blocking *policy* unknown — see [§6](#6-the-blocker-before-phase-0).
@@ -52,6 +52,7 @@ packages inside a module that is already there: `go.mod` does not change and
 | A18 link extractor | `regexp`, `x/net/html` | An input adapter onto `Parse` |
 | A19 `curl` builder | `net/url`, `strings` | Both directions; the parse-a-curl-line half is the useful one |
 | A20 encoding reference | one template | No logic at all |
+| A21 headers analyzer (paste) | `net/http` header parsing, pure Go | Offline parse for pasted headers; RFC 9111 caching + security audit |
 
 ## 2. Tier 1 — outbound HTTPS
 
@@ -60,8 +61,9 @@ injected base URL and timeout, `nil` meaning "feature off", never fatal.
 
 | Feature | Caveat |
 |---|---|
-| A6 redirect trace | **Carries the entire SSRF surface of this suite.** Nothing else dials a caller-chosen host. Read [`06`](06-security-and-abuse.md) before writing a line of it |
+| A6 redirect trace | **Carries the primary SSRF surface of this suite.** Nothing else dials a caller-chosen host. Read [`06`](06-security-and-abuse.md) before writing a line of it |
 | A17 user-agent persona | One dropdown, one header, only meaningful with A6. Turns "the target refused us" from an apology into a finding |
+| A21 headers probe | Reuses the same guarded transport as A6 to fetch HEAD/GET and audit caching/security headers |
 | A8 metadata preview | Same gate as A6, plus an HTML parse (`x/net/html`, already in the module graph) and a body-size cap |
 
 Outbound 443 is already proven in production by `iptools`' Shodan client and
