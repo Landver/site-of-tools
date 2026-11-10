@@ -79,6 +79,7 @@ type EmailAuthSummary struct {
 	DMARC  *DMARCAnalysis  `json:"dmarc"`
 	DKIM   *DKIMAnalysis   `json:"dkim"`
 	MTASTS *MTASTSAnalysis `json:"mta_sts"`
+	DANE   *DANEAnalysis   `json:"dane,omitempty"`
 }
 
 // Common DKIM selectors across major ESPs and email suites.
@@ -104,6 +105,12 @@ func (s *Service) AuditEmailAuth(ctx context.Context, domain string) *EmailAuthS
 	wg.Go(func() { summary.DMARC = checkDMARC(ctx, domain) })
 	wg.Go(func() { summary.DKIM = checkDKIM(ctx, domain) })
 	wg.Go(func() { summary.MTASTS = s.checkMTASTS(ctx, domain) })
+	wg.Go(func() {
+		// Probe primary MX for DANE TLSA
+		if mxs, err := net.DefaultResolver.LookupMX(ctx, domain); err == nil && len(mxs) > 0 {
+			summary.DANE = CheckDANE(ctx, mxs[0].Host)
+		}
+	})
 	wg.Wait()
 	return summary
 }
