@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -300,13 +299,4 @@ func (t linkTools) resolve(ctx context.Context, a linkResolveArgs) (any, error) 
 		return nil, publicError(t.log, "link_short_resolve", err)
 	}
 	return map[string]string{"code": l.Code, "short": l.Short, "target": l.Target}, nil
-}
-
-// publicError logs a store failure's detail, which can name hosts, and hides it.
-func publicError(log *slog.Logger, tool string, err error) error {
-	code, msg := linktools.PublicError(err)
-	if code == http.StatusInternalServerError {
-		log.Error("mcp: link storage error", "tool", tool, "err", err.Error())
-	}
-	return errors.New(msg)
 }

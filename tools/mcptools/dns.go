@@ -168,9 +168,12 @@ func (t dnsTools) consistency(ctx context.Context, a dnsConsistencyArgs) (any, e
 		for _, key := range []string{"authoritative", "resolvers"} {
 			rows, _ := out[key].([]any)
 			for _, r := range rows {
-				row, isRow := r.(map[string]any)
+				row, ok := r.(map[string]any)
+				if !ok {
+					continue
+				}
 				label, _ := row["label"].(string)
-				if g, ok := group[label]; ok && isRow {
+				if g, ok := group[label]; ok {
 					delete(row, "values")
 					row["group"] = g
 				}
@@ -199,9 +202,12 @@ func (t dnsTools) domain(ctx context.Context, a dnsDomainArgs) (any, error) {
 	}
 	if ct, ok := out["certificate_names"].(map[string]any); ok && !a.Detailed {
 		all := rep.CertNames.Names
-		names := make([]string, 0, min(len(all), certNames))
-		for _, s := range all[:min(len(all), certNames)] {
-			names = append(names, s.Name)
+		if len(all) > certNames {
+			all = all[:certNames]
+		}
+		names := make([]string, len(all))
+		for i, s := range all {
+			names[i] = s.Name
 		}
 		ct["names"] = names
 		delete(ct, "truncated")

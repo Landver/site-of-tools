@@ -367,11 +367,13 @@ func object(t *testing.T, res *mcp.CallToolResult) map[string]any {
 	if _, ok := res.StructuredContent.(map[string]any); !ok {
 		t.Fatalf("structuredContent is %T, want a JSON object", res.StructuredContent)
 	}
+	m := decode(t, []byte(text(t, res)))
 	var plain any
-	if err := json.Unmarshal([]byte(text(t, res)), &plain); err != nil || !cmp.Equal(plain, res.StructuredContent) {
+	raw, err := json.Marshal(m)
+	if err != nil || json.Unmarshal(raw, &plain) != nil || !cmp.Equal(plain, res.StructuredContent) {
 		t.Errorf("text block differs from structuredContent:\n%s\n%v", text(t, res), res.StructuredContent)
 	}
-	return decode(t, []byte(text(t, res)))
+	return m
 }
 
 func decode(t *testing.T, b []byte) map[string]any {

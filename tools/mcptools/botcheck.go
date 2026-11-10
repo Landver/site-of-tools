@@ -16,6 +16,7 @@ import (
 
 	"github.com/Landver/site-of-tools/platform"
 	"github.com/Landver/site-of-tools/tools/botcheck"
+	"github.com/Landver/site-of-tools/tools/iptools"
 )
 
 type botScoreArgs struct {
@@ -30,11 +31,16 @@ type botScoreResult struct {
 	Attribution []platform.Credit `json:"attribution,omitempty"`
 }
 
+type botTools struct {
+	geo iptools.Looker
+	chk iptools.Checker
+}
+
 var errNothingToScore = errors.New("Nothing to score: pass fingerprint (the JSON the bot check collector produced in the browser), " +
 	"http (that browser's request headers), ip (the address it connects from), or any mix of them.")
 
 func botSpecs(d Deps) []toolSpec {
-	t := ipTools{geo: d.Geo, chk: d.Blocklist}
+	t := botTools{geo: d.Geo, chk: d.Blocklist}
 	return []toolSpec{{
 		tool: &mcp.Tool{
 			Name:  "botcheck_score",
@@ -61,7 +67,7 @@ func anyObject(prop string) func(*jsonschema.Schema) {
 }
 
 // score never reads or writes the corpus: a synthetic payload must not train it.
-func (t ipTools) score(ctx context.Context, a botScoreArgs) (any, error) {
+func (t botTools) score(ctx context.Context, a botScoreArgs) (any, error) {
 	ip := strings.TrimSpace(a.IP)
 	if len(a.Fingerprint) == 0 && a.HTTP == nil && ip == "" {
 		return nil, errNothingToScore

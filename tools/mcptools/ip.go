@@ -103,13 +103,3 @@ func ipCredits(res *iptools.Result) []platform.Credit {
 	}
 	return credits(ids...)
 }
-
-func credits(ids ...string) []platform.Credit {
-	out := make([]platform.Credit, 0, len(ids))
-	for _, id := range ids {
-		if c, ok := platform.CreditFor(id); ok {
-			out = append(out, c)
-		}
-	}
-	return out
-}
