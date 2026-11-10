@@ -107,7 +107,7 @@ func (s *Service) AuditEmailAuth(ctx context.Context, domain string) *EmailAuthS
 	wg.Go(func() { summary.MTASTS = s.checkMTASTS(ctx, domain) })
 	wg.Go(func() {
 		// Probe primary MX for DANE TLSA
-		if mxs, err := net.DefaultResolver.LookupMX(ctx, domain); err == nil && len(mxs) > 0 {
+		if mxs, err := lookupMX(ctx, domain); err == nil && len(mxs) > 0 {
 			summary.DANE = CheckDANE(ctx, mxs[0].Host)
 		}
 	})

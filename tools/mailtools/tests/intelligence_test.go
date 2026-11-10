@@ -399,7 +399,9 @@ func TestDNSBL_ContextCancellation(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestHTTPHandlers_RoutesAndEdgeCases(t *testing.T) {
-	e := newMailApp(t, nil)
+	lim := mailtools.NewLimits()
+	lim.Heavy = platform.NewLimiter(1000, 1000)
+	e := newMailApp(t, lim)
 
 	// Helper to execute request
 	exec := func(method, target string, body io.Reader, contentType, accept, hx string) *httptest.ResponseRecorder {

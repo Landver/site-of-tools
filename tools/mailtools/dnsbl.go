@@ -134,7 +134,6 @@ func generic(r *DNSBLResult, code string) {
 	}
 }
 
-// dronebl: each code names a kind of compromise, and every one is a listing.
 func dronebl(r *DNSBLResult, code string) {
 	if strings.HasPrefix(code, "127.") {
 		r.list("Listed in DroneBL: Compromised botnet or open proxy")
