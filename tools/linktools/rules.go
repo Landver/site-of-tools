@@ -73,10 +73,14 @@ func (r Rule) applies(host string, affiliate bool) bool {
 	if r.Class == ClassAffiliate && !affiliate {
 		return false
 	}
-	if len(r.Hosts) == 0 {
+	return coversHost(r.Hosts, host)
+}
+
+func coversHost(hosts []string, host string) bool {
+	if len(hosts) == 0 {
 		return true
 	}
-	for _, h := range r.Hosts {
+	for _, h := range hosts {
 		if matchHost(host, h) {
 			return true
 		}
@@ -468,53 +472,26 @@ var wrappers = []Wrapper{
 
 // Lookups: everything below reads the tables above.
 
+// splitPrefixExact partitions items into an exact map and a prefix slice.
+func splitPrefixExact[T any](items []T, get func(T) (param string, prefix bool)) (map[string][]T, []T) {
+	exact := make(map[string][]T, len(items))
+	var prefixes []T
+	for _, item := range items {
+		param, prefix := get(item)
+		if prefix {
+			prefixes = append(prefixes, item)
+		} else {
+			exact[param] = append(exact[param], item)
+		}
+	}
+	return exact, prefixes
+}
+
 // Built at init after the tables (Go orders package vars by dependency); exact lookup is O(1) per parameter.
 var (
-	trackingByName   = indexRules(trackingRules)
-	trackingPrefixes = prefixRules(trackingRules)
-	denyByName       = indexDeny(denyList)
-	denyPrefixes     = prefixDeny(denyList)
+	trackingByName, trackingPrefixes = splitPrefixExact(trackingRules, func(r Rule) (string, bool) { return r.Param, r.Prefix })
+	denyByName, denyPrefixes         = splitPrefixExact(denyList, func(d Deny) (string, bool) { return d.Param, d.Prefix })
 )
-
-func indexRules(rs []Rule) map[string][]Rule {
-	m := make(map[string][]Rule, len(rs))
-	for _, r := range rs {
-		if !r.Prefix {
-			m[r.Param] = append(m[r.Param], r)
-		}
-	}
-	return m
-}
-
-func prefixRules(rs []Rule) []Rule {
-	var out []Rule
-	for _, r := range rs {
-		if r.Prefix {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-func indexDeny(ds []Deny) map[string][]Deny {
-	m := make(map[string][]Deny, len(ds))
-	for _, d := range ds {
-		if !d.Prefix {
-			m[d.Param] = append(m[d.Param], d)
-		}
-	}
-	return m
-}
-
-func prefixDeny(ds []Deny) []Deny {
-	var out []Deny
-	for _, d := range ds {
-		if d.Prefix {
-			out = append(out, d)
-		}
-	}
-	return out
-}
 
 // denyReason reports why key must never be stripped on host; consulted before any rule.
 func denyReason(key, host string) (string, bool) {
@@ -533,15 +510,7 @@ func denyReason(key, host string) (string, bool) {
 }
 
 func (d Deny) covers(host string) bool {
-	if len(d.Hosts) == 0 {
-		return true
-	}
-	for _, h := range d.Hosts {
-		if matchHost(host, h) {
-			return true
-		}
-	}
-	return false
+	return coversHost(d.Hosts, host)
 }
 
 // lookupTracking finds the rule that would strip key on host; exact names win over prefixes.
@@ -661,22 +630,20 @@ type RuleMatches struct {
 func (c RuleCatalog) Matches(param string) RuleMatches {
 	k := strings.ToLower(strings.TrimSpace(param))
 	out := RuleMatches{Param: k, Tracking: []Rule{}, NeverStrip: []Deny{}}
-	names := func(p string, prefix bool) bool {
+	matches := func(p string, prefix bool) bool {
 		if prefix {
 			return strings.HasPrefix(k, p)
 		}
 		return k == p
 	}
-	for _, prefix := range []bool{false, true} {
-		for _, r := range c.Tracking {
-			if r.Prefix == prefix && names(r.Param, prefix) {
-				out.Tracking = append(out.Tracking, r)
-			}
+	for _, r := range c.Tracking {
+		if matches(r.Param, r.Prefix) {
+			out.Tracking = append(out.Tracking, r)
 		}
-		for _, d := range c.NeverStrip {
-			if d.Prefix == prefix && names(d.Param, prefix) {
-				out.NeverStrip = append(out.NeverStrip, d)
-			}
+	}
+	for _, d := range c.NeverStrip {
+		if matches(d.Param, d.Prefix) {
+			out.NeverStrip = append(out.NeverStrip, d)
 		}
 	}
 	return out

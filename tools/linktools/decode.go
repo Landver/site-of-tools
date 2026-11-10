@@ -187,15 +187,12 @@ func classify(v string) Kind {
 	if hexRe.MatchString(v) {
 		return KindHex
 	}
-	if looksBase64(v) && (decodesToText(v) || encodedLooking(v)) {
-		return KindBase64
+	if looksBase64(v) {
+		if _, _, ok := tryBase64(v); ok || encodedLooking(v) {
+			return KindBase64
+		}
 	}
 	return ""
-}
-
-func decodesToText(v string) bool {
-	_, _, ok := tryBase64(v)
-	return ok
 }
 
 // encodedLooking tells real base64 from a plain word: "facebook" is valid base64 too.

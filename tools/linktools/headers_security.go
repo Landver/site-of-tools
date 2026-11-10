@@ -196,10 +196,6 @@ func AnalyzeSecurity(h http.Header) SecurityAnalysis {
 
 var allowNames = map[string]string{"()": "Disabled ()", "*": "Wildcard (*) - High Risk", "self": "Same-Origin (self)"}
 
-func lowerHeader(h http.Header, name string) string {
-	return strings.ToLower(strings.TrimSpace(h.Get(name)))
-}
-
 // isPage: an unknown or missing type may be a page, so it gets the page checks.
 func isPage(contentType string) bool {
 	mt, _, err := mime.ParseMediaType(contentType)

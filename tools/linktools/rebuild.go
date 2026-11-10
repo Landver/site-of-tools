@@ -136,15 +136,11 @@ func writeBack(dec, raw string) string {
 		}
 	}
 	round, err := url.QueryUnescape(dec)
-	switch {
-	case err != nil && querySafe(dec):
+	if querySafe(dec) && (err != nil || round == dec) {
 		return dec
-	case err == nil && round == dec && querySafe(dec):
-		return dec
-	default:
-		// An edit, or text like a bare "&" no query could hold unescaped; only encoding survives a re-parse.
-		return encodeQuery(dec)
 	}
+	// An edit, or text like a bare "&" no query could hold unescaped; only encoding survives a re-parse.
+	return encodeQuery(dec)
 }
 
 // querySafe passes bytes above 0x7F (RawQuery keeps pasted UTF-8 byte-for-byte, so it returns as

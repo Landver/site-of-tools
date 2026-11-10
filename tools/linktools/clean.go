@@ -446,33 +446,36 @@ var (
 	oneSlash = regexp.MustCompile(`^([a-zA-Z0-9+.\-]+:/)([^/].*)$`)
 )
 
+func matchProofpointPayload(re *regexp.Regexp, raw string) string {
+	if m := re.FindStringSubmatch(raw); m != nil {
+		return m[1]
+	}
+	if m := uTailRe.FindStringSubmatch(raw); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 // decodeURLDefenseV1 also unescapes HTML entities: links pulled from mail source carry &amp;.
 func decodeURLDefenseV1(raw string) string {
-	m := v1Re.FindStringSubmatch(raw)
-	if m == nil {
-		m = uTailRe.FindStringSubmatch(raw)
-	}
-	if m == nil {
+	payload := matchProofpointPayload(v1Re, raw)
+	if payload == "" {
 		return ""
 	}
-	dec, err := url.QueryUnescape(m[1])
+	dec, err := url.QueryUnescape(payload)
 	if err != nil {
-		dec = m[1]
+		dec = payload
 	}
 	return html.UnescapeString(dec)
 }
 
 // decodeURLDefenseV2 maps '-'->'%' and '_'->'/' before percent-decoding, so a literal '-' ("-2D") survives.
 func decodeURLDefenseV2(raw string) string {
-	m := v2Re.FindStringSubmatch(raw)
-	if m == nil {
-		m = uTailRe.FindStringSubmatch(raw)
-	}
-	if m == nil {
+	payload := matchProofpointPayload(v2Re, raw)
+	if payload == "" {
 		return ""
 	}
-	s := strings.ReplaceAll(m[1], "-", "%")
-	s = strings.ReplaceAll(s, "_", "/")
+	s := strings.ReplaceAll(strings.ReplaceAll(payload, "-", "%"), "_", "/")
 	dec, err := url.QueryUnescape(s)
 	if err != nil {
 		return ""

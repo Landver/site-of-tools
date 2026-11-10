@@ -2,10 +2,10 @@ package linktools
 
 import (
 	"encoding/base64"
+	"fmt"
 	"html"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -132,22 +132,13 @@ func unicodeEscape(s string) string {
 	for _, r := range s {
 		if r < 128 {
 			b.WriteRune(r)
-			continue
+		} else if r > 0xFFFF {
+			b.WriteString(fmt.Sprintf("\\U%08X", r))
+		} else {
+			b.WriteString(fmt.Sprintf("\\u%04X", r))
 		}
-		if r > 0xFFFF {
-			b.WriteString("\\U" + strings.ToUpper(pad(strconv.FormatInt(int64(r), 16), 8)))
-			continue
-		}
-		b.WriteString("\\u" + strings.ToUpper(pad(strconv.FormatInt(int64(r), 16), 4)))
 	}
 	return b.String()
-}
-
-func pad(s string, n int) string {
-	for len(s) < n {
-		s = "0" + s
-	}
-	return s
 }
 
 // decodeBase64 falls back to unpadded: URLs often drop "=" since it must be percent-encoded in a query.
