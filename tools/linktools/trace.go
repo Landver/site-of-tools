@@ -731,17 +731,14 @@ func absolute(base, target string) string {
 }
 
 func isHTTPScheme(s string) bool {
-	s = strings.ToLower(s)
-	return s == "http" || s == "https"
+	return linkableSchemes[strings.ToLower(s)]
 }
 
 // stripUserinfo: net/http turns userinfo into Basic auth, and a password must never be echoed back.
 func stripUserinfo(u *url.URL) bool {
-	if u.User == nil {
-		return false
-	}
+	had := u.User != nil
 	u.User = nil
-	return true
+	return had
 }
 
 // isLoopbackHost backs the test seam only; it never widens the gate in platform/netgate.go.

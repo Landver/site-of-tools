@@ -14,26 +14,29 @@ domain, and where this doc's first draft diverged from `dnstools` it was wrong.
 
 ```
 tools/linktools/
-├── types.go        shared domain types: Inspection, Param, Layer, Note, Kind
-├── url.go          domain — Parse: anatomy + ordered query decomposition (A1, A2, A12)
-├── rebuild.go      domain — Rebuild: the write half of Inspection (A15)
-├── decode.go       domain — the decode ladder + value classifier (A3)
-├── clean.go        domain — tracking-param stripping + wrapper unwrapping (A4, A5, A16)
-├── rules.go        data   — the rule tables: 95 trackers, 64 never-strip, 21 wrappers
-├── diff.go         domain — compare two Inspections (A13)
-├── encode.go       domain — every encoding of one value at once (A14)
-├── extract.go      domain — URLs out of pasted HTML/Markdown/text (A18)
-├── curlgen.go      domain — URL <-> curl, both directions (A19)
-├── trace.go        domain — redirect chain + UA personas (A6, A17)
-├── short.go        domain — alias create/resolve service (A7)
-├── store.go        below domain — Mongo repository for short.go (rule #5)
-├── resolvecache.go below domain — resolveCache (TTL cache) + hitBatcher (batched hit writer)
-├── handler.go      transport — Register, negotiation, rate limits, SitemapPages
-├── embed.go        //go:embed templates
+├── types.go            shared domain types: Inspection, Param, Layer, Note, Kind
+├── url.go              domain — Parse: anatomy + ordered query decomposition (A1, A2, A12)
+├── rebuild.go          domain — Rebuild: the write half of Inspection (A15)
+├── decode.go           domain — the decode ladder + value classifier (A3)
+├── clean.go            domain — tracking-param stripping + wrapper unwrapping (A4, A5, A16)
+├── rules.go            data   — the rule tables: 95 trackers, 64 never-strip, 21 wrappers
+├── diff.go             domain — compare two Inspections (A13)
+├── encode.go           domain — every encoding of one value at once (A14)
+├── extract.go          domain — URLs out of pasted HTML/Markdown/text (A18)
+├── curlgen.go          domain — URL <-> curl, both directions (A19)
+├── trace.go            domain — redirect chain + UA personas (A6, A17)
+├── headers.go          domain — HTTP headers analyzer: probing + raw parse (A21)
+├── headers_cache.go    domain — RFC 9111 HTTP caching & RFC 9213 dual-tier TTL
+├── headers_security.go domain — CSP, HSTS, COOP/COEP isolation, and cookie audits
+├── short.go            domain — alias create/resolve service (A7)
+├── store.go            below domain — Mongo repository for short.go (rule #5)
+├── resolvecache.go     below domain — resolveCache (TTL cache) + hitBatcher (batched hit writer)
+├── handler.go          transport — Register, negotiation, rate limits, SitemapPages
+├── embed.go            //go:embed templates
 ├── templates/
-├── tests/          black-box, exported API only
-├── extension/      the browser extension — no .go files, invisible to the toolchain
-└── docs/           these files
+├── tests/              black-box, exported API only
+├── extension/          the browser extension — no .go files, invisible to the toolchain
+└── docs/               these files
 ```
 
 There is no `canonical.go`: canonicalisation turned out to be twenty lines
@@ -158,7 +161,7 @@ fields** (`dom *DomainClient`, and `iptools` does the same with `shodan
   prefix, so this is the bare origin.
 
 ```go
-func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string)
+func Register(e *echo.Echo, svc *Service, trace *Tracer, short *Shortener, base string, lim *Limits)
 ```
 
 ---
@@ -183,6 +186,8 @@ DEL  /short/:code      Revoke an alias (soft)            [X-Api-Key]  [p2]
 GET  /s/:code          The redirect itself; a dead code is one 404 for
                        every cause, a page for a browser       [p2]
 GET  /trace            Trace                ?u=<url>&ua=<persona>     [p3]
+GET  /headers          Headers probe        ?u=<url>&ua=<persona>     [p3]
+POST /headers          Pasted response headers (offline parse)        [p3]
 GET  /extract          URLs out of pasted text
 POST /extract          Same, for input too large for a query string
 
@@ -212,21 +217,19 @@ Conventions inherited without change:
   `400` to a JSON caller — `dnstools.serve`'s shape, here `needURL`.
 - **`503` not `502`** when a dependency is switched off.
 
-### Negotiation: a local `reply`, not `platform.Respond`
+### Negotiation: `platform.Reply`
 
-`platform.Respond` is **apex-only** — it is called in `site/` and by no tool in
-the repo — and it cannot work here for a concrete reason: every page template
-includes `{{template "partials/head" .}}`, which dereferences `.Title`, `.Desc`,
-`.OGType`, `.Canonical` and friends. A missing *map* key renders empty; a
+Passes view-model map to HTML templates while returning pure domain structs to JSON callers:
+every page template includes `{{template "partials/head" .}}`, which dereferences `.Title`,
+`.Desc`, `.OGType`, `.Canonical` and friends. A missing *map* key renders empty; a
 **struct** without those fields makes `html/template` return an execution error
 and the page 500s. Passing the view-model map to `Respond` instead leaks
 `Title`/`Desc`/`Active` into the JSON body.
 
-So all routes use a local helper in the `dnstools` shape — JSON gets the domain
-struct, HTML gets a `map[string]any`:
+So all routes use `platform.Reply` — JSON gets the domain struct, HTML gets a `map[string]any`:
 
 ```go
-func reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error
+func Reply(c *echo.Context, code int, body any, vm map[string]any, page, frag string) error
 ```
 
 `/s/:code` is the one route that is not negotiated at all: it is a redirect for
@@ -244,16 +247,15 @@ possible:
 // Every page name, plus the ones a future page might want. Cheap to over-reserve
 // now; impossible to reclaim later without breaking a link someone already has.
 var reserved = []string{
-	"s", "clean", "trace", "short", "preview", "api", "static", "extension",
+	"s", "clean", "trace", "headers", "short", "preview", "api", "static", "extension",
 	"diff", "curl", "encoding", "encode", "utm", "extract", "qr", "rules",
 	"robots.txt", "sitemap.xml", "health", "favicon.ico", "admin", "login",
 }
 ```
 
-The sub-nav cannot hold ten entries. Group them: **Inspect · Clean · Short ·
-Trace** as the primary switcher, with Diff, curl, UTM, Encode, Extract and the
-encoding reference behind a "More" item, in the shape `iptools` already uses for
-its secondary pages.
+The sub-nav holds: **Inspect · Clean · Headers · Trace · Short** as the primary
+switcher, with Diff, curl, UTM, Encode, Extract and the encoding reference behind
+a "More" item, in the shape `iptools` already uses for its secondary pages.
 
 ---
 
@@ -263,7 +265,7 @@ its secondary pages.
 ([`platform/render.go`](../../../platform/render.go) parses every source into
 one `*template.Template`), so everything here is prefixed `link/`.
 
-A file is not a define. `reply` is handed a *page* name and a *fragment* name
+A file is not a define. `platform.Reply` is handed a *page* name and a *fragment* name
 and picks one, so wherever both representations exist they need **distinct**
 names — and because a page template renders its own fragment inline
 (`{{template "link/cleaned" .}}` inside `link/clean`), a shared name would be
@@ -279,6 +281,7 @@ clean.html      link/clean + link/cleaned      page + fragment
 rules.html      link/rules + link/rulerow      the rule table, human-readable; rulerow is one row, reused per class
 trace.html      link/trace                     page
 chain.html      link/chain                     Trace fragment
+headers.html    link/headers + link/headers-result  Headers page + audited result fragment
 short.html      link/short + link/created      console page + the created-alias fragment; also link/shortlist,
                                                link/rowactions (Copy and Revoke, placed per breakpoint),
                                                link/revoked and link/gone (a dead short link, as a browser sees it)
@@ -346,19 +349,27 @@ strategy.
 ```go
 // (1) inside the idxCtx window, after `blocklist := iptools.NewBlockList(...)`,
 //     BEFORE cancelIdx():
-links := linktools.NewLinkStore(idxCtx, mdb.DB()) // nil db -> nil store -> creation off
+linkStore := linktools.NewLinkStore(idxCtx, mdb.DB()) // nil db -> nil store -> creation off
 
 // (2) after the dnstools app block:
-// link.corpberry.com — URL inspect / clean / trace / short links. Parsing is
-// pure; only /trace dials out, and only through the egress gate in trace.go.
-short := linktools.NewShortener(links, cfg.LinkAPIKey, cfg.URL("link")) // nil without a store; keyless = resolve only; ShortURL owns the "/s/" prefix
-tracer := linktools.NewTracer(10 * time.Second)                              // nil -> /trace answers 503
-linkApp := platform.NewApp(renderer, staticFS, cfg.IsDev(), reqlog)
-linktools.Register(linkApp, linktools.NewService(), tracer, short)
+// link.corpberry.com — URL inspect / clean / trace / headers / short links.
+// Parsing is pure; only /trace and /headers dial out, through the egress gate.
+linkSvc := linktools.NewService()
+newShortener := func(key string) *linktools.Shortener {
+	s := linktools.NewShortener(linkStore, key, cfg.URL("link"))
+	if s != nil {
+		s.CleanTarget = linktools.CleanTargetFunc(linkSvc)
+	}
+	return s
+}
+shortener := newShortener(cfg.LinkAPIKey)
+tracer := linktools.NewTracer(webGuard, 15*time.Second)
+linkLim := linktools.NewLimits()
+linktools.Register(apps["link"], linkSvc, tracer, shortener, cfg.URL("link"), linkLim)
 
 // import + renderer source + SEO + vhost map, beside the existing entries:
 platform.TemplateSource{Embed: linktools.Templates, DevDir: "tools/linktools/templates"},
-platform.RegisterSEO(linkApp, cfg.URL("link"), linktools.SitemapPages)
+platform.RegisterSEO(apps["link"], cfg.URL("link"), linktools.SitemapPages)
 cfg.VHost("link"): linkApp,
 ```
 

@@ -103,23 +103,24 @@ domain blocklisted.*
 - **`CF-Connecting-IP` handling confirmed for this vhost** before `created_ip`
   is treated as evidence ([06 §9](06-security-and-abuse.md#9-claims-that-need-qualifying)).
 
-## Phase 3 — Trace
+## Phase 3 — Trace & Headers
 
-*The only feature that dials a stranger's host. Last on purpose, and optional —
-see §Decisions #3.*
+*Outbound HTTPS, behind the egress gate.*
 
 **Prerequisite, before any of it:** promote `botcheck.publiclyRoutable` to
 `platform` and extend it. The check has been written four times already and only
 that copy is complete ([06 §2](06-security-and-abuse.md#2-ssrf-the-one-that-matters)).
 
-**Build:** the gate first, the chain walk second, then `/trace` and
-`templates/{trace,chain}.html`, `trace_test.go`.
+**Build:** the gate first, the chain walk second, then `/trace`, `/headers`,
+`trace.go`, `headers.go`, `headers_cache.go`, `headers_security.go`,
+`templates/{trace,chain,headers}.html`, `trace_test.go`, `headers_test.go`,
+`headers_bench_test.go`, `headers_fuzz_test.go`.
 
 **Rides along:** **A17** user-agent personas, stolen from
 [httpstatus.io](reports/httpstatus-io.md). One dropdown, one header, and it
-turns "the target refused an automated request" from an apology into a finding:
-browser UA gets 403, Googlebot gets 200, so the page can say the target
-discriminates.
+turns "the target refused an automated request" from an apology into a finding.
+**A21** HTTP Caching & Security Headers Analyzer (dual-tier TTL, security posture,
+cookie audit, and offline pasted headers parsing).
 
 **Done when:**
 
@@ -138,11 +139,10 @@ discriminates.
   than treated as the end of the chain.
 - A `403` from bot protection reads as "the target refused an automated request".
 
-## Phase 4 — As appetite allows
+## Post-Phase 3 — As appetite allows
 
-**A8** metadata preview and **A18** link extractor. A18 is pure and needs no
-network, so it can jump the queue any time; A8 shares A6's egress gate and
-should not ship before it.
+**A18** link extractor (`/extract`) shipped as a pure-Go input adapter.
+**A8** metadata preview (OG/Twitter-card) was specified and deferred.
 
 ---
 

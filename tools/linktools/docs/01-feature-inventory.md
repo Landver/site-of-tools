@@ -1,6 +1,6 @@
 # Feature inventory — the full menu
 
-Eighteen live features, plus one cut and kept for the record (A9) so the
+Twenty live features, plus one cut and kept for the record (A9) so the
 reasoning isn't rediscovered later. The bar for inclusion is deliberately low:
 this is a site of tools, and a useful thing that is cheap to build earns its
 place without having to be a differentiator. This doc says what each *is* and why someone
@@ -242,6 +242,20 @@ case with a worked example.
 Zero logic, one template. It exists because every one of these features leads
 someone to the same question, and because a reference page that is correct is
 the cheapest durable traffic on a tools site.
+
+## A21. HTTP caching and security headers analyzer
+
+Probe a URL or paste raw HTTP response headers (from DevTools or `curl -i` / `curl -IL`).
+Evaluates:
+- **RFC 9111 HTTP Caching & RFC 9213**: dual-tier browser TTL vs. CDN TTL (`s-maxage`, `CDN-Cache-Control`),
+  heuristic freshness calculation, `stale-while-revalidate` and `stale-if-error`, ETag/Last-Modified validation.
+- **Security & isolation posture**: HSTS (`Strict-Transport-Security`, `preload`, `includeSubDomains`),
+  CSP (`Content-Security-Policy`, auditing unsafe directives), cross-origin isolation (`COOP`, `COEP`, `CORP`),
+  cookie attributes (`Secure`, `HttpOnly`, `SameSite`, `__Secure-` and `__Host-` prefixes), framing controls,
+  and `Permissions-Policy`.
+- **Content-aware**: distinguishes HTML documents from API/JSON responses so page-only policies (framing, CSP)
+  are not flagged unnecessarily on API endpoints.
+- Pure parsing for pasted headers (POST), outbound guarded probe for live targets (GET).
 
 ---
 

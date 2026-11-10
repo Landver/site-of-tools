@@ -60,6 +60,10 @@ type HeadersReport struct {
 // categoryOrder is how the headers table groups its rows.
 var categoryOrder = []string{"caching", "security", "cookies", "cors", "standard"}
 
+func lowerHeader(h http.Header, name string) string {
+	return strings.ToLower(strings.TrimSpace(h.Get(name)))
+}
+
 // HeaderCategory returns the conceptual domain of a given header name.
 func HeaderCategory(name string) string {
 	n := strings.ToLower(name)

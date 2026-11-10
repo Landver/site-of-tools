@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -171,7 +172,7 @@ func (s *Service) inspect(raw string) (*Inspection, error) {
 		in.Fragment = u.Fragment
 		if strings.Contains(frag, "=") {
 			in.FragParams = parsePairs(frag, true)
-			if containsSecretish(in.FragParams) {
+			if len(secretishNames(in.FragParams)) > 0 {
 				in.Notes = append(in.Notes, Note{SevFail, "A token in the fragment",
 					"Browsers never send the fragment to a server, but they keep it in history, and anything that logs a full URL keeps it too."})
 			}
@@ -430,7 +431,7 @@ func mixedScriptLabel(host string) (string, []string) {
 			}
 		}
 		if len(found) > 1 {
-			sortStrings(found)
+			slices.Sort(found)
 			return label, found
 		}
 	}
@@ -522,10 +523,6 @@ var secretishKeys = map[string]bool{
 	"session": true, "sig": true, "signature": true, "auth": true,
 }
 
-func containsSecretish(ps []Param) bool {
-	return len(secretishNames(ps)) > 0
-}
-
 // secretishNames lists the credential-like keys in ps that carry a value.
 func secretishNames(ps []Param) []string {
 	var out []string
@@ -546,12 +543,4 @@ func isDangerousScheme(s string) bool {
 		return true
 	}
 	return false
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }

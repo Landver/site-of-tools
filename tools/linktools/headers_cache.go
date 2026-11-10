@@ -225,7 +225,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 			"The response includes Access-Control-Allow-Origin, but lacks Vary: Origin. A CDN or intermediate cache may store the response for one origin and serve it to other origins or non-CORS callers, breaking client requests or leaking data.",
 			"RFC 9110 §12.5.5 & RFC 9111 §4.1"})
 	}
-	if enc := strings.ToLower(strings.TrimSpace(h.Get("Content-Encoding"))); enc != "" && enc != "identity" && !varies("Accept-Encoding") && !ttl.NoStore {
+	if enc := lowerHeader(h, "Content-Encoding"); enc != "" && enc != "identity" && !varies("Accept-Encoding") && !ttl.NoStore {
 		n = append(n, HeaderNote{SevWarn, "cache", "Missing Vary: Accept-Encoding on compressed content",
 			fmt.Sprintf("Response is compressed with Content-Encoding: %s, but lacks Vary: Accept-Encoding. Proxies may serve compressed data to clients that do not support it.", enc),
 			"RFC 9110 §12.5.5"})
@@ -265,7 +265,7 @@ func AnalyzeCache(statusCode int, h http.Header) CacheAnalysis {
 			"Neither Cache-Control nor Expires sets a lifetime, so caches guess one from Last-Modified, typically 10% of the time since it. Browsers and CDNs may each guess differently.",
 			"RFC 9111 §4.2.2"})
 	}
-	if strings.Contains(strings.ToLower(h.Get("Pragma")), "no-cache") && h.Get("Cache-Control") == "" {
+	if strings.Contains(lowerHeader(h, "Pragma"), "no-cache") && h.Get("Cache-Control") == "" {
 		n = append(n, HeaderNote{SevWarn, "cache", "Legacy HTTP/1.0 Pragma: no-cache without Cache-Control",
 			"Pragma: no-cache is defined for requests only in HTTP/1.0. Modern response caching should use Cache-Control: no-cache or no-store.",
 			"RFC 9111 §5.4"})

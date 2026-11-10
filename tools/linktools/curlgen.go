@@ -439,7 +439,12 @@ func ansiCDecode(s string) string {
 			b.WriteByte(c)
 			i++
 		case 'x', 'u', 'U':
-			width := map[byte]int{'x': 2, 'u': 4, 'U': 8}[c]
+			width := 2
+			if c == 'u' {
+				width = 4
+			} else if c == 'U' {
+				width = 8
+			}
 			i++
 			j := i
 			for j < len(s) && j < i+width && isHexDigit(s[j]) {
